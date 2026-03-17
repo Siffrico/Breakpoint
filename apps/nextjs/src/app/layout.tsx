@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist_Mono, Manrope, Sora } from "next/font/google";
 
 import { cn } from "@acme/ui";
 import { ThemeProvider, ThemeToggle } from "@acme/ui/theme";
@@ -12,22 +12,20 @@ import "~/app/styles.css";
 
 export const metadata: Metadata = {
   metadataBase: new URL(
-    env.VERCEL_ENV === "production"
-      ? "https://turbo.t3.gg"
-      : "http://localhost:3000",
+    env.VERCEL_URL ? `https://${env.VERCEL_URL}` : "http://localhost:3000",
   ),
-  title: "Create T3 Turbo",
-  description: "Simple monorepo with shared backend for web & mobile apps",
+  title: "Breakpoint",
+  description:
+    "Leveled simulation environments for deep skill-building with E.S.D.E.",
   openGraph: {
-    title: "Create T3 Turbo",
-    description: "Simple monorepo with shared backend for web & mobile apps",
-    url: "https://create-t3-turbo.vercel.app",
-    siteName: "Create T3 Turbo",
+    title: "Breakpoint",
+    description:
+      "Leveled simulation environments for deep skill-building with E.S.D.E.",
+    url: env.VERCEL_URL ? `https://${env.VERCEL_URL}` : "http://localhost:3000",
+    siteName: "Breakpoint",
   },
   twitter: {
     card: "summary_large_image",
-    site: "@jullerino",
-    creator: "@jullerino",
   },
 };
 
@@ -38,9 +36,13 @@ export const viewport: Viewport = {
   ],
 };
 
-const geistSans = Geist({
+const manrope = Manrope({
   subsets: ["latin"],
-  variable: "--font-geist-sans",
+  variable: "--font-body",
+});
+const sora = Sora({
+  subsets: ["latin"],
+  variable: "--font-display",
 });
 const geistMono = Geist_Mono({
   subsets: ["latin"],
@@ -53,7 +55,8 @@ export default function RootLayout(props: { children: React.ReactNode }) {
       <body
         className={cn(
           "bg-background text-foreground min-h-screen font-sans antialiased",
-          geistSans.variable,
+          manrope.variable,
+          sora.variable,
           geistMono.variable,
         )}
       >

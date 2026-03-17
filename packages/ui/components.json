@@ -3,9 +3,10 @@
   "style": "new-york",
   "rsc": true,
   "tsx": true,
+  "iconLibrary": "phosphor",
   "tailwind": {
     "config": "",
-    "css": "unused.css",
+    "css": "../../apps/nextjs/src/app/styles.css",
     "baseColor": "zinc",
     "cssVariables": true
   },
