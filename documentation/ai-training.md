@@ -222,6 +222,40 @@ This checks whether the model actually improved rather than memorized.
 
 ---
 
+## Autonomous Experiment Loop
+
+Another strong direction is to treat this system not just as a training-data generator, but as a bounded research loop.
+
+That means the system should be able to:
+
+* run a scenario
+* measure the result
+* diagnose the failure
+* apply a small change
+* re-run the scenario or a held-out variant
+* keep the change only if performance actually improves
+
+This matters because many failures should not immediately trigger full fine-tuning.
+
+Sometimes the right move is smaller:
+
+* better prompt policy
+* better tool instructions
+* better retrieval
+* better decomposition
+* better scenario formatting
+* better safety constraints
+
+So a practical loop becomes:
+
+`Scenario -> Run -> Score -> Diagnose -> Small Fix -> Re-run -> Keep or Revert`
+
+This is useful because it turns the system into a capability-improvement engine instead of just a static evaluator.
+
+The key principle is that every change should earn its place by improving measurable performance on held-out or remixed tasks.
+
+---
+
 ## Recommended Failure Taxonomy
 
 Keep this simple at first.

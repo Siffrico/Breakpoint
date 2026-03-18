@@ -1,4 +1,4 @@
-import { err, ok, type Result } from "../../../lib/result";
+import { err, type Result } from "../../../lib/result";
 import { gradeScenarioResponse } from "../policies/grade-scenario-response";
 import type {
   ActiveScenario,
@@ -12,6 +12,9 @@ interface SubmitScenarioResponseDependencies {
   getActiveScenarioByDomainSlug: (
     domainSlug: string,
   ) => Promise<Result<ActiveScenario>>;
+  saveScenarioAttempt: (
+    input: SubmitScenarioResponseInput & { evaluation: ScenarioEvaluation },
+  ) => Promise<Result<ScenarioEvaluation>>;
 }
 
 export const submitScenarioResponseWorkflow = async (
@@ -48,5 +51,9 @@ export const submitScenarioResponseWorkflow = async (
     response: trimmedResponse,
   });
 
-  return ok(evaluation);
+  return deps.saveScenarioAttempt({
+    ...input,
+    response: trimmedResponse,
+    evaluation,
+  });
 };

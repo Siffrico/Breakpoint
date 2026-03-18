@@ -41,9 +41,13 @@ const getErrorCode = (message: string) => {
 };
 
 export const esdeSimulationRouter = {
-  catalog: publicProcedure.query(async () => {
+  catalog: publicProcedure.query(async ({ ctx }) => {
     const result = await getDomainCatalogWorkflow({
-      listDomains: esdeSimulationRepository.listDomains,
+      listDomains: () =>
+        esdeSimulationRepository.listDomains({
+          db: ctx.db,
+          userId: ctx.session?.user.id,
+        }),
     });
 
     if (!result.success) {
@@ -58,11 +62,20 @@ export const esdeSimulationRouter = {
 
   activeScenario: publicProcedure
     .input(DomainSlugSchema)
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const result = await getActiveScenarioWorkflow(input, {
-        getDomainBySlug: esdeSimulationRepository.getDomainBySlug,
-        getActiveScenarioByDomainSlug:
-          esdeSimulationRepository.getActiveScenarioByDomainSlug,
+        getDomainBySlug: (domainSlug) =>
+          esdeSimulationRepository.getDomainBySlug({
+            db: ctx.db,
+            domainSlug,
+            userId: ctx.session?.user.id,
+          }),
+        getActiveScenarioByDomainSlug: (domainSlug) =>
+          esdeSimulationRepository.getActiveScenarioByDomainSlug({
+            db: ctx.db,
+            domainSlug,
+            userId: ctx.session?.user.id,
+          }),
       });
 
       if (!result.success) {
@@ -77,11 +90,35 @@ export const esdeSimulationRouter = {
 
   submitResponse: publicProcedure
     .input(SubmitScenarioResponseSchema)
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.session?.user.id) {
+        throw new TRPCError({
+          code: "UNAUTHORIZED",
+          message: "Sign in to save E.S.D.E. progress.",
+        });
+      }
+      const userId = ctx.session.user.id;
+
       const result = await submitScenarioResponseWorkflow(input, {
-        getDomainBySlug: esdeSimulationRepository.getDomainBySlug,
-        getActiveScenarioByDomainSlug:
-          esdeSimulationRepository.getActiveScenarioByDomainSlug,
+        getDomainBySlug: (domainSlug) =>
+          esdeSimulationRepository.getDomainBySlug({
+            db: ctx.db,
+            domainSlug,
+            userId,
+          }),
+        getActiveScenarioByDomainSlug: (domainSlug) =>
+          esdeSimulationRepository.getActiveScenarioByDomainSlug({
+            db: ctx.db,
+            domainSlug,
+            userId,
+          }),
+        saveScenarioAttempt: ({ evaluation, ...payload }) =>
+          esdeSimulationRepository.saveScenarioAttempt({
+            db: ctx.db,
+            userId,
+            ...payload,
+            evaluation,
+          }),
       });
 
       if (!result.success) {
