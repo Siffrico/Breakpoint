@@ -168,4 +168,220 @@ export const EsdeScenarioAttempt = pgTable("esde_scenario_attempt", (t) => ({
     .notNull(),
 }));
 
+export const BecomingOnboardingSession = pgTable("becoming_onboarding_session", (t) => ({
+  id: t.uuid().notNull().primaryKey().defaultRandom(),
+  userId: t
+    .text()
+    .references(() => user.id, { onDelete: "set null" }),
+  status: t.varchar({ length: 32 }).notNull().default("intro"),
+  questionCount: t.integer().notNull().default(0),
+  completedAt: t.timestamp({ mode: "date", withTimezone: true }),
+  createdAt: t
+    .timestamp({ mode: "date", withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: t
+    .timestamp({ mode: "date", withTimezone: true })
+    .$onUpdateFn(() => sql`now()`),
+}));
+
+export const BecomingOnboardingMessage = pgTable(
+  "becoming_onboarding_message",
+  (t) => ({
+    id: t.uuid().notNull().primaryKey().defaultRandom(),
+    sessionId: t
+      .uuid()
+      .notNull()
+      .references(() => BecomingOnboardingSession.id, { onDelete: "cascade" }),
+    role: t.varchar({ length: 16 }).notNull(),
+    slot: t.varchar({ length: 32 }),
+    content: t.text().notNull(),
+    sequence: t.integer().notNull(),
+    createdAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  }),
+  (table) => [
+    uniqueIndex("becoming_onboarding_message_session_sequence_idx").on(
+      table.sessionId,
+      table.sequence,
+    ),
+  ],
+);
+
+export const BecomingIdentityProfile = pgTable(
+  "becoming_identity_profile",
+  (t) => ({
+    id: t.uuid().notNull().primaryKey().defaultRandom(),
+    userId: t
+      .text()
+      .references(() => user.id, { onDelete: "set null" }),
+    onboardingSessionId: t
+      .uuid()
+      .notNull()
+      .references(() => BecomingOnboardingSession.id, { onDelete: "cascade" }),
+    status: t.varchar({ length: 32 }).notNull().default("draft"),
+    currentVersionId: t.uuid(),
+    targetIdentity: t.varchar({ length: 240 }).notNull(),
+    headline: t.text().notNull(),
+    createdAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .$onUpdateFn(() => sql`now()`),
+  }),
+  (table) => [
+    uniqueIndex("becoming_identity_profile_session_idx").on(
+      table.onboardingSessionId,
+    ),
+  ],
+);
+
+export const BecomingIdentityProfileVersion = pgTable(
+  "becoming_identity_profile_version",
+  (t) => ({
+    id: t.uuid().notNull().primaryKey().defaultRandom(),
+    profileId: t
+      .uuid()
+      .notNull()
+      .references(() => BecomingIdentityProfile.id, { onDelete: "cascade" }),
+    targetIdentity: t.varchar({ length: 240 }).notNull(),
+    headline: t.text().notNull(),
+    motivation: t.text().notNull(),
+    currentBaseline: t.text().notNull(),
+    proofOfProgress: t.text().notNull(),
+    hardMoments: t.jsonb().$type<string[]>().notNull(),
+    constraints: t.jsonb().$type<string[]>().notNull(),
+    behaviorSignals: t.jsonb().$type<string[]>().notNull(),
+    confidenceFlags: t.jsonb().$type<string[]>().notNull(),
+    createdAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  }),
+);
+
+export const BecomingCurriculumPlan = pgTable("becoming_curriculum_plan", (t) => ({
+  id: t.uuid().notNull().primaryKey().defaultRandom(),
+  userId: t
+    .text()
+    .references(() => user.id, { onDelete: "set null" }),
+  onboardingSessionId: t
+    .uuid()
+    .notNull()
+    .references(() => BecomingOnboardingSession.id, { onDelete: "cascade" }),
+  profileVersionId: t
+    .uuid()
+    .notNull()
+    .references(() => BecomingIdentityProfileVersion.id, { onDelete: "cascade" }),
+  status: t.varchar({ length: 32 }).notNull().default("active"),
+  title: t.varchar({ length: 240 }).notNull(),
+  summary: t.text().notNull(),
+  targetIdentity: t.varchar({ length: 240 }).notNull(),
+  createdAt: t
+    .timestamp({ mode: "date", withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: t
+    .timestamp({ mode: "date", withTimezone: true })
+    .$onUpdateFn(() => sql`now()`),
+}));
+
+export const BecomingCurriculumNode = pgTable(
+  "becoming_curriculum_node",
+  (t) => ({
+    id: t.uuid().notNull().primaryKey().defaultRandom(),
+    planId: t
+      .uuid()
+      .notNull()
+      .references(() => BecomingCurriculumPlan.id, { onDelete: "cascade" }),
+    parentNodeId: t.uuid(),
+    kind: t.varchar({ length: 32 }).notNull(),
+    status: t.varchar({ length: 32 }).notNull().default("planned"),
+    title: t.varchar({ length: 240 }).notNull(),
+    summary: t.text().notNull(),
+    whyItMatters: t.text().notNull(),
+    orderIndex: t.integer().notNull(),
+    depth: t.integer().notNull(),
+    positionColumn: t.integer().notNull(),
+    positionRow: t.integer().notNull(),
+    createdAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  }),
+  (table) => [
+    uniqueIndex("becoming_curriculum_node_plan_order_idx").on(
+      table.planId,
+      table.orderIndex,
+    ),
+  ],
+);
+
+export const BecomingUnitContent = pgTable(
+  "becoming_unit_content",
+  (t) => ({
+    id: t.uuid().notNull().primaryKey().defaultRandom(),
+    nodeId: t
+      .uuid()
+      .notNull()
+      .references(() => BecomingCurriculumNode.id, { onDelete: "cascade" }),
+    title: t.varchar({ length: 240 }).notNull(),
+    concept: t.text().notNull(),
+    workedExample: t.text().notNull(),
+    retrievalItems: t
+      .jsonb()
+      .$type<
+        Array<{
+          prompt: string;
+          intent: string;
+          expectedSignals: string[];
+        }>
+      >()
+      .notNull(),
+    scenarioTitle: t.varchar({ length: 240 }).notNull(),
+    scenarioPrompt: t.text().notNull(),
+    focusAreas: t.jsonb().$type<string[]>().notNull(),
+    successCriteria: t.jsonb().$type<string[]>().notNull(),
+    createdAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .$onUpdateFn(() => sql`now()`),
+  }),
+  (table) => [uniqueIndex("becoming_unit_content_node_idx").on(table.nodeId)],
+);
+
+export const BecomingUnitAttempt = pgTable("becoming_unit_attempt", (t) => ({
+  id: t.uuid().notNull().primaryKey().defaultRandom(),
+  unitContentId: t
+    .uuid()
+    .notNull()
+    .references(() => BecomingUnitContent.id, { onDelete: "cascade" }),
+  onboardingSessionId: t
+    .uuid()
+    .notNull()
+    .references(() => BecomingOnboardingSession.id, { onDelete: "cascade" }),
+  userId: t
+    .text()
+    .references(() => user.id, { onDelete: "set null" }),
+  response: t.text().notNull(),
+  score: t.integer().notNull(),
+  readiness: t.varchar({ length: 32 }).notNull(),
+  strengths: t.jsonb().$type<string[]>().notNull(),
+  improvements: t.jsonb().$type<string[]>().notNull(),
+  failureTags: t.jsonb().$type<string[]>().notNull(),
+  targetComparison: t.text().notNull(),
+  nextStep: t.text().notNull(),
+  createdAt: t
+    .timestamp({ mode: "date", withTimezone: true })
+    .defaultNow()
+    .notNull(),
+}));
+
 export * from "./auth-schema";

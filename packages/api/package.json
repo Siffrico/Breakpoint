@@ -21,7 +21,9 @@
     "@acme/auth": "workspace:*",
     "@acme/db": "workspace:*",
     "@acme/validators": "workspace:*",
+    "@ai-sdk/openai": "^3.0.47",
     "@trpc/server": "catalog:",
+    "ai": "^6.0.134",
     "superjson": "2.2.3",
     "zod": "catalog:"
   },
