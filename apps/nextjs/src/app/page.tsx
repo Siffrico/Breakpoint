@@ -30,6 +30,13 @@ export default function HomePage() {
             <Button asChild className="h-12 rounded-none bg-white px-6 text-black hover:bg-white/90">
               <Link href="/onboarding">Start onboarding</Link>
             </Button>
+            <Button
+              asChild
+              variant="outline"
+              className="h-12 rounded-none border-white/15 bg-transparent px-6 text-white hover:bg-white/5 hover:text-white"
+            >
+              <Link href="/ui">Preview UI</Link>
+            </Button>
           </div>
         </div>
       </div>

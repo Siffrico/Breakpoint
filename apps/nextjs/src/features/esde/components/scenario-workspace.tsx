@@ -16,12 +16,14 @@ import {
 import { Textarea } from "@acme/ui/textarea";
 import { toast } from "@acme/ui/toast";
 
+import { previewScenarioEvaluation } from "~/features/esde/lib/esde-preview";
 import { useTRPC } from "~/trpc/react";
 
 type ActiveScenario = RouterOutputs["esdeSimulation"]["activeScenario"];
 
 interface ScenarioWorkspaceProps {
   scenario: ActiveScenario;
+  preview?: boolean;
 }
 
 const formatReadinessLabel = (
@@ -37,9 +39,14 @@ const formatReadinessLabel = (
   }
 };
 
-export function ScenarioWorkspace({ scenario }: ScenarioWorkspaceProps) {
+export function ScenarioWorkspace({
+  scenario,
+  preview = false,
+}: ScenarioWorkspaceProps) {
   const trpc = useTRPC();
   const [response, setResponse] = useState("");
+  const [previewEvaluation, setPreviewEvaluation] =
+    useState<RouterOutputs["esdeSimulation"]["submitResponse"] | null>(null);
 
   const responseWordCount = response.trim().split(/\s+/).filter(Boolean).length;
 
@@ -51,7 +58,10 @@ export function ScenarioWorkspace({ scenario }: ScenarioWorkspaceProps) {
     }),
   );
 
-  const canSubmit = response.trim().length >= 40 && !submitResponse.isPending;
+  const canSubmit =
+    response.trim().length >= 40 && (preview || !submitResponse.isPending);
+  const evaluation = preview ? previewEvaluation : submitResponse.data;
+  const backHref = preview ? "/ui/domains" : "/";
 
   return (
     <main className="bp-page-bg min-h-screen px-4 py-5 sm:px-6 lg:px-8">
@@ -67,7 +77,7 @@ export function ScenarioWorkspace({ scenario }: ScenarioWorkspaceProps) {
               variant="outline"
               className="border-border/80 bg-card hover:bg-secondary hover:text-foreground"
             >
-              <Link href="/">
+              <Link href={backHref}>
                 <span aria-hidden="true">←</span>
                 Domains
               </Link>
@@ -149,15 +159,20 @@ export function ScenarioWorkspace({ scenario }: ScenarioWorkspaceProps) {
                     type="button"
                     disabled={!canSubmit}
                     className="h-11 bg-primary px-5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-                    onClick={() =>
+                    onClick={() => {
+                      if (preview) {
+                        setPreviewEvaluation(previewScenarioEvaluation);
+                        return;
+                      }
+
                       submitResponse.mutate({
                         domainSlug: scenario.domainSlug,
                         scenarioId: scenario.id,
                         response,
-                      })
-                    }
+                      });
+                    }}
                   >
-                    {submitResponse.isPending
+                    {!preview && submitResponse.isPending
                       ? "Diagnosing..."
                       : "Submit for grading"}
                   </Button>
@@ -174,23 +189,23 @@ export function ScenarioWorkspace({ scenario }: ScenarioWorkspaceProps) {
                     Evaluation
                   </p>
                   <SurfaceTitle className="text-lg">
-                    {submitResponse.data
-                      ? formatReadinessLabel(submitResponse.data.readiness)
+                    {evaluation
+                      ? formatReadinessLabel(evaluation.readiness)
                       : "Waiting for response"}
                   </SurfaceTitle>
                 </SurfaceHeader>
 
-                {submitResponse.data ? (
+                {evaluation ? (
                   <div className="mt-6 flex flex-1 flex-col gap-6">
                     <Surface variant="emphasis" padding="sm">
                       <p className="text-xs font-medium tracking-[0.18em] uppercase text-primary/80">
                         Score
                       </p>
                       <p className="font-display mt-2 text-4xl font-semibold tracking-[-0.05em] text-foreground">
-                        {submitResponse.data.score}
+                        {evaluation.score}
                       </p>
                       <p className="mt-2 text-sm text-muted-foreground">
-                        Next stage: {submitResponse.data.nextStage}
+                        Next stage: {evaluation.nextStage}
                       </p>
                     </Surface>
 
@@ -200,7 +215,7 @@ export function ScenarioWorkspace({ scenario }: ScenarioWorkspaceProps) {
                           What worked
                         </h3>
                         <ul className="space-y-2 text-sm leading-7 text-muted-foreground">
-                          {submitResponse.data.strengths.map((strength) => (
+                          {evaluation.strengths.map((strength) => (
                             <li key={strength}>{strength}</li>
                           ))}
                         </ul>
@@ -211,7 +226,7 @@ export function ScenarioWorkspace({ scenario }: ScenarioWorkspaceProps) {
                           Repair targets
                         </h3>
                         <ul className="space-y-2 text-sm leading-7 text-muted-foreground">
-                          {submitResponse.data.improvements.map((improvement) => (
+                          {evaluation.improvements.map((improvement) => (
                             <li key={improvement}>{improvement}</li>
                           ))}
                         </ul>

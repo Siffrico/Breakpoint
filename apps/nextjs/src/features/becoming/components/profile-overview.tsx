@@ -8,10 +8,14 @@ type ProfileState = RouterOutputs["becoming"]["profile"];
 export function ProfileOverview({
   profile,
   sessionId,
+  preview = false,
 }: {
   profile: ProfileState;
   sessionId: string;
+  preview?: boolean;
 }) {
+  const backHref = preview ? "/ui/home" : `/home?session=${sessionId}`;
+
   return (
     <main className="min-h-screen bg-[#06070a] px-5 py-8 text-white sm:px-8 lg:px-10">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
@@ -79,7 +83,7 @@ export function ProfileOverview({
             variant="outline"
             className="h-11 rounded-none border-white/15 bg-transparent px-5 text-white hover:bg-white/5 hover:text-white"
           >
-            <Link href={`/home?session=${sessionId}`}>Back to workspace</Link>
+            <Link href={backHref}>Back to workspace</Link>
           </Button>
         </div>
       </div>

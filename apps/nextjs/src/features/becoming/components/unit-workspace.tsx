@@ -9,6 +9,10 @@ import { Button } from "@acme/ui/button";
 import { Textarea } from "@acme/ui/textarea";
 import { toast } from "@acme/ui/toast";
 
+import {
+  previewDebriefResult,
+  previewRetrievalResult,
+} from "~/features/becoming/lib/becoming-preview";
 import { useTRPC } from "~/trpc/react";
 
 type Unit = RouterOutputs["becoming"]["unit"];
@@ -16,14 +20,18 @@ type Unit = RouterOutputs["becoming"]["unit"];
 export function UnitWorkspace({
   unit,
   sessionId,
+  preview = false,
 }: {
   unit: Unit;
   sessionId: string;
+  preview?: boolean;
 }) {
   const trpc = useTRPC();
   const [answers, setAnswers] = useState(["", "", ""]);
   const [retrievalResult, setRetrievalResult] =
     useState<RouterOutputs["becoming"]["submitRetrieval"] | null>(null);
+  const [previewDebrief, setPreviewDebrief] =
+    useState<RouterOutputs["becoming"]["submitUnitResponse"] | null>(null);
   const [response, setResponse] = useState("");
 
   const submitRetrieval = useMutation(
@@ -40,6 +48,8 @@ export function UnitWorkspace({
   );
 
   const canOpenScenario = retrievalResult?.passed ?? false;
+  const debrief = preview ? previewDebrief : submitUnitResponse.data;
+  const workspaceHref = preview ? "/ui/home" : `/home?session=${sessionId}`;
 
   return (
     <main className="min-h-screen bg-[#06070a] px-5 py-8 text-white sm:px-8 lg:px-10">
@@ -58,7 +68,7 @@ export function UnitWorkspace({
             variant="outline"
             className="h-11 rounded-none border-white/15 bg-transparent px-5 text-white hover:bg-white/5 hover:text-white"
           >
-            <Link href={`/home?session=${sessionId}`}>Workspace</Link>
+            <Link href={workspaceHref}>Workspace</Link>
           </Button>
         </div>
 
@@ -106,11 +116,18 @@ export function UnitWorkspace({
           <div className="mt-5 flex flex-wrap items-center gap-3">
             <Button
               type="button"
-              onClick={() => submitRetrieval.mutate({ nodeId: unit.nodeId, answers })}
-              disabled={submitRetrieval.isPending}
+              onClick={() => {
+                if (preview) {
+                  setRetrievalResult(previewRetrievalResult);
+                  return;
+                }
+
+                submitRetrieval.mutate({ nodeId: unit.nodeId, answers });
+              }}
+              disabled={!preview && submitRetrieval.isPending}
               className="h-11 rounded-none bg-white px-5 text-black hover:bg-white/90"
             >
-              {submitRetrieval.isPending ? "Checking" : "Check retrieval"}
+              {!preview && submitRetrieval.isPending ? "Checking" : "Check retrieval"}
             </Button>
 
             {retrievalResult ? (
@@ -171,22 +188,31 @@ export function UnitWorkspace({
             </div>
             <Button
               type="button"
-              disabled={!canOpenScenario || submitUnitResponse.isPending || response.trim().length < 120}
-              onClick={() =>
+              disabled={
+                !canOpenScenario ||
+                (!preview && submitUnitResponse.isPending) ||
+                response.trim().length < 120
+              }
+              onClick={() => {
+                if (preview) {
+                  setPreviewDebrief(previewDebriefResult);
+                  return;
+                }
+
                 submitUnitResponse.mutate({
                   sessionId,
                   nodeId: unit.nodeId,
                   response,
-                })
-              }
+                });
+              }}
               className="h-11 rounded-none bg-white px-5 text-black hover:bg-white/90"
             >
-              {submitUnitResponse.isPending ? "Debriefing" : "Submit scenario"}
+              {!preview && submitUnitResponse.isPending ? "Debriefing" : "Submit scenario"}
             </Button>
           </div>
         </section>
 
-        {submitUnitResponse.data ? (
+        {debrief ? (
           <section className="border border-white/10 bg-white/[0.03] p-6">
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div>
@@ -194,16 +220,16 @@ export function UnitWorkspace({
                   Debrief
                 </p>
                 <h2 className="font-display mt-3 text-4xl tracking-[-0.05em]">
-                  {submitUnitResponse.data.score}
+                  {debrief.score}
                 </h2>
               </div>
               <div className="text-sm text-white/55">
-                {submitUnitResponse.data.readiness.replaceAll("_", " ")}
+                {debrief.readiness.replaceAll("_", " ")}
               </div>
             </div>
 
             <p className="mt-5 max-w-4xl text-base leading-8 text-white/68">
-              {submitUnitResponse.data.targetComparison}
+              {debrief.targetComparison}
             </p>
 
             <div className="mt-6 grid gap-5 lg:grid-cols-3">
@@ -212,7 +238,7 @@ export function UnitWorkspace({
                   Strengths
                 </div>
                 <div className="mt-3 space-y-3 text-sm leading-7 text-white/68">
-                  {submitUnitResponse.data.strengths.map((item) => (
+                  {debrief.strengths.map((item) => (
                     <div key={item}>{item}</div>
                   ))}
                 </div>
@@ -223,7 +249,7 @@ export function UnitWorkspace({
                   Repair
                 </div>
                 <div className="mt-3 space-y-3 text-sm leading-7 text-white/68">
-                  {submitUnitResponse.data.improvements.map((item) => (
+                  {debrief.improvements.map((item) => (
                     <div key={item}>{item}</div>
                   ))}
                 </div>
@@ -234,12 +260,12 @@ export function UnitWorkspace({
                   Failure Tags
                 </div>
                 <div className="mt-3 space-y-3 text-sm leading-7 text-white/68">
-                  {submitUnitResponse.data.failureTags.map((item) => (
+                  {debrief.failureTags.map((item) => (
                     <div key={item}>{item}</div>
                   ))}
                 </div>
                 <div className="mt-4 text-sm leading-7 text-white/55">
-                  {submitUnitResponse.data.nextStep}
+                  {debrief.nextStep}
                 </div>
               </div>
             </div>

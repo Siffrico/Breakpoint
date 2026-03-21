@@ -11,9 +11,11 @@ type Plan = RouterOutputs["becoming"]["activePlan"];
 export function CurriculumReveal({
   plan,
   sessionId,
+  preview = false,
 }: {
   plan: Plan;
   sessionId: string;
+  preview?: boolean;
 }) {
   const [revealed, setRevealed] = useState(false);
 
@@ -44,6 +46,8 @@ export function CurriculumReveal({
       return `${startX},${startY} ${startX},${midY} ${endX},${midY} ${endX},${endY}`;
     })
     .filter(Boolean) as string[];
+  const beginHref = preview ? "/ui/train" : `/train/${plan.nextUnitId}?session=${sessionId}`;
+  const workspaceHref = preview ? "/ui/home" : `/home?session=${sessionId}`;
 
   return (
     <main className="min-h-screen bg-[#06070a] px-5 py-8 text-white sm:px-8 lg:px-10">
@@ -137,7 +141,7 @@ export function CurriculumReveal({
         <div className="flex flex-wrap gap-3">
           {plan.nextUnitId ? (
             <Button asChild className="h-11 rounded-none bg-white px-5 text-black hover:bg-white/90">
-              <Link href={`/train/${plan.nextUnitId}?session=${sessionId}`}>
+              <Link href={beginHref}>
                 Begin first unit
               </Link>
             </Button>
@@ -147,7 +151,7 @@ export function CurriculumReveal({
             variant="outline"
             className="h-11 rounded-none border-white/15 bg-transparent px-5 text-white hover:bg-white/5 hover:text-white"
           >
-            <Link href={`/home?session=${sessionId}`}>Open workspace</Link>
+            <Link href={workspaceHref}>Open workspace</Link>
           </Button>
         </div>
       </div>

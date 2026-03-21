@@ -16,9 +16,13 @@ type LearningDomainCard = RouterOutputs["esdeSimulation"]["catalog"][number];
 
 interface DomainSelectionProps {
   domains: LearningDomainCard[];
+  preview?: boolean;
 }
 
-export function DomainSelection({ domains }: DomainSelectionProps) {
+export function DomainSelection({
+  domains,
+  preview = false,
+}: DomainSelectionProps) {
   return (
     <main className="bp-page-bg text-foreground min-h-screen px-6 py-10">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-12">
@@ -43,6 +47,7 @@ export function DomainSelection({ domains }: DomainSelectionProps) {
         <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
           {domains.map((domain) => {
             const isAvailable = domain.status === "available";
+            const href = preview ? "/ui/domains#scenario-preview" : `/domains/${domain.slug}`;
 
             return (
               <Surface
@@ -78,7 +83,7 @@ export function DomainSelection({ domains }: DomainSelectionProps) {
                         asChild
                         className="h-11 bg-primary px-5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
                       >
-                        <Link href={`/domains/${domain.slug}`}>
+                        <Link href={href}>
                           Enter arena
                           <span aria-hidden="true">→</span>
                         </Link>

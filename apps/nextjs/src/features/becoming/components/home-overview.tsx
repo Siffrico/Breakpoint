@@ -8,13 +8,20 @@ type HomeState = RouterOutputs["becoming"]["home"];
 export function HomeOverview({
   home,
   sessionId,
+  preview = false,
 }: {
   home: HomeState;
   sessionId: string;
+  preview?: boolean;
 }) {
   const progress = home.totalUnits > 0
     ? Math.round((home.completedUnits / home.totalUnits) * 100)
     : 0;
+  const trainHref = preview
+    ? "/ui/train"
+    : `/train/${home.nextUnitId}?session=${sessionId}`;
+  const planHref = preview ? "/ui/plan" : `/plan?session=${sessionId}`;
+  const profileHref = preview ? "/ui/profile" : `/profile?session=${sessionId}`;
 
   return (
     <main className="min-h-screen bg-[#06070a] px-5 py-8 text-white sm:px-8 lg:px-10">
@@ -56,7 +63,7 @@ export function HomeOverview({
             <div className="mt-8 flex flex-wrap gap-3">
               {home.nextUnitId ? (
                 <Button asChild className="h-11 rounded-none bg-white px-5 text-black hover:bg-white/90">
-                  <Link href={`/train/${home.nextUnitId}?session=${sessionId}`}>
+                  <Link href={trainHref}>
                     Continue
                   </Link>
                 </Button>
@@ -66,7 +73,7 @@ export function HomeOverview({
                 variant="outline"
                 className="h-11 rounded-none border-white/15 bg-transparent px-5 text-white hover:bg-white/5 hover:text-white"
               >
-                <Link href={`/plan?session=${sessionId}`}>View path</Link>
+                <Link href={planHref}>View path</Link>
               </Button>
             </div>
           </section>
@@ -90,7 +97,7 @@ export function HomeOverview({
               variant="outline"
               className="mt-6 h-11 rounded-none border-white/15 bg-transparent px-5 text-white hover:bg-white/5 hover:text-white"
             >
-              <Link href={`/profile?session=${sessionId}`}>Open identity profile</Link>
+              <Link href={profileHref}>Open identity profile</Link>
             </Button>
           </section>
         </div>
