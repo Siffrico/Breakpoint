@@ -108,6 +108,22 @@ export const getUnitWorkflow = async ({
 
   let setup;
   try {
+    const completedClusterTitles = planNodes
+      .filter((item) => item.kind === "skill_cluster")
+      .filter((clusterNode) => {
+        const childUnits = planNodes.filter(
+          (item) =>
+            item.parentNodeId === clusterNode.id &&
+            item.kind === "unit",
+        );
+
+        return (
+          childUnits.length > 0 &&
+          childUnits.every((item) => item.status === "completed")
+        );
+      })
+      .map((item) => item.title);
+
     setup = await generateUnitSetup({
       slotKind: node.kind,
       slotIndex,
@@ -122,9 +138,7 @@ export const getUnitWorkflow = async ({
       integrationContext:
         node.kind === "integration"
           ? {
-              completedClusterTitles: planNodes
-                .filter((item) => item.kind === "skill_cluster" && item.status === "completed")
-                .map((item) => item.title),
+              completedClusterTitles,
             }
           : null,
       targetIdentity,

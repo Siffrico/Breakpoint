@@ -515,6 +515,35 @@ export const becomingCurriculumRepository = {
       orderBy: asc(BecomingCurriculumNode.orderIndex),
     });
 
+    const syncParentStatus = async (parentNodeId: string | null) => {
+      if (!parentNodeId) {
+        return;
+      }
+
+      const parentChildren = await db.query.BecomingCurriculumNode.findMany({
+        where: eq(BecomingCurriculumNode.parentNodeId, parentNodeId),
+        orderBy: asc(BecomingCurriculumNode.orderIndex),
+      });
+      if (parentChildren.length === 0) {
+        return;
+      }
+
+      const parentStatus = parentChildren.every((node) => node.status === "completed")
+        ? "completed"
+        : parentChildren.some(
+              (node) => node.status === "ready" || node.status === "completed",
+            )
+          ? "ready"
+          : "planned";
+
+      await db
+        .update(BecomingCurriculumNode)
+        .set({ status: parentStatus })
+        .where(eq(BecomingCurriculumNode.id, parentNodeId));
+    };
+
+    await syncParentStatus(completedNode.parentNodeId);
+
     if (completedNode.kind === "unit" && completedNode.parentNodeId) {
       const siblingUnits = nextNode.filter(
         (node) =>
@@ -549,6 +578,7 @@ export const becomingCurriculumRepository = {
         .update(BecomingCurriculumNode)
         .set({ status: "ready" })
         .where(eq(BecomingCurriculumNode.id, nextPlannedUnit.id));
+      await syncParentStatus(nextPlannedUnit.parentNodeId);
       return;
     }
 
@@ -568,6 +598,7 @@ export const becomingCurriculumRepository = {
         .update(BecomingCurriculumNode)
         .set({ status: "ready" })
         .where(eq(BecomingCurriculumNode.id, nextIntegration.id));
+      await syncParentStatus(nextIntegration.parentNodeId);
       return;
     }
   },

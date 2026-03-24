@@ -74,11 +74,12 @@ const buildNodes = (
     const clusterOrderIndex = orderIndex++;
     const baseColumn = clusterIndex * clusterSpan;
     const clusterCenter = baseColumn + Math.floor((cluster.unitCount - 1) / 2);
+    const clusterHasInitiallyReadyUnit = unitNumber < 2;
 
     nodes.push({
       parentOrderIndex: 0,
       kind: "skill_cluster",
-      status: "completed",
+      status: clusterHasInitiallyReadyUnit ? "ready" : "planned",
       title: cluster.title,
       summary: cluster.summary,
       whyItMatters: cluster.whyItMatters,
