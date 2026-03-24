@@ -10,7 +10,7 @@ Breakpoint uses a **dark-first, matte black** design language with **sharp corne
 2. **Sharp corners everywhere** — `rounded-none` / `--radius: 0rem`. No border-radius on any component.
 3. **Blue is the only accent** — primary color is `oklch(0.58 0.19 262)` (blue). Used for buttons, links, focus rings, and interactive highlights.
 4. **Minimal borders** — borders use `white/[0.06]` to `white/12` opacity. Subtle, not prominent.
-5. **No philosophical text** — no branding labels, taglines, or decorative text like "BREAKPOINT", "START HERE", "BECOMING INTAKE" etc. in the UI. Keep it functional.
+5. **No decorative labels** — BANNED: small uppercase tracked text used as section labels (e.g. "Active Path", "Progress", "Next", "Start Here", "BREAKPOINT", "Becoming Intake"). These are AI slop. Never create `text-xs tracking-[...] uppercase text-white/35` label elements. Content should speak for itself without decorative categorization text above it.
 6. **Small, sleek typography** — headings max out at `text-3xl`. Body text at `text-sm` or `text-xs`. No oversized hero text.
 
 ## Color Tokens

@@ -2,63 +2,41 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
 
-import type { RouterOutputs } from "@acme/api";
 import { Button } from "@acme/ui/button";
 import { Textarea } from "@acme/ui/textarea";
-import { toast } from "@acme/ui/toast";
 
+import type {
+  DebriefPreviewResult,
+  RetrievalPreviewResult,
+  UnitPreviewState,
+} from "~/features/becoming/lib/becoming-preview";
 import {
   previewDebriefResult,
   previewRetrievalResult,
 } from "~/features/becoming/lib/becoming-preview";
-import { useTRPC } from "~/trpc/react";
-
-type Unit = RouterOutputs["becoming"]["unit"];
 
 export function UnitWorkspace({
   unit,
   sessionId,
-  preview = false,
 }: {
-  unit: Unit;
+  unit: UnitPreviewState;
   sessionId: string;
-  preview?: boolean;
 }) {
-  const trpc = useTRPC();
   const [answers, setAnswers] = useState(["", "", ""]);
   const [retrievalResult, setRetrievalResult] =
-    useState<RouterOutputs["becoming"]["submitRetrieval"] | null>(null);
-  const [previewDebrief, setPreviewDebrief] =
-    useState<RouterOutputs["becoming"]["submitUnitResponse"] | null>(null);
+    useState<RetrievalPreviewResult | null>(null);
+  const [debrief, setDebrief] = useState<DebriefPreviewResult | null>(null);
   const [response, setResponse] = useState("");
 
-  const submitRetrieval = useMutation(
-    trpc.becoming.submitRetrieval.mutationOptions({
-      onSuccess: (data) => setRetrievalResult(data),
-      onError: (error) => toast.error(error.message),
-    }),
-  );
-
-  const submitUnitResponse = useMutation(
-    trpc.becoming.submitUnitResponse.mutationOptions({
-      onError: (error) => toast.error(error.message),
-    }),
-  );
-
   const canOpenScenario = retrievalResult?.passed ?? false;
-  const debrief = preview ? previewDebrief : submitUnitResponse.data;
-  const workspaceHref = preview ? "/ui/home" : `/home?session=${sessionId}`;
+  const workspaceHref = `/ui/home?session=${sessionId}`;
 
   return (
     <main className="min-h-screen bg-[#06070a] px-5 py-8 text-white sm:px-8 lg:px-10">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
         <div className="flex items-center justify-between border-b border-white/8 pb-6">
           <div>
-            <p className="text-xs tracking-[0.3em] uppercase text-white/35">
-              Unit
-            </p>
             <h1 className="font-display mt-3 text-4xl tracking-[-0.06em] sm:text-5xl">
               {unit.title}
             </h1>
@@ -74,16 +52,10 @@ export function UnitWorkspace({
 
         <div className="grid gap-5 lg:grid-cols-2">
           <section className="border border-white/10 bg-white/[0.03] p-6">
-            <p className="text-xs tracking-[0.26em] uppercase text-white/35">
-              Concept
-            </p>
             <p className="mt-4 text-base leading-8 text-white/72">{unit.concept}</p>
           </section>
 
           <section className="border border-white/10 bg-white/[0.03] p-6">
-            <p className="text-xs tracking-[0.26em] uppercase text-white/35">
-              Worked Example
-            </p>
             <p className="mt-4 text-base leading-8 text-white/72">
               {unit.workedExample}
             </p>
@@ -91,9 +63,6 @@ export function UnitWorkspace({
         </div>
 
         <section className="border border-white/10 bg-white/[0.03] p-6">
-          <p className="text-xs tracking-[0.26em] uppercase text-white/35">
-            Retrieval Check
-          </p>
           <div className="mt-5 grid gap-4 lg:grid-cols-3">
             {unit.retrievalItems.map((item, index) => (
               <div key={item.prompt} className="border border-white/8 bg-black/20 p-4">
@@ -116,18 +85,10 @@ export function UnitWorkspace({
           <div className="mt-5 flex flex-wrap items-center gap-3">
             <Button
               type="button"
-              onClick={() => {
-                if (preview) {
-                  setRetrievalResult(previewRetrievalResult);
-                  return;
-                }
-
-                submitRetrieval.mutate({ nodeId: unit.nodeId, answers });
-              }}
-              disabled={!preview && submitRetrieval.isPending}
+              onClick={() => setRetrievalResult(previewRetrievalResult)}
               className="h-11 rounded-none bg-white px-5 text-black hover:bg-white/90"
             >
-              {!preview && submitRetrieval.isPending ? "Checking" : "Check retrieval"}
+              Check retrieval
             </Button>
 
             {retrievalResult ? (
@@ -149,9 +110,6 @@ export function UnitWorkspace({
         </section>
 
         <section className="border border-white/10 bg-white/[0.03] p-6">
-          <p className="text-xs tracking-[0.26em] uppercase text-white/35">
-            Scenario
-          </p>
           <h2 className="font-display mt-3 text-3xl tracking-[-0.05em]">
             {unit.scenario.title}
           </h2>
@@ -188,26 +146,11 @@ export function UnitWorkspace({
             </div>
             <Button
               type="button"
-              disabled={
-                !canOpenScenario ||
-                (!preview && submitUnitResponse.isPending) ||
-                response.trim().length < 120
-              }
-              onClick={() => {
-                if (preview) {
-                  setPreviewDebrief(previewDebriefResult);
-                  return;
-                }
-
-                submitUnitResponse.mutate({
-                  sessionId,
-                  nodeId: unit.nodeId,
-                  response,
-                });
-              }}
+              disabled={!canOpenScenario || response.trim().length < 120}
+              onClick={() => setDebrief(previewDebriefResult)}
               className="h-11 rounded-none bg-white px-5 text-black hover:bg-white/90"
             >
-              {!preview && submitUnitResponse.isPending ? "Debriefing" : "Submit scenario"}
+              Submit scenario
             </Button>
           </div>
         </section>
@@ -216,9 +159,6 @@ export function UnitWorkspace({
           <section className="border border-white/10 bg-white/[0.03] p-6">
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div>
-                <p className="text-xs tracking-[0.26em] uppercase text-white/35">
-                  Debrief
-                </p>
                 <h2 className="font-display mt-3 text-4xl tracking-[-0.05em]">
                   {debrief.score}
                 </h2>
@@ -234,9 +174,6 @@ export function UnitWorkspace({
 
             <div className="mt-6 grid gap-5 lg:grid-cols-3">
               <div className="border border-white/8 p-4">
-                <div className="text-xs tracking-[0.24em] uppercase text-white/35">
-                  Strengths
-                </div>
                 <div className="mt-3 space-y-3 text-sm leading-7 text-white/68">
                   {debrief.strengths.map((item) => (
                     <div key={item}>{item}</div>
@@ -245,9 +182,6 @@ export function UnitWorkspace({
               </div>
 
               <div className="border border-white/8 p-4">
-                <div className="text-xs tracking-[0.24em] uppercase text-white/35">
-                  Repair
-                </div>
                 <div className="mt-3 space-y-3 text-sm leading-7 text-white/68">
                   {debrief.improvements.map((item) => (
                     <div key={item}>{item}</div>
@@ -256,9 +190,6 @@ export function UnitWorkspace({
               </div>
 
               <div className="border border-white/8 p-4">
-                <div className="text-xs tracking-[0.24em] uppercase text-white/35">
-                  Failure Tags
-                </div>
                 <div className="mt-3 space-y-3 text-sm leading-7 text-white/68">
                   {debrief.failureTags.map((item) => (
                     <div key={item}>{item}</div>

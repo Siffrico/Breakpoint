@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, uniqueIndex } from "drizzle-orm/pg-core";
+import { index, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -330,22 +330,26 @@ export const BecomingUnitContent = pgTable(
       .notNull()
       .references(() => BecomingCurriculumNode.id, { onDelete: "cascade" }),
     title: t.varchar({ length: 240 }).notNull(),
-    concept: t.text().notNull(),
-    workedExample: t.text().notNull(),
-    retrievalItems: t
+    seedPrompt: t.text().notNull(),
+    buildContent: t.text(),
+    practicePrompts: t
       .jsonb()
       .$type<
         Array<{
           prompt: string;
-          intent: string;
-          expectedSignals: string[];
+          type: "identification" | "construction" | "debugging";
         }>
-      >()
+      >(),
+    contentGeneratedAt: t.timestamp({ mode: "date", withTimezone: true }),
+    teachbackSetup: t
+      .jsonb()
+      .$type<{
+        studentPersona: string;
+        openingMisconception: string;
+      }>()
       .notNull(),
     scenarioTitle: t.varchar({ length: 240 }).notNull(),
-    scenarioPrompt: t.text().notNull(),
-    focusAreas: t.jsonb().$type<string[]>().notNull(),
-    successCriteria: t.jsonb().$type<string[]>().notNull(),
+    scenarioFocusAreas: t.jsonb().$type<string[]>().notNull(),
     createdAt: t
       .timestamp({ mode: "date", withTimezone: true })
       .defaultNow()
@@ -355,6 +359,63 @@ export const BecomingUnitContent = pgTable(
       .$onUpdateFn(() => sql`now()`),
   }),
   (table) => [uniqueIndex("becoming_unit_content_node_idx").on(table.nodeId)],
+);
+
+export const BecomingUnitPhaseResponse = pgTable(
+  "becoming_unit_phase_response",
+  (t) => ({
+    id: t.uuid().notNull().primaryKey().defaultRandom(),
+    unitContentId: t
+      .uuid()
+      .notNull()
+      .references(() => BecomingUnitContent.id, { onDelete: "cascade" }),
+    sessionId: t
+      .uuid()
+      .notNull()
+      .references(() => BecomingOnboardingSession.id, { onDelete: "cascade" }),
+    userId: t
+      .text()
+      .references(() => user.id, { onDelete: "set null" }),
+    phase: t.varchar({ length: 32 }).notNull(),
+    sequence: t.integer().notNull(),
+    userResponse: t.text().notNull(),
+    aiResponse: t.text(),
+    passed: t.boolean(),
+    score: t.integer(),
+    metadata: t.jsonb().$type<
+      | {
+          attempts?: number;
+          feedback?: string;
+          gap?: {
+            description: string;
+            gapType: string;
+            whereItBroke: string;
+          };
+          ghostScenario?: {
+            domain: string;
+            prompt: string;
+            targetDepth: number;
+          };
+        }
+      | null
+    >(),
+    createdAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  }),
+  (table) => [
+    uniqueIndex("becoming_unit_phase_response_unique_idx").on(
+      table.unitContentId,
+      table.sessionId,
+      table.phase,
+      table.sequence,
+    ),
+    index("becoming_unit_phase_response_session_phase_idx").on(
+      table.sessionId,
+      table.phase,
+    ),
+  ],
 );
 
 export const BecomingUnitAttempt = pgTable("becoming_unit_attempt", (t) => ({
@@ -376,7 +437,10 @@ export const BecomingUnitAttempt = pgTable("becoming_unit_attempt", (t) => ({
   strengths: t.jsonb().$type<string[]>().notNull(),
   improvements: t.jsonb().$type<string[]>().notNull(),
   failureTags: t.jsonb().$type<string[]>().notNull(),
-  targetComparison: t.text().notNull(),
+  targetComparison: t.text(),
+  seedResponse: t.text(),
+  finalArticulation: t.text(),
+  growthDimensions: t.jsonb().$type<string[]>(),
   nextStep: t.text().notNull(),
   createdAt: t
     .timestamp({ mode: "date", withTimezone: true })

@@ -27,6 +27,11 @@ const previews = [
     description: "Retrieval check, scenario unlock, and debrief preview.",
   },
   {
+    href: "/ui/forge",
+    label: "Forge",
+    description: "4-phase education unit: seed → build → prove → repair.",
+  },
+  {
     href: "/ui/domains",
     label: "E.S.D.E.",
     description: "Domain grid plus an interactive scenario preview.",
@@ -38,9 +43,6 @@ export default function UiPreviewIndexPage() {
     <main className="min-h-screen bg-[#06070a] px-5 py-8 text-white sm:px-8 lg:px-10">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-8">
         <div className="border-b border-white/8 pb-6">
-          <p className="text-xs tracking-[0.3em] uppercase text-white/35">
-            Testing Mode
-          </p>
           <h1 className="font-display mt-3 text-4xl tracking-[-0.06em] sm:text-5xl">
             UI preview hub
           </h1>
@@ -56,9 +58,6 @@ export default function UiPreviewIndexPage() {
               href={preview.href}
               className="border border-white/10 bg-white/[0.03] p-6 transition-colors hover:bg-white/[0.06]"
             >
-              <div className="text-xs tracking-[0.26em] uppercase text-white/35">
-                Preview
-              </div>
               <div className="font-display mt-3 text-2xl tracking-[-0.05em]">
                 {preview.label}
               </div>

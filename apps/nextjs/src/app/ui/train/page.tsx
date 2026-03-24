@@ -6,10 +6,6 @@ import { UnitWorkspace } from "~/features/becoming/components/unit-workspace";
 
 export default function UiPreviewTrainPage() {
   return (
-    <UnitWorkspace
-      unit={previewUnitState}
-      sessionId={previewSessionId}
-      preview
-    />
+    <UnitWorkspace unit={previewUnitState} sessionId={previewSessionId} />
   );
 }

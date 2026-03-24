@@ -1,19 +1,44 @@
-import { asc, eq } from "@acme/db";
+import { and, asc, desc, eq } from "@acme/db";
 import type { db as databaseClient } from "@acme/db/client";
 import {
   BecomingCurriculumNode,
   BecomingCurriculumPlan,
   BecomingUnitContent,
+  BecomingUnitPhaseResponse,
 } from "@acme/db/schema";
 
 import type {
   CurriculumBlueprint,
   CurriculumNode,
   CurriculumPlan,
+  PhaseResponseRecord,
+  UpdateUnitContentInput,
   UnitContent,
 } from "../domain/becoming/types/becoming.types";
 
 type Database = typeof databaseClient;
+
+const mapUnitContent = ({
+  node,
+  unit,
+}: {
+  node: typeof BecomingCurriculumNode.$inferSelect;
+  unit: typeof BecomingUnitContent.$inferSelect;
+}): UnitContent => ({
+  id: unit.id,
+  nodeId: unit.nodeId,
+  title: unit.title,
+  summary: node.summary,
+  whyItMatters: node.whyItMatters,
+  seedPrompt: unit.seedPrompt,
+  buildContent: unit.buildContent,
+  practicePrompts: unit.practicePrompts as UnitContent["practicePrompts"],
+  teachbackSetup: unit.teachbackSetup as UnitContent["teachbackSetup"],
+  scenario: {
+    title: unit.scenarioTitle,
+    focusAreas: unit.scenarioFocusAreas,
+  },
+});
 
 export const becomingCurriculumRepository = {
   createPlan: async ({
@@ -85,25 +110,6 @@ export const becomingCurriculumRepository = {
         .where(eq(BecomingCurriculumNode.id, insertedNode.id));
     }
 
-    for (const unit of blueprint.initialUnits) {
-      const node = nodesByOrder.get(unit.nodeOrderIndex);
-      if (!node) {
-        continue;
-      }
-
-      await db.insert(BecomingUnitContent).values({
-        nodeId: node.id,
-        title: unit.title,
-        concept: unit.concept,
-        workedExample: unit.workedExample,
-        retrievalItems: unit.retrievalItems,
-        scenarioTitle: unit.scenario.title,
-        scenarioPrompt: unit.scenario.prompt,
-        focusAreas: unit.scenario.focusAreas,
-        successCriteria: unit.scenario.successCriteria,
-      });
-    }
-
     return plan;
   },
 
@@ -131,9 +137,6 @@ export const becomingCurriculumRepository = {
       orderBy: asc(BecomingCurriculumNode.orderIndex),
     });
 
-    const unitRows = await db.query.BecomingUnitContent.findMany();
-    const unitByNodeId = new Map(unitRows.map((unit) => [unit.nodeId, unit]));
-
     const nodes = nodeRows.map((node) => ({
       id: node.id,
       parentNodeId: node.parentNodeId,
@@ -149,7 +152,9 @@ export const becomingCurriculumRepository = {
     }));
 
     const nextUnitNode = nodeRows.find(
-      (node) => node.kind === "unit" && node.status === "ready" && unitByNodeId.has(node.id),
+      (node) =>
+        (node.kind === "unit" || node.kind === "integration") &&
+        node.status === "ready",
     );
 
     return {
@@ -203,19 +208,285 @@ export const becomingCurriculumRepository = {
       return null;
     }
 
+    return mapUnitContent({ node, unit });
+  },
+
+  getNodeById: async ({
+    db,
+    nodeId,
+  }: {
+    db: Database;
+    nodeId: string;
+  }) =>
+    (await db.query.BecomingCurriculumNode.findFirst({
+      where: eq(BecomingCurriculumNode.id, nodeId),
+    })) ?? null,
+
+  getPlanNodesBySession: async ({
+    db,
+    sessionId,
+  }: {
+    db: Database;
+    sessionId: string;
+  }) => {
+    const plan = await db.query.BecomingCurriculumPlan.findFirst({
+      where: eq(BecomingCurriculumPlan.onboardingSessionId, sessionId),
+    });
+
+    if (!plan) {
+      return null;
+    }
+
+    return db.query.BecomingCurriculumNode.findMany({
+      where: eq(BecomingCurriculumNode.planId, plan.id),
+      orderBy: asc(BecomingCurriculumNode.orderIndex),
+    });
+  },
+
+  createUnitContent: async ({
+    db,
+    nodeId,
+    title,
+    seedPrompt,
+    teachbackSetup,
+    scenario,
+  }: {
+    db: Database;
+    nodeId: string;
+    title: string;
+    seedPrompt: string;
+    teachbackSetup: UnitContent["teachbackSetup"];
+    scenario: UnitContent["scenario"];
+  }): Promise<UnitContent | null> => {
+    const [unit] = await db
+      .insert(BecomingUnitContent)
+      .values({
+        nodeId,
+        title,
+        seedPrompt,
+        buildContent: null,
+        practicePrompts: null,
+        contentGeneratedAt: null,
+        teachbackSetup,
+        scenarioTitle: scenario.title,
+        scenarioFocusAreas: scenario.focusAreas,
+      })
+      .onConflictDoUpdate({
+        target: [BecomingUnitContent.nodeId],
+        set: {
+          title,
+          seedPrompt,
+          teachbackSetup,
+          scenarioTitle: scenario.title,
+          scenarioFocusAreas: scenario.focusAreas,
+        },
+      })
+      .returning();
+
+    if (!unit) {
+      return null;
+    }
+
+    const node = await db.query.BecomingCurriculumNode.findFirst({
+      where: eq(BecomingCurriculumNode.id, nodeId),
+    });
+
+    if (!node) {
+      return null;
+    }
+
+    return mapUnitContent({ node, unit });
+  },
+
+  updateUnitContent: async ({
+    db,
+    unitContentId,
+    buildContent,
+    practicePrompts,
+    contentGeneratedAt,
+  }: {
+    db: Database;
+  } & UpdateUnitContentInput): Promise<UnitContent | null> => {
+    const [unit] = await db
+      .update(BecomingUnitContent)
+      .set({
+        buildContent,
+        practicePrompts,
+        contentGeneratedAt,
+        updatedAt: new Date(),
+      })
+      .where(eq(BecomingUnitContent.id, unitContentId))
+      .returning();
+
+    if (!unit) {
+      return null;
+    }
+
+    const node = await db.query.BecomingCurriculumNode.findFirst({
+      where: eq(BecomingCurriculumNode.id, unit.nodeId),
+    });
+
+    if (!node) {
+      return null;
+    }
+
+    return mapUnitContent({ node, unit });
+  },
+
+  savePhaseResponse: async ({
+    db,
+    unitContentId,
+    sessionId,
+    userId,
+    phase,
+    sequence,
+    userResponse,
+    aiResponse,
+    passed,
+    score,
+    metadata,
+  }: {
+    db: Database;
+    unitContentId: string;
+    sessionId: string;
+    userId?: string | null;
+    phase: PhaseResponseRecord["phase"];
+    sequence: number;
+    userResponse: string;
+    aiResponse?: string | null;
+    passed?: boolean | null;
+    score?: number | null;
+    metadata?: PhaseResponseRecord["metadata"];
+  }): Promise<PhaseResponseRecord | null> => {
+    const [response] = await db
+      .insert(BecomingUnitPhaseResponse)
+      .values({
+        unitContentId,
+        sessionId,
+        userId: userId ?? null,
+        phase,
+        sequence,
+        userResponse,
+        aiResponse: aiResponse ?? null,
+        passed: passed ?? null,
+        score: score ?? null,
+        metadata: metadata ?? null,
+      })
+      .onConflictDoUpdate({
+        target: [
+          BecomingUnitPhaseResponse.unitContentId,
+          BecomingUnitPhaseResponse.sessionId,
+          BecomingUnitPhaseResponse.phase,
+          BecomingUnitPhaseResponse.sequence,
+        ],
+        set: {
+          userId: userId ?? null,
+          userResponse,
+          aiResponse: aiResponse ?? null,
+          passed: passed ?? null,
+          score: score ?? null,
+          metadata: metadata ?? null,
+        },
+      })
+      .returning();
+
+    return response
+      ? {
+          id: response.id,
+          unitContentId: response.unitContentId,
+          sessionId: response.sessionId,
+          userId: response.userId,
+          phase: response.phase as PhaseResponseRecord["phase"],
+          sequence: response.sequence,
+          userResponse: response.userResponse,
+          aiResponse: response.aiResponse,
+          passed: response.passed,
+          score: response.score,
+          metadata: response.metadata as PhaseResponseRecord["metadata"],
+          createdAt: response.createdAt,
+        }
+      : null;
+  },
+
+  getPhaseResponses: async ({
+    db,
+    unitContentId,
+    sessionId,
+    phase,
+  }: {
+    db: Database;
+    unitContentId: string;
+    sessionId: string;
+    phase?: PhaseResponseRecord["phase"];
+  }): Promise<PhaseResponseRecord[]> => {
+    const rows = await db.query.BecomingUnitPhaseResponse.findMany({
+      where: phase
+        ? and(
+            eq(BecomingUnitPhaseResponse.unitContentId, unitContentId),
+            eq(BecomingUnitPhaseResponse.sessionId, sessionId),
+            eq(BecomingUnitPhaseResponse.phase, phase),
+          )
+        : and(
+            eq(BecomingUnitPhaseResponse.unitContentId, unitContentId),
+            eq(BecomingUnitPhaseResponse.sessionId, sessionId),
+          ),
+      orderBy: [asc(BecomingUnitPhaseResponse.sequence), asc(BecomingUnitPhaseResponse.createdAt)],
+    });
+
+    return rows.map((row) => ({
+      id: row.id,
+      unitContentId: row.unitContentId,
+      sessionId: row.sessionId,
+      userId: row.userId,
+      phase: row.phase as PhaseResponseRecord["phase"],
+      sequence: row.sequence,
+      userResponse: row.userResponse,
+      aiResponse: row.aiResponse,
+      passed: row.passed,
+      score: row.score,
+      metadata: row.metadata as PhaseResponseRecord["metadata"],
+      createdAt: row.createdAt,
+    }));
+  },
+
+  getLatestFailureIsolation: async ({
+    db,
+    unitContentId,
+    sessionId,
+  }: {
+    db: Database;
+    unitContentId: string;
+    sessionId: string;
+  }): Promise<
+    | {
+        gap: NonNullable<NonNullable<PhaseResponseRecord["metadata"]>["gap"]>;
+        ghostScenario: NonNullable<
+          NonNullable<PhaseResponseRecord["metadata"]>["ghostScenario"]
+        >;
+        sequence: number;
+        submitted: boolean;
+      }
+    | null
+  > => {
+    const row = await db.query.BecomingUnitPhaseResponse.findFirst({
+      where: and(
+        eq(BecomingUnitPhaseResponse.unitContentId, unitContentId),
+        eq(BecomingUnitPhaseResponse.sessionId, sessionId),
+        eq(BecomingUnitPhaseResponse.phase, "ghost"),
+      ),
+      orderBy: [desc(BecomingUnitPhaseResponse.sequence), desc(BecomingUnitPhaseResponse.createdAt)],
+    });
+
+    const metadata = row?.metadata as PhaseResponseRecord["metadata"];
+    if (!row || !metadata?.gap || !metadata.ghostScenario) {
+      return null;
+    }
+
     return {
-      id: unit.id,
-      nodeId: unit.nodeId,
-      title: unit.title,
-      concept: unit.concept,
-      workedExample: unit.workedExample,
-      retrievalItems: unit.retrievalItems as UnitContent["retrievalItems"],
-      scenario: {
-        title: unit.scenarioTitle,
-        prompt: unit.scenarioPrompt,
-        focusAreas: unit.focusAreas,
-        successCriteria: unit.successCriteria,
-      },
+      gap: metadata.gap,
+      ghostScenario: metadata.ghostScenario,
+      sequence: row.sequence,
+      submitted: row.aiResponse != null,
     };
   },
 
@@ -244,16 +515,60 @@ export const becomingCurriculumRepository = {
       orderBy: asc(BecomingCurriculumNode.orderIndex),
     });
 
-    const nextReady = nextNode.find(
+    if (completedNode.kind === "unit" && completedNode.parentNodeId) {
+      const siblingUnits = nextNode.filter(
+        (node) =>
+          node.parentNodeId === completedNode.parentNodeId && node.kind === "unit",
+      );
+      const clusterFinished =
+        siblingUnits.length > 0 &&
+        siblingUnits.every((node) => node.status === "completed");
+
+      if (clusterFinished) {
+        const clusterSimulation = nextNode.find(
+          (node) =>
+            node.parentNodeId === completedNode.parentNodeId &&
+            node.kind === "simulation" &&
+            node.status === "planned",
+        );
+
+        if (clusterSimulation) {
+          await db
+            .update(BecomingCurriculumNode)
+            .set({ status: "ready" })
+            .where(eq(BecomingCurriculumNode.id, clusterSimulation.id));
+        }
+      }
+    }
+
+    const nextPlannedUnit = nextNode.find(
       (node) => node.kind === "unit" && node.status === "planned",
     );
-    if (!nextReady) {
+    if (nextPlannedUnit) {
+      await db
+        .update(BecomingCurriculumNode)
+        .set({ status: "ready" })
+        .where(eq(BecomingCurriculumNode.id, nextPlannedUnit.id));
       return;
     }
 
-    await db
-      .update(BecomingCurriculumNode)
-      .set({ status: "ready" })
-      .where(eq(BecomingCurriculumNode.id, nextReady.id));
+    const regularUnits = nextNode.filter((node) => node.kind === "unit");
+    const allRegularUnitsComplete =
+      regularUnits.length > 0 &&
+      regularUnits.every((node) => node.status === "completed");
+    if (!allRegularUnitsComplete) {
+      return;
+    }
+
+    const nextIntegration = nextNode.find(
+      (node) => node.kind === "integration" && node.status === "planned",
+    );
+    if (nextIntegration) {
+      await db
+        .update(BecomingCurriculumNode)
+        .set({ status: "ready" })
+        .where(eq(BecomingCurriculumNode.id, nextIntegration.id));
+      return;
+    }
   },
 };

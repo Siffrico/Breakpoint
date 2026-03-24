@@ -2,6 +2,12 @@ import type { TRPCRouterRecord } from "@trpc/server";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod/v4";
 import type { CurriculumNode } from "@acme/validators";
+import {
+  GhostSubmissionSchema,
+  PracticeSubmissionSchema,
+  SeedResponseSchema,
+  TeachbackSubmissionSchema,
+} from "@acme/validators";
 
 import {
   getActivePlanWorkflow,
@@ -16,20 +22,35 @@ import {
   getProfileWorkflow,
 } from "../domain/becoming/workflows/get-profile-workflow";
 import {
+  getTeachbackPromptWorkflow,
+} from "../domain/becoming/workflows/get-teachback-prompt-workflow";
+import {
   getUnitWorkflow,
 } from "../domain/becoming/workflows/get-unit-workflow";
+import {
+  getFailureIsolationWorkflow,
+} from "../domain/becoming/workflows/get-failure-isolation-workflow";
+import {
+  getForgeDebriefWorkflow,
+} from "../domain/becoming/workflows/get-forge-debrief-workflow";
 import {
   startOnboardingWorkflow,
 } from "../domain/becoming/workflows/start-onboarding-workflow";
 import {
+  submitPracticeWorkflow,
+} from "../domain/becoming/workflows/submit-practice-workflow";
+import {
+  submitGhostResponseWorkflow,
+} from "../domain/becoming/workflows/submit-ghost-response-workflow";
+import {
   submitOnboardingAnswerWorkflow,
 } from "../domain/becoming/workflows/submit-onboarding-answer-workflow";
 import {
-  submitRetrievalWorkflow,
-} from "../domain/becoming/workflows/submit-retrieval-workflow";
+  submitSeedWorkflow,
+} from "../domain/becoming/workflows/submit-seed-workflow";
 import {
-  submitUnitResponseWorkflow,
-} from "../domain/becoming/workflows/submit-unit-response-workflow";
+  submitTeachbackWorkflow,
+} from "../domain/becoming/workflows/submit-teachback-workflow";
 import { becomingCurriculumRepository } from "../repositories/becoming-curriculum-repository";
 import { becomingOnboardingRepository } from "../repositories/becoming-onboarding-repository";
 import { becomingTrainingRepository } from "../repositories/becoming-training-repository";
@@ -44,19 +65,20 @@ const SubmitOnboardingAnswerSchema = z.object({
   answer: z.string().min(1).max(4_000),
 });
 
-const UnitIdSchema = z.object({
+const NodeSessionSchema = z.object({
   nodeId: z.string().uuid(),
-});
-
-const SubmitRetrievalSchema = z.object({
-  nodeId: z.string().uuid(),
-  answers: z.array(z.string().min(1).max(1_000)).length(3),
-});
-
-const SubmitUnitResponseSchema = z.object({
   sessionId: z.string().uuid(),
-  nodeId: z.string().uuid(),
-  response: z.string().min(1).max(8_000),
+});
+
+const SubmitSeedSchema = NodeSessionSchema.extend(SeedResponseSchema.shape);
+const SubmitPracticeSchema = PracticeSubmissionSchema.extend({
+  sessionId: z.string().uuid(),
+});
+const SubmitTeachbackSchema = TeachbackSubmissionSchema.extend({
+  sessionId: z.string().uuid(),
+});
+const SubmitGhostResponseSchema = GhostSubmissionSchema.extend({
+  sessionId: z.string().uuid(),
 });
 
 const getErrorCode = (message: string) => {
@@ -64,7 +86,14 @@ const getErrorCode = (message: string) => {
     return "NOT_FOUND" as const;
   }
 
-  if (message.includes("more specific") || message.includes("fuller")) {
+  if (
+    message.includes("more specific") ||
+    message.includes("fuller") ||
+    message.includes("before") ||
+    message.includes("Pass") ||
+    message.includes("limit") ||
+    message.includes("unlock")
+  ) {
     return "BAD_REQUEST" as const;
   }
 
@@ -186,44 +215,56 @@ export const becomingRouter = {
         }),
       )),
 
-  unit: publicProcedure.input(UnitIdSchema).query(async ({ ctx, input }) =>
+  unit: publicProcedure.input(NodeSessionSchema).query(async ({ ctx, input }) =>
     throwOnFailure(
       await getUnitWorkflow({
         nodeId: input.nodeId,
+        sessionId: input.sessionId,
         deps: {
           getUnitByNodeId: (nodeId) =>
             becomingCurriculumRepository.getUnitByNodeId({
               db: ctx.db,
               nodeId,
             }),
+          getNodeById: (nodeId) =>
+            becomingCurriculumRepository.getNodeById({
+              db: ctx.db,
+              nodeId,
+            }),
+          getPlanNodesBySession: (sessionId) =>
+            becomingCurriculumRepository.getPlanNodesBySession({
+              db: ctx.db,
+              sessionId,
+            }),
+          getTargetIdentity: async (sessionId) => {
+            const profile = await becomingOnboardingRepository.getProfileBySession({
+              db: ctx.db,
+              sessionId,
+            });
+
+            return profile?.version.targetIdentity ?? null;
+          },
+          listAttemptHistory: (sessionId) =>
+            becomingTrainingRepository.listAttemptHistory({
+              db: ctx.db,
+              sessionId,
+            }),
+          createUnitContent: (payload) =>
+            becomingCurriculumRepository.createUnitContent({
+              db: ctx.db,
+              ...payload,
+            }),
         },
       }),
     )),
 
-  submitRetrieval: publicProcedure
-    .input(SubmitRetrievalSchema)
+  submitSeed: publicProcedure
+    .input(SubmitSeedSchema)
     .mutation(async ({ ctx, input }) =>
       throwOnFailure(
-        await submitRetrievalWorkflow({
+        await submitSeedWorkflow({
           nodeId: input.nodeId,
-          answers: input.answers,
-          deps: {
-            getUnitByNodeId: (nodeId) =>
-              becomingCurriculumRepository.getUnitByNodeId({
-                db: ctx.db,
-                nodeId,
-              }),
-          },
-        }),
-      )),
-
-  submitUnitResponse: publicProcedure
-    .input(SubmitUnitResponseSchema)
-    .mutation(async ({ ctx, input }) =>
-      throwOnFailure(
-        await submitUnitResponseWorkflow({
           sessionId: input.sessionId,
-          nodeId: input.nodeId,
           response: input.response,
           userId: ctx.session?.user.id,
           deps: {
@@ -240,6 +281,210 @@ export const becomingRouter = {
 
               return profile?.version.targetIdentity ?? null;
             },
+            savePhaseResponse: (payload) =>
+              becomingCurriculumRepository.savePhaseResponse({
+                db: ctx.db,
+                ...payload,
+              }),
+            updateUnitContent: (payload) =>
+              becomingCurriculumRepository.updateUnitContent({
+                db: ctx.db,
+                ...payload,
+              }),
+          },
+        }),
+      )),
+
+  submitPractice: publicProcedure
+    .input(SubmitPracticeSchema)
+    .mutation(async ({ ctx, input }) =>
+      throwOnFailure(
+        await submitPracticeWorkflow({
+          sessionId: input.sessionId,
+          nodeId: input.nodeId,
+          response: input.response,
+          sequence: input.sequence,
+          userId: ctx.session?.user.id,
+          deps: {
+            getUnitByNodeId: (nodeId) =>
+              becomingCurriculumRepository.getUnitByNodeId({
+                db: ctx.db,
+                nodeId,
+              }),
+            getPhaseResponses: (unitContentId, sessionId) =>
+              becomingCurriculumRepository.getPhaseResponses({
+                db: ctx.db,
+                unitContentId,
+                sessionId,
+              }),
+            savePhaseResponse: (payload) =>
+              becomingCurriculumRepository.savePhaseResponse({
+                db: ctx.db,
+                ...payload,
+              }),
+          },
+        }),
+      )),
+
+  getTeachbackPrompt: publicProcedure
+    .input(NodeSessionSchema)
+    .query(async ({ ctx, input }) =>
+      throwOnFailure(
+        await getTeachbackPromptWorkflow({
+          sessionId: input.sessionId,
+          nodeId: input.nodeId,
+          deps: {
+            getUnitByNodeId: (nodeId) =>
+              becomingCurriculumRepository.getUnitByNodeId({
+                db: ctx.db,
+                nodeId,
+              }),
+            getPhaseResponses: (unitContentId, sessionId) =>
+              becomingCurriculumRepository.getPhaseResponses({
+                db: ctx.db,
+                unitContentId,
+                sessionId,
+              }),
+          },
+        }),
+      )),
+
+  submitTeachback: publicProcedure
+    .input(SubmitTeachbackSchema)
+    .mutation(async ({ ctx, input }) =>
+      throwOnFailure(
+        await submitTeachbackWorkflow({
+          sessionId: input.sessionId,
+          nodeId: input.nodeId,
+          round: input.round,
+          response: input.response,
+          userId: ctx.session?.user.id,
+          deps: {
+            getUnitByNodeId: (nodeId) =>
+              becomingCurriculumRepository.getUnitByNodeId({
+                db: ctx.db,
+                nodeId,
+              }),
+            getPhaseResponses: (unitContentId, sessionId) =>
+              becomingCurriculumRepository.getPhaseResponses({
+                db: ctx.db,
+                unitContentId,
+                sessionId,
+              }),
+            savePhaseResponse: (payload) =>
+              becomingCurriculumRepository.savePhaseResponse({
+                db: ctx.db,
+                ...payload,
+              }),
+          },
+        }),
+      )),
+
+  getFailureIsolation: publicProcedure
+    .input(NodeSessionSchema)
+    .query(async ({ ctx, input }) =>
+      throwOnFailure(
+        await getFailureIsolationWorkflow({
+          sessionId: input.sessionId,
+          nodeId: input.nodeId,
+          userId: ctx.session?.user.id,
+          deps: {
+            getUnitByNodeId: (nodeId) =>
+              becomingCurriculumRepository.getUnitByNodeId({
+                db: ctx.db,
+                nodeId,
+              }),
+            getPhaseResponses: (unitContentId, sessionId) =>
+              becomingCurriculumRepository.getPhaseResponses({
+                db: ctx.db,
+                unitContentId,
+                sessionId,
+              }),
+            getLatestFailureIsolation: (unitContentId, sessionId) =>
+              becomingCurriculumRepository.getLatestFailureIsolation({
+                db: ctx.db,
+                unitContentId,
+                sessionId,
+              }),
+            savePhaseResponse: (payload) =>
+              becomingCurriculumRepository.savePhaseResponse({
+                db: ctx.db,
+                ...payload,
+              }),
+          },
+        }),
+      )),
+
+  submitGhostResponse: publicProcedure
+    .input(SubmitGhostResponseSchema)
+    .mutation(async ({ ctx, input }) =>
+      throwOnFailure(
+        await submitGhostResponseWorkflow({
+          sessionId: input.sessionId,
+          nodeId: input.nodeId,
+          response: input.response,
+          userId: ctx.session?.user.id,
+          deps: {
+            getUnitByNodeId: (nodeId) =>
+              becomingCurriculumRepository.getUnitByNodeId({
+                db: ctx.db,
+                nodeId,
+              }),
+            getPhaseResponses: (unitContentId, sessionId) =>
+              becomingCurriculumRepository.getPhaseResponses({
+                db: ctx.db,
+                unitContentId,
+                sessionId,
+              }),
+            getLatestFailureIsolation: (unitContentId, sessionId) =>
+              becomingCurriculumRepository.getLatestFailureIsolation({
+                db: ctx.db,
+                unitContentId,
+                sessionId,
+              }),
+            savePhaseResponse: (payload) =>
+              becomingCurriculumRepository.savePhaseResponse({
+                db: ctx.db,
+                ...payload,
+              }),
+          },
+        }),
+      )),
+
+  getForgeDebrief: publicProcedure
+    .input(NodeSessionSchema)
+    .query(async ({ ctx, input }) =>
+      throwOnFailure(
+        await getForgeDebriefWorkflow({
+          sessionId: input.sessionId,
+          nodeId: input.nodeId,
+          userId: ctx.session?.user.id,
+          deps: {
+            getUnitByNodeId: (nodeId) =>
+              becomingCurriculumRepository.getUnitByNodeId({
+                db: ctx.db,
+                nodeId,
+              }),
+            getPhaseResponses: (unitContentId, sessionId) =>
+              becomingCurriculumRepository.getPhaseResponses({
+                db: ctx.db,
+                unitContentId,
+                sessionId,
+              }),
+            getTargetIdentity: async (sessionId) => {
+              const profile = await becomingOnboardingRepository.getProfileBySession({
+                db: ctx.db,
+                sessionId,
+              });
+
+              return profile?.version.targetIdentity ?? null;
+            },
+            getLatestAttemptByUnit: (sessionId, unitId) =>
+              becomingTrainingRepository.getLatestAttemptByUnit({
+                db: ctx.db,
+                sessionId,
+                unitId,
+              }),
             saveAttempt: (payload) =>
               becomingTrainingRepository.saveAttempt({
                 db: ctx.db,
@@ -280,11 +525,13 @@ export const becomingRouter = {
             }
 
             const totalUnits = plan.nodes.filter(
-              (node: CurriculumNode) => node.kind === "unit",
+              (node: CurriculumNode) =>
+                node.kind === "unit" || node.kind === "integration",
             ).length;
             const completedUnits = plan.nodes.filter(
               (node: CurriculumNode) =>
-                node.kind === "unit" && node.status === "completed",
+                (node.kind === "unit" || node.kind === "integration") &&
+                node.status === "completed",
             ).length;
             const nextNode = plan.nodes.find(
               (node: CurriculumNode) => node.id === plan.nextUnitId,
@@ -298,7 +545,13 @@ export const becomingRouter = {
               completedUnits,
               totalUnits,
               nextUnitId: plan.nextUnitId,
-              nextUnitTitle: nextNode?.title ?? null,
+              nextUnitTitle:
+                summary.currentUnit?.title ??
+                (nextNode
+                  ? nextNode.kind === "integration"
+                    ? "Integration unit ready"
+                    : "Next unit ready"
+                  : null),
               blockingSignals:
                 summary.recentFailureTags.length > 0
                   ? summary.recentFailureTags

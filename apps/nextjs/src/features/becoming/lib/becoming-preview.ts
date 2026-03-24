@@ -4,9 +4,41 @@ type OnboardingState = RouterOutputs["becoming"]["startOnboarding"];
 type HomeState = RouterOutputs["becoming"]["home"];
 type ProfileState = RouterOutputs["becoming"]["profile"];
 type PlanState = RouterOutputs["becoming"]["activePlan"];
-type UnitState = RouterOutputs["becoming"]["unit"];
-type RetrievalResult = RouterOutputs["becoming"]["submitRetrieval"];
-type DebriefResult = RouterOutputs["becoming"]["submitUnitResponse"];
+
+export interface UnitPreviewState {
+  id: string;
+  nodeId: string;
+  title: string;
+  concept: string;
+  workedExample: string;
+  retrievalItems: Array<{
+    prompt: string;
+    intent: string;
+    expectedSignals: string[];
+  }>;
+  scenario: {
+    title: string;
+    prompt: string;
+    focusAreas: string[];
+    successCriteria: string[];
+  };
+}
+
+export interface RetrievalPreviewResult {
+  score: number;
+  passed: boolean;
+  feedback: string[];
+}
+
+export interface DebriefPreviewResult {
+  score: number;
+  readiness: "needs_repair" | "developing" | "ready_for_next_unit";
+  strengths: string[];
+  improvements: string[];
+  failureTags: string[];
+  targetComparison: string;
+  nextStep: string;
+}
 
 export const previewSessionId = "00000000-0000-4000-8000-000000000001";
 
@@ -269,7 +301,7 @@ export const previewProfileState: ProfileState = {
   currentBaseline:
     "You have strong instincts and urgency, but your operating rhythm gets fragmented under load. That fragmentation leaks into prioritization and communication.",
   proofOfProgress:
-    "You make the primary call faster, sequence the team with less noise, and review outcomes against clear checkpoints instead of vibes.",
+    "You make the primary call faster, sequence the team with less noise, and review outcomes against clear milestones instead of vibes.",
   hardMoments: [
     "Three important threads compete at once and you switch context instead of sequencing.",
     "Ambiguous product risk makes you research for too long before choosing a direction.",
@@ -376,7 +408,7 @@ export const previewPlanState: PlanState = {
   ],
 };
 
-export const previewUnitState: UnitState = {
+export const previewUnitState: UnitPreviewState = {
   id: "unit-pressure-triage",
   nodeId: "00000000-0000-4000-8000-000000000101",
   title: "Run the first 10 minutes instead of reacting to the loudest input",
@@ -398,7 +430,7 @@ export const previewUnitState: UnitState = {
     {
       prompt: "What should a good first update to the team contain?",
       intent: "Check for operational communication quality.",
-      expectedSignals: ["status", "owner", "next checkpoint"],
+      expectedSignals: ["status", "owner", "next review point"],
     },
   ],
   scenario: {
@@ -414,17 +446,17 @@ export const previewUnitState: UnitState = {
   },
 };
 
-export const previewRetrievalResult: RetrievalResult = {
+export const previewRetrievalResult: RetrievalPreviewResult = {
   score: 86,
   passed: true,
   feedback: [
     "You separated urgency from importance instead of treating every signal as equal.",
-    "Your team update focused on ownership and next checkpoint, which keeps execution coherent.",
+    "Your team update focused on ownership and the next review point, which keeps execution coherent.",
     "Push the verification step even harder so the loop closes cleanly.",
   ],
 };
 
-export const previewDebriefResult: DebriefResult = {
+export const previewDebriefResult: DebriefPreviewResult = {
   score: 91,
   readiness: "ready_for_next_unit",
   strengths: [

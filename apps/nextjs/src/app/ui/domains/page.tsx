@@ -15,9 +15,6 @@ export default function UiPreviewDomainsPage() {
       <div className="border-t border-white/10 bg-[#06070a] px-5 py-8 text-white sm:px-8 lg:px-10">
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 border border-white/10 bg-white/[0.03] px-5 py-4">
           <div>
-            <p className="text-xs tracking-[0.26em] uppercase text-white/35">
-              Embedded Preview
-            </p>
             <p className="mt-2 text-sm text-white/60">
               Open the mock scenario below or jump back to the preview hub.
             </p>

@@ -48,8 +48,6 @@ export function ScenarioWorkspace({
   const [previewEvaluation, setPreviewEvaluation] =
     useState<RouterOutputs["esdeSimulation"]["submitResponse"] | null>(null);
 
-  const responseWordCount = response.trim().split(/\s+/).filter(Boolean).length;
-
   const submitResponse = useMutation(
     trpc.esdeSimulation.submitResponse.mutationOptions({
       onError: (error) => {
@@ -83,9 +81,6 @@ export function ScenarioWorkspace({
               </Link>
             </Button>
             <div className="space-y-1">
-              <p className="text-xs font-medium tracking-[0.24em] uppercase text-muted-foreground">
-                {scenario.domainTitle} / {scenario.activeStage}
-              </p>
               <h1 className="font-display text-lg font-semibold tracking-[-0.03em] text-foreground sm:text-xl">
                 {scenario.prompt.title}
               </h1>
@@ -130,15 +125,9 @@ export function ScenarioWorkspace({
               >
                 <div className="flex items-center justify-between border-b border-border/70 px-5 py-4">
                   <div>
-                    <p className="text-xs font-medium tracking-[0.22em] uppercase text-muted-foreground">
-                      Response
-                    </p>
                     <p className="mt-1 text-sm text-muted-foreground">
                       Explain the failure, your first move, and the durable fix.
                     </p>
-                  </div>
-                  <div className="text-xs font-medium tracking-[0.18em] uppercase text-muted-foreground">
-                    {responseWordCount} words
                   </div>
                 </div>
 
@@ -185,9 +174,6 @@ export function ScenarioWorkspace({
                 className="flex min-h-[420px] flex-col"
               >
                 <SurfaceHeader className="space-y-2">
-                  <p className="text-xs font-medium tracking-[0.22em] uppercase text-muted-foreground">
-                    Evaluation
-                  </p>
                   <SurfaceTitle className="text-lg">
                     {evaluation
                       ? formatReadinessLabel(evaluation.readiness)
@@ -198,9 +184,6 @@ export function ScenarioWorkspace({
                 {evaluation ? (
                   <div className="mt-6 flex flex-1 flex-col gap-6">
                     <Surface variant="emphasis" padding="sm">
-                      <p className="text-xs font-medium tracking-[0.18em] uppercase text-primary/80">
-                        Score
-                      </p>
                       <p className="font-display mt-2 text-4xl font-semibold tracking-[-0.05em] text-foreground">
                         {evaluation.score}
                       </p>

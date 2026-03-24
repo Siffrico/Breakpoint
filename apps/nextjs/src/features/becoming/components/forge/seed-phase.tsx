@@ -1,0 +1,68 @@
+"use client";
+
+import { useState } from "react";
+
+import { Button } from "@acme/ui/button";
+import { Textarea } from "@acme/ui/textarea";
+
+export function SeedPhase({
+  seedPrompt,
+  onSubmit,
+}: {
+  seedPrompt: string;
+  onSubmit: (response: string) => Promise<void> | void;
+}) {
+  const [response, setResponse] = useState("");
+  const [isPending, setIsPending] = useState(false);
+  const canSubmit = response.trim().length >= 20;
+
+  async function handleSubmit() {
+    setIsPending(true);
+
+    try {
+      await onSubmit(response.trim());
+    } finally {
+      setIsPending(false);
+    }
+  }
+
+  return (
+    <section className="flex flex-col gap-6">
+      <div className="border border-border bg-card p-6 shadow-[0_18px_80px_rgba(2,6,23,0.18)]">
+        <div className="flex items-center gap-3">
+          <div className="h-2 w-2 bg-primary" />
+          <span className="text-[10px] font-medium tracking-[0.2em] uppercase text-muted-foreground">
+            Before you learn
+          </span>
+        </div>
+
+        <p className="mt-5 max-w-3xl text-base leading-8 text-foreground/80">
+          {seedPrompt}
+        </p>
+
+        <Textarea
+          value={response}
+          onChange={(e) => setResponse(e.target.value)}
+          placeholder="Write what you think you know..."
+          className="mt-6 min-h-[160px] border-border bg-transparent px-4 py-4 text-base leading-8 text-foreground shadow-none focus-visible:ring-0"
+        />
+
+        <div className="mt-5 flex items-center justify-between gap-4">
+          <div className="text-sm text-muted-foreground">
+            {canSubmit
+              ? "Your intuition is captured."
+              : `${Math.max(0, 20 - response.trim().length)} more characters — even a guess helps.`}
+          </div>
+          <Button
+            type="button"
+            onClick={handleSubmit}
+            disabled={!canSubmit || isPending}
+            className="h-11 bg-primary px-6 text-primary-foreground hover:brightness-110"
+          >
+            {isPending ? "Capturing..." : "Capture and continue"}
+          </Button>
+        </div>
+      </div>
+    </section>
+  );
+}

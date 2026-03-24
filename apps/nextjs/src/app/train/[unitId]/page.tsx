@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 
-import { UnitWorkspace } from "~/features/becoming/components/unit-workspace";
-import { getUnit } from "~/features/becoming/server/becoming-queries";
+import { ForgeWorkspace } from "~/features/becoming/components/forge/forge-workspace";
+import { getForgeUnit } from "~/features/becoming/server/becoming-queries";
 
 export default async function TrainUnitPage(props: {
   params: Promise<{ unitId: string }>;
@@ -17,7 +17,7 @@ export default async function TrainUnitPage(props: {
     redirect("/onboarding");
   }
 
-  const unit = await getUnit(unitId);
+  const unit = await getForgeUnit({ nodeId: unitId, sessionId });
 
-  return <UnitWorkspace unit={unit} sessionId={sessionId} />;
+  return <ForgeWorkspace unit={unit} sessionId={sessionId} />;
 }

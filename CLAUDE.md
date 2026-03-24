@@ -67,3 +67,17 @@ Copy `.env.example` to `.env` and populate:
 - `POSTGRES_URL` — Supabase PostgreSQL connection string
 - `AUTH_SECRET` — Generate with `openssl rand -base64 32`
 - `AUTH_DISCORD_ID` / `AUTH_DISCORD_SECRET` — Discord OAuth credentials
+
+## Plan Format Requirements
+
+When the user asks for a plan, follow this format strictly:
+
+1. **ASCII mockups first** — If the change involves any UI, lead with ASCII art showing the layout/component structure before anything else.
+2. **Detailed step-by-step bullet points** — Every single step must be listed. Each bullet is 1-2 sentences explaining what happens. A single bullet can inherently cover 1-2 tightly coupled sub-steps by design (e.g. "Create `foo.ts` and export the helper used by the next step"), so a 30-step change can be 10-15 bullets if all 30 steps are genuinely explained — but never hand-wave or skip.
+3. **Files touched** — Each bullet must name the file(s) being created or modified.
+4. **Three pillars check** — Every plan must explicitly address all three. If the current approach is missing any, do the research or reasoning needed to fix it before presenting the plan.
+   - **Modularity**: Where are the seams? Each new piece should be independently testable, swappable, and importable without pulling in unrelated code. Name the abstractions (registry, factory, plugin map, etc.) and explain why they exist. If a file does two jobs, split it. If three files share logic, extract it.
+   - **Error handling**: For every external call (DB, AI provider, third-party API, user input), state what can fail, how it's caught, and what the user sees. Timeouts, rate limits, malformed responses, network drops — all addressed. Errors should be typed (tRPC error codes, custom error classes) not generic catch-alls. Client-side: how does the UI surface errors (toast, inline, redirect)?
+   - **Fast latency**: Justify every round-trip. Use streaming (SSE, `streamText`, React Suspense) instead of awaiting full responses. Fire-and-forget for non-blocking writes (analytics, persistence). Parallel calls where independent. Cache where idempotent. State the expected latency profile (e.g. "first token in <200ms, full response streams over 2-5s, DB write happens after stream closes").
+5. **No fluff** — No preamble, no "here's what I'm thinking", no restating the request. Just the ASCII (if applicable) and the bullets.
+6. **Spacing** — Put a blank line between every bullet point. Each step should breathe — no wall-of-text paragraphs.

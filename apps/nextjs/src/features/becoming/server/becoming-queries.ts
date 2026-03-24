@@ -31,7 +31,15 @@ export const getProfileState = async (sessionId: string) => {
   return caller.becoming.profile({ sessionId });
 };
 
-export const getUnit = async (nodeId: string) => {
+export const getForgeUnit = async ({
+  nodeId,
+  sessionId,
+}: {
+  nodeId: string;
+  sessionId: string;
+}) => {
   const caller = await createCaller();
-  return caller.becoming.unit({ nodeId });
+  return caller.becoming.unit({ nodeId, sessionId });
 };
+
+export const getUnit = getForgeUnit;

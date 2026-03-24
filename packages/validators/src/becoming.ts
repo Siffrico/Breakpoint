@@ -46,6 +46,7 @@ export const CurriculumNodeKindSchema = z.enum([
   "root",
   "skill_cluster",
   "unit",
+  "integration",
   "simulation",
 ]);
 
@@ -78,44 +79,126 @@ export const CurriculumPlanSchema = z.object({
   nextUnitId: z.string().min(1).nullable(),
 });
 
-export const RetrievalItemSchema = z.object({
+export const PracticePromptSchema = z.object({
   prompt: z.string().min(1),
-  intent: z.string().min(1),
-  expectedSignals: z.array(z.string().min(1)).min(1),
+  type: z.enum(["identification", "construction", "debugging"]),
 });
 
-export const UnitScenarioSchema = z.object({
+export const TeachbackSetupSchema = z.object({
+  studentPersona: z.string().min(1),
+  openingMisconception: z.string().min(1),
+});
+
+export const ForgeUnitScenarioSchema = z.object({
   title: z.string().min(1),
-  prompt: z.string().min(1),
   focusAreas: z.array(z.string().min(1)).min(1),
-  successCriteria: z.array(z.string().min(1)).min(1),
 });
 
-export const UnitContentSchema = z.object({
+export const ForgeUnitContentSchema = z.object({
   id: z.string().min(1),
   nodeId: z.string().min(1),
   title: z.string().min(1),
-  concept: z.string().min(1),
-  workedExample: z.string().min(1),
-  retrievalItems: z.array(RetrievalItemSchema).length(3),
-  scenario: UnitScenarioSchema,
+  summary: z.string().min(1),
+  whyItMatters: z.string().min(1),
+  seedPrompt: z.string().min(1),
+  buildContent: z.string().min(1).nullable(),
+  practicePrompts: z.array(PracticePromptSchema).length(3).nullable(),
+  teachbackSetup: TeachbackSetupSchema,
+  scenario: ForgeUnitScenarioSchema,
 });
 
-export const RetrievalEvaluationSchema = z.object({
-  score: z.number().int().min(0).max(100),
+export const PreSeedUnitContentDraftSchema = ForgeUnitContentSchema.pick({
+  title: true,
+  seedPrompt: true,
+  teachbackSetup: true,
+  scenario: true,
+});
+
+export const PostSeedUnitContentDraftSchema = ForgeUnitContentSchema.pick({
+  buildContent: true,
+  practicePrompts: true,
+}).extend({
+  buildContent: z.string().min(200),
+  practicePrompts: z.array(PracticePromptSchema).length(3),
+});
+
+export const SeedResponseSchema = z.object({
+  response: z.string().min(20),
+});
+
+export const PracticeSubmissionSchema = z.object({
+  nodeId: z.string().min(1),
+  sequence: z.number().int().min(0),
+  response: z.string().min(30),
+});
+
+export const PracticeEvaluationSchema = z.object({
   passed: z.boolean(),
-  feedback: z.array(z.string().min(1)).min(1),
+  feedback: z.string().min(1),
 });
 
-export const DebriefSchema = z.object({
+export const TeachbackSubmissionSchema = z.object({
+  nodeId: z.string().min(1),
+  round: z.number().int().min(1).max(3),
+  response: z.string().min(50),
+});
+
+export const TeachbackRoundResultSchema = z.object({
+  studentReply: z.string().nullable(),
+  passed: z.boolean(),
+  round: z.number().int(),
+  score: z.number().int().min(0).max(100).nullable(),
+  feedback: z.string().nullable(),
+});
+
+export const FailureGapSchema = z.object({
+  description: z.string().min(1),
+  gapType: z.string().min(1),
+  whereItBroke: z.string().min(1),
+});
+
+export const GhostScenarioSchema = z.object({
+  domain: z.string().min(1),
+  prompt: z.string().min(1),
+  targetDepth: z.number().int().min(1),
+});
+
+export const FailureIsolationResultSchema = z.object({
+  gap: FailureGapSchema,
+  ghostScenario: GhostScenarioSchema,
+});
+
+export const GhostSubmissionSchema = z.object({
+  nodeId: z.string().min(1),
+  response: z.string().min(50),
+});
+
+export const GhostEvaluationSchema = z.object({
+  passed: z.boolean(),
+  feedback: z.string().min(1),
+  score: z.number().int().min(0).max(100),
+});
+
+export const TeachbackMessageSchema = z.object({
+  role: z.enum(["student", "user"]),
+  content: z.string().min(1),
+  round: z.number().int().min(1),
+});
+
+export const ForgeDebriefSchema = z.object({
+  seedResponse: z.string(),
+  finalArticulation: z.string(),
+  growthDimensions: z.array(z.string().min(1)).min(1),
   score: z.number().int().min(0).max(100),
   readiness: z.enum(["needs_repair", "developing", "ready_for_next_unit"]),
   strengths: z.array(z.string().min(1)).min(1),
   improvements: z.array(z.string().min(1)).min(1),
-  failureTags: z.array(z.string().min(1)).min(1),
-  targetComparison: z.string().min(1),
+  failureTags: z.array(z.string().min(1)),
   nextStep: z.string().min(1),
 });
+
+export const UnitContentSchema = ForgeUnitContentSchema;
+export const DebriefSchema = ForgeDebriefSchema;
 
 export type OnboardingSlot = z.infer<typeof OnboardingSlotSchema>;
 export type OnboardingPhase = z.infer<typeof OnboardingPhaseSchema>;
@@ -128,8 +211,25 @@ export type CurriculumNodeKind = z.infer<typeof CurriculumNodeKindSchema>;
 export type CurriculumNodeStatus = z.infer<typeof CurriculumNodeStatusSchema>;
 export type CurriculumNode = z.infer<typeof CurriculumNodeSchema>;
 export type CurriculumPlan = z.infer<typeof CurriculumPlanSchema>;
-export type RetrievalItem = z.infer<typeof RetrievalItemSchema>;
-export type UnitScenario = z.infer<typeof UnitScenarioSchema>;
+export type PracticePrompt = z.infer<typeof PracticePromptSchema>;
+export type TeachbackSetup = z.infer<typeof TeachbackSetupSchema>;
+export type ForgeUnitScenario = z.infer<typeof ForgeUnitScenarioSchema>;
+export type ForgeUnitContent = z.infer<typeof ForgeUnitContentSchema>;
+export type PreSeedUnitContentDraft = z.infer<typeof PreSeedUnitContentDraftSchema>;
+export type PostSeedUnitContentDraft = z.infer<
+  typeof PostSeedUnitContentDraftSchema
+>;
+export type SeedResponse = z.infer<typeof SeedResponseSchema>;
+export type PracticeSubmission = z.infer<typeof PracticeSubmissionSchema>;
+export type PracticeEvaluation = z.infer<typeof PracticeEvaluationSchema>;
+export type TeachbackSubmission = z.infer<typeof TeachbackSubmissionSchema>;
+export type TeachbackRoundResult = z.infer<typeof TeachbackRoundResultSchema>;
+export type FailureGap = z.infer<typeof FailureGapSchema>;
+export type GhostScenario = z.infer<typeof GhostScenarioSchema>;
+export type FailureIsolationResult = z.infer<typeof FailureIsolationResultSchema>;
+export type GhostSubmission = z.infer<typeof GhostSubmissionSchema>;
+export type GhostEvaluation = z.infer<typeof GhostEvaluationSchema>;
+export type TeachbackMessage = z.infer<typeof TeachbackMessageSchema>;
+export type ForgeDebrief = z.infer<typeof ForgeDebriefSchema>;
 export type UnitContent = z.infer<typeof UnitContentSchema>;
-export type RetrievalEvaluation = z.infer<typeof RetrievalEvaluationSchema>;
 export type Debrief = z.infer<typeof DebriefSchema>;

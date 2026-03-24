@@ -1,13 +1,11 @@
-import { generateObject } from "ai";
-import { z } from "zod/v4";
-
 import type {
   CurriculumBlueprint,
   CurriculumNodeBlueprint,
   IdentityReport,
-  UnitContentBlueprint,
 } from "../types/becoming.types";
+import { generateBecomingObject } from "../generate-becoming-object";
 import { getBecomingModel } from "./becoming-model";
+import { z } from "zod/v4";
 
 const CurriculumDraftSchema = z.object({
   title: z.string().min(1),
@@ -19,50 +17,41 @@ const CurriculumDraftSchema = z.object({
         title: z.string().min(1),
         summary: z.string().min(1),
         whyItMatters: z.string().min(1),
-        units: z
-          .array(
-            z.object({
-              title: z.string().min(1),
-              summary: z.string().min(1),
-              whyItMatters: z.string().min(1),
-            }),
-          )
-          .length(2),
+        unitCount: z.number().int().min(1).max(6),
+        simulation: z.object({
+          title: z.string().min(1),
+          summary: z.string().min(1),
+          whyItMatters: z.string().min(1),
+        }),
       }),
     )
-    .length(3),
-});
-
-const ReadyUnitDraftSchema = z.object({
-  units: z.array(
-    z.object({
-      nodeOrderIndex: z.number().int().min(0),
-      title: z.string().min(1),
-      concept: z.string().min(1),
-      workedExample: z.string().min(1),
-      retrievalItems: z
-        .array(
-          z.object({
-            prompt: z.string().min(1),
-            intent: z.string().min(1),
-            expectedSignals: z.array(z.string().min(1)).min(2).max(5),
-          }),
-        )
-        .length(3),
-      scenario: z.object({
+    .min(1)
+    .max(7),
+  integrationLayers: z
+    .array(
+      z.object({
         title: z.string().min(1),
-        prompt: z.string().min(1),
-        focusAreas: z.array(z.string().min(1)).length(4),
-        successCriteria: z.array(z.string().min(1)).length(4),
+        summary: z.string().min(1),
+        whyItMatters: z.string().min(1),
+        unitCount: z.number().int().min(1).max(4),
+        clusterSynthesis: z.array(z.string().min(1)).min(2),
       }),
-    }),
-  ),
+    )
+    .max(6),
 });
 
 const buildNodes = (
   draft: z.infer<typeof CurriculumDraftSchema>,
   report: IdentityReport,
 ): CurriculumNodeBlueprint[] => {
+  const maxUnitsPerCluster = Math.max(
+    ...draft.clusters.map((cluster) => cluster.unitCount),
+    1,
+  );
+  const clusterSpan = maxUnitsPerCluster + 2;
+  const totalClusterWidth = Math.max(draft.clusters.length * clusterSpan - 1, 1);
+  const integrationStartColumn = totalClusterWidth + 2;
+
   const nodes: CurriculumNodeBlueprint[] = [
     {
       parentOrderIndex: null,
@@ -73,7 +62,7 @@ const buildNodes = (
       whyItMatters: "This path exists because of the operator the user wants to become.",
       orderIndex: 0,
       depth: 0,
-      positionColumn: 2,
+      positionColumn: Math.floor(totalClusterWidth / 2),
       positionRow: 0,
     },
   ];
@@ -83,6 +72,9 @@ const buildNodes = (
 
   draft.clusters.forEach((cluster, clusterIndex) => {
     const clusterOrderIndex = orderIndex++;
+    const baseColumn = clusterIndex * clusterSpan;
+    const clusterCenter = baseColumn + Math.floor((cluster.unitCount - 1) / 2);
+
     nodes.push({
       parentOrderIndex: 0,
       kind: "skill_cluster",
@@ -92,114 +84,73 @@ const buildNodes = (
       whyItMatters: cluster.whyItMatters,
       orderIndex: clusterOrderIndex,
       depth: 1,
-      positionColumn: clusterIndex * 2,
+      positionColumn: clusterCenter,
       positionRow: 1,
     });
 
-    cluster.units.forEach((unit, unitIndex) => {
+    Array.from({ length: cluster.unitCount }).forEach((_, unitIndex) => {
       unitNumber += 1;
       nodes.push({
         parentOrderIndex: clusterOrderIndex,
         kind: "unit",
         status: unitNumber <= 2 ? "ready" : "planned",
-        title: unit.title,
-        summary: unit.summary,
-        whyItMatters: unit.whyItMatters,
+        title: `Unit Slot ${unitIndex + 1}`,
+        summary: `Generated when the learner reaches slot ${unitIndex + 1} in ${cluster.title}.`,
+        whyItMatters: cluster.whyItMatters,
         orderIndex: orderIndex++,
         depth: 2,
-        positionColumn: clusterIndex * 2 + unitIndex,
+        positionColumn: baseColumn + unitIndex,
         positionRow: 2,
+      });
+    });
+
+    nodes.push({
+      parentOrderIndex: clusterOrderIndex,
+      kind: "simulation",
+      status: "planned",
+      title: cluster.simulation.title,
+      summary: cluster.simulation.summary,
+      whyItMatters: cluster.simulation.whyItMatters,
+      orderIndex: orderIndex++,
+      depth: 3,
+      positionColumn: clusterCenter,
+      positionRow: 3,
+    });
+  });
+
+  draft.integrationLayers.forEach((layer, layerIndex) => {
+    const layerOrderIndex = orderIndex++;
+
+    nodes.push({
+      parentOrderIndex: 0,
+      kind: "skill_cluster",
+      status: "planned",
+      title: layer.title,
+      summary: layer.summary,
+      whyItMatters: `${layer.whyItMatters} Combines ${layer.clusterSynthesis.join(", ")}.`,
+      orderIndex: layerOrderIndex,
+      depth: 1,
+      positionColumn: integrationStartColumn + layerIndex,
+      positionRow: 1,
+    });
+
+    Array.from({ length: layer.unitCount }).forEach((_, slotIndex) => {
+      nodes.push({
+        parentOrderIndex: layerOrderIndex,
+        kind: "integration",
+        status: "planned",
+        title: `Integration Slot ${slotIndex + 1}`,
+        summary: `Generated when the learner reaches integration slot ${slotIndex + 1}. Combines ${layer.clusterSynthesis.join(", ")}.`,
+        whyItMatters: layer.whyItMatters,
+        orderIndex: orderIndex++,
+        depth: 2,
+        positionColumn: integrationStartColumn + layerIndex,
+        positionRow: 2 + slotIndex,
       });
     });
   });
 
-  nodes.push({
-    parentOrderIndex: 0,
-    kind: "simulation",
-    status: "planned",
-    title: "Deep Simulation",
-    summary: "A cumulative pressure test that interleaves the first five units.",
-    whyItMatters: "Integration pressure shows whether separate skills have actually fused into behavior.",
-    orderIndex,
-    depth: 3,
-    positionColumn: 2,
-    positionRow: 3,
-  });
-
   return nodes;
-};
-
-const buildInitialUnits = async ({
-  report,
-  nodes,
-}: {
-  report: IdentityReport;
-  nodes: CurriculumNodeBlueprint[];
-}): Promise<UnitContentBlueprint[]> => {
-  const model = getBecomingModel();
-  if (!model) {
-    throw new Error("OPENAI_API_KEY is required for AI-generated unit creation.");
-  }
-
-  const readyNodes = nodes.filter(
-    (node) => node.kind === "unit" && node.status === "ready",
-  );
-
-  const { object } = await generateObject({
-    model,
-    schema: ReadyUnitDraftSchema,
-    system:
-      "You are the education-unit-builder for an identity-driven training product. Build dense, sharp units that teach one thing cleanly, force recall, and then pressure-test application. No fluff. No generic teaching language. Every unit should feel like it was built for this user's target self.",
-    prompt: `Generate the first ready units for this learner.
-
-Requirements:
-- Return one payload for each ready unit listed below.
-- Keep the title aligned with the unit title already chosen.
-- Concept should teach how to think, not just what to know.
-- Worked example should show strong reasoning in action.
-- Retrieval items should force recall, not recognition.
-- Scenario should feel high-pressure and specific.
-- Focus areas and success criteria must each contain exactly 4 items.
-- expectedSignals should be short phrases that are strong evidence of understanding.
-
-Identity report:
-Target identity: ${report.targetIdentity}
-Headline: ${report.headline}
-Motivation: ${report.motivation}
-Current baseline: ${report.currentBaseline}
-Proof of progress: ${report.proofOfProgress}
-Hard moments: ${report.hardMoments.join("; ")}
-Constraints: ${report.constraints.join("; ") || "None provided"}
-Behavior signals: ${report.behaviorSignals.join("; ")}
-
-Ready units:
-${readyNodes
-  .map(
-    (node) =>
-      `- order=${node.orderIndex} | title=${node.title} | summary=${node.summary} | why=${node.whyItMatters}`,
-  )
-  .join("\n")}`,
-  });
-
-  const readyNodeByOrder = new Map(
-    readyNodes.map((node) => [node.orderIndex, node]),
-  );
-
-  if (
-    object.units.length !== readyNodes.length ||
-    object.units.some((unit) => !readyNodeByOrder.has(unit.nodeOrderIndex))
-  ) {
-    throw new Error("AI returned unit payloads that do not match the ready nodes.");
-  }
-
-  return object.units.map((unit) => ({
-    nodeOrderIndex: unit.nodeOrderIndex,
-    title: readyNodeByOrder.get(unit.nodeOrderIndex)?.title ?? unit.title,
-    concept: unit.concept,
-    workedExample: unit.workedExample,
-    retrievalItems: unit.retrievalItems as UnitContentBlueprint["retrievalItems"],
-    scenario: unit.scenario,
-  }));
 };
 
 export const buildCurriculumPlan = async (
@@ -210,20 +161,26 @@ export const buildCurriculumPlan = async (
     throw new Error("OPENAI_API_KEY is required for AI-generated curriculum architecture.");
   }
 
-  const { object } = await generateObject({
-    model,
+  const object = await generateBecomingObject({
+    modelName: process.env.OPENAI_MODEL,
     schema: CurriculumDraftSchema,
+    errorMessage: "Failed to generate the curriculum architecture.",
     system:
       "You design adaptive training curricula for an identity-driven product. Convert ambition into a pressure-tested path. Think in terms of operator capability, judgment, behavior under stress, and measurable progression.",
-    prompt: `Design a curriculum architecture for this learner.
+    prompt: `Design a curriculum skeleton for this learner.
 
 Requirements:
-- Return exactly 3 skill clusters.
-- Return exactly 2 units inside each cluster.
+- Return between 1 and 7 skill clusters, based on the learner and domain complexity.
+- Each cluster should specify unitCount instead of predefining unit titles or lesson topics.
+- Each cluster must include one capstone simulation object that pressure-tests that cluster's skills.
+- integrationLayers should describe cross-cluster bridge layers only when they are needed.
+- Each integration layer should specify unitCount instead of predefining integration lessons.
+- Curriculum creation is skeleton-only. Do not predefine unit titles, unit summaries, or lesson content.
 - Build for the person they want to become, not a generic course buyer.
-- The units should feel concrete, serious, and operator-like.
-- The path should move from foundational judgment to pressure performance.
+- The path should move through cluster skill-building, then a simulation for that cluster, then onward to the next cluster, with integration work only after the cluster work is complete.
 - Keep the language crisp, not academic or motivational.
+- clusterSynthesis should name the cluster titles being combined.
+- Do not use filler clusters or filler slots just to make the path look complete. Fewer stronger nodes is better than padded curriculum.
 
 Identity report:
 Target identity: ${report.targetIdentity}
@@ -236,14 +193,10 @@ Constraints: ${report.constraints.join("; ") || "None provided"}
 Behavior signals: ${report.behaviorSignals.join("; ")}`,
   });
 
-  const nodes = buildNodes(object, report);
-  const initialUnits = await buildInitialUnits({ report, nodes });
-
   return {
     title: object.title,
     summary: object.summary,
     targetIdentity: object.targetIdentity,
-    nodes,
-    initialUnits,
+    nodes: buildNodes(object, report),
   };
 };

@@ -60,9 +60,6 @@ export function DomainSelection({
                   <div className="space-y-5">
                     <div className="flex items-start justify-between gap-3">
                       <SurfaceHeader className="space-y-2">
-                        <p className="text-[11px] font-medium tracking-[0.22em] uppercase text-muted-foreground">
-                          {domain.stageLabel}
-                        </p>
                         <SurfaceTitle className="text-2xl">
                           {domain.title}
                         </SurfaceTitle>

@@ -1,30 +1,56 @@
 import type {
   CurriculumNode,
   CurriculumNodeKind,
-  CurriculumPlan,
   CurriculumNodeStatus,
+  CurriculumPlan,
   Debrief,
+  FailureGap,
+  FailureIsolationResult,
+  ForgeDebrief,
+  ForgeUnitContent,
+  ForgeUnitScenario,
+  GhostEvaluation,
+  GhostScenario,
   IdentityReport,
   OnboardingQuestion,
   OnboardingSlot,
   OnboardingTranscriptMessage,
-  RetrievalEvaluation,
-  RetrievalItem,
+  PostSeedUnitContentDraft,
+  PracticeEvaluation,
+  PracticePrompt,
+  PracticeSubmission,
+  PreSeedUnitContentDraft,
+  TeachbackMessage,
+  TeachbackRoundResult,
+  TeachbackSetup,
   UnitContent,
 } from "@acme/validators";
 
 export type {
   CurriculumNode,
   CurriculumNodeKind,
-  CurriculumPlan,
   CurriculumNodeStatus,
+  CurriculumPlan,
   Debrief,
+  FailureGap,
+  FailureIsolationResult,
+  ForgeDebrief,
+  ForgeUnitContent,
+  ForgeUnitScenario,
+  GhostEvaluation,
+  GhostScenario,
   IdentityReport,
   OnboardingQuestion,
   OnboardingSlot,
   OnboardingTranscriptMessage,
-  RetrievalEvaluation,
-  RetrievalItem,
+  PostSeedUnitContentDraft,
+  PracticeEvaluation,
+  PracticePrompt,
+  PracticeSubmission,
+  PreSeedUnitContentDraft,
+  TeachbackMessage,
+  TeachbackRoundResult,
+  TeachbackSetup,
   UnitContent,
 };
 
@@ -41,18 +67,17 @@ export interface CurriculumNodeBlueprint {
   positionRow: number;
 }
 
-export interface UnitContentBlueprint {
-  nodeOrderIndex: number;
-  title: string;
-  concept: string;
-  workedExample: string;
-  retrievalItems: [RetrievalItem, RetrievalItem, RetrievalItem];
-  scenario: {
-    title: string;
-    prompt: string;
-    focusAreas: string[];
-    successCriteria: string[];
-  };
+export interface PostSeedGenerationResult {
+  captured: true;
+  buildContent: string;
+  practicePrompts: PracticePrompt[];
+}
+
+export interface UpdateUnitContentInput {
+  unitContentId: string;
+  buildContent: string;
+  practicePrompts: PracticePrompt[];
+  contentGeneratedAt: Date;
 }
 
 export interface CurriculumBlueprint {
@@ -60,7 +85,6 @@ export interface CurriculumBlueprint {
   summary: string;
   targetIdentity: string;
   nodes: CurriculumNodeBlueprint[];
-  initialUnits: UnitContentBlueprint[];
 }
 
 export interface OnboardingSessionState {
@@ -91,4 +115,28 @@ export interface ProfileState {
   hardMoments: string[];
   constraints: string[];
   behaviorSignals: string[];
+}
+
+export type BecomingPhase = "seed" | "practice" | "teachback" | "ghost";
+
+export interface PhaseResponseMetadata {
+  attempts?: number;
+  feedback?: string;
+  gap?: FailureGap;
+  ghostScenario?: GhostScenario;
+}
+
+export interface PhaseResponseRecord {
+  id: string;
+  unitContentId: string;
+  sessionId: string;
+  userId?: string | null;
+  phase: BecomingPhase;
+  sequence: number;
+  userResponse: string;
+  aiResponse: string | null;
+  passed: boolean | null;
+  score: number | null;
+  metadata: PhaseResponseMetadata | null;
+  createdAt: Date;
 }

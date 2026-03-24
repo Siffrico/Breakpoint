@@ -24,83 +24,79 @@ export function HomeOverview({
   const profileHref = preview ? "/ui/profile" : `/profile?session=${sessionId}`;
 
   return (
-    <main className="min-h-screen bg-[#06070a] px-5 py-8 text-white sm:px-8 lg:px-10">
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-8">
-        <div className="flex flex-wrap items-end justify-between gap-4 border-b border-white/8 pb-6">
-          <div>
-            <p className="text-xs tracking-[0.3em] uppercase text-white/35">
-              Active Path
-            </p>
-            <h1 className="font-display mt-3 text-4xl tracking-[-0.06em] sm:text-5xl">
-              {home.targetIdentity}
-            </h1>
-            <p className="mt-4 max-w-3xl text-base leading-8 text-white/60">
-              {home.headline}
-            </p>
-          </div>
-          <div className="text-right">
-            <div className="text-xs tracking-[0.28em] uppercase text-white/35">
-              Progress
-            </div>
-            <div className="mt-3 font-display text-5xl tracking-[-0.06em]">
-              {progress}%
-            </div>
-          </div>
-        </div>
+    <main className="min-h-dvh bg-background text-foreground">
+      <div className="mx-auto max-w-3xl border-x border-border/50">
+        <section className="flex items-center justify-between border-b border-border px-6 py-4">
+          <span className="font-mono text-xs text-muted-foreground">
+            {home.completedUnits}/{home.totalUnits} units
+          </span>
+          <span className="font-mono text-xs text-muted-foreground">
+            {progress}%
+          </span>
+        </section>
 
-        <div className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
-          <section className="border border-white/10 bg-white/[0.03] p-6">
-            <p className="text-xs tracking-[0.26em] uppercase text-white/35">
-              Next
-            </p>
-            <h2 className="font-display mt-3 text-3xl tracking-[-0.05em]">
-              {home.nextUnitTitle ?? "Path generated"}
-            </h2>
-            <p className="mt-4 max-w-2xl text-base leading-8 text-white/55">
-              {home.planSummary}
-            </p>
+        <section className="border-b border-border px-6 py-6">
+          <h1 className="font-display text-2xl tracking-[-0.04em]">
+            {home.targetIdentity}
+          </h1>
+          <p className="mt-3 text-sm leading-6 text-muted-foreground">
+            {home.headline}
+          </p>
+        </section>
 
-            <div className="mt-8 flex flex-wrap gap-3">
-              {home.nextUnitId ? (
-                <Button asChild className="h-11 rounded-none bg-white px-5 text-black hover:bg-white/90">
-                  <Link href={trainHref}>
-                    Continue
-                  </Link>
-                </Button>
-              ) : null}
+        <section className="border-b border-border px-6 py-6">
+          <h2 className="font-display text-lg tracking-[-0.03em]">
+            {home.nextUnitTitle ?? "Path generated"}
+          </h2>
+          <p className="mt-3 text-sm leading-6 text-muted-foreground">
+            {home.planSummary}
+          </p>
+          <div className="mt-5">
+            {home.nextUnitId ? (
               <Button
                 asChild
-                variant="outline"
-                className="h-11 rounded-none border-white/15 bg-transparent px-5 text-white hover:bg-white/5 hover:text-white"
+                className="h-10 rounded-none bg-white px-5 text-black hover:bg-white/90"
               >
-                <Link href={planHref}>View path</Link>
+                <Link href={trainHref}>Continue training</Link>
               </Button>
-            </div>
-          </section>
+            ) : null}
+          </div>
+        </section>
 
-          <section className="border border-white/10 bg-white/[0.03] p-6">
-            <p className="text-xs tracking-[0.26em] uppercase text-white/35">
-              Blocking Signals
-            </p>
-            <div className="mt-5 space-y-3">
+        <section className="border-b border-border px-6 py-6">
+          <details>
+            <summary className="cursor-pointer text-sm text-foreground">
+              {home.blockingSignals.length} patterns blocking progress
+            </summary>
+            <div className="mt-3">
               {home.blockingSignals.map((signal) => (
                 <div
                   key={signal}
-                  className="border border-white/8 bg-white/[0.03] px-4 py-3 text-sm leading-7 text-white/70"
+                  className="border-b border-border py-3 text-sm leading-6 text-muted-foreground last:border-b-0"
                 >
                   {signal}
                 </div>
               ))}
             </div>
-            <Button
-              asChild
-              variant="outline"
-              className="mt-6 h-11 rounded-none border-white/15 bg-transparent px-5 text-white hover:bg-white/5 hover:text-white"
-            >
-              <Link href={profileHref}>Open identity profile</Link>
-            </Button>
-          </section>
-        </div>
+          </details>
+        </section>
+
+        <section className="flex gap-3 px-6 py-6">
+          <Button
+            asChild
+            variant="outline"
+            className="h-10 rounded-none border-border bg-transparent px-5 text-foreground hover:bg-white/5"
+          >
+            <Link href={planHref}>View path</Link>
+          </Button>
+          <Button
+            asChild
+            variant="outline"
+            className="h-10 rounded-none border-border bg-transparent px-5 text-foreground hover:bg-white/5"
+          >
+            <Link href={profileHref}>Identity profile</Link>
+          </Button>
+        </section>
       </div>
     </main>
   );

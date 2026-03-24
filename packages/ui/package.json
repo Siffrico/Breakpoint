@@ -14,7 +14,8 @@
     "./surface": "./src/surface.tsx",
     "./textarea": "./src/textarea.tsx",
     "./theme": "./src/theme.tsx",
-    "./toast": "./src/toast.tsx"
+    "./toast": "./src/toast.tsx",
+    "./tree": "./src/tree.tsx"
   },
   "license": "MIT",
   "scripts": {

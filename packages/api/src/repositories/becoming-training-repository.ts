@@ -1,4 +1,4 @@
-import { asc, eq } from "@acme/db";
+import { and, asc, desc, eq } from "@acme/db";
 import type { db as databaseClient } from "@acme/db/client";
 import {
   BecomingCurriculumNode,
@@ -19,6 +19,9 @@ export const becomingTrainingRepository = {
     unitId,
     response,
     debrief,
+    seedResponse,
+    finalArticulation,
+    growthDimensions,
   }: {
     db: Database;
     sessionId: string;
@@ -26,6 +29,9 @@ export const becomingTrainingRepository = {
     unitId: string;
     response: string;
     debrief: Debrief;
+    seedResponse?: string | null;
+    finalArticulation?: string | null;
+    growthDimensions?: string[] | null;
   }) => {
     const [attempt] = await db
       .insert(BecomingUnitAttempt)
@@ -39,12 +45,63 @@ export const becomingTrainingRepository = {
         strengths: debrief.strengths,
         improvements: debrief.improvements,
         failureTags: debrief.failureTags,
-        targetComparison: debrief.targetComparison,
+        targetComparison: null,
+        seedResponse: seedResponse ?? null,
+        finalArticulation: finalArticulation ?? null,
+        growthDimensions: growthDimensions ?? null,
         nextStep: debrief.nextStep,
       })
       .returning();
 
     return attempt ?? null;
+  },
+
+  getLatestAttemptByUnit: async ({
+    db,
+    sessionId,
+    unitId,
+  }: {
+    db: Database;
+    sessionId: string;
+    unitId: string;
+  }) =>
+    (await db.query.BecomingUnitAttempt.findFirst({
+      where: and(
+        eq(BecomingUnitAttempt.onboardingSessionId, sessionId),
+        eq(BecomingUnitAttempt.unitContentId, unitId),
+      ),
+      orderBy: [desc(BecomingUnitAttempt.createdAt)],
+    })) ?? null,
+
+  listAttemptHistory: async ({
+    db,
+    sessionId,
+  }: {
+    db: Database;
+    sessionId: string;
+  }) => {
+    const attempts = await db.query.BecomingUnitAttempt.findMany({
+      where: eq(BecomingUnitAttempt.onboardingSessionId, sessionId),
+      orderBy: asc(BecomingUnitAttempt.createdAt),
+    });
+
+    if (attempts.length === 0) {
+      return [];
+    }
+
+    const unitRows = await db.query.BecomingUnitContent.findMany();
+    const unitsById = new Map(unitRows.map((unit) => [unit.id, unit]));
+
+    return attempts.map((attempt) => ({
+      title: unitsById.get(attempt.unitContentId)?.title ?? "Completed unit",
+      score: attempt.score,
+      readiness: attempt.readiness,
+      finalArticulation: attempt.finalArticulation,
+      growthDimensions: attempt.growthDimensions,
+      improvements: attempt.improvements,
+      failureTags: attempt.failureTags,
+      nextStep: attempt.nextStep,
+    }));
   },
 
   getHomeSummary: async ({
@@ -72,7 +129,11 @@ export const becomingTrainingRepository = {
       orderBy: asc(BecomingCurriculumNode.orderIndex),
     });
 
-    const currentReadyNode = nodes.find((node) => node.kind === "unit" && node.status === "ready");
+    const currentReadyNode = nodes.find(
+      (node) =>
+        (node.kind === "unit" || node.kind === "integration") &&
+        node.status === "ready",
+    );
     const unit = currentReadyNode
       ? await db.query.BecomingUnitContent.findFirst({
           where: eq(BecomingUnitContent.nodeId, currentReadyNode.id),
