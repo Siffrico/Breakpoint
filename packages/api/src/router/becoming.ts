@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod/v4";
 import type { CurriculumNode } from "@acme/validators";
 import {
+  CapstoneSubmissionSchema,
   GhostSubmissionSchema,
   PracticeSubmissionSchema,
   SeedResponseSchema,
@@ -10,8 +11,14 @@ import {
 } from "@acme/validators";
 
 import {
+  generateCapstoneWorkflow,
+} from "../domain/becoming/workflows/generate-capstone-workflow";
+import {
   getActivePlanWorkflow,
 } from "../domain/becoming/workflows/get-active-plan-workflow";
+import {
+  getCapstoneWorkflow,
+} from "../domain/becoming/workflows/get-capstone-workflow";
 import {
   generateCurriculumWorkflow,
 } from "../domain/becoming/workflows/generate-curriculum-workflow";
@@ -43,6 +50,9 @@ import {
   submitGhostResponseWorkflow,
 } from "../domain/becoming/workflows/submit-ghost-response-workflow";
 import {
+  submitCapstoneMessageWorkflow,
+} from "../domain/becoming/workflows/submit-capstone-message-workflow";
+import {
   submitOnboardingAnswerWorkflow,
 } from "../domain/becoming/workflows/submit-onboarding-answer-workflow";
 import {
@@ -51,6 +61,7 @@ import {
 import {
   submitTeachbackWorkflow,
 } from "../domain/becoming/workflows/submit-teachback-workflow";
+import { becomingCapstoneRepository } from "../repositories/becoming-capstone-repository";
 import { becomingCurriculumRepository } from "../repositories/becoming-curriculum-repository";
 import { becomingOnboardingRepository } from "../repositories/becoming-onboarding-repository";
 import { becomingTrainingRepository } from "../repositories/becoming-training-repository";
@@ -78,6 +89,9 @@ const SubmitTeachbackSchema = TeachbackSubmissionSchema.extend({
   sessionId: z.string().uuid(),
 });
 const SubmitGhostResponseSchema = GhostSubmissionSchema.extend({
+  sessionId: z.string().uuid(),
+});
+const SubmitCapstoneMessageSchema = CapstoneSubmissionSchema.extend({
   sessionId: z.string().uuid(),
 });
 
@@ -495,6 +509,220 @@ export const becomingRouter = {
                 db: ctx.db,
                 nodeId,
               }),
+            getPlanNodesBySession: (sessionId) =>
+              becomingCurriculumRepository.getPlanNodesBySession({
+                db: ctx.db,
+                sessionId,
+              }),
+            generateCapstone: async ({ nodeId, sessionId, userId }) => {
+              const result = await generateCapstoneWorkflow({
+                nodeId,
+                sessionId,
+                userId,
+                deps: {
+                  getNodeById: (nodeId) =>
+                    becomingCurriculumRepository.getNodeById({
+                      db: ctx.db,
+                      nodeId,
+                    }),
+                  getPlanNodesBySession: (sessionId) =>
+                    becomingCurriculumRepository.getPlanNodesBySession({
+                      db: ctx.db,
+                      sessionId,
+                    }),
+                  getCapstoneByNodeId: (simulationNodeId, sessionId) =>
+                    becomingCapstoneRepository.getCapstoneByNodeId({
+                      db: ctx.db,
+                      simulationNodeId,
+                      sessionId,
+                    }),
+                  listCapstoneMessages: (capstoneId) =>
+                    becomingCapstoneRepository.listMessages({
+                      db: ctx.db,
+                      capstoneId,
+                    }),
+                  saveCapstone: (payload) =>
+                    becomingCapstoneRepository.saveCapstone({
+                      db: ctx.db,
+                      ...payload,
+                    }),
+                  appendCapstoneMessage: (payload) =>
+                    becomingCapstoneRepository.appendMessage({
+                      db: ctx.db,
+                      ...payload,
+                    }),
+                  getUnitByNodeId: (nodeId) =>
+                    becomingCurriculumRepository.getUnitByNodeId({
+                      db: ctx.db,
+                      nodeId,
+                    }),
+                  listLatestAttemptsByUnitIds: (sessionId, unitIds) =>
+                    becomingTrainingRepository.listLatestAttemptsByUnitIds({
+                      db: ctx.db,
+                      sessionId,
+                      unitIds,
+                    }),
+                },
+              });
+
+              if (!result.success) {
+                throw new Error(result.error);
+              }
+            },
+          },
+        }),
+      )),
+
+  getCapstone: publicProcedure
+    .input(NodeSessionSchema)
+    .query(async ({ ctx, input }) =>
+      throwOnFailure(
+        await getCapstoneWorkflow({
+          sessionId: input.sessionId,
+          nodeId: input.nodeId,
+          userId: ctx.session?.user.id,
+          deps: {
+            getNodeById: (nodeId) =>
+              becomingCurriculumRepository.getNodeById({
+                db: ctx.db,
+                nodeId,
+              }),
+            getPlanNodesBySession: (sessionId) =>
+              becomingCurriculumRepository.getPlanNodesBySession({
+                db: ctx.db,
+                sessionId,
+              }),
+            getCapstoneByNodeId: (simulationNodeId, sessionId) =>
+              becomingCapstoneRepository.getCapstoneByNodeId({
+                db: ctx.db,
+                simulationNodeId,
+                sessionId,
+              }),
+            listCapstoneMessages: (capstoneId) =>
+              becomingCapstoneRepository.listMessages({
+                db: ctx.db,
+                capstoneId,
+              }),
+            saveCapstone: (payload) =>
+              becomingCapstoneRepository.saveCapstone({
+                db: ctx.db,
+                ...payload,
+              }),
+            appendCapstoneMessage: (payload) =>
+              becomingCapstoneRepository.appendMessage({
+                db: ctx.db,
+                ...payload,
+              }),
+            getUnitByNodeId: (nodeId) =>
+              becomingCurriculumRepository.getUnitByNodeId({
+                db: ctx.db,
+                nodeId,
+              }),
+            listLatestAttemptsByUnitIds: (sessionId, unitIds) =>
+              becomingTrainingRepository.listLatestAttemptsByUnitIds({
+                db: ctx.db,
+                sessionId,
+                unitIds,
+              }),
+          },
+        }),
+      )),
+
+  generateCapstone: publicProcedure
+    .input(NodeSessionSchema)
+    .mutation(async ({ ctx, input }) =>
+      throwOnFailure(
+        await generateCapstoneWorkflow({
+          sessionId: input.sessionId,
+          nodeId: input.nodeId,
+          userId: ctx.session?.user.id,
+          deps: {
+            getNodeById: (nodeId) =>
+              becomingCurriculumRepository.getNodeById({
+                db: ctx.db,
+                nodeId,
+              }),
+            getPlanNodesBySession: (sessionId) =>
+              becomingCurriculumRepository.getPlanNodesBySession({
+                db: ctx.db,
+                sessionId,
+              }),
+            getCapstoneByNodeId: (simulationNodeId, sessionId) =>
+              becomingCapstoneRepository.getCapstoneByNodeId({
+                db: ctx.db,
+                simulationNodeId,
+                sessionId,
+              }),
+            listCapstoneMessages: (capstoneId) =>
+              becomingCapstoneRepository.listMessages({
+                db: ctx.db,
+                capstoneId,
+              }),
+            saveCapstone: (payload) =>
+              becomingCapstoneRepository.saveCapstone({
+                db: ctx.db,
+                ...payload,
+              }),
+            appendCapstoneMessage: (payload) =>
+              becomingCapstoneRepository.appendMessage({
+                db: ctx.db,
+                ...payload,
+              }),
+            getUnitByNodeId: (nodeId) =>
+              becomingCurriculumRepository.getUnitByNodeId({
+                db: ctx.db,
+                nodeId,
+              }),
+            listLatestAttemptsByUnitIds: (sessionId, unitIds) =>
+              becomingTrainingRepository.listLatestAttemptsByUnitIds({
+                db: ctx.db,
+                sessionId,
+                unitIds,
+              }),
+          },
+        }),
+      )),
+
+  submitCapstoneMessage: publicProcedure
+    .input(SubmitCapstoneMessageSchema)
+    .mutation(async ({ ctx, input }) =>
+      throwOnFailure(
+        await submitCapstoneMessageWorkflow({
+          sessionId: input.sessionId,
+          nodeId: input.nodeId,
+          response: input.response,
+          deps: {
+            getNodeById: (nodeId) =>
+              becomingCurriculumRepository.getNodeById({
+                db: ctx.db,
+                nodeId,
+              }),
+            getCapstoneByNodeId: (simulationNodeId, sessionId) =>
+              becomingCapstoneRepository.getCapstoneByNodeId({
+                db: ctx.db,
+                simulationNodeId,
+                sessionId,
+              }),
+            listCapstoneMessages: (capstoneId) =>
+              becomingCapstoneRepository.listMessages({
+                db: ctx.db,
+                capstoneId,
+              }),
+            appendCapstoneMessage: (payload) =>
+              becomingCapstoneRepository.appendMessage({
+                db: ctx.db,
+                ...payload,
+              }),
+            updateCapstone: (payload) =>
+              becomingCapstoneRepository.updateCapstone({
+                db: ctx.db,
+                ...payload,
+              }),
+            completeNode: (nodeId) =>
+              becomingCurriculumRepository.completeNode({
+                db: ctx.db,
+                nodeId,
+              }),
           },
         }),
       )),
@@ -550,6 +778,8 @@ export const becomingRouter = {
                 (nextNode
                   ? nextNode.kind === "integration"
                     ? "Integration unit ready"
+                    : nextNode.kind === "simulation"
+                      ? "Cluster capstone ready"
                     : "Next unit ready"
                   : null),
               blockingSignals:

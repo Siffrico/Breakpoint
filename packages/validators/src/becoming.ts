@@ -185,6 +185,101 @@ export const TeachbackMessageSchema = z.object({
   round: z.number().int().min(1),
 });
 
+export const CapstoneFormatSchema = z.enum(["build", "debate", "teach"]);
+
+export const CapstoneStatusSchema = z.enum([
+  "pending",
+  "in_progress",
+  "passed",
+  "failed",
+]);
+
+export const BuildCapstoneScenarioSchema = z.object({
+  format: z.literal("build"),
+  title: z.string().min(1),
+  artifactType: z.string().min(1),
+  briefing: z.string().min(1),
+  constraints: z.array(z.string().min(1)).min(2),
+  evaluationCriteria: z.array(z.string().min(1)).min(3),
+});
+
+export const DebateCapstoneScenarioSchema = z.object({
+  format: z.literal("debate"),
+  title: z.string().min(1),
+  resolution: z.string().min(1),
+  context: z.string().min(1),
+  aiPosition: z.string().min(1),
+  openingArgument: z.string().min(1),
+});
+
+export const TeachCapstoneScenarioSchema = z.object({
+  format: z.literal("teach"),
+  title: z.string().min(1),
+  audience: z.string().min(1),
+  audienceContext: z.string().min(1),
+  deliveryGoal: z.string().min(1),
+  openingQuestion: z.string().min(1),
+});
+
+export const CapstoneScenarioSchema = z.discriminatedUnion("format", [
+  BuildCapstoneScenarioSchema,
+  DebateCapstoneScenarioSchema,
+  TeachCapstoneScenarioSchema,
+]);
+
+export const CapstoneMessageRoleSchema = z.enum(["system", "user", "assistant"]);
+
+export const CapstoneMessageSchema = z.object({
+  id: z.string().min(1),
+  capstoneId: z.string().min(1),
+  role: CapstoneMessageRoleSchema,
+  content: z.string().min(1),
+  sequence: z.number().int().min(0),
+  round: z.number().int().min(0),
+  createdAt: z.date(),
+});
+
+export const CapstoneAttemptSchema = z.object({
+  id: z.string().min(1),
+  simulationNodeId: z.string().min(1),
+  planId: z.string().min(1),
+  sessionId: z.string().min(1),
+  userId: z.string().nullable(),
+  format: CapstoneFormatSchema,
+  status: CapstoneStatusSchema,
+  scenario: CapstoneScenarioSchema,
+  currentRound: z.number().int().min(0),
+  maxRounds: z.number().int().min(1),
+  score: z.number().int().min(0).max(100).nullable(),
+  feedback: z.string().nullable(),
+  createdAt: z.date(),
+  updatedAt: z.date().nullable(),
+});
+
+export const CapstoneStateSchema = z.object({
+  capstone: CapstoneAttemptSchema,
+  messages: z.array(CapstoneMessageSchema),
+});
+
+export const CapstoneSubmissionSchema = z.object({
+  nodeId: z.string().min(1),
+  response: z.string().min(50).max(5_000),
+});
+
+export const CapstoneTurnResultSchema = z.object({
+  assistantReply: z.string().nullable(),
+  status: CapstoneStatusSchema,
+  round: z.number().int().min(1),
+  score: z.number().int().min(0).max(100).nullable(),
+  feedback: z.string().nullable(),
+});
+
+export const CapstoneEvaluationSchema = z.object({
+  passed: z.boolean(),
+  score: z.number().int().min(0).max(100),
+  feedback: z.string().min(1),
+});
+
 export const ForgeDebriefSchema = z.object({
   seedResponse: z.string(),
   finalArticulation: z.string(),
@@ -230,6 +325,21 @@ export type FailureIsolationResult = z.infer<typeof FailureIsolationResultSchema
 export type GhostSubmission = z.infer<typeof GhostSubmissionSchema>;
 export type GhostEvaluation = z.infer<typeof GhostEvaluationSchema>;
 export type TeachbackMessage = z.infer<typeof TeachbackMessageSchema>;
+export type CapstoneFormat = z.infer<typeof CapstoneFormatSchema>;
+export type CapstoneStatus = z.infer<typeof CapstoneStatusSchema>;
+export type BuildCapstoneScenario = z.infer<typeof BuildCapstoneScenarioSchema>;
+export type DebateCapstoneScenario = z.infer<
+  typeof DebateCapstoneScenarioSchema
+>;
+export type TeachCapstoneScenario = z.infer<typeof TeachCapstoneScenarioSchema>;
+export type CapstoneScenario = z.infer<typeof CapstoneScenarioSchema>;
+export type CapstoneMessageRole = z.infer<typeof CapstoneMessageRoleSchema>;
+export type CapstoneMessage = z.infer<typeof CapstoneMessageSchema>;
+export type CapstoneAttempt = z.infer<typeof CapstoneAttemptSchema>;
+export type CapstoneState = z.infer<typeof CapstoneStateSchema>;
+export type CapstoneSubmission = z.infer<typeof CapstoneSubmissionSchema>;
+export type CapstoneTurnResult = z.infer<typeof CapstoneTurnResultSchema>;
+export type CapstoneEvaluation = z.infer<typeof CapstoneEvaluationSchema>;
 export type ForgeDebrief = z.infer<typeof ForgeDebriefSchema>;
 export type UnitContent = z.infer<typeof UnitContentSchema>;
 export type Debrief = z.infer<typeof DebriefSchema>;

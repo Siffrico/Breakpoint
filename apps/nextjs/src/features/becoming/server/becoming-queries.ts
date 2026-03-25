@@ -42,4 +42,15 @@ export const getForgeUnit = async ({
   return caller.becoming.unit({ nodeId, sessionId });
 };
 
+export const getCapstone = async ({
+  nodeId,
+  sessionId,
+}: {
+  nodeId: string;
+  sessionId: string;
+}) => {
+  const caller = await createCaller();
+  return caller.becoming.getCapstone({ nodeId, sessionId });
+};
+
 export const getUnit = getForgeUnit;

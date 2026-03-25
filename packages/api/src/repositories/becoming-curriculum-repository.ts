@@ -153,7 +153,9 @@ export const becomingCurriculumRepository = {
 
     const nextUnitNode = nodeRows.find(
       (node) =>
-        (node.kind === "unit" || node.kind === "integration") &&
+        (node.kind === "unit" ||
+          node.kind === "integration" ||
+          node.kind === "simulation") &&
         node.status === "ready",
     );
 
@@ -566,6 +568,8 @@ export const becomingCurriculumRepository = {
             .update(BecomingCurriculumNode)
             .set({ status: "ready" })
             .where(eq(BecomingCurriculumNode.id, clusterSimulation.id));
+          await syncParentStatus(clusterSimulation.parentNodeId);
+          return;
         }
       }
     }

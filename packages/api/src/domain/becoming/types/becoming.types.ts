@@ -3,7 +3,18 @@ import type {
   CurriculumNodeKind,
   CurriculumNodeStatus,
   CurriculumPlan,
+  CapstoneAttempt,
+  CapstoneEvaluation,
+  CapstoneFormat,
+  CapstoneMessage,
+  CapstoneMessageRole,
+  CapstoneScenario,
+  CapstoneState,
+  CapstoneStatus,
+  CapstoneTurnResult,
+  BuildCapstoneScenario,
   Debrief,
+  DebateCapstoneScenario,
   FailureGap,
   FailureIsolationResult,
   ForgeDebrief,
@@ -23,6 +34,7 @@ import type {
   TeachbackMessage,
   TeachbackRoundResult,
   TeachbackSetup,
+  TeachCapstoneScenario,
   UnitContent,
 } from "@acme/validators";
 
@@ -31,7 +43,18 @@ export type {
   CurriculumNodeKind,
   CurriculumNodeStatus,
   CurriculumPlan,
+  CapstoneAttempt,
+  CapstoneEvaluation,
+  CapstoneFormat,
+  CapstoneMessage,
+  CapstoneMessageRole,
+  CapstoneScenario,
+  CapstoneState,
+  CapstoneStatus,
+  CapstoneTurnResult,
+  BuildCapstoneScenario,
   Debrief,
+  DebateCapstoneScenario,
   FailureGap,
   FailureIsolationResult,
   ForgeDebrief,
@@ -51,6 +74,7 @@ export type {
   TeachbackMessage,
   TeachbackRoundResult,
   TeachbackSetup,
+  TeachCapstoneScenario,
   UnitContent,
 };
 
@@ -105,6 +129,10 @@ export interface HomeState {
   nextUnitTitle: string | null;
   blockingSignals: string[];
 }
+
+export interface CapstoneAttemptRecord extends CapstoneAttempt {}
+
+export interface CapstoneMessageRecord extends CapstoneMessage {}
 
 export interface ProfileState {
   targetIdentity: string;

@@ -45,6 +45,19 @@ interface GetForgeDebriefDependencies {
     growthDimensions?: string[] | null;
   }) => Promise<unknown>;
   completeNode: (nodeId: string) => Promise<void>;
+  getPlanNodesBySession?: (sessionId: string) => Promise<
+    Array<{
+      id: string;
+      parentNodeId: string | null;
+      kind: string;
+      status: string;
+    }> | null
+  >;
+  generateCapstone?: (input: {
+    nodeId: string;
+    sessionId: string;
+    userId?: string | null;
+  }) => Promise<void>;
 }
 
 const deriveReadiness = ({
@@ -174,6 +187,35 @@ export const getForgeDebriefWorkflow = async ({
 
   if (normalizedDebrief.readiness === "ready_for_next_unit") {
     await deps.completeNode(nodeId);
+
+    if (deps.getPlanNodesBySession && deps.generateCapstone) {
+      const updatedNodes = await deps.getPlanNodesBySession(sessionId);
+      const completedUnitNode =
+        updatedNodes?.find((item) => item.id === nodeId) ?? null;
+      const readySimulation =
+        completedUnitNode?.parentNodeId != null
+          ? updatedNodes?.find(
+              (item) =>
+                item.parentNodeId === completedUnitNode.parentNodeId &&
+                item.kind === "simulation" &&
+                item.status === "ready",
+            ) ?? null
+          : null;
+
+      if (readySimulation) {
+        try {
+          await deps.generateCapstone({
+            nodeId: readySimulation.id,
+            sessionId,
+            userId,
+          });
+        } catch (error) {
+          if (error instanceof Error) {
+            console.error(error);
+          }
+        }
+      }
+    }
   }
 
   return ok(normalizedDebrief);

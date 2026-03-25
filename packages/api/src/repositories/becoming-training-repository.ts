@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from "@acme/db";
+import { and, asc, desc, eq, inArray } from "@acme/db";
 import type { db as databaseClient } from "@acme/db/client";
 import {
   BecomingCurriculumNode,
@@ -104,6 +104,49 @@ export const becomingTrainingRepository = {
     }));
   },
 
+  listLatestAttemptsByUnitIds: async ({
+    db,
+    sessionId,
+    unitIds,
+  }: {
+    db: Database;
+    sessionId: string;
+    unitIds: string[];
+  }) => {
+    if (unitIds.length === 0) {
+      return [];
+    }
+
+    const attempts = await db.query.BecomingUnitAttempt.findMany({
+      where: and(
+        eq(BecomingUnitAttempt.onboardingSessionId, sessionId),
+        inArray(BecomingUnitAttempt.unitContentId, unitIds),
+      ),
+      orderBy: [desc(BecomingUnitAttempt.createdAt)],
+    });
+
+    const latestByUnit = new Map<string, (typeof attempts)[number]>();
+    for (const attempt of attempts) {
+      if (!latestByUnit.has(attempt.unitContentId)) {
+        latestByUnit.set(attempt.unitContentId, attempt);
+      }
+    }
+
+    return unitIds
+      .map((unitId) => latestByUnit.get(unitId))
+      .filter((attempt): attempt is NonNullable<typeof attempt> => attempt != null)
+      .map((attempt) => ({
+        unitContentId: attempt.unitContentId,
+        score: attempt.score,
+        readiness: attempt.readiness,
+        finalArticulation: attempt.finalArticulation,
+        growthDimensions: attempt.growthDimensions,
+        improvements: attempt.improvements,
+        failureTags: attempt.failureTags,
+        nextStep: attempt.nextStep,
+      }));
+  },
+
   getHomeSummary: async ({
     db,
     sessionId,
@@ -131,7 +174,9 @@ export const becomingTrainingRepository = {
 
     const currentReadyNode = nodes.find(
       (node) =>
-        (node.kind === "unit" || node.kind === "integration") &&
+        (node.kind === "unit" ||
+          node.kind === "integration" ||
+          node.kind === "simulation") &&
         node.status === "ready",
     );
     const unit = currentReadyNode
