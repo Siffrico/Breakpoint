@@ -29,10 +29,11 @@ export const buildIdentityReport = async (
     prompt: `Build a structured identity profile from this onboarding transcript.
 
 Requirements:
+- The transcript comes from a sparse, high-yield 4-question onboarding. Infer carefully from what is present.
 - Resolve vague traits into observable behaviors.
 - Hard moments should be concrete situations, not abstractions.
 - currentBaseline should sound like a real performance gap.
-- proofOfProgress should describe evidence, not feelings.
+- proofOfProgress should describe evidence, not feelings, even if it must be inferred from the target identity and failure pattern.
 - confidenceFlags should only appear if the transcript is truly underspecified.
 - Keep the language sharp and useful for downstream curriculum generation.
 

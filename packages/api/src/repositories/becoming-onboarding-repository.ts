@@ -8,6 +8,7 @@ import {
 } from "@acme/db/schema";
 
 import type { IdentityReport, OnboardingTranscriptMessage } from "../domain/becoming/types/becoming.types";
+import type { BeforeAfterProfile } from "@acme/validators";
 
 type Database = typeof databaseClient;
 
@@ -118,11 +119,13 @@ export const becomingOnboardingRepository = {
     sessionId,
     userId,
     report,
+    beforeAfter,
   }: {
     db: Database;
     sessionId: string;
     userId?: string | null;
     report: IdentityReport;
+    beforeAfter: BeforeAfterProfile;
   }) => {
     const [profile] = await db
       .insert(BecomingIdentityProfile)
@@ -152,6 +155,11 @@ export const becomingOnboardingRepository = {
         constraints: report.constraints,
         behaviorSignals: report.behaviorSignals,
         confidenceFlags: report.confidenceFlags,
+        beforeAfterHeadline: beforeAfter.headline,
+        beforeStateSummary: beforeAfter.beforeSummary,
+        afterStateSummary: beforeAfter.afterSummary,
+        beforeAfterContrastPairs: beforeAfter.contrastPairs,
+        firstShift: beforeAfter.firstShift,
       })
       .returning();
 

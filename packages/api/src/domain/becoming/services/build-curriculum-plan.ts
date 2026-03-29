@@ -1,4 +1,5 @@
 import type {
+  BeforeAfterProfile,
   CurriculumBlueprint,
   CurriculumNodeBlueprint,
   IdentityReport,
@@ -156,6 +157,7 @@ const buildNodes = (
 
 export const buildCurriculumPlan = async (
   report: IdentityReport,
+  beforeAfter: BeforeAfterProfile,
 ): Promise<CurriculumBlueprint> => {
   const model = getBecomingModel();
   if (!model) {
@@ -191,7 +193,16 @@ Current baseline: ${report.currentBaseline}
 Proof of progress: ${report.proofOfProgress}
 Hard moments: ${report.hardMoments.join("; ")}
 Constraints: ${report.constraints.join("; ") || "None provided"}
-Behavior signals: ${report.behaviorSignals.join("; ")}`,
+Behavior signals: ${report.behaviorSignals.join("; ")}
+
+Before/after reveal:
+Headline: ${beforeAfter.headline}
+Before summary: ${beforeAfter.beforeSummary}
+After summary: ${beforeAfter.afterSummary}
+Contrast pairs: ${beforeAfter.contrastPairs
+      .map((pair) => `${pair.before} -> ${pair.after}`)
+      .join("; ")}
+First shift: ${beforeAfter.firstShift}`,
   });
 
   return {
@@ -199,5 +210,6 @@ Behavior signals: ${report.behaviorSignals.join("; ")}`,
     summary: object.summary,
     targetIdentity: object.targetIdentity,
     nodes: buildNodes(object, report),
+    beforeAfter,
   };
 };

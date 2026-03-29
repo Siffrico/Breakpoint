@@ -3,11 +3,13 @@ import type { db as databaseClient } from "@acme/db/client";
 import {
   BecomingCurriculumNode,
   BecomingCurriculumPlan,
+  BecomingIdentityProfileVersion,
   BecomingUnitContent,
   BecomingUnitPhaseResponse,
 } from "@acme/db/schema";
 
 import type {
+  BeforeAfterProfile,
   CurriculumBlueprint,
   CurriculumNode,
   CurriculumPlan,
@@ -17,6 +19,34 @@ import type {
 } from "../domain/becoming/types/becoming.types";
 
 type Database = typeof databaseClient;
+
+const DEFAULT_SEED_HINT =
+  "Start with your best guess. Name the distinction, mechanism, or real example you think matters most, even if you're not fully sure yet.";
+
+const buildFallbackBeforeAfter = ({
+  targetIdentity,
+  headline,
+  currentBaseline,
+  behaviorSignals,
+  firstShift,
+}: {
+  targetIdentity: string;
+  headline: string;
+  currentBaseline: string;
+  behaviorSignals: string[];
+  firstShift?: string | null;
+}): BeforeAfterProfile => ({
+  headline,
+  beforeSummary: currentBaseline,
+  afterSummary: `This path is training you to operate like ${targetIdentity}.`,
+  contrastPairs: behaviorSignals.slice(0, 3).map((signal) => ({
+    before: `This signal is not reliable yet: ${signal}`,
+    after: signal,
+  })),
+  firstShift:
+    firstShift ??
+    "Move from intention and inconsistency into visible, repeatable behavior.",
+});
 
 const mapUnitContent = ({
   node,
@@ -31,6 +61,7 @@ const mapUnitContent = ({
   summary: node.summary,
   whyItMatters: node.whyItMatters,
   seedPrompt: unit.seedPrompt,
+  seedHint: unit.seedHint ?? DEFAULT_SEED_HINT,
   buildContent: unit.buildContent,
   practicePrompts: unit.practicePrompts as UnitContent["practicePrompts"],
   teachbackSetup: unit.teachbackSetup as UnitContent["teachbackSetup"],
@@ -121,6 +152,7 @@ export const becomingCurriculumRepository = {
     sessionId: string;
   }): Promise<{
     plan: typeof BecomingCurriculumPlan.$inferSelect;
+    beforeAfter: BeforeAfterProfile;
     nodes: CurriculumNode[];
     nextUnitId: string | null;
   } | null> => {
@@ -129,6 +161,14 @@ export const becomingCurriculumRepository = {
     });
 
     if (!plan) {
+      return null;
+    }
+
+    const profileVersion = await db.query.BecomingIdentityProfileVersion.findFirst({
+      where: eq(BecomingIdentityProfileVersion.id, plan.profileVersionId),
+    });
+
+    if (!profileVersion) {
       return null;
     }
 
@@ -161,6 +201,28 @@ export const becomingCurriculumRepository = {
 
     return {
       plan,
+      beforeAfter:
+        profileVersion.beforeAfterHeadline &&
+        profileVersion.beforeStateSummary &&
+        profileVersion.afterStateSummary &&
+        profileVersion.beforeAfterContrastPairs &&
+        profileVersion.beforeAfterContrastPairs.length > 0
+          ? {
+              headline: profileVersion.beforeAfterHeadline,
+              beforeSummary: profileVersion.beforeStateSummary,
+              afterSummary: profileVersion.afterStateSummary,
+              contrastPairs: profileVersion.beforeAfterContrastPairs,
+              firstShift:
+                profileVersion.firstShift ??
+                "Translate insight into visible changes under pressure.",
+            }
+          : buildFallbackBeforeAfter({
+              targetIdentity: plan.targetIdentity,
+              headline: profileVersion.headline,
+              currentBaseline: profileVersion.currentBaseline,
+              behaviorSignals: profileVersion.behaviorSignals,
+              firstShift: profileVersion.firstShift,
+            }),
       nodes,
       nextUnitId: nextUnitNode?.id ?? null,
     };
@@ -187,6 +249,7 @@ export const becomingCurriculumRepository = {
       title: planState.plan.title,
       summary: planState.plan.summary,
       targetIdentity: planState.plan.targetIdentity,
+      beforeAfter: planState.beforeAfter,
       nodes: planState.nodes,
       nextUnitId: planState.nextUnitId,
     };
@@ -250,6 +313,7 @@ export const becomingCurriculumRepository = {
     nodeId,
     title,
     seedPrompt,
+    seedHint,
     teachbackSetup,
     scenario,
   }: {
@@ -257,6 +321,7 @@ export const becomingCurriculumRepository = {
     nodeId: string;
     title: string;
     seedPrompt: string;
+    seedHint: string;
     teachbackSetup: UnitContent["teachbackSetup"];
     scenario: UnitContent["scenario"];
   }): Promise<UnitContent | null> => {
@@ -266,6 +331,7 @@ export const becomingCurriculumRepository = {
         nodeId,
         title,
         seedPrompt,
+        seedHint,
         buildContent: null,
         practicePrompts: null,
         contentGeneratedAt: null,
@@ -278,6 +344,7 @@ export const becomingCurriculumRepository = {
         set: {
           title,
           seedPrompt,
+          seedHint,
           teachbackSetup,
           scenarioTitle: scenario.title,
           scenarioFocusAreas: scenario.focusAreas,

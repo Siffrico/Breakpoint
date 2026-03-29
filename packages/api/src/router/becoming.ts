@@ -1,6 +1,7 @@
 import type { TRPCRouterRecord } from "@trpc/server";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod/v4";
+import { sql } from "@acme/db";
 import type { CurriculumNode } from "@acme/validators";
 import {
   CapstoneSubmissionSchema,
@@ -93,6 +94,132 @@ const SubmitGhostResponseSchema = GhostSubmissionSchema.extend({
 });
 const SubmitCapstoneMessageSchema = CapstoneSubmissionSchema.extend({
   sessionId: z.string().uuid(),
+});
+
+type Database = Parameters<
+  typeof becomingCurriculumRepository.getNodeById
+>[0]["db"];
+
+const lockCapstoneNode = async ({
+  db,
+  sessionId,
+  nodeId,
+}: {
+  db: Database;
+  sessionId: string;
+  nodeId: string;
+}) => {
+  await db.execute(
+    sql`select pg_advisory_xact_lock(hashtext(${sessionId}), hashtext(${nodeId}))`,
+  );
+};
+
+const createCapstoneGenerationDeps = (
+  db: Database,
+): Parameters<typeof generateCapstoneWorkflow>[0]["deps"] => ({
+  getNodeById: (nodeId: string) =>
+    becomingCurriculumRepository.getNodeById({
+      db,
+      nodeId,
+    }),
+  getPlanNodesBySession: (sessionId: string) =>
+    becomingCurriculumRepository.getPlanNodesBySession({
+      db,
+      sessionId,
+    }),
+  getCapstoneByNodeId: (simulationNodeId: string, sessionId: string) =>
+    becomingCapstoneRepository.getCapstoneByNodeId({
+      db,
+      simulationNodeId,
+      sessionId,
+    }),
+  listCapstoneMessages: (capstoneId: string) =>
+    becomingCapstoneRepository.listMessages({
+      db,
+      capstoneId,
+    }),
+  saveCapstone: (payload: {
+    simulationNodeId: string;
+    planId: string;
+    sessionId: string;
+    userId?: string | null;
+    scenario: Parameters<typeof becomingCapstoneRepository.saveCapstone>[0]["scenario"];
+    maxRounds: number;
+  }) =>
+    becomingCapstoneRepository.saveCapstone({
+      db,
+      ...payload,
+    }),
+  appendCapstoneMessage: (payload: {
+    capstoneId: string;
+    role: Parameters<typeof becomingCapstoneRepository.appendMessage>[0]["role"];
+    content: string;
+    sequence: number;
+    round: number;
+  }) =>
+    becomingCapstoneRepository.appendMessage({
+      db,
+      ...payload,
+    }),
+  getUnitByNodeId: (nodeId: string) =>
+    becomingCurriculumRepository.getUnitByNodeId({
+      db,
+      nodeId,
+    }),
+  listLatestAttemptsByUnitIds: (sessionId: string, unitIds: string[]) =>
+    becomingTrainingRepository.listLatestAttemptsByUnitIds({
+      db,
+      sessionId,
+      unitIds,
+    }),
+});
+
+const createCapstoneSubmissionDeps = (
+  db: Database,
+): Parameters<typeof submitCapstoneMessageWorkflow>[0]["deps"] => ({
+  getNodeById: (nodeId: string) =>
+    becomingCurriculumRepository.getNodeById({
+      db,
+      nodeId,
+    }),
+  getCapstoneByNodeId: (simulationNodeId: string, sessionId: string) =>
+    becomingCapstoneRepository.getCapstoneByNodeId({
+      db,
+      simulationNodeId,
+      sessionId,
+    }),
+  listCapstoneMessages: (capstoneId: string) =>
+    becomingCapstoneRepository.listMessages({
+      db,
+      capstoneId,
+    }),
+  appendCapstoneMessage: (payload: {
+    capstoneId: string;
+    role: Parameters<typeof becomingCapstoneRepository.appendMessage>[0]["role"];
+    content: string;
+    sequence: number;
+    round: number;
+  }) =>
+    becomingCapstoneRepository.appendMessage({
+      db,
+      ...payload,
+    }),
+  updateCapstone: (payload: {
+    capstoneId: string;
+    status?: Parameters<typeof becomingCapstoneRepository.updateCapstone>[0]["status"];
+    currentRound?: number;
+    score?: number | null;
+    feedback?: string | null;
+  }) =>
+    becomingCapstoneRepository.updateCapstone({
+      db,
+      ...payload,
+    }),
+  completeNode: (nodeId: string) =>
+    becomingCurriculumRepository.completeNode({
+      db,
+      nodeId,
+    }),
 });
 
 const getErrorCode = (message: string) => {
@@ -515,58 +642,24 @@ export const becomingRouter = {
                 sessionId,
               }),
             generateCapstone: async ({ nodeId, sessionId, userId }) => {
-              const result = await generateCapstoneWorkflow({
-                nodeId,
-                sessionId,
-                userId,
-                deps: {
-                  getNodeById: (nodeId) =>
-                    becomingCurriculumRepository.getNodeById({
-                      db: ctx.db,
-                      nodeId,
-                    }),
-                  getPlanNodesBySession: (sessionId) =>
-                    becomingCurriculumRepository.getPlanNodesBySession({
-                      db: ctx.db,
-                      sessionId,
-                    }),
-                  getCapstoneByNodeId: (simulationNodeId, sessionId) =>
-                    becomingCapstoneRepository.getCapstoneByNodeId({
-                      db: ctx.db,
-                      simulationNodeId,
-                      sessionId,
-                    }),
-                  listCapstoneMessages: (capstoneId) =>
-                    becomingCapstoneRepository.listMessages({
-                      db: ctx.db,
-                      capstoneId,
-                    }),
-                  saveCapstone: (payload) =>
-                    becomingCapstoneRepository.saveCapstone({
-                      db: ctx.db,
-                      ...payload,
-                    }),
-                  appendCapstoneMessage: (payload) =>
-                    becomingCapstoneRepository.appendMessage({
-                      db: ctx.db,
-                      ...payload,
-                    }),
-                  getUnitByNodeId: (nodeId) =>
-                    becomingCurriculumRepository.getUnitByNodeId({
-                      db: ctx.db,
-                      nodeId,
-                    }),
-                  listLatestAttemptsByUnitIds: (sessionId, unitIds) =>
-                    becomingTrainingRepository.listLatestAttemptsByUnitIds({
-                      db: ctx.db,
-                      sessionId,
-                      unitIds,
-                    }),
-                },
+              const result = await ctx.db.transaction(async (tx) => {
+                const db = tx as unknown as Database;
+                await lockCapstoneNode({
+                  db,
+                  nodeId,
+                  sessionId,
+                });
+
+                return generateCapstoneWorkflow({
+                  nodeId,
+                  sessionId,
+                  userId,
+                  deps: createCapstoneGenerationDeps(db),
+                });
               });
 
               if (!result.success) {
-                throw new Error(result.error);
+                throw new Error(result.error ?? "Failed to generate capstone.");
               }
             },
           },
@@ -576,156 +669,65 @@ export const becomingRouter = {
   getCapstone: publicProcedure
     .input(NodeSessionSchema)
     .query(async ({ ctx, input }) =>
-      throwOnFailure(
-        await getCapstoneWorkflow({
-          sessionId: input.sessionId,
+      ctx.db.transaction(async (tx) => {
+        const db = tx as unknown as Database;
+        await lockCapstoneNode({
+          db,
           nodeId: input.nodeId,
-          userId: ctx.session?.user.id,
-          deps: {
-            getNodeById: (nodeId) =>
-              becomingCurriculumRepository.getNodeById({
-                db: ctx.db,
-                nodeId,
-              }),
-            getPlanNodesBySession: (sessionId) =>
-              becomingCurriculumRepository.getPlanNodesBySession({
-                db: ctx.db,
-                sessionId,
-              }),
-            getCapstoneByNodeId: (simulationNodeId, sessionId) =>
-              becomingCapstoneRepository.getCapstoneByNodeId({
-                db: ctx.db,
-                simulationNodeId,
-                sessionId,
-              }),
-            listCapstoneMessages: (capstoneId) =>
-              becomingCapstoneRepository.listMessages({
-                db: ctx.db,
-                capstoneId,
-              }),
-            saveCapstone: (payload) =>
-              becomingCapstoneRepository.saveCapstone({
-                db: ctx.db,
-                ...payload,
-              }),
-            appendCapstoneMessage: (payload) =>
-              becomingCapstoneRepository.appendMessage({
-                db: ctx.db,
-                ...payload,
-              }),
-            getUnitByNodeId: (nodeId) =>
-              becomingCurriculumRepository.getUnitByNodeId({
-                db: ctx.db,
-                nodeId,
-              }),
-            listLatestAttemptsByUnitIds: (sessionId, unitIds) =>
-              becomingTrainingRepository.listLatestAttemptsByUnitIds({
-                db: ctx.db,
-                sessionId,
-                unitIds,
-              }),
-          },
-        }),
-      )),
+          sessionId: input.sessionId,
+        });
+
+        return throwOnFailure(
+          await getCapstoneWorkflow({
+            sessionId: input.sessionId,
+            nodeId: input.nodeId,
+            userId: ctx.session?.user.id,
+            deps: createCapstoneGenerationDeps(db),
+          }),
+        );
+      })),
 
   generateCapstone: publicProcedure
     .input(NodeSessionSchema)
     .mutation(async ({ ctx, input }) =>
-      throwOnFailure(
-        await generateCapstoneWorkflow({
-          sessionId: input.sessionId,
+      ctx.db.transaction(async (tx) => {
+        const db = tx as unknown as Database;
+        await lockCapstoneNode({
+          db,
           nodeId: input.nodeId,
-          userId: ctx.session?.user.id,
-          deps: {
-            getNodeById: (nodeId) =>
-              becomingCurriculumRepository.getNodeById({
-                db: ctx.db,
-                nodeId,
-              }),
-            getPlanNodesBySession: (sessionId) =>
-              becomingCurriculumRepository.getPlanNodesBySession({
-                db: ctx.db,
-                sessionId,
-              }),
-            getCapstoneByNodeId: (simulationNodeId, sessionId) =>
-              becomingCapstoneRepository.getCapstoneByNodeId({
-                db: ctx.db,
-                simulationNodeId,
-                sessionId,
-              }),
-            listCapstoneMessages: (capstoneId) =>
-              becomingCapstoneRepository.listMessages({
-                db: ctx.db,
-                capstoneId,
-              }),
-            saveCapstone: (payload) =>
-              becomingCapstoneRepository.saveCapstone({
-                db: ctx.db,
-                ...payload,
-              }),
-            appendCapstoneMessage: (payload) =>
-              becomingCapstoneRepository.appendMessage({
-                db: ctx.db,
-                ...payload,
-              }),
-            getUnitByNodeId: (nodeId) =>
-              becomingCurriculumRepository.getUnitByNodeId({
-                db: ctx.db,
-                nodeId,
-              }),
-            listLatestAttemptsByUnitIds: (sessionId, unitIds) =>
-              becomingTrainingRepository.listLatestAttemptsByUnitIds({
-                db: ctx.db,
-                sessionId,
-                unitIds,
-              }),
-          },
-        }),
-      )),
+          sessionId: input.sessionId,
+        });
+
+        return throwOnFailure(
+          await generateCapstoneWorkflow({
+            sessionId: input.sessionId,
+            nodeId: input.nodeId,
+            userId: ctx.session?.user.id,
+            deps: createCapstoneGenerationDeps(db),
+          }),
+        );
+      })),
 
   submitCapstoneMessage: publicProcedure
     .input(SubmitCapstoneMessageSchema)
     .mutation(async ({ ctx, input }) =>
-      throwOnFailure(
-        await submitCapstoneMessageWorkflow({
-          sessionId: input.sessionId,
+      ctx.db.transaction(async (tx) => {
+        const db = tx as unknown as Database;
+        await lockCapstoneNode({
+          db,
           nodeId: input.nodeId,
-          response: input.response,
-          deps: {
-            getNodeById: (nodeId) =>
-              becomingCurriculumRepository.getNodeById({
-                db: ctx.db,
-                nodeId,
-              }),
-            getCapstoneByNodeId: (simulationNodeId, sessionId) =>
-              becomingCapstoneRepository.getCapstoneByNodeId({
-                db: ctx.db,
-                simulationNodeId,
-                sessionId,
-              }),
-            listCapstoneMessages: (capstoneId) =>
-              becomingCapstoneRepository.listMessages({
-                db: ctx.db,
-                capstoneId,
-              }),
-            appendCapstoneMessage: (payload) =>
-              becomingCapstoneRepository.appendMessage({
-                db: ctx.db,
-                ...payload,
-              }),
-            updateCapstone: (payload) =>
-              becomingCapstoneRepository.updateCapstone({
-                db: ctx.db,
-                ...payload,
-              }),
-            completeNode: (nodeId) =>
-              becomingCurriculumRepository.completeNode({
-                db: ctx.db,
-                nodeId,
-              }),
-          },
-        }),
-      )),
+          sessionId: input.sessionId,
+        });
+
+        return throwOnFailure(
+          await submitCapstoneMessageWorkflow({
+            sessionId: input.sessionId,
+            nodeId: input.nodeId,
+            response: input.response,
+            deps: createCapstoneSubmissionDeps(db),
+          }),
+        );
+      })),
 
   home: publicProcedure.input(SessionIdSchema).query(async ({ ctx, input }) =>
     throwOnFailure(

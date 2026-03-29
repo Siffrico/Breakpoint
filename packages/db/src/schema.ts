@@ -257,6 +257,13 @@ export const BecomingIdentityProfileVersion = pgTable(
     constraints: t.jsonb().$type<string[]>().notNull(),
     behaviorSignals: t.jsonb().$type<string[]>().notNull(),
     confidenceFlags: t.jsonb().$type<string[]>().notNull(),
+    beforeAfterHeadline: t.text(),
+    beforeStateSummary: t.text(),
+    afterStateSummary: t.text(),
+    beforeAfterContrastPairs: t
+      .jsonb()
+      .$type<Array<{ before: string; after: string }>>(),
+    firstShift: t.text(),
     createdAt: t
       .timestamp({ mode: "date", withTimezone: true })
       .defaultNow()
@@ -331,6 +338,7 @@ export const BecomingUnitContent = pgTable(
       .references(() => BecomingCurriculumNode.id, { onDelete: "cascade" }),
     title: t.varchar({ length: 240 }).notNull(),
     seedPrompt: t.text().notNull(),
+    seedHint: t.text(),
     buildContent: t.text(),
     practicePrompts: t
       .jsonb()

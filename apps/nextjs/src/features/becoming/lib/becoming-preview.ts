@@ -100,9 +100,9 @@ export const previewOnboardingStates: OnboardingState[] = [
     sessionId: previewSessionId,
     phase: "questioning",
     activeQuestion: {
-      slot: "current_baseline",
-      prompt: "What does your current baseline look like on an average week?",
-      helper: "Include output quality, consistency, and what slips first.",
+      slot: "identity_friction",
+      prompt: "Right before you hesitate or avoid, what tends to happen inside you?",
+      helper: "Name the pattern, not the story you tell about it.",
       sequence: 2,
     },
     transcript: [
@@ -135,20 +135,21 @@ export const previewOnboardingStates: OnboardingState[] = [
       },
       {
         role: "assistant",
-        content: "What does your current baseline look like on an average week?",
+        content:
+          "Right before you hesitate or avoid, what tends to happen inside you?",
         sequence: 4,
-        slot: "current_baseline",
+        slot: "identity_friction",
       },
     ],
   },
   {
     sessionId: previewSessionId,
-    phase: "questioning",
+    phase: "ready_for_generation",
     activeQuestion: {
       slot: "constraints",
-      prompt: "What constraints or realities does this path need to respect?",
+      prompt: "What in your current environment keeps pulling you back into the old version of you?",
       helper:
-        "Time, money, family, energy, skill gaps, and environmental friction all count.",
+        "Think schedule, people, defaults, and recurring pressure.",
       sequence: 3,
     },
     transcript: [
@@ -181,94 +182,24 @@ export const previewOnboardingStates: OnboardingState[] = [
       },
       {
         role: "assistant",
-        content: "What does your current baseline look like on an average week?",
+        content:
+          "Right before you hesitate or avoid, what tends to happen inside you?",
         sequence: 4,
-        slot: "current_baseline",
+        slot: "identity_friction",
       },
       {
         role: "user",
         content:
-          "I can produce solid work in bursts, but the system is inconsistent. My calendar gets fragmented and deep work usually loses.",
+          "I start telling myself I need one more pass before I commit. That gives fear a respectable disguise, and then I drift into research or low-stakes work.",
         sequence: 5,
-        slot: "current_baseline",
+        slot: "identity_friction",
       },
       {
         role: "assistant",
-        content: "What constraints or realities does this path need to respect?",
+        content:
+          "What in your current environment keeps pulling you back into the old version of you?",
         sequence: 6,
         slot: "constraints",
-      },
-    ],
-  },
-  {
-    sessionId: previewSessionId,
-    phase: "ready_for_generation",
-    activeQuestion: {
-      slot: "proof_of_progress",
-      prompt: "What visible proof would tell you this identity is becoming real?",
-      helper: "Name concrete behaviors and outcomes, not just feelings.",
-      sequence: 4,
-    },
-    transcript: [
-      {
-        role: "assistant",
-        content:
-          "Who do you want to become when pressure is high and the stakes are real?",
-        sequence: 0,
-        slot: "target_identity",
-      },
-      {
-        role: "user",
-        content:
-          "I want to become the kind of founder who can think clearly, decide fast, and keep execution quality high under stress.",
-        sequence: 1,
-        slot: "target_identity",
-      },
-      {
-        role: "assistant",
-        content: "Where do you currently break pattern or lose control?",
-        sequence: 2,
-        slot: "hard_moments",
-      },
-      {
-        role: "user",
-        content:
-          "I start too many threads, avoid the hardest decision until late, and let reactive work set the tone for the day.",
-        sequence: 3,
-        slot: "hard_moments",
-      },
-      {
-        role: "assistant",
-        content: "What does your current baseline look like on an average week?",
-        sequence: 4,
-        slot: "current_baseline",
-      },
-      {
-        role: "user",
-        content:
-          "I can produce solid work in bursts, but the system is inconsistent. My calendar gets fragmented and deep work usually loses.",
-        sequence: 5,
-        slot: "current_baseline",
-      },
-      {
-        role: "assistant",
-        content: "What constraints or realities does this path need to respect?",
-        sequence: 6,
-        slot: "constraints",
-      },
-      {
-        role: "user",
-        content:
-          "I have to balance product work, customer conversations, and a limited team. The system has to work even during high-context-switch weeks.",
-        sequence: 7,
-        slot: "constraints",
-      },
-      {
-        role: "assistant",
-        content:
-          "What visible proof would tell you this identity is becoming real?",
-        sequence: 8,
-        slot: "proof_of_progress",
       },
     ],
   },
@@ -325,6 +256,29 @@ export const previewPlanState: PlanState = {
   summary:
     "A six-node path that turns reactive work into sequenced execution by training diagnosis, communication, and durable repair.",
   targetIdentity: "Decisive Founder Under Pressure",
+  beforeAfter: {
+    headline: "You are moving from reactive founder energy into trusted operating judgment.",
+    beforeSummary:
+      "When pressure hits, you spread attention across too many threads, delay the hardest call, and let internal friction masquerade as caution.",
+    afterSummary:
+      "Under the same pressure, you narrow the field, make the first clean decision faster, and give the team a stable direction to execute against.",
+    contrastPairs: [
+      {
+        before: "You react to the loudest thread first.",
+        after: "You identify the real constraint and force a sequence.",
+      },
+      {
+        before: "You hide hesitation behind extra research.",
+        after: "You communicate a direction before the answer feels perfect.",
+      },
+      {
+        before: "Your state leaks into the team as noise.",
+        after: "Your judgment gives the team a calmer operating rhythm.",
+      },
+    ],
+    firstShift:
+      "Stop using more analysis to buy emotional safety. Make the first clean call while uncertainty is still present.",
+  },
   nextUnitId: "00000000-0000-4000-8000-000000000101",
   nodes: [
     {

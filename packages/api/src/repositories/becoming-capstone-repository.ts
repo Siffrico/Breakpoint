@@ -184,17 +184,6 @@ export const becomingCapstoneRepository = {
         sequence,
         round,
       })
-      .onConflictDoUpdate({
-        target: [
-          BecomingCapstoneMessage.capstoneId,
-          BecomingCapstoneMessage.sequence,
-        ],
-        set: {
-          role,
-          content,
-          round,
-        },
-      })
       .returning();
 
     return message ? mapCapstoneMessage(message) : null;

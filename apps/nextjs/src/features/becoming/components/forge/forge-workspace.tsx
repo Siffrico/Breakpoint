@@ -325,6 +325,7 @@ export function ForgeWorkspace({
             {phase === "seed" && (
               <SeedPhase
                 seedPrompt={unit.seedPrompt}
+                seedHint={unit.seedHint}
                 onSubmit={handleSeedSubmit}
               />
             )}

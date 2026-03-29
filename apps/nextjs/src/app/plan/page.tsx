@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { CurriculumReveal } from "~/features/becoming/components/curriculum-reveal";
+import { TransformationReveal } from "~/features/becoming/components/transformation-reveal";
 import { getActivePlan } from "~/features/becoming/server/becoming-queries";
 
 export default async function PlanPage(props: {
@@ -15,5 +15,5 @@ export default async function PlanPage(props: {
 
   const plan = await getActivePlan(sessionId);
 
-  return <CurriculumReveal plan={plan} sessionId={sessionId} />;
+  return <TransformationReveal plan={plan} sessionId={sessionId} />;
 }

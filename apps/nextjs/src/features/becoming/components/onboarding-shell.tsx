@@ -13,6 +13,7 @@ import { previewOnboardingStates } from "~/features/becoming/lib/becoming-previe
 import { useTRPC } from "~/trpc/react";
 
 type OnboardingState = RouterOutputs["becoming"]["startOnboarding"];
+const TOTAL_ONBOARDING_ANSWERS = 4;
 
 export function OnboardingShell({ preview = false }: { preview?: boolean }) {
   const trpc = useTRPC();
@@ -182,8 +183,8 @@ export function OnboardingShell({ preview = false }: { preview?: boolean }) {
             }}
             placeholder={
               isGenerating
-                ? "Building your path..."
-                : "Type your answer..."
+                    ? "Building your path..."
+                    : "Type your answer..."
             }
             disabled={!state || (!preview && submitAnswer.isPending) || isGenerating}
             className="min-h-24 resize-none rounded-none border-0 bg-transparent px-5 py-4 text-sm leading-6 text-white shadow-none placeholder:text-white/20 focus-visible:ring-0"
@@ -196,7 +197,11 @@ export function OnboardingShell({ preview = false }: { preview?: boolean }) {
                 : !preview && submitAnswer.isPending
                   ? "Thinking..."
                   : state
-                    ? `${Math.max(0, 5 - transcript.filter((m) => m.role === "user").length)} steps left`
+                    ? `${Math.max(
+                        0,
+                        TOTAL_ONBOARDING_ANSWERS -
+                          transcript.filter((m) => m.role === "user").length,
+                      )} steps left`
                     : "Starting..."}
             </div>
             <Button

@@ -53,6 +53,7 @@ export interface ForgeUnit {
   summary: string;
   whyItMatters: string;
   seedPrompt: string;
+  seedHint: string;
   buildContent: string | null;
   practicePrompts: PracticePrompt[] | null;
   teachbackSetup: {
@@ -83,6 +84,8 @@ export const previewForgeUnit: ForgeUnit = {
     "Operators who cannot name their model cannot inspect it, swap it, or see where it fails.",
   seedPrompt:
     "Before we teach you anything, write what you currently think a mental model is and how you believe people actually use one in real decisions.",
+  seedHint:
+    "Use one real decision, conversation, or judgment call you have made before. Focus on what you thought was happening underneath it, not just the outcome.",
   buildContent:
     "You wrote that a mental model is basically a lens that helps you interpret situations faster by applying a pattern you've seen before. That sounds plausible until you watch two people move through the same situation with the same history and arrive at opposite decisions. Speed is not the defining feature. Plenty of bad reasoning is fast. Pattern-matching is not the defining feature either. Bias pattern-matches. Habit pattern-matches. Panic pattern-matches. The break happens when you treat any repeated pattern as if it were a model, because then instinct, superstition, and disciplined abstraction all get collapsed into one pile.\n\nA real mental model is not just a familiar lens. It is a deliberate simplification that preserves a causal structure well enough to let you predict something before reality finishes unfolding. That is why your surface definition fails. It describes the feeling of using a model, not the job the model is doing. If the structure is missing, you are not modeling the situation. You are just naming a vibe and calling it judgment. The reason strong operators value models is not that models make thinking easier. It is that they make thinking inspectable. Once a model is explicit, you can test it, compare it against another one, and see what it systematically ignores.\n\nThis matters in ordinary life more than people admit. Think about a manager planning a difficult conversation. The shallow version is \"I know this person, so I'll trust my instinct.\" The deeper version is \"If feedback threatens status, they'll defend first and process second, so I need to separate the identity hit from the operational correction.\" That second move is not faster because it is intuitive. It is stronger because it encodes a mechanism and therefore changes the way the manager acts. The model creates a better intervention.\n\nThe transferable principle is this: a model is useful only when it exposes the mechanism that makes an outcome happen.",
   practicePrompts: [

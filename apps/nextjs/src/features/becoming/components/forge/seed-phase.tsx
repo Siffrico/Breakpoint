@@ -7,13 +7,16 @@ import { Textarea } from "@acme/ui/textarea";
 
 export function SeedPhase({
   seedPrompt,
+  seedHint,
   onSubmit,
 }: {
   seedPrompt: string;
+  seedHint: string;
   onSubmit: (response: string) => Promise<void> | void;
 }) {
   const [response, setResponse] = useState("");
   const [isPending, setIsPending] = useState(false);
+  const [showHint, setShowHint] = useState(false);
   const canSubmit = response.trim().length >= 20;
 
   async function handleSubmit() {
@@ -39,6 +42,24 @@ export function SeedPhase({
         <p className="mt-5 max-w-3xl text-base leading-8 text-foreground/80">
           {seedPrompt}
         </p>
+
+        <div className="mt-4 flex max-w-3xl flex-col items-start gap-3">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowHint((current) => !current)}
+            className="h-auto px-0 text-xs tracking-[0.18em] uppercase text-primary/80 hover:bg-transparent hover:text-primary"
+          >
+            {showHint ? "Hide hint" : "Need a hint?"}
+          </Button>
+
+          {showHint ? (
+            <div className="w-full border border-primary/15 bg-primary/5 px-4 py-3 text-sm leading-7 text-foreground/72">
+              {seedHint}
+            </div>
+          ) : null}
+        </div>
 
         <Textarea
           value={response}

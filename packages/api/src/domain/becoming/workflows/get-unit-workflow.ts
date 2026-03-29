@@ -43,6 +43,7 @@ interface GetUnitDependencies {
     nodeId: string;
     title: string;
     seedPrompt: string;
+    seedHint: string;
     teachbackSetup: UnitContent["teachbackSetup"];
     scenario: UnitContent["scenario"];
   }) => Promise<UnitContent | null>;
@@ -156,6 +157,7 @@ export const getUnitWorkflow = async ({
     nodeId,
     title: setup.title,
     seedPrompt: setup.seedPrompt,
+    seedHint: setup.seedHint,
     teachbackSetup: setup.teachbackSetup,
     scenario: setup.scenario,
   });

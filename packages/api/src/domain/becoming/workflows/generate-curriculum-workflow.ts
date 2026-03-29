@@ -1,7 +1,9 @@
 import { err, ok, type Result } from "../../../lib/result";
+import { buildBeforeAfterProfile } from "../services/build-before-after-profile";
 import { buildCurriculumPlan } from "../services/build-curriculum-plan";
 import { buildIdentityReport } from "../services/build-identity-report";
 import type {
+  BeforeAfterProfile,
   CurriculumBlueprint,
   CurriculumPlan,
   IdentityReport,
@@ -19,6 +21,7 @@ interface GenerateCurriculumDependencies {
     sessionId: string;
     userId?: string | null;
     report: IdentityReport;
+    beforeAfter: BeforeAfterProfile;
   }) => Promise<{ version: { id: string } } | null>;
   createPlan: (input: {
     onboardingSessionId: string;
@@ -54,7 +57,7 @@ export const generateCurriculumWorkflow = async ({
 
   const messages = await deps.listMessages(sessionId);
 
-  let report;
+  let report: IdentityReport;
   try {
     report = await buildIdentityReport(messages);
   } catch (error) {
@@ -68,18 +71,30 @@ export const generateCurriculumWorkflow = async ({
     return err("Target identity is missing.");
   }
 
+  let beforeAfter: BeforeAfterProfile;
+  try {
+    beforeAfter = await buildBeforeAfterProfile(report);
+  } catch (error) {
+    return err(
+      error instanceof Error
+        ? error.message
+        : "Failed to generate the before and after reveal.",
+    );
+  }
+
   const profile = await deps.createProfileVersion({
     sessionId,
     userId: session.userId,
     report,
+    beforeAfter,
   });
   if (!profile) {
     return err("Failed to build identity profile.");
   }
 
-  let blueprint;
+  let blueprint: CurriculumBlueprint;
   try {
-    blueprint = await buildCurriculumPlan(report);
+    blueprint = await buildCurriculumPlan(report, beforeAfter);
   } catch (error) {
     return err(
       error instanceof Error

@@ -13,6 +13,7 @@ import type {
   CapstoneStatus,
   CapstoneTurnResult,
   BuildCapstoneScenario,
+  BeforeAfterProfile,
   Debrief,
   DebateCapstoneScenario,
   FailureGap,
@@ -53,6 +54,7 @@ export type {
   CapstoneStatus,
   CapstoneTurnResult,
   BuildCapstoneScenario,
+  BeforeAfterProfile,
   Debrief,
   DebateCapstoneScenario,
   FailureGap,
@@ -109,6 +111,7 @@ export interface CurriculumBlueprint {
   summary: string;
   targetIdentity: string;
   nodes: CurriculumNodeBlueprint[];
+  beforeAfter: BeforeAfterProfile;
 }
 
 export interface OnboardingSessionState {

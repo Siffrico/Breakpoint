@@ -45,16 +45,19 @@ export const generateUnitSetup = async ({
     schema: PreSeedUnitContentDraftSchema,
     errorMessage: "Failed to generate the next unit setup.",
     system:
-      "You are generating the next training unit only when the learner reaches it. Your job is to choose the exact lesson this learner now needs, based on the curriculum skeleton and everything they have already done.",
+      "You are generating the next training unit only when the learner reaches it. Your job is to choose the exact lesson this learner now needs, based on the curriculum skeleton and everything they have already done. You must also write a sharp seed-stage question and an intuitive hint that helps the learner answer with real signal without giving away the lesson.",
     retryPromptSuffix:
-      "- Return only title, seedPrompt, teachbackSetup, and scenario.\n- Make the unit feel like the next necessary step, not a generic lesson.",
+      "- Return only title, seedPrompt, seedHint, teachbackSetup, and scenario.\n- Make the unit feel like the next necessary step, not a generic lesson.\n- seedHint must guide the learner toward the kind of thinking or example to use without answering for them.",
     prompt: `Generate the next just-in-time learning unit.
 
 Rules:
 - This unit is being generated only now, when the learner reached this slot.
 - Choose the specific lesson based on the learner's prior work. Do not repeat earlier units.
 - title must be concrete and specific to the lesson you choose now.
-- seedPrompt must probe what the learner currently believes about this exact lesson.
+- seedPrompt must be a direct, intuitive question that probes what the learner currently believes about this exact lesson.
+- seedHint must be 1 or 2 sentences that help the learner understand what kind of answer is useful.
+- seedHint should nudge toward concrete reasoning, examples, mechanism, or tradeoffs.
+- seedHint must not answer the question, define the lesson for them, or leak the build content.
 - teachbackSetup must pressure-test the chosen lesson, not the broader cluster in general.
 - scenario.focusAreas should contain 2 or 3 concrete evaluation targets.
 - If slotKind is "unit", stay inside the cluster scope while advancing deeper into it.
