@@ -19,7 +19,12 @@ const previews = [
   {
     href: "/ui/plan",
     label: "Plan",
-    description: "Curriculum map reveal with mock nodes.",
+    description: "Curriculum file tree with mock nodes.",
+  },
+  {
+    href: "/ui/transformation",
+    label: "Transformation",
+    description: "Before/after reveal used during onboarding.",
   },
   {
     href: "/ui/train",

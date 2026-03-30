@@ -2,11 +2,11 @@ import {
   previewPlanState,
   previewSessionId,
 } from "~/features/becoming/lib/becoming-preview";
-import { TransformationReveal } from "~/features/becoming/components/transformation-reveal";
+import { CurriculumReveal } from "~/features/becoming/components/curriculum-reveal";
 
 export default function UiPreviewPlanPage() {
   return (
-    <TransformationReveal
+    <CurriculumReveal
       plan={previewPlanState}
       sessionId={previewSessionId}
       preview

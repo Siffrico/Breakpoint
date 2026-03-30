@@ -38,7 +38,9 @@ export function OnboardingShell({ preview = false }: { preview?: boolean }) {
           return;
         }
 
-        router.push(`/plan?session=${state.sessionId}&unit=${plan.nextUnitId ?? ""}`);
+        router.push(
+          `/transformation?session=${state.sessionId}&unit=${plan.nextUnitId ?? ""}`,
+        );
       },
       onError: (error) => {
         setIsGenerating(false);
@@ -93,7 +95,7 @@ export function OnboardingShell({ preview = false }: { preview?: boolean }) {
       if (nextStep === previewOnboardingStates.length - 1) {
         setIsGenerating(true);
         window.setTimeout(() => {
-          router.push("/ui/plan");
+          router.push("/ui/transformation");
         }, 700);
       }
 

@@ -1,10 +1,8 @@
 import { redirect } from "next/navigation";
 
-import { TransformationReveal } from "~/features/becoming/components/transformation-reveal";
+import { CurriculumReveal } from "~/features/becoming/components/curriculum-reveal";
 import { getActivePlan } from "~/features/becoming/server/becoming-queries";
 
-// Note: this before/after reveal is the new first onboarding artifact.
-// Final visual design should be refined with Claude against the existing design system.
 export default async function PlanPage(props: {
   searchParams: Promise<{ session?: string }>;
 }) {
@@ -17,5 +15,5 @@ export default async function PlanPage(props: {
 
   const plan = await getActivePlan(sessionId);
 
-  return <TransformationReveal plan={plan} sessionId={sessionId} />;
+  return <CurriculumReveal plan={plan} sessionId={sessionId} />;
 }

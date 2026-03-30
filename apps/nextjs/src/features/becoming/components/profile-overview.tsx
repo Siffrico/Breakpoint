@@ -15,19 +15,32 @@ export function ProfileOverview({
   preview?: boolean;
 }) {
   const backHref = preview ? "/ui/home" : `/home?session=${sessionId}`;
+  const transformationHref = preview
+    ? "/ui/transformation"
+    : `/transformation?session=${sessionId}`;
 
   return (
     <main className="min-h-dvh bg-background text-foreground">
       <div className="mx-auto max-w-3xl border-x border-border/50">
         <section className="border-b border-border px-6 py-4">
-          <Button
-            asChild
-            variant="outline"
-            size="sm"
-            className="h-8 rounded-none border-border bg-transparent px-3 text-xs text-muted-foreground hover:bg-white/5 hover:text-foreground"
-          >
-            <Link href={backHref}>&larr; Back to workspace</Link>
-          </Button>
+          <div className="flex gap-3">
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              className="h-8 rounded-none border-border bg-transparent px-3 text-xs text-muted-foreground hover:bg-white/5 hover:text-foreground"
+            >
+              <Link href={backHref}>&larr; Back to workspace</Link>
+            </Button>
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              className="h-8 rounded-none border-border bg-transparent px-3 text-xs text-muted-foreground hover:bg-white/5 hover:text-foreground"
+            >
+              <Link href={transformationHref}>Before / after</Link>
+            </Button>
+          </div>
         </section>
 
         <section className="border-b border-border px-6 py-6">

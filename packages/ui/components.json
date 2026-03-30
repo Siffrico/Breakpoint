@@ -3,16 +3,19 @@
   "style": "new-york",
   "rsc": true,
   "tsx": true,
-  "iconLibrary": "phosphor",
   "tailwind": {
     "config": "",
     "css": "../../apps/nextjs/src/app/styles.css",
     "baseColor": "zinc",
     "cssVariables": true
   },
+  "iconLibrary": "phosphor",
   "aliases": {
-    "utils": "@acme/ui",
     "components": "src/",
+    "utils": "@acme/ui",
     "ui": "src/"
+  },
+  "registries": {
+    "@coss": "https://coss.com/ui/r/{name}.json"
   }
 }
