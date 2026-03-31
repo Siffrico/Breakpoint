@@ -88,6 +88,10 @@ const hydrateSeedStageFromUnit = (unit: ForgeUnitContent): SeedStageOutput => ({
   title: unit.title,
   seedPrompt: unit.seedPrompt,
   seedHint: unit.seedHint,
+  clusterArcFrame:
+    unit.clusterArcFrame ??
+    "This slot advances the sequence by sharpening what earlier work made possible.",
+  complexityBudget: unit.complexityBudget,
   teachbackSetup: hydrateTeachbackSetup(unit),
   scenario: unit.scenario,
   conceptTarget: unit.title,

@@ -28,6 +28,10 @@ Output discipline:
 - the title must name the real lesson
 - the seedPrompt must reveal reasoning, not invite generic opinion
 - the seedHint must guide signal quality without leaking the answer
+- the clusterArcFrame must position this slot inside the larger sequence in 1 or 2 sentences
+- the clusterArcFrame must explain what earlier slots establish and what this slot changes, complicates, or synthesizes
+- the complexityBudget must be 1, 2, or 3 based on the true teaching load of this concept
+- prefer 1 for foundational concepts unless the mechanism is genuinely dense; use 3 only when the concept needs extended reasoning, edge cases, or formal structure
 - the conceptTarget, misconceptionTarget, and proofTargets must be concrete enough for later agents to use directly`;
 
 export const runSeedStage = async (
@@ -49,6 +53,9 @@ Rules:
 - scenario.focusAreas should contain 2 or 3 precise evaluation targets.
 - proofTargets should name what later stages must verify.
 - workedExampleBrief should tell the Build stage what kind of example would best unlock the concept.
+- clusterArcFrame must not answer the seed prompt or teach the lesson content.
+- complexityBudget 1 = foundational, 2 = intermediate, 3 = advanced.
+- Earlier non-integration slots should usually stay at 1 or 2 unless there is a clear reason the concept is inherently dense.
 
 Context:
 ${formatUnitBuilderContext(context)}`,

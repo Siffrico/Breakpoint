@@ -5,6 +5,7 @@ import { sql } from "@acme/db";
 import type { CurriculumNode } from "@acme/validators";
 import {
   CapstoneSubmissionSchema,
+  SubmitRecallProbeSchema,
   GhostSubmissionSchema,
   PracticeSubmissionSchema,
   SeedResponseSchema,
@@ -42,8 +43,14 @@ import {
   getForgeDebriefWorkflow,
 } from "../domain/becoming/workflows/get-forge-debrief-workflow";
 import {
+  finalizeForgeUnitWorkflow,
+} from "../domain/becoming/workflows/finalize-forge-unit-workflow";
+import {
   startOnboardingWorkflow,
 } from "../domain/becoming/workflows/start-onboarding-workflow";
+import {
+  submitRecallProbeWorkflow,
+} from "../domain/becoming/workflows/submit-recall-probe-workflow";
 import {
   submitPracticeWorkflow,
 } from "../domain/becoming/workflows/submit-practice-workflow";
@@ -62,9 +69,13 @@ import {
 import {
   submitTeachbackWorkflow,
 } from "../domain/becoming/workflows/submit-teachback-workflow";
+import {
+  triggerRecallGateWorkflow,
+} from "../domain/becoming/workflows/trigger-recall-gate-workflow";
 import { becomingCapstoneRepository } from "../repositories/becoming-capstone-repository";
 import { becomingCurriculumRepository } from "../repositories/becoming-curriculum-repository";
 import { becomingOnboardingRepository } from "../repositories/becoming-onboarding-repository";
+import { becomingRecallRepository } from "../repositories/becoming-recall-repository";
 import { becomingTrainingRepository } from "../repositories/becoming-training-repository";
 import { publicProcedure } from "../trpc";
 
@@ -95,6 +106,11 @@ const SubmitGhostResponseSchema = GhostSubmissionSchema.extend({
 const SubmitCapstoneMessageSchema = CapstoneSubmissionSchema.extend({
   sessionId: z.string().uuid(),
 });
+const GetRecallGateSchema = z.object({
+  sessionId: z.string().uuid(),
+  gateId: z.string().uuid().optional(),
+});
+const FinalizeForgeUnitSchema = NodeSessionSchema;
 
 type Database = Parameters<
   typeof becomingCurriculumRepository.getNodeById
@@ -171,6 +187,99 @@ const createCapstoneGenerationDeps = (
       db,
       sessionId,
       unitIds,
+    }),
+});
+
+const createRecallRepositoryDeps = (db: Database) => ({
+  getGateById: (gateId: string) =>
+    becomingRecallRepository.getGateById({
+      db,
+      gateId,
+    }),
+  getActiveGateBySession: (sessionId: string) =>
+    becomingRecallRepository.getActiveGateBySession({
+      db,
+      sessionId,
+    }),
+  getGateByTriggerUnit: (planId: string, triggerAfterUnitNodeId: string) =>
+    becomingRecallRepository.getGateByTriggerUnit({
+      db,
+      planId,
+      triggerAfterUnitNodeId,
+    }),
+  createGate: (payload: {
+    planId: string;
+    sessionId: string;
+    userId?: string | null;
+    triggerAfterUnitNodeId: string;
+  }) =>
+    becomingRecallRepository.createGate({
+      db,
+      ...payload,
+    }),
+  createProbes: (payload: {
+    gateId: string;
+    probes: Array<{
+      probeOrder: number;
+      probeType: "seed_return" | "interleave" | "compression";
+      sourceUnitNodeIds: string[];
+      prompt: string;
+      seedSnapshot?: string | null;
+    }>;
+  }) =>
+    becomingRecallRepository.createProbes({
+      db,
+      ...payload,
+    }),
+  updateGate: (payload: {
+    gateId: string;
+    status?: "pending" | "active" | "passed" | "repaired" | "flagged";
+    completedAt?: Date | null;
+  }) =>
+    becomingRecallRepository.updateGate({
+      db,
+      ...payload,
+    }),
+  updateProbe: (payload: {
+    probeId: string;
+    userResponse?: string | null;
+    score?: number | null;
+    passed?: boolean | null;
+    repairPrompt?: string | null;
+    repairResponse?: string | null;
+    repairScore?: number | null;
+    repairPassed?: boolean | null;
+    status?: "pending" | "answered" | "repair_pending" | "repaired" | "failed";
+    completedAt?: Date | null;
+  }) =>
+    becomingRecallRepository.updateProbe({
+      db,
+      ...payload,
+    }),
+  listRecallStates: (planId: string, unitNodeIds: string[]) =>
+    becomingRecallRepository.listRecallStates({
+      db,
+      planId,
+      unitNodeIds,
+    }),
+  upsertRecallState: (payload: {
+    unitNodeId: string;
+    planId: string;
+    lastRecalledAt: Date | null;
+    lastRecallOrderIndex: number | null;
+    recallCount: number;
+    decayCount: number;
+    lastRecallScore: number | null;
+    status: "retained" | "decayed" | "repaired";
+  }) =>
+    becomingRecallRepository.upsertRecallState({
+      db,
+      ...payload,
+    }),
+  getActiveGateSummaryBySession: (sessionId: string) =>
+    becomingRecallRepository.getActiveGateSummaryBySession({
+      db,
+      sessionId,
     }),
 });
 
@@ -395,6 +504,11 @@ export const becomingRouter = {
               db: ctx.db,
               ...payload,
             }),
+          saveNodeBriefing: (payload) =>
+            becomingCurriculumRepository.saveNodeBriefing({
+              db: ctx.db,
+              ...payload,
+            }),
         },
       }),
     )),
@@ -614,7 +728,6 @@ export const becomingRouter = {
         await getForgeDebriefWorkflow({
           sessionId: input.sessionId,
           nodeId: input.nodeId,
-          userId: ctx.session?.user.id,
           deps: {
             getUnitByNodeId: (nodeId) =>
               becomingCurriculumRepository.getUnitByNodeId({
@@ -641,45 +754,237 @@ export const becomingRouter = {
                 sessionId,
                 unitId,
               }),
-            saveAttempt: (payload) =>
-              becomingTrainingRepository.saveAttempt({
-                db: ctx.db,
-                ...payload,
-              }),
-            completeNode: (nodeId) =>
-              becomingCurriculumRepository.completeNode({
-                db: ctx.db,
-                nodeId,
-              }),
-            getPlanNodesBySession: (sessionId) =>
-              becomingCurriculumRepository.getPlanNodesBySession({
-                db: ctx.db,
-                sessionId,
-              }),
-            generateCapstone: async ({ nodeId, sessionId, userId }) => {
-              const result = await ctx.db.transaction(async (tx) => {
-                const db = tx as unknown as Database;
-                await lockCapstoneNode({
+          },
+        }),
+      )),
+
+  finalizeForgeUnit: publicProcedure
+    .input(FinalizeForgeUnitSchema)
+    .mutation(async ({ ctx, input }) =>
+      ctx.db.transaction(async (tx) => {
+        const db = tx as unknown as Database;
+        await lockCapstoneNode({
+          db,
+          nodeId: input.nodeId,
+          sessionId: input.sessionId,
+        });
+
+        return throwOnFailure(
+          await finalizeForgeUnitWorkflow({
+            nodeId: input.nodeId,
+            sessionId: input.sessionId,
+            userId: ctx.session?.user.id,
+            deps: {
+              getUnitByNodeId: (nodeId) =>
+                becomingCurriculumRepository.getUnitByNodeId({
                   db,
                   nodeId,
+                }),
+              getPhaseResponses: (unitContentId, sessionId) =>
+                becomingCurriculumRepository.getPhaseResponses({
+                  db,
+                  unitContentId,
+                  sessionId,
+                }),
+              getTargetIdentity: async (sessionId) => {
+                const profile = await becomingOnboardingRepository.getProfileBySession({
+                  db,
                   sessionId,
                 });
 
-                return generateCapstoneWorkflow({
+                return profile?.version.targetIdentity ?? null;
+              },
+              getLatestAttemptByUnit: (sessionId, unitId) =>
+                becomingTrainingRepository.getLatestAttemptByUnit({
+                  db,
+                  sessionId,
+                  unitId,
+                }),
+              saveAttempt: (payload) =>
+                becomingTrainingRepository.saveAttempt({
+                  db,
+                  ...payload,
+                }),
+              getNodeById: (nodeId) =>
+                becomingCurriculumRepository.getNodeById({
+                  db,
+                  nodeId,
+                }),
+              markNodeCompleted: (nodeId) =>
+                becomingCurriculumRepository.markNodeCompleted({
+                  db,
+                  nodeId,
+                }),
+              advancePlanAfterCompletion: (nodeId) =>
+                becomingCurriculumRepository.advancePlanAfterCompletion({
+                  db,
+                  nodeId,
+                }),
+              getPlanNodesBySession: (sessionId) =>
+                becomingCurriculumRepository.getPlanNodesBySession({
+                  db,
+                  sessionId,
+                }),
+              generateCapstone: async ({ nodeId, sessionId, userId }) => {
+                const result = await generateCapstoneWorkflow({
                   nodeId,
                   sessionId,
                   userId,
                   deps: createCapstoneGenerationDeps(db),
                 });
-              });
 
-              if (!result.success) {
-                throw new Error(result.error ?? "Failed to generate capstone.");
-              }
+                if (!result.success) {
+                  throw new Error(result.error ?? "Failed to generate capstone.");
+                }
+              },
+              getGateByTriggerUnit: (planId, triggerAfterUnitNodeId) =>
+                becomingRecallRepository.getGateByTriggerUnit({
+                  db,
+                  planId,
+                  triggerAfterUnitNodeId,
+                }),
+              triggerRecallGate: ({ triggerAfterUnitNodeId, sessionId, userId }) =>
+                triggerRecallGateWorkflow({
+                  triggerAfterUnitNodeId,
+                  sessionId,
+                  userId,
+                  deps: {
+                    getNodeById: (nodeId) =>
+                      becomingCurriculumRepository.getNodeById({
+                        db,
+                        nodeId,
+                      }),
+                    getPlanNodesBySession: (sessionId) =>
+                      becomingCurriculumRepository.getPlanNodesBySession({
+                        db,
+                        sessionId,
+                      }),
+                    listUnitContentsByNodeIds: (nodeIds) =>
+                      becomingCurriculumRepository.listUnitContentsByNodeIds({
+                        db,
+                        nodeIds,
+                      }),
+                    listLatestAttemptsByUnitIds: (sessionId, unitIds) =>
+                      becomingTrainingRepository.listLatestAttemptsByUnitIds({
+                        db,
+                        sessionId,
+                        unitIds,
+                      }),
+                    listRecallStates: (planId, unitNodeIds) =>
+                      becomingRecallRepository.listRecallStates({
+                        db,
+                        planId,
+                        unitNodeIds,
+                      }),
+                    getGateByTriggerUnit: (planId, triggerAfterUnitNodeId) =>
+                      becomingRecallRepository.getGateByTriggerUnit({
+                        db,
+                        planId,
+                        triggerAfterUnitNodeId,
+                      }),
+                    createGate: (payload) =>
+                      becomingRecallRepository.createGate({
+                        db,
+                        ...payload,
+                      }),
+                    createProbes: (payload) =>
+                      becomingRecallRepository.createProbes({
+                        db,
+                        ...payload,
+                      }),
+                    getGateById: (gateId) =>
+                      becomingRecallRepository.getGateById({
+                        db,
+                        gateId,
+                      }),
+                  },
+                }),
             },
-          },
-        }),
-      )),
+          }),
+        );
+      })),
+
+  getRecallGate: publicProcedure
+    .input(GetRecallGateSchema)
+    .query(async ({ ctx, input }) => {
+      const recallDeps = createRecallRepositoryDeps(ctx.db);
+      const gate = input.gateId
+        ? await recallDeps.getGateById(input.gateId)
+        : await recallDeps.getActiveGateBySession(input.sessionId);
+
+      if (!gate) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Recall gate does not exist.",
+        });
+      }
+
+      return gate;
+    }),
+
+  submitRecallProbe: publicProcedure
+    .input(SubmitRecallProbeSchema)
+    .mutation(async ({ ctx, input }) =>
+      ctx.db.transaction(async (tx) => {
+        const db = tx as unknown as Database;
+        const recallDeps = createRecallRepositoryDeps(db);
+        const gate = await recallDeps.getGateById(input.gateId);
+        if (!gate) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Recall gate does not exist.",
+          });
+        }
+
+        await lockCapstoneNode({
+          db,
+          nodeId: gate.triggerAfterUnitNodeId,
+          sessionId: gate.sessionId,
+        });
+
+        return throwOnFailure(
+          await submitRecallProbeWorkflow({
+            gateId: input.gateId,
+            probeId: input.probeId,
+            mode: input.mode,
+            response: input.response,
+            deps: {
+              getGateById: recallDeps.getGateById,
+              updateProbe: recallDeps.updateProbe,
+              getPlanNodesBySession: (sessionId) =>
+                becomingCurriculumRepository.getPlanNodesBySession({
+                  db,
+                  sessionId,
+                }),
+              listUnitContentsByNodeIds: (nodeIds) =>
+                becomingCurriculumRepository.listUnitContentsByNodeIds({
+                  db,
+                  nodeIds,
+                }),
+              updateGate: recallDeps.updateGate,
+              listRecallStates: recallDeps.listRecallStates,
+              upsertRecallState: recallDeps.upsertRecallState,
+              advancePlanAfterCompletion: (nodeId) =>
+                becomingCurriculumRepository.advancePlanAfterCompletion({
+                  db,
+                  nodeId,
+                }),
+              generateCapstone: async ({ nodeId, sessionId }) => {
+                const result = await generateCapstoneWorkflow({
+                  nodeId,
+                  sessionId,
+                  userId: ctx.session?.user.id,
+                  deps: createCapstoneGenerationDeps(db),
+                });
+
+                if (!result.success) {
+                  throw new Error(result.error ?? "Failed to generate capstone.");
+                }
+              },
+            },
+          }),
+        );
+      })),
 
   getCapstone: publicProcedure
     .input(NodeSessionSchema)
@@ -750,7 +1055,7 @@ export const becomingRouter = {
         sessionId: input.sessionId,
         deps: {
           getHomeState: async (sessionId) => {
-            const [profile, plan, summary] = await Promise.all([
+            const [profile, plan, summary, activeRecallGate] = await Promise.all([
               becomingOnboardingRepository.getProfileBySession({
                 db: ctx.db,
                 sessionId,
@@ -760,6 +1065,10 @@ export const becomingRouter = {
                 sessionId,
               }),
               becomingTrainingRepository.getHomeSummary({
+                db: ctx.db,
+                sessionId,
+              }),
+              becomingRecallRepository.getActiveGateSummaryBySession({
                 db: ctx.db,
                 sessionId,
               }),
@@ -799,6 +1108,7 @@ export const becomingRouter = {
                       ? "Cluster capstone ready"
                     : "Next unit ready"
                   : null),
+              activeRecallGate,
               blockingSignals:
                 summary.recentFailureTags.length > 0
                   ? summary.recentFailureTags

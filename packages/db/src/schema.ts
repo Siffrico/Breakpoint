@@ -311,6 +311,15 @@ export const BecomingCurriculumNode = pgTable(
     title: t.varchar({ length: 240 }).notNull(),
     summary: t.text().notNull(),
     whyItMatters: t.text().notNull(),
+    briefing: t
+      .jsonb()
+      .$type<{
+        briefingArc: string;
+        briefingMap: Array<{
+          position: number;
+          role: string;
+        }>;
+      }>(),
     orderIndex: t.integer().notNull(),
     depth: t.integer().notNull(),
     positionColumn: t.integer().notNull(),
@@ -339,6 +348,8 @@ export const BecomingUnitContent = pgTable(
     title: t.varchar({ length: 240 }).notNull(),
     seedPrompt: t.text().notNull(),
     seedHint: t.text(),
+    clusterArcFrame: t.text(),
+    complexityBudget: t.integer().notNull().default(1),
     buildContent: t.text(),
     practicePrompts: t
       .jsonb()
@@ -559,6 +570,118 @@ export const BecomingCapstoneMessage = pgTable(
       table.sequence,
     ),
     index("becoming_capstone_message_round_idx").on(table.capstoneId, table.round),
+  ],
+);
+
+export const BecomingRecallGate = pgTable(
+  "becoming_recall_gate",
+  (t) => ({
+    id: t.uuid().notNull().primaryKey().defaultRandom(),
+    planId: t
+      .uuid()
+      .notNull()
+      .references(() => BecomingCurriculumPlan.id, { onDelete: "cascade" }),
+    sessionId: t
+      .uuid()
+      .notNull()
+      .references(() => BecomingOnboardingSession.id, { onDelete: "cascade" }),
+    userId: t
+      .text()
+      .references(() => user.id, { onDelete: "set null" }),
+    triggerAfterUnitNodeId: t
+      .uuid()
+      .notNull()
+      .references(() => BecomingCurriculumNode.id, { onDelete: "cascade" }),
+    status: t.varchar({ length: 32 }).notNull().default("pending"),
+    completedAt: t.timestamp({ mode: "date", withTimezone: true }),
+    createdAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .$onUpdateFn(() => sql`now()`),
+  }),
+  (table) => [
+    uniqueIndex("becoming_recall_gate_plan_trigger_idx").on(
+      table.planId,
+      table.triggerAfterUnitNodeId,
+    ),
+    index("becoming_recall_gate_session_status_idx").on(table.sessionId, table.status),
+  ],
+);
+
+export const BecomingRecallProbe = pgTable(
+  "becoming_recall_probe",
+  (t) => ({
+    id: t.uuid().notNull().primaryKey().defaultRandom(),
+    gateId: t
+      .uuid()
+      .notNull()
+      .references(() => BecomingRecallGate.id, { onDelete: "cascade" }),
+    probeOrder: t.integer().notNull(),
+    probeType: t.varchar({ length: 32 }).notNull(),
+    sourceUnitNodeIds: t.jsonb().$type<string[]>().notNull(),
+    prompt: t.text().notNull(),
+    seedSnapshot: t.text(),
+    userResponse: t.text(),
+    score: t.integer(),
+    passed: t.boolean(),
+    repairPrompt: t.text(),
+    repairResponse: t.text(),
+    repairScore: t.integer(),
+    repairPassed: t.boolean(),
+    status: t.varchar({ length: 32 }).notNull().default("pending"),
+    completedAt: t.timestamp({ mode: "date", withTimezone: true }),
+    createdAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .$onUpdateFn(() => sql`now()`),
+  }),
+  (table) => [
+    uniqueIndex("becoming_recall_probe_gate_order_idx").on(
+      table.gateId,
+      table.probeOrder,
+    ),
+    index("becoming_recall_probe_gate_status_idx").on(table.gateId, table.status),
+  ],
+);
+
+export const BecomingUnitRecallState = pgTable(
+  "becoming_unit_recall_state",
+  (t) => ({
+    id: t.uuid().notNull().primaryKey().defaultRandom(),
+    unitNodeId: t
+      .uuid()
+      .notNull()
+      .references(() => BecomingCurriculumNode.id, { onDelete: "cascade" }),
+    planId: t
+      .uuid()
+      .notNull()
+      .references(() => BecomingCurriculumPlan.id, { onDelete: "cascade" }),
+    lastRecalledAt: t.timestamp({ mode: "date", withTimezone: true }),
+    lastRecallOrderIndex: t.integer(),
+    recallCount: t.integer().notNull().default(0),
+    decayCount: t.integer().notNull().default(0),
+    lastRecallScore: t.integer(),
+    status: t.varchar({ length: 32 }).notNull().default("retained"),
+    createdAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .$onUpdateFn(() => sql`now()`),
+  }),
+  (table) => [
+    uniqueIndex("becoming_unit_recall_state_unit_plan_idx").on(
+      table.unitNodeId,
+      table.planId,
+    ),
+    index("becoming_unit_recall_state_plan_status_idx").on(table.planId, table.status),
   ],
 );
 

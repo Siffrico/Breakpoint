@@ -43,15 +43,28 @@ export const runBuildStage = async (
 
 Requirements for buildContent:
 - Open by referencing something specific from the learner's seed response.
-- Use this order internally: disrupt, rebuild, ground, land.
-- Continuous prose only. No lists. No headings.
+- Return one continuous string using these exact section markers on their own lines:
+  [anchor]
+  [disrupt]
+  [model]
+  [worked_example]
+  [ground]
+  [transfer]
+- Include [misconception] between [worked_example] and [ground] only when the concept has a real false model worth steelmanning.
+- Write prose under each marker. No bullet lists.
 - Tone: sharp, respectful, demanding.
-- End with exactly one transferable principle sentence.
+- [model] must contain at least two representations of the concept: one intuitive or concrete, one structural or formal.
+- [worked_example] must narrate reasoning decisions, not just the answer.
+- [transfer] must end with exactly one transferable principle sentence.
+- complexityBudget 1: target 400 to 600 words total.
+- complexityBudget 2: target 600 to 900 words total and include [misconception] when there is a real common false model.
+- complexityBudget 3: target 900 to 1400 words total, include [misconception], and make [model] cover intuitive, structural, and edge-case reasoning.
 
 Requirements for workedExample:
 - Make the mechanism visible.
 - Use a realistic example, not toy fluff.
 - The example should directly counter the learner's likely misconception.
+- It should closely match the reasoning in the [worked_example] section.
 
 Requirements for coreModel:
 - name: concise model label
@@ -68,6 +81,7 @@ const formatBuildStageInput = (input: BuildStageInput): string =>
 Unit title: ${input.seed.title}
 Unit concept target: ${input.seed.conceptTarget}
 Likely misconception: ${input.seed.misconceptionTarget}
+Complexity budget: ${input.seed.complexityBudget}
 Why it matters: ${input.node.whyItMatters}
 Worked example brief: ${input.seed.workedExampleBrief}
 Proof targets: ${input.seed.proofTargets.join("; ")}

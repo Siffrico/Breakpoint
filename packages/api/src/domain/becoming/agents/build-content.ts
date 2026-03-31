@@ -45,6 +45,10 @@ Requirements:
 - title must be concrete.
 - seedPrompt must force the learner to reveal their current model.
 - seedHint should guide without teaching the answer.
+- clusterArcFrame must be 1 or 2 sentences positioning this slot inside the larger sequence.
+- clusterArcFrame must explain what earlier slots establish and what this slot changes, complicates, or synthesizes next.
+- clusterArcFrame must not answer the seed prompt or teach the lesson content.
+- complexityBudget must be 1, 2, or 3 based on the true teaching load of the chosen concept.
 - scenario.focusAreas must contain 2 or 3 concrete evaluation targets.
 - teachbackSetup.studentPersona should feel like a real skeptical peer.
 - teachbackSetup.openingMisconception must be the kind of wrong-but-plausible view a smart learner might hold.
@@ -75,11 +79,13 @@ export const generatePostSeedLesson = async (
 
 Requirements for buildContent:
 - Open by using something specific from the learner's seed response.
-- Structure the argument as: disrupt, rebuild, ground, land.
-- Continuous prose only. No lists. No headings.
+- Return one string with exact section markers on their own lines: [anchor], [disrupt], [model], [worked_example], optional [misconception], [ground], [transfer].
+- Write prose under each marker. No bullet lists.
 - Tone: sharp, respectful, demanding.
 - Show why their current model breaks.
-- End with exactly one transferable principle sentence.
+- [model] must contain at least two distinct representations.
+- [worked_example] must narrate reasoning decisions.
+- [transfer] must end with exactly one transferable principle sentence.
 
 Requirements for practicePrompts:
 - Return exactly 3 prompts.

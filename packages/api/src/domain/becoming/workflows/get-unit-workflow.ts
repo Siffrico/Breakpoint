@@ -1,4 +1,5 @@
 import { err, ok, type Result } from "../../../lib/result";
+import { generateClusterBriefing } from "../generate-cluster-briefing";
 import { generateUnitScaffold } from "../orchestration/unit-flow";
 import type { UnitContent } from "../types/becoming.types";
 
@@ -44,9 +45,15 @@ interface GetUnitDependencies {
     title: string;
     seedPrompt: string;
     seedHint: string;
+    clusterArcFrame: string;
+    complexityBudget: UnitContent["complexityBudget"];
     teachbackSetup: UnitContent["teachbackSetup"];
     scenario: UnitContent["scenario"];
   }) => Promise<UnitContent | null>;
+  saveNodeBriefing: (input: {
+    nodeId: string;
+    briefing: NonNullable<UnitContent["clusterBriefing"]>;
+  }) => Promise<UnitContent["clusterBriefing"]>;
 }
 
 export const getUnitWorkflow = async ({
@@ -59,15 +66,9 @@ export const getUnitWorkflow = async ({
   deps: GetUnitDependencies;
 }): Promise<Result<UnitContent>> => {
   const existingUnit = await deps.getUnitByNodeId(nodeId);
-  if (existingUnit) {
-    return ok(existingUnit);
-  }
-
-  const [node, planNodes, targetIdentity, priorLearning] = await Promise.all([
+  const [node, planNodes] = await Promise.all([
     deps.getNodeById(nodeId),
     deps.getPlanNodesBySession(sessionId),
-    deps.getTargetIdentity(sessionId),
-    deps.listAttemptHistory(sessionId),
   ]);
 
   if (!node) {
@@ -84,10 +85,6 @@ export const getUnitWorkflow = async ({
 
   if (!planNodes) {
     return err("Curriculum plan does not exist yet.");
-  }
-
-  if (!targetIdentity) {
-    return err("Target identity is missing.");
   }
 
   const parentNode = node.parentNodeId
@@ -107,9 +104,7 @@ export const getUnitWorkflow = async ({
       0,
     ) + 1;
 
-  let setup;
-    try {
-      const completedClusterTitles = planNodes
+  const completedClusterTitles = planNodes
       .filter((item) => item.kind === "skill_cluster")
       .filter((clusterNode) => {
         const childUnits = planNodes.filter(
@@ -125,27 +120,77 @@ export const getUnitWorkflow = async ({
       })
       .map((item) => item.title);
 
-    setup = await generateUnitScaffold({
-      slotKind: node.kind,
-      slotIndex,
-      totalSlots: siblingUnits.length || 1,
-      clusterContext: parentNode
-        ? {
+  const clusterContext = parentNode
+    ? {
+        title: parentNode.title,
+        summary: parentNode.summary,
+        whyItMatters: parentNode.whyItMatters,
+      }
+    : null;
+
+  const briefingPromise =
+    parentNode && existingUnit?.clusterBriefing == null
+      ? generateClusterBriefing({
+          slotKind: node.kind as "unit" | "integration",
+          totalSlots: siblingUnits.length || 1,
+          clusterContext: {
             title: parentNode.title,
             summary: parentNode.summary,
             whyItMatters: parentNode.whyItMatters,
-          }
-        : null,
-      integrationContext:
-        node.kind === "integration"
-          ? {
-              completedClusterTitles,
-            }
-          : null,
-      targetIdentity,
-      priorLearning,
-      nodeId: node.id,
-    });
+          },
+          completedClusterTitles:
+            node.kind === "integration" ? completedClusterTitles : undefined,
+        }).catch(() => null)
+      : Promise.resolve(null);
+
+  if (existingUnit) {
+    const generatedBriefing = await briefingPromise;
+
+    if (parentNode && generatedBriefing) {
+      try {
+        await deps.saveNodeBriefing({
+          nodeId: parentNode.id,
+          briefing: generatedBriefing,
+        });
+      } catch {
+        // Briefing generation is non-blocking for unit access.
+      }
+    }
+
+    const refreshedUnit = await deps.getUnitByNodeId(nodeId);
+    return ok(refreshedUnit ?? existingUnit);
+  }
+
+  const [targetIdentity, priorLearning] = await Promise.all([
+    deps.getTargetIdentity(sessionId),
+    deps.listAttemptHistory(sessionId),
+  ]);
+
+  if (!targetIdentity) {
+    return err("Target identity is missing.");
+  }
+
+  let setup;
+  let generatedBriefing: NonNullable<UnitContent["clusterBriefing"]> | null;
+  try {
+    [setup, generatedBriefing] = await Promise.all([
+      generateUnitScaffold({
+        slotKind: node.kind as "unit" | "integration",
+        slotIndex,
+        totalSlots: siblingUnits.length || 1,
+        clusterContext,
+        integrationContext:
+          node.kind === "integration"
+            ? {
+                completedClusterTitles,
+              }
+            : null,
+        targetIdentity,
+        priorLearning,
+        nodeId: node.id,
+      }),
+      briefingPromise,
+    ]);
   } catch (error) {
     return err(
       error instanceof Error
@@ -159,11 +204,27 @@ export const getUnitWorkflow = async ({
     title: setup.title,
     seedPrompt: setup.seedPrompt,
     seedHint: setup.seedHint,
+    clusterArcFrame: setup.clusterArcFrame,
+    complexityBudget: setup.complexityBudget,
     teachbackSetup: setup.teachbackSetup,
     scenario: setup.scenario,
   });
 
-  return createdUnit
-    ? ok(createdUnit)
-    : err("Unit content could not be created.");
+  if (!createdUnit) {
+    return err("Unit content could not be created.");
+  }
+
+  if (parentNode && generatedBriefing) {
+    try {
+      await deps.saveNodeBriefing({
+        nodeId: parentNode.id,
+        briefing: generatedBriefing,
+      });
+    } catch {
+      // Briefing generation is non-blocking for unit access.
+    }
+  }
+
+  const refreshedUnit = await deps.getUnitByNodeId(nodeId);
+  return ok(refreshedUnit ?? createdUnit);
 };

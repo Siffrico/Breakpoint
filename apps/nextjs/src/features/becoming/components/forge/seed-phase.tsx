@@ -5,13 +5,17 @@ import { useState } from "react";
 import { Button } from "@acme/ui/button";
 import { Textarea } from "@acme/ui/textarea";
 
+import { UnitFrame } from "./unit-frame";
+
 export function SeedPhase({
   seedPrompt,
   seedHint,
+  clusterArcFrame,
   onSubmit,
 }: {
   seedPrompt: string;
   seedHint: string;
+  clusterArcFrame?: string | null;
   onSubmit: (response: string) => Promise<void> | void;
 }) {
   const [response, setResponse] = useState("");
@@ -31,6 +35,8 @@ export function SeedPhase({
 
   return (
     <section className="flex flex-col gap-6">
+      {clusterArcFrame ? <UnitFrame clusterArcFrame={clusterArcFrame} /> : null}
+
       <div className="border border-border bg-card p-6 shadow-[0_18px_80px_rgba(2,6,23,0.18)]">
         <div className="flex items-center gap-3">
           <div className="h-2 w-2 bg-primary" />

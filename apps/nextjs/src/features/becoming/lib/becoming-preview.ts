@@ -216,6 +216,7 @@ export const previewHomeState: HomeState = {
   nextUnitId: "00000000-0000-4000-8000-000000000101",
   totalUnits: 6,
   completedUnits: 2,
+  activeRecallGate: null,
   blockingSignals: [
     "You default to scattered activity when multiple issues arrive at once.",
     "Hard decisions stay open too long, which amplifies second-order damage.",

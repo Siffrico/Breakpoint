@@ -10,6 +10,7 @@ const phases: { key: ForgePhase; label: string }[] = [
   { key: "practice", label: "Practice" },
   { key: "prove", label: "Prove" },
   { key: "isolation", label: "Repair" },
+  { key: "recall", label: "Recall" },
 ];
 
 export function PhaseIndicator({
@@ -24,7 +25,10 @@ export function PhaseIndicator({
       {phases.map((phase, index) => {
         const isCompleted = completedPhases.includes(phase.key);
         const isCurrent = phase.key === currentPhase;
-        const isHidden = phase.key === "isolation" && !isCurrent && !isCompleted;
+        const isHidden =
+          (phase.key === "isolation" || phase.key === "recall") &&
+          !isCurrent &&
+          !isCompleted;
 
         if (isHidden) return null;
 

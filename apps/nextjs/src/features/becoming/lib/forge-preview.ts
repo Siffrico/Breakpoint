@@ -16,6 +16,14 @@ export interface PracticePrompt {
   type: "identification" | "construction" | "debugging";
 }
 
+export interface ClusterBriefing {
+  briefingArc: string;
+  briefingMap: Array<{
+    position: number;
+    role: string;
+  }>;
+}
+
 export interface TeachbackMessage {
   role: "student" | "user";
   content: string;
@@ -54,11 +62,21 @@ export interface ForgeUnit {
   whyItMatters: string;
   seedPrompt: string;
   seedHint: string;
+  clusterArcFrame: string | null;
+  clusterBriefing: ClusterBriefing | null;
+  complexityBudget: 1 | 2 | 3;
   buildContent: string | null;
   practicePrompts: PracticePrompt[] | null;
   teachbackSetup: {
     studentPersona: string;
     openingMisconception: string;
+    roundLadder: Array<{
+      round: number;
+      objection: string;
+      objective: string;
+    }>;
+    passSignals: string[];
+    failureModes: string[];
   };
   scenario: {
     title: string;
@@ -72,6 +90,7 @@ export type ForgePhase =
   | "practice"
   | "prove"
   | "isolation"
+  | "recall"
   | "debrief";
 
 export const previewForgeUnit: ForgeUnit = {
@@ -86,8 +105,48 @@ export const previewForgeUnit: ForgeUnit = {
     "Before we teach you anything, write what you currently think a mental model is and how you believe people actually use one in real decisions.",
   seedHint:
     "Use one real decision, conversation, or judgment call you have made before. Focus on what you thought was happening underneath it, not just the outcome.",
+  clusterArcFrame:
+    "The first slot in this sequence establishes the basic distinction the rest of the cluster depends on. This unit matters because without a clean model of what a mental model is, later slots about choosing, stress-testing, and combining models collapse into jargon.",
+  clusterBriefing: {
+    briefingArc:
+      "This cluster builds one operator habit: making your reasoning inspectable instead of vibe-based. The sequence starts by clarifying what a mental model actually is, because most learners confuse models with intuition, slogans, or post-hoc explanations. Once that distinction is clean, the middle of the cluster pushes on application: how to choose a model deliberately, where a model breaks under pressure, and how to notice what it leaves out. The later work matters because a model is only useful when you can test it, swap it, and explain its mechanism to someone skeptical. By the end, the learner should not just recognize the phrase 'mental model.' They should be able to use models as decision tools, diagnose weak reasoning, and defend why an explicit model beats fast but opaque judgment.",
+    briefingMap: [
+      {
+        position: 1,
+        role: "Slot 1 establishes the core distinction between explicit models and gut-feel pattern matching.",
+      },
+      {
+        position: 2,
+        role: "Slot 2 turns that distinction into a choice problem: when to use a model and what good selection looks like.",
+      },
+      {
+        position: 3,
+        role: "Slot 3 pressure-tests the model by showing how it fails, what it misses, and how to revise it under stress.",
+      },
+    ],
+  },
+  complexityBudget: 2,
   buildContent:
-    "You wrote that a mental model is basically a lens that helps you interpret situations faster by applying a pattern you've seen before. That sounds plausible until you watch two people move through the same situation with the same history and arrive at opposite decisions. Speed is not the defining feature. Plenty of bad reasoning is fast. Pattern-matching is not the defining feature either. Bias pattern-matches. Habit pattern-matches. Panic pattern-matches. The break happens when you treat any repeated pattern as if it were a model, because then instinct, superstition, and disciplined abstraction all get collapsed into one pile.\n\nA real mental model is not just a familiar lens. It is a deliberate simplification that preserves a causal structure well enough to let you predict something before reality finishes unfolding. That is why your surface definition fails. It describes the feeling of using a model, not the job the model is doing. If the structure is missing, you are not modeling the situation. You are just naming a vibe and calling it judgment. The reason strong operators value models is not that models make thinking easier. It is that they make thinking inspectable. Once a model is explicit, you can test it, compare it against another one, and see what it systematically ignores.\n\nThis matters in ordinary life more than people admit. Think about a manager planning a difficult conversation. The shallow version is \"I know this person, so I'll trust my instinct.\" The deeper version is \"If feedback threatens status, they'll defend first and process second, so I need to separate the identity hit from the operational correction.\" That second move is not faster because it is intuitive. It is stronger because it encodes a mechanism and therefore changes the way the manager acts. The model creates a better intervention.\n\nThe transferable principle is this: a model is useful only when it exposes the mechanism that makes an outcome happen.",
+    `[anchor]
+You wrote that a mental model is basically a lens that helps you interpret situations faster by applying a pattern you've seen before. That reveals a common starting model: you are tracking the feeling of confident interpretation, not the structure that makes the interpretation reliable.
+
+[disrupt]
+That breaks the moment two people move through the same situation with similar histories and arrive at opposite decisions. Speed is not the defining feature. Bad reasoning is often fast. Pattern-matching is not the defining feature either. Bias pattern-matches. Habit pattern-matches. Panic pattern-matches. If any repeated pattern counts as a model, then instinct, superstition, and disciplined abstraction all collapse into the same pile.
+
+[model]
+A real mental model is a deliberate simplification that preserves causal structure well enough to let you predict something before reality fully unfolds. The intuitive version is this: a model is not a vibe for reading a situation, it is a compact explanation of what is making the situation behave the way it does. The structural version is this: a model earns its keep when it identifies mechanism, lets you generate predictions, and exposes assumptions you can inspect. That is why your original definition fails. It describes the subjective experience of using a model, not the job the model is doing.
+
+[worked_example]
+Imagine a manager preparing for a hard feedback conversation. A weak approach says, "I know this person, so I'll trust my read." A stronger approach slows down and asks what mechanism will control the interaction. Here I would check whether the feedback threatens status, because status threat changes how people process information. If that mechanism is active, direct criticism will trigger defense before reflection. That tells me I should separate identity threat from operational correction. So I open by anchoring on the shared standard, then narrow to the specific behavior, then propose the adjustment. The point is not that the manager sounds smarter. The point is that the model changes the intervention because it names what is causing the likely failure.
+
+[misconception]
+Most people think a model is just a polished name for intuition because both can produce quick judgments. That sounds plausible because the output feels similar. But intuition hides its assumptions, while a model makes them inspectable. If you cannot name the mechanism, test the prediction, or compare your reasoning against an alternative, you are not using a model. You are just reacting and calling it judgment.
+
+[ground]
+This shows up in ordinary life constantly. When someone says, "I just had a feeling that meeting would go badly," they usually stop at the outcome. A model asks what mechanism made the meeting likely to fail: unclear decision rights, status threat, mixed incentives, missing information, or something else. Once the mechanism is visible, the next move stops being mystical and becomes adjustable.
+
+[transfer]
+The transferable principle is this: a model is useful only when it exposes the mechanism that makes an outcome happen.`,
   practicePrompts: [
     {
       type: "identification",
@@ -110,6 +169,36 @@ export const previewForgeUnit: ForgeUnit = {
       "A smart but skeptical peer who confuses mental models with intuition and dismisses frameworks as jargon people use when they lack real judgment.",
     openingMisconception:
       "So a mental model is just a cleaner name for gut feel, right? You're still just making a fast call and dressing it up after the fact.",
+    roundLadder: [
+      {
+        round: 1,
+        objection:
+          "If both models and intuition help you move fast, why isn't this just a vocabulary upgrade?",
+        objective: "Defend the difference between explicit mechanism and fast reaction.",
+      },
+      {
+        round: 2,
+        objection:
+          "Real situations are messy, so how can a simplified model be safer than reading the room in real time?",
+        objective: "Explain why explicit simplification is more inspectable than hidden simplification.",
+      },
+      {
+        round: 3,
+        objection:
+          "How do you tell whether a model reveals a mechanism or just sounds intelligent after the fact?",
+        objective: "Name the tests that distinguish causal models from post-hoc stories.",
+      },
+    ],
+    passSignals: [
+      "Names mechanism rather than repeating slogans",
+      "Distinguishes explicit models from intuition cleanly",
+      "Uses concrete examples to defend the claim under pressure",
+    ],
+    failureModes: [
+      "Collapses models into gut feel or pattern recognition",
+      "Gets abstract and stops naming mechanism",
+      "Relies on definitions without showing application",
+    ],
   },
   scenario: {
     title: "Teach-back: Mental Models",

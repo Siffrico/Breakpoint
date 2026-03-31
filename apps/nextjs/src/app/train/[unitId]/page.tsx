@@ -6,6 +6,7 @@ import {
   getActivePlan,
   getCapstone,
   getForgeUnit,
+  getRecallGate,
 } from "~/features/becoming/server/becoming-queries";
 
 export default async function TrainUnitPage(props: {
@@ -35,6 +36,17 @@ export default async function TrainUnitPage(props: {
   }
 
   const unit = await getForgeUnit({ nodeId: unitId, sessionId });
+  const activeRecallGate = await getRecallGate({ sessionId }).catch(() => null);
 
-  return <ForgeWorkspace unit={unit} sessionId={sessionId} />;
+  return (
+    <ForgeWorkspace
+      unit={unit}
+      sessionId={sessionId}
+      recallGate={
+        activeRecallGate?.triggerAfterUnitNodeId === unitId
+          ? activeRecallGate
+          : null
+      }
+    />
+  );
 }

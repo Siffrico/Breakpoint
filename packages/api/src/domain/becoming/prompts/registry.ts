@@ -20,6 +20,8 @@ import {
   debateOpponentPersona,
   teachAudiencePersona,
   capstoneArchitectPersona,
+  recallProbeDesignerPersona,
+  recallProbeGradingPersona,
 } from "./personas";
 
 import {
@@ -147,13 +149,15 @@ Rules:
 - seedHint must be 1 or 2 sentences that help the learner understand what kind of answer is useful.
 - seedHint should nudge toward concrete reasoning, examples, mechanism, or tradeoffs.
 - seedHint must not answer the question, define the lesson for them, or leak the build content.
+- clusterArcFrame must be 1 or 2 sentences positioning this slot inside the larger sequence without teaching the lesson.
+- complexityBudget must be 1, 2, or 3 based on the true teaching load of the concept.
 - teachbackSetup must pressure-test the chosen lesson, not the broader cluster in general.
 - scenario.focusAreas should contain 2 or 3 concrete evaluation targets.
 - If slotKind is "unit", stay inside the cluster scope while advancing deeper into it.
 - If slotKind is "integration", synthesize across the completed clusters rather than teaching an isolated skill.
 - Respect position: earlier slots should establish leverage, later slots should push complexity, transfer, or edge cases.`,
   retryInstructions:
-    "Return only title, seedPrompt, seedHint, teachbackSetup, and scenario. Make the unit feel like the next necessary step, not a generic lesson. seedHint must guide without answering.",
+    "Return only title, seedPrompt, seedHint, clusterArcFrame, complexityBudget, teachbackSetup, and scenario. Make the unit feel like the next necessary step, not a generic lesson. seedHint must guide without answering.",
 };
 
 export const buildContentPrompt: PromptTemplate = {
@@ -165,17 +169,17 @@ export const buildContentPrompt: PromptTemplate = {
 
 Rules:
 1. The opening must reference something the learner specifically wrote in their seed response.
-2. Structure the argument in this order: disrupt, rebuild, ground, land.
-3. Disrupt: open with a concrete counterexample showing where the learner's current model breaks.
-4. Rebuild: introduce the deeper model and explain why the surface model fails.
-5. Ground: show the model operating in something mundane or everyday.
-6. Land: end with exactly one transferable principle sentence.
+2. Return one string with exact section markers on their own lines: [anchor], [disrupt], [model], [worked_example], optional [misconception], [ground], [transfer].
+3. [model] must contain at least two distinct representations of the concept.
+4. [worked_example] must narrate reasoning decisions, not just the answer.
+5. [ground] must show the model operating in something mundane or everyday.
+6. [transfer] must end with exactly one transferable principle sentence.
 7. Tone: direct, sharp, challenging, respectful. Not textbook. Not warm. Not motivational.
 8. Never say "you were wrong."
 9. Never use phrases like "in this section" or "we will explore."
-10. Continuous prose only. No lists. No headings.`,
+10. No bullet lists.`,
   retryInstructions:
-    "Continuous prose only. No bullet points or headers. Open by referencing the learner's actual seed response. Keep it between 400 and 600 words.",
+    "Use the exact section markers. Open by referencing the learner's actual seed response. Keep the prose under each section marker; no bullet lists.",
 };
 
 export const practicePromptsPrompt: PromptTemplate = {
@@ -190,14 +194,64 @@ Rules:
 2. prompts[0] must have type "identification".
 3. prompts[1] must have type "construction".
 4. prompts[2] must have type "debugging".
-5. Identification: ask the learner to reanalyze something from their own past using the new framework. If the seed includes a personal example, use it.
-6. Construction: ask the learner to design or build something using the principle. It must be generative, not analytical.
-7. Debugging: include a 2-3 sentence broken scenario inside the prompt. The scenario must violate the principle. The learner must diagnose why it fails and propose a fix.
+5. Identification: ask the learner to reanalyze something from their own past using the model section. If the seed includes a personal example, use it.
+6. Construction: ask the learner to design or build something that extends the worked_example reasoning. It must be generative, not analytical.
+7. Debugging: include a 2-3 sentence broken scenario inside the prompt. The scenario must violate the misconception or central failure mode. The learner must diagnose why it fails and propose a fix.
 8. The debugging scenario must be adjacent to the unit topic, not the exact same domain.
 9. Never ask for definition recall or summary.
 10. Make each prompt specific enough that a vague answer will obviously fail.`,
   retryInstructions:
     "Return exactly 3 prompts in order: identification, construction, debugging. The debugging prompt must include a brief broken scenario inside the prompt.",
+};
+
+export const recallSeedReturnPrompt: PromptTemplate = {
+  id: "recall-seed-return",
+  version: 1,
+  tier: "standard",
+  persona: recallProbeDesignerPersona,
+  instruction: `Generate a recall seed-return probe.
+
+Rules:
+- Show the learner their original seed reasoning and ask them to identify the specific flaw in that earlier model.
+- Ask what they understand now that their earlier self did not.
+- Do not ask them to re-explain the full concept from scratch.
+- The prompt must feel diagnostic, not punitive.
+- Keep it short enough to answer in under 2 minutes.`,
+  retryInstructions:
+    "Return one sharp prompt only. It must ask for diagnosis of past reasoning, not content recap.",
+};
+
+export const recallInterleavePrompt: PromptTemplate = {
+  id: "recall-interleave",
+  version: 1,
+  tier: "standard",
+  persona: recallProbeDesignerPersona,
+  instruction: `Generate a recall interleave probe.
+
+Rules:
+- Use all provided unit summaries.
+- The prompt must require the learner to combine concepts from each unit to solve a single problem.
+- The problem must be unsolvable with any one unit alone.
+- Do not let the learner answer by treating the units separately.
+- Keep it tight: one scenario, one answer target.`,
+  retryInstructions:
+    "Return one integrated prompt only. If the learner could answer by addressing each unit separately, the prompt is invalid.",
+};
+
+export const recallCompressionPrompt: PromptTemplate = {
+  id: "recall-compression",
+  version: 1,
+  tier: "standard",
+  persona: recallProbeDesignerPersona,
+  instruction: `Generate a recall compression probe.
+
+Rules:
+- Use the provided same-cluster unit summaries.
+- Ask the learner to state the single principle that connects them in 1 to 3 sentences.
+- The principle must be specific enough that it could not describe an unrelated cluster.
+- Do not ask for a summary of each unit.`,
+  retryInstructions:
+    "Return one short compression prompt only. It must force principle extraction, not summary.",
 };
 
 // ---------------------------------------------------------------------------
@@ -261,6 +315,40 @@ Rules:
     "Listing multiple gaps instead of identifying the root cause",
     "Confusing knowledge gaps (never learned) with reasoning gaps (learned but misapplied)",
   ],
+};
+
+export const gradeRecallProbePrompt: PromptTemplate = {
+  id: "grade-recall-probe",
+  version: 1,
+  tier: "critical",
+  persona: recallProbeGradingPersona,
+  instruction: `Grade this recall probe response.
+
+Rules:
+- Evaluate whether the learner satisfied the exact recall demand.
+- score must be 0 to 100.
+- passed should be true only if the learner showed retained understanding strong enough to keep building on.
+- feedback must identify the missing retained concept or reasoning move when the answer fails.
+- decayTarget should be null on a pass and a short precise phrase on a fail.`,
+  retryInstructions:
+    "Return score, passed, feedback, and decayTarget only. Base the judgment on the response, not effort or tone.",
+};
+
+export const recallRepairPrompt: PromptTemplate = {
+  id: "recall-repair",
+  version: 1,
+  tier: "standard",
+  persona: recallProbeDesignerPersona,
+  instruction: `Generate a recall repair prompt.
+
+Rules:
+- The learner failed a recall probe.
+- Generate one focused follow-up question that targets exactly what decayed.
+- Do not re-teach the concept.
+- Do not broaden the task.
+- The repair prompt should demand the same kind of reasoning, just more precisely.`,
+  retryInstructions:
+    "Return one focused repair prompt only. It should be sharper than the original, not longer or broader.",
 };
 
 export const ghostScenarioPrompt: PromptTemplate = {

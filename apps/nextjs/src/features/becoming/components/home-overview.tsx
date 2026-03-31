@@ -17,9 +17,12 @@ export function HomeOverview({
   const progress = home.totalUnits > 0
     ? Math.round((home.completedUnits / home.totalUnits) * 100)
     : 0;
+  const activeUnitId = home.activeRecallGate?.triggerAfterUnitNodeId ?? home.nextUnitId;
   const trainHref = preview
     ? "/ui/train"
-    : `/train/${home.nextUnitId}?session=${sessionId}`;
+    : activeUnitId
+      ? `/train/${activeUnitId}?session=${sessionId}`
+      : `/home?session=${sessionId}`;
   const planHref = preview ? "/ui/plan" : `/plan?session=${sessionId}`;
   const profileHref = preview ? "/ui/profile" : `/profile?session=${sessionId}`;
 
@@ -46,18 +49,24 @@ export function HomeOverview({
 
         <section className="border-b border-border px-6 py-6">
           <h2 className="font-display text-lg tracking-[-0.03em]">
-            {home.nextUnitTitle ?? "Path generated"}
+            {home.activeRecallGate
+              ? "Recall gate active"
+              : (home.nextUnitTitle ?? "Path generated")}
           </h2>
           <p className="mt-3 text-sm leading-6 text-muted-foreground">
-            {home.planSummary}
+            {home.activeRecallGate
+              ? "Before the next unit unlocks, you need to prove earlier concepts are still live."
+              : home.planSummary}
           </p>
           <div className="mt-5">
-            {home.nextUnitId ? (
+            {activeUnitId ? (
               <Button
                 asChild
                 className="h-10 rounded-none bg-white px-5 text-black hover:bg-white/90"
               >
-                <Link href={trainHref}>Continue training</Link>
+                <Link href={trainHref}>
+                  {home.activeRecallGate ? "Open recall gate" : "Continue training"}
+                </Link>
               </Button>
             ) : null}
           </div>

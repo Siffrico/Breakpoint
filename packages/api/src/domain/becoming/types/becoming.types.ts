@@ -12,8 +12,11 @@ import type {
   CapstoneState,
   CapstoneStatus,
   CapstoneTurnResult,
+  ComplexityBudget,
   BuildCapstoneScenario,
   BeforeAfterProfile,
+  ClusterBriefing,
+  ClusterBriefingMapItem,
   Debrief,
   DebateCapstoneScenario,
   FailureGap,
@@ -24,6 +27,7 @@ import type {
   GhostEvaluation,
   GhostScenario,
   IdentityReport,
+  FinalizeForgeUnitResult,
   OnboardingQuestion,
   OnboardingSlot,
   OnboardingTranscriptMessage,
@@ -32,10 +36,19 @@ import type {
   PracticePrompt,
   PracticeSubmission,
   PreSeedUnitContentDraft,
+  RecallGate,
+  RecallGateSummary,
+  RecallGateStatus,
+  RecallProbe,
+  RecallProbeStatus,
+  RecallProbeType,
+  SubmitRecallProbe,
   TeachbackMessage,
   TeachbackRoundResult,
   TeachbackSetup,
   TeachCapstoneScenario,
+  UnitRecallState,
+  UnitRecallStatus,
   UnitContent,
 } from "@acme/validators";
 
@@ -53,8 +66,11 @@ export type {
   CapstoneState,
   CapstoneStatus,
   CapstoneTurnResult,
+  ComplexityBudget,
   BuildCapstoneScenario,
   BeforeAfterProfile,
+  ClusterBriefing,
+  ClusterBriefingMapItem,
   Debrief,
   DebateCapstoneScenario,
   FailureGap,
@@ -65,6 +81,7 @@ export type {
   GhostEvaluation,
   GhostScenario,
   IdentityReport,
+  FinalizeForgeUnitResult,
   OnboardingQuestion,
   OnboardingSlot,
   OnboardingTranscriptMessage,
@@ -73,10 +90,19 @@ export type {
   PracticePrompt,
   PracticeSubmission,
   PreSeedUnitContentDraft,
+  RecallGate,
+  RecallGateSummary,
+  RecallGateStatus,
+  RecallProbe,
+  RecallProbeStatus,
+  RecallProbeType,
+  SubmitRecallProbe,
   TeachbackMessage,
   TeachbackRoundResult,
   TeachbackSetup,
   TeachCapstoneScenario,
+  UnitRecallState,
+  UnitRecallStatus,
   UnitContent,
 };
 
@@ -131,6 +157,7 @@ export interface HomeState {
   totalUnits: number;
   nextUnitId: string | null;
   nextUnitTitle: string | null;
+  activeRecallGate: RecallGateSummary | null;
   blockingSignals: string[];
 }
 

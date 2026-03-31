@@ -1,5 +1,8 @@
 import { runAgent } from "../orchestration/agent-runtime";
-import { PracticeEvaluationSchema } from "@acme/validators";
+import {
+  getBuildContentSection,
+  PracticeEvaluationSchema,
+} from "@acme/validators";
 import type {
   PracticeEvaluation,
   PracticePrompt,
@@ -46,6 +49,9 @@ export const generateProveStage = async (
 Requirements:
 - Return exactly 3 practicePrompts in this order: identification, construction, debugging.
 - Make weak responses fail obviously.
+- identification should test whether the learner can use the model from the [model] section.
+- construction should extend the [worked_example] section into a new build or design task.
+- debugging should target the [misconception] section when present; otherwise target the central failure mode exposed by [disrupt] and [model].
 - The debugging scenario must be adjacent to the concept, not the same domain.
 - teachbackSetup.openingMisconception should be plausible but wrong.
 - teachbackSetup.roundLadder must escalate across 3 rounds:
@@ -163,12 +169,25 @@ const formatProveStageInput = (input: ProveStageInput): string =>
 Unit title: ${input.seed.title}
 Concept target: ${input.seed.conceptTarget}
 Misconception target: ${input.seed.misconceptionTarget}
+Complexity budget: ${input.seed.complexityBudget}
 Proof targets: ${input.seed.proofTargets.join("; ")}
 Core model: ${input.build.coreModel.name}
 Core mechanism: ${input.build.coreModel.mechanism}
 Transferable principle: ${input.build.coreModel.transferablePrinciple}
-Worked example:
-${input.build.workedExample}
+Anchor section:
+${getBuildContentSection(input.build.buildContent, "anchor")?.content ?? "Not available."}
+
+Model section:
+${getBuildContentSection(input.build.buildContent, "model")?.content ?? "Not available."}
+
+Worked example section:
+${getBuildContentSection(input.build.buildContent, "worked_example")?.content ?? input.build.workedExample}
+
+Misconception section:
+${getBuildContentSection(input.build.buildContent, "misconception")?.content ?? "None included."}
+
+Ground section:
+${getBuildContentSection(input.build.buildContent, "ground")?.content ?? "Not available."}
 
 Learner seed response:
 ${input.learnerSeedResponse}`;

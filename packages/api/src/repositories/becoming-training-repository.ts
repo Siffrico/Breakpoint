@@ -138,6 +138,7 @@ export const becomingTrainingRepository = {
       .map((attempt) => ({
         unitContentId: attempt.unitContentId,
         score: attempt.score,
+        seedResponse: attempt.seedResponse,
         readiness: attempt.readiness,
         finalArticulation: attempt.finalArticulation,
         growthDimensions: attempt.growthDimensions,

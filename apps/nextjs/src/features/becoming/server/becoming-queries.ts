@@ -42,6 +42,17 @@ export const getForgeUnit = async ({
   return caller.becoming.unit({ nodeId, sessionId });
 };
 
+export const getRecallGate = async ({
+  sessionId,
+  gateId,
+}: {
+  sessionId: string;
+  gateId?: string;
+}) => {
+  const caller = await createCaller();
+  return caller.becoming.getRecallGate({ sessionId, gateId });
+};
+
 export const getCapstone = async ({
   nodeId,
   sessionId,

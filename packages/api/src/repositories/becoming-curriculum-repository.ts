@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from "@acme/db";
+import { and, asc, desc, eq, inArray } from "@acme/db";
 import type { db as databaseClient } from "@acme/db/client";
 import {
   BecomingCurriculumNode,
@@ -51,9 +51,11 @@ const buildFallbackBeforeAfter = ({
 const mapUnitContent = ({
   node,
   unit,
+  clusterBriefing,
 }: {
   node: typeof BecomingCurriculumNode.$inferSelect;
   unit: typeof BecomingUnitContent.$inferSelect;
+  clusterBriefing: UnitContent["clusterBriefing"];
 }): UnitContent => ({
   id: unit.id,
   nodeId: unit.nodeId,
@@ -62,6 +64,9 @@ const mapUnitContent = ({
   whyItMatters: node.whyItMatters,
   seedPrompt: unit.seedPrompt,
   seedHint: unit.seedHint ?? DEFAULT_SEED_HINT,
+  clusterArcFrame: unit.clusterArcFrame,
+  clusterBriefing,
+  complexityBudget: unit.complexityBudget as UnitContent["complexityBudget"],
   buildContent: unit.buildContent,
   practicePrompts: unit.practicePrompts as UnitContent["practicePrompts"],
   teachbackSetup: unit.teachbackSetup as UnitContent["teachbackSetup"],
@@ -273,7 +278,68 @@ export const becomingCurriculumRepository = {
       return null;
     }
 
-    return mapUnitContent({ node, unit });
+    const parentNode = node.parentNodeId
+      ? await db.query.BecomingCurriculumNode.findFirst({
+          where: eq(BecomingCurriculumNode.id, node.parentNodeId),
+        })
+      : null;
+
+    return mapUnitContent({
+      node,
+      unit,
+      clusterBriefing: (parentNode?.briefing ?? null) as UnitContent["clusterBriefing"],
+    });
+  },
+
+  listUnitContentsByNodeIds: async ({
+    db,
+    nodeIds,
+  }: {
+    db: Database;
+    nodeIds: string[];
+  }): Promise<UnitContent[]> => {
+    if (nodeIds.length === 0) {
+      return [];
+    }
+
+    const nodes = await db.query.BecomingCurriculumNode.findMany({
+      where: inArray(BecomingCurriculumNode.id, nodeIds),
+    });
+    const units = await db.query.BecomingUnitContent.findMany({
+      where: inArray(BecomingUnitContent.nodeId, nodeIds),
+    });
+
+    const nodesById = new Map(nodes.map((node) => [node.id, node]));
+    const parentIds = Array.from(
+      new Set(
+        nodes
+          .map((node) => node.parentNodeId)
+          .filter((parentId): parentId is string => parentId != null),
+      ),
+    );
+    const parentRows = parentIds.length
+      ? await db.query.BecomingCurriculumNode.findMany({
+          where: inArray(BecomingCurriculumNode.id, parentIds),
+        })
+      : [];
+    const parentsById = new Map(parentRows.map((node) => [node.id, node]));
+
+    return units
+      .map((unit) => {
+        const node = nodesById.get(unit.nodeId);
+        if (!node) {
+          return null;
+        }
+
+        return mapUnitContent({
+          node,
+          unit,
+          clusterBriefing: (node.parentNodeId
+            ? parentsById.get(node.parentNodeId)?.briefing
+            : null) as UnitContent["clusterBriefing"],
+        });
+      })
+      .filter((unit): unit is UnitContent => unit != null);
   },
 
   getNodeById: async ({
@@ -314,6 +380,8 @@ export const becomingCurriculumRepository = {
     title,
     seedPrompt,
     seedHint,
+    clusterArcFrame,
+    complexityBudget,
     teachbackSetup,
     scenario,
   }: {
@@ -322,6 +390,8 @@ export const becomingCurriculumRepository = {
     title: string;
     seedPrompt: string;
     seedHint: string;
+    clusterArcFrame: string;
+    complexityBudget: UnitContent["complexityBudget"];
     teachbackSetup: UnitContent["teachbackSetup"];
     scenario: UnitContent["scenario"];
   }): Promise<UnitContent | null> => {
@@ -332,6 +402,8 @@ export const becomingCurriculumRepository = {
         title,
         seedPrompt,
         seedHint,
+        clusterArcFrame,
+        complexityBudget,
         buildContent: null,
         practicePrompts: null,
         contentGeneratedAt: null,
@@ -345,6 +417,8 @@ export const becomingCurriculumRepository = {
           title,
           seedPrompt,
           seedHint,
+          clusterArcFrame,
+          complexityBudget,
           teachbackSetup,
           scenarioTitle: scenario.title,
           scenarioFocusAreas: scenario.focusAreas,
@@ -364,7 +438,41 @@ export const becomingCurriculumRepository = {
       return null;
     }
 
-    return mapUnitContent({ node, unit });
+    const parentNode = node.parentNodeId
+      ? await db.query.BecomingCurriculumNode.findFirst({
+          where: eq(BecomingCurriculumNode.id, node.parentNodeId),
+        })
+      : null;
+
+    return mapUnitContent({
+      node,
+      unit,
+      clusterBriefing: (parentNode?.briefing ?? null) as UnitContent["clusterBriefing"],
+    });
+  },
+
+  saveNodeBriefing: async ({
+    db,
+    nodeId,
+    briefing,
+  }: {
+    db: Database;
+    nodeId: string;
+    briefing: UnitContent["clusterBriefing"];
+  }) => {
+    if (!briefing) {
+      return null;
+    }
+
+    const [node] = await db
+      .update(BecomingCurriculumNode)
+      .set({
+        briefing,
+      })
+      .where(eq(BecomingCurriculumNode.id, nodeId))
+      .returning();
+
+    return (node?.briefing ?? null) as UnitContent["clusterBriefing"];
   },
 
   updateUnitContent: async ({
@@ -403,7 +511,17 @@ export const becomingCurriculumRepository = {
       return null;
     }
 
-    return mapUnitContent({ node, unit });
+    const parentNode = node.parentNodeId
+      ? await db.query.BecomingCurriculumNode.findFirst({
+          where: eq(BecomingCurriculumNode.id, node.parentNodeId),
+        })
+      : null;
+
+    return mapUnitContent({
+      node,
+      unit,
+      clusterBriefing: (parentNode?.briefing ?? null) as UnitContent["clusterBriefing"],
+    });
   },
 
   savePhaseResponse: async ({
@@ -569,7 +687,7 @@ export const becomingCurriculumRepository = {
     };
   },
 
-  completeNode: async ({
+  markNodeCompleted: async ({
     db,
     nodeId,
   }: {
@@ -587,6 +705,52 @@ export const becomingCurriculumRepository = {
 
     if (!completedNode) {
       return;
+    }
+
+    const syncParentStatus = async (parentNodeId: string | null) => {
+      if (!parentNodeId) {
+        return;
+      }
+
+      const parentChildren = await db.query.BecomingCurriculumNode.findMany({
+        where: eq(BecomingCurriculumNode.parentNodeId, parentNodeId),
+        orderBy: asc(BecomingCurriculumNode.orderIndex),
+      });
+      if (parentChildren.length === 0) {
+        return;
+      }
+
+      const parentStatus = parentChildren.every((node) => node.status === "completed")
+        ? "completed"
+        : parentChildren.some(
+              (node) => node.status === "ready" || node.status === "completed",
+            )
+          ? "ready"
+          : "planned";
+
+      await db
+        .update(BecomingCurriculumNode)
+        .set({ status: parentStatus })
+        .where(eq(BecomingCurriculumNode.id, parentNodeId));
+    };
+
+    await syncParentStatus(completedNode.parentNodeId);
+
+  },
+
+  advancePlanAfterCompletion: async ({
+    db,
+    nodeId,
+  }: {
+    db: Database;
+    nodeId: string;
+  }) => {
+    const completedNode = await db.query.BecomingCurriculumNode.findFirst({
+      where: eq(BecomingCurriculumNode.id, nodeId),
+    });
+
+    if (!completedNode) {
+      return null;
     }
 
     const nextNode = await db.query.BecomingCurriculumNode.findMany({
@@ -621,8 +785,6 @@ export const becomingCurriculumRepository = {
         .where(eq(BecomingCurriculumNode.id, parentNodeId));
     };
 
-    await syncParentStatus(completedNode.parentNodeId);
-
     if (completedNode.kind === "unit" && completedNode.parentNodeId) {
       const siblingUnits = nextNode.filter(
         (node) =>
@@ -646,7 +808,7 @@ export const becomingCurriculumRepository = {
             .set({ status: "ready" })
             .where(eq(BecomingCurriculumNode.id, clusterSimulation.id));
           await syncParentStatus(clusterSimulation.parentNodeId);
-          return;
+          return clusterSimulation;
         }
       }
     }
@@ -660,7 +822,7 @@ export const becomingCurriculumRepository = {
         .set({ status: "ready" })
         .where(eq(BecomingCurriculumNode.id, nextPlannedUnit.id));
       await syncParentStatus(nextPlannedUnit.parentNodeId);
-      return;
+      return nextPlannedUnit;
     }
 
     const regularUnits = nextNode.filter((node) => node.kind === "unit");
@@ -668,7 +830,7 @@ export const becomingCurriculumRepository = {
       regularUnits.length > 0 &&
       regularUnits.every((node) => node.status === "completed");
     if (!allRegularUnitsComplete) {
-      return;
+      return null;
     }
 
     const nextIntegration = nextNode.find(
@@ -680,7 +842,27 @@ export const becomingCurriculumRepository = {
         .set({ status: "ready" })
         .where(eq(BecomingCurriculumNode.id, nextIntegration.id));
       await syncParentStatus(nextIntegration.parentNodeId);
-      return;
+      return nextIntegration;
     }
+
+    return null;
+  },
+
+  completeNode: async ({
+    db,
+    nodeId,
+  }: {
+    db: Database;
+    nodeId: string;
+  }) => {
+    await becomingCurriculumRepository.markNodeCompleted({
+      db,
+      nodeId,
+    });
+
+    await becomingCurriculumRepository.advancePlanAfterCompletion({
+      db,
+      nodeId,
+    });
   },
 };

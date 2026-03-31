@@ -99,6 +99,22 @@ export const PracticePromptSchema = z.object({
   type: z.enum(["identification", "construction", "debugging"]),
 });
 
+export const ComplexityBudgetSchema = z.union([
+  z.literal(1),
+  z.literal(2),
+  z.literal(3),
+]);
+
+export const ClusterBriefingMapItemSchema = z.object({
+  position: z.number().int().min(1),
+  role: z.string().min(1),
+});
+
+export const ClusterBriefingSchema = z.object({
+  briefingArc: z.string().min(1),
+  briefingMap: z.array(ClusterBriefingMapItemSchema).min(1),
+});
+
 export const TeachbackRoundSchema = z.object({
   round: z.number().int().min(1).max(3),
   objection: z.string().min(1),
@@ -126,6 +142,9 @@ export const ForgeUnitContentSchema = z.object({
   whyItMatters: z.string().min(1),
   seedPrompt: z.string().min(1),
   seedHint: z.string().min(1),
+  clusterArcFrame: z.string().min(1).nullable(),
+  clusterBriefing: ClusterBriefingSchema.nullable(),
+  complexityBudget: ComplexityBudgetSchema,
   buildContent: z.string().min(1).nullable(),
   practicePrompts: z.array(PracticePromptSchema).length(3).nullable(),
   teachbackSetup: TeachbackSetupSchema,
@@ -136,8 +155,12 @@ export const PreSeedUnitContentDraftSchema = ForgeUnitContentSchema.pick({
   title: true,
   seedPrompt: true,
   seedHint: true,
+  clusterArcFrame: true,
+  complexityBudget: true,
   teachbackSetup: true,
   scenario: true,
+}).extend({
+  clusterArcFrame: z.string().min(1),
 });
 
 export const PostSeedUnitContentDraftSchema = ForgeUnitContentSchema.pick({
@@ -318,8 +341,207 @@ export const ForgeDebriefSchema = z.object({
   nextStep: z.string().min(1),
 });
 
+export const RecallGateStatusSchema = z.enum([
+  "pending",
+  "active",
+  "passed",
+  "repaired",
+  "flagged",
+]);
+
+export const RecallProbeTypeSchema = z.enum([
+  "seed_return",
+  "interleave",
+  "compression",
+]);
+
+export const RecallProbeStatusSchema = z.enum([
+  "pending",
+  "answered",
+  "repair_pending",
+  "repaired",
+  "failed",
+]);
+
+export const UnitRecallStatusSchema = z.enum([
+  "retained",
+  "decayed",
+  "repaired",
+]);
+
+export const RecallProbeSchema = z.object({
+  id: z.string().min(1),
+  gateId: z.string().min(1),
+  probeOrder: z.number().int().min(0),
+  probeType: RecallProbeTypeSchema,
+  sourceUnitNodeIds: z.array(z.string().min(1)).min(1),
+  prompt: z.string().min(1),
+  seedSnapshot: z.string().nullable(),
+  userResponse: z.string().nullable(),
+  score: z.number().int().min(0).max(100).nullable(),
+  passed: z.boolean().nullable(),
+  repairPrompt: z.string().nullable(),
+  repairResponse: z.string().nullable(),
+  repairScore: z.number().int().min(0).max(100).nullable(),
+  repairPassed: z.boolean().nullable(),
+  status: RecallProbeStatusSchema,
+  createdAt: z.date(),
+  updatedAt: z.date().nullable(),
+  completedAt: z.date().nullable(),
+});
+
+export const RecallGateSchema = z.object({
+  id: z.string().min(1),
+  planId: z.string().min(1),
+  sessionId: z.string().min(1),
+  userId: z.string().nullable(),
+  triggerAfterUnitNodeId: z.string().min(1),
+  status: RecallGateStatusSchema,
+  probes: z.array(RecallProbeSchema),
+  createdAt: z.date(),
+  updatedAt: z.date().nullable(),
+  completedAt: z.date().nullable(),
+});
+
+export const RecallGateSummarySchema = z.object({
+  id: z.string().min(1),
+  status: RecallGateStatusSchema,
+  triggerAfterUnitNodeId: z.string().min(1),
+  probeCount: z.number().int().min(0),
+  pendingProbeCount: z.number().int().min(0),
+});
+
+export const UnitRecallStateSchema = z.object({
+  id: z.string().min(1),
+  unitNodeId: z.string().min(1),
+  planId: z.string().min(1),
+  lastRecalledAt: z.date().nullable(),
+  lastRecallOrderIndex: z.number().int().min(0).nullable(),
+  recallCount: z.number().int().min(0),
+  decayCount: z.number().int().min(0),
+  lastRecallScore: z.number().int().min(0).max(100).nullable(),
+  status: UnitRecallStatusSchema,
+  createdAt: z.date(),
+  updatedAt: z.date().nullable(),
+});
+
+export const SubmitRecallProbeSchema = z.object({
+  gateId: z.string().uuid(),
+  probeId: z.string().uuid(),
+  mode: z.enum(["probe", "repair"]),
+  response: z.string().min(20).max(5_000),
+});
+
+export const FinalizeForgeUnitResultSchema = z.discriminatedUnion(
+  "nextAction",
+  [
+    z.object({
+      nextAction: z.literal("recall_gate"),
+      gate: RecallGateSchema,
+    }),
+    z.object({
+      nextAction: z.literal("unit"),
+      nodeId: z.string().min(1),
+    }),
+    z.object({
+      nextAction: z.literal("simulation"),
+      nodeId: z.string().min(1),
+    }),
+    z.object({
+      nextAction: z.literal("home"),
+    }),
+  ],
+);
+
 export const UnitContentSchema = ForgeUnitContentSchema;
 export const DebriefSchema = ForgeDebriefSchema;
+
+export const BuildContentMoveSchema = z.enum([
+  "anchor",
+  "disrupt",
+  "model",
+  "worked_example",
+  "misconception",
+  "ground",
+  "transfer",
+]);
+
+export const BuildContentSectionSchema = z.object({
+  move: BuildContentMoveSchema,
+  content: z.string().min(1),
+});
+
+const BUILD_CONTENT_MOVE_ORDER = [
+  "anchor",
+  "disrupt",
+  "model",
+  "worked_example",
+  "misconception",
+  "ground",
+  "transfer",
+] as const;
+
+const BUILD_CONTENT_MOVE_SET = new Set<string>(BUILD_CONTENT_MOVE_ORDER);
+
+export const parseBuildContentSections = (
+  buildContent: string,
+): BuildContentSection[] => {
+  const trimmed = buildContent.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  const lines = trimmed.split(/\r?\n/);
+  const sections: BuildContentSection[] = [];
+  let currentMove: BuildContentMove | null = null;
+  let buffer: string[] = [];
+
+  const flush = () => {
+    if (!currentMove) {
+      return;
+    }
+
+    const content = buffer.join("\n").trim();
+    if (content) {
+      sections.push({
+        move: currentMove,
+        content,
+      });
+    }
+    buffer = [];
+  };
+
+  for (const line of lines) {
+    const marker = line.trim().match(/^\[([a-z_]+)\]$/)?.[1];
+    if (marker && BUILD_CONTENT_MOVE_SET.has(marker)) {
+      flush();
+      currentMove = marker as BuildContentMove;
+      continue;
+    }
+
+    buffer.push(line);
+  }
+
+  flush();
+
+  if (sections.length === 0) {
+    return [
+      {
+        move: "model",
+        content: trimmed,
+      },
+    ];
+  }
+
+  return sections;
+};
+
+export const getBuildContentSection = (
+  buildContent: string,
+  move: BuildContentMove,
+): BuildContentSection | null =>
+  parseBuildContentSections(buildContent).find((section) => section.move === move) ??
+  null;
 
 export type OnboardingSlot = z.infer<typeof OnboardingSlotSchema>;
 export type OnboardingPhase = z.infer<typeof OnboardingPhaseSchema>;
@@ -335,9 +557,14 @@ export type CurriculumNodeStatus = z.infer<typeof CurriculumNodeStatusSchema>;
 export type CurriculumNode = z.infer<typeof CurriculumNodeSchema>;
 export type CurriculumPlan = z.infer<typeof CurriculumPlanSchema>;
 export type PracticePrompt = z.infer<typeof PracticePromptSchema>;
+export type ComplexityBudget = z.infer<typeof ComplexityBudgetSchema>;
+export type ClusterBriefingMapItem = z.infer<typeof ClusterBriefingMapItemSchema>;
+export type ClusterBriefing = z.infer<typeof ClusterBriefingSchema>;
 export type TeachbackSetup = z.infer<typeof TeachbackSetupSchema>;
 export type ForgeUnitScenario = z.infer<typeof ForgeUnitScenarioSchema>;
 export type ForgeUnitContent = z.infer<typeof ForgeUnitContentSchema>;
+export type BuildContentMove = z.infer<typeof BuildContentMoveSchema>;
+export type BuildContentSection = z.infer<typeof BuildContentSectionSchema>;
 export type PreSeedUnitContentDraft = z.infer<typeof PreSeedUnitContentDraftSchema>;
 export type PostSeedUnitContentDraft = z.infer<
   typeof PostSeedUnitContentDraftSchema
@@ -369,5 +596,15 @@ export type CapstoneSubmission = z.infer<typeof CapstoneSubmissionSchema>;
 export type CapstoneTurnResult = z.infer<typeof CapstoneTurnResultSchema>;
 export type CapstoneEvaluation = z.infer<typeof CapstoneEvaluationSchema>;
 export type ForgeDebrief = z.infer<typeof ForgeDebriefSchema>;
+export type RecallGateStatus = z.infer<typeof RecallGateStatusSchema>;
+export type RecallProbeType = z.infer<typeof RecallProbeTypeSchema>;
+export type RecallProbeStatus = z.infer<typeof RecallProbeStatusSchema>;
+export type UnitRecallStatus = z.infer<typeof UnitRecallStatusSchema>;
+export type RecallProbe = z.infer<typeof RecallProbeSchema>;
+export type RecallGate = z.infer<typeof RecallGateSchema>;
+export type RecallGateSummary = z.infer<typeof RecallGateSummarySchema>;
+export type UnitRecallState = z.infer<typeof UnitRecallStateSchema>;
+export type SubmitRecallProbe = z.infer<typeof SubmitRecallProbeSchema>;
+export type FinalizeForgeUnitResult = z.infer<typeof FinalizeForgeUnitResultSchema>;
 export type UnitContent = z.infer<typeof UnitContentSchema>;
 export type Debrief = z.infer<typeof DebriefSchema>;

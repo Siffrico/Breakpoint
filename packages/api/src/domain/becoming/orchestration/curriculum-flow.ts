@@ -41,7 +41,7 @@ const buildNodes = (
     const clusterOrderIndex = orderIndex++;
     const baseColumn = clusterIndex * clusterSpan;
     const clusterCenter = baseColumn + Math.floor((cluster.unitCount - 1) / 2);
-    const clusterHasInitiallyReadyUnit = unitNumber < 2;
+    const clusterHasInitiallyReadyUnit = unitNumber < 1;
 
     nodes.push({
       parentOrderIndex: 0,
@@ -61,7 +61,7 @@ const buildNodes = (
       nodes.push({
         parentOrderIndex: clusterOrderIndex,
         kind: "unit",
-        status: unitNumber <= 2 ? "ready" : "planned",
+        status: unitNumber <= 1 ? "ready" : "planned",
         title: `Unit Slot ${unitIndex + 1}`,
         summary: `Generated when the learner reaches slot ${unitIndex + 1} in ${cluster.title}.`,
         whyItMatters: cluster.whyItMatters,
