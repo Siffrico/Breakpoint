@@ -18,6 +18,14 @@ import type {
   ClusterBriefing,
   ClusterBriefingMapItem,
   Debrief,
+  EducationUnitAttemptMode,
+  EducationUnitAttemptSignals,
+  EducationUnitConfidence,
+  EducationUnitCurrentStep,
+  EducationUnitResult,
+  EducationUnitScenarioCard,
+  EducationUnitState,
+  EducationUnitTeachExample,
   DebateCapstoneScenario,
   FailureGap,
   FailureIsolationResult,
@@ -43,6 +51,7 @@ import type {
   RecallProbeStatus,
   RecallProbeType,
   SubmitRecallProbe,
+  SubmitEducationUnitStep,
   TeachbackMessage,
   TeachbackRoundResult,
   TeachbackSetup,
@@ -72,6 +81,14 @@ export type {
   ClusterBriefing,
   ClusterBriefingMapItem,
   Debrief,
+  EducationUnitAttemptMode,
+  EducationUnitAttemptSignals,
+  EducationUnitConfidence,
+  EducationUnitCurrentStep,
+  EducationUnitResult,
+  EducationUnitScenarioCard,
+  EducationUnitState,
+  EducationUnitTeachExample,
   DebateCapstoneScenario,
   FailureGap,
   FailureIsolationResult,
@@ -97,6 +114,7 @@ export type {
   RecallProbeStatus,
   RecallProbeType,
   SubmitRecallProbe,
+  SubmitEducationUnitStep,
   TeachbackMessage,
   TeachbackRoundResult,
   TeachbackSetup,
@@ -176,11 +194,24 @@ export interface ProfileState {
   behaviorSignals: string[];
 }
 
-export type BecomingPhase = "seed" | "practice" | "teachback" | "ghost";
+export type BecomingPhase =
+  | "seed"
+  | "practice"
+  | "teachback"
+  | "ghost"
+  | "sactre_attempt"
+  | "sactre_evaluate";
 
 export interface PhaseResponseMetadata {
   attempts?: number;
   feedback?: string;
+  step?: SubmitEducationUnitStep["step"];
+  responseMode?: EducationUnitAttemptMode;
+  confidence?: EducationUnitConfidence;
+  latencyMs?: number | null;
+  signals?: EducationUnitAttemptSignals;
+  stateSnapshot?: EducationUnitState;
+  evaluationResult?: EducationUnitResult;
   gap?: FailureGap;
   ghostScenario?: GhostScenario;
   evidenceAnchors?: string[];

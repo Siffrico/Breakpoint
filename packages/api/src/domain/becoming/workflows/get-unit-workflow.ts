@@ -1,7 +1,15 @@
 import { err, ok, type Result } from "../../../lib/result";
 import { generateClusterBriefing } from "../generate-cluster-briefing";
 import { generateUnitScaffold } from "../orchestration/unit-flow";
-import type { UnitContent } from "../types/becoming.types";
+import {
+  getEducationUnitState,
+  shouldRefreshLegacyEducationUnit,
+} from "../policies/education-unit-state-policy";
+import type {
+  EducationUnitState,
+  PhaseResponseRecord,
+  UnitContent,
+} from "../types/becoming.types";
 
 interface GetUnitDependencies {
   getUnitByNodeId: (nodeId: string) => Promise<UnitContent | null>;
@@ -50,6 +58,10 @@ interface GetUnitDependencies {
     teachbackSetup: UnitContent["teachbackSetup"];
     scenario: UnitContent["scenario"];
   }) => Promise<UnitContent | null>;
+  getPhaseResponses: (
+    unitContentId: string,
+    sessionId: string,
+  ) => Promise<PhaseResponseRecord[]>;
   saveNodeBriefing: (input: {
     nodeId: string;
     briefing: NonNullable<UnitContent["clusterBriefing"]>;
@@ -64,7 +76,7 @@ export const getUnitWorkflow = async ({
   nodeId: string;
   sessionId: string;
   deps: GetUnitDependencies;
-}): Promise<Result<UnitContent>> => {
+}): Promise<Result<EducationUnitState>> => {
   const existingUnit = await deps.getUnitByNodeId(nodeId);
   const [node, planNodes] = await Promise.all([
     deps.getNodeById(nodeId),
@@ -144,6 +156,14 @@ export const getUnitWorkflow = async ({
       : Promise.resolve(null);
 
   if (existingUnit) {
+    const existingResponses = await deps.getPhaseResponses(
+      existingUnit.id,
+      sessionId,
+    );
+    const needsScenarioRefresh = shouldRefreshLegacyEducationUnit({
+      unit: existingUnit,
+      responses: existingResponses,
+    });
     const generatedBriefing = await briefingPromise;
 
     if (parentNode && generatedBriefing) {
@@ -157,8 +177,17 @@ export const getUnitWorkflow = async ({
       }
     }
 
-    const refreshedUnit = await deps.getUnitByNodeId(nodeId);
-    return ok(refreshedUnit ?? existingUnit);
+    if (!needsScenarioRefresh) {
+      const refreshedUnit = await deps.getUnitByNodeId(nodeId);
+      const hydratedUnit = refreshedUnit ?? existingUnit;
+      const phaseResponses = await deps.getPhaseResponses(hydratedUnit.id, sessionId);
+      return ok(
+        getEducationUnitState({
+          unit: hydratedUnit,
+          responses: phaseResponses,
+        }),
+      );
+    }
   }
 
   const [targetIdentity, priorLearning] = await Promise.all([
@@ -226,5 +255,13 @@ export const getUnitWorkflow = async ({
   }
 
   const refreshedUnit = await deps.getUnitByNodeId(nodeId);
-  return ok(refreshedUnit ?? createdUnit);
+  const hydratedUnit = refreshedUnit ?? createdUnit;
+  const phaseResponses = await deps.getPhaseResponses(hydratedUnit.id, sessionId);
+
+  return ok(
+    getEducationUnitState({
+      unit: hydratedUnit,
+      responses: phaseResponses,
+    }),
+  );
 };

@@ -401,10 +401,21 @@ export const BecomingUnitPhaseResponse = pgTable(
     aiResponse: t.text(),
     passed: t.boolean(),
     score: t.integer(),
-    metadata: t.jsonb().$type<
+        metadata: t.jsonb().$type<
       | {
           attempts?: number;
           feedback?: string;
+          step?: "attempt" | "evaluate";
+          responseMode?: "free_response" | "multiple_choice";
+          confidence?: "low" | "medium" | "high";
+          latencyMs?: number | null;
+          signals?: {
+            correctnessBand: "strong" | "close" | "partial" | "off_track";
+            misconceptionDirection: string;
+            reasoningStyle: string;
+          };
+          stateSnapshot?: unknown;
+          evaluationResult?: "pass" | "gap" | "lost";
           gap?: {
             description: string;
             gapType: string;

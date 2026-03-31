@@ -6,6 +6,7 @@ import type { CurriculumNode } from "@acme/validators";
 import {
   CapstoneSubmissionSchema,
   SubmitRecallProbeSchema,
+  SubmitEducationUnitStepSchema,
   GhostSubmissionSchema,
   PracticeSubmissionSchema,
   SeedResponseSchema,
@@ -66,6 +67,9 @@ import {
 import {
   submitSeedWorkflow,
 } from "../domain/becoming/workflows/submit-seed-workflow";
+import {
+  submitEducationUnitStepWorkflow,
+} from "../domain/becoming/workflows/submit-education-unit-step-workflow";
 import {
   submitTeachbackWorkflow,
 } from "../domain/becoming/workflows/submit-teachback-workflow";
@@ -476,6 +480,12 @@ export const becomingRouter = {
               db: ctx.db,
               nodeId,
             }),
+          getPhaseResponses: (unitContentId, sessionId) =>
+            becomingCurriculumRepository.getPhaseResponses({
+              db: ctx.db,
+              unitContentId,
+              sessionId,
+            }),
           getNodeById: (nodeId) =>
             becomingCurriculumRepository.getNodeById({
               db: ctx.db,
@@ -512,6 +522,39 @@ export const becomingRouter = {
         },
       }),
     )),
+
+  submitEducationUnitStep: publicProcedure
+    .input(SubmitEducationUnitStepSchema)
+    .mutation(async ({ ctx, input }) =>
+      throwOnFailure(
+        await submitEducationUnitStepWorkflow({
+          ...input,
+          userId: ctx.session?.user.id,
+          deps: {
+            getUnitByNodeId: (nodeId) =>
+              becomingCurriculumRepository.getUnitByNodeId({
+                db: ctx.db,
+                nodeId,
+              }),
+            getPhaseResponses: (unitContentId, sessionId) =>
+              becomingCurriculumRepository.getPhaseResponses({
+                db: ctx.db,
+                unitContentId,
+                sessionId,
+              }),
+            listAttemptHistory: (sessionId) =>
+              becomingTrainingRepository.listAttemptHistory({
+                db: ctx.db,
+                sessionId,
+              }),
+            savePhaseResponse: (payload) =>
+              becomingCurriculumRepository.savePhaseResponse({
+                db: ctx.db,
+                ...payload,
+              }),
+          },
+        }),
+      )),
 
   submitSeed: publicProcedure
     .input(SubmitSeedSchema)
@@ -786,14 +829,6 @@ export const becomingRouter = {
                   unitContentId,
                   sessionId,
                 }),
-              getTargetIdentity: async (sessionId) => {
-                const profile = await becomingOnboardingRepository.getProfileBySession({
-                  db,
-                  sessionId,
-                });
-
-                return profile?.version.targetIdentity ?? null;
-              },
               getLatestAttemptByUnit: (sessionId, unitId) =>
                 becomingTrainingRepository.getLatestAttemptByUnit({
                   db,

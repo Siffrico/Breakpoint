@@ -145,9 +145,11 @@ Rules:
 - This unit is being generated only now, when the learner reached this slot.
 - Choose the specific lesson based on the learner's prior work. Do not repeat earlier units.
 - title must be concrete and specific to the lesson you choose now.
-- seedPrompt must be a direct, intuitive question that probes what the learner currently believes about this exact lesson.
-- seedHint must be 1 or 2 sentences that help the learner understand what kind of answer is useful.
-- seedHint should nudge toward concrete reasoning, examples, mechanism, or tradeoffs.
+- seedPrompt must be a concrete pre-teach scenario that contains the concept without naming it.
+- seedPrompt must ask the learner to judge, choose, diagnose, or explain what is happening in that situation using only what they already know.
+- seedPrompt must not ask for a definition, opinion, or abstract summary of the lesson.
+- seedHint must be 1 or 2 sentences that help the learner understand what kind of move to make in the situation.
+- seedHint should nudge toward concrete reasoning, mechanism, tradeoffs, or a decisive next move.
 - seedHint must not answer the question, define the lesson for them, or leak the build content.
 - clusterArcFrame must be 1 or 2 sentences positioning this slot inside the larger sequence without teaching the lesson.
 - complexityBudget must be 1, 2, or 3 based on the true teaching load of the concept.

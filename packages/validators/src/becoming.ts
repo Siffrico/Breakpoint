@@ -341,6 +341,93 @@ export const ForgeDebriefSchema = z.object({
   nextStep: z.string().min(1),
 });
 
+export const EducationUnitAttemptModeSchema = z.enum([
+  "free_response",
+  "multiple_choice",
+]);
+
+export const EducationUnitConfidenceSchema = z.enum(["low", "medium", "high"]);
+
+export const EducationUnitCurrentStepSchema = z.enum([
+  "scenario",
+  "evaluate",
+  "complete",
+]);
+
+export const EducationUnitResultSchema = z.enum(["pass", "gap", "lost"]);
+
+export const EducationUnitOptionSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+});
+
+export const EducationUnitScenarioCardSchema = z.object({
+  title: z.string().min(1),
+  prompt: z.string().min(1),
+  helper: z.string().nullable(),
+  responseMode: EducationUnitAttemptModeSchema,
+  options: z.array(EducationUnitOptionSchema).nullable(),
+});
+
+export const EducationUnitAttemptSignalsSchema = z.object({
+  correctnessBand: z.enum(["strong", "close", "partial", "off_track"]),
+  misconceptionDirection: z.string().min(1),
+  reasoningStyle: z.string().min(1),
+});
+
+export const EducationUnitConceptSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  summary: z.string().min(1),
+});
+
+export const EducationUnitTeachExampleSchema = z.object({
+  label: z.string().min(1),
+  content: z.string().min(1),
+});
+
+export const EducationUnitAttemptRecordSchema = z.object({
+  response: z.string().min(1),
+  responseMode: EducationUnitAttemptModeSchema,
+  confidence: EducationUnitConfidenceSchema,
+  latencyMs: z.number().int().min(0).nullable(),
+  signals: EducationUnitAttemptSignalsSchema.nullable(),
+});
+
+export const EducationUnitStateSchema = z.object({
+  id: z.string().min(1),
+  nodeId: z.string().min(1),
+  title: z.string().min(1),
+  summary: z.string().min(1),
+  whyItMatters: z.string().min(1),
+  clusterArcFrame: z.string().nullable(),
+  clusterBriefing: ClusterBriefingSchema.nullable(),
+  currentStep: EducationUnitCurrentStepSchema,
+  loopCount: z.number().int().min(0),
+  concept: EducationUnitConceptSchema.nullable(),
+  scenario: EducationUnitScenarioCardSchema,
+  attempt: EducationUnitAttemptRecordSchema.nullable(),
+  teachExamples: z.array(EducationUnitTeachExampleSchema),
+  reconnectBridge: z.string().nullable(),
+  evaluation: EducationUnitScenarioCardSchema.nullable(),
+  result: EducationUnitResultSchema.nullable(),
+  resultFeedback: z.string().nullable(),
+  score: z.number().int().min(0).max(100).nullable(),
+  strengths: z.array(z.string().min(1)),
+  improvements: z.array(z.string().min(1)),
+  nextStep: z.string().nullable(),
+});
+
+export const SubmitEducationUnitStepSchema = z.object({
+  nodeId: z.string().uuid(),
+  sessionId: z.string().uuid(),
+  step: z.enum(["attempt", "evaluate"]),
+  response: z.string().min(1).max(5_000),
+  responseMode: EducationUnitAttemptModeSchema.default("free_response"),
+  confidence: EducationUnitConfidenceSchema.default("medium"),
+  latencyMs: z.number().int().min(0).nullable().optional(),
+});
+
 export const RecallGateStatusSchema = z.enum([
   "pending",
   "active",
@@ -596,6 +683,30 @@ export type CapstoneSubmission = z.infer<typeof CapstoneSubmissionSchema>;
 export type CapstoneTurnResult = z.infer<typeof CapstoneTurnResultSchema>;
 export type CapstoneEvaluation = z.infer<typeof CapstoneEvaluationSchema>;
 export type ForgeDebrief = z.infer<typeof ForgeDebriefSchema>;
+export type EducationUnitAttemptMode = z.infer<
+  typeof EducationUnitAttemptModeSchema
+>;
+export type EducationUnitConfidence = z.infer<
+  typeof EducationUnitConfidenceSchema
+>;
+export type EducationUnitCurrentStep = z.infer<
+  typeof EducationUnitCurrentStepSchema
+>;
+export type EducationUnitResult = z.infer<typeof EducationUnitResultSchema>;
+export type EducationUnitScenarioCard = z.infer<
+  typeof EducationUnitScenarioCardSchema
+>;
+export type EducationUnitAttemptSignals = z.infer<
+  typeof EducationUnitAttemptSignalsSchema
+>;
+export type EducationUnitConcept = z.infer<typeof EducationUnitConceptSchema>;
+export type EducationUnitTeachExample = z.infer<
+  typeof EducationUnitTeachExampleSchema
+>;
+export type EducationUnitAttemptRecord = z.infer<
+  typeof EducationUnitAttemptRecordSchema
+>;
+export type EducationUnitState = z.infer<typeof EducationUnitStateSchema>;
 export type RecallGateStatus = z.infer<typeof RecallGateStatusSchema>;
 export type RecallProbeType = z.infer<typeof RecallProbeTypeSchema>;
 export type RecallProbeStatus = z.infer<typeof RecallProbeStatusSchema>;
@@ -605,6 +716,9 @@ export type RecallGate = z.infer<typeof RecallGateSchema>;
 export type RecallGateSummary = z.infer<typeof RecallGateSummarySchema>;
 export type UnitRecallState = z.infer<typeof UnitRecallStateSchema>;
 export type SubmitRecallProbe = z.infer<typeof SubmitRecallProbeSchema>;
+export type SubmitEducationUnitStep = z.infer<
+  typeof SubmitEducationUnitStepSchema
+>;
 export type FinalizeForgeUnitResult = z.infer<typeof FinalizeForgeUnitResultSchema>;
 export type UnitContent = z.infer<typeof UnitContentSchema>;
 export type Debrief = z.infer<typeof DebriefSchema>;

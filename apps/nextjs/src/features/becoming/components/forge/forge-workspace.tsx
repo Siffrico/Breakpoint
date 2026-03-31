@@ -2,47 +2,23 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 
 import type { RouterOutputs } from "@acme/api";
 import { Button } from "@acme/ui/button";
+import { Textarea } from "@acme/ui/textarea";
 import { toast } from "@acme/ui/toast";
 
-import {
-  previewFailureGap,
-  previewForgeDebrief,
-  previewGhostScenario,
-  previewPracticeResults,
-  previewSeedResponse,
-  previewTeachbackResult,
-  previewTeachbackTranscript,
-} from "~/features/becoming/lib/forge-preview";
 import { useTRPC } from "~/trpc/react";
 import { RecallGateView } from "~/features/becoming/components/recall/RecallGateView";
 
-import { BuildPhase } from "./build-phase";
 import { ClusterBriefingCard } from "./cluster-briefing-card";
-import { FailureIsolation } from "./failure-isolation";
-import { PhaseIndicator } from "./phase-indicator";
-import { PhaseTransition } from "./phase-transition";
-import { PracticePhase } from "./practice-phase";
-import { ProvePhase } from "./prove-phase";
-import { SeedPhase } from "./seed-phase";
-import { UnitDebrief } from "./unit-debrief";
 
-type ForgeUnit = RouterOutputs["becoming"]["unit"];
+type EducationUnit = RouterOutputs["becoming"]["unit"];
 type RecallGate = RouterOutputs["becoming"]["getRecallGate"];
 type FinalizeForgeUnitResult = RouterOutputs["becoming"]["finalizeForgeUnit"];
 type SubmitRecallProbeResult = RouterOutputs["becoming"]["submitRecallProbe"];
-type ForgePhase =
-  | "seed"
-  | "build"
-  | "practice"
-  | "prove"
-  | "isolation"
-  | "recall"
-  | "debrief";
 
 export function ForgeWorkspace({
   unit,
@@ -50,56 +26,46 @@ export function ForgeWorkspace({
   preview = false,
   recallGate = null,
 }: {
-  unit: ForgeUnit;
+  unit: EducationUnit;
   sessionId: string;
   preview?: boolean;
   recallGate?: RecallGate | null;
 }) {
   const router = useRouter();
   const trpc = useTRPC();
-  const [phase, setPhase] = useState<ForgePhase>(
-    recallGate
-      ? "recall"
-      : unit.buildContent && unit.practicePrompts
-        ? "build"
-        : "seed",
+  const [state, setState] = useState(unit);
+  const [response, setResponse] = useState("");
+  const [confidence, setConfidence] = useState<"low" | "medium" | "high">(
+    state.attempt?.confidence ?? "medium",
   );
-  const [transitioning, setTransitioning] = useState(false);
-  const [transitionTarget, setTransitionTarget] = useState<ForgePhase | null>(null);
-  const [completedPhases, setCompletedPhases] = useState<ForgePhase[]>(
-    recallGate
-      ? ["seed", "build", "practice", "prove"]
-      : unit.buildContent && unit.practicePrompts
-        ? ["seed"]
-        : [],
+  const [responseMode, setResponseMode] = useState<
+    "free_response" | "multiple_choice"
+  >(state.scenario.responseMode);
+  const [stepStartedAt, setStepStartedAt] = useState(() => Date.now());
+  const [activeRecallGate, setActiveRecallGate] = useState<RecallGate | null>(
+    recallGate,
   );
-  const [seedResponse, setSeedResponse] = useState("");
-  const [buildContent, setBuildContent] = useState<string | null>(unit.buildContent);
-  const [practicePrompts, setPracticePrompts] = useState(unit.practicePrompts);
-  const [activeRecallGate, setActiveRecallGate] = useState<RecallGate | null>(recallGate);
-  const [briefingExpanded, setBriefingExpanded] = useState(
-    unit.buildContent == null,
-  );
+  const [briefingExpanded, setBriefingExpanded] = useState(true);
 
   const workspaceHref = preview ? "/ui/home" : `/home?session=${sessionId}`;
+  const activeCard =
+    state.currentStep === "scenario" ? state.scenario : state.evaluation;
+  const canSubmit = response.trim().length > 0;
 
-  const submitSeed = useMutation(
-    trpc.becoming.submitSeed.mutationOptions({
-      onError: (error) => toast.error(error.message),
-    }),
-  );
-  const submitPractice = useMutation(
-    trpc.becoming.submitPractice.mutationOptions({
-      onError: (error) => toast.error(error.message),
-    }),
-  );
-  const submitTeachback = useMutation(
-    trpc.becoming.submitTeachback.mutationOptions({
-      onError: (error) => toast.error(error.message),
-    }),
-  );
-  const submitGhostResponse = useMutation(
-    trpc.becoming.submitGhostResponse.mutationOptions({
+  useEffect(() => {
+    setResponse("");
+    setResponseMode(activeCard?.responseMode ?? "free_response");
+    setStepStartedAt(Date.now());
+  }, [
+    activeCard?.prompt,
+    activeCard?.responseMode,
+    state.currentStep,
+    state.loopCount,
+  ]);
+
+  const submitEducationUnitStep = useMutation(
+    trpc.becoming.submitEducationUnitStep.mutationOptions({
+      onSuccess: (nextState) => setState(nextState),
       onError: (error) => toast.error(error.message),
     }),
   );
@@ -114,279 +80,101 @@ export function ForgeWorkspace({
     }),
   );
 
-  const teachbackPromptQuery = useQuery({
-    ...trpc.becoming.getTeachbackPrompt.queryOptions({
-      nodeId: unit.nodeId,
-      sessionId,
-    }),
-    enabled: !preview && phase === "prove",
-    staleTime: Number.POSITIVE_INFINITY,
-    retry: false,
-  });
-  const failureIsolationQuery = useQuery({
-    ...trpc.becoming.getFailureIsolation.queryOptions({
-      nodeId: unit.nodeId,
-      sessionId,
-    }),
-    enabled: !preview && phase === "isolation",
-    staleTime: Number.POSITIVE_INFINITY,
-    retry: false,
-  });
-  const debriefQuery = useQuery({
-    ...trpc.becoming.getForgeDebrief.queryOptions({
-      nodeId: unit.nodeId,
-      sessionId,
-    }),
-    enabled: !preview && phase === "debrief",
-    staleTime: Number.POSITIVE_INFINITY,
-    retry: false,
-  });
-
-  const goToPhase = useCallback(
-    (target: ForgePhase) => {
-      setCompletedPhases((prev) =>
-        prev.includes(phase) ? prev : [...prev, phase],
-      );
-      setTransitionTarget(target);
-      setTransitioning(true);
-    },
-    [phase],
-  );
-
-  const handleTransitionComplete = useCallback(() => {
-    if (transitionTarget) {
-      setPhase(transitionTarget);
-      setTransitioning(false);
-      setTransitionTarget(null);
-    }
-  }, [transitionTarget]);
-
-  const handleSeedSubmit = useCallback(
-    async (response: string) => {
-      const generation = preview
-        ? {
-            buildContent: unit.buildContent,
-            practicePrompts: unit.practicePrompts,
-          }
-        : await submitSeed.mutateAsync({
-            nodeId: unit.nodeId,
-            sessionId,
-            response,
-          });
-
-      if (!generation.buildContent || !generation.practicePrompts) {
-        toast.error("Build content is not ready yet.");
-        return;
-      }
-
-      setSeedResponse(response);
-      setBuildContent(generation.buildContent);
-      setPracticePrompts(generation.practicePrompts);
-      goToPhase("build");
-    },
-    [
-      goToPhase,
-      preview,
-      sessionId,
-      submitSeed,
-      unit.buildContent,
-      unit.nodeId,
-      unit.practicePrompts,
-    ],
-  );
-
-  const handlePracticeSubmit = useCallback(
-    async (index: number, response: string) => {
-      if (preview) {
-        return previewPracticeResults[index];
-      }
-
-      return submitPractice.mutateAsync({
-        nodeId: unit.nodeId,
-        sessionId,
-        sequence: index,
-        response,
-      });
-    },
-    [preview, sessionId, submitPractice, unit.nodeId],
-  );
-
-  const handleBuildComplete = useCallback(() => {
-    goToPhase("practice");
-  }, [goToPhase]);
-
-  const handlePracticeComplete = useCallback(() => {
-    goToPhase("prove");
-  }, [goToPhase]);
-
-  const handleTeachbackSubmit = useCallback(
-    async (round: number, response: string) => {
-      if (preview) {
-        const nextStudentMessage = previewTeachbackTranscript.find(
-          (message) => message.role === "student" && message.round === round + 1,
-        );
-
-        if (nextStudentMessage && round < 3) {
-          return {
-            studentReply: nextStudentMessage.content,
-            passed: false,
-            round,
-            score: null,
-            feedback: null,
-          };
-        }
-
-        return {
-          studentReply: null,
-          passed: previewTeachbackResult.passed,
-          round,
-          score: previewTeachbackResult.score,
-          feedback: previewTeachbackResult.feedback,
-        };
-      }
-
-      return submitTeachback.mutateAsync({
-        nodeId: unit.nodeId,
-        sessionId,
-        round,
-        response,
-      });
-    },
-    [preview, sessionId, submitTeachback, unit.nodeId],
-  );
-
-  const handleProveComplete = useCallback(
-    (passed: boolean) => {
-      if (passed) {
-        goToPhase("debrief");
-      } else {
-        goToPhase("isolation");
-      }
-    },
-    [goToPhase],
-  );
-
-  const handleGhostSubmit = useCallback(
-    async (response: string) => {
-      if (preview) {
-        return {
-          passed: true,
-          feedback: "Ghost scenario passed in preview mode.",
-          score: 82,
-        };
-      }
-
-      return submitGhostResponse.mutateAsync({
-        nodeId: unit.nodeId,
-        sessionId,
-        response,
-      });
-    },
-    [preview, sessionId, submitGhostResponse, unit.nodeId],
-  );
-
-  const handleGhostRetry = useCallback(async () => {
-    if (preview) {
+  const handleSubmit = async () => {
+    if (!activeCard || preview) {
       return;
     }
 
-    const result = await failureIsolationQuery.refetch();
-    if (result.error) {
-      toast.error(result.error.message);
+    const nextState = await submitEducationUnitStep.mutateAsync({
+      nodeId: state.nodeId,
+      sessionId,
+      step: state.currentStep === "scenario" ? "attempt" : "evaluate",
+      response: response.trim(),
+      responseMode,
+      confidence,
+      latencyMs: Math.max(0, Date.now() - stepStartedAt),
+    });
+
+    setState(nextState);
+  };
+
+  const navigateToNextAction = (
+    result: FinalizeForgeUnitResult | SubmitRecallProbeResult["nextAction"],
+  ) => {
+    if (!result) {
+      return;
     }
-  }, [failureIsolationQuery, preview]);
 
-  const handleIsolationComplete = useCallback(() => {
-    goToPhase("debrief");
-  }, [goToPhase]);
+    if (result.nextAction === "recall_gate") {
+      setActiveRecallGate(result.gate);
+      return;
+    }
 
-  const navigateToNextAction = useCallback(
-    (result: FinalizeForgeUnitResult | SubmitRecallProbeResult["nextAction"]) => {
-      if (!result) {
-        return;
-      }
+    if (result.nextAction === "unit" || result.nextAction === "simulation") {
+      router.push(`/train/${result.nodeId}?session=${sessionId}`);
+      return;
+    }
 
-      if (result.nextAction === "recall_gate") {
-        setActiveRecallGate(result.gate);
-        setPhase("recall");
-        setCompletedPhases(["seed", "build", "practice", "prove", "debrief"]);
-        return;
-      }
+    router.push(`/home?session=${sessionId}`);
+  };
 
-      if (result.nextAction === "unit" || result.nextAction === "simulation") {
-        router.push(`/train/${result.nodeId}?session=${sessionId}`);
-        return;
-      }
-
-      router.push(`/home?session=${sessionId}`);
-    },
-    [router, sessionId],
-  );
-
-  const handleDebriefContinue = useCallback(async () => {
+  const handleContinue = async () => {
     if (preview) {
       return;
     }
 
     const result = await finalizeForgeUnit.mutateAsync({
-      nodeId: unit.nodeId,
+      nodeId: state.nodeId,
       sessionId,
     });
     navigateToNextAction(result);
-  }, [finalizeForgeUnit, navigateToNextAction, preview, sessionId, unit.nodeId]);
+  };
 
-  const handleRecallProbeSubmit = useCallback(
-    async (probeId: string, mode: "probe" | "repair", response: string) => {
-      if (!activeRecallGate || preview) {
-        return;
-      }
+  const handleRecallProbeSubmit = async (
+    probeId: string,
+    mode: "probe" | "repair",
+    recallResponse: string,
+  ) => {
+    if (!activeRecallGate || preview) {
+      return;
+    }
 
-      const result = await submitRecallProbe.mutateAsync({
-        gateId: activeRecallGate.id,
-        probeId,
-        mode,
-        response,
-      });
+    const result = await submitRecallProbe.mutateAsync({
+      gateId: activeRecallGate.id,
+      probeId,
+      mode,
+      response: recallResponse,
+    });
 
-      setActiveRecallGate(result.gate);
-      if (result.nextAction) {
-        navigateToNextAction(result.nextAction);
-      }
-    },
-    [activeRecallGate, navigateToNextAction, preview, submitRecallProbe],
+    setActiveRecallGate(result.gate);
+    if (result.nextAction) {
+      navigateToNextAction(result.nextAction);
+    }
+  };
+
+  const modeOptions = useMemo(
+    () =>
+      (activeCard?.options ?? []).map((option) => ({
+        id: option.id,
+        label: option.label,
+      })),
+    [activeCard?.options],
   );
-
-  const debriefData = preview
-    ? {
-        ...previewForgeDebrief,
-        seedResponse: seedResponse || previewSeedResponse,
-      }
-    : debriefQuery.data;
-
-  const teachbackPrompt =
-    preview || !teachbackPromptQuery.data
-      ? {
-          studentMessage: unit.teachbackSetup.openingMisconception,
-          round: 1,
-        }
-      : teachbackPromptQuery.data;
-
-  const failureIsolationData = preview
-    ? { gap: previewFailureGap, ghostScenario: previewGhostScenario }
-    : failureIsolationQuery.data;
 
   return (
     <main className="bp-page-bg min-h-screen px-5 py-8 text-foreground sm:px-8 lg:px-10">
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
         <div className="flex items-center justify-between border-b border-border pb-6">
           <div>
-            <PhaseIndicator
-              currentPhase={phase}
-              completedPhases={completedPhases}
-            />
+            <div className="text-[10px] font-medium tracking-[0.2em] uppercase text-muted-foreground">
+              Education Unit
+            </div>
             <h1 className="font-display mt-4 text-3xl tracking-[-0.05em] sm:text-4xl">
-              {unit.title}
+              {state.title}
             </h1>
+            <p className="mt-3 max-w-3xl text-sm leading-7 text-muted-foreground">
+              {state.summary}
+            </p>
           </div>
           <Button
             asChild
@@ -397,122 +185,250 @@ export function ForgeWorkspace({
           </Button>
         </div>
 
-        {transitioning && transitionTarget && (
-          <PhaseTransition
-            targetPhase={transitionTarget}
-            onComplete={handleTransitionComplete}
+        {activeRecallGate ? (
+          <RecallGateView
+            gate={activeRecallGate}
+            onSubmitProbe={handleRecallProbeSubmit}
+            isPending={submitRecallProbe.isPending}
           />
-        )}
-
-        {!transitioning && (
+        ) : (
           <>
-            {unit.clusterBriefing ? (
+            {state.clusterBriefing ? (
               <ClusterBriefingCard
-                briefing={unit.clusterBriefing}
+                briefing={state.clusterBriefing}
                 expanded={briefingExpanded}
                 onToggle={() => setBriefingExpanded((current) => !current)}
               />
             ) : null}
 
-            {phase === "seed" && (
-              <SeedPhase
-                seedPrompt={unit.seedPrompt}
-                seedHint={unit.seedHint}
-                clusterArcFrame={unit.clusterArcFrame}
-                onSubmit={handleSeedSubmit}
-              />
-            )}
-
-            {phase === "build" && (
-              buildContent ? (
-                <BuildPhase
-                  buildContent={buildContent}
-                  onComplete={handleBuildComplete}
-                />
-              ) : (
-                <section className="border border-border bg-card p-6 text-sm text-muted-foreground">
-                  Build content is not available yet.
-                </section>
-              )
-            )}
-
-            {phase === "practice" && (
-              practicePrompts ? (
-                <PracticePhase
-                  practicePrompts={practicePrompts}
-                  onSubmitPractice={handlePracticeSubmit}
-                  onComplete={handlePracticeComplete}
-                  preview={preview}
-                  previewResults={preview ? previewPracticeResults : undefined}
-                />
-              ) : (
-                <section className="border border-border bg-card p-6 text-sm text-muted-foreground">
-                  Practice prompts are not available yet.
-                </section>
-              )
-            )}
-
-            {phase === "prove" && (
-              <ProvePhase
-                studentPersona={unit.teachbackSetup.studentPersona}
-                openingMisconception={teachbackPrompt.studentMessage}
-                startingRound={teachbackPrompt.round}
-                onSubmitResponse={handleTeachbackSubmit}
-                onComplete={handleProveComplete}
-                preview={preview}
-                previewTranscript={preview ? previewTeachbackTranscript : undefined}
-                previewResult={preview ? previewTeachbackResult : undefined}
-              />
-            )}
-
-            {phase === "isolation" && (
-              <>
-                {!failureIsolationData ? (
-                  <section className="border border-border bg-card p-6 text-sm text-muted-foreground">
-                    {failureIsolationQuery.isPending
-                      ? "Isolating the failure..."
-                      : failureIsolationQuery.error?.message ??
-                        "Failure isolation is not available yet."}
-                  </section>
-                ) : (
-                  <FailureIsolation
-                    gap={failureIsolationData.gap}
-                    ghostScenario={failureIsolationData.ghostScenario}
-                    onSubmitGhost={handleGhostSubmit}
-                    onRetryGhost={handleGhostRetry}
-                    onComplete={handleIsolationComplete}
-                    preview={preview}
-                    isRefreshing={failureIsolationQuery.isFetching}
-                  />
-                )}
-              </>
-            )}
-
-            {phase === "debrief" && (
-              <>
-                {!debriefData ? (
-                  <section className="border border-border bg-card p-6 text-sm text-muted-foreground">
-                    {debriefQuery.isPending
-                      ? "Building the debrief..."
-                      : debriefQuery.error?.message ??
-                        "Debrief is not available yet."}
-                  </section>
-                ) : (
-                  <UnitDebrief
-                    debrief={debriefData}
-                    onContinue={handleDebriefContinue}
-                  />
-                )}
-              </>
-            )}
-
-            {phase === "recall" && activeRecallGate ? (
-              <RecallGateView
-                gate={activeRecallGate}
-                onSubmitProbe={handleRecallProbeSubmit}
-                isPending={submitRecallProbe.isPending}
-              />
+            {state.clusterArcFrame ? (
+              <section className="border border-border bg-card p-6 text-sm leading-7 text-muted-foreground">
+                {state.clusterArcFrame}
+              </section>
             ) : null}
+
+            {state.concept ? (
+              <section className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
+                <div className="border border-border bg-card p-6">
+                  <div className="text-[10px] font-medium tracking-[0.2em] uppercase text-muted-foreground">
+                    Concept
+                  </div>
+                  <h2 className="mt-3 font-display text-2xl tracking-[-0.04em]">
+                    {state.concept.name}
+                  </h2>
+                  <p className="mt-4 text-base leading-8 text-foreground/78">
+                    {state.concept.summary}
+                  </p>
+                </div>
+
+                <div className="border border-border bg-card p-6">
+                  <div className="text-[10px] font-medium tracking-[0.2em] uppercase text-muted-foreground">
+                    Attempt Signals
+                  </div>
+                  <div className="mt-4 space-y-2 text-sm leading-7 text-foreground/72">
+                    <div>
+                      Band: {state.attempt?.signals?.correctnessBand ?? "pending"}
+                    </div>
+                    <div>
+                      Pattern:{" "}
+                      {state.attempt?.signals?.misconceptionDirection ?? "pending"}
+                    </div>
+                    <div>
+                      Style: {state.attempt?.signals?.reasoningStyle ?? "pending"}
+                    </div>
+                  </div>
+                </div>
+              </section>
+            ) : null}
+
+            {state.teachExamples.length > 0 ? (
+              <section className="border border-border bg-card p-6">
+                <div className="text-[10px] font-medium tracking-[0.2em] uppercase text-muted-foreground">
+                  Teach
+                </div>
+                <div className="mt-5 space-y-4">
+                  {state.teachExamples.map((example) => (
+                    <div key={`${example.label}-${example.content.slice(0, 16)}`}>
+                      <div className="text-xs uppercase tracking-[0.18em] text-primary/80">
+                        {example.label}
+                      </div>
+                      <p className="mt-2 text-sm leading-7 text-foreground/78">
+                        {example.content}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            {state.reconnectBridge ? (
+              <section className="border border-border bg-card p-6">
+                <div className="text-[10px] font-medium tracking-[0.2em] uppercase text-muted-foreground">
+                  Reconnect
+                </div>
+                <p className="mt-4 text-sm leading-7 text-foreground/78">
+                  {state.reconnectBridge}
+                </p>
+              </section>
+            ) : null}
+
+            {state.resultFeedback ? (
+              <section className="border border-border bg-card p-6">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="text-[10px] font-medium tracking-[0.2em] uppercase text-muted-foreground">
+                    {state.result ? `Result: ${state.result}` : "Feedback"}
+                  </div>
+                  {state.score != null ? (
+                    <div className="text-sm text-muted-foreground">
+                      Score {state.score}
+                    </div>
+                  ) : null}
+                </div>
+                <p className="mt-4 text-sm leading-7 text-foreground/78">
+                  {state.resultFeedback}
+                </p>
+                {state.strengths.length > 0 || state.improvements.length > 0 ? (
+                  <div className="mt-5 grid gap-4 md:grid-cols-2">
+                    <div>
+                      <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                        Strengths
+                      </div>
+                      <div className="mt-3 space-y-2 text-sm leading-7 text-foreground/72">
+                        {state.strengths.map((item) => (
+                          <div key={item}>{item}</div>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">
+                        Improvements
+                      </div>
+                      <div className="mt-3 space-y-2 text-sm leading-7 text-foreground/72">
+                        {state.improvements.map((item) => (
+                          <div key={item}>{item}</div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
+
+            {state.currentStep !== "complete" && activeCard ? (
+              <section className="border border-border bg-card p-6 shadow-[0_18px_80px_rgba(2,6,23,0.18)]">
+                <div className="text-[10px] font-medium tracking-[0.2em] uppercase text-muted-foreground">
+                  {state.currentStep === "scenario" ? "Scenario" : "Evaluate"}
+                </div>
+                <h2 className="font-display mt-4 text-2xl tracking-[-0.04em]">
+                  {activeCard.title}
+                </h2>
+                <p className="mt-4 text-base leading-8 text-foreground/80">
+                  {activeCard.prompt}
+                </p>
+
+                {activeCard.helper ? (
+                  <div className="mt-4 border border-primary/15 bg-primary/5 px-4 py-3 text-sm leading-7 text-foreground/72">
+                    {activeCard.helper}
+                  </div>
+                ) : null}
+
+                <div className="mt-6 flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant={responseMode === "free_response" ? "default" : "outline"}
+                    className="h-9 px-4"
+                    onClick={() => setResponseMode("free_response")}
+                  >
+                    Free Response
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={
+                      responseMode === "multiple_choice" ? "default" : "outline"
+                    }
+                    className="h-9 px-4"
+                    onClick={() => setResponseMode("multiple_choice")}
+                    disabled={modeOptions.length === 0}
+                  >
+                    Multiple Choice
+                  </Button>
+                </div>
+
+                {responseMode === "multiple_choice" && modeOptions.length > 0 ? (
+                  <div className="mt-5 grid gap-3">
+                    {modeOptions.map((option) => (
+                      <Button
+                        key={option.id}
+                        type="button"
+                        variant={response === option.label ? "default" : "outline"}
+                        className="justify-start px-4 py-5 text-left"
+                        onClick={() => setResponse(option.label)}
+                      >
+                        {option.label}
+                      </Button>
+                    ))}
+                  </div>
+                ) : (
+                  <Textarea
+                    value={response}
+                    onChange={(event) => setResponse(event.target.value)}
+                    placeholder={
+                      state.currentStep === "scenario"
+                        ? "Write your first read before the concept is named."
+                        : "Apply the concept to this new situation."
+                    }
+                    className="mt-6 min-h-[180px] border-border bg-transparent px-4 py-4 text-base leading-8 text-foreground shadow-none focus-visible:ring-0"
+                  />
+                )}
+
+                <div className="mt-5 flex flex-wrap items-center justify-between gap-4">
+                  <div className="flex flex-wrap gap-2">
+                    {(["low", "medium", "high"] as const).map((option) => (
+                      <Button
+                        key={option}
+                        type="button"
+                        variant={confidence === option ? "default" : "outline"}
+                        className="h-9 px-4 capitalize"
+                        onClick={() => setConfidence(option)}
+                      >
+                        {option} confidence
+                      </Button>
+                    ))}
+                  </div>
+                  <Button
+                    type="button"
+                    onClick={handleSubmit}
+                    disabled={!canSubmit || submitEducationUnitStep.isPending || preview}
+                    className="h-11 bg-primary px-6 text-primary-foreground hover:brightness-110"
+                  >
+                    {submitEducationUnitStep.isPending
+                      ? "Working..."
+                      : state.currentStep === "scenario"
+                        ? "Continue"
+                        : "Evaluate"}
+                  </Button>
+                </div>
+              </section>
+            ) : (
+              <section className="border border-border bg-card p-6">
+                <div className="text-[10px] font-medium tracking-[0.2em] uppercase text-muted-foreground">
+                  Complete
+                </div>
+                <p className="mt-4 text-sm leading-7 text-foreground/78">
+                  {state.nextStep ?? "This concept is ready to advance."}
+                </p>
+                <div className="mt-5">
+                  <Button
+                    type="button"
+                    onClick={handleContinue}
+                    disabled={finalizeForgeUnit.isPending || preview}
+                    className="h-11 bg-primary px-6 text-primary-foreground hover:brightness-110"
+                  >
+                    {finalizeForgeUnit.isPending ? "Continuing..." : "Continue"}
+                  </Button>
+                </div>
+              </section>
+            )}
           </>
         )}
       </div>

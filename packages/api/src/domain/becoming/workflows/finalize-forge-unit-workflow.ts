@@ -1,8 +1,11 @@
 import { err, ok, type Result } from "../../../lib/result";
-import { getForgeDebriefWorkflow } from "./get-forge-debrief-workflow";
 import { triggerRecallGateWorkflow } from "./trigger-recall-gate-workflow";
 import { getReadyNextAction } from "./resolve-recall-gate-workflow";
 import { shouldTriggerRecallGate } from "../policies/recall-policy";
+import {
+  buildEducationDebrief,
+  getEducationUnitState,
+} from "../policies/education-unit-state-policy";
 import type {
   Debrief,
   FinalizeForgeUnitResult,
@@ -17,7 +20,6 @@ interface FinalizeForgeUnitDependencies {
     unitContentId: string,
     sessionId: string,
   ) => Promise<PhaseResponseRecord[]>;
-  getTargetIdentity: (sessionId: string) => Promise<string | null>;
   getLatestAttemptByUnit: (
     sessionId: string,
     unitId: string,
@@ -123,29 +125,21 @@ export const finalizeForgeUnitWorkflow = async ({
     return err("Unit node does not exist.");
   }
 
-  const debriefResult = await getForgeDebriefWorkflow({
-    nodeId,
-    sessionId,
-    deps: {
-      getUnitByNodeId: deps.getUnitByNodeId,
-      getPhaseResponses: deps.getPhaseResponses,
-      getTargetIdentity: deps.getTargetIdentity,
-      getLatestAttemptByUnit: deps.getLatestAttemptByUnit,
-    },
+  const phaseResponses = await deps.getPhaseResponses(unit.id, sessionId);
+  const state = getEducationUnitState({
+    unit,
+    responses: phaseResponses,
   });
-
-  if (!debriefResult.success) {
-    return err(debriefResult.error ?? "Debrief is not available yet.");
-  }
-
-  const debrief = debriefResult.data;
+  const debrief: Debrief = buildEducationDebrief({
+    state,
+  });
   const existingAttempt = await deps.getLatestAttemptByUnit(sessionId, unit.id);
   if (!existingAttempt) {
     await deps.saveAttempt({
       sessionId,
       userId,
       unitId: unit.id,
-      response: debrief.finalArticulation,
+      response: state.resultFeedback ?? debrief.finalArticulation,
       debrief,
       seedResponse: debrief.seedResponse,
       finalArticulation: debrief.finalArticulation,
@@ -153,7 +147,7 @@ export const finalizeForgeUnitWorkflow = async ({
     });
   }
 
-  if (debrief.readiness !== "ready_for_next_unit") {
+  if (state.result !== "pass") {
     return ok({ nextAction: "home" });
   }
 
