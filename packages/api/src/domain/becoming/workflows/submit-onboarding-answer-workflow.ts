@@ -1,5 +1,5 @@
 import { err, ok, type Result } from "../../../lib/result";
-import { buildNextOnboardingStep } from "../services/build-next-onboarding-step";
+import { getNextOnboardingQuestion } from "../orchestration/onboarding-flow";
 import type { OnboardingSessionState } from "../types/becoming.types";
 
 interface SubmitOnboardingAnswerDependencies {
@@ -60,7 +60,7 @@ export const submitOnboardingAnswerWorkflow = async ({
 
   let nextQuestion;
   try {
-    nextQuestion = await buildNextOnboardingStep({
+    nextQuestion = await getNextOnboardingQuestion({
       transcript: transcriptWithAnswer,
       followUpCount: session.questionCount,
     });

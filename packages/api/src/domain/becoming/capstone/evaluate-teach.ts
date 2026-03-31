@@ -1,12 +1,26 @@
-import { CapstoneEvaluationSchema } from "@acme/validators";
+import { z } from "zod/v4";
 
-import { generateBecomingObject } from "../generate-becoming-object";
+import { executePrompt } from "../engine";
+import { formatCapstoneTranscript } from "../prompts/fragments";
+import { evaluateTeachPrompt } from "../prompts/registry";
 
 import type {
   CapstoneEvaluation,
   CapstoneMessage,
   TeachCapstoneScenario,
 } from "./types/capstone.types";
+
+const TeachEvaluationWithReasoningSchema = z.object({
+  reasoning: z.object({
+    accuracy: z.string().min(1),
+    audienceAdaptation: z.string().min(1),
+    pushbackHandling: z.string().min(1),
+    overallAssessment: z.string().min(1),
+  }),
+  passed: z.boolean(),
+  score: z.number().int().min(0).max(100),
+  feedback: z.string().min(1),
+});
 
 export const evaluateTeachCapstone = async ({
   scenario,
@@ -15,24 +29,22 @@ export const evaluateTeachCapstone = async ({
   scenario: TeachCapstoneScenario;
   messages: CapstoneMessage[];
 }): Promise<CapstoneEvaluation> => {
-  return generateBecomingObject({
-    schema: CapstoneEvaluationSchema,
+  const result = await executePrompt({
+    template: evaluateTeachPrompt,
+    schema: TeachEvaluationWithReasoningSchema,
+    context: {
+      Title: scenario.title,
+      Audience: scenario.audience,
+      "Audience context": scenario.audienceContext,
+      "Delivery goal": scenario.deliveryGoal,
+      Transcript: formatCapstoneTranscript(messages),
+    },
     errorMessage: "Failed to evaluate the teach capstone.",
-    system:
-      "You evaluate teaching capstones for accuracy, completeness, audience fit, and the ability to handle pushback without losing the core insight.",
-    prompt: `Evaluate this teach capstone.
-
-Title: ${scenario.title}
-Audience: ${scenario.audience}
-Audience context: ${scenario.audienceContext}
-Delivery goal: ${scenario.deliveryGoal}
-
-Transcript:
-${messages.map((message) => `${message.role.toUpperCase()} [round ${message.round}]: ${message.content}`).join("\n")}
-
-Return:
-- passed: true only if the learner taught the idea accurately and adapted to the audience constraints instead of giving a generic explanation.
-- score: 0-100.
-- feedback: one concise paragraph with what landed and what remained unclear or unconvincing.`,
   });
+
+  return {
+    passed: result.passed,
+    score: result.score,
+    feedback: result.feedback,
+  };
 };

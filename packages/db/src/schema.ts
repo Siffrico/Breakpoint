@@ -399,6 +399,12 @@ export const BecomingUnitPhaseResponse = pgTable(
             gapType: string;
             whereItBroke: string;
           };
+          evidenceAnchors?: string[];
+          repairTarget?: {
+            skill: string;
+            transferObjective: string;
+            successCriteria: string[];
+          };
           ghostScenario?: {
             domain: string;
             prompt: string;

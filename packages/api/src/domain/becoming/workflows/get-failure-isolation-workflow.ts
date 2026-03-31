@@ -1,6 +1,6 @@
 import { err, ok, type Result } from "../../../lib/result";
-import { generateGhostScenario } from "../generate-ghost-scenario";
-import { isolateFailure } from "../isolate-failure";
+import { reviewTeachback } from "../orchestration/failure-flow";
+import { generateGhostReplay } from "../orchestration/ghost-flow";
 import {
   buildTeachbackTranscript,
   getGhostResponses,
@@ -25,6 +25,10 @@ interface GetFailureIsolationDependencies {
     sessionId: string,
   ) => Promise<{
     gap: NonNullable<NonNullable<PhaseResponseRecord["metadata"]>["gap"]>;
+    evidenceAnchors?: string[];
+    repairTarget?: NonNullable<
+      NonNullable<PhaseResponseRecord["metadata"]>["repairTarget"]
+    >;
     ghostScenario: NonNullable<
       NonNullable<PhaseResponseRecord["metadata"]>["ghostScenario"]
     >;
@@ -99,13 +103,12 @@ export const getFailureIsolationWorkflow = async ({
     passed: response.passed ?? false,
   }));
 
-  let gap;
+  let proveReview;
   try {
-    gap = await isolateFailure({
+    proveReview = await reviewTeachback({
       unitContent: unit,
       practiceResponses,
       teachbackTranscript,
-      teachbackScore: teachbackResult.score ?? 0,
     });
   } catch (error) {
     return err(
@@ -114,15 +117,17 @@ export const getFailureIsolationWorkflow = async ({
         : "Failed to isolate the learner's failure.",
     );
   }
+  if (proveReview.verdict.passed) {
+    return err("Failure isolation is only available after a failed teach-back.");
+  }
 
-  let ghostScenario;
+  let repairStage;
   try {
-    ghostScenario = await generateGhostScenario({
-      gap,
+    repairStage = await generateGhostReplay({
       unitContent: unit,
-      previousDomains: ghostResponses
-        .map((response) => response.metadata?.ghostScenario?.domain)
-        .filter((domain): domain is string => Boolean(domain)),
+      practiceResponses,
+      teachbackTranscript,
+      proveReview,
     });
   } catch (error) {
     return err(
@@ -131,6 +136,7 @@ export const getFailureIsolationWorkflow = async ({
         : "Failed to generate the ghost scenario.",
     );
   }
+  const { gap, repairTarget, ghostScenario } = repairStage;
 
   const nextSequence = (getLatestGhostResponse(phaseResponses)?.sequence ?? -1) + 1;
   await deps.savePhaseResponse({
@@ -142,6 +148,8 @@ export const getFailureIsolationWorkflow = async ({
     userResponse: "",
     metadata: {
       gap,
+      evidenceAnchors: proveReview.evidenceAnchors,
+      repairTarget,
       ghostScenario,
     },
   });

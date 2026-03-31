@@ -1,5 +1,5 @@
 import { err, ok, type Result } from "../../../lib/result";
-import { evaluatePracticeResponse } from "../evaluate-practice-response";
+import { educationUnitBuilder } from "../unit-builder/orchestrator";
 import {
   allPriorPracticesPassed,
   getPracticeAttemptCount,
@@ -91,11 +91,11 @@ export const submitPracticeWorkflow = async ({
 
   let evaluation;
   try {
-    evaluation = await evaluatePracticeResponse({
+    evaluation = await educationUnitBuilder.evaluatePractice({
+      buildContent: unit.buildContent,
       practicePrompt: unit.practicePrompts[sequence]!,
       userResponse: trimmedResponse,
       unitTitle: unit.title,
-      buildContent: unit.buildContent,
     });
   } catch (error) {
     return err(

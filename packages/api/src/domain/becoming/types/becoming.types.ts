@@ -103,6 +103,7 @@ export interface UpdateUnitContentInput {
   unitContentId: string;
   buildContent: string;
   practicePrompts: PracticePrompt[];
+  teachbackSetup?: TeachbackSetup;
   contentGeneratedAt: Date;
 }
 
@@ -155,6 +156,12 @@ export interface PhaseResponseMetadata {
   feedback?: string;
   gap?: FailureGap;
   ghostScenario?: GhostScenario;
+  evidenceAnchors?: string[];
+  repairTarget?: {
+    skill: string;
+    transferObjective: string;
+    successCriteria: string[];
+  };
 }
 
 export interface PhaseResponseRecord {

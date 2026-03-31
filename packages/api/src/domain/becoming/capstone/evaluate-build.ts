@@ -1,12 +1,26 @@
-import { CapstoneEvaluationSchema } from "@acme/validators";
+import { z } from "zod/v4";
 
-import { generateBecomingObject } from "../generate-becoming-object";
+import { executePrompt } from "../engine";
+import { formatCapstoneTranscript } from "../prompts/fragments";
+import { evaluateBuildPrompt } from "../prompts/registry";
 
 import type {
   BuildCapstoneScenario,
   CapstoneEvaluation,
   CapstoneMessage,
 } from "./types/capstone.types";
+
+const BuildEvaluationWithReasoningSchema = z.object({
+  reasoning: z.object({
+    skillIntegration: z.string().min(1),
+    criteriaSatisfaction: z.string().min(1),
+    depthAndRigor: z.string().min(1),
+    overallAssessment: z.string().min(1),
+  }),
+  passed: z.boolean(),
+  score: z.number().int().min(0).max(100),
+  feedback: z.string().min(1),
+});
 
 export const evaluateBuildCapstone = async ({
   scenario,
@@ -18,30 +32,24 @@ export const evaluateBuildCapstone = async ({
   const latestSubmission =
     [...messages].reverse().find((message) => message.role === "user")?.content ?? "";
 
-  return generateBecomingObject({
-    schema: CapstoneEvaluationSchema,
+  const result = await executePrompt({
+    template: evaluateBuildPrompt,
+    schema: BuildEvaluationWithReasoningSchema,
+    context: {
+      Title: scenario.title,
+      "Artifact type": scenario.artifactType,
+      Briefing: scenario.briefing,
+      Constraints: scenario.constraints.join("; "),
+      "Evaluation criteria": scenario.evaluationCriteria.join("; "),
+      Transcript: formatCapstoneTranscript(messages),
+      "Latest learner submission": latestSubmission,
+    },
     errorMessage: "Failed to evaluate the build capstone.",
-    system:
-      "You evaluate capstone artifacts for integrated skill application. Be strict, concrete, and educationally honest.",
-    prompt: `Evaluate this build capstone.
-
-Title: ${scenario.title}
-Artifact type: ${scenario.artifactType}
-Briefing: ${scenario.briefing}
-Constraints: ${scenario.constraints.join("; ")}
-Evaluation criteria: ${scenario.evaluationCriteria.join("; ")}
-
-Transcript:
-${messages.map((message) => `${message.role.toUpperCase()} [round ${message.round}]: ${message.content}`).join("\n")}
-
-Latest learner submission:
-${latestSubmission}
-
-Return:
-- passed: true only if the artifact clearly satisfies the capstone bar now.
-- score: 0-100.
-- feedback: one concise paragraph that names what is strong and what is still weak.
-
-The feedback should be directly usable as revision guidance if passed is false.`,
   });
+
+  return {
+    passed: result.passed,
+    score: result.score,
+    feedback: result.feedback,
+  };
 };

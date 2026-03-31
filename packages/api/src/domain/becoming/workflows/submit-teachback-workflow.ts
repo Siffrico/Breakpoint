@@ -1,6 +1,5 @@
 import { err, ok, type Result } from "../../../lib/result";
-import { gradeTeachback } from "../grade-teachback";
-import { runTeachback } from "../run-teachback";
+import { getTeachbackObjection, reviewTeachback } from "../orchestration/failure-flow";
 import {
   allPracticeRoundsPassed,
   buildTeachbackTranscript,
@@ -86,20 +85,15 @@ export const submitTeachbackWorkflow = async ({
     ...baseTranscript,
     { role: "user", content: trimmedResponse, round },
   ];
-  const practiceResponses = getPracticeResponses(phaseResponses).map(
-    (item) => item.userResponse,
-  );
-
   if (round < 3) {
     let nextReply;
     try {
-      nextReply = await runTeachback({
-        unitContent: unit,
-        studentPersona: unit.teachbackSetup.studentPersona,
-        transcript,
-        userPracticeResponses: practiceResponses,
-        round,
-      });
+      nextReply = await Promise.resolve(
+        getTeachbackObjection({
+          unitContent: unit,
+          round: round + 1,
+        }),
+      );
     } catch (error) {
       return err(
         error instanceof Error
@@ -130,11 +124,18 @@ export const submitTeachbackWorkflow = async ({
 
   let finalGrade;
   try {
-    finalGrade = await gradeTeachback({
+    const review = await reviewTeachback({
       unitContent: unit,
-      transcript,
-      studentPersona: unit.teachbackSetup.studentPersona,
+      practiceResponses: getPracticeResponses(phaseResponses).map((item) => ({
+        sequence: item.sequence,
+        response: item.userResponse,
+        feedback: item.aiResponse ?? "",
+        passed: item.passed ?? false,
+      })),
+      teachbackTranscript: transcript,
     });
+
+    finalGrade = review.verdict;
   } catch (error) {
     return err(
       error instanceof Error ? error.message : "Failed to grade the teach-back.",

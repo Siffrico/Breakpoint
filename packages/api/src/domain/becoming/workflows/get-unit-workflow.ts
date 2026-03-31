@@ -1,5 +1,5 @@
 import { err, ok, type Result } from "../../../lib/result";
-import { generateUnitSetup } from "../generate-unit-setup";
+import { generateUnitScaffold } from "../orchestration/unit-flow";
 import type { UnitContent } from "../types/becoming.types";
 
 interface GetUnitDependencies {
@@ -108,8 +108,8 @@ export const getUnitWorkflow = async ({
     ) + 1;
 
   let setup;
-  try {
-    const completedClusterTitles = planNodes
+    try {
+      const completedClusterTitles = planNodes
       .filter((item) => item.kind === "skill_cluster")
       .filter((clusterNode) => {
         const childUnits = planNodes.filter(
@@ -125,7 +125,7 @@ export const getUnitWorkflow = async ({
       })
       .map((item) => item.title);
 
-    setup = await generateUnitSetup({
+    setup = await generateUnitScaffold({
       slotKind: node.kind,
       slotIndex,
       totalSlots: siblingUnits.length || 1,
@@ -144,6 +144,7 @@ export const getUnitWorkflow = async ({
           : null,
       targetIdentity,
       priorLearning,
+      nodeId: node.id,
     });
   } catch (error) {
     return err(

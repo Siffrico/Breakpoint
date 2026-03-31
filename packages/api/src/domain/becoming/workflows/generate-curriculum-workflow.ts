@@ -1,7 +1,5 @@
 import { err, ok, type Result } from "../../../lib/result";
-import { buildBeforeAfterProfile } from "../services/build-before-after-profile";
-import { buildCurriculumPlan } from "../services/build-curriculum-plan";
-import { buildIdentityReport } from "../services/build-identity-report";
+import { generateCurriculumBlueprint } from "../orchestration/curriculum-flow";
 import type {
   BeforeAfterProfile,
   CurriculumBlueprint,
@@ -58,43 +56,13 @@ export const generateCurriculumWorkflow = async ({
   const messages = await deps.listMessages(sessionId);
 
   let report: IdentityReport;
-  try {
-    report = await buildIdentityReport(messages);
-  } catch (error) {
-    return err(
-      error instanceof Error
-        ? error.message
-        : "Failed to generate the identity report.",
-    );
-  }
-  if (!report.targetIdentity) {
-    return err("Target identity is missing.");
-  }
-
   let beforeAfter: BeforeAfterProfile;
-  try {
-    beforeAfter = await buildBeforeAfterProfile(report);
-  } catch (error) {
-    return err(
-      error instanceof Error
-        ? error.message
-        : "Failed to generate the before and after reveal.",
-    );
-  }
-
-  const profile = await deps.createProfileVersion({
-    sessionId,
-    userId: session.userId,
-    report,
-    beforeAfter,
-  });
-  if (!profile) {
-    return err("Failed to build identity profile.");
-  }
-
   let blueprint: CurriculumBlueprint;
   try {
-    blueprint = await buildCurriculumPlan(report, beforeAfter);
+    const generated = await generateCurriculumBlueprint(messages);
+    report = generated.report;
+    beforeAfter = generated.beforeAfter;
+    blueprint = generated.blueprint;
   } catch (error) {
     return err(
       error instanceof Error
@@ -102,9 +70,23 @@ export const generateCurriculumWorkflow = async ({
         : "Failed to generate the curriculum architecture.",
     );
   }
+  if (!report.targetIdentity) {
+    return err("Target identity is missing.");
+  }
+
+  const createdProfile = await deps.createProfileVersion({
+    sessionId,
+    userId: session.userId,
+    report,
+    beforeAfter,
+  });
+  if (!createdProfile) {
+    return err("Failed to build identity profile.");
+  }
+
   const plan = await deps.createPlan({
     onboardingSessionId: sessionId,
-    profileVersionId: profile.version.id,
+    profileVersionId: createdProfile.version.id,
     userId: session.userId,
     blueprint,
   });

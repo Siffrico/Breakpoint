@@ -422,6 +422,21 @@ export const becomingRouter = {
 
               return profile?.version.targetIdentity ?? null;
             },
+            getNodeById: (nodeId) =>
+              becomingCurriculumRepository.getNodeById({
+                db: ctx.db,
+                nodeId,
+              }),
+            getPlanNodesBySession: (sessionId) =>
+              becomingCurriculumRepository.getPlanNodesBySession({
+                db: ctx.db,
+                sessionId,
+              }),
+            listAttemptHistory: (sessionId) =>
+              becomingTrainingRepository.listAttemptHistory({
+                db: ctx.db,
+                sessionId,
+              }),
             savePhaseResponse: (payload) =>
               becomingCurriculumRepository.savePhaseResponse({
                 db: ctx.db,

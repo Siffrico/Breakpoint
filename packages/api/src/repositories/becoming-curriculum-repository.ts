@@ -372,18 +372,22 @@ export const becomingCurriculumRepository = {
     unitContentId,
     buildContent,
     practicePrompts,
+    teachbackSetup,
     contentGeneratedAt,
   }: {
     db: Database;
   } & UpdateUnitContentInput): Promise<UnitContent | null> => {
+    const updatePayload = {
+      buildContent,
+      practicePrompts,
+      contentGeneratedAt,
+      updatedAt: new Date(),
+      ...(teachbackSetup ? { teachbackSetup } : {}),
+    };
+
     const [unit] = await db
       .update(BecomingUnitContent)
-      .set({
-        buildContent,
-        practicePrompts,
-        contentGeneratedAt,
-        updatedAt: new Date(),
-      })
+      .set(updatePayload)
       .where(eq(BecomingUnitContent.id, unitContentId))
       .returning();
 
@@ -529,6 +533,10 @@ export const becomingCurriculumRepository = {
   }): Promise<
     | {
         gap: NonNullable<NonNullable<PhaseResponseRecord["metadata"]>["gap"]>;
+        evidenceAnchors?: string[];
+        repairTarget?: NonNullable<
+          NonNullable<PhaseResponseRecord["metadata"]>["repairTarget"]
+        >;
         ghostScenario: NonNullable<
           NonNullable<PhaseResponseRecord["metadata"]>["ghostScenario"]
         >;
@@ -553,6 +561,8 @@ export const becomingCurriculumRepository = {
 
     return {
       gap: metadata.gap,
+      evidenceAnchors: metadata.evidenceAnchors,
+      repairTarget: metadata.repairTarget,
       ghostScenario: metadata.ghostScenario,
       sequence: row.sequence,
       submitted: row.aiResponse != null,

@@ -1,4 +1,5 @@
 import { err, ok, type Result } from "../../../lib/result";
+import { educationUnitBuilder } from "../unit-builder/orchestrator";
 import {
   allPracticeRoundsPassed,
   getTeachbackResponses,
@@ -45,7 +46,10 @@ export const getTeachbackPromptWorkflow = async ({
   }
 
   return ok({
-    studentMessage: unit.teachbackSetup.openingMisconception,
+    studentMessage: educationUnitBuilder.getTeachbackPrompt({
+      unit,
+      round: 1,
+    }).studentReply,
     round: 1,
   });
 };

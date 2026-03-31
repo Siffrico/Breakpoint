@@ -1,11 +1,27 @@
-import { GhostEvaluationSchema } from "@acme/validators";
+import { z } from "zod/v4";
 
-import { generateBecomingObject } from "./generate-becoming-object";
+import { executePrompt } from "./engine";
+import { formatGapContext } from "./prompts/fragments";
+import { gradeGhostPrompt } from "./prompts/registry";
 import type {
   FailureGap,
   GhostEvaluation,
   GhostScenario,
 } from "./types/becoming.types";
+
+/**
+ * Internal schema with CoT reasoning for ghost evaluation.
+ */
+const GhostEvaluationWithReasoningSchema = z.object({
+  reasoning: z.object({
+    gapAddressing: z.string().min(1),
+    transferQuality: z.string().min(1),
+    overallAssessment: z.string().min(1),
+  }),
+  passed: z.boolean(),
+  feedback: z.string().min(1),
+  score: z.number().int().min(0).max(100),
+});
 
 export const gradeGhostResponse = async ({
   ghostScenario,
@@ -15,25 +31,22 @@ export const gradeGhostResponse = async ({
   ghostScenario: GhostScenario;
   gap: FailureGap;
   response: string;
-}): Promise<GhostEvaluation> =>
-  generateBecomingObject({
-    schema: GhostEvaluationSchema,
+}): Promise<GhostEvaluation> => {
+  const result = await executePrompt({
+    template: gradeGhostPrompt,
+    schema: GhostEvaluationWithReasoningSchema,
+    context: {
+      "Original gap": formatGapContext(gap),
+      "Ghost scenario domain": ghostScenario.domain,
+      "Ghost scenario prompt": ghostScenario.prompt,
+      "Learner response": response,
+    },
     errorMessage: "Failed to evaluate the ghost response.",
-    system:
-      "You are evaluating whether a learner has addressed their specific reasoning gap in a new context.",
-    retryPromptSuffix:
-      "- The only thing being tested is whether the response addresses the original gap.\n- Pass threshold is 65 or above.",
-    prompt: `Evaluate this ghost response.
-
-Original gap:
-Description: ${gap.description}
-Gap type: ${gap.gapType}
-Where it broke: ${gap.whereItBroke}
-
-Ghost scenario domain: ${ghostScenario.domain}
-Ghost scenario prompt:
-${ghostScenario.prompt}
-
-Learner response:
-${response}`,
   });
+
+  return {
+    passed: result.passed,
+    feedback: result.feedback,
+    score: result.score,
+  };
+};

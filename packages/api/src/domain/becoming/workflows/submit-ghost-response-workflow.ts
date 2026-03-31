@@ -1,5 +1,5 @@
 import { err, ok, type Result } from "../../../lib/result";
-import { gradeGhostResponse } from "../grade-ghost-response";
+import { gradeGhostReplay } from "../orchestration/ghost-flow";
 import { getGhostResponses } from "./forge-workflow-helpers";
 import type {
   GhostEvaluation,
@@ -18,6 +18,10 @@ interface SubmitGhostResponseDependencies {
     sessionId: string,
   ) => Promise<{
     gap: NonNullable<NonNullable<PhaseResponseRecord["metadata"]>["gap"]>;
+    evidenceAnchors?: string[];
+    repairTarget?: NonNullable<
+      NonNullable<PhaseResponseRecord["metadata"]>["repairTarget"]
+    >;
     ghostScenario: NonNullable<
       NonNullable<PhaseResponseRecord["metadata"]>["ghostScenario"]
     >;
@@ -77,10 +81,12 @@ export const submitGhostResponseWorkflow = async ({
 
   let evaluation;
   try {
-    evaluation = await gradeGhostResponse({
-      ghostScenario: latestIsolation.ghostScenario,
+    evaluation = await gradeGhostReplay({
       gap: latestIsolation.gap,
+      unitContent: unit,
+      ghostScenario: latestIsolation.ghostScenario,
       response: trimmedResponse,
+      repairTarget: latestIsolation.repairTarget,
     });
   } catch (error) {
     return err(
@@ -102,6 +108,8 @@ export const submitGhostResponseWorkflow = async ({
     score: evaluation.score,
     metadata: {
       gap: latestIsolation.gap,
+      evidenceAnchors: latestIsolation.evidenceAnchors,
+      repairTarget: latestIsolation.repairTarget,
       ghostScenario: latestIsolation.ghostScenario,
     },
   });

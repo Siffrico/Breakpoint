@@ -4,8 +4,9 @@ import type {
   CurriculumNodeBlueprint,
   IdentityReport,
 } from "../types/becoming.types";
-import { generateBecomingObject } from "../generate-becoming-object";
-import { getBecomingModel } from "./becoming-model";
+import { executePrompt } from "../engine";
+import { formatIdentityReport, formatBeforeAfter } from "../prompts/fragments";
+import { curriculumPlanPrompt } from "../prompts/registry";
 import { z } from "zod/v4";
 
 const CurriculumDraftSchema = z.object({
@@ -159,50 +160,14 @@ export const buildCurriculumPlan = async (
   report: IdentityReport,
   beforeAfter: BeforeAfterProfile,
 ): Promise<CurriculumBlueprint> => {
-  const model = getBecomingModel();
-  if (!model) {
-    throw new Error("OPENAI_API_KEY is required for AI-generated curriculum architecture.");
-  }
-
-  const object = await generateBecomingObject({
-    modelName: process.env.OPENAI_MODEL,
+  const object = await executePrompt({
+    template: curriculumPlanPrompt,
     schema: CurriculumDraftSchema,
+    context: {
+      "Identity report": formatIdentityReport(report),
+      "Before/after reveal": formatBeforeAfter(beforeAfter),
+    },
     errorMessage: "Failed to generate the curriculum architecture.",
-    system:
-      "You design adaptive training curricula for an identity-driven product. Convert ambition into a pressure-tested path. Think in terms of operator capability, judgment, behavior under stress, and measurable progression.",
-    prompt: `Design a curriculum skeleton for this learner.
-
-Requirements:
-- Return between 1 and 7 skill clusters, based on the learner and domain complexity.
-- Each cluster should specify unitCount instead of predefining unit titles or lesson topics.
-- Each cluster must include one capstone simulation object that pressure-tests that cluster's skills.
-- integrationLayers should describe cross-cluster bridge layers only when they are needed.
-- Each integration layer should specify unitCount instead of predefining integration lessons.
-- Curriculum creation is skeleton-only. Do not predefine unit titles, unit summaries, or lesson content.
-- Build for the person they want to become, not a generic course buyer.
-- The path should move through cluster skill-building, then a simulation for that cluster, then onward to the next cluster, with integration work only after the cluster work is complete.
-- Keep the language crisp, not academic or motivational.
-- clusterSynthesis should name the cluster titles being combined.
-- Do not use filler clusters or filler slots just to make the path look complete. Fewer stronger nodes is better than padded curriculum.
-
-Identity report:
-Target identity: ${report.targetIdentity}
-Headline: ${report.headline}
-Motivation: ${report.motivation}
-Current baseline: ${report.currentBaseline}
-Proof of progress: ${report.proofOfProgress}
-Hard moments: ${report.hardMoments.join("; ")}
-Constraints: ${report.constraints.join("; ") || "None provided"}
-Behavior signals: ${report.behaviorSignals.join("; ")}
-
-Before/after reveal:
-Headline: ${beforeAfter.headline}
-Before summary: ${beforeAfter.beforeSummary}
-After summary: ${beforeAfter.afterSummary}
-Contrast pairs: ${beforeAfter.contrastPairs
-      .map((pair) => `${pair.before} -> ${pair.after}`)
-      .join("; ")}
-First shift: ${beforeAfter.firstShift}`,
   });
 
   return {

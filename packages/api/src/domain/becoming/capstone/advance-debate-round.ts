@@ -1,6 +1,8 @@
 import { z } from "zod/v4";
 
-import { generateBecomingObject } from "../generate-becoming-object";
+import { executePrompt } from "../engine";
+import { formatCapstoneTranscript } from "../prompts/fragments";
+import { debateRoundPrompt } from "../prompts/registry";
 
 import type {
   CapstoneMessage,
@@ -27,23 +29,18 @@ export const advanceDebateRound = async ({
         ? "escalate into a structural challenge"
         : "press on an edge case or failure mode";
 
-  const result = await generateBecomingObject({
+  const result = await executePrompt({
+    template: debateRoundPrompt,
     schema: DebateReplySchema,
+    context: {
+      Resolution: scenario.resolution,
+      Context: scenario.context,
+      "Your position": scenario.aiPosition,
+      "Round to generate": String(round + 1),
+      "Escalation goal": escalation,
+      "Transcript so far": formatCapstoneTranscript(messages),
+    },
     errorMessage: "Failed to generate the next debate round.",
-    system:
-      "You are the opposing debater in a capstone. Be sharp, credible, and focused on the weakest exposed assumption.",
-    prompt: `Generate the assistant's next debate move.
-
-Resolution: ${scenario.resolution}
-Context: ${scenario.context}
-Your position: ${scenario.aiPosition}
-Round to generate: ${round + 1}
-Escalation goal: ${escalation}
-
-Transcript so far:
-${messages.map((message) => `${message.role.toUpperCase()} [round ${message.round}]: ${message.content}`).join("\n")}
-
-Return a single assistant reply that advances the debate, not meta commentary.`,
   });
 
   return result.reply;

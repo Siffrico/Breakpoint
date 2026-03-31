@@ -99,9 +99,18 @@ export const PracticePromptSchema = z.object({
   type: z.enum(["identification", "construction", "debugging"]),
 });
 
+export const TeachbackRoundSchema = z.object({
+  round: z.number().int().min(1).max(3),
+  objection: z.string().min(1),
+  objective: z.string().min(1),
+});
+
 export const TeachbackSetupSchema = z.object({
   studentPersona: z.string().min(1),
   openingMisconception: z.string().min(1),
+  roundLadder: z.array(TeachbackRoundSchema).length(3),
+  passSignals: z.array(z.string().min(1)).min(2).max(5),
+  failureModes: z.array(z.string().min(1)).min(2).max(5),
 });
 
 export const ForgeUnitScenarioSchema = z.object({

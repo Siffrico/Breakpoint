@@ -1,10 +1,8 @@
 import { err, ok, type Result } from "../../../lib/result";
-import { generateBuildContent } from "../generate-build-content";
-import { generatePracticePrompts } from "../generate-practice-prompts";
+import { generateUnitLesson } from "../orchestration/unit-flow";
 import type {
   PostSeedGenerationResult,
   PhaseResponseRecord,
-  PracticePrompt,
   UpdateUnitContentInput,
   UnitContent,
 } from "../types/becoming.types";
@@ -12,6 +10,40 @@ import type {
 interface SubmitSeedDependencies {
   getUnitByNodeId: (nodeId: string) => Promise<UnitContent | null>;
   getTargetIdentity: (sessionId: string) => Promise<string | null>;
+  getNodeById: (nodeId: string) => Promise<{
+    id: string;
+    parentNodeId: string | null;
+    kind: string;
+    title: string;
+    summary: string;
+    whyItMatters: string;
+    orderIndex: number;
+    status: string;
+  } | null>;
+  getPlanNodesBySession: (sessionId: string) => Promise<
+    Array<{
+      id: string;
+      parentNodeId: string | null;
+      kind: string;
+      title: string;
+      summary: string;
+      whyItMatters: string;
+      orderIndex: number;
+      status: string;
+    }> | null
+  >;
+  listAttemptHistory: (sessionId: string) => Promise<
+    Array<{
+      title: string;
+      score: number;
+      readiness: string;
+      finalArticulation: string | null;
+      growthDimensions: string[] | null;
+      improvements: string[];
+      failureTags: string[];
+      nextStep: string;
+    }>
+  >;
   savePhaseResponse: (input: {
     unitContentId: string;
     sessionId: string;
@@ -78,15 +110,76 @@ export const submitSeedWorkflow = async ({
     return err("Target identity is missing.");
   }
 
-  let buildContent: string;
+  const [node, planNodes, priorLearning] = await Promise.all([
+    deps.getNodeById(nodeId),
+    deps.getPlanNodesBySession(sessionId),
+    deps.listAttemptHistory(sessionId),
+  ]);
+
+  if (!node || !planNodes) {
+    return err("Unit planning context is missing.");
+  }
+
+  const parentNode = node.parentNodeId
+    ? planNodes.find((item) => item.id === node.parentNodeId) ?? null
+    : null;
+
+  const siblingUnits = planNodes
+    .filter(
+      (item) => item.parentNodeId === node.parentNodeId && item.kind === node.kind,
+    )
+    .sort((a, b) => a.orderIndex - b.orderIndex);
+
+  const slotIndex =
+    Math.max(
+      siblingUnits.findIndex((item) => item.id === node.id),
+      0,
+    ) + 1;
+
+  const completedClusterTitles = planNodes
+    .filter((item) => item.kind === "skill_cluster")
+    .filter((clusterNode) => {
+      const childUnits = planNodes.filter(
+        (item) => item.parentNodeId === clusterNode.id && item.kind === "unit",
+      );
+
+      return childUnits.length > 0 && childUnits.every((item) => item.status === "completed");
+    })
+    .map((item) => item.title);
+
+  let generatedLesson: PostSeedGenerationResult;
+  let generatedTeachbackSetup: UnitContent["teachbackSetup"];
   try {
-    buildContent = await generateBuildContent({
-      unitTitle: unit.title,
-      unitSummary: unit.summary,
-      whyItMatters: unit.whyItMatters,
-      seedResponse: trimmedResponse,
+    const lesson = await generateUnitLesson({
+      nodeId: node.id,
+      slotKind: node.kind as "unit" | "integration",
+      slotIndex,
+      totalSlots: siblingUnits.length || 1,
+      clusterContext: parentNode
+        ? {
+            title: parentNode.title,
+            summary: parentNode.summary,
+            whyItMatters: parentNode.whyItMatters,
+          }
+        : null,
+      integrationContext:
+        node.kind === "integration"
+          ? {
+              completedClusterTitles,
+            }
+          : null,
       targetIdentity,
+      priorLearning,
+      seedResponse: trimmedResponse,
+      currentUnit: unit,
     });
+
+    generatedLesson = {
+      captured: true,
+      buildContent: lesson.buildContent,
+      practicePrompts: lesson.practicePrompts,
+    };
+    generatedTeachbackSetup = lesson.teachbackSetup;
   } catch (error) {
     return err(
       error instanceof Error
@@ -95,27 +188,11 @@ export const submitSeedWorkflow = async ({
     );
   }
 
-  let practicePrompts: PracticePrompt[];
-  try {
-    practicePrompts = await generatePracticePrompts({
-      unitTitle: unit.title,
-      unitSummary: unit.summary,
-      seedResponse: trimmedResponse,
-      buildContent,
-      targetIdentity,
-    });
-  } catch (error) {
-    return err(
-      error instanceof Error
-        ? error.message
-        : "Failed to generate practice prompts.",
-    );
-  }
-
   const updatedUnit = await deps.updateUnitContent({
     unitContentId: unit.id,
-    buildContent,
-    practicePrompts,
+    buildContent: generatedLesson.buildContent,
+    practicePrompts: generatedLesson.practicePrompts,
+    teachbackSetup: generatedTeachbackSetup,
     contentGeneratedAt: new Date(),
   });
 
