@@ -1090,24 +1090,33 @@ export const becomingRouter = {
         sessionId: input.sessionId,
         deps: {
           getHomeState: async (sessionId) => {
-            const [profile, plan, summary, activeRecallGate] = await Promise.all([
-              becomingOnboardingRepository.getProfileBySession({
-                db: ctx.db,
-                sessionId,
-              }),
-              becomingCurriculumRepository.getActivePlan({
-                db: ctx.db,
-                sessionId,
-              }),
-              becomingTrainingRepository.getHomeSummary({
-                db: ctx.db,
-                sessionId,
-              }),
-              becomingRecallRepository.getActiveGateSummaryBySession({
-                db: ctx.db,
-                sessionId,
-              }),
-            ]);
+            const [profile, plan, summary, activeRecallGate, attemptHistory, nodeScores] =
+              await Promise.all([
+                becomingOnboardingRepository.getProfileBySession({
+                  db: ctx.db,
+                  sessionId,
+                }),
+                becomingCurriculumRepository.getActivePlan({
+                  db: ctx.db,
+                  sessionId,
+                }),
+                becomingTrainingRepository.getHomeSummary({
+                  db: ctx.db,
+                  sessionId,
+                }),
+                becomingRecallRepository.getActiveGateSummaryBySession({
+                  db: ctx.db,
+                  sessionId,
+                }),
+                becomingTrainingRepository.listAttemptHistory({
+                  db: ctx.db,
+                  sessionId,
+                }),
+                becomingTrainingRepository.listNodeScoresBySession({
+                  db: ctx.db,
+                  sessionId,
+                }),
+              ]);
 
             if (!profile || !plan || !summary) {
               return null;
@@ -1125,6 +1134,24 @@ export const becomingRouter = {
             const nextNode = plan.nodes.find(
               (node: CurriculumNode) => node.id === plan.nextUnitId,
             );
+
+            const lastAttempt =
+              attemptHistory.length > 0
+                ? attemptHistory[attemptHistory.length - 1]
+                : null;
+
+            const recentDimensions = attemptHistory
+              .slice(-10)
+              .flatMap((a) => a.growthDimensions ?? []);
+            const seen = new Set<string>();
+            const demonstratedCapabilities: string[] = [];
+            for (const dim of [...recentDimensions].reverse()) {
+              if (!seen.has(dim)) {
+                seen.add(dim);
+                demonstratedCapabilities.unshift(dim);
+              }
+              if (demonstratedCapabilities.length >= 3) break;
+            }
 
             return {
               targetIdentity: profile.version.targetIdentity,
@@ -1150,6 +1177,15 @@ export const becomingRouter = {
                   : profile.version.confidenceFlags.length > 0
                     ? profile.version.confidenceFlags
                     : profile.version.behaviorSignals.slice(0, 3),
+              lastCompletedUnit: lastAttempt
+                ? {
+                    title: lastAttempt.title,
+                    score: lastAttempt.score,
+                    failureTags: lastAttempt.failureTags,
+                  }
+                : null,
+              demonstratedCapabilities,
+              nodeScores,
             };
           },
         },

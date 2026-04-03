@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray } from "@acme/db";
+import { and, asc, desc, eq, inArray, sql } from "@acme/db";
 import type { db as databaseClient } from "@acme/db/client";
 import {
   BecomingCurriculumNode,
@@ -196,5 +196,40 @@ export const becomingTrainingRepository = {
       currentUnit: unit,
       recentFailureTags,
     };
+  },
+
+  listNodeScoresBySession: async ({
+    db,
+    sessionId,
+  }: {
+    db: Database;
+    sessionId: string;
+  }): Promise<Record<string, number>> => {
+    const attempts = await db.query.BecomingUnitAttempt.findMany({
+      where: eq(BecomingUnitAttempt.onboardingSessionId, sessionId),
+      orderBy: [desc(BecomingUnitAttempt.createdAt)],
+    });
+
+    const latestByContent = new Map<string, number>();
+    for (const attempt of attempts) {
+      if (!latestByContent.has(attempt.unitContentId) && attempt.score != null) {
+        latestByContent.set(attempt.unitContentId, attempt.score);
+      }
+    }
+
+    if (latestByContent.size === 0) return {};
+
+    const contents = await db.query.BecomingUnitContent.findMany({
+      where: inArray(BecomingUnitContent.id, [...latestByContent.keys()]),
+    });
+
+    const result: Record<string, number> = {};
+    for (const content of contents) {
+      const score = latestByContent.get(content.id);
+      if (score != null) {
+        result[content.nodeId] = score;
+      }
+    }
+    return result;
   },
 };

@@ -177,6 +177,9 @@ export interface HomeState {
   nextUnitTitle: string | null;
   activeRecallGate: RecallGateSummary | null;
   blockingSignals: string[];
+  lastCompletedUnit: { title: string; score: number | null; failureTags: string[] } | null;
+  demonstratedCapabilities: string[];
+  nodeScores: Record<string, number>;
 }
 
 export interface CapstoneAttemptRecord extends CapstoneAttempt {}

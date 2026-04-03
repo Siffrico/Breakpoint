@@ -9,17 +9,12 @@ const previews = [
   {
     href: "/ui/home",
     label: "Home",
-    description: "Workspace overview with seeded progress data.",
+    description: "Two-column dashboard: curriculum sidebar + live SACTRE scenario.",
   },
   {
     href: "/ui/profile",
     label: "Profile",
     description: "Identity profile and behavior signal layout.",
-  },
-  {
-    href: "/ui/plan",
-    label: "Plan",
-    description: "Curriculum file tree with mock nodes.",
   },
   {
     href: "/ui/transformation",

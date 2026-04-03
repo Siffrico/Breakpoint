@@ -1,13 +1,17 @@
 import {
   previewHomeState,
+  previewPlanState,
   previewSessionId,
 } from "~/features/becoming/lib/becoming-preview";
-import { HomeOverview } from "~/features/becoming/components/home-overview";
+import { previewForgeUnit } from "~/features/becoming/lib/forge-preview";
+import { HomeShell } from "~/features/becoming/components/home-shell";
 
 export default function UiPreviewHomePage() {
   return (
-    <HomeOverview
+    <HomeShell
       home={previewHomeState}
+      plan={previewPlanState}
+      unit={previewForgeUnit}
       sessionId={previewSessionId}
       preview
     />

@@ -222,6 +222,20 @@ export const previewHomeState: HomeState = {
     "Hard decisions stay open too long, which amplifies second-order damage.",
     "The team gets updates late, so alignment degrades while you are still thinking.",
   ],
+  lastCompletedUnit: {
+    title: "Triage signals before reacting",
+    score: 78,
+    failureTags: ["communication_timing", "fallback_planning"],
+  },
+  demonstratedCapabilities: [
+    "stakeholder framing under ambiguity",
+    "blast radius identification",
+    "sequencing before escalation",
+  ],
+  nodeScores: {
+    "node-cluster-1": 84,
+    "00000000-0000-4000-8000-000000000101": 78,
+  },
 };
 
 export const previewProfileState: ProfileState = {

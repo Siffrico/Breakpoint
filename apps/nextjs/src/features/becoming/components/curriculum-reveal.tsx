@@ -5,39 +5,11 @@ import { useMemo } from "react";
 
 import type { RouterOutputs } from "@acme/api";
 import { Button } from "@acme/ui/button";
-import type { TreeNode } from "@acme/ui/tree";
 import { TreeView } from "@acme/ui/tree";
 
+import { buildTree } from "~/features/becoming/lib/build-tree";
+
 type Plan = RouterOutputs["becoming"]["activePlan"];
-
-function buildTree(nodes: Plan["nodes"]): TreeNode[] {
-  const nodesById = new Map(nodes.map((n) => [n.id, n]));
-  const childrenMap = new Map<string | null, Plan["nodes"]>();
-
-  for (const node of nodes) {
-    const parentId = node.parentNodeId;
-    if (!childrenMap.has(parentId)) childrenMap.set(parentId, []);
-    childrenMap.get(parentId)!.push(node);
-  }
-
-  function convert(node: Plan["nodes"][number]): TreeNode {
-    const children = childrenMap.get(node.id) ?? [];
-    return {
-      id: node.id,
-      label: node.title,
-      variant: node.kind === "simulation" ? "simulation" : "default",
-      status: node.status as TreeNode["status"],
-      children: children.length > 0
-        ? children
-            .sort((a, b) => a.orderIndex - b.orderIndex)
-            .map(convert)
-        : undefined,
-    };
-  }
-
-  const roots = childrenMap.get(null) ?? [];
-  return roots.sort((a, b) => a.orderIndex - b.orderIndex).map(convert);
-}
 
 export function CurriculumReveal({
   plan,

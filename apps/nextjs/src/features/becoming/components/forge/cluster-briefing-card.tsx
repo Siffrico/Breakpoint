@@ -17,7 +17,7 @@ export function ClusterBriefingCard({
   onToggle: () => void;
 }) {
   return (
-    <section className="border border-border bg-card px-6 py-5 shadow-[0_18px_80px_rgba(2,6,23,0.18)]">
+    <section className="border-b border-border/50 pb-6">
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-2">
           <div className="flex items-center gap-3">
