@@ -36,7 +36,8 @@ Both light and dark modes are dark. The "light" mode is a slightly lighter dark.
 
 ### Input / Textarea
 - `rounded-none`, transparent bg, border-input
-- Focus: blue ring (`ring-ring/50`)
+- Focus must use restrained neutral border contrast or a subtle surface shift
+- BANNED: blue focus rings, browser-default blue outlines, and bright blue click states on writing surfaces or standard controls
 
 ### Cards / Surfaces
 - `rounded-none`, `bg-card`, subtle border
@@ -61,6 +62,10 @@ Gradients are **only** used at the page level for atmosphere, never on component
 - Base spacing unit: `0.25rem`
 - Tight padding on interactive elements
 - Generous vertical spacing between sections (`mb-8` to `mb-10`)
+- spacing, balance, and proportion are first-class rules
+- if two headers or surfaces visually correspond, their lines and baselines must align exactly
+- labels must sit proportionally inside the space assigned to them; do not push text to an edge with `justify-between` unless that separation is the actual intent
+- solve alignment structurally before patching with random padding nudges
 
 ## Typography
 
@@ -68,6 +73,14 @@ Gradients are **only** used at the page level for atmosphere, never on component
 - Display font: `var(--font-display)` for headings
 - Mono font: `var(--font-geist-mono)`
 - Max heading size in UI: `text-3xl` / `text-4xl`
+- Do not invent decorative eyebrow labels above primary headers
+
+## Icons
+
+- Phosphor is the default icon library
+- Icon-only controls should be unboxed by default
+- Do not place icons in boxes unless the box communicates a real state or primary action
+- Keep icon spacing and visual weight consistent within a row
 
 ## Primitives
 

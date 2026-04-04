@@ -70,7 +70,12 @@ export function Button({
   ...props
 }: ButtonProps): React.ReactElement {
   const isDisabled = Boolean(loading || disabledProp);
-  const classes = cn(buttonVariants({ className, size, variant }));
+  const isIconOnlySize = Boolean(size?.startsWith("icon"));
+  const classes = cn(
+    buttonVariants({ className, size, variant }),
+    isIconOnlySize &&
+      "border-transparent bg-transparent shadow-none before:hidden hover:border-transparent focus-visible:border-transparent",
+  );
   const buttonType: React.ButtonHTMLAttributes<HTMLButtonElement>["type"] =
     render ? undefined : "button";
   const content = (

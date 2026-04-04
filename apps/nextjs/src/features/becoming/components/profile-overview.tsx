@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import type { RouterOutputs } from "@acme/api";
 import { Button } from "@acme/ui/button";
+import { ProfilePreferences } from "./profile-preferences";
 
 type ProfileState = RouterOutputs["becoming"]["profile"];
 
@@ -101,6 +102,8 @@ export function ProfileOverview({
             ))}
           </div>
         </section>
+
+        <ProfilePreferences />
       </div>
     </main>
   );

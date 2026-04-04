@@ -82,6 +82,12 @@ Typography should feel modern and technical without becoming startup-generic.
 - generous vertical spacing for thinking surfaces
 - tighter spacing in meta/status bars
 - avoid cramped form surfaces
+- spacing, balance, and proportion are not cosmetic cleanup; they are core system rules
+- horizontal rules, header baselines, and panel edges must align exactly when two regions visually relate
+- text blocks must be optically balanced inside their containers; do not let labels drift too far left or right inside the space assigned to them
+- do not "eyeball" alignment with random padding changes when a shared structural height or shared layout rule can solve it cleanly
+- if two headers sit on the same horizontal band, their divider lines and text baselines should resolve together unless there is a deliberate product reason not to
+- prefer a few consistent gap values repeated across the interface over one-off spacing values that create visual wobble
 
 ### Motion
 
@@ -98,6 +104,8 @@ Typography should feel modern and technical without becoming startup-generic.
 - action buttons should feel decisive, not bubbly
 - primary actions use blue fill
 - secondary actions use outline or muted surface
+- icon-only buttons should be chrome-light by default
+- do not wrap icons in unnecessary boxes unless the box itself communicates state, containment, or a primary action
 
 ### Badges
 
@@ -116,6 +124,19 @@ Typography should feel modern and technical without becoming startup-generic.
 - longform inputs must feel like workspaces, not tiny form fields
 - default textarea should support dense but readable thinking
 - avoid over-decorating writing surfaces
+- focused inputs should shift with neutral border contrast, not colored glow
+- ban bright blue browser-style focus outlines and blue focus rings on writing surfaces
+- if a focus state is needed, use restrained neutral border change or a subtle surface change only
+- this ban extends beyond writing surfaces in practice: avoid blue click outlines or blue focus rings across the product unless a specific accessibility need requires an intentional exception
+- default browser blue outlines are not acceptable visual output in Breakpoint UI
+
+### Icons
+
+- use Phosphor as the default icon library
+- icons should be calm, sharp, and supportive, not playful or decorative
+- prefer a single clear metaphor over clever icon mixes
+- align icon weight and scale across a row; do not let one icon feel heavier or more boxed than its neighbors
+- if an icon sits beside text in a structural header, its spacing must feel intentional and balanced, not floating or pushed to an edge
 
 ---
 
@@ -175,6 +196,10 @@ Typography should feel modern and technical without becoming startup-generic.
 - sharp corners are the default
 - panels and status badges are the first shared primitives
 - domain select and scenario arena are the first canonical screens
+- spacing alignment and proportional balance are first-class design constraints, not polish passes
+- no decorative eyebrow labels above main headers
+- no default boxed icon treatment
+- no blue focus rings or browser-blue click outlines in shipped UI
 
 ---
 

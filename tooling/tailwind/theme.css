@@ -1,5 +1,5 @@
 :root {
-  --background: oklch(0.13 0 0);
+  --background: oklch(0.16 0 0);
   --foreground: oklch(0.93 0 0);
   --card: oklch(0.16 0 0);
   --card-foreground: oklch(0.93 0 0);
@@ -54,8 +54,62 @@
   --tracking-normal: 0rem;
   --spacing: 0.25rem;
 
+  @variant light {
+    --background: oklch(0.986 0.003 255);
+    --foreground: oklch(0.19 0.01 255);
+    --card: oklch(0.992 0.002 255);
+    --card-foreground: oklch(0.19 0.01 255);
+    --popover: oklch(0.997 0.001 255);
+    --popover-foreground: oklch(0.19 0.01 255);
+    --primary: oklch(0.58 0.19 262);
+    --primary-foreground: oklch(0.99 0.002 255);
+    --secondary: oklch(0.972 0.004 255);
+    --secondary-foreground: oklch(0.26 0.01 255);
+    --muted: oklch(0.976 0.004 255);
+    --muted-foreground: oklch(0.47 0.012 255);
+    --accent: oklch(0.975 0.006 255);
+    --accent-foreground: oklch(0.22 0.01 255);
+    --destructive: oklch(0.62 0.22 28);
+    --destructive-foreground: oklch(0.99 0.002 255);
+    --info: oklch(0.64 0.12 238);
+    --info-foreground: oklch(0.24 0.03 238);
+    --success: oklch(0.7 0.12 154);
+    --success-foreground: oklch(0.24 0.03 154);
+    --warning: oklch(0.84 0.13 84);
+    --warning-foreground: oklch(0.3 0.04 84);
+    --border: oklch(0.91 0.006 255);
+    --input: oklch(0.994 0.002 255);
+    --ring: oklch(0.58 0.19 262);
+    --chart-1: oklch(0.62 0.13 247.9);
+    --chart-2: oklch(0.58 0.16 257.2);
+    --chart-3: oklch(0.53 0.18 261.3);
+    --chart-4: oklch(0.48 0.17 263.4);
+    --chart-5: oklch(0.42 0.14 264.1);
+    --sidebar: oklch(0.978 0.004 255);
+    --sidebar-foreground: oklch(0.24 0.01 255);
+    --sidebar-primary: oklch(0.58 0.19 262);
+    --sidebar-primary-foreground: oklch(0.99 0.002 255);
+    --sidebar-accent: oklch(0.97 0.006 255);
+    --sidebar-accent-foreground: oklch(0.22 0.01 255);
+    --sidebar-border: oklch(0.91 0.006 255);
+    --sidebar-ring: oklch(0.58 0.19 262);
+    --shadow-2xs: 0 1px 2px 0 hsl(220 25% 10% / 0.03);
+    --shadow-xs: 0 1px 3px 0 hsl(220 25% 10% / 0.05);
+    --shadow-sm:
+      0 1px 2px 0 hsl(220 25% 10% / 0.05), 0 1px 3px 0 hsl(220 25% 10% / 0.08);
+    --shadow:
+      0 1px 3px 0 hsl(220 25% 10% / 0.08), 0 1px 2px -1px hsl(220 25% 10% / 0.08);
+    --shadow-md:
+      0 4px 6px -1px hsl(220 25% 10% / 0.08), 0 2px 4px -2px hsl(220 25% 10% / 0.08);
+    --shadow-lg:
+      0 10px 15px -3px hsl(220 25% 10% / 0.08), 0 4px 6px -4px hsl(220 25% 10% / 0.08);
+    --shadow-xl:
+      0 20px 25px -5px hsl(220 25% 10% / 0.08), 0 8px 10px -6px hsl(220 25% 10% / 0.08);
+    --shadow-2xl: 0 25px 50px -12px hsl(220 25% 10% / 0.18);
+  }
+
   @variant dark {
-    --background: oklch(0.11 0 0);
+    --background: oklch(0.15 0 0);
     --foreground: oklch(0.95 0 0);
     --card: oklch(0.14 0 0);
     --card-foreground: oklch(0.95 0 0);
