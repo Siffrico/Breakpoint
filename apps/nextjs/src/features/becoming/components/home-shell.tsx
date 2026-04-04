@@ -94,18 +94,29 @@ export function HomeShell({
           </div>
 
           {liveUnit && (
-            <Button
-              type="button"
-              variant="default"
-              size="sm"
-              onClick={() =>
-                setQuestionPanelOpen((prev) => (questionPanelFocused ? true : !prev))
-              }
-              className="rounded-none border-primary bg-primary px-3 text-[12px] text-primary-foreground before:rounded-none hover:bg-primary/90"
-            >
-              <Lightbulb size={15} weight="fill" />
-              Ask
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {}}
+                className="rounded-none border-foreground/12 bg-transparent px-3 text-[12px] text-foreground before:rounded-none before:shadow-none hover:border-foreground/24 hover:bg-transparent hover:text-foreground focus-visible:border-foreground/24 focus-visible:bg-transparent focus-visible:text-foreground data-pressed:border-foreground/24 data-pressed:bg-transparent data-pressed:text-foreground dark:bg-transparent dark:hover:border-foreground/24 dark:hover:bg-transparent dark:hover:text-foreground dark:focus-visible:border-foreground/24 dark:focus-visible:bg-transparent dark:focus-visible:text-foreground dark:data-pressed:border-foreground/24 dark:data-pressed:bg-transparent dark:data-pressed:text-foreground"
+              >
+                Hint
+              </Button>
+              <Button
+                type="button"
+                variant="default"
+                size="sm"
+                onClick={() =>
+                  setQuestionPanelOpen((prev) => (questionPanelFocused ? true : !prev))
+                }
+                className="rounded-none border-primary bg-primary px-3 text-[12px] text-primary-foreground before:rounded-none hover:bg-primary/90"
+              >
+                <Lightbulb size={15} weight="fill" />
+                Ask
+              </Button>
+            </div>
           )}
         </header>
 
