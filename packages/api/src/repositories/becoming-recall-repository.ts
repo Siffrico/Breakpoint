@@ -248,6 +248,25 @@ export const becomingRecallRepository = {
       ),
     }),
 
+  getLatestResolvedGateBySession: async ({
+    db,
+    sessionId,
+  }: {
+    db: Database;
+    sessionId: string;
+  }) =>
+    getGateWithProbes({
+      db,
+      where: and(
+        eq(BecomingRecallGate.sessionId, sessionId),
+        or(
+          eq(BecomingRecallGate.status, "passed"),
+          eq(BecomingRecallGate.status, "repaired"),
+          eq(BecomingRecallGate.status, "flagged"),
+        ),
+      ),
+    }),
+
   getActiveGateSummaryBySession: async ({
     db,
     sessionId,

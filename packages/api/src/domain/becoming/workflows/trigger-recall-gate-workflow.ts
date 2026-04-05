@@ -1,8 +1,9 @@
 import { err, ok, type Result } from "../../../lib/result";
 import { generateRecallProbe } from "../generate-recall-probes";
 import {
-  buildRecallProbePlan,
-  selectRecallCandidates,
+  countNewUnitsSinceLastRecall,
+  selectRecallCandidate,
+  shouldTriggerRecallUnit,
 } from "../policies/recall-policy";
 import type {
   RecallGate,
@@ -52,6 +53,9 @@ interface TriggerRecallGateDependencies {
     planId: string,
     triggerAfterUnitNodeId: string,
   ) => Promise<RecallGate | null>;
+  getLatestResolvedGateBySession: (
+    sessionId: string,
+  ) => Promise<RecallGate | null>;
   createGate: (input: {
     planId: string;
     sessionId: string;
@@ -81,7 +85,7 @@ export const triggerRecallGateWorkflow = async ({
   sessionId: string;
   userId?: string | null;
   deps: TriggerRecallGateDependencies;
-}): Promise<Result<RecallGate>> => {
+}): Promise<Result<RecallGate | null>> => {
   const [triggerNode, planNodes] = await Promise.all([
     deps.getNodeById(triggerAfterUnitNodeId),
     deps.getPlanNodesBySession(sessionId),
@@ -91,10 +95,11 @@ export const triggerRecallGateWorkflow = async ({
     return err("Recall gate context is missing.");
   }
 
-  const existingGate = await deps.getGateByTriggerUnit(
-    triggerNode.planId,
-    triggerAfterUnitNodeId,
-  );
+  const [existingGate, latestResolvedGate] = await Promise.all([
+    deps.getGateByTriggerUnit(triggerNode.planId, triggerAfterUnitNodeId),
+    deps.getLatestResolvedGateBySession(sessionId),
+  ]);
+
   if (existingGate) {
     return ok(existingGate);
   }
@@ -163,17 +168,44 @@ export const triggerRecallGateWorkflow = async ({
     .filter((candidate): candidate is NonNullable<typeof candidate> => candidate != null);
 
   if (candidates.length === 0) {
-    return err("Completed units are missing recall context.");
+    return ok(null);
   }
 
-  const selectedCandidates = selectRecallCandidates({
+  const selectedCandidate = selectRecallCandidate({
     candidates,
     triggerOrderIndex: triggerNode.orderIndex,
   });
 
-  const probePlan = buildRecallProbePlan(selectedCandidates);
-  if (probePlan.length === 0) {
-    return err("Recall gate probes could not be planned.");
+  const completedLearningUnitOrderIndexes = planNodes
+    .filter(
+      (node) =>
+        (node.kind === "unit" || node.kind === "integration") &&
+        node.status === "completed" &&
+        node.orderIndex <= triggerNode.orderIndex,
+    )
+    .map((node) => node.orderIndex);
+
+  const latestRecallTriggerOrderIndex = latestResolvedGate
+    ? (planNodes.find((node) => node.id === latestResolvedGate.triggerAfterUnitNodeId)
+        ?.orderIndex ?? null)
+    : null;
+
+  const newUnitsSinceLastRecall = countNewUnitsSinceLastRecall({
+    completedLearningUnitOrderIndexes,
+    lastRecallTriggerOrderIndex: latestRecallTriggerOrderIndex,
+  });
+
+  if (
+    !shouldTriggerRecallUnit({
+      candidate: selectedCandidate,
+      newUnitsSinceLastRecall,
+    })
+  ) {
+    return ok(null);
+  }
+
+  if (!selectedCandidate) {
+    return ok(null);
   }
 
   const createdGate = await deps.createGate({
@@ -187,47 +219,35 @@ export const triggerRecallGateWorkflow = async ({
     return err("Recall gate could not be created.");
   }
 
-  const probeRows = [];
-  for (const [index, plan] of probePlan.entries()) {
-    const sourceUnits = plan.sourceUnitNodeIds
-      .map((unitNodeId) => {
-        const candidate = selectedCandidates.find(
-          (selectedCandidate) => selectedCandidate.unitNodeId === unitNodeId,
-        );
-        const unit = unitByNodeId.get(unitNodeId);
-
-        if (!candidate || !unit) {
-          return null;
-        }
-
-        return {
-          nodeId: unitNodeId,
-          title: candidate.unitTitle,
-          summary: candidate.unitSummary,
-          clusterTitle: candidate.clusterTitle,
-          seedResponse: candidate.seedResponse,
-          finalArticulation: candidate.finalArticulation,
-        };
-      })
-      .filter((unit): unit is NonNullable<typeof unit> => unit != null);
-
-    const generatedProbe = await generateRecallProbe({
-      probeType: plan.probeType,
-      sourceUnits,
-    });
-
-    probeRows.push({
-      probeOrder: index,
-      probeType: plan.probeType,
-      sourceUnitNodeIds: plan.sourceUnitNodeIds,
-      prompt: generatedProbe.prompt,
-      seedSnapshot: generatedProbe.seedSnapshot,
-    });
+  if (!unitByNodeId.has(selectedCandidate.unitNodeId)) {
+    return err("Recall source unit could not be loaded.");
   }
+
+  const generatedProbe = await generateRecallProbe({
+    probeType: "seed_return",
+    sourceUnits: [
+      {
+        nodeId: selectedCandidate.unitNodeId,
+        title: selectedCandidate.unitTitle,
+        summary: selectedCandidate.unitSummary,
+        clusterTitle: selectedCandidate.clusterTitle,
+        seedResponse: selectedCandidate.seedResponse,
+        finalArticulation: selectedCandidate.finalArticulation,
+      },
+    ],
+  });
 
   await deps.createProbes({
     gateId: createdGate.id,
-    probes: probeRows,
+    probes: [
+      {
+        probeOrder: 0,
+        probeType: "seed_return",
+        sourceUnitNodeIds: [selectedCandidate.unitNodeId],
+        prompt: generatedProbe.prompt,
+        seedSnapshot: generatedProbe.seedSnapshot,
+      },
+    ],
   });
 
   const gate = await deps.getGateById(createdGate.id);

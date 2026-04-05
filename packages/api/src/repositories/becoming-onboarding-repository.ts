@@ -1,4 +1,4 @@
-import { asc, eq } from "@acme/db";
+import { asc, desc, eq, inArray } from "@acme/db";
 import type { db as databaseClient } from "@acme/db/client";
 import {
   BecomingIdentityProfile,
@@ -7,7 +7,12 @@ import {
   BecomingOnboardingSession,
 } from "@acme/db/schema";
 
-import type { IdentityReport, OnboardingTranscriptMessage } from "../domain/becoming/types/becoming.types";
+import type {
+  IdentityReport,
+  OnboardingQuestion,
+  OnboardingSessionState,
+  OnboardingTranscriptMessage,
+} from "../domain/becoming/types/becoming.types";
 import type { BeforeAfterProfile } from "@acme/validators";
 
 type Database = typeof databaseClient;
@@ -26,6 +31,22 @@ export const becomingOnboardingRepository = {
         userId: userId ?? null,
         status: "intro",
       })
+      .returning();
+
+    return session ?? null;
+  },
+
+  touchSession: async ({
+    db,
+    sessionId,
+  }: {
+    db: Database;
+    sessionId: string;
+  }) => {
+    const [session] = await db
+      .update(BecomingOnboardingSession)
+      .set({ updatedAt: new Date() })
+      .where(eq(BecomingOnboardingSession.id, sessionId))
       .returning();
 
     return session ?? null;
@@ -67,6 +88,18 @@ export const becomingOnboardingRepository = {
     (await db.query.BecomingOnboardingSession.findFirst({
       where: eq(BecomingOnboardingSession.id, sessionId),
     })) ?? null,
+
+  listSessionsByUser: async ({
+    db,
+    userId,
+  }: {
+    db: Database;
+    userId: string;
+  }) =>
+    db.query.BecomingOnboardingSession.findMany({
+      where: eq(BecomingOnboardingSession.userId, userId),
+      orderBy: [desc(BecomingOnboardingSession.updatedAt), desc(BecomingOnboardingSession.createdAt)],
+    }),
 
   updateSession: async ({
     db,
@@ -112,6 +145,51 @@ export const becomingOnboardingRepository = {
       sequence: message.sequence,
       slot: (message.slot as OnboardingTranscriptMessage["slot"]) ?? null,
     }));
+  },
+
+  getOnboardingState: async ({
+    db,
+    sessionId,
+  }: {
+    db: Database;
+    sessionId: string;
+  }): Promise<OnboardingSessionState | null> => {
+    const [session, transcript] = await Promise.all([
+      becomingOnboardingRepository.getSession({ db, sessionId }),
+      becomingOnboardingRepository.listMessages({ db, sessionId }),
+    ]);
+
+    if (!session) {
+      return null;
+    }
+
+    const lastAssistantMessage =
+      transcript
+        .slice()
+        .reverse()
+        .find((message) => message.role === "assistant") ?? null;
+
+    const activeQuestion: OnboardingQuestion | null =
+      session.status === "questioning" && lastAssistantMessage
+        ? {
+            slot: lastAssistantMessage.slot ?? "target_identity",
+            prompt: lastAssistantMessage.content,
+            helper: null,
+            sequence: transcript.filter((message) => message.role === "assistant").length - 1,
+          }
+        : null;
+
+    return {
+      sessionId,
+      phase:
+        session.status === "ready_for_generation" || session.status === "complete"
+          ? "ready_for_generation"
+          : session.status === "questioning"
+            ? "questioning"
+            : "intro",
+      transcript,
+      activeQuestion,
+    };
   },
 
   createProfileVersion: async ({
@@ -195,5 +273,41 @@ export const becomingOnboardingRepository = {
     });
 
     return profile && version ? { profile, version } : null;
+  },
+
+  listProfilesBySessionIds: async ({
+    db,
+    sessionIds,
+  }: {
+    db: Database;
+    sessionIds: string[];
+  }) => {
+    if (sessionIds.length === 0) {
+      return [];
+    }
+
+    const profiles = await db.query.BecomingIdentityProfile.findMany({
+      where: inArray(BecomingIdentityProfile.onboardingSessionId, sessionIds),
+    });
+
+    const versionIds = profiles
+      .map((profile) => profile.currentVersionId)
+      .filter((versionId): versionId is string => versionId != null);
+
+    const versions = versionIds.length
+      ? await db.query.BecomingIdentityProfileVersion.findMany({
+          where: inArray(BecomingIdentityProfileVersion.id, versionIds),
+        })
+      : [];
+
+    const versionsById = new Map(versions.map((version) => [version.id, version]));
+
+    return profiles.flatMap((profile) => {
+      const version = profile.currentVersionId
+        ? versionsById.get(profile.currentVersionId) ?? null
+        : null;
+
+      return version ? [{ profile, version }] : [];
+    });
   },
 };

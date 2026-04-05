@@ -24,7 +24,7 @@ export function CurriculumReveal({
   const unitCount = plan.nodes.filter(
     (n) => n.kind === "unit" || n.kind === "integration",
   ).length;
-  const beginHref = preview ? "/ui/train" : `/train/${plan.nextUnitId}?session=${sessionId}`;
+  const beginHref = preview ? "/ui/train" : `/home?session=${sessionId}`;
   const workspaceHref = preview ? "/ui/home" : `/home?session=${sessionId}`;
 
   return (

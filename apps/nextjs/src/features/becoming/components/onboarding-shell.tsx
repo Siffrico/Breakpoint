@@ -12,17 +12,34 @@ import { toast } from "@acme/ui/toast";
 import { previewOnboardingStates } from "~/features/becoming/lib/becoming-preview";
 import { useTRPC } from "~/trpc/react";
 
-type OnboardingState = RouterOutputs["becoming"]["startOnboarding"];
+type OnboardingState =
+  | RouterOutputs["becoming"]["startOnboarding"]
+  | RouterOutputs["becoming"]["onboardingState"];
+
 const TOTAL_ONBOARDING_ANSWERS = 4;
 
-export function OnboardingShell({ preview = false }: { preview?: boolean }) {
+export function OnboardingShell({
+  preview = false,
+  embedded = false,
+  sessionId,
+  initialState = null,
+}: {
+  preview?: boolean;
+  embedded?: boolean;
+  sessionId?: string;
+  initialState?: OnboardingState | null;
+}) {
   const trpc = useTRPC();
   const router = useRouter();
   const startedRef = useRef(false);
-  const [state, setState] = useState<OnboardingState | null>(null);
+  const [state, setState] = useState<OnboardingState | null>(initialState);
   const [answer, setAnswer] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [previewStep, setPreviewStep] = useState(0);
+
+  useEffect(() => {
+    setState(initialState);
+  }, [initialState]);
 
   const startOnboarding = useMutation(
     trpc.becoming.startOnboarding.mutationOptions({
@@ -34,12 +51,19 @@ export function OnboardingShell({ preview = false }: { preview?: boolean }) {
   const generateCurriculum = useMutation(
     trpc.becoming.generateCurriculum.mutationOptions({
       onSuccess: (plan) => {
-        if (!state) {
+        const activeSessionId = state?.sessionId ?? sessionId;
+        if (!activeSessionId) {
+          return;
+        }
+
+        if (embedded) {
+          router.push(`/home?session=${activeSessionId}`);
+          router.refresh();
           return;
         }
 
         router.push(
-          `/transformation?session=${state.sessionId}&unit=${plan.nextUnitId ?? ""}`,
+          `/transformation?session=${activeSessionId}&unit=${plan.nextUnitId ?? ""}`,
         );
       },
       onError: (error) => {
@@ -74,13 +98,28 @@ export function OnboardingShell({ preview = false }: { preview?: boolean }) {
       return;
     }
 
-    if (startedRef.current) {
+    if (initialState || sessionId || startedRef.current) {
       return;
     }
 
     startedRef.current = true;
     startOnboarding.mutate();
-  }, [preview, previewStep, startOnboarding]);
+  }, [initialState, preview, previewStep, sessionId, startOnboarding]);
+
+  useEffect(() => {
+    if (
+      preview ||
+      !state ||
+      state.phase !== "ready_for_generation" ||
+      isGenerating ||
+      generateCurriculum.isPending
+    ) {
+      return;
+    }
+
+    setIsGenerating(true);
+    void generateCurriculum.mutateAsync({ sessionId: state.sessionId });
+  }, [generateCurriculum, isGenerating, preview, state]);
 
   const handleSubmit = () => {
     if (!state || !answer.trim() || submitAnswer.isPending || isGenerating) {
@@ -117,26 +156,34 @@ export function OnboardingShell({ preview = false }: { preview?: boolean }) {
       .find((message) => message.role === "assistant")?.content ??
     "Who do you want to become?";
 
-  return (
-    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#050709] text-white">
-      {/* Concentric dark blue gradient clouds on the periphery */}
-      <div
-        className="pointer-events-none absolute inset-0"
-        style={{
-          background: [
-            "radial-gradient(ellipse 120% 80% at 50% 0%, rgba(15, 30, 80, 0.5) 0%, transparent 50%)",
-            "radial-gradient(ellipse 100% 70% at 50% 100%, rgba(10, 25, 70, 0.45) 0%, transparent 45%)",
-            "radial-gradient(ellipse 60% 100% at 0% 50%, rgba(12, 28, 75, 0.4) 0%, transparent 40%)",
-            "radial-gradient(ellipse 60% 100% at 100% 50%, rgba(12, 28, 75, 0.4) 0%, transparent 40%)",
-            "radial-gradient(ellipse 140% 140% at 50% 50%, transparent 40%, rgba(8, 20, 60, 0.3) 70%, rgba(15, 35, 90, 0.15) 100%)",
-          ].join(", "),
-        }}
-      />
-      {/* Film grain overlay — canvas-generated, rendered once */}
-      <GrainOverlay />
+  const shellClassName = embedded
+    ? "relative flex min-h-[70vh] flex-col text-white"
+    : "relative flex min-h-screen items-center justify-center overflow-hidden bg-[#050709] text-white";
+  const contentClassName = embedded
+    ? "relative z-10 mx-auto flex w-full max-w-[54rem] flex-col"
+    : "relative z-10 mx-auto flex w-full max-w-[54rem] flex-col px-5 py-8";
 
-      <div className="relative z-10 mx-auto flex w-full max-w-[54rem] flex-col px-5 py-8">
-        {/* Heading */}
+  return (
+    <main className={shellClassName}>
+      {!embedded ? (
+        <>
+          <div
+            className="pointer-events-none absolute inset-0"
+            style={{
+              background: [
+                "radial-gradient(ellipse 120% 80% at 50% 0%, rgba(15, 30, 80, 0.5) 0%, transparent 50%)",
+                "radial-gradient(ellipse 100% 70% at 50% 100%, rgba(10, 25, 70, 0.45) 0%, transparent 45%)",
+                "radial-gradient(ellipse 60% 100% at 0% 50%, rgba(12, 28, 75, 0.4) 0%, transparent 40%)",
+                "radial-gradient(ellipse 60% 100% at 100% 50%, rgba(12, 28, 75, 0.4) 0%, transparent 40%)",
+                "radial-gradient(ellipse 140% 140% at 50% 50%, transparent 40%, rgba(8, 20, 60, 0.3) 70%, rgba(15, 35, 90, 0.15) 100%)",
+              ].join(", "),
+            }}
+          />
+          <GrainOverlay />
+        </>
+      ) : null}
+
+      <div className={contentClassName}>
         <div
           className={[
             "transition-all duration-500",
@@ -153,8 +200,7 @@ export function OnboardingShell({ preview = false }: { preview?: boolean }) {
           </h1>
         </div>
 
-        {/* Message transcript */}
-        {isStarted && (
+        {isStarted ? (
           <div className="mb-4 space-y-2">
             {transcript.slice(0, -1).map((message) => (
               <div
@@ -170,9 +216,8 @@ export function OnboardingShell({ preview = false }: { preview?: boolean }) {
               </div>
             ))}
           </div>
-        )}
+        ) : null}
 
-        {/* Input area — wide rectangle */}
         <div className="w-full border border-white/[0.06] bg-[#111111]">
           <Textarea
             value={answer}
@@ -183,11 +228,7 @@ export function OnboardingShell({ preview = false }: { preview?: boolean }) {
                 handleSubmit();
               }
             }}
-            placeholder={
-              isGenerating
-                    ? "Building your path..."
-                    : "Type your answer..."
-            }
+            placeholder={isGenerating ? "Building your path..." : "Type your answer..."}
             disabled={!state || (!preview && submitAnswer.isPending) || isGenerating}
             className="min-h-24 resize-none rounded-none border-0 bg-transparent px-5 py-4 text-sm leading-6 text-white shadow-none placeholder:text-white/20 focus-visible:ring-0"
           />
@@ -202,7 +243,7 @@ export function OnboardingShell({ preview = false }: { preview?: boolean }) {
                     ? `${Math.max(
                         0,
                         TOTAL_ONBOARDING_ANSWERS -
-                          transcript.filter((m) => m.role === "user").length,
+                          transcript.filter((message) => message.role === "user").length,
                       )} steps left`
                     : "Starting..."}
             </div>
@@ -222,8 +263,7 @@ export function OnboardingShell({ preview = false }: { preview?: boolean }) {
           </div>
         </div>
 
-        {/* Suggestion cards */}
-        {!isStarted && (
+        {!isStarted ? (
           <div className="mt-2 flex gap-2">
             {[
               "I want to master deep focus and ship world-class work",
@@ -239,7 +279,7 @@ export function OnboardingShell({ preview = false }: { preview?: boolean }) {
               </button>
             ))}
           </div>
-        )}
+        ) : null}
 
         {state?.activeQuestion?.helper ? (
           <div className="mt-3 text-xs text-white/35">
@@ -284,7 +324,7 @@ function GrainOverlay() {
   return (
     <>
       <canvas ref={canvasRef} className="hidden" />
-      {dataUrl && (
+      {dataUrl ? (
         <div
           className="pointer-events-none absolute inset-0"
           style={{
@@ -293,7 +333,7 @@ function GrainOverlay() {
             backgroundSize: `${GRAIN_SIZE}px ${GRAIN_SIZE}px`,
           }}
         />
-      )}
+      ) : null}
     </>
   );
 }

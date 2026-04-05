@@ -21,6 +21,16 @@ export const getActivePlan = async (sessionId: string) => {
   return caller.becoming.activePlan({ sessionId });
 };
 
+export const getOnboardingState = async (sessionId: string) => {
+  const caller = await createCaller();
+  return caller.becoming.onboardingState({ sessionId });
+};
+
+export const listLearningProjects = async () => {
+  const caller = await createCaller();
+  return caller.becoming.listLearningProjects();
+};
+
 export const getHomeState = async (sessionId: string) => {
   const caller = await createCaller();
   return caller.becoming.home({ sessionId });

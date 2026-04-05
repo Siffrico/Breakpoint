@@ -12,6 +12,9 @@ export default function UiPreviewHomePage() {
       home={previewHomeState}
       plan={previewPlanState}
       unit={previewForgeUnit}
+      capstone={null}
+      onboardingState={null}
+      recallGate={null}
       sessionId={previewSessionId}
       preview
     />

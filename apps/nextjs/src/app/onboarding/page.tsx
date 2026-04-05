@@ -1,5 +1,14 @@
+import { redirect } from "next/navigation";
+
+import { getSession } from "~/auth/server";
 import { OnboardingShell } from "~/features/becoming/components/onboarding-shell";
 
-export default function OnboardingPage() {
+export default async function OnboardingPage() {
+  const session = await getSession();
+
+  if (!session?.user) {
+    redirect("/");
+  }
+
   return <OnboardingShell />;
 }

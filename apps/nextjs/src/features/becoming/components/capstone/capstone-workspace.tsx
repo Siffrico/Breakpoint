@@ -19,9 +19,11 @@ type CapstoneState = RouterOutputs["becoming"]["getCapstone"];
 export function CapstoneWorkspace({
   state,
   sessionId,
+  embedded = false,
 }: {
   state: CapstoneState;
   sessionId: string;
+  embedded?: boolean;
 }) {
   const trpc = useTRPC();
   const [response, setResponse] = useState("");
@@ -88,9 +90,9 @@ export function CapstoneWorkspace({
   const isComplete = capstone.status === "passed" || capstone.status === "failed";
   const remainingRounds = Math.max(capstone.maxRounds - capstone.currentRound, 0);
 
-  return (
-    <main className="bp-page-bg min-h-screen px-5 py-8 text-foreground sm:px-8 lg:px-10">
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
+  const shell = (
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
+      {!embedded ? (
         <div className="flex items-center justify-between border-b border-border pb-6">
           <div>
             <div className="font-mono text-xs uppercase tracking-[0.24em] text-muted-foreground">
@@ -108,8 +110,9 @@ export function CapstoneWorkspace({
             <Link href={workspaceHref}>Workspace</Link>
           </Button>
         </div>
+      ) : null}
 
-        <section className="grid gap-4 sm:grid-cols-3">
+      <section className="grid gap-4 sm:grid-cols-3">
           <div className="border border-border bg-card p-4">
             <div className="font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">
               Format
@@ -134,7 +137,7 @@ export function CapstoneWorkspace({
               {capstone.score ?? "Pending"}
             </div>
           </div>
-        </section>
+      </section>
 
         {capstone.scenario.format === "build" ? (
           <BuildCapstone
@@ -177,17 +180,26 @@ export function CapstoneWorkspace({
           />
         ) : null}
 
-        {(isComplete || capstone.feedback) && (
-          <section className="border border-border bg-card p-6">
+      {(isComplete || capstone.feedback) && (
+        <section className="border border-border bg-card p-6">
             <div className="font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">
               Final evaluation
             </div>
             <p className="mt-4 text-sm leading-7 text-muted-foreground">
               {capstone.feedback ?? "Evaluation pending."}
             </p>
-          </section>
-        )}
-      </div>
+        </section>
+      )}
+    </div>
+  );
+
+  if (embedded) {
+    return shell;
+  }
+
+  return (
+    <main className="bp-page-bg min-h-screen px-5 py-8 text-foreground sm:px-8 lg:px-10">
+      {shell}
     </main>
   );
 }

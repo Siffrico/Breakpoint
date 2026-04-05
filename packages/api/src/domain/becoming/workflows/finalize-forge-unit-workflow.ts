@@ -1,7 +1,6 @@
 import { err, ok, type Result } from "../../../lib/result";
 import { triggerRecallGateWorkflow } from "./trigger-recall-gate-workflow";
 import { getReadyNextAction } from "./resolve-recall-gate-workflow";
-import { shouldTriggerRecallGate } from "../policies/recall-policy";
 import {
   buildEducationDebrief,
   getEducationUnitState,
@@ -81,7 +80,7 @@ interface FinalizeForgeUnitDependencies {
     triggerAfterUnitNodeId: string;
     sessionId: string;
     userId?: string | null;
-  }) => Promise<Result<RecallGate>>;
+  }) => Promise<Result<RecallGate | null>>;
 }
 
 const deriveNextAction = (
@@ -176,23 +175,17 @@ export const finalizeForgeUnitWorkflow = async ({
     );
   }
 
-  const completedUnitCount = planNodes.filter(
-    (planNode) =>
-      (planNode.kind === "unit" || planNode.kind === "integration") &&
-      planNode.status === "completed",
-  ).length;
+  const gateResult = await deps.triggerRecallGate({
+    triggerAfterUnitNodeId: nodeId,
+    sessionId,
+    userId,
+  });
 
-  if (shouldTriggerRecallGate(completedUnitCount)) {
-    const gateResult = await deps.triggerRecallGate({
-      triggerAfterUnitNodeId: nodeId,
-      sessionId,
-      userId,
-    });
+  if (!gateResult.success) {
+    return err(gateResult.error ?? "Recall gate could not be created.");
+  }
 
-    if (!gateResult.success) {
-      return err(gateResult.error ?? "Recall gate could not be created.");
-    }
-
+  if (gateResult.data) {
     return ok({
       nextAction: "recall_gate",
       gate: gateResult.data,

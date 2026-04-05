@@ -260,6 +260,23 @@ export const becomingCurriculumRepository = {
     };
   },
 
+  listPlansBySessionIds: async ({
+    db,
+    sessionIds,
+  }: {
+    db: Database;
+    sessionIds: string[];
+  }) => {
+    if (sessionIds.length === 0) {
+      return [];
+    }
+
+    return db.query.BecomingCurriculumPlan.findMany({
+      where: inArray(BecomingCurriculumPlan.onboardingSessionId, sessionIds),
+      orderBy: desc(BecomingCurriculumPlan.createdAt),
+    });
+  },
+
   getUnitByNodeId: async ({
     db,
     nodeId,

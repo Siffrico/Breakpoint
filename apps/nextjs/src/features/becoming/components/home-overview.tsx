@@ -20,9 +20,7 @@ export function HomeOverview({
   const activeUnitId = home.activeRecallGate?.triggerAfterUnitNodeId ?? home.nextUnitId;
   const trainHref = preview
     ? "/ui/train"
-    : activeUnitId
-      ? `/train/${activeUnitId}?session=${sessionId}`
-      : `/home?session=${sessionId}`;
+    : `/home?session=${sessionId}`;
   const planHref = preview ? "/ui/plan" : `/plan?session=${sessionId}`;
   const profileHref = preview ? "/ui/profile" : `/profile?session=${sessionId}`;
 

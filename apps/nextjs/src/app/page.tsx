@@ -2,7 +2,12 @@ import Link from "next/link";
 
 import { Button } from "@acme/ui/button";
 
-export default function HomePage() {
+import { AuthShowcase } from "./_components/auth-showcase";
+import { getSession } from "~/auth/server";
+
+export default async function HomePage() {
+  const session = await getSession();
+
   return (
     <main className="flex min-h-dvh items-center justify-center bg-background text-foreground">
       <div className="max-w-xl px-6 text-center">
@@ -13,13 +18,17 @@ export default function HomePage() {
           Diagnosis. Pressure. Debrief. Repeat. Breakpoint builds a surgical
           training path then runs you through it until the gap closes.
         </p>
-        <div className="mt-8">
-          <Button
-            asChild
-            className="h-11 rounded-none bg-white px-6 text-black hover:bg-white/90"
-          >
-            <Link href="/onboarding">Begin</Link>
-          </Button>
+        <div className="mt-8 flex justify-center">
+          {session?.user ? (
+            <Button
+              asChild
+              className="h-11 rounded-none bg-white px-6 text-black hover:bg-white/90"
+            >
+              <Link href="/home">Open workspace</Link>
+            </Button>
+          ) : (
+            <AuthShowcase />
+          )}
         </div>
       </div>
       <div className="fixed bottom-6 left-0 right-0 text-center font-mono text-xs text-white/20">

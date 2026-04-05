@@ -81,7 +81,7 @@ import { becomingCurriculumRepository } from "../repositories/becoming-curriculu
 import { becomingOnboardingRepository } from "../repositories/becoming-onboarding-repository";
 import { becomingRecallRepository } from "../repositories/becoming-recall-repository";
 import { becomingTrainingRepository } from "../repositories/becoming-training-repository";
-import { publicProcedure } from "../trpc";
+import { publicProcedure, protectedProcedure } from "../trpc";
 
 const SessionIdSchema = z.object({
   sessionId: z.string().uuid(),
@@ -369,8 +369,40 @@ const throwOnFailure = <T>(result: { success: boolean; data?: T; error?: string 
   });
 };
 
+const requireSessionOwner = async ({
+  ctx,
+  sessionId,
+}: {
+  ctx: {
+    db: Database;
+    session: { user: { id: string } } | null;
+  };
+  sessionId: string;
+}) => {
+  const session = await becomingOnboardingRepository.getSession({
+    db: ctx.db,
+    sessionId,
+  });
+
+  if (!session) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: "Onboarding session does not exist.",
+    });
+  }
+
+  if (!ctx.session?.user?.id || session.userId !== ctx.session.user.id) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "You do not have access to this learning project.",
+    });
+  }
+
+  return session;
+};
+
 export const becomingRouter = {
-  startOnboarding: publicProcedure.mutation(async ({ ctx }) =>
+  startOnboarding: protectedProcedure.mutation(async ({ ctx }) =>
     throwOnFailure(
       await startOnboardingWorkflow({
         userId: ctx.session?.user.id,
@@ -386,10 +418,107 @@ export const becomingRouter = {
       }),
     )),
 
-  submitOnboardingAnswer: publicProcedure
+  onboardingState: protectedProcedure
+    .input(SessionIdSchema)
+    .query(async ({ ctx, input }) => {
+      await requireSessionOwner({ ctx, sessionId: input.sessionId });
+
+      const state = await becomingOnboardingRepository.getOnboardingState({
+        db: ctx.db,
+        sessionId: input.sessionId,
+      });
+
+      if (!state) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Onboarding session does not exist.",
+        });
+      }
+
+      return state;
+    }),
+
+  listLearningProjects: protectedProcedure.query(async ({ ctx }) => {
+    const sessions = await becomingOnboardingRepository.listSessionsByUser({
+      db: ctx.db,
+      userId: ctx.session.user.id,
+    });
+    const sessionIds = sessions.map((session) => session.id);
+    const [profiles, plans] = await Promise.all([
+      becomingOnboardingRepository.listProfilesBySessionIds({
+        db: ctx.db,
+        sessionIds,
+      }),
+      becomingCurriculumRepository.listPlansBySessionIds({
+        db: ctx.db,
+        sessionIds,
+      }),
+    ]);
+
+    const profileBySessionId = new Map(
+      profiles.map(({ profile, version }) => [
+        profile.onboardingSessionId,
+        {
+          targetIdentity: version.targetIdentity,
+          headline: version.headline,
+        },
+      ]),
+    );
+    const planBySessionId = new Map(
+      plans.map((plan) => [plan.onboardingSessionId, plan]),
+    );
+
+    const projectNodesBySessionId = new Map<string, Awaited<ReturnType<typeof becomingCurriculumRepository.getPlanNodesBySession>>>();
+    await Promise.all(
+      plans.map(async (plan) => {
+        const nodes = await becomingCurriculumRepository.getPlanNodesBySession({
+          db: ctx.db,
+          sessionId: plan.onboardingSessionId,
+        });
+        projectNodesBySessionId.set(plan.onboardingSessionId, nodes);
+      }),
+    );
+
+    return sessions.map((session) => {
+      const profile = profileBySessionId.get(session.id) ?? null;
+      const plan = planBySessionId.get(session.id) ?? null;
+      const planNodes = projectNodesBySessionId.get(session.id) ?? null;
+      const lessonPreview = (planNodes ?? [])
+        ?.filter(
+          (node) => node.kind === "unit" || node.kind === "integration",
+        )
+        .sort((left, right) => left.orderIndex - right.orderIndex)
+        .slice(0, 3)
+        .map((node) => ({
+          id: node.id,
+          title: node.title,
+          status: node.status,
+        })) ?? [];
+
+      return {
+        sessionId: session.id,
+        title:
+          profile?.targetIdentity ??
+          plan?.targetIdentity ??
+          "New learning track",
+        headline: profile?.headline ?? plan?.summary ?? "Interview in progress.",
+        status: plan
+          ? "active"
+          : session.status === "ready_for_generation" || session.status === "complete"
+            ? "building"
+            : "onboarding",
+        lessonPreview,
+        updatedAt: session.updatedAt ?? session.createdAt,
+      };
+    });
+  }),
+
+  submitOnboardingAnswer: protectedProcedure
     .input(SubmitOnboardingAnswerSchema)
-    .mutation(async ({ ctx, input }) =>
-      throwOnFailure(
+    .mutation(async ({ ctx, input }) => {
+      await requireSessionOwner({ ctx, sessionId: input.sessionId });
+
+      return throwOnFailure(
         await submitOnboardingAnswerWorkflow({
           sessionId: input.sessionId,
           answer: input.answer,
@@ -413,12 +542,15 @@ export const becomingRouter = {
               }),
           },
         }),
-      )),
+      );
+    }),
 
-  generateCurriculum: publicProcedure
+  generateCurriculum: protectedProcedure
     .input(SessionIdSchema)
-    .mutation(async ({ ctx, input }) =>
-      throwOnFailure(
+    .mutation(async ({ ctx, input }) => {
+      await requireSessionOwner({ ctx, sessionId: input.sessionId });
+
+      return throwOnFailure(
         await generateCurriculumWorkflow({
           sessionId: input.sessionId,
           deps: {
@@ -451,12 +583,15 @@ export const becomingRouter = {
               }),
           },
         }),
-      )),
+      );
+    }),
 
-  activePlan: publicProcedure
+  activePlan: protectedProcedure
     .input(SessionIdSchema)
-    .query(async ({ ctx, input }) =>
-      throwOnFailure(
+    .query(async ({ ctx, input }) => {
+      await requireSessionOwner({ ctx, sessionId: input.sessionId });
+
+      return throwOnFailure(
         await getActivePlanWorkflow({
           sessionId: input.sessionId,
           deps: {
@@ -467,10 +602,13 @@ export const becomingRouter = {
               }),
           },
         }),
-      )),
+      );
+    }),
 
-  unit: publicProcedure.input(NodeSessionSchema).query(async ({ ctx, input }) =>
-    throwOnFailure(
+  unit: protectedProcedure.input(NodeSessionSchema).query(async ({ ctx, input }) => {
+    await requireSessionOwner({ ctx, sessionId: input.sessionId });
+
+    return throwOnFailure(
       await getUnitWorkflow({
         nodeId: input.nodeId,
         sessionId: input.sessionId,
@@ -521,12 +659,15 @@ export const becomingRouter = {
             }),
         },
       }),
-    )),
+    );
+  }),
 
-  submitEducationUnitStep: publicProcedure
+  submitEducationUnitStep: protectedProcedure
     .input(SubmitEducationUnitStepSchema)
-    .mutation(async ({ ctx, input }) =>
-      throwOnFailure(
+    .mutation(async ({ ctx, input }) => {
+      await requireSessionOwner({ ctx, sessionId: input.sessionId });
+
+      const result = throwOnFailure(
         await submitEducationUnitStepWorkflow({
           ...input,
           userId: ctx.session?.user.id,
@@ -554,12 +695,22 @@ export const becomingRouter = {
               }),
           },
         }),
-      )),
+      );
 
-  submitSeed: publicProcedure
+      await becomingOnboardingRepository.touchSession({
+        db: ctx.db,
+        sessionId: input.sessionId,
+      });
+
+      return result;
+    }),
+
+  submitSeed: protectedProcedure
     .input(SubmitSeedSchema)
-    .mutation(async ({ ctx, input }) =>
-      throwOnFailure(
+    .mutation(async ({ ctx, input }) => {
+      await requireSessionOwner({ ctx, sessionId: input.sessionId });
+
+      return throwOnFailure(
         await submitSeedWorkflow({
           nodeId: input.nodeId,
           sessionId: input.sessionId,
@@ -606,12 +757,15 @@ export const becomingRouter = {
               }),
           },
         }),
-      )),
+      );
+    }),
 
-  submitPractice: publicProcedure
+  submitPractice: protectedProcedure
     .input(SubmitPracticeSchema)
-    .mutation(async ({ ctx, input }) =>
-      throwOnFailure(
+    .mutation(async ({ ctx, input }) => {
+      await requireSessionOwner({ ctx, sessionId: input.sessionId });
+
+      return throwOnFailure(
         await submitPracticeWorkflow({
           sessionId: input.sessionId,
           nodeId: input.nodeId,
@@ -637,12 +791,15 @@ export const becomingRouter = {
               }),
           },
         }),
-      )),
+      );
+    }),
 
-  getTeachbackPrompt: publicProcedure
+  getTeachbackPrompt: protectedProcedure
     .input(NodeSessionSchema)
-    .query(async ({ ctx, input }) =>
-      throwOnFailure(
+    .query(async ({ ctx, input }) => {
+      await requireSessionOwner({ ctx, sessionId: input.sessionId });
+
+      return throwOnFailure(
         await getTeachbackPromptWorkflow({
           sessionId: input.sessionId,
           nodeId: input.nodeId,
@@ -660,12 +817,15 @@ export const becomingRouter = {
               }),
           },
         }),
-      )),
+      );
+    }),
 
-  submitTeachback: publicProcedure
+  submitTeachback: protectedProcedure
     .input(SubmitTeachbackSchema)
-    .mutation(async ({ ctx, input }) =>
-      throwOnFailure(
+    .mutation(async ({ ctx, input }) => {
+      await requireSessionOwner({ ctx, sessionId: input.sessionId });
+
+      return throwOnFailure(
         await submitTeachbackWorkflow({
           sessionId: input.sessionId,
           nodeId: input.nodeId,
@@ -691,12 +851,15 @@ export const becomingRouter = {
               }),
           },
         }),
-      )),
+      );
+    }),
 
-  getFailureIsolation: publicProcedure
+  getFailureIsolation: protectedProcedure
     .input(NodeSessionSchema)
-    .query(async ({ ctx, input }) =>
-      throwOnFailure(
+    .query(async ({ ctx, input }) => {
+      await requireSessionOwner({ ctx, sessionId: input.sessionId });
+
+      return throwOnFailure(
         await getFailureIsolationWorkflow({
           sessionId: input.sessionId,
           nodeId: input.nodeId,
@@ -726,12 +889,15 @@ export const becomingRouter = {
               }),
           },
         }),
-      )),
+      );
+    }),
 
-  submitGhostResponse: publicProcedure
+  submitGhostResponse: protectedProcedure
     .input(SubmitGhostResponseSchema)
-    .mutation(async ({ ctx, input }) =>
-      throwOnFailure(
+    .mutation(async ({ ctx, input }) => {
+      await requireSessionOwner({ ctx, sessionId: input.sessionId });
+
+      return throwOnFailure(
         await submitGhostResponseWorkflow({
           sessionId: input.sessionId,
           nodeId: input.nodeId,
@@ -762,12 +928,15 @@ export const becomingRouter = {
               }),
           },
         }),
-      )),
+      );
+    }),
 
-  getForgeDebrief: publicProcedure
+  getForgeDebrief: protectedProcedure
     .input(NodeSessionSchema)
-    .query(async ({ ctx, input }) =>
-      throwOnFailure(
+    .query(async ({ ctx, input }) => {
+      await requireSessionOwner({ ctx, sessionId: input.sessionId });
+
+      return throwOnFailure(
         await getForgeDebriefWorkflow({
           sessionId: input.sessionId,
           nodeId: input.nodeId,
@@ -799,12 +968,15 @@ export const becomingRouter = {
               }),
           },
         }),
-      )),
+      );
+    }),
 
-  finalizeForgeUnit: publicProcedure
+  finalizeForgeUnit: protectedProcedure
     .input(FinalizeForgeUnitSchema)
     .mutation(async ({ ctx, input }) =>
       ctx.db.transaction(async (tx) => {
+        await requireSessionOwner({ ctx, sessionId: input.sessionId });
+
         const db = tx as unknown as Database;
         await lockCapstoneNode({
           db,
@@ -812,7 +984,7 @@ export const becomingRouter = {
           sessionId: input.sessionId,
         });
 
-        return throwOnFailure(
+        const result = throwOnFailure(
           await finalizeForgeUnitWorkflow({
             nodeId: input.nodeId,
             sessionId: input.sessionId,
@@ -917,6 +1089,11 @@ export const becomingRouter = {
                         planId,
                         triggerAfterUnitNodeId,
                       }),
+                    getLatestResolvedGateBySession: (sessionId) =>
+                      becomingRecallRepository.getLatestResolvedGateBySession({
+                        db,
+                        sessionId,
+                      }),
                     createGate: (payload) =>
                       becomingRecallRepository.createGate({
                         db,
@@ -937,11 +1114,20 @@ export const becomingRouter = {
             },
           }),
         );
+
+        await becomingOnboardingRepository.touchSession({
+          db,
+          sessionId: input.sessionId,
+        });
+
+        return result;
       })),
 
-  getRecallGate: publicProcedure
+  getRecallGate: protectedProcedure
     .input(GetRecallGateSchema)
     .query(async ({ ctx, input }) => {
+      await requireSessionOwner({ ctx, sessionId: input.sessionId });
+
       const recallDeps = createRecallRepositoryDeps(ctx.db);
       const gate = input.gateId
         ? await recallDeps.getGateById(input.gateId)
@@ -957,7 +1143,7 @@ export const becomingRouter = {
       return gate;
     }),
 
-  submitRecallProbe: publicProcedure
+  submitRecallProbe: protectedProcedure
     .input(SubmitRecallProbeSchema)
     .mutation(async ({ ctx, input }) =>
       ctx.db.transaction(async (tx) => {
@@ -971,13 +1157,15 @@ export const becomingRouter = {
           });
         }
 
+        await requireSessionOwner({ ctx, sessionId: gate.sessionId });
+
         await lockCapstoneNode({
           db,
           nodeId: gate.triggerAfterUnitNodeId,
           sessionId: gate.sessionId,
         });
 
-        return throwOnFailure(
+        const result = throwOnFailure(
           await submitRecallProbeWorkflow({
             gateId: input.gateId,
             probeId: input.probeId,
@@ -1019,12 +1207,21 @@ export const becomingRouter = {
             },
           }),
         );
+
+        await becomingOnboardingRepository.touchSession({
+          db,
+          sessionId: gate.sessionId,
+        });
+
+        return result;
       })),
 
-  getCapstone: publicProcedure
+  getCapstone: protectedProcedure
     .input(NodeSessionSchema)
     .query(async ({ ctx, input }) =>
       ctx.db.transaction(async (tx) => {
+        await requireSessionOwner({ ctx, sessionId: input.sessionId });
+
         const db = tx as unknown as Database;
         await lockCapstoneNode({
           db,
@@ -1042,10 +1239,12 @@ export const becomingRouter = {
         );
       })),
 
-  generateCapstone: publicProcedure
+  generateCapstone: protectedProcedure
     .input(NodeSessionSchema)
     .mutation(async ({ ctx, input }) =>
       ctx.db.transaction(async (tx) => {
+        await requireSessionOwner({ ctx, sessionId: input.sessionId });
+
         const db = tx as unknown as Database;
         await lockCapstoneNode({
           db,
@@ -1063,10 +1262,12 @@ export const becomingRouter = {
         );
       })),
 
-  submitCapstoneMessage: publicProcedure
+  submitCapstoneMessage: protectedProcedure
     .input(SubmitCapstoneMessageSchema)
     .mutation(async ({ ctx, input }) =>
       ctx.db.transaction(async (tx) => {
+        await requireSessionOwner({ ctx, sessionId: input.sessionId });
+
         const db = tx as unknown as Database;
         await lockCapstoneNode({
           db,
@@ -1074,7 +1275,7 @@ export const becomingRouter = {
           sessionId: input.sessionId,
         });
 
-        return throwOnFailure(
+        const result = throwOnFailure(
           await submitCapstoneMessageWorkflow({
             sessionId: input.sessionId,
             nodeId: input.nodeId,
@@ -1082,10 +1283,19 @@ export const becomingRouter = {
             deps: createCapstoneSubmissionDeps(db),
           }),
         );
+
+        await becomingOnboardingRepository.touchSession({
+          db,
+          sessionId: input.sessionId,
+        });
+
+        return result;
       })),
 
-  home: publicProcedure.input(SessionIdSchema).query(async ({ ctx, input }) =>
-    throwOnFailure(
+  home: protectedProcedure.input(SessionIdSchema).query(async ({ ctx, input }) => {
+    await requireSessionOwner({ ctx, sessionId: input.sessionId });
+
+    return throwOnFailure(
       await getHomeStateWorkflow({
         sessionId: input.sessionId,
         deps: {
@@ -1168,7 +1378,7 @@ export const becomingRouter = {
                     ? "Integration unit ready"
                     : nextNode.kind === "simulation"
                       ? "Cluster capstone ready"
-                    : "Next unit ready"
+                      : "Next unit ready"
                   : null),
               activeRecallGate,
               blockingSignals:
@@ -1190,10 +1400,13 @@ export const becomingRouter = {
           },
         },
       }),
-    )),
+    );
+  }),
 
-  profile: publicProcedure.input(SessionIdSchema).query(async ({ ctx, input }) =>
-    throwOnFailure(
+  profile: protectedProcedure.input(SessionIdSchema).query(async ({ ctx, input }) => {
+    await requireSessionOwner({ ctx, sessionId: input.sessionId });
+
+    return throwOnFailure(
       await getProfileWorkflow({
         sessionId: input.sessionId,
         deps: {
@@ -1219,5 +1432,6 @@ export const becomingRouter = {
           },
         },
       }),
-    )),
+    );
+  }),
 } satisfies TRPCRouterRecord;

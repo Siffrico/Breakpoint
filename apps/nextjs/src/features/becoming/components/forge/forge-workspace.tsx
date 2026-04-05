@@ -152,11 +152,8 @@ export function ForgeWorkspace({
       onNavigate(result);
       return;
     }
-    if (result.nextAction === "unit" || result.nextAction === "simulation") {
-      router.push(`/train/${result.nodeId}?session=${sessionId}`);
-      return;
-    }
     router.push(`/home?session=${sessionId}`);
+    router.refresh();
   };
 
   const handleContinue = async () => {
