@@ -12,9 +12,19 @@ const previews = [
     description: "Two-column dashboard: curriculum sidebar + live SACTRE scenario.",
   },
   {
-    href: "/ui/profile",
-    label: "Profile",
-    description: "Identity profile and behavior signal layout.",
+    href: "/ui/profile/general",
+    label: "Profile · General",
+    description: "Becoming, account, and billing surfaces.",
+  },
+  {
+    href: "/ui/profile/preferences",
+    label: "Profile · Preferences",
+    description: "Theme selection card.",
+  },
+  {
+    href: "/ui/profile/customization",
+    label: "Profile · Customization",
+    description: "Memory entry, file upload, and ChatGPT import flow.",
   },
   {
     href: "/ui/transformation",

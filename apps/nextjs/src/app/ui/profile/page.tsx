@@ -1,15 +1,5 @@
-import {
-  previewProfileState,
-  previewSessionId,
-} from "~/features/becoming/lib/becoming-preview";
-import { ProfileOverview } from "~/features/becoming/components/profile-overview";
+import { redirect } from "next/navigation";
 
-export default function UiPreviewProfilePage() {
-  return (
-    <ProfileOverview
-      profile={previewProfileState}
-      sessionId={previewSessionId}
-      preview
-    />
-  );
+export default function UiPreviewProfileIndexPage() {
+  redirect("/ui/profile/general");
 }
