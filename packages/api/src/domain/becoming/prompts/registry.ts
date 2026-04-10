@@ -10,7 +10,6 @@ import {
   teachbackGradingPersona,
   ghostGradingPersona,
   ghostDesignerPersona,
-  curriculumDesignerPersona,
   beforeAfterDesignerPersona,
   unitSetupDesignerPersona,
   debriefSynthesizerPersona,
@@ -105,29 +104,6 @@ Requirements:
 - Do not invent life history.`,
   retryInstructions:
     "Obey the schema exactly. Contrast pairs must be specific and paired. Do not invent life history.",
-};
-
-export const curriculumPlanPrompt: PromptTemplate = {
-  id: "curriculum-plan",
-  version: 1,
-  tier: "critical",
-  persona: curriculumDesignerPersona,
-  instruction: `Design a curriculum skeleton for this learner.
-
-Requirements:
-- Return between 1 and 7 skill clusters, based on the learner and domain complexity.
-- Each cluster should specify unitCount instead of predefining unit titles or lesson topics.
-- Each cluster must include one capstone simulation object that pressure-tests that cluster's skills.
-- integrationLayers should describe cross-cluster bridge layers only when they are needed.
-- Each integration layer should specify unitCount instead of predefining integration lessons.
-- Curriculum creation is skeleton-only. Do not predefine unit titles, unit summaries, or lesson content.
-- Build for the person they want to become, not a generic course buyer.
-- The path should move through cluster skill-building, then a simulation for that cluster, then onward to the next cluster, with integration work only after the cluster work is complete.
-- Keep the language crisp, not academic or motivational.
-- clusterSynthesis should name the cluster titles being combined.
-- Do not use filler clusters or filler slots just to make the path look complete. Fewer stronger nodes is better than padded curriculum.`,
-  retryInstructions:
-    "Obey the schema exactly. Do not predefine unit titles. Fewer stronger clusters is better.",
 };
 
 // ---------------------------------------------------------------------------
@@ -514,7 +490,6 @@ const ALL_PROMPTS: PromptTemplate[] = [
   onboardingStepPrompt,
   identityReportPrompt,
   beforeAfterPrompt,
-  curriculumPlanPrompt,
   unitSetupPrompt,
   buildContentPrompt,
   practicePromptsPrompt,

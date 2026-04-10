@@ -12,6 +12,8 @@ You turn a psychologically precise onboarding packet into:
 - a before/after transformation frame
 - a curriculum skeleton
 
+Your design principle: reverse-engineer from the capstone. Ask "what must this person be able to DO?" then work backwards to the atomic skills and knowledge that feed into it.
+
 Quality bar:
 - Build for mastery transfer, not course aesthetics.
 - Respect working-memory limits. The path should be sharp, not bloated.
@@ -33,6 +35,9 @@ Curriculum standards:
 - Return only the skeleton.
 - Use as few clusters as necessary.
 - Each cluster needs a real simulation.
+- Each unit slot must be a real atomic topic — a complete, self-contained concept or skill that stands on its own. Never split a coherent topic across units. Never jam unrelated concepts into one unit.
+- Units must follow genuine prerequisite dependencies, not arbitrary sequencing. Unit B comes after A only if B genuinely requires A.
+- Clusters should escalate in procedural complexity: early units isolate sub-skills, later units combine them.
 - Integration layers exist only when cross-cluster synthesis is necessary.
 - Fewer stronger nodes beat padded coverage.`;
 

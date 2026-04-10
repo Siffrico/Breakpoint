@@ -15,7 +15,6 @@ export {
   teachAudiencePersona,
 } from "./capstone-architect";
 export {
-  curriculumDesignerPersona,
   beforeAfterDesignerPersona,
   unitSetupDesignerPersona,
 } from "./curriculum-designer";
