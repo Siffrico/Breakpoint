@@ -44,51 +44,57 @@ export type ForgePhase =
   | "recall";
 
 export const previewForgeUnit: RouterOutputs["becoming"]["unit"] = {
-  id: "forge-unit-mental-models",
+  id: "forge-unit-quorum-reads",
   nodeId: "00000000-0000-4000-8000-000000000101",
-  title: "Mental Models for Decision-Making",
+  title: "Reason about quorum reads under replica lag",
   summary:
-    "Teach the learner to distinguish deliberate models from vague intuition so they can reason with sharper tools under pressure.",
+    "Train the learner to compute freshness guarantees from actual replica intersections instead of repeating quorum slogans.",
   whyItMatters:
-    "Operators who cannot name their model cannot inspect it, swap it, or see where it fails.",
+    "Distributed systems engineers need to predict stale-read risk from write acknowledgements, lag, and replica selection under failure.",
   clusterArcFrame:
-    "This first unit cleans up a distinction the rest of the sequence depends on: explicit models versus fast but opaque judgment.",
+    "This first unit establishes the replication model the rest of the sequence depends on: which replicas have seen the write, which replicas answer the read, and where those sets stop intersecting.",
   clusterBriefing: {
     briefingArc:
-      "This cluster trains the habit of making your reasoning inspectable instead of vibe-based.",
+      "This cluster trains inspectable systems reasoning for replicated services under lag and partial failure.",
     briefingMap: [
       {
         position: 1,
-        role: "Clarify what a model is.",
+        role: "Trace the write path across replicas.",
       },
       {
         position: 2,
-        role: "Choose models deliberately under pressure.",
+        role: "Reason about quorum reads and freshness.",
       },
       {
         position: 3,
-        role: "Stress-test when a model breaks.",
+        role: "Stress-test the guarantees after lag or replica loss.",
       },
     ],
   },
-  currentStep: "scenario",
-  loopCount: 0,
-  concept: null,
-  scenario: {
-    title: "The Confident Interview Read",
+  activeStage: "challenge",
+  retryCount: 0,
+  challenge: {
+    title: "Read Freshness After a Partial Failure",
     prompt:
-      "A founder says she can tell who will become a top performer within ten minutes of an interview because she trusts her read on people. The team keeps making expensive hires who impress in interviews but collapse once the work gets ambiguous. What do you think is actually going wrong, and what would you change first?",
+      "A service stores order state on three replicas: A, B, and C. Writes are acknowledged after any two replicas confirm. A client write is accepted by A and B, but C is behind. Moments later B becomes unavailable, and a read is served from A and C because they are the fastest reachable replicas. Explain whether the client is guaranteed to see the latest write and what assumption breaks if not.",
     helper:
-      "Start from the situation itself. Name what seems to be driving the failure and the first move you would make.",
+      "Start with the write acknowledgement set and the read replica set. Reason from intersection, not intuition.",
     responseMode: "free_response",
     options: null,
   },
-  attempt: null,
-  teachExamples: [],
-  reconnectBridge: null,
-  evaluation: null,
-  result: null,
-  resultFeedback: null,
+  initialResponse: null,
+  diagnosticGap: null,
+  conceptCorrection: null,
+  workedExamples: [],
+  priorKnowledgeBridge: null,
+  masteryCheck: null,
+  masteryCheckResponse: null,
+  transferChallenge: null,
+  buildResponse: null,
+  implementationReview: null,
+  revisedBuildResponse: null,
+  assessmentStatus: null,
+  assessmentFeedback: null,
   score: null,
   strengths: [],
   improvements: [],

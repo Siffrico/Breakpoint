@@ -42,6 +42,7 @@ export function HomeShell({
   projects = [],
   sessionId,
   preview = false,
+  userName,
 }: {
   home: HomeState | null;
   plan: PlanState | null;
@@ -52,6 +53,7 @@ export function HomeShell({
   projects?: LearningProject[];
   sessionId: string;
   preview?: boolean;
+  userName?: string;
 }) {
   const router = useRouter();
   const trpc = useTRPC();
@@ -155,17 +157,16 @@ export function HomeShell({
       <div
         className={[
           "shrink-0 border-r border-foreground/[0.06] bg-sidebar transition-[width] duration-200",
-          sidebarCollapsed ? "w-[56px]" : "w-[280px]",
+          sidebarCollapsed ? "w-[56px]" : "w-[248px]",
         ].join(" ")}
       >
         <CurriculumSidebar
-          home={home}
-          plan={plan}
           projects={projects}
           currentSessionId={sessionId}
           preview={preview}
           collapsed={sidebarCollapsed}
           onToggleCollapsed={() => setSidebarCollapsed((prev) => !prev)}
+          userName={userName}
         />
       </div>
 

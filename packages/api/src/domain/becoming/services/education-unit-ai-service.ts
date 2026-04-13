@@ -1,8 +1,10 @@
 import { z } from "zod/v4";
 import {
-  EducationUnitResultSchema,
-  EducationUnitScenarioCardSchema,
-  EducationUnitTeachExampleSchema,
+  EducationUnitAssessmentStatusSchema,
+  EducationUnitAttemptSignalsSchema,
+  EducationUnitImplementationReviewSchema,
+  EducationUnitPromptCardSchema,
+  EducationUnitWorkedExampleSchema,
   type EducationUnitAttemptMode,
   type EducationUnitConfidence,
   type EducationUnitState,
@@ -11,63 +13,72 @@ import {
 
 import { runAgent } from "../orchestration/agent-runtime";
 
-const TeachPackSchema = z.object({
+const ConceptLayerSchema = z.object({
   conceptName: z.string().min(1),
   conceptSummary: z.string().min(1),
-  attemptSignals: z.object({
-    correctnessBand: z.enum(["strong", "close", "partial", "off_track"]),
-    misconceptionDirection: z.string().min(1),
-    reasoningStyle: z.string().min(1),
+  diagnosticGap: z.object({
+    predictionError: z.string().min(1),
+    whatHeldUp: z.string().min(1),
+    whatBroke: z.string().min(1),
+    attemptSignals: EducationUnitAttemptSignalsSchema,
   }),
-  teachExamples: z.array(EducationUnitTeachExampleSchema).min(2).max(3),
-  reconnectBridge: z.string().min(1),
-  evaluation: EducationUnitScenarioCardSchema,
+  workedExamples: z.array(EducationUnitWorkedExampleSchema).min(2).max(3),
+  priorKnowledgeBridge: z.string().min(1),
+  masteryCheck: EducationUnitPromptCardSchema,
+  transferChallenge: EducationUnitPromptCardSchema,
 });
 
-const EvaluationOutcomeSchema = z.object({
-  result: EducationUnitResultSchema,
+const MasteryCheckOutcomeSchema = z.object({
+  readiness: z.enum(["ready_for_application", "retry_concept"]),
   feedback: z.string().min(1),
+  strengths: z.array(z.string().min(1)).min(1).max(2),
+  improvements: z.array(z.string().min(1)).min(1).max(3),
+  replacementMasteryCheck: EducationUnitPromptCardSchema.nullable(),
+});
+
+const BuildReviewSchema = z.object({
+  implementationReview: EducationUnitImplementationReviewSchema,
+});
+
+const FinalAssessmentSchema = z.object({
+  assessmentStatus: EducationUnitAssessmentStatusSchema,
+  assessmentFeedback: z.string().min(1),
   score: z.number().int().min(0).max(100),
   strengths: z.array(z.string().min(1)).min(1).max(3),
-  improvements: z.array(z.string().min(1)).min(1).max(3),
+  improvements: z.array(z.string().min(1)).min(1).max(4),
   nextStep: z.string().min(1),
-  retryScenario: EducationUnitScenarioCardSchema.nullable(),
-  simplerExample: EducationUnitTeachExampleSchema.nullable(),
+  retryMasteryCheck: EducationUnitPromptCardSchema.nullable(),
+  retryTransferChallenge: EducationUnitPromptCardSchema.nullable(),
 });
 
-const SACTRE_SYSTEM = `You are Breakpoint's education-unit maker.
+const LEARNING_LOOP_SYSTEM = `You are Breakpoint's concept-to-execution loop designer.
 
-You generate and evaluate a SACTRE unit:
-- Scenario
-- Attempt
-- Concept
-- Teach
-- Reconnect
-- Evaluate
+You are training two linked capabilities inside one unit:
+- declarative understanding: can the learner name the right concept and explain why it works
+- procedural execution: can the learner apply that concept in a concrete implementation path
 
 Quality rules:
-- Teach one precise concept, not a broad topic.
-- Use the learner's actual wording when possible.
-- No filler pedagogy language.
-- Scenario and evaluation must feel concrete and diagnostically useful.
-- Reconnect must explicitly bridge to something the learner already knows.
-- Evaluation must test transfer, not memorization.
-- If the learner is lost, simplify without becoming patronizing.`;
+- Make the learner feel the prediction error before patching it.
+- Teach the smallest concept correction that unlocks transfer.
+- Avoid filler pedagogy language and generic praise.
+- Use concrete engineering constraints, not vague "best practice" advice.
+- Procedural evaluation must inspect sequencing, primitives, verification, and failure handling.
+- When a learner needs a retry, preserve momentum and narrow the fix.`;
 
 export const educationUnitAiService = {
-  generateTeachPack: async ({
+  generateConceptLayer: async ({
     unit,
-    attemptResponse,
+    initialResponse,
     responseMode,
     confidence,
-    loopCount,
+    retryCount,
     priorLearning,
   }: {
     unit: UnitContent;
-    attemptResponse: string;
+    initialResponse: string;
     responseMode: EducationUnitAttemptMode;
     confidence: EducationUnitConfidence;
-    loopCount: number;
+    retryCount: number;
     priorLearning: Array<{
       title: string;
       score: number;
@@ -80,83 +91,185 @@ export const educationUnitAiService = {
   }) =>
     runAgent({
       agent: "buildContent",
-      system: SACTRE_SYSTEM,
-      schema: TeachPackSchema,
-      errorMessage: "Failed to generate the education unit.",
-      prompt: `Build the Concept, Teach, Reconnect, and Evaluate steps after the learner's attempt.
+      system: LEARNING_LOOP_SYSTEM,
+      schema: ConceptLayerSchema,
+      errorMessage: "Failed to generate the concept correction.",
+      prompt: `Design the first half of a concept-to-execution unit.
 
-Requirements:
-- conceptSummary must be one sentence.
-- teachExamples must move from the learner's world outward to the canonical form.
-- each later example should be shorter than the previous one.
-- reconnectBridge must use the pattern "This is like X you already know, except..."
-- evaluation should be a new scenario with a different anchor from the original prompt.
-- Keep evaluation in the same responseMode unless there is a strong reason to change it.
+Return:
+- conceptName and a one-sentence conceptSummary
+- diagnosticGap showing the learner's prediction error
+- 2 or 3 workedExamples that move from intuitive to canonical
+- priorKnowledgeBridge using the pattern "This is like X you already know, except..."
+- masteryCheck: a small concept check
+- transferChallenge: a fresh procedural challenge where the learner must operationalize the concept
+
+Rules:
+- The learner's first response should be treated as intuition, not a final answer.
+- The concept correction should be surgical, contrastive, and memorable.
+- masteryCheck should be small enough to answer quickly.
+- transferChallenge must force implementation details, not hand-wavy architecture.
+- Keep responseMode unchanged unless multiple choice would clearly improve discrimination.
 
 Unit context:
 Title: ${unit.title}
 Summary: ${unit.summary}
 Why it matters: ${unit.whyItMatters}
-Original scenario: ${unit.seedPrompt}
-Scenario hint: ${unit.seedHint}
-Loop count: ${loopCount}
+Challenge: ${unit.seedPrompt}
+Hint: ${unit.seedHint}
+Retry count: ${retryCount}
 Response mode: ${responseMode}
 Self-reported confidence: ${confidence}
 
 Prior learning:
 ${formatPriorLearning(priorLearning)}
 
-Learner attempt:
-${attemptResponse.trim()}`,
+Learner initial response:
+${initialResponse.trim()}`,
     }),
 
-  evaluateTransfer: async ({
+  evaluateMasteryCheck: async ({
     unit,
     state,
-    evaluationResponse,
+    masteryCheckResponse,
   }: {
     unit: UnitContent;
     state: EducationUnitState;
-    evaluationResponse: string;
+    masteryCheckResponse: string;
   }) =>
     runAgent({
       agent: "buildContent",
-      system: SACTRE_SYSTEM,
-      schema: EvaluationOutcomeSchema,
-      errorMessage: "Failed to evaluate the education unit.",
-      prompt: `Evaluate the learner's transfer response.
+      system: LEARNING_LOOP_SYSTEM,
+      schema: MasteryCheckOutcomeSchema,
+      errorMessage: "Failed to grade the mastery check.",
+      prompt: `Evaluate whether the learner's concept correction has stabilized enough for procedural application.
 
 Return:
-- result = pass | gap | lost
-- retryScenario only when result is gap or lost
-- simplerExample only when result is lost
+- readiness = ready_for_application | retry_concept
+- direct feedback
+- strengths and improvements
+- replacementMasteryCheck only when readiness is retry_concept
 
 Rules:
-- pass only when the learner applies the concept with visible causal structure.
-- gap means the learner is partially there but needs a different scenario anchor.
-- lost means the learner still lacks the concept and needs a simpler example before retrying.
-- feedback should be direct and specific.
-- nextStep should tell the learner exactly what changes now.
+- ready_for_application means the learner now has the right causal concept, even if wording is imperfect.
+- retry_concept means they still lack the correct mechanism or boundary conditions.
+- Keep the retry targeted. Do not restart the entire unit.
 
 Unit:
 ${unit.title}
 
-Concept:
-${state.concept?.name ?? unit.title}
-${state.concept?.summary ?? ""}
+Concept correction:
+${state.conceptCorrection?.name ?? unit.title}
+${state.conceptCorrection?.summary ?? ""}
 
-Teach examples:
-${state.teachExamples.map((example) => `${example.label}: ${example.content}`).join("\n")}
+Prediction error:
+${state.diagnosticGap?.predictionError ?? "None"}
 
-Reconnect:
-${state.reconnectBridge ?? "None"}
+Worked examples:
+${state.workedExamples.map((example) => `${example.label}: ${example.content}`).join("\n")}
 
-Evaluation scenario:
-${state.evaluation?.title ?? ""}
-${state.evaluation?.prompt ?? ""}
+Mastery check:
+${state.masteryCheck?.title ?? ""}
+${state.masteryCheck?.prompt ?? ""}
 
-Learner evaluation response:
-${evaluationResponse.trim()}`,
+Learner mastery response:
+${masteryCheckResponse.trim()}`,
+    }),
+
+  reviewBuildResponse: async ({
+    unit,
+    state,
+    buildResponse,
+  }: {
+    unit: UnitContent;
+    state: EducationUnitState;
+    buildResponse: string;
+  }) =>
+    runAgent({
+      agent: "buildContent",
+      system: LEARNING_LOOP_SYSTEM,
+      schema: BuildReviewSchema,
+      errorMessage: "Failed to review the build response.",
+      prompt: `Review the learner's first implementation pass before they submit a revision.
+
+Return implementationReview with:
+- summary
+- 1 to 3 strengths
+- 1 to 4 improvements
+- requiredRevision: one concrete revision brief the learner must address next
+
+Rules:
+- Focus on procedural execution, not broad concept re-teaching.
+- Inspect sequencing, primitives, invalidation/expiry, concurrency, verification, and failure handling when relevant.
+- requiredRevision should force a better second pass, not just ask for "more detail."
+
+Unit:
+${unit.title}
+
+Concept correction:
+${state.conceptCorrection?.name ?? unit.title}
+${state.conceptCorrection?.summary ?? ""}
+
+Transfer challenge:
+${state.transferChallenge?.title ?? ""}
+${state.transferChallenge?.prompt ?? ""}
+
+Learner build response:
+${buildResponse.trim()}`,
+    }),
+
+  evaluateRevision: async ({
+    unit,
+    state,
+    revisionResponse,
+  }: {
+    unit: UnitContent;
+    state: EducationUnitState;
+    revisionResponse: string;
+  }) =>
+    runAgent({
+      agent: "buildContent",
+      system: LEARNING_LOOP_SYSTEM,
+      schema: FinalAssessmentSchema,
+      errorMessage: "Failed to complete the final assessment.",
+      prompt: `Evaluate the learner's revised implementation response.
+
+Return:
+- assessmentStatus = pass | retry_concept | retry_application
+- assessmentFeedback
+- score, strengths, improvements, nextStep
+- retryMasteryCheck only when assessmentStatus is retry_concept
+- retryTransferChallenge only when assessmentStatus is retry_application
+
+Rules:
+- pass only when the learner demonstrates both the right concept and a credible execution path.
+- retry_concept means the implementation failure reveals a still-broken mental model.
+- retry_application means the concept is basically correct but the execution path is still weak.
+- Prefer narrow retries over full resets.
+
+Unit:
+${unit.title}
+
+Concept correction:
+${state.conceptCorrection?.name ?? unit.title}
+${state.conceptCorrection?.summary ?? ""}
+
+Prediction error:
+${state.diagnosticGap?.predictionError ?? "None"}
+
+Transfer challenge:
+${state.transferChallenge?.title ?? ""}
+${state.transferChallenge?.prompt ?? ""}
+
+First build response:
+${state.buildResponse?.response ?? ""}
+
+Implementation review:
+${state.implementationReview?.summary ?? ""}
+Required revision: ${state.implementationReview?.requiredRevision ?? ""}
+
+Learner revised build response:
+${revisionResponse.trim()}`,
     }),
 };
 

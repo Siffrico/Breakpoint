@@ -9,7 +9,7 @@ const previews = [
   {
     href: "/ui/home",
     label: "Home",
-    description: "Two-column dashboard: curriculum sidebar + live SACTRE scenario.",
+    description: "Two-column dashboard: curriculum sidebar + live concept-to-execution loop.",
   },
   {
     href: "/ui/profile/general",

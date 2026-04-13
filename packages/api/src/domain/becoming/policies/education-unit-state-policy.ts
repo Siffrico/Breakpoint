@@ -1,6 +1,7 @@
+import { z } from "zod/v4";
 import {
   EducationUnitStateSchema,
-  type EducationUnitConcept,
+  type EducationUnitConceptCorrection,
   type EducationUnitState,
 } from "@acme/validators";
 
@@ -17,6 +18,142 @@ const looksLikeLegacySeedPrompt = (prompt: string) =>
     prompt,
   );
 
+const LegacyEducationUnitStateSchema = z.object({
+  id: z.string().min(1),
+  nodeId: z.string().min(1),
+  title: z.string().min(1),
+  summary: z.string().min(1),
+  whyItMatters: z.string().min(1),
+  clusterArcFrame: z.string().nullable(),
+  clusterBriefing: z.unknown().nullable(),
+  currentStep: z.enum(["scenario", "evaluate", "complete"]),
+  loopCount: z.number().int().min(0),
+  concept: z
+    .object({
+      id: z.string().min(1),
+      name: z.string().min(1),
+      summary: z.string().min(1),
+    })
+    .nullable(),
+  scenario: z.object({
+    title: z.string().min(1),
+    prompt: z.string().min(1),
+    helper: z.string().nullable(),
+    responseMode: z.enum(["free_response", "multiple_choice"]),
+    options: z
+      .array(
+        z.object({
+          id: z.string().min(1),
+          label: z.string().min(1),
+        }),
+      )
+      .nullable(),
+  }),
+  attempt: z
+    .object({
+      response: z.string().min(1),
+      responseMode: z.enum(["free_response", "multiple_choice"]),
+      confidence: z.enum(["low", "medium", "high"]),
+      latencyMs: z.number().int().min(0).nullable(),
+      signals: z
+        .object({
+          correctnessBand: z.enum(["strong", "close", "partial", "off_track"]),
+          misconceptionDirection: z.string().min(1),
+          reasoningStyle: z.string().min(1),
+        })
+        .nullable(),
+    })
+    .nullable(),
+  teachExamples: z.array(
+    z.object({
+      label: z.string().min(1),
+      content: z.string().min(1),
+    }),
+  ),
+  reconnectBridge: z.string().nullable(),
+  evaluation: z
+    .object({
+      title: z.string().min(1),
+      prompt: z.string().min(1),
+      helper: z.string().nullable(),
+      responseMode: z.enum(["free_response", "multiple_choice"]),
+      options: z
+        .array(
+          z.object({
+            id: z.string().min(1),
+            label: z.string().min(1),
+          }),
+        )
+        .nullable(),
+    })
+    .nullable(),
+  result: z.enum(["pass", "gap", "lost"]).nullable(),
+  resultFeedback: z.string().nullable(),
+  score: z.number().int().min(0).max(100).nullable(),
+  strengths: z.array(z.string().min(1)),
+  improvements: z.array(z.string().min(1)),
+  nextStep: z.string().nullable(),
+});
+
+const mapLegacySnapshot = (
+  snapshot: z.infer<typeof LegacyEducationUnitStateSchema>,
+): EducationUnitState =>
+  EducationUnitStateSchema.parse({
+    id: snapshot.id,
+    nodeId: snapshot.nodeId,
+    title: snapshot.title,
+    summary: snapshot.summary,
+    whyItMatters: snapshot.whyItMatters,
+    clusterArcFrame: snapshot.clusterArcFrame,
+    clusterBriefing: snapshot.clusterBriefing,
+    activeStage:
+      snapshot.currentStep === "scenario"
+        ? "challenge"
+        : snapshot.currentStep === "evaluate"
+          ? "transfer_challenge"
+          : "complete",
+    retryCount: snapshot.loopCount,
+    challenge: snapshot.scenario,
+    initialResponse: snapshot.attempt,
+    diagnosticGap: snapshot.attempt?.signals
+      ? {
+          predictionError:
+            snapshot.attempt.signals.correctnessBand === "strong"
+              ? "Your first pass had the right shape, but it still needed a more explicit mechanism."
+              : "Your first pass leaned on intuition, but the causal model stayed too fuzzy to transfer cleanly.",
+          whatHeldUp:
+            snapshot.attempt.signals.reasoningStyle ||
+            "You were pointing toward a useful signal.",
+          whatBroke:
+            snapshot.attempt.signals.misconceptionDirection ||
+            "The mechanism stayed underspecified.",
+          attemptSignals: snapshot.attempt.signals,
+        }
+      : null,
+    conceptCorrection: snapshot.concept,
+    workedExamples: snapshot.teachExamples,
+    priorKnowledgeBridge: snapshot.reconnectBridge,
+    masteryCheck: null,
+    masteryCheckResponse: null,
+    transferChallenge: snapshot.evaluation,
+    buildResponse: null,
+    implementationReview: null,
+    revisedBuildResponse: null,
+    assessmentStatus:
+      snapshot.result === "pass"
+        ? "pass"
+        : snapshot.result === "lost"
+          ? "retry_concept"
+          : snapshot.result === "gap"
+            ? "retry_application"
+            : null,
+    assessmentFeedback: snapshot.resultFeedback,
+    score: snapshot.score,
+    strengths: snapshot.strengths,
+    improvements: snapshot.improvements,
+    nextStep: snapshot.nextStep,
+  });
+
 const getLatestStateSnapshot = (responses: PhaseResponseRecord[]) => {
   const latest = [...responses]
     .reverse()
@@ -26,8 +163,21 @@ const getLatestStateSnapshot = (responses: PhaseResponseRecord[]) => {
     return null;
   }
 
-  const parsed = EducationUnitStateSchema.safeParse(latest.metadata.stateSnapshot);
-  return parsed.success ? parsed.data : null;
+  const nextState = EducationUnitStateSchema.safeParse(
+    latest.metadata.stateSnapshot,
+  );
+  if (nextState.success) {
+    return nextState.data;
+  }
+
+  const legacyState = LegacyEducationUnitStateSchema.safeParse(
+    latest.metadata.stateSnapshot,
+  );
+  if (legacyState.success) {
+    return mapLegacySnapshot(legacyState.data);
+  }
+
+  return null;
 };
 
 export const createInitialEducationUnitState = ({
@@ -43,22 +193,28 @@ export const createInitialEducationUnitState = ({
     whyItMatters: unit.whyItMatters,
     clusterArcFrame: unit.clusterArcFrame,
     clusterBriefing: unit.clusterBriefing,
-    currentStep: "scenario",
-    loopCount: 0,
-    concept: null,
-    scenario: {
+    activeStage: "challenge",
+    retryCount: 0,
+    challenge: {
       title: unit.scenario.title,
       prompt: unit.seedPrompt,
       helper: unit.seedHint,
       responseMode: "free_response",
       options: null,
     },
-    attempt: null,
-    teachExamples: [],
-    reconnectBridge: null,
-    evaluation: null,
-    result: null,
-    resultFeedback: null,
+    initialResponse: null,
+    diagnosticGap: null,
+    conceptCorrection: null,
+    workedExamples: [],
+    priorKnowledgeBridge: null,
+    masteryCheck: null,
+    masteryCheckResponse: null,
+    transferChallenge: null,
+    buildResponse: null,
+    implementationReview: null,
+    revisedBuildResponse: null,
+    assessmentStatus: null,
+    assessmentFeedback: null,
     score: null,
     strengths: [],
     improvements: [],
@@ -86,7 +242,7 @@ export const shouldRefreshLegacyEducationUnit = ({
     unit.practicePrompts != null ||
     looksLikeLegacySeedPrompt(unit.seedPrompt));
 
-export const createEducationUnitConcept = ({
+export const createEducationUnitConceptCorrection = ({
   unit,
   conceptName,
   conceptSummary,
@@ -94,7 +250,7 @@ export const createEducationUnitConcept = ({
   unit: UnitContent;
   conceptName?: string | null;
   conceptSummary?: string | null;
-}): EducationUnitConcept => ({
+}): EducationUnitConceptCorrection => ({
   id: toConceptId(conceptName?.trim() || unit.title),
   name: conceptName?.trim() || unit.title,
   summary:
@@ -107,20 +263,20 @@ export const buildEducationDebrief = ({
 }: {
   state: EducationUnitState;
 }) => ({
-  seedResponse: state.attempt?.response ?? "",
+  seedResponse: state.initialResponse?.response ?? "",
   finalArticulation:
-    state.resultFeedback ??
-    state.concept?.summary ??
+    state.assessmentFeedback ??
+    state.conceptCorrection?.summary ??
     "You advanced the concept enough to move forward.",
   growthDimensions:
     state.strengths.length > 0
       ? state.strengths
-      : ["transfer", "calibration", "conceptual clarity"],
-  score: state.score ?? (state.result === "pass" ? 84 : 62),
+      : ["conceptual clarity", "transfer", "implementation precision"],
+  score: state.score ?? (state.assessmentStatus === "pass" ? 86 : 64),
   readiness:
-    state.result === "pass"
+    state.assessmentStatus === "pass"
       ? ("ready_for_next_unit" as const)
-      : state.result === "lost"
+      : state.assessmentStatus === "retry_concept"
         ? ("needs_repair" as const)
         : ("developing" as const),
   strengths:
@@ -132,12 +288,12 @@ export const buildEducationDebrief = ({
       ? state.improvements
       : ["Make the underlying mechanism more explicit."],
   failureTags:
-    state.result === "pass"
+    state.assessmentStatus === "pass"
       ? []
-      : [state.attempt?.signals?.misconceptionDirection ?? "concept_gap"],
+      : [state.diagnosticGap?.attemptSignals.misconceptionDirection ?? "concept_gap"],
   nextStep:
     state.nextStep ??
-    (state.result === "pass"
+    (state.assessmentStatus === "pass"
       ? "Advance to the next concept."
-      : "Retry the same concept with a different angle."),
+      : "Retry the same concept with tighter reasoning."),
 });

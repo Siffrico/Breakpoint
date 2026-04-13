@@ -405,7 +405,11 @@ export const BecomingUnitPhaseResponse = pgTable(
       | {
           attempts?: number;
           feedback?: string;
-          step?: "attempt" | "evaluate";
+          step?:
+            | "initial_response"
+            | "mastery_check"
+            | "build_response"
+            | "revision";
           responseMode?: "free_response" | "multiple_choice";
           confidence?: "low" | "medium" | "high";
           latencyMs?: number | null;
@@ -415,7 +419,7 @@ export const BecomingUnitPhaseResponse = pgTable(
             reasoningStyle: string;
           };
           stateSnapshot?: unknown;
-          evaluationResult?: "pass" | "gap" | "lost";
+          assessmentStatus?: "pass" | "retry_concept" | "retry_application";
           gap?: {
             description: string;
             gapType: string;

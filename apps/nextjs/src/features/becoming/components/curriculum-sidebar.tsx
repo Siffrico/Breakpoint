@@ -1,68 +1,192 @@
 "use client";
 
 import Link from "next/link";
-import { Books, Brain, CaretRight, SidebarSimple } from "@phosphor-icons/react";
+import {
+  CaretRight,
+  DotsThree,
+  Funnel,
+  Gear,
+  MagnifyingGlass,
+  Plus,
+  SidebarSimple,
+  Storefront,
+} from "@phosphor-icons/react";
 import { useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { type CSSProperties, type ReactNode } from "react";
 
 import type { RouterOutputs } from "@acme/api";
 import { toast } from "@acme/ui/toast";
 
+import { useLocalStorage } from "~/hooks/use-local-storage";
 import { useTRPC } from "~/trpc/react";
 
-type HomeState = RouterOutputs["becoming"]["home"];
-type PlanState = RouterOutputs["becoming"]["activePlan"];
 type LearningProject = RouterOutputs["becoming"]["listLearningProjects"][number];
 
+const SIDEBAR_FADE_STYLE = {
+  WebkitMaskImage:
+    "linear-gradient(90deg, rgba(0,0,0,1) 0%, rgba(0,0,0,1) calc(100% - 18px), rgba(0,0,0,0) 100%)",
+  maskImage:
+    "linear-gradient(90deg, rgba(0,0,0,1) 0%, rgba(0,0,0,1) calc(100% - 18px), rgba(0,0,0,0) 100%)",
+} satisfies CSSProperties;
+
+function FadeLabel({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={["overflow-hidden whitespace-nowrap", className]
+        .filter(Boolean)
+        .join(" ")}
+      style={SIDEBAR_FADE_STYLE}
+    >
+      {children}
+    </div>
+  );
+}
+
+function IconButton({
+  children,
+  onClick,
+  label,
+}: {
+  children: ReactNode;
+  onClick?: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-foreground/44 outline-none transition-colors hover:bg-foreground/[0.05] hover:text-foreground/80 focus:outline-none focus-visible:outline-none"
+    >
+      {children}
+    </button>
+  );
+}
+
+function ChatRow({
+  title,
+  status,
+  href,
+}: {
+  title: string;
+  status?: string;
+  href: string;
+}) {
+  const isReady = status === "ready";
+  const isCompleted = status === "completed";
+  return (
+    <Link
+      href={href}
+      className={[
+        "group flex w-full items-center gap-2 rounded-md px-2.5 py-[6px] text-left text-[12px] outline-none transition-colors focus:outline-none focus-visible:outline-none",
+        isReady
+          ? "text-foreground/82 hover:bg-foreground/[0.035]"
+          : isCompleted
+            ? "text-foreground/46 hover:bg-foreground/[0.035]"
+            : "text-foreground/46 hover:bg-foreground/[0.035]",
+      ].join(" ")}
+    >
+      <span
+        className={[
+          "h-[4px] w-[4px] shrink-0 rounded-full",
+          isReady
+            ? "bg-foreground/60"
+            : isCompleted
+              ? "bg-foreground/28"
+              : "bg-foreground/18",
+        ].join(" ")}
+      />
+      <FadeLabel className="min-w-0 flex-1 leading-5">{title}</FadeLabel>
+    </Link>
+  );
+}
+
+function ProjectRow({
+  project,
+  href,
+  isCurrent,
+  isExpanded,
+  onToggle,
+}: {
+  project: LearningProject;
+  href: string;
+  isCurrent: boolean;
+  isExpanded: boolean;
+  onToggle: () => void;
+}) {
+  const lessons = project.lessonPreview.slice(0, 3);
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={(event) => {
+          event.currentTarget.blur();
+          onToggle();
+        }}
+        aria-expanded={isExpanded}
+        className={[
+          "flex w-full items-center gap-1.5 rounded-md pl-1.5 pr-2.5 py-[7px] text-left text-[12px] font-medium outline-none transition-colors focus:outline-none focus-visible:outline-none",
+          isCurrent
+            ? "bg-foreground/[0.06] text-foreground/92"
+            : "text-foreground/78 hover:bg-foreground/[0.035] hover:text-foreground/92",
+        ].join(" ")}
+      >
+        <CaretRight
+          size={12}
+          weight="bold"
+          className={[
+            "shrink-0 text-foreground/40 transition-transform duration-150",
+            isExpanded ? "rotate-90" : "",
+          ].join(" ")}
+        />
+        <FadeLabel className="min-w-0 flex-1 leading-5">
+          {project.title}
+        </FadeLabel>
+      </button>
+
+      {isExpanded && lessons.length > 0 ? (
+        <div className="mt-px">
+          {lessons.map((lesson) => (
+            <ChatRow
+              key={lesson.id}
+              title={lesson.title}
+              status={lesson.status}
+              href={href}
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function CurriculumSidebar({
-  home,
-  plan,
   projects = [],
   currentSessionId,
   preview = false,
   collapsed = false,
   onToggleCollapsed,
+  userName,
+  userPlan = "Free Plan",
 }: {
-  home: HomeState | null;
-  plan: PlanState | null;
   projects?: LearningProject[];
   currentSessionId: string;
   preview?: boolean;
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
+  userName?: string;
+  userPlan?: string;
 }) {
   const trpc = useTRPC();
   const router = useRouter();
   const profileHref = preview ? "/ui/profile" : `/profile?session=${currentSessionId}`;
-  const progress =
-    home && home.totalUnits > 0
-      ? Math.round((home.completedUnits / home.totalUnits) * 100)
-      : 0;
-
-  const clusters = useMemo(
-    () =>
-      (plan?.nodes ?? [])
-        .filter((node) => node.parentNodeId === null)
-        .sort((left, right) => left.orderIndex - right.orderIndex),
-    [plan],
-  );
-
-  const childrenByParent = useMemo(() => {
-    const nextMap = new Map<string, NonNullable<PlanState>["nodes"]>();
-    for (const node of plan?.nodes ?? []) {
-      if (!node.parentNodeId) continue;
-      if (!nextMap.has(node.parentNodeId)) {
-        nextMap.set(node.parentNodeId, []);
-      }
-      nextMap.get(node.parentNodeId)!.push(node);
-    }
-    return nextMap;
-  }, [plan]);
-
-  const [expanded, setExpanded] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(clusters.map((cluster) => [cluster.id, true])),
-  );
 
   const startOnboarding = useMutation(
     trpc.becoming.startOnboarding.mutationOptions({
@@ -74,199 +198,166 @@ export function CurriculumSidebar({
     }),
   );
 
-  const toggle = (id: string) =>
-    setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+  const handleNewProject = () => {
+    if (preview || startOnboarding.isPending) return;
+    startOnboarding.mutate();
+  };
+
+  const [expanded, setExpanded] = useLocalStorage<Record<string, boolean>>(
+    "bp-sidebar-expanded",
+    {},
+  );
+
+  const toggleProject = (sessionId: string, currentDefault: boolean) => {
+    setExpanded((prev) => {
+      const isOpen = prev[sessionId] ?? currentDefault;
+      return { ...prev, [sessionId]: !isOpen };
+    });
+  };
+
+  const displayName = userName ?? "You";
+  const initial = displayName.trim().charAt(0).toUpperCase() || "·";
+
+  if (collapsed) {
+    return (
+      <aside className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
+        <div className="flex h-10 items-center justify-center border-b border-foreground/[0.05]">
+          <IconButton label="Open sidebar" onClick={onToggleCollapsed}>
+            <SidebarSimple size={15} />
+          </IconButton>
+        </div>
+
+        <div className="flex flex-col items-center gap-1 px-2 pt-2">
+          <IconButton label="New project" onClick={handleNewProject}>
+            <Plus size={15} weight="bold" />
+          </IconButton>
+          <IconButton label="Marketplace">
+            <Storefront size={15} />
+          </IconButton>
+        </div>
+
+        <div className="flex-1" />
+
+        <div className="flex items-center justify-center border-t border-foreground/[0.05] py-3">
+          <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/70 text-[10px] font-semibold text-primary-foreground">
+            {initial}
+          </div>
+        </div>
+      </aside>
+    );
+  }
 
   return (
     <aside className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
-      <div className="h-14 border-b border-foreground/[0.06] px-3">
-        <div className={`flex h-full items-center ${collapsed ? "justify-center" : "gap-2.5"}`}>
+      {/* Top icon row */}
+      <div className="flex h-10 items-center justify-between px-2">
+        <div className="flex items-center gap-0.5">
+          <IconButton label="Collapse sidebar" onClick={onToggleCollapsed}>
+            <SidebarSimple size={15} />
+          </IconButton>
+          <IconButton label="Search">
+            <MagnifyingGlass size={15} />
+          </IconButton>
+        </div>
+        <IconButton label="Toggle panel">
+          <SidebarSimple size={15} className="rotate-180" />
+        </IconButton>
+      </div>
+
+      {/* Quick actions */}
+      <div className="px-2 pt-1">
+        <button
+          type="button"
+          onClick={handleNewProject}
+          disabled={startOnboarding.isPending}
+          className="flex w-full items-center gap-2.5 rounded-md bg-foreground/[0.05] px-2.5 py-2 text-left outline-none transition-colors hover:bg-foreground/[0.07] focus:outline-none focus-visible:outline-none disabled:opacity-50"
+        >
+          <Plus size={15} weight="bold" className="shrink-0 text-foreground/70" />
+          <FadeLabel className="min-w-0 flex-1 text-[12px] font-medium text-foreground/86">
+            Learn something new
+          </FadeLabel>
+          <span className="shrink-0 font-mono text-[10px] text-foreground/36">
+            ⌘N
+          </span>
+        </button>
+
+        <button
+          type="button"
+          className="mt-0.5 flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left outline-none transition-colors hover:bg-foreground/[0.04] focus:outline-none focus-visible:outline-none"
+        >
+          <Storefront size={15} className="shrink-0 text-foreground/46" />
+          <FadeLabel className="min-w-0 flex-1 text-[12px] font-medium text-foreground/64">
+            Courses
+          </FadeLabel>
+        </button>
+      </div>
+
+      {/* Scrollable projects list (each project = a header with its chats under it) */}
+      <div className="flex-1 overflow-y-auto px-2 pb-2 pt-2">
+        {projects.length === 0 ? (
+          <div className="px-3 pt-4 text-[11px] leading-5 text-foreground/34">
+            No projects yet. Start a new one above.
+          </div>
+        ) : null}
+
+        <div className="space-y-2">
+          {projects.map((project) => {
+            const isCurrent = project.sessionId === currentSessionId;
+            const isExpanded = expanded[project.sessionId] ?? isCurrent;
+            const href = preview
+              ? "/ui/home"
+              : `/home?session=${project.sessionId}`;
+            return (
+              <ProjectRow
+                key={project.sessionId}
+                project={project}
+                href={href}
+                isCurrent={isCurrent}
+                isExpanded={isExpanded}
+                onToggle={() => toggleProject(project.sessionId, isCurrent)}
+              />
+            );
+          })}
+        </div>
+
+        {projects.length > 5 ? (
           <button
             type="button"
-            onClick={onToggleCollapsed}
-            className="flex h-8 w-8 items-center justify-center text-foreground/48 transition-colors hover:text-foreground"
-            aria-label={collapsed ? "Open curriculum sidebar" : "Collapse curriculum sidebar"}
+            className="mt-3 flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-foreground/44 transition-colors hover:bg-foreground/[0.035] hover:text-foreground/70"
           >
-            <SidebarSimple size={15} />
+            <DotsThree size={16} weight="bold" className="shrink-0" />
+            <FadeLabel className="min-w-0 flex-1 text-[12px] font-medium">
+              More
+            </FadeLabel>
           </button>
-          {!collapsed ? (
-            <div className="text-[13px] text-foreground/70">
-              <span>Learning workspace</span>
-            </div>
-          ) : null}
-        </div>
-      </div>
-
-      <div className={`space-y-1 px-2 pt-4 ${collapsed ? "pb-2" : "pb-3"}`}>
-        <button
-          type="button"
-          onClick={() => !preview && startOnboarding.mutate()}
-          disabled={startOnboarding.isPending}
-          className={`flex w-full items-center ${collapsed ? "justify-center px-0" : "gap-2 px-2"} py-[8px] text-[12px] text-foreground/70 transition-colors hover:bg-foreground/[0.05] hover:text-foreground disabled:opacity-40`}
-        >
-          <Brain size={16} weight="regular" className="shrink-0 text-foreground/40" />
-          {!collapsed ? <span>Learn something new</span> : null}
-        </button>
-
-        <button
-          type="button"
-          className={`flex w-full items-center ${collapsed ? "justify-center px-0" : "gap-2 px-2"} py-[8px] text-[12px] text-foreground/70 transition-colors hover:bg-foreground/[0.05] hover:text-foreground`}
-        >
-          <Books size={16} weight="regular" className="shrink-0 text-foreground/40" />
-          {!collapsed ? <span>Projects</span> : null}
-        </button>
-      </div>
-
-      <div className={`flex-1 overflow-y-auto ${collapsed ? "px-2 pt-3 pb-2" : "px-2 pt-3 pb-3"}`}>
-        {!collapsed ? (
-          <div className="space-y-1">
-            {projects.map((project) => {
-              const isActive = project.sessionId === currentSessionId;
-
-              return (
-                <Link
-                  key={project.sessionId}
-                  href={preview ? "/ui/home" : `/home?session=${project.sessionId}`}
-                  className={[
-                    "block border px-3 py-3 transition-colors",
-                    isActive
-                      ? "border-foreground/14 bg-foreground/[0.05]"
-                      : "border-transparent hover:border-foreground/[0.08] hover:bg-foreground/[0.03]",
-                  ].join(" ")}
-                >
-                  <div className="text-[12px] leading-5 text-foreground/82">
-                    {project.title}
-                  </div>
-                  <div className="mt-1 text-[10px] uppercase tracking-[0.16em] text-foreground/28">
-                    {project.status}
-                  </div>
-                  {project.lessonPreview.length > 0 ? (
-                    <div className="mt-3 space-y-1">
-                      {project.lessonPreview.map((lesson) => (
-                        <div
-                          key={lesson.id}
-                          className="truncate text-[11px] text-foreground/48"
-                        >
-                          {lesson.title}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="mt-3 text-[11px] text-foreground/35">
-                      {project.headline}
-                    </div>
-                  )}
-                </Link>
-              );
-            })}
-          </div>
-        ) : null}
-
-        {plan && clusters.length > 0 ? (
-          <div className={collapsed ? "mt-3" : "mt-6"}>
-            {clusters.map((cluster) => {
-              const children = (childrenByParent.get(cluster.id) ?? []).sort(
-                (left, right) => left.orderIndex - right.orderIndex,
-              );
-              const isOpen = expanded[cluster.id] ?? true;
-
-              return (
-                <div key={cluster.id} className="mt-4 first:mt-0">
-                  <button
-                    type="button"
-                    onClick={() => toggle(cluster.id)}
-                    className={`flex w-full items-center ${collapsed ? "justify-center" : "gap-1 px-2"} py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-foreground/28 transition-colors hover:text-foreground/48`}
-                  >
-                    {!collapsed ? (
-                      <>
-                        <CaretRight
-                          size={12}
-                          weight="bold"
-                          className={`text-foreground/25 transition-transform duration-150 ${isOpen ? "rotate-90" : ""}`}
-                        />
-                        <span className="truncate">{cluster.title.toLowerCase()}</span>
-                      </>
-                    ) : (
-                      <span className="h-[6px] w-[6px] bg-foreground/28" />
-                    )}
-                  </button>
-
-                  {isOpen && !collapsed ? (
-                    <div className="mt-0.5">
-                      {children.map((node) => {
-                        const score = home?.nodeScores?.[node.id];
-                        const isActive = node.status === "ready";
-                        const isCompleted = node.status === "completed";
-
-                        return (
-                          <div
-                            key={node.id}
-                            className={[
-                              "group flex items-center gap-2 py-[7px] pr-2 pl-6 text-[12px] leading-none transition-colors",
-                              isActive
-                                ? "bg-foreground/[0.06] text-foreground"
-                                : isCompleted
-                                  ? "text-foreground/40 hover:bg-foreground/[0.03]"
-                                  : "text-foreground/25 hover:bg-foreground/[0.03]",
-                            ].join(" ")}
-                          >
-                            <span
-                              className={[
-                                "mt-px h-[6px] w-[6px] shrink-0",
-                                isActive
-                                  ? "bg-foreground/60"
-                                  : isCompleted
-                                    ? "border border-foreground/20"
-                                    : "border border-foreground/10",
-                              ].join(" ")}
-                            />
-                            <span className="flex-1 truncate">{node.title}</span>
-                            {score != null && isCompleted ? (
-                              <span className="shrink-0 font-mono text-[9px] tabular-nums text-foreground/20">
-                                {score}
-                              </span>
-                            ) : null}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
         ) : null}
       </div>
 
-      {!collapsed && home ? (
-        <div className="px-4 pb-3">
-          <div className="text-[12px] leading-snug text-foreground/68">
-            {home.targetIdentity}
+      {/* Footer: user */}
+      <div className="flex items-center gap-2 border-t border-foreground/[0.05] px-2 py-2">
+        <Link
+          href={profileHref}
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1 outline-none transition-colors hover:bg-foreground/[0.04] focus:outline-none focus-visible:outline-none"
+        >
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/70 text-[11px] font-semibold text-primary-foreground">
+            {initial}
           </div>
-          <div className="mt-3 flex items-center gap-2">
-            <div className="h-[2px] flex-1 bg-foreground/[0.06]">
-              <div
-                className="h-[2px] bg-foreground/28 transition-all duration-500"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-            <span className="font-mono text-[9px] tabular-nums text-foreground/20">
-              {progress}%
-            </span>
+          <div className="min-w-0 flex-1">
+            <FadeLabel className="text-[12px] font-medium leading-4 text-foreground/84">
+              {displayName}
+            </FadeLabel>
+            <FadeLabel className="text-[10px] leading-4 text-foreground/40">
+              {userPlan}
+            </FadeLabel>
           </div>
-        </div>
-      ) : null}
-
-      {!collapsed && home ? (
-        <div className="border-t border-foreground/[0.06] px-4 py-4">
-          <Link
-            href={profileHref}
-            className="text-[11px] text-foreground/30 transition-colors hover:text-foreground/60"
-          >
-            Identity profile →
-          </Link>
-        </div>
-      ) : null}
+        </Link>
+        <IconButton label="Filters">
+          <Funnel size={14} />
+        </IconButton>
+        <IconButton label="Settings">
+          <Gear size={14} />
+        </IconButton>
+      </div>
     </aside>
   );
 }

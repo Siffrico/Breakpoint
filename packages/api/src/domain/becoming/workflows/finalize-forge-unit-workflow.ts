@@ -138,7 +138,7 @@ export const finalizeForgeUnitWorkflow = async ({
       sessionId,
       userId,
       unitId: unit.id,
-      response: state.resultFeedback ?? debrief.finalArticulation,
+      response: state.assessmentFeedback ?? debrief.finalArticulation,
       debrief,
       seedResponse: debrief.seedResponse,
       finalArticulation: debrief.finalArticulation,
@@ -146,7 +146,7 @@ export const finalizeForgeUnitWorkflow = async ({
     });
   }
 
-  if (state.result !== "pass") {
+  if (state.assessmentStatus !== "pass") {
     return ok({ nextAction: "home" });
   }
 

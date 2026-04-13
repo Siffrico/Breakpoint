@@ -1,5 +1,6 @@
 import {
   previewHomeState,
+  previewLearningProjects,
   previewPlanState,
   previewSessionId,
 } from "~/features/becoming/lib/becoming-preview";
@@ -15,6 +16,7 @@ export default function UiPreviewHomePage() {
       capstone={null}
       onboardingState={null}
       recallGate={null}
+      projects={previewLearningProjects}
       sessionId={previewSessionId}
       preview
     />

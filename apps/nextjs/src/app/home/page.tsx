@@ -59,6 +59,7 @@ export default async function HomeWorkspacePage(props: {
         recallGate={null}
         projects={projects}
         sessionId={resolvedSessionId}
+        userName={authSession.user.name ?? undefined}
       />
     );
   }

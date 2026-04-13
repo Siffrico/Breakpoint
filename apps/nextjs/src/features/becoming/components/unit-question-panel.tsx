@@ -24,10 +24,21 @@ type PanelMessage = {
 function buildUnitAnswer(unit: EducationUnit, question: string) {
   const lower = question.toLowerCase();
   const activeCard =
-    unit.currentStep === "scenario" ? unit.scenario : unit.evaluation;
-  const helper = activeCard?.helper ?? unit.reconnectBridge ?? unit.summary;
-  const conceptName = unit.concept?.name;
-  const conceptSummary = unit.concept?.summary;
+    unit.activeStage === "challenge"
+      ? unit.challenge
+      : unit.activeStage === "mastery_check"
+        ? unit.masteryCheck
+        : unit.activeStage === "transfer_challenge"
+          ? unit.transferChallenge
+          : null;
+  const helper =
+    (unit.activeStage === "revision"
+      ? unit.implementationReview?.requiredRevision
+      : activeCard?.helper) ??
+    unit.priorKnowledgeBridge ??
+    unit.summary;
+  const conceptName = unit.conceptCorrection?.name;
+  const conceptSummary = unit.conceptCorrection?.summary;
 
   if (
     lower.includes("what is this asking") ||
@@ -35,7 +46,9 @@ function buildUnitAnswer(unit: EducationUnit, question: string) {
     lower.includes("what should i do")
   ) {
     return [
-      `The task is asking you to respond to "${activeCard?.title ?? unit.title}" with a concrete judgment, not a generic recap.`,
+      unit.activeStage === "revision"
+        ? `The task is asking you to revise your build against this brief: "${unit.implementationReview?.requiredRevision ?? unit.title}".`
+        : `The task is asking you to respond to "${activeCard?.title ?? unit.title}" with a concrete judgment, not a generic recap.`,
       helper
         ? `Use this constraint: ${helper}`
         : "Anchor your answer in the scenario, identify the key signal, then state the decision you would make next.",
@@ -49,7 +62,9 @@ function buildUnitAnswer(unit: EducationUnit, question: string) {
   ) {
     return [
       "Start with the first decision, not the full essay.",
-      activeCard?.prompt
+      unit.activeStage === "revision"
+        ? `Your first move is to address this revision brief directly: ${unit.implementationReview?.requiredRevision ?? unit.title}`
+        : activeCard?.prompt
         ? `The live tension you need to answer is: ${activeCard.prompt}`
         : "Name the signal you see, state the decision it implies, and only then justify it.",
       helper ? `Keep this in view: ${helper}` : null,
@@ -70,7 +85,7 @@ function buildUnitAnswer(unit: EducationUnit, question: string) {
         : `The unit is training ${unit.title}.`,
       conceptSummary ??
         "The point is to build a reusable decision pattern under pressure, not just repeat a definition.",
-      unit.reconnectBridge ? `Tie-back: ${unit.reconnectBridge}` : null,
+      unit.priorKnowledgeBridge ? `Tie-back: ${unit.priorKnowledgeBridge}` : null,
     ]
       .filter(Boolean)
       .join("\n\n");
@@ -114,18 +129,27 @@ export function UnitQuestionPanel({
   onToggleFocus: () => void;
   onReturnToUnit: () => void;
 }) {
+  const activeCard =
+    unit.activeStage === "challenge"
+      ? unit.challenge
+      : unit.activeStage === "mastery_check"
+        ? unit.masteryCheck
+        : unit.activeStage === "transfer_challenge"
+          ? unit.transferChallenge
+          : null;
+
   const initialAssistantMessage = useMemo<PanelMessage>(
     () => ({
       id: "intro",
       role: "assistant",
       content: [
         `Ask about "${unit.title}" and I’ll answer against the live unit context.`,
-        unit.currentStep === "scenario"
-          ? `Current prompt: ${unit.scenario.title}`
-          : `Current prompt: ${unit.evaluation?.title ?? unit.title}`,
+        unit.activeStage === "revision"
+          ? `Current focus: revise against "${unit.implementationReview?.requiredRevision ?? unit.title}"`
+          : `Current prompt: ${activeCard?.title ?? unit.title}`,
       ].join("\n\n"),
     }),
-    [unit],
+    [activeCard?.title, unit],
   );
 
   const [messages, setMessages] = useState<PanelMessage[]>([

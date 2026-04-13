@@ -19,13 +19,17 @@ import type {
   ClusterBriefingMapItem,
   Debrief,
   EducationUnitAttemptMode,
+  EducationUnitAssessmentStatus,
   EducationUnitAttemptSignals,
+  EducationUnitConceptCorrection,
   EducationUnitConfidence,
-  EducationUnitCurrentStep,
-  EducationUnitResult,
-  EducationUnitScenarioCard,
+  EducationUnitActiveStage,
+  EducationUnitDiagnosticGap,
+  EducationUnitImplementationReview,
+  EducationUnitPromptCard,
+  EducationUnitResponseRecord,
   EducationUnitState,
-  EducationUnitTeachExample,
+  EducationUnitWorkedExample,
   DebateCapstoneScenario,
   FailureGap,
   FailureIsolationResult,
@@ -82,13 +86,17 @@ export type {
   ClusterBriefingMapItem,
   Debrief,
   EducationUnitAttemptMode,
+  EducationUnitAssessmentStatus,
   EducationUnitAttemptSignals,
+  EducationUnitConceptCorrection,
   EducationUnitConfidence,
-  EducationUnitCurrentStep,
-  EducationUnitResult,
-  EducationUnitScenarioCard,
+  EducationUnitActiveStage,
+  EducationUnitDiagnosticGap,
+  EducationUnitImplementationReview,
+  EducationUnitPromptCard,
+  EducationUnitResponseRecord,
   EducationUnitState,
-  EducationUnitTeachExample,
+  EducationUnitWorkedExample,
   DebateCapstoneScenario,
   FailureGap,
   FailureIsolationResult,
@@ -202,8 +210,10 @@ export type BecomingPhase =
   | "practice"
   | "teachback"
   | "ghost"
-  | "sactre_attempt"
-  | "sactre_evaluate";
+  | "loop_initial_response"
+  | "loop_mastery_check"
+  | "loop_build_response"
+  | "loop_revision";
 
 export interface PhaseResponseMetadata {
   attempts?: number;
@@ -214,7 +224,7 @@ export interface PhaseResponseMetadata {
   latencyMs?: number | null;
   signals?: EducationUnitAttemptSignals;
   stateSnapshot?: EducationUnitState;
-  evaluationResult?: EducationUnitResult;
+  assessmentStatus?: EducationUnitAssessmentStatus;
   gap?: FailureGap;
   ghostScenario?: GhostScenario;
   evidenceAnchors?: string[];
