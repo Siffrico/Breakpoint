@@ -10,11 +10,16 @@ import {
 } from "@acme/validators";
 import { Button } from "@acme/ui/button";
 import { Input } from "@acme/ui/input";
-import { Surface, SurfaceContent, SurfaceDescription, SurfaceHeader, SurfaceTitle } from "@acme/ui/surface";
 import { Textarea } from "@acme/ui/textarea";
 import { toast } from "@acme/ui/toast";
 
 import { CHATGPT_MEMORY_IMPORT_PROMPT } from "~/features/profile/lib/chatgpt-prompt";
+import {
+  SettingField,
+  SettingFooter,
+  SettingsPageHeader,
+  SettingsSection,
+} from "~/features/profile/components/profile-shell";
 import { useTRPC } from "~/trpc/react";
 
 type Memory = RouterOutputs["memory"]["list"][number];
@@ -132,7 +137,9 @@ export function MemoryPanel({ initialMemories }: { initialMemories: Memory[] }) 
     trpc.memory.remove.mutationOptions({
       onSuccess: (_, variables) => {
         setPanelError(null);
-        setMemories((current) => current.filter((memory) => memory.id !== variables.id));
+        setMemories((current) =>
+          current.filter((memory) => memory.id !== variables.id),
+        );
         toast.success("Memory deleted.");
       },
       onError: (error) => {
@@ -158,7 +165,9 @@ export function MemoryPanel({ initialMemories }: { initialMemories: Memory[] }) 
     ],
   );
 
-  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
     const file = event.target.files?.[0];
     if (!file) {
       return;
@@ -194,174 +203,179 @@ export function MemoryPanel({ initialMemories }: { initialMemories: Memory[] }) 
   };
 
   return (
-    <div className="grid gap-6">
-      <Surface padding="lg">
-        <SurfaceHeader>
-          <SurfaceTitle>Memory</SurfaceTitle>
-          <SurfaceDescription>
-            What Breakpoint knows about you across sessions.
-          </SurfaceDescription>
-        </SurfaceHeader>
-        <SurfaceContent className="mt-6 gap-6">
-          <div className="grid gap-3">
-            <div className="text-sm font-medium text-foreground">Add memory</div>
-            <Textarea
-              value={manualContent}
-              onChange={(event) => setManualContent(event.target.value)}
-              placeholder="Paste or type a memory..."
-            />
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <Input
-                ref={fileInputRef}
-                type="file"
-                nativeInput
-                accept=".txt,.md"
-                onChange={handleFileSelect}
-              />
-              <Button
-                loading={createManual.isPending}
-                disabled={!manualContent.trim() || isBusy}
-                onClick={() => createManual.mutate({ content: manualContent })}
-              >
-                Save entry
-              </Button>
-            </div>
-            <div className="text-xs text-muted-foreground">
-              Upload plain text or Markdown under 200 KB.
-            </div>
+    <div>
+      <SettingsPageHeader title="Customization" />
+
+      <SettingsSection title="Add memory">
+        <SettingField
+          label="New entry"
+          description="What Breakpoint should remember about you across sessions."
+        >
+          <Textarea
+            value={manualContent}
+            onChange={(event) => setManualContent(event.target.value)}
+            placeholder="Paste or type a memory..."
+          />
+        </SettingField>
+        <SettingField
+          label="Import from file"
+          description="Upload plain text or Markdown under 200 KB."
+        >
+          <Input
+            ref={fileInputRef}
+            type="file"
+            nativeInput
+            accept=".txt,.md"
+            onChange={handleFileSelect}
+          />
+        </SettingField>
+        {oversizeWarning ? (
+          <div className="text-destructive px-5 pb-2 text-[12px]">
+            {oversizeWarning}
           </div>
-
-          <div className="grid gap-3">
-            <div className="flex items-center justify-between gap-4">
-              <div className="text-sm font-medium text-foreground">Import from ChatGPT</div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={async () => {
-                  await navigator.clipboard.writeText(CHATGPT_MEMORY_IMPORT_PROMPT);
-                  toast.success("Prompt copied.");
-                }}
-              >
-                Copy
-              </Button>
-            </div>
-            <div className="border border-border/80 bg-secondary/30 p-4 font-mono text-xs leading-6 text-muted-foreground whitespace-pre-wrap">
-              {CHATGPT_MEMORY_IMPORT_PROMPT}
-            </div>
-            <Textarea
-              value={chatGptPaste}
-              onChange={(event) => setChatGptPaste(event.target.value)}
-              placeholder="Paste the ChatGPT result here..."
-            />
-            <div className="flex justify-end">
-              <Button
-                loading={importChatgpt.isPending}
-                disabled={!chatGptPaste.trim() || isBusy}
-                onClick={() => importChatgpt.mutate({ pasted: chatGptPaste })}
-              >
-                Import as memories
-              </Button>
-            </div>
+        ) : null}
+        {panelError ? (
+          <div className="text-destructive px-5 pb-2 text-[12px]">
+            {panelError}
           </div>
+        ) : null}
+        <SettingFooter>
+          <Button
+            size="sm"
+            loading={createManual.isPending}
+            disabled={!manualContent.trim() || isBusy}
+            onClick={() => createManual.mutate({ content: manualContent })}
+          >
+            Save entry
+          </Button>
+        </SettingFooter>
+      </SettingsSection>
 
-          {oversizeWarning ? (
-            <div className="text-sm text-destructive">{oversizeWarning}</div>
-          ) : null}
-          {panelError ? (
-            <div className="text-sm text-destructive">{panelError}</div>
-          ) : null}
-        </SurfaceContent>
-      </Surface>
-
-      <Surface padding="lg" variant="muted">
-        <SurfaceHeader>
-          <SurfaceTitle>Your memories ({memories.length})</SurfaceTitle>
-        </SurfaceHeader>
-        <SurfaceContent className="mt-5">
-          {memories.length === 0 ? (
-            <div className="border border-dashed border-border/70 px-4 py-10 text-center text-sm text-muted-foreground">
-              No memories yet. Add one manually, upload a file, or import a ChatGPT export.
-            </div>
-          ) : (
-            <div className="grid gap-3">
-              {memories.map((memory) => {
-                const isEditing = activeEditId === memory.id;
-
-                return (
-                  <div
-                    key={memory.id}
-                    className="border border-border/70 bg-background/60 px-4 py-4 transition-colors hover:border-border"
-                  >
-                    {isEditing ? (
-                      <div className="grid gap-3">
-                        <Textarea
-                          value={editDraft}
-                          onChange={(event) => setEditDraft(event.target.value)}
-                        />
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => {
-                              setActiveEditId(null);
-                              setEditDraft("");
-                            }}
-                          >
-                            Cancel
-                          </Button>
-                          <Button
-                            size="sm"
-                            loading={updateMemory.isPending}
-                            onClick={() =>
-                              updateMemory.mutate({
-                                id: memory.id,
-                                content: editDraft,
-                              })
-                            }
-                          >
-                            Save
-                          </Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="min-w-0 text-sm leading-6 text-foreground">
-                          {memory.content}
-                        </div>
-                        <div className="flex shrink-0 items-center gap-2">
-                          <button
-                            type="button"
-                            className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-                            onClick={() => {
-                              setActiveEditId(memory.id);
-                              setEditDraft(memory.content);
-                            }}
-                          >
-                            edit
-                          </button>
-                          <button
-                            type="button"
-                            className="text-sm text-muted-foreground transition-colors hover:text-destructive"
-                            onClick={() => {
-                              if (!window.confirm("Delete this memory?")) {
-                                return;
-                              }
-
-                              removeMemory.mutate({ id: memory.id });
-                            }}
-                          >
-                            x
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+      <SettingsSection title="Import from ChatGPT">
+        <SettingField
+          label="Copy this prompt"
+          description="Paste it into ChatGPT to export what it knows about you."
+        >
+          <div className="border-foreground/[0.06] bg-foreground/[0.03] text-foreground/66 whitespace-pre-wrap border p-3 font-mono text-[11px] leading-5">
+            {CHATGPT_MEMORY_IMPORT_PROMPT}
+          </div>
+          <div className="mt-3 flex justify-end">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                await navigator.clipboard.writeText(
+                  CHATGPT_MEMORY_IMPORT_PROMPT,
                 );
-              })}
-            </div>
-          )}
-        </SurfaceContent>
-      </Surface>
+                toast.success("Prompt copied.");
+              }}
+            >
+              Copy prompt
+            </Button>
+          </div>
+        </SettingField>
+        <SettingField
+          label="Paste result"
+          description="Paste the export ChatGPT returns."
+        >
+          <Textarea
+            value={chatGptPaste}
+            onChange={(event) => setChatGptPaste(event.target.value)}
+            placeholder="Paste the ChatGPT result here..."
+          />
+        </SettingField>
+        <SettingFooter>
+          <Button
+            size="sm"
+            loading={importChatgpt.isPending}
+            disabled={!chatGptPaste.trim() || isBusy}
+            onClick={() => importChatgpt.mutate({ pasted: chatGptPaste })}
+          >
+            Import as memories
+          </Button>
+        </SettingFooter>
+      </SettingsSection>
+
+      <SettingsSection title={`Your memories (${memories.length})`}>
+        {memories.length === 0 ? (
+          <div className="text-foreground/48 px-5 py-8 text-center text-[12px]">
+            No memories yet. Add one above, upload a file, or import a ChatGPT
+            export.
+          </div>
+        ) : (
+          memories.map((memory) => {
+            const isEditing = activeEditId === memory.id;
+
+            return (
+              <div key={memory.id} className="px-5 py-4">
+                {isEditing ? (
+                  <div className="grid gap-3">
+                    <Textarea
+                      value={editDraft}
+                      onChange={(event) => setEditDraft(event.target.value)}
+                    />
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setActiveEditId(null);
+                          setEditDraft("");
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        loading={updateMemory.isPending}
+                        onClick={() =>
+                          updateMemory.mutate({
+                            id: memory.id,
+                            content: editDraft,
+                          })
+                        }
+                      >
+                        Save
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="text-foreground/90 min-w-0 text-[13px] leading-6">
+                      {memory.content}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-3">
+                      <button
+                        type="button"
+                        className="text-foreground/50 hover:text-foreground/88 text-[12px] transition-colors"
+                        onClick={() => {
+                          setActiveEditId(memory.id);
+                          setEditDraft(memory.content);
+                        }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="text-foreground/50 hover:text-destructive text-[12px] transition-colors"
+                        onClick={() => {
+                          if (!window.confirm("Delete this memory?")) {
+                            return;
+                          }
+
+                          removeMemory.mutate({ id: memory.id });
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
+      </SettingsSection>
     </div>
   );
 }

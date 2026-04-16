@@ -1,16 +1,16 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Lightbulb } from "@phosphor-icons/react";
 import { useMutation } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
 
 import type { RouterOutputs } from "@acme/api";
 import { Button } from "@acme/ui/button";
 import { toast } from "@acme/ui/toast";
 
 import { useTRPC } from "~/trpc/react";
-
+import { AssistantRichText } from "./assistant-rich-text";
 import { CapstoneWorkspace } from "./capstone/capstone-workspace";
 import { CurriculumSidebar } from "./curriculum-sidebar";
 import { ForgeWorkspace } from "./forge/forge-workspace";
@@ -24,7 +24,8 @@ type EducationUnit = RouterOutputs["becoming"]["unit"];
 type CapstoneState = RouterOutputs["becoming"]["getCapstone"];
 type OnboardingState = RouterOutputs["becoming"]["onboardingState"];
 type RecallGate = RouterOutputs["becoming"]["getRecallGate"];
-type LearningProject = RouterOutputs["becoming"]["listLearningProjects"][number];
+type LearningProject =
+  RouterOutputs["becoming"]["listLearningProjects"][number];
 type FinalizeForgeUnitResult = RouterOutputs["becoming"]["finalizeForgeUnit"];
 type SubmitRecallProbeResult = RouterOutputs["becoming"]["submitRecallProbe"];
 
@@ -93,12 +94,15 @@ export function HomeShell({
 
   const shellTitle =
     mode === "onboarding"
-      ? onboardingState?.activeQuestion?.prompt ?? "Start a new learning track"
+      ? (onboardingState?.activeQuestion?.prompt ??
+        "Start a new learning track")
       : mode === "recall"
         ? "Recall checkpoint"
         : mode === "capstone"
-          ? capstone?.capstone.scenario.title ?? "Cluster capstone"
-          : liveUnit?.title ?? home?.nextUnitTitle ?? "Preparing your next unit";
+          ? (capstone?.capstone.scenario.title ?? "Cluster capstone")
+          : (liveUnit?.title ??
+            home?.nextUnitTitle ??
+            "Preparing your next unit");
   const shellSubtitle =
     mode === "onboarding"
       ? "Use the same onboarding system to define a new topic and build its path."
@@ -106,7 +110,7 @@ export function HomeShell({
         ? "One stale concept, one recall, then back into new learning."
         : mode === "capstone"
           ? "Pressure-test the cluster before moving on."
-          : liveUnit?.summary ?? home?.headline ?? "Learning workspace";
+          : (liveUnit?.summary ?? home?.headline ?? "Learning workspace");
 
   const handleNavigate = (
     result: FinalizeForgeUnitResult | SubmitRecallProbeResult["nextAction"],
@@ -153,11 +157,11 @@ export function HomeShell({
   };
 
   return (
-    <div className="flex h-dvh overflow-hidden bg-background text-foreground">
+    <div className="bg-background text-foreground flex h-dvh overflow-hidden">
       <div
         className={[
-          "shrink-0 border-r border-foreground/[0.06] bg-sidebar transition-[width] duration-200",
-          sidebarCollapsed ? "w-[56px]" : "w-[248px]",
+          "border-foreground/[0.06] bg-sidebar shrink-0 border-r transition-[width] duration-200",
+          sidebarCollapsed ? "w-[56px]" : "w-[200px]",
         ].join(" ")}
       >
         <CurriculumSidebar
@@ -171,14 +175,25 @@ export function HomeShell({
       </div>
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <header className="flex h-14 items-center justify-between border-b border-foreground/[0.06] px-4 sm:px-6">
+        {mode === "onboarding" ? null : (
+        <header className="border-foreground/[0.06] flex h-14 items-center justify-between border-b px-4 sm:px-6">
           <div className="min-w-0">
-            <h1 className="truncate font-display text-[16px] tracking-[-0.02em] text-foreground">
-              {shellTitle}
-            </h1>
-            <p className="truncate text-[11px] text-foreground/34">
-              {shellSubtitle}
-            </p>
+            <div
+              role="heading"
+              aria-level={1}
+              className="font-display text-foreground text-[16px] tracking-[-0.02em]"
+            >
+              <AssistantRichText
+                content={shellTitle}
+                className="overflow-hidden [&>*]:overflow-hidden [&>*]:text-ellipsis [&>*]:whitespace-nowrap"
+              />
+            </div>
+            <div className="text-foreground/34 text-[11px]">
+              <AssistantRichText
+                content={shellSubtitle}
+                className="overflow-hidden [&>*]:overflow-hidden [&>*]:text-ellipsis [&>*]:whitespace-nowrap"
+              />
+            </div>
           </div>
 
           {mode === "unit" && liveUnit ? (
@@ -188,7 +203,7 @@ export function HomeShell({
                 variant="outline"
                 size="sm"
                 onClick={() => {}}
-                className="rounded-none border-foreground/12 bg-transparent px-3 text-[12px] text-foreground before:rounded-none before:shadow-none hover:border-foreground/24 hover:bg-transparent hover:text-foreground"
+                className="border-foreground/12 text-foreground hover:border-foreground/24 hover:text-foreground rounded-none bg-transparent px-3 text-[12px] before:rounded-none before:shadow-none hover:bg-transparent"
               >
                 Hint
               </Button>
@@ -197,9 +212,11 @@ export function HomeShell({
                 variant="default"
                 size="sm"
                 onClick={() =>
-                  setQuestionPanelOpen((prev) => (questionPanelFocused ? true : !prev))
+                  setQuestionPanelOpen((prev) =>
+                    questionPanelFocused ? true : !prev,
+                  )
                 }
-                className="rounded-none border-primary bg-primary px-3 text-[12px] text-primary-foreground before:rounded-none hover:bg-primary/90"
+                className="border-primary bg-primary text-primary-foreground hover:bg-primary/90 rounded-none px-3 text-[12px] before:rounded-none"
               >
                 <Lightbulb size={15} weight="fill" />
                 Ask
@@ -207,14 +224,29 @@ export function HomeShell({
             </div>
           ) : null}
         </header>
+        )}
 
         <div className="flex min-h-0 flex-1 overflow-hidden">
           {!questionPanelFocused && (
-            <main className="min-w-0 flex-1 overflow-y-auto px-6 pt-12 pb-8 sm:px-8 sm:pt-14">
-              <div className="mx-auto w-full max-w-[860px]">
+            <main
+              className={[
+                "flex min-w-0 flex-1 overflow-y-auto",
+                mode === "onboarding"
+                  ? "p-0"
+                  : "px-6 pt-1 pb-6 sm:px-10 sm:pt-2",
+              ].join(" ")}
+            >
+              <div
+                className={
+                  mode === "onboarding"
+                    ? "flex min-h-full w-full flex-col"
+                    : "bp-prose flex min-h-full flex-col"
+                }
+              >
                 {mode === "onboarding" && onboardingState ? (
                   <OnboardingShell
                     embedded
+                    variant="landscape"
                     initialState={onboardingState}
                     sessionId={sessionId}
                   />
@@ -253,13 +285,21 @@ export function HomeShell({
 
                 {mode === "idle" ? (
                   <div className="flex min-h-[60vh] flex-col justify-center">
-                    <div className="border border-foreground/[0.08] px-7 py-6">
-                      <h2 className="font-display text-base font-semibold tracking-[-0.02em] text-foreground">
-                        {home?.nextUnitTitle ?? "Preparing your next unit"}
-                      </h2>
-                      <p className="mt-3 text-[13px] leading-6 text-foreground/52">
-                        Your next learning step is being prepared.
-                      </p>
+                    <div className="border-foreground/[0.08] border px-7 py-6">
+                      <div
+                        role="heading"
+                        aria-level={2}
+                        className="font-display text-foreground text-base font-semibold tracking-[-0.02em]"
+                      >
+                        <AssistantRichText
+                          content={
+                            home?.nextUnitTitle ?? "Preparing your next unit"
+                          }
+                        />
+                      </div>
+                      <div className="text-foreground/52 mt-3 text-[13px] leading-6">
+                        <AssistantRichText content="Your next learning step is being prepared." />
+                      </div>
                     </div>
                   </div>
                 ) : null}

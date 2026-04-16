@@ -1,13 +1,17 @@
 "use client";
 
+import type { RouterOutputs } from "@acme/api";
 import { Button } from "@acme/ui/button";
 import { Textarea } from "@acme/ui/textarea";
-import type { RouterOutputs } from "@acme/api";
 
-type BuildScenario = RouterOutputs["becoming"]["getCapstone"]["capstone"]["scenario"] & {
-  format: "build";
-};
-type CapstoneMessage = RouterOutputs["becoming"]["getCapstone"]["messages"][number];
+import { AssistantRichText } from "../assistant-rich-text";
+
+type BuildScenario =
+  RouterOutputs["becoming"]["getCapstone"]["capstone"]["scenario"] & {
+    format: "build";
+  };
+type CapstoneMessage =
+  RouterOutputs["becoming"]["getCapstone"]["messages"][number];
 
 export function BuildCapstone({
   scenario,
@@ -29,55 +33,65 @@ export function BuildCapstone({
   remainingRounds: number;
 }) {
   return (
-    <section className="border border-border bg-card p-6">
+    <section className="border-border bg-card border p-6">
       <div className="space-y-6">
         <div>
-          <div className="font-mono text-xs uppercase tracking-[0.24em] text-muted-foreground">
+          <div className="text-muted-foreground font-mono text-xs tracking-[0.24em] uppercase">
             Build capstone
           </div>
-          <h2 className="font-display mt-3 text-3xl tracking-[-0.04em]">
-            {scenario.title}
-          </h2>
-          <p className="mt-4 text-sm leading-7 text-muted-foreground">
-            {scenario.briefing}
-          </p>
+          <div
+            role="heading"
+            aria-level={2}
+            className="font-display mt-3 text-3xl tracking-[-0.04em]"
+          >
+            <AssistantRichText content={scenario.title} />
+          </div>
+          <AssistantRichText
+            content={scenario.briefing}
+            className="text-muted-foreground mt-4 text-sm leading-7"
+          />
         </div>
 
         <div className="grid gap-5 lg:grid-cols-2">
-          <div className="border border-border/70 p-4">
-            <div className="font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">
+          <div className="border-border/70 border p-4">
+            <div className="text-muted-foreground font-mono text-xs tracking-[0.18em] uppercase">
               Artifact
             </div>
-            <div className="mt-3 text-sm text-foreground">{scenario.artifactType}</div>
+            <AssistantRichText
+              content={scenario.artifactType}
+              className="text-foreground mt-3 text-sm"
+            />
           </div>
 
-          <div className="border border-border/70 p-4">
-            <div className="font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">
+          <div className="border-border/70 border p-4">
+            <div className="text-muted-foreground font-mono text-xs tracking-[0.18em] uppercase">
               Revisions left
             </div>
-            <div className="mt-3 text-sm text-foreground">{remainingRounds}</div>
+            <div className="text-foreground mt-3 text-sm">
+              {remainingRounds}
+            </div>
           </div>
         </div>
 
         <div className="grid gap-5 lg:grid-cols-2">
-          <div className="border border-border/70 p-4">
-            <div className="font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">
+          <div className="border-border/70 border p-4">
+            <div className="text-muted-foreground font-mono text-xs tracking-[0.18em] uppercase">
               Constraints
             </div>
-            <div className="mt-3 space-y-3 text-sm leading-7 text-muted-foreground">
+            <div className="text-muted-foreground mt-3 space-y-3 text-sm leading-7">
               {scenario.constraints.map((constraint) => (
-                <div key={constraint}>{constraint}</div>
+                <AssistantRichText key={constraint} content={constraint} />
               ))}
             </div>
           </div>
 
-          <div className="border border-border/70 p-4">
-            <div className="font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">
+          <div className="border-border/70 border p-4">
+            <div className="text-muted-foreground font-mono text-xs tracking-[0.18em] uppercase">
               Evaluation criteria
             </div>
-            <div className="mt-3 space-y-3 text-sm leading-7 text-muted-foreground">
+            <div className="text-muted-foreground mt-3 space-y-3 text-sm leading-7">
               {scenario.evaluationCriteria.map((criterion) => (
-                <div key={criterion}>{criterion}</div>
+                <AssistantRichText key={criterion} content={criterion} />
               ))}
             </div>
           </div>
@@ -88,12 +102,16 @@ export function BuildCapstone({
             {messages.map((message) => (
               <div
                 key={message.id}
-                className="border border-border/70 p-4 text-sm leading-7 text-muted-foreground"
+                className="border-border/70 text-muted-foreground border p-4 text-sm leading-7"
               >
-                <span className="font-mono mr-3 text-xs uppercase tracking-[0.18em] text-foreground/70">
+                <span className="text-foreground/70 mr-3 font-mono text-xs tracking-[0.18em] uppercase">
                   {message.role}
                 </span>
-                {message.content}
+                {message.role === "assistant" ? (
+                  <AssistantRichText content={message.content} />
+                ) : (
+                  message.content
+                )}
               </div>
             ))}
           </div>
@@ -104,12 +122,13 @@ export function BuildCapstone({
           onChange={(event) => onResponseChange(event.target.value)}
           disabled={status === "passed" || status === "failed" || isSubmitting}
           placeholder="Submit the artifact, memo, or framework you built."
-          className="min-h-[260px] rounded-none border-border bg-background px-4 py-4 text-sm leading-7 shadow-none focus-visible:ring-0"
+          className="border-border bg-background min-h-[260px] rounded-none px-4 py-4 text-sm leading-7 shadow-none focus-visible:ring-0"
         />
 
         <div className="flex items-center justify-between gap-4">
-          <div className="text-sm text-muted-foreground">
-            Strong submissions make tradeoffs explicit and satisfy the constraints directly.
+          <div className="text-muted-foreground text-sm">
+            Strong submissions make tradeoffs explicit and satisfy the
+            constraints directly.
           </div>
           <Button
             type="button"

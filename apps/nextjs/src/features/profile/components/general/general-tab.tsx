@@ -7,10 +7,16 @@ import { useMutation } from "@tanstack/react-query";
 import type { RouterOutputs } from "@acme/api";
 import { Button } from "@acme/ui/button";
 import { Input } from "@acme/ui/input";
-import { Surface, SurfaceContent, SurfaceDescription, SurfaceHeader, SurfaceTitle } from "@acme/ui/surface";
 import { Textarea } from "@acme/ui/textarea";
 import { toast } from "@acme/ui/toast";
 
+import {
+  SettingField,
+  SettingFooter,
+  SettingRow,
+  SettingsPageHeader,
+  SettingsSection,
+} from "~/features/profile/components/profile-shell";
 import { useTRPC } from "~/trpc/react";
 
 type GeneralState = RouterOutputs["profile"]["getGeneral"];
@@ -36,7 +42,9 @@ export function GeneralTab({
 }) {
   const trpc = useTRPC();
   const [savedGeneral, setSavedGeneral] = useState(initialGeneral);
-  const [targetIdentity, setTargetIdentity] = useState(initialGeneral.targetIdentity);
+  const [targetIdentity, setTargetIdentity] = useState(
+    initialGeneral.targetIdentity,
+  );
   const [motivation, setMotivation] = useState(initialGeneral.motivation);
   const [hardMoments, setHardMoments] = useState(initialGeneral.hardMoments);
   const [hardMomentDraft, setHardMomentDraft] = useState("");
@@ -90,138 +98,146 @@ export function GeneralTab({
   };
 
   return (
-    <div className="grid gap-6">
-      <Surface padding="lg">
-        <SurfaceHeader>
-          <SurfaceTitle>Becoming</SurfaceTitle>
-          <SurfaceDescription>
-            Edit the target identity the learning path should train toward.
-          </SurfaceDescription>
-        </SurfaceHeader>
-        <SurfaceContent className="mt-6 gap-5">
-          <label className="grid gap-2">
-            <span className="text-sm font-medium text-foreground">Target identity</span>
+    <div>
+      <SettingsPageHeader title="General" />
+
+      <SettingsSection title="Becoming">
+        <SettingRow
+          label="Target identity"
+          description="What the learning path should train toward."
+          control={
             <Input
               value={targetIdentity}
               onChange={(event) => setTargetIdentity(event.target.value)}
               placeholder="Staff backend engineer"
+              className="w-[280px]"
             />
-          </label>
-
-          <label className="grid gap-2">
-            <span className="text-sm font-medium text-foreground">Motivation</span>
-            <Textarea
-              value={motivation}
-              onChange={(event) => setMotivation(event.target.value)}
-              placeholder="Why this identity matters right now."
+          }
+        />
+        <SettingField
+          label="Motivation"
+          description="Why this identity matters right now."
+        >
+          <Textarea
+            value={motivation}
+            onChange={(event) => setMotivation(event.target.value)}
+            placeholder="Why this identity matters right now."
+          />
+        </SettingField>
+        <SettingField
+          label="Hard moments"
+          description="Situations that break your current default."
+        >
+          <div className="flex flex-wrap gap-2">
+            {hardMoments.length > 0 ? (
+              hardMoments.map((moment) => (
+                <button
+                  key={moment}
+                  type="button"
+                  onClick={() => removeHardMoment(moment)}
+                  className="group border-foreground/12 bg-foreground/[0.04] hover:border-foreground/28 text-foreground/88 inline-flex items-center gap-2 border px-2.5 py-1 text-[12px] transition-colors"
+                >
+                  <span>{moment}</span>
+                  <span className="text-foreground/44 group-hover:text-foreground/88 text-[13px] leading-none transition-colors">
+                    ×
+                  </span>
+                </button>
+              ))
+            ) : (
+              <div className="text-foreground/48 text-[12px]">
+                No hard moments yet.
+              </div>
+            )}
+          </div>
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <Input
+              value={hardMomentDraft}
+              onChange={(event) => setHardMomentDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  addHardMoment();
+                }
+              }}
+              placeholder="Add a hard moment"
             />
-          </label>
+            <Button variant="outline" size="sm" onClick={addHardMoment}>
+              Add
+            </Button>
+          </div>
+        </SettingField>
+        {error ? (
+          <div className="text-destructive px-5 pb-3 text-[12px]">{error}</div>
+        ) : null}
+        <SettingFooter>
+          <Button
+            size="sm"
+            loading={updateGeneral.isPending}
+            disabled={!isDirty || updateGeneral.isPending}
+            onClick={() =>
+              updateGeneral.mutate({
+                sessionId: initialGeneral.sessionId,
+                targetIdentity,
+                motivation,
+                hardMoments,
+              })
+            }
+          >
+            Save
+          </Button>
+        </SettingFooter>
+      </SettingsSection>
 
-          <div className="grid gap-3">
-            <span className="text-sm font-medium text-foreground">Hard moments</span>
-            <div className="flex flex-wrap gap-2">
-              {hardMoments.length > 0 ? (
-                hardMoments.map((moment) => (
-                  <button
-                    key={moment}
-                    type="button"
-                    onClick={() => removeHardMoment(moment)}
-                    className="group inline-flex items-center gap-2 border border-border/80 bg-secondary/30 px-3 py-1.5 text-sm text-foreground transition-colors hover:border-foreground/40"
-                  >
-                    <span>{moment}</span>
-                    <span className="text-xs text-muted-foreground transition-colors group-hover:text-foreground">
-                      ×
-                    </span>
-                  </button>
-                ))
-              ) : (
-                <div className="text-sm text-muted-foreground">
-                  No hard moments yet. Add the situations that break your current default.
-                </div>
-              )}
-            </div>
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <Input
-                value={hardMomentDraft}
-                onChange={(event) => setHardMomentDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    addHardMoment();
-                  }
-                }}
-                placeholder="Add a hard moment"
-              />
-              <Button variant="outline" onClick={addHardMoment}>
-                Add
+      <SettingsSection title="Account">
+        <SettingRow
+          label="Name"
+          control={
+            <span className="text-foreground/82 text-[12.5px]">
+              {account.name}
+            </span>
+          }
+        />
+        <SettingRow
+          label="Email"
+          control={
+            <span className="text-foreground/82 text-[12.5px]">
+              {account.email}
+            </span>
+          }
+        />
+        <SettingRow
+          label="Sign-in"
+          control={
+            <span className="text-foreground/82 text-[12.5px]">
+              {formatProvider(account.provider)}
+            </span>
+          }
+        />
+      </SettingsSection>
+
+      <SettingsSection title="Billing">
+        <SettingRow
+          label="Plan"
+          description={billing.plan}
+          control={
+            billing.manageUrl ? (
+              <Button asChild variant="outline" size="sm">
+                <Link
+                  href={billing.manageUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Manage
+                </Link>
               </Button>
-            </div>
-          </div>
-
-          {error ? (
-            <div className="text-sm text-destructive">{error}</div>
-          ) : null}
-
-          <div className="flex justify-end">
-            <Button
-              loading={updateGeneral.isPending}
-              disabled={!isDirty || updateGeneral.isPending}
-              onClick={() =>
-                updateGeneral.mutate({
-                  sessionId: initialGeneral.sessionId,
-                  targetIdentity,
-                  motivation,
-                  hardMoments,
-                })
-              }
-            >
-              Save
-            </Button>
-          </div>
-        </SurfaceContent>
-      </Surface>
-
-      <Surface padding="lg" variant="muted">
-        <SurfaceHeader>
-          <SurfaceTitle>Account</SurfaceTitle>
-        </SurfaceHeader>
-        <SurfaceContent className="mt-5 gap-4 text-sm">
-          <div className="flex items-start justify-between gap-4 border-b border-border/70 pb-4">
-            <span className="text-muted-foreground">Name</span>
-            <span className="text-right text-foreground">{account.name}</span>
-          </div>
-          <div className="flex items-start justify-between gap-4 border-b border-border/70 pb-4">
-            <span className="text-muted-foreground">Email</span>
-            <span className="text-right text-foreground">{account.email}</span>
-          </div>
-          <div className="flex items-start justify-between gap-4">
-            <span className="text-muted-foreground">Sign-in</span>
-            <span className="text-right text-foreground">{formatProvider(account.provider)}</span>
-          </div>
-        </SurfaceContent>
-      </Surface>
-
-      <Surface padding="lg" variant="muted">
-        <SurfaceHeader>
-          <SurfaceTitle>Billing</SurfaceTitle>
-        </SurfaceHeader>
-        <SurfaceContent className="mt-5 flex-row items-center justify-between gap-4 text-sm">
-          <div className="text-foreground">
-            Plan <span className="text-muted-foreground">·</span> {billing.plan}
-          </div>
-          {billing.manageUrl ? (
-            <Button asChild variant="outline" size="sm">
-              <Link href={billing.manageUrl} target="_blank" rel="noreferrer">
+            ) : (
+              <Button variant="outline" size="sm" disabled>
                 Manage
-              </Link>
-            </Button>
-          ) : (
-            <Button variant="outline" size="sm" disabled>
-              Manage
-            </Button>
-          )}
-        </SurfaceContent>
-      </Surface>
+              </Button>
+            )
+          }
+        />
+      </SettingsSection>
     </div>
   );
 }

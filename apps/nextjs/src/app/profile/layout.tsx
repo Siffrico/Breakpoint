@@ -14,9 +14,5 @@ export default async function ProfileLayout({
     redirect("/");
   }
 
-  return (
-    <ProfileShell name={session.user.name} image={session.user.image}>
-      {children}
-    </ProfileShell>
-  );
+  return <ProfileShell>{children}</ProfileShell>;
 }

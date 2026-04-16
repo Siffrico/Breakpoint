@@ -1,23 +1,27 @@
 export default function ProfileLoading() {
   return (
-    <main className="min-h-dvh bg-background px-5 py-8 text-foreground sm:px-8">
-      <div className="mx-auto max-w-5xl animate-pulse space-y-6">
-        <div className="flex items-start justify-between">
-          <div className="space-y-4">
-            <div className="h-3 w-24 rounded bg-secondary" />
-            <div className="flex gap-6">
-              <div className="h-5 w-16 rounded bg-secondary" />
-              <div className="h-5 w-24 rounded bg-secondary" />
-              <div className="h-5 w-28 rounded bg-secondary" />
-            </div>
+    <div className="bg-background text-foreground flex h-dvh">
+      <aside className="border-foreground/[0.06] bg-sidebar flex w-[220px] shrink-0 flex-col border-r">
+        <div className="space-y-3 p-4">
+          <div className="bg-foreground/[0.06] h-3 w-20" />
+          <div className="bg-foreground/[0.06] h-5 w-28" />
+          <div className="bg-foreground/[0.06] h-5 w-24" />
+          <div className="bg-foreground/[0.06] h-5 w-32" />
+        </div>
+      </aside>
+      <main className="flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-3xl animate-pulse px-8 pt-12 pb-20 sm:px-12">
+          <div className="bg-foreground/[0.08] h-6 w-40" />
+          <div className="mt-10 space-y-3">
+            <div className="bg-foreground/[0.06] h-4 w-24" />
+            <div className="bg-foreground/[0.05] h-40 w-full" />
           </div>
-          <div className="h-10 w-10 rounded-full bg-secondary" />
+          <div className="mt-10 space-y-3">
+            <div className="bg-foreground/[0.06] h-4 w-24" />
+            <div className="bg-foreground/[0.05] h-28 w-full" />
+          </div>
         </div>
-        <div className="grid gap-6">
-          <div className="h-64 rounded-2xl bg-secondary/60" />
-          <div className="h-44 rounded-2xl bg-secondary/60" />
-        </div>
-      </div>
-    </main>
+      </main>
+    </div>
   );
 }

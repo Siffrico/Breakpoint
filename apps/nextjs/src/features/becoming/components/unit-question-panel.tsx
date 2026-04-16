@@ -1,17 +1,18 @@
 "use client";
 
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
-  ArrowUp,
   ArrowsIn,
   ArrowsOut,
+  ArrowUp,
   X,
 } from "@phosphor-icons/react";
-import { useEffect, useMemo, useState } from "react";
 
 import type { RouterOutputs } from "@acme/api";
 import { Button } from "@acme/ui/button";
-import { Textarea } from "@acme/ui/textarea";
+
+import { AssistantRichText } from "./assistant-rich-text";
 
 type EducationUnit = RouterOutputs["becoming"]["unit"];
 
@@ -19,6 +20,47 @@ type PanelMessage = {
   id: string;
   role: "assistant" | "user";
   content: string;
+};
+
+const ASK_COMPOSER_MIN_HEIGHT = 112;
+const ASK_COMPOSER_MAX_HEIGHT = 280;
+
+const getAskComposerBounds = (element: HTMLTextAreaElement | null) => {
+  if (typeof window === "undefined") {
+    return {
+      minHeight: ASK_COMPOSER_MIN_HEIGHT,
+      maxHeight: ASK_COMPOSER_MAX_HEIGHT,
+    };
+  }
+
+  const viewportRatioMax = Math.floor(window.innerHeight * 0.26);
+  const viewportCap = Math.min(ASK_COMPOSER_MAX_HEIGHT, viewportRatioMax);
+  const availableSpaceFromTop = element
+    ? Math.floor(window.innerHeight - element.getBoundingClientRect().top - 52)
+    : viewportCap;
+  const maxHeight = Math.max(
+    ASK_COMPOSER_MIN_HEIGHT,
+    Math.min(viewportCap, availableSpaceFromTop),
+  );
+
+  return {
+    minHeight: ASK_COMPOSER_MIN_HEIGHT,
+    maxHeight,
+  };
+};
+
+const syncAskComposerHeight = (element: HTMLTextAreaElement | null) => {
+  if (!element) return;
+
+  const { minHeight, maxHeight } = getAskComposerBounds(element);
+  element.style.height = "0px";
+  const nextHeight = Math.max(
+    minHeight,
+    Math.min(element.scrollHeight, maxHeight),
+  );
+  element.style.height = `${nextHeight}px`;
+  element.style.overflowY =
+    element.scrollHeight > maxHeight ? "auto" : "hidden";
 };
 
 function buildUnitAnswer(unit: EducationUnit, question: string) {
@@ -65,8 +107,8 @@ function buildUnitAnswer(unit: EducationUnit, question: string) {
       unit.activeStage === "revision"
         ? `Your first move is to address this revision brief directly: ${unit.implementationReview?.requiredRevision ?? unit.title}`
         : activeCard?.prompt
-        ? `The live tension you need to answer is: ${activeCard.prompt}`
-        : "Name the signal you see, state the decision it implies, and only then justify it.",
+          ? `The live tension you need to answer is: ${activeCard.prompt}`
+          : "Name the signal you see, state the decision it implies, and only then justify it.",
       helper ? `Keep this in view: ${helper}` : null,
     ]
       .filter(Boolean)
@@ -85,7 +127,9 @@ function buildUnitAnswer(unit: EducationUnit, question: string) {
         : `The unit is training ${unit.title}.`,
       conceptSummary ??
         "The point is to build a reusable decision pattern under pressure, not just repeat a definition.",
-      unit.priorKnowledgeBridge ? `Tie-back: ${unit.priorKnowledgeBridge}` : null,
+      unit.priorKnowledgeBridge
+        ? `Tie-back: ${unit.priorKnowledgeBridge}`
+        : null,
     ]
       .filter(Boolean)
       .join("\n\n");
@@ -156,10 +200,22 @@ export function UnitQuestionPanel({
     initialAssistantMessage,
   ]);
   const [question, setQuestion] = useState("");
+  const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     setMessages([initialAssistantMessage]);
   }, [initialAssistantMessage]);
+
+  useLayoutEffect(() => {
+    syncAskComposerHeight(composerTextareaRef.current);
+  }, [question, unit.activeStage, initialAssistantMessage]);
+
+  useEffect(() => {
+    const handleResize = () =>
+      syncAskComposerHeight(composerTextareaRef.current);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   const canSubmit = question.trim().length > 0;
 
@@ -184,11 +240,15 @@ export function UnitQuestionPanel({
   };
 
   return (
-    <aside className="flex h-full min-w-0 flex-col border-l border-foreground/[0.06] bg-sidebar text-foreground">
-      <div className="flex h-14 items-center justify-between border-b border-foreground/[0.06] px-4">
+    <aside className="border-foreground/[0.06] bg-sidebar text-foreground flex h-full min-w-0 flex-col border-l">
+      <div className="border-foreground/[0.06] flex h-14 items-center justify-between border-b px-4">
         <div className="min-w-0">
-          <div className="truncate text-[13px] text-foreground/80">Unit help</div>
-          <div className="truncate text-[11px] text-foreground/34">{unit.title}</div>
+          <div className="text-foreground/80 truncate text-[13px]">
+            Unit help
+          </div>
+          <div className="text-foreground/34 truncate text-[11px]">
+            {unit.title}
+          </div>
         </div>
         <div className="flex items-center">
           {isFocused && (
@@ -197,7 +257,7 @@ export function UnitQuestionPanel({
               variant="ghost"
               size="sm"
               onClick={onReturnToUnit}
-              className="mr-1 rounded-none border-0 px-2 text-[12px] text-foreground/60 before:rounded-none hover:bg-foreground/[0.04] hover:text-foreground"
+              className="text-foreground/60 hover:bg-foreground/[0.04] hover:text-foreground mr-1 rounded-none border-0 px-2 text-[12px] before:rounded-none"
             >
               <ArrowLeft size={14} />
               Return
@@ -208,8 +268,10 @@ export function UnitQuestionPanel({
             variant="ghost"
             size="icon-sm"
             onClick={onToggleFocus}
-            className="rounded-none border-0 text-foreground/55 before:rounded-none hover:bg-foreground/[0.04] hover:text-foreground"
-            aria-label={isFocused ? "Shrink question panel" : "Focus question panel"}
+            className="text-foreground/55 hover:bg-foreground/[0.04] hover:text-foreground rounded-none border-0 before:rounded-none"
+            aria-label={
+              isFocused ? "Shrink question panel" : "Focus question panel"
+            }
           >
             {isFocused ? <ArrowsIn size={15} /> : <ArrowsOut size={15} />}
           </Button>
@@ -218,7 +280,7 @@ export function UnitQuestionPanel({
             variant="ghost"
             size="icon-sm"
             onClick={onClose}
-            className="rounded-none border-0 text-foreground/55 before:rounded-none hover:bg-foreground/[0.04] hover:text-foreground"
+            className="text-foreground/55 hover:bg-foreground/[0.04] hover:text-foreground rounded-none border-0 before:rounded-none"
             aria-label="Close question panel"
           >
             <X size={15} />
@@ -226,35 +288,37 @@ export function UnitQuestionPanel({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-4">
-        <div className="space-y-4">
-          {messages.map((message) => (
-            <div key={message.id} className="space-y-2">
-              <div className="text-[11px] text-foreground/32">
-                {message.role === "assistant" ? "Guide" : "You"}
-              </div>
+      <div className="flex-1 overflow-y-auto px-5 py-5">
+        <div className="space-y-6">
+          {messages.map((message) =>
+            message.role === "assistant" ? (
               <div
-                className={[
-                  "border px-4 py-3 text-[13px] leading-6 whitespace-pre-wrap",
-                  message.role === "assistant"
-                    ? "border-foreground/[0.08] bg-card/55 text-foreground/78"
-                    : "border-primary/18 bg-primary/[0.09] text-foreground/90",
-                ].join(" ")}
+                key={message.id}
+                className="text-foreground/82 text-[14px] leading-[1.6]"
               >
-                {message.content}
+                <AssistantRichText content={message.content} />
               </div>
-            </div>
-          ))}
+            ) : (
+              <div key={message.id} className="flex justify-end">
+                <div className="bg-primary/[0.08] text-primary/90 max-w-[82%] rounded-[14px] px-3.5 py-2 text-[14px] leading-[1.55] whitespace-pre-wrap">
+                  {message.content}
+                </div>
+              </div>
+            ),
+          )}
         </div>
       </div>
 
-      <div className="border-t border-foreground/[0.06] px-4 pt-4 pb-4">
-        <div className="relative">
-          <Textarea
+      <div className="px-4 pb-4 pt-2">
+        <div className="border-foreground/[0.08] bg-card focus-within:border-foreground/18 relative rounded-[10px] border shadow-[0_1px_0_rgba(0,0,0,0.02),0_4px_18px_-12px_rgba(0,0,0,0.14)] transition-[border-color,box-shadow] duration-150">
+          <textarea
+            ref={composerTextareaRef}
             value={question}
             onChange={(event) => setQuestion(event.target.value)}
+            onInput={(event) => syncAskComposerHeight(event.currentTarget)}
             placeholder="Ask what the unit is really testing, how to start, or what a strong answer should do."
-            className="min-h-[132px] rounded-none border-border bg-input text-[13px] leading-6 text-foreground placeholder:text-foreground/24 before:rounded-none focus-visible:border-foreground/16 focus-visible:ring-0 [&_[data-slot=textarea]]:resize-none [&_[data-slot=textarea]]:px-4 [&_[data-slot=textarea]]:pt-4 [&_[data-slot=textarea]]:pb-12"
+            rows={1}
+            className="text-foreground placeholder:text-foreground/30 block min-h-[112px] w-full resize-none bg-transparent px-3.5 pt-3 pb-10 text-[13.5px] leading-[1.55] tracking-[-0.005em] outline-none"
           />
           <Button
             type="button"
@@ -262,10 +326,10 @@ export function UnitQuestionPanel({
             disabled={!canSubmit}
             variant="ghost"
             size="icon"
-            className="absolute right-3 bottom-3 h-8 w-8 rounded-none border border-primary bg-primary p-0 text-primary-foreground before:rounded-none hover:bg-primary/90"
+            className="bg-primary text-primary-foreground hover:bg-primary/90 absolute right-2 bottom-2 h-7 w-7 rounded-md border-0 p-0 before:rounded-md"
             aria-label="Ask question"
           >
-            <ArrowUp size={14} weight="bold" />
+            <ArrowUp size={13} weight="bold" />
           </Button>
         </div>
       </div>

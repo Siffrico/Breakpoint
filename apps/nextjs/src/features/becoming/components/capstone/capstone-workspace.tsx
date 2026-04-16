@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
+import Link from "next/link";
 import { useMutation } from "@tanstack/react-query";
 
 import type { RouterOutputs } from "@acme/api";
@@ -9,7 +9,7 @@ import { Button } from "@acme/ui/button";
 import { toast } from "@acme/ui/toast";
 
 import { useTRPC } from "~/trpc/react";
-
+import { AssistantRichText } from "../assistant-rich-text";
 import { BuildCapstone } from "./build-capstone";
 import { DebateCapstone } from "./debate-capstone";
 import { TeachCapstone } from "./teach-capstone";
@@ -87,15 +87,19 @@ export function CapstoneWorkspace({
   };
 
   const workspaceHref = `/home?session=${sessionId}`;
-  const isComplete = capstone.status === "passed" || capstone.status === "failed";
-  const remainingRounds = Math.max(capstone.maxRounds - capstone.currentRound, 0);
+  const isComplete =
+    capstone.status === "passed" || capstone.status === "failed";
+  const remainingRounds = Math.max(
+    capstone.maxRounds - capstone.currentRound,
+    0,
+  );
 
   const shell = (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
       {!embedded ? (
-        <div className="flex items-center justify-between border-b border-border pb-6">
+        <div className="border-border flex items-center justify-between border-b pb-6">
           <div>
-            <div className="font-mono text-xs uppercase tracking-[0.24em] text-muted-foreground">
+            <div className="text-muted-foreground font-mono text-xs tracking-[0.24em] uppercase">
               Cluster capstone
             </div>
             <h1 className="font-display mt-4 text-3xl tracking-[-0.05em] sm:text-4xl">
@@ -105,7 +109,7 @@ export function CapstoneWorkspace({
           <Button
             asChild
             variant="outline"
-            className="h-11 border-border bg-transparent px-5 text-foreground hover:bg-accent hover:text-foreground"
+            className="border-border text-foreground hover:bg-accent hover:text-foreground h-11 bg-transparent px-5"
           >
             <Link href={workspaceHref}>Workspace</Link>
           </Button>
@@ -113,81 +117,82 @@ export function CapstoneWorkspace({
       ) : null}
 
       <section className="grid gap-4 sm:grid-cols-3">
-          <div className="border border-border bg-card p-4">
-            <div className="font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">
-              Format
-            </div>
-            <div className="mt-3 text-sm capitalize text-foreground">
-              {capstone.format}
-            </div>
+        <div className="border-border bg-card border p-4">
+          <div className="text-muted-foreground font-mono text-xs tracking-[0.18em] uppercase">
+            Format
           </div>
-          <div className="border border-border bg-card p-4">
-            <div className="font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">
-              Status
-            </div>
-            <div className="mt-3 text-sm capitalize text-foreground">
-              {capstone.status.replaceAll("_", " ")}
-            </div>
+          <div className="text-foreground mt-3 text-sm capitalize">
+            {capstone.format}
           </div>
-          <div className="border border-border bg-card p-4">
-            <div className="font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">
-              Score
-            </div>
-            <div className="mt-3 text-sm text-foreground">
-              {capstone.score ?? "Pending"}
-            </div>
+        </div>
+        <div className="border-border bg-card border p-4">
+          <div className="text-muted-foreground font-mono text-xs tracking-[0.18em] uppercase">
+            Status
           </div>
+          <div className="text-foreground mt-3 text-sm capitalize">
+            {capstone.status.replaceAll("_", " ")}
+          </div>
+        </div>
+        <div className="border-border bg-card border p-4">
+          <div className="text-muted-foreground font-mono text-xs tracking-[0.18em] uppercase">
+            Score
+          </div>
+          <div className="text-foreground mt-3 text-sm">
+            {capstone.score ?? "Pending"}
+          </div>
+        </div>
       </section>
 
-        {capstone.scenario.format === "build" ? (
-          <BuildCapstone
-            scenario={capstone.scenario}
-            messages={messages}
-            response={response}
-            onResponseChange={setResponse}
-            onSubmit={handleSubmit}
-            isSubmitting={submitCapstoneMessage.isPending}
-            status={capstone.status}
-            remainingRounds={remainingRounds}
-          />
-        ) : null}
+      {capstone.scenario.format === "build" ? (
+        <BuildCapstone
+          scenario={capstone.scenario}
+          messages={messages}
+          response={response}
+          onResponseChange={setResponse}
+          onSubmit={handleSubmit}
+          isSubmitting={submitCapstoneMessage.isPending}
+          status={capstone.status}
+          remainingRounds={remainingRounds}
+        />
+      ) : null}
 
-        {capstone.scenario.format === "debate" ? (
-          <DebateCapstone
-            scenario={capstone.scenario}
-            messages={messages}
-            response={response}
-            onResponseChange={setResponse}
-            onSubmit={handleSubmit}
-            isSubmitting={submitCapstoneMessage.isPending}
-            status={capstone.status}
-            currentRound={capstone.currentRound}
-            maxRounds={capstone.maxRounds}
-          />
-        ) : null}
+      {capstone.scenario.format === "debate" ? (
+        <DebateCapstone
+          scenario={capstone.scenario}
+          messages={messages}
+          response={response}
+          onResponseChange={setResponse}
+          onSubmit={handleSubmit}
+          isSubmitting={submitCapstoneMessage.isPending}
+          status={capstone.status}
+          currentRound={capstone.currentRound}
+          maxRounds={capstone.maxRounds}
+        />
+      ) : null}
 
-        {capstone.scenario.format === "teach" ? (
-          <TeachCapstone
-            scenario={capstone.scenario}
-            messages={messages}
-            response={response}
-            onResponseChange={setResponse}
-            onSubmit={handleSubmit}
-            isSubmitting={submitCapstoneMessage.isPending}
-            status={capstone.status}
-            currentRound={capstone.currentRound}
-            maxRounds={capstone.maxRounds}
-          />
-        ) : null}
+      {capstone.scenario.format === "teach" ? (
+        <TeachCapstone
+          scenario={capstone.scenario}
+          messages={messages}
+          response={response}
+          onResponseChange={setResponse}
+          onSubmit={handleSubmit}
+          isSubmitting={submitCapstoneMessage.isPending}
+          status={capstone.status}
+          currentRound={capstone.currentRound}
+          maxRounds={capstone.maxRounds}
+        />
+      ) : null}
 
       {(isComplete || capstone.feedback) && (
-        <section className="border border-border bg-card p-6">
-            <div className="font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">
-              Final evaluation
-            </div>
-            <p className="mt-4 text-sm leading-7 text-muted-foreground">
-              {capstone.feedback ?? "Evaluation pending."}
-            </p>
+        <section className="border-border bg-card border p-6">
+          <div className="text-muted-foreground font-mono text-xs tracking-[0.18em] uppercase">
+            Final evaluation
+          </div>
+          <AssistantRichText
+            content={capstone.feedback ?? "Evaluation pending."}
+            className="text-muted-foreground mt-4 text-sm leading-7"
+          />
         </section>
       )}
     </div>
@@ -198,7 +203,7 @@ export function CapstoneWorkspace({
   }
 
   return (
-    <main className="bp-page-bg min-h-screen px-5 py-8 text-foreground sm:px-8 lg:px-10">
+    <main className="bp-page-bg text-foreground min-h-screen px-5 py-8 sm:px-8 lg:px-10">
       {shell}
     </main>
   );

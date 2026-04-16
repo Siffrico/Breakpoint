@@ -81,6 +81,7 @@ Gradients are **only** used at the page level for atmosphere, never on component
 - Icon-only controls should be unboxed by default
 - Do not place icons in boxes unless the box communicates a real state or primary action
 - Keep icon spacing and visual weight consistent within a row
+- **Hover on icons**: never use a background fill (`hover:bg-*`) on icon buttons. Hover should only change the icon color (e.g. `hover:text-foreground/80`). No background squares or circles on hover.
 
 ## Primitives
 

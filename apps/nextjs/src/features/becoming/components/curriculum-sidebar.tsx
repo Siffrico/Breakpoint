@@ -3,6 +3,7 @@
 import Link from "next/link";
 import {
   CaretRight,
+  CircleDashed,
   DotsThree,
   Funnel,
   Gear,
@@ -63,7 +64,7 @@ function IconButton({
       type="button"
       onClick={onClick}
       aria-label={label}
-      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-foreground/44 outline-none transition-colors hover:bg-foreground/[0.05] hover:text-foreground/80 focus:outline-none focus-visible:outline-none"
+      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-foreground/44 outline-none transition-colors hover:text-foreground/80 focus:outline-none focus-visible:outline-none"
     >
       {children}
     </button>
@@ -87,20 +88,21 @@ function ChatRow({
       className={[
         "group flex w-full items-center gap-2 rounded-md px-2.5 py-[6px] text-left text-[12px] outline-none transition-colors focus:outline-none focus-visible:outline-none",
         isReady
-          ? "text-foreground/82 hover:bg-foreground/[0.035]"
+          ? "text-foreground/82"
           : isCompleted
-            ? "text-foreground/46 hover:bg-foreground/[0.035]"
-            : "text-foreground/46 hover:bg-foreground/[0.035]",
+            ? "text-foreground/46"
+            : "text-foreground/46",
       ].join(" ")}
     >
-      <span
+      <CircleDashed
+        size={14}
         className={[
-          "h-[4px] w-[4px] shrink-0 rounded-full",
+          "shrink-0",
           isReady
-            ? "bg-foreground/60"
+            ? "text-foreground/60"
             : isCompleted
-              ? "bg-foreground/28"
-              : "bg-foreground/18",
+              ? "text-foreground/28"
+              : "text-foreground/18",
         ].join(" ")}
       />
       <FadeLabel className="min-w-0 flex-1 leading-5">{title}</FadeLabel>
@@ -135,7 +137,7 @@ function ProjectRow({
           "flex w-full items-center gap-1.5 rounded-md pl-1.5 pr-2.5 py-[7px] text-left text-[12px] font-medium outline-none transition-colors focus:outline-none focus-visible:outline-none",
           isCurrent
             ? "bg-foreground/[0.06] text-foreground/92"
-            : "text-foreground/78 hover:bg-foreground/[0.035] hover:text-foreground/92",
+            : "text-foreground/78 hover:text-foreground/92",
         ].join(" ")}
       >
         <CaretRight
@@ -231,14 +233,23 @@ export function CurriculumSidebar({
           <IconButton label="New project" onClick={handleNewProject}>
             <Plus size={15} weight="bold" />
           </IconButton>
-          <IconButton label="Marketplace">
-            <Storefront size={15} />
-          </IconButton>
+          <Link href="/courses" aria-label="Courses">
+            <IconButton label="Courses">
+              <Storefront size={15} />
+            </IconButton>
+          </Link>
         </div>
 
         <div className="flex-1" />
 
-        <div className="flex items-center justify-center border-t border-foreground/[0.05] py-3">
+        <div className="flex flex-col items-center gap-2 border-t border-foreground/[0.05] py-3">
+          <Link
+            href={profileHref}
+            aria-label="Settings"
+            className="flex h-7 w-7 items-center justify-center text-foreground/44 outline-none transition-colors hover:text-foreground/80 focus:outline-none focus-visible:outline-none"
+          >
+            <Gear size={14} />
+          </Link>
           <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/70 text-[10px] font-semibold text-primary-foreground">
             {initial}
           </div>
@@ -259,9 +270,6 @@ export function CurriculumSidebar({
             <MagnifyingGlass size={15} />
           </IconButton>
         </div>
-        <IconButton label="Toggle panel">
-          <SidebarSimple size={15} className="rotate-180" />
-        </IconButton>
       </div>
 
       {/* Quick actions */}
@@ -270,37 +278,43 @@ export function CurriculumSidebar({
           type="button"
           onClick={handleNewProject}
           disabled={startOnboarding.isPending}
-          className="flex w-full items-center gap-2.5 rounded-md bg-foreground/[0.05] px-2.5 py-2 text-left outline-none transition-colors hover:bg-foreground/[0.07] focus:outline-none focus-visible:outline-none disabled:opacity-50"
+          className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left outline-none transition-colors hover:bg-foreground/[0.04] focus:outline-none focus-visible:outline-none disabled:opacity-50"
         >
-          <Plus size={15} weight="bold" className="shrink-0 text-foreground/70" />
-          <FadeLabel className="min-w-0 flex-1 text-[12px] font-medium text-foreground/86">
-            Learn something new
+          <Plus size={15} weight="bold" className="shrink-0 text-foreground/64" />
+          <FadeLabel className="min-w-0 flex-1 text-[12px] font-medium text-foreground/82">
+            New topic
           </FadeLabel>
-          <span className="shrink-0 font-mono text-[10px] text-foreground/36">
+          <span className="shrink-0 font-mono text-[10px] text-foreground/34">
             ⌘N
           </span>
         </button>
 
-        <button
-          type="button"
+        <Link
+          href="/courses"
           className="mt-0.5 flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left outline-none transition-colors hover:bg-foreground/[0.04] focus:outline-none focus-visible:outline-none"
         >
-          <Storefront size={15} className="shrink-0 text-foreground/46" />
+          <Storefront size={15} className="shrink-0 text-foreground/44" />
           <FadeLabel className="min-w-0 flex-1 text-[12px] font-medium text-foreground/64">
             Courses
           </FadeLabel>
-        </button>
+        </Link>
       </div>
 
       {/* Scrollable projects list (each project = a header with its chats under it) */}
-      <div className="flex-1 overflow-y-auto px-2 pb-2 pt-2">
+      <div className="flex-1 overflow-y-auto px-2 pb-2 pt-4">
+        {projects.length > 0 ? (
+          <div className="px-2.5 pb-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-foreground/36">
+            Projects
+          </div>
+        ) : null}
+
         {projects.length === 0 ? (
           <div className="px-3 pt-4 text-[11px] leading-5 text-foreground/34">
             No projects yet. Start a new one above.
           </div>
         ) : null}
 
-        <div className="space-y-2">
+        <div className="space-y-1">
           {projects.map((project) => {
             const isCurrent = project.sessionId === currentSessionId;
             const isExpanded = expanded[project.sessionId] ?? isCurrent;
@@ -323,7 +337,7 @@ export function CurriculumSidebar({
         {projects.length > 5 ? (
           <button
             type="button"
-            className="mt-3 flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-foreground/44 transition-colors hover:bg-foreground/[0.035] hover:text-foreground/70"
+            className="mt-3 flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-foreground/44 transition-colors hover:text-foreground/70"
           >
             <DotsThree size={16} weight="bold" className="shrink-0" />
             <FadeLabel className="min-w-0 flex-1 text-[12px] font-medium">
@@ -335,10 +349,7 @@ export function CurriculumSidebar({
 
       {/* Footer: user */}
       <div className="flex items-center gap-2 border-t border-foreground/[0.05] px-2 py-2">
-        <Link
-          href={profileHref}
-          className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1 outline-none transition-colors hover:bg-foreground/[0.04] focus:outline-none focus-visible:outline-none"
-        >
+        <div className="flex min-w-0 flex-1 items-center gap-2 px-1.5 py-1">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/70 text-[11px] font-semibold text-primary-foreground">
             {initial}
           </div>
@@ -350,13 +361,14 @@ export function CurriculumSidebar({
               {userPlan}
             </FadeLabel>
           </div>
-        </Link>
-        <IconButton label="Filters">
-          <Funnel size={14} />
-        </IconButton>
-        <IconButton label="Settings">
+        </div>
+        <Link
+          href={profileHref}
+          aria-label="Settings"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-foreground/44 outline-none transition-colors hover:text-foreground/80 focus:outline-none focus-visible:outline-none"
+        >
           <Gear size={14} />
-        </IconButton>
+        </Link>
       </div>
     </aside>
   );

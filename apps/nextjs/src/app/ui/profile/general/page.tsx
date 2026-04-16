@@ -8,12 +8,7 @@ import {
 
 export default function UiPreviewProfileGeneralPage() {
   return (
-    <ProfileShell
-      name={previewProfileAccount.name}
-      image={previewProfileAccount.image}
-      basePath="/ui/profile"
-      activeTab="general"
-    >
+    <ProfileShell basePath="/ui/profile" activeTab="general">
       <GeneralTab
         initialGeneral={previewProfileGeneral}
         account={previewProfileAccount}

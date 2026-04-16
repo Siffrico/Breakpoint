@@ -1,13 +1,17 @@
 "use client";
 
+import type { RouterOutputs } from "@acme/api";
 import { Button } from "@acme/ui/button";
 import { Textarea } from "@acme/ui/textarea";
-import type { RouterOutputs } from "@acme/api";
 
-type TeachScenario = RouterOutputs["becoming"]["getCapstone"]["capstone"]["scenario"] & {
-  format: "teach";
-};
-type CapstoneMessage = RouterOutputs["becoming"]["getCapstone"]["messages"][number];
+import { AssistantRichText } from "../assistant-rich-text";
+
+type TeachScenario =
+  RouterOutputs["becoming"]["getCapstone"]["capstone"]["scenario"] & {
+    format: "teach";
+  };
+type CapstoneMessage =
+  RouterOutputs["becoming"]["getCapstone"]["messages"][number];
 
 export function TeachCapstone({
   scenario,
@@ -31,37 +35,44 @@ export function TeachCapstone({
   maxRounds: number;
 }) {
   return (
-    <section className="border border-border bg-card p-6">
+    <section className="border-border bg-card border p-6">
       <div className="space-y-6">
         <div>
-          <div className="font-mono text-xs uppercase tracking-[0.24em] text-muted-foreground">
+          <div className="text-muted-foreground font-mono text-xs tracking-[0.24em] uppercase">
             Teach capstone
           </div>
-          <h2 className="font-display mt-3 text-3xl tracking-[-0.04em]">
-            {scenario.title}
-          </h2>
-          <p className="mt-4 text-sm leading-7 text-muted-foreground">
-            {scenario.deliveryGoal}
-          </p>
+          <div
+            role="heading"
+            aria-level={2}
+            className="font-display mt-3 text-3xl tracking-[-0.04em]"
+          >
+            <AssistantRichText content={scenario.title} />
+          </div>
+          <AssistantRichText
+            content={scenario.deliveryGoal}
+            className="text-muted-foreground mt-4 text-sm leading-7"
+          />
         </div>
 
         <div className="grid gap-5 lg:grid-cols-2">
-          <div className="border border-border/70 p-4">
-            <div className="font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">
+          <div className="border-border/70 border p-4">
+            <div className="text-muted-foreground font-mono text-xs tracking-[0.18em] uppercase">
               Audience
             </div>
-            <div className="mt-3 text-sm leading-7 text-foreground">
-              {scenario.audience}
-            </div>
+            <AssistantRichText
+              content={scenario.audience}
+              className="text-foreground mt-3 text-sm leading-7"
+            />
           </div>
 
-          <div className="border border-border/70 p-4">
-            <div className="font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">
+          <div className="border-border/70 border p-4">
+            <div className="text-muted-foreground font-mono text-xs tracking-[0.18em] uppercase">
               Constraint
             </div>
-            <div className="mt-3 text-sm leading-7 text-foreground">
-              {scenario.audienceContext}
-            </div>
+            <AssistantRichText
+              content={scenario.audienceContext}
+              className="text-foreground mt-3 text-sm leading-7"
+            />
           </div>
         </div>
 
@@ -69,12 +80,18 @@ export function TeachCapstone({
           {messages.map((message) => (
             <div
               key={message.id}
-              className="border border-border/70 p-4 text-sm leading-7 text-muted-foreground"
+              className="border-border/70 text-muted-foreground border p-4 text-sm leading-7"
             >
-              <div className="font-mono text-xs uppercase tracking-[0.18em] text-foreground/70">
+              <div className="text-foreground/70 font-mono text-xs tracking-[0.18em] uppercase">
                 {message.role} · round {message.round || 1}
               </div>
-              <div className="mt-2">{message.content}</div>
+              <div className="mt-2">
+                {message.role === "assistant" ? (
+                  <AssistantRichText content={message.content} />
+                ) : (
+                  message.content
+                )}
+              </div>
             </div>
           ))}
         </div>
@@ -84,11 +101,11 @@ export function TeachCapstone({
           onChange={(event) => onResponseChange(event.target.value)}
           disabled={status === "passed" || status === "failed" || isSubmitting}
           placeholder="Teach the idea clearly, then answer the audience's pushback without losing the core insight."
-          className="min-h-[220px] rounded-none border-border bg-background px-4 py-4 text-sm leading-7 shadow-none focus-visible:ring-0"
+          className="border-border bg-background min-h-[220px] rounded-none px-4 py-4 text-sm leading-7 shadow-none focus-visible:ring-0"
         />
 
         <div className="flex items-center justify-between gap-4">
-          <div className="text-sm text-muted-foreground">
+          <div className="text-muted-foreground text-sm">
             Round {Math.min(currentRound + 1, maxRounds)} of {maxRounds}
           </div>
           <Button

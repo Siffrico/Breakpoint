@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Geist_Mono, Manrope, Sora } from "next/font/google";
+import { Geist, Geist_Mono, Sora } from "next/font/google";
 
 import { cn } from "@acme/ui";
 import { ThemeProvider, ThemeToggle } from "@acme/ui/theme";
@@ -8,6 +8,8 @@ import { Toaster } from "@acme/ui/toast";
 import { env } from "~/env";
 import { TRPCReactProvider } from "~/trpc/react";
 
+import "katex/dist/katex.min.css";
+import "streamdown/styles.css";
 import "~/app/styles.css";
 
 export const metadata: Metadata = {
@@ -36,7 +38,7 @@ export const viewport: Viewport = {
   ],
 };
 
-const manrope = Manrope({
+const geist = Geist({
   subsets: ["latin"],
   variable: "--font-body",
 });
@@ -55,7 +57,7 @@ export default function RootLayout(props: { children: React.ReactNode }) {
       <body
         className={cn(
           "bg-background text-foreground min-h-screen font-sans antialiased",
-          manrope.variable,
+          geist.variable,
           sora.variable,
           geistMono.variable,
         )}

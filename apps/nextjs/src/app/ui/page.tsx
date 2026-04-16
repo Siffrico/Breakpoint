@@ -46,6 +46,11 @@ const previews = [
     label: "E.S.D.E.",
     description: "Domain grid plus an interactive scenario preview.",
   },
+  {
+    href: "/ui/courses",
+    label: "Courses",
+    description: "Outcome-based course catalog and discovery.",
+  },
 ];
 
 export default function UiPreviewIndexPage() {

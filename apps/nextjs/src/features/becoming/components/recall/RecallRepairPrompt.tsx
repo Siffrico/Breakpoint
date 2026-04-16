@@ -5,6 +5,8 @@ import { useState } from "react";
 import { Button } from "@acme/ui/button";
 import { Textarea } from "@acme/ui/textarea";
 
+import { AssistantRichText } from "../assistant-rich-text";
+
 export function RecallRepairPrompt({
   prompt,
   onSubmit,
@@ -20,16 +22,19 @@ export function RecallRepairPrompt({
 
   return (
     <section className="border border-amber-400/20 bg-amber-500/5 p-6">
-      <div className="text-[10px] font-medium tracking-[0.2em] uppercase text-amber-700 dark:text-amber-300">
+      <div className="text-[10px] font-medium tracking-[0.2em] text-amber-700 uppercase dark:text-amber-300">
         Repair prompt
       </div>
-      <p className="mt-4 text-sm leading-7 text-foreground/80">{prompt}</p>
+      <AssistantRichText
+        content={prompt}
+        className="text-foreground/80 mt-4 text-sm leading-7"
+      />
 
       <Textarea
         value={response}
         onChange={(event) => setResponse(event.target.value)}
         disabled={disabled || isPending}
-        className="mt-5 min-h-32 border-border bg-background px-4 py-4 text-sm leading-7 shadow-none focus-visible:ring-0"
+        className="border-border bg-background mt-5 min-h-32 px-4 py-4 text-sm leading-7 shadow-none focus-visible:ring-0"
         placeholder="Repair the specific decay the system found."
       />
 
@@ -38,7 +43,7 @@ export function RecallRepairPrompt({
           type="button"
           disabled={disabled || isPending || response.trim().length < 20}
           onClick={() => onSubmit(response)}
-          className="h-11 bg-primary px-6 text-primary-foreground hover:brightness-110"
+          className="bg-primary text-primary-foreground h-11 px-6 hover:brightness-110"
         >
           {isPending ? "Checking..." : "Submit repair"}
         </Button>

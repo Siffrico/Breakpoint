@@ -137,6 +137,7 @@ Typography should feel modern and technical without becoming startup-generic.
 - prefer a single clear metaphor over clever icon mixes
 - align icon weight and scale across a row; do not let one icon feel heavier or more boxed than its neighbors
 - if an icon sits beside text in a structural header, its spacing must feel intentional and balanced, not floating or pushed to an edge
+- **hover on icons**: never use a background fill (`hover:bg-*`) on icon buttons. Hover should only change the icon color (e.g. `hover:text-foreground/80`). No background squares or circles on hover.
 
 ---
 

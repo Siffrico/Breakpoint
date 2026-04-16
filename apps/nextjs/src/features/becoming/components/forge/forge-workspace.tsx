@@ -1,16 +1,16 @@
 "use client";
 
-import { ArrowUp } from "@phosphor-icons/react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowBendUpLeft, ArrowUp } from "@phosphor-icons/react";
 import { useMutation } from "@tanstack/react-query";
 
 import type { RouterOutputs } from "@acme/api";
 import { Button } from "@acme/ui/button";
-import { Textarea } from "@acme/ui/textarea";
 import { toast } from "@acme/ui/toast";
 
+import { AssistantRichText } from "~/features/becoming/components/assistant-rich-text";
 import { RecallGateView } from "~/features/becoming/components/recall/RecallGateView";
 import { useTRPC } from "~/trpc/react";
 
@@ -34,6 +34,54 @@ type InteractionMode =
     }
   | { kind: "compose" };
 
+const COLLAPSED_COMPOSER_MIN_HEIGHT = 112;
+const COLLAPSED_COMPOSER_MAX_HEIGHT = 280;
+
+const getComposerHeightBounds = (element: HTMLTextAreaElement | null) => {
+  if (typeof window === "undefined") {
+    return {
+      minHeight: COLLAPSED_COMPOSER_MIN_HEIGHT,
+      maxHeight: COLLAPSED_COMPOSER_MAX_HEIGHT,
+    };
+  }
+
+  const baseMinHeight = COLLAPSED_COMPOSER_MIN_HEIGHT;
+  const baseMaxHeight = COLLAPSED_COMPOSER_MAX_HEIGHT;
+  const viewportRatioMax = Math.floor(window.innerHeight * 0.24);
+  const viewportCap = Math.min(baseMaxHeight, viewportRatioMax);
+
+  const availableSpaceFromTop = element
+    ? Math.floor(window.innerHeight - element.getBoundingClientRect().top - 44)
+    : viewportCap;
+  const maxHeight = Math.max(
+    baseMinHeight,
+    Math.min(viewportCap, availableSpaceFromTop),
+  );
+
+  return {
+    minHeight: baseMinHeight,
+    maxHeight,
+  };
+};
+
+const syncComposerTextareaHeight = ({
+  element,
+}: {
+  element: HTMLTextAreaElement | null;
+}) => {
+  if (!element) return;
+
+  const { minHeight, maxHeight } = getComposerHeightBounds(element);
+  element.style.height = "0px";
+  const nextHeight = Math.max(
+    minHeight,
+    Math.min(element.scrollHeight, maxHeight),
+  );
+  element.style.height = `${nextHeight}px`;
+  element.style.overflowY =
+    element.scrollHeight > maxHeight ? "auto" : "hidden";
+};
+
 function MessageBox({
   title,
   children,
@@ -42,23 +90,59 @@ function MessageBox({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-[60vh] flex flex-col justify-center">
-      <div className="border border-foreground/[0.08] px-6 py-5 sm:px-7 sm:py-6">
-        <h2 className="font-display text-[16px] font-semibold tracking-[-0.02em] text-foreground">
-          {title}
-        </h2>
-        <div className="mt-3 text-[13px] leading-7 text-foreground/75">
-          {children}
+    <section className="py-4 font-sans">
+      <div
+        role="heading"
+        aria-level={3}
+        className="text-foreground/92 text-[15px] font-medium tracking-[-0.02em]"
+      >
+        <AssistantRichText content={title} />
+      </div>
+      <div className="text-foreground/88 mt-3 space-y-3 text-[14px] leading-[1.42] tracking-[-0.01em] [&_em]:italic [&_p]:m-0 [&_strong]:font-medium">
+        {children}
+      </div>
+    </section>
+  );
+}
+
+function PromptTurn({
+  prompt,
+  helper,
+}: {
+  prompt: string;
+  helper?: string | null;
+}) {
+  return (
+    <section className="py-3 font-sans">
+      <div className="max-w-[1720px]">
+        <div>
+          {helper ? (
+            <AssistantRichText
+              content={helper}
+              className="text-foreground/34 text-[13px] leading-[1.4] tracking-[-0.01em] italic"
+            />
+          ) : null}
+          <AssistantRichText
+            content={prompt}
+            className={[
+              "text-foreground tracking-[-0.035em]",
+              helper
+                ? "mt-3 text-[16px] leading-[1.32] font-medium"
+                : "text-[16px] leading-[1.36] font-medium",
+            ].join(" ")}
+          />
         </div>
       </div>
-    </div>
+    </section>
   );
 }
 
 function UserResponse({ text }: { text: string }) {
   return (
-    <div className="min-h-[20vh] flex items-center">
-      <p className="text-[13px] leading-7 text-foreground/60">{text}</p>
+    <div className="py-5 font-sans">
+      <div className="max-w-[78%] rounded-[16px] bg-[#eaf1ff] px-5 py-3 text-[14px] leading-[1.4] tracking-[-0.015em] text-[#0a63d8] shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
+        {text}
+      </div>
     </div>
   );
 }
@@ -75,21 +159,21 @@ function ActionGate({
   onPrimaryAction: () => void;
 }) {
   return (
-    <div className="border border-foreground/[0.08] bg-card/55 px-4 py-4 sm:px-5">
-      <div className="text-[12px] font-medium uppercase tracking-[0.14em] text-foreground/32">
+    <div className="border-foreground/[0.08] bg-background/94 rounded-[18px] border px-5 py-5 shadow-[0_1px_2px_rgba(15,23,42,0.03),0_12px_30px_rgba(15,23,42,0.05)] sm:px-6">
+      <div className="text-foreground/35 text-[12px] font-medium tracking-[-0.01em]">
         No reply needed
       </div>
-      <div className="mt-3 text-[15px] font-medium tracking-[-0.02em] text-foreground">
+      <div className="text-foreground mt-2.5 text-[15px] font-medium tracking-[-0.02em]">
         {title}
       </div>
-      <p className="mt-2 max-w-[54ch] text-[13px] leading-6 text-foreground/58">
+      <p className="text-foreground/58 mt-2 max-w-[82ch] text-[13px] leading-6 tracking-[-0.01em]">
         {description}
       </p>
       <div className="mt-4">
         <Button
           type="button"
           onClick={onPrimaryAction}
-          className="h-9 rounded-none bg-primary px-4 text-[12px] font-medium uppercase tracking-[0.12em] text-primary-foreground before:rounded-none hover:brightness-110"
+          className="border-foreground/[0.08] bg-foreground text-background hover:bg-foreground/92 h-9 rounded-xl px-4 text-[13px] font-medium tracking-[-0.02em] before:rounded-[11px]"
         >
           {primaryLabel}
         </Button>
@@ -217,15 +301,16 @@ export function ForgeWorkspace({
   const trpc = useTRPC();
   const [state, setState] = useState(unit);
   const [response, setResponse] = useState("");
-  const [responseMode, setResponseMode] = useState<"free_response" | "multiple_choice">(
-    state.challenge.responseMode,
-  );
+  const [responseMode, setResponseMode] = useState<
+    "free_response" | "multiple_choice"
+  >(state.challenge.responseMode);
   const [openedGateKeys, setOpenedGateKeys] = useState<string[]>([]);
   const [stepStartedAt, setStepStartedAt] = useState(() => Date.now());
   const [activeRecallGate, setActiveRecallGate] = useState<RecallGate | null>(
     recallGate,
   );
   const bottomRef = useRef<HTMLDivElement>(null);
+  const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   const workspaceHref = preview ? "/ui/home" : `/home?session=${sessionId}`;
   const activePromptCard = getActivePromptCard(state);
@@ -249,8 +334,31 @@ export function ForgeWorkspace({
     setResponse("");
     setResponseMode(activePromptCard?.responseMode ?? "free_response");
     setStepStartedAt(Date.now());
-    setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
-  }, [activePromptCard?.prompt, activePromptCard?.responseMode, state.activeStage, state.retryCount]);
+    setTimeout(
+      () => bottomRef.current?.scrollIntoView({ behavior: "smooth" }),
+      100,
+    );
+  }, [
+    activePromptCard?.prompt,
+    activePromptCard?.responseMode,
+    state.activeStage,
+    state.retryCount,
+  ]);
+
+  useLayoutEffect(() => {
+    syncComposerTextareaHeight({
+      element: composerTextareaRef.current,
+    });
+  }, [response, state.activeStage, activePromptCard?.prompt]);
+
+  useEffect(() => {
+    const handleResize = () =>
+      syncComposerTextareaHeight({
+        element: composerTextareaRef.current,
+      });
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   useEffect(() => {
     onStateChange?.(state);
@@ -340,7 +448,10 @@ export function ForgeWorkspace({
     setOpenedGateKeys((prev) =>
       prev.includes(instructionGateKey) ? prev : [...prev, instructionGateKey],
     );
-    setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+    setTimeout(
+      () => bottomRef.current?.scrollIntoView({ behavior: "smooth" }),
+      100,
+    );
   };
 
   const modeOptions = useMemo(
@@ -365,55 +476,76 @@ export function ForgeWorkspace({
     );
   } else {
     messages.push(
-      <MessageBox key="challenge" title={state.challenge.title}>
-        <p>{state.challenge.prompt}</p>
-        {state.challenge.helper && (
-          <p className="mt-4 border-l-2 border-foreground/[0.08] pl-4 text-[14px] text-foreground/50">
-            {state.challenge.helper}
-          </p>
-        )}
-      </MessageBox>,
+      <PromptTurn
+        key="challenge"
+        prompt={state.challenge.prompt}
+        helper={state.challenge.helper}
+      />,
     );
 
     if (state.initialResponse?.response) {
       messages.push(
-        <UserResponse key="initial-response" text={state.initialResponse.response} />,
+        <UserResponse
+          key="initial-response"
+          text={state.initialResponse.response}
+        />,
       );
     }
 
     if (state.conceptCorrection) {
       messages.push(
-        <MessageBox key="concept-correction" title={state.conceptCorrection.name}>
+        <MessageBox
+          key="concept-correction"
+          title={state.conceptCorrection.name}
+        >
           {state.diagnosticGap ? (
             <div className="space-y-3">
-              <p>{state.conceptCorrection.summary}</p>
-              <div className="border-l-2 border-foreground/[0.08] pl-4 text-[14px] text-foreground/60">
-                <div>{state.diagnosticGap.predictionError}</div>
-                <div className="mt-2">What held up: {state.diagnosticGap.whatHeldUp}</div>
-                <div className="mt-1">What broke: {state.diagnosticGap.whatBroke}</div>
+              <AssistantRichText content={state.conceptCorrection.summary} />
+              <div className="border-foreground/[0.08] text-foreground/58 border-l-2 pl-4 text-[13px] leading-6">
+                <AssistantRichText
+                  content={state.diagnosticGap.predictionError}
+                />
+                <div className="mt-2">
+                  <span>What held up: </span>
+                  <AssistantRichText
+                    content={state.diagnosticGap.whatHeldUp}
+                    className="inline-block"
+                  />
+                </div>
+                <div className="mt-1">
+                  <span>What broke: </span>
+                  <AssistantRichText
+                    content={state.diagnosticGap.whatBroke}
+                    className="inline-block"
+                  />
+                </div>
               </div>
             </div>
           ) : (
-            <p>{state.conceptCorrection.summary}</p>
+            <AssistantRichText content={state.conceptCorrection.summary} />
           )}
 
           {state.workedExamples.length > 0 && (
             <div className="mt-6 space-y-4">
               {state.workedExamples.map((example) => (
                 <div key={`${example.label}-${example.content.slice(0, 24)}`}>
-                  <div className="text-[12px] font-medium uppercase tracking-[0.14em] text-foreground/35">
+                  <div className="text-foreground/40 text-[13px] font-medium tracking-[-0.01em]">
                     {example.label}
                   </div>
-                  <p className="mt-2">{example.content}</p>
+                  <AssistantRichText
+                    content={example.content}
+                    className="mt-2"
+                  />
                 </div>
               ))}
             </div>
           )}
 
           {state.priorKnowledgeBridge && (
-            <p className="mt-6 border-l-2 border-foreground/[0.08] pl-4 text-[14px] text-foreground/50">
-              {state.priorKnowledgeBridge}
-            </p>
+            <AssistantRichText
+              content={state.priorKnowledgeBridge}
+              className="border-foreground/[0.08] text-foreground/54 mt-6 border-l-2 pl-4 text-[13px] leading-6"
+            />
           )}
         </MessageBox>,
       );
@@ -446,7 +578,7 @@ export function ForgeWorkspace({
                 : "Progress update"
           }
         >
-          <p>{state.assessmentFeedback}</p>
+          <AssistantRichText content={state.assessmentFeedback} />
         </MessageBox>,
       );
     }
@@ -457,14 +589,11 @@ export function ForgeWorkspace({
       interactionMode.kind === "compose"
     ) {
       messages.push(
-        <MessageBox key="mastery-check" title={state.masteryCheck.title}>
-          <p>{state.masteryCheck.prompt}</p>
-          {state.masteryCheck.helper && (
-            <p className="mt-4 border-l-2 border-foreground/[0.08] pl-4 text-[14px] text-foreground/50">
-              {state.masteryCheck.helper}
-            </p>
-          )}
-        </MessageBox>,
+        <PromptTurn
+          key="mastery-check"
+          prompt={state.masteryCheck.prompt}
+          helper={state.masteryCheck.helper}
+        />,
       );
     }
 
@@ -474,52 +603,65 @@ export function ForgeWorkspace({
       state.revisedBuildResponse == null
     ) {
       messages.push(
-        <MessageBox key="transfer-challenge" title={state.transferChallenge.title}>
-          <p>{state.transferChallenge.prompt}</p>
-          {state.transferChallenge.helper && (
-            <p className="mt-4 border-l-2 border-foreground/[0.08] pl-4 text-[14px] text-foreground/50">
-              {state.transferChallenge.helper}
-            </p>
-          )}
-        </MessageBox>,
+        <PromptTurn
+          key="transfer-challenge"
+          prompt={state.transferChallenge.prompt}
+          helper={state.transferChallenge.helper}
+        />,
       );
     }
 
     if (state.buildResponse?.response) {
       messages.push(
-        <UserResponse key="build-response" text={state.buildResponse.response} />,
+        <UserResponse
+          key="build-response"
+          text={state.buildResponse.response}
+        />,
       );
     }
 
     if (state.implementationReview) {
       messages.push(
         <MessageBox key="implementation-review" title="Implementation review">
-          <p>{state.implementationReview.summary}</p>
+          <AssistantRichText content={state.implementationReview.summary} />
           <div className="mt-6 grid gap-6 sm:grid-cols-2">
             <div>
-              <div className="text-[12px] font-medium text-foreground/35">
+              <div className="text-foreground/40 text-[13px] font-medium tracking-[-0.01em]">
                 Strongest parts
               </div>
-              <div className="mt-2 space-y-1.5 text-[14px] text-foreground/60">
+              <div className="text-foreground/58 mt-2 space-y-1.5 text-[13px] leading-6">
                 {state.implementationReview.strengths.map((item) => (
-                  <div key={item}>- {item}</div>
+                  <div key={item} className="flex gap-2">
+                    <span>-</span>
+                    <AssistantRichText
+                      content={item}
+                      className="min-w-0 flex-1"
+                    />
+                  </div>
                 ))}
               </div>
             </div>
             <div>
-              <div className="text-[12px] font-medium text-foreground/35">
+              <div className="text-foreground/40 text-[13px] font-medium tracking-[-0.01em]">
                 Tighten next
               </div>
-              <div className="mt-2 space-y-1.5 text-[14px] text-foreground/60">
+              <div className="text-foreground/58 mt-2 space-y-1.5 text-[13px] leading-6">
                 {state.implementationReview.improvements.map((item) => (
-                  <div key={item}>- {item}</div>
+                  <div key={item} className="flex gap-2">
+                    <span>-</span>
+                    <AssistantRichText
+                      content={item}
+                      className="min-w-0 flex-1"
+                    />
+                  </div>
                 ))}
               </div>
             </div>
           </div>
-          <p className="mt-6 border-l-2 border-foreground/[0.08] pl-4 text-[14px] text-foreground/50">
-            Revision brief: {state.implementationReview.requiredRevision}
-          </p>
+          <AssistantRichText
+            content={`Revision brief: ${state.implementationReview.requiredRevision}`}
+            className="border-foreground/[0.08] text-foreground/50 mt-6 border-l-2 pl-4 text-[14px]"
+          />
         </MessageBox>,
       );
     }
@@ -549,7 +691,7 @@ export function ForgeWorkspace({
               : "Execution needs tightening"
           }
         >
-          <p>{state.assessmentFeedback}</p>
+          <AssistantRichText content={state.assessmentFeedback} />
         </MessageBox>,
       );
     }
@@ -560,43 +702,52 @@ export function ForgeWorkspace({
       state.revisedBuildResponse != null
     ) {
       messages.push(
-        <MessageBox key="retry-transfer-challenge" title={state.transferChallenge.title}>
-          <p>{state.transferChallenge.prompt}</p>
-          {state.transferChallenge.helper && (
-            <p className="mt-4 border-l-2 border-foreground/[0.08] pl-4 text-[14px] text-foreground/50">
-              {state.transferChallenge.helper}
-            </p>
-          )}
-        </MessageBox>,
+        <PromptTurn
+          key="retry-transfer-challenge"
+          prompt={state.transferChallenge.prompt}
+          helper={state.transferChallenge.helper}
+        />,
       );
     }
 
     if (state.activeStage === "complete" && state.assessmentFeedback) {
       messages.push(
         <MessageBox key="final-assessment" title="Final assessment">
-          <p>{state.assessmentFeedback}</p>
+          <AssistantRichText content={state.assessmentFeedback} />
           {(state.strengths.length > 0 || state.improvements.length > 0) && (
             <div className="mt-6 grid gap-6 sm:grid-cols-2">
               {state.strengths.length > 0 && (
                 <div>
-                  <div className="text-[12px] font-medium text-foreground/35">
+                  <div className="text-foreground/40 text-[13px] font-medium tracking-[-0.01em]">
                     What worked
                   </div>
-                  <div className="mt-2 space-y-1.5 text-[14px] text-foreground/60">
+                  <div className="text-foreground/58 mt-2 space-y-1.5 text-[13px] leading-6">
                     {state.strengths.map((item) => (
-                      <div key={item}>- {item}</div>
+                      <div key={item} className="flex gap-2">
+                        <span>-</span>
+                        <AssistantRichText
+                          content={item}
+                          className="min-w-0 flex-1"
+                        />
+                      </div>
                     ))}
                   </div>
                 </div>
               )}
               {state.improvements.length > 0 && (
                 <div>
-                  <div className="text-[12px] font-medium text-foreground/35">
+                  <div className="text-foreground/40 text-[13px] font-medium tracking-[-0.01em]">
                     What to keep sharpening
                   </div>
-                  <div className="mt-2 space-y-1.5 text-[14px] text-foreground/60">
+                  <div className="text-foreground/58 mt-2 space-y-1.5 text-[13px] leading-6">
                     {state.improvements.map((item) => (
-                      <div key={item}>- {item}</div>
+                      <div key={item} className="flex gap-2">
+                        <span>-</span>
+                        <AssistantRichText
+                          content={item}
+                          className="min-w-0 flex-1"
+                        />
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -604,7 +755,7 @@ export function ForgeWorkspace({
             </div>
           )}
           {state.score != null && (
-            <div className="mt-6 font-mono text-[13px] text-foreground/30">
+            <div className="text-foreground/34 mt-6 font-mono text-[13px]">
               {state.score}
             </div>
           )}
@@ -617,12 +768,10 @@ export function ForgeWorkspace({
     !activeRecallGate && state.activeStage !== "complete" ? (
       <div
         className={
-          embedded
-            ? "shrink-0 border-t border-foreground/[0.06] bg-background px-4 pt-10 pb-7 sm:px-6 sm:pt-11"
-            : "mt-10"
+          embedded ? "bg-background shrink-0 px-4 pt-4 pb-6 sm:px-8" : "mt-10"
         }
       >
-        <div className={embedded ? "mx-auto w-full max-w-[760px]" : ""}>
+        <div className={embedded ? "mx-auto w-full max-w-[1820px]" : ""}>
           {interactionMode.kind === "acknowledge" ? (
             <ActionGate
               title={interactionMode.title}
@@ -653,31 +802,46 @@ export function ForgeWorkspace({
                 <button
                   type="button"
                   onClick={handleSubmit}
-                  disabled={!canSubmit || submitEducationUnitStep.isPending || preview}
+                  disabled={
+                    !canSubmit || submitEducationUnitStep.isPending || preview
+                  }
                   aria-label="Submit response"
-                  className="inline-flex h-8 w-8 items-center justify-center border border-primary bg-primary text-primary-foreground transition hover:brightness-110 disabled:pointer-events-none disabled:opacity-40"
+                  className="border-primary bg-primary text-primary-foreground inline-flex h-8 w-8 items-center justify-center border transition hover:brightness-110 disabled:pointer-events-none disabled:opacity-40"
                 >
                   <ArrowUp size={14} weight="bold" />
                 </button>
               </div>
             </div>
           ) : (
-            <div className="relative">
-              <Textarea
-                value={response}
-                onChange={(event) => setResponse(event.target.value)}
-                placeholder={getPlaceholder(state)}
-                className="min-h-[140px] rounded-none border-border bg-input text-[13px] leading-6 text-foreground placeholder:text-foreground/25 before:rounded-none shadow-none focus-visible:border-foreground/15 focus-visible:ring-0 [&_[data-slot=textarea]]:resize-none [&_[data-slot=textarea]]:px-4 [&_[data-slot=textarea]]:pt-4 [&_[data-slot=textarea]]:pb-14"
-              />
-              <button
-                type="button"
-                onClick={handleSubmit}
-                disabled={!canSubmit || submitEducationUnitStep.isPending || preview}
-                aria-label="Submit response"
-                className="absolute right-3 bottom-3 inline-flex h-8 w-8 items-center justify-center border border-primary bg-primary text-primary-foreground transition hover:brightness-110 disabled:pointer-events-none disabled:opacity-40"
-              >
-                <ArrowUp size={14} weight="bold" />
-              </button>
+            <div className="font-sans">
+              <div className="border-foreground/[0.08] bg-card focus-within:border-foreground/18 rounded-[10px] border shadow-[0_1px_0_rgba(0,0,0,0.02),0_4px_18px_-12px_rgba(0,0,0,0.14)] transition-[border-color,box-shadow] duration-150">
+                <div className="relative">
+                  <textarea
+                    ref={composerTextareaRef}
+                    value={response}
+                    onChange={(event) => setResponse(event.target.value)}
+                    onInput={(event) =>
+                      syncComposerTextareaHeight({
+                        element: event.currentTarget,
+                      })
+                    }
+                    placeholder={getPlaceholder(state)}
+                    rows={1}
+                    className="text-foreground/92 placeholder:text-foreground/30 block w-full resize-none bg-transparent px-3.5 pt-3 pb-10 text-[14px] leading-[1.5] tracking-[-0.005em] outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSubmit}
+                    disabled={
+                      !canSubmit || submitEducationUnitStep.isPending || preview
+                    }
+                    aria-label="Submit response"
+                    className="text-foreground/40 hover:bg-foreground/[0.04] hover:text-foreground/82 absolute right-2 bottom-2 inline-flex h-7 w-7 items-center justify-center rounded-md transition disabled:pointer-events-none disabled:opacity-40"
+                  >
+                    <ArrowBendUpLeft size={16} />
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 
@@ -692,7 +856,7 @@ export function ForgeWorkspace({
                       : "free_response",
                   )
                 }
-                className="border border-foreground/[0.08] px-2 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-foreground/25 transition-colors hover:bg-foreground/[0.03] hover:text-foreground/40"
+                className="border-foreground/[0.08] text-foreground/25 hover:bg-foreground/[0.03] hover:text-foreground/40 border px-2 py-1 text-[10px] font-medium tracking-[0.16em] uppercase transition-colors"
               >
                 {responseMode === "free_response" ? "choices" : "free"}
               </button>
@@ -704,20 +868,22 @@ export function ForgeWorkspace({
       <div
         className={
           embedded
-            ? "shrink-0 border-t border-foreground/[0.06] bg-background px-4 py-5 sm:px-6"
+            ? "border-foreground/[0.06] bg-background shrink-0 border-t px-4 py-5 sm:px-6"
             : "mt-8"
         }
       >
-        <div className={embedded ? "mx-auto w-full max-w-[760px]" : ""}>
-          <p className="text-[13px] leading-6 text-foreground/50">
-            {state.nextStep ?? "Ready to move on."}
-          </p>
+        <div className={embedded ? "mx-auto w-full max-w-[1820px]" : ""}>
+          <div className="text-foreground/50 text-[14px] leading-6 tracking-[-0.015em]">
+            <AssistantRichText
+              content={state.nextStep ?? "Ready to move on."}
+            />
+          </div>
           <div className="mt-4">
             <Button
               type="button"
               onClick={handleContinue}
               disabled={finalizeForgeUnit.isPending || preview}
-              className="h-9 rounded-none bg-primary px-5 text-[12px] font-medium uppercase tracking-[0.12em] text-primary-foreground before:rounded-none hover:brightness-110"
+              className="bg-foreground text-background hover:bg-foreground/92 h-9 rounded-xl px-5 text-[13px] font-medium tracking-[-0.02em] before:rounded-[11px]"
             >
               {finalizeForgeUnit.isPending ? "..." : "Continue"}
             </Button>
@@ -728,32 +894,39 @@ export function ForgeWorkspace({
 
   if (embedded) {
     return (
-      <div className="flex min-h-full flex-col">
-        <div className="pb-8">
+      <div className="flex min-h-full flex-1 flex-col">
+        <div className="flex-1 pt-6 pb-8">
           {messages}
           <div ref={bottomRef} />
         </div>
-        {inputZone && <div className="-mx-6 sm:-mx-8">{inputZone}</div>}
+        {inputZone && (
+          <div className="-mx-6 mt-auto sm:-mx-10">{inputZone}</div>
+        )}
       </div>
     );
   }
 
   return (
-    <main className="bp-page-bg min-h-screen px-5 py-8 text-foreground sm:px-8 lg:px-10">
+    <main className="bp-page-bg text-foreground min-h-screen px-5 py-8 sm:px-8 lg:px-10">
       <div className="mx-auto flex w-full max-w-3xl flex-col">
-        <div className="mb-8 flex items-center justify-between border-b border-foreground/[0.06] pb-6">
+        <div className="border-foreground/[0.06] mb-8 flex items-center justify-between border-b pb-6">
           <div>
-            <h1 className="font-display text-2xl tracking-[-0.03em]">
-              {state.title}
-            </h1>
-            <p className="mt-2 text-[14px] leading-relaxed text-foreground/50">
-              {state.summary}
-            </p>
+            <div
+              role="heading"
+              aria-level={1}
+              className="font-display text-2xl tracking-[-0.03em]"
+            >
+              <AssistantRichText content={state.title} />
+            </div>
+            <AssistantRichText
+              content={state.summary}
+              className="text-foreground/50 mt-2 text-[14px] leading-relaxed"
+            />
           </div>
           <Button
             asChild
             variant="outline"
-            className="h-9 rounded-none border-foreground/[0.08] bg-transparent px-4 text-[12px] uppercase tracking-[0.12em] text-foreground/70 before:rounded-none hover:bg-foreground/[0.03]"
+            className="border-foreground/[0.08] text-foreground/70 hover:bg-foreground/[0.03] h-9 rounded-none bg-transparent px-4 text-[12px] tracking-[0.12em] uppercase before:rounded-none"
           >
             <Link href={workspaceHref}>Back</Link>
           </Button>
