@@ -26,6 +26,7 @@ export const generateUnitScaffold = ({
   targetIdentity,
   priorLearning,
   nodeId,
+  plannedUnit,
 }: {
   slotKind: "unit" | "integration";
   slotIndex: number;
@@ -41,6 +42,11 @@ export const generateUnitScaffold = ({
   targetIdentity: string;
   priorLearning: PriorLearningRecord[];
   nodeId: string;
+  plannedUnit?: {
+    title: string;
+    summary: string;
+    whyItMatters: string;
+  };
 }): Promise<PreSeedUnitContentDraft> =>
   educationUnitBuilder.seed({
     nodeId,
@@ -51,6 +57,7 @@ export const generateUnitScaffold = ({
     integrationContext,
     targetIdentity,
     priorLearning,
+    plannedUnit,
   });
 
 export const generateUnitLesson = ({

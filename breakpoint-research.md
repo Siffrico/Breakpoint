@@ -12,7 +12,7 @@ That distinction matters. Without it, the project reads like a product pitch. Wi
 
 ## Core Claim
 
-Breakpoint is a home-page-centered adaptive learning workspace that trains people through structured education units rather than static lessons. Its central claim is:
+Breakpoint is a workspace-centered adaptive learning workspace that trains people through structured education units rather than static lessons. Its central claim is:
 
 **For targeted vocational competence, an adaptive scenario-based learning system can improve real-world performance faster than static content sequences, while also generating stronger evidence of skill than completion-based credentials.**
 
@@ -48,7 +48,7 @@ In code, some stages may be named differently, such as `mastery_check`, `transfe
 6. require application in a new or slightly harder scenario
 7. evaluate whether the target competence actually moved
 
-The home page is the correct surface for this. It should remain the main learning workspace because this loop is the product. Curriculum still matters, but curriculum should act as long-horizon structure around the unit loop, not as a rigid static path.
+The workspace is the correct surface for this. It should remain the main learning workspace because this loop is the product. Curriculum still matters, but curriculum should act as long-horizon structure around the unit loop, not as a rigid static path.
 
 ### Pedagogical Basis
 
@@ -177,7 +177,7 @@ This gives a pre-intervention state.
 
 ### Intervention
 
-The intervention is the home-page education-unit loop over time. Learners progress through curriculum-guided but adaptively selected units. Each unit produces structured behavioral evidence.
+The intervention is the workspace education-unit loop over time. Learners progress through curriculum-guided but adaptively selected units. Each unit produces structured behavioral evidence.
 
 ### Repeated Measures
 
@@ -330,7 +330,7 @@ That is sharp, publishable, and still aligned with the product.
 
 Breakpoint should be presented as a paired research program.
 
-The **methods paper** describes the education unit: a curriculum-scaffolded, AI-directed scenario loop on the home page that diagnoses learner state, applies a Goldilocks difficulty policy, delivers minimal concept repair, and verifies transfer through repeated scenario performance.
+The **methods paper** describes the education unit: a curriculum-scaffolded, AI-directed scenario loop in the workspace that diagnoses learner state, applies a Goldilocks difficulty policy, delivers minimal concept repair, and verifies transfer through repeated scenario performance.
 
 The **outcomes paper** tests whether this methodology works: whether learners improve from onboarding baseline to monthly review, whether Breakpoint's competency score predicts blind-rated capstone performance, and whether the observed time to targeted competence compares favorably with what published higher-education literature suggests for comparable broad skill development.
 

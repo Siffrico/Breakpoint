@@ -31,7 +31,7 @@ export const listLearningProjects = async () => {
   return caller.becoming.listLearningProjects();
 };
 
-export const getHomeState = async (sessionId: string) => {
+export const getWorkspaceState = async (sessionId: string) => {
   const caller = await createCaller();
   return caller.becoming.home({ sessionId });
 };

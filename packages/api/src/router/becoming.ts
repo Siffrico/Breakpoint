@@ -81,6 +81,7 @@ import { becomingCurriculumRepository } from "../repositories/becoming-curriculu
 import { becomingOnboardingRepository } from "../repositories/becoming-onboarding-repository";
 import { becomingRecallRepository } from "../repositories/becoming-recall-repository";
 import { becomingTrainingRepository } from "../repositories/becoming-training-repository";
+import { memoryRepository } from "../repositories/memory-repository";
 import { publicProcedure, protectedProcedure } from "../trpc";
 
 const SessionIdSchema = z.object({
@@ -688,6 +689,14 @@ export const becomingRouter = {
                 db: ctx.db,
                 sessionId,
               }),
+            listMemories: async (userId) => {
+              const result = await memoryRepository.listByUserId({
+                db: ctx.db,
+                userId,
+              });
+
+              return result.success ? result.data : [];
+            },
             savePhaseResponse: (payload) =>
               becomingCurriculumRepository.savePhaseResponse({
                 db: ctx.db,
@@ -1110,6 +1119,22 @@ export const becomingRouter = {
                         gateId,
                       }),
                   },
+                }),
+              listMemories: async (userId) => {
+                const result = await memoryRepository.listByUserId({
+                  db,
+                  userId,
+                });
+
+                return result.success ? result.data : [];
+              },
+              createMemory: ({ userId, content, contentHash, source }) =>
+                memoryRepository.create({
+                  db,
+                  userId,
+                  content,
+                  contentHash,
+                  source,
                 }),
             },
           }),

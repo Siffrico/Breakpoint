@@ -3,24 +3,24 @@ import Link from "next/link";
 import type { RouterOutputs } from "@acme/api";
 import { Button } from "@acme/ui/button";
 
-type HomeState = RouterOutputs["becoming"]["home"];
+type WorkspaceState = RouterOutputs["becoming"]["home"];
 
-export function HomeOverview({
-  home,
+export function WorkspaceOverview({
+  workspace,
   sessionId,
   preview = false,
 }: {
-  home: HomeState;
+  workspace: WorkspaceState;
   sessionId: string;
   preview?: boolean;
 }) {
-  const progress = home.totalUnits > 0
-    ? Math.round((home.completedUnits / home.totalUnits) * 100)
+  const progress = workspace.totalUnits > 0
+    ? Math.round((workspace.completedUnits / workspace.totalUnits) * 100)
     : 0;
-  const activeUnitId = home.activeRecallGate?.triggerAfterUnitNodeId ?? home.nextUnitId;
+  const activeUnitId = workspace.activeRecallGate?.triggerAfterUnitNodeId ?? workspace.nextUnitId;
   const trainHref = preview
     ? "/ui/train"
-    : `/home?session=${sessionId}`;
+    : `/workspace?session=${sessionId}`;
   const planHref = preview ? "/ui/plan" : `/plan?session=${sessionId}`;
   const profileHref = preview ? "/ui/profile" : `/profile?session=${sessionId}`;
 
@@ -29,7 +29,7 @@ export function HomeOverview({
       <div className="mx-auto max-w-3xl border-x border-border/50">
         <section className="flex items-center justify-between border-b border-border px-6 py-4">
           <span className="font-mono text-xs text-muted-foreground">
-            {home.completedUnits}/{home.totalUnits} units
+            {workspace.completedUnits}/{workspace.totalUnits} units
           </span>
           <span className="font-mono text-xs text-muted-foreground">
             {progress}%
@@ -38,23 +38,23 @@ export function HomeOverview({
 
         <section className="border-b border-border px-6 py-6">
           <h1 className="font-display text-2xl tracking-[-0.04em]">
-            {home.targetIdentity}
+            {workspace.targetIdentity}
           </h1>
           <p className="mt-3 text-sm leading-6 text-muted-foreground">
-            {home.headline}
+            {workspace.headline}
           </p>
         </section>
 
         <section className="border-b border-border px-6 py-6">
           <h2 className="font-display text-lg tracking-[-0.03em]">
-            {home.activeRecallGate
+            {workspace.activeRecallGate
               ? "Recall gate active"
-              : (home.nextUnitTitle ?? "Path generated")}
+              : (workspace.nextUnitTitle ?? "Path generated")}
           </h2>
           <p className="mt-3 text-sm leading-6 text-muted-foreground">
-            {home.activeRecallGate
+            {workspace.activeRecallGate
               ? "Before the next unit unlocks, you need to prove earlier concepts are still live."
-              : home.planSummary}
+              : workspace.planSummary}
           </p>
           <div className="mt-5">
             {activeUnitId ? (
@@ -63,7 +63,7 @@ export function HomeOverview({
                 className="h-10 rounded-none bg-white px-5 text-black hover:bg-white/90"
               >
                 <Link href={trainHref}>
-                  {home.activeRecallGate ? "Open recall gate" : "Continue training"}
+                  {workspace.activeRecallGate ? "Open recall gate" : "Continue training"}
                 </Link>
               </Button>
             ) : null}
@@ -73,10 +73,10 @@ export function HomeOverview({
         <section className="border-b border-border px-6 py-6">
           <details>
             <summary className="cursor-pointer text-sm text-foreground">
-              {home.blockingSignals.length} patterns blocking progress
+              {workspace.blockingSignals.length} patterns blocking progress
             </summary>
             <div className="mt-3">
-              {home.blockingSignals.map((signal) => (
+              {workspace.blockingSignals.map((signal) => (
                 <div
                   key={signal}
                   className="border-b border-border py-3 text-sm leading-6 text-muted-foreground last:border-b-0"

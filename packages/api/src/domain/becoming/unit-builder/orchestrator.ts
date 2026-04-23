@@ -117,8 +117,9 @@ export const educationUnitBuilder = {
     clusterContext,
     integrationContext,
     targetIdentity,
-    priorLearning,
-  }: {
+  priorLearning,
+  plannedUnit,
+}: {
     nodeId: string;
     slotKind: "unit" | "integration";
     slotIndex: number;
@@ -133,6 +134,11 @@ export const educationUnitBuilder = {
     } | null;
     targetIdentity: string;
     priorLearning: PriorLearningRecord[];
+    plannedUnit?: {
+      title: string;
+      summary: string;
+      whyItMatters: string;
+    };
   }) =>
     runSeedStage(
       createUnitBuilderContext({
@@ -144,6 +150,7 @@ export const educationUnitBuilder = {
         integrationContext,
         targetIdentity,
         priorLearning,
+        currentUnit: plannedUnit,
       }),
     ),
 

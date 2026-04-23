@@ -312,7 +312,7 @@ export function ForgeWorkspace({
   const bottomRef = useRef<HTMLDivElement>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const workspaceHref = preview ? "/ui/home" : `/home?session=${sessionId}`;
+  const workspaceHref = preview ? "/ui/workspace" : `/workspace?session=${sessionId}`;
   const activePromptCard = getActivePromptCard(state);
   const submissionStep = getSubmissionStep(state);
   const canSubmit = response.trim().length > 0;
@@ -411,7 +411,7 @@ export function ForgeWorkspace({
       onNavigate(result);
       return;
     }
-    router.push(`/home?session=${sessionId}`);
+    router.push(`/workspace?session=${sessionId}`);
     router.refresh();
   };
 

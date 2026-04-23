@@ -10,6 +10,8 @@ import {
   getEducationUnitState,
 } from "../policies/education-unit-state-policy";
 import { educationUnitAiService } from "../services/education-unit-ai-service";
+import { buildTutorContext, type TutorContext } from "../tutor";
+import type { Memory } from "../../memory/types";
 
 interface SubmitEducationUnitStepDependencies {
   getUnitByNodeId: (nodeId: string) => Promise<UnitContent | null>;
@@ -28,6 +30,7 @@ interface SubmitEducationUnitStepDependencies {
       nextStep: string;
     }>
   >;
+  listMemories?: (userId: string) => Promise<Memory[]>;
   savePhaseResponse: (input: {
     unitContentId: string;
     sessionId: string;
@@ -105,6 +108,36 @@ export const submitEducationUnitStepWorkflow = async ({
     unit,
     responses: phaseResponses,
   });
+  let tutorContext: TutorContext | null = null;
+
+  if (userId && deps.listMemories) {
+    tutorContext = await buildTutorContext({
+      userId,
+      sessionId,
+      stage:
+        step === "initial_response"
+          ? "attempt_diagnosis"
+          : step === "mastery_check"
+            ? "mastery_check"
+            : step === "build_response"
+              ? "build_review"
+              : "revision_evaluation",
+      curriculumStage: {
+        unitId: unit.nodeId,
+        unitTitle: unit.title,
+        unitSummary: unit.summary,
+        learningGoal: unit.learningGoal,
+        activeStage: currentState.activeStage,
+        retryCount: currentState.retryCount,
+        unitPosition: null,
+        clusterTitle: currentState.clusterBriefing?.briefingArc ?? null,
+      },
+      latestLearnerMessage: trimmedResponse,
+      deps: {
+        listMemories: () => deps.listMemories?.(userId) ?? Promise.resolve([]),
+      },
+    });
+  }
 
   if (step === "initial_response") {
     if (currentState.activeStage !== "challenge") {
@@ -119,6 +152,7 @@ export const submitEducationUnitStepWorkflow = async ({
       confidence,
       retryCount: currentState.retryCount,
       priorLearning,
+      tutorContext,
     });
 
     const nextState = {
@@ -186,6 +220,7 @@ export const submitEducationUnitStepWorkflow = async ({
       unit,
       state: currentState,
       masteryCheckResponse: trimmedResponse,
+      tutorContext,
     });
 
     const nextState =
@@ -259,6 +294,7 @@ export const submitEducationUnitStepWorkflow = async ({
       unit,
       state: currentState,
       buildResponse: trimmedResponse,
+      tutorContext,
     });
 
     const nextState = {
@@ -312,6 +348,7 @@ export const submitEducationUnitStepWorkflow = async ({
     unit,
     state: currentState,
     revisionResponse: trimmedResponse,
+    tutorContext,
   });
 
   const nextState =

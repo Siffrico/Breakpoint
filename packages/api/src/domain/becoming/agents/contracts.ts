@@ -44,7 +44,15 @@ export const CurriculumPlanDraftSchema = z.object({
         title: z.string().min(1),
         summary: z.string().min(1),
         whyItMatters: z.string().min(1),
-        unitCount: z.number().int().min(1).max(6),
+        units: z
+          .array(
+            z.object({
+              title: z.string().min(1),
+              learningGoal: z.string().min(1),
+            }),
+          )
+          .min(1)
+          .max(6),
         simulation: z.object({
           title: z.string().min(1),
           summary: z.string().min(1),
@@ -60,7 +68,15 @@ export const CurriculumPlanDraftSchema = z.object({
         title: z.string().min(1),
         summary: z.string().min(1),
         whyItMatters: z.string().min(1),
-        unitCount: z.number().int().min(1).max(4),
+        units: z
+          .array(
+            z.object({
+              title: z.string().min(1),
+              learningGoal: z.string().min(1),
+            }),
+          )
+          .min(1)
+          .max(4),
         clusterSynthesis: z.array(z.string().min(1)).min(2),
       }),
     )

@@ -86,7 +86,7 @@ export function CapstoneWorkspace({
     setResponse("");
   };
 
-  const workspaceHref = `/home?session=${sessionId}`;
+  const workspaceHref = `/workspace?session=${sessionId}`;
   const isComplete =
     capstone.status === "passed" || capstone.status === "failed";
   const remainingRounds = Math.max(

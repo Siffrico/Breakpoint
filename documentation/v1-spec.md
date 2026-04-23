@@ -36,7 +36,7 @@ V1 proves the engine works. It does not prove the ecosystem.
 - Debrief as divergence visualization, not report card
 - Mentor recommendations anchored to actual attempt history
 - Private proof profile (auto-built, not curated)
-- Session re-entry hook (home screen shows one thing: next move)
+- Session re-entry hook (workspace shows one thing: next move)
 
 ### Does Not Ship in V1
 
@@ -253,11 +253,11 @@ Implementation: the debrief response from `getForgeDebrief` already returns stru
 
 ---
 
-### 10. Home Screen / Session Re-Entry
+### 10. Workspace / Session Re-Entry
 
 **What it is:** The surface the user sees when they return between sessions. Not currently designed as a first-class surface.
 
-**Design constraint:** The home screen shows one thing — the user's next move, anchored to the gap.
+**Design constraint:** The workspace shows one thing — the user's next move, anchored to the gap.
 
 **Not:**
 - A course catalog.
@@ -270,7 +270,7 @@ Implementation: the debrief response from `getForgeDebrief` already returns stru
 - Why it matters — one sentence, anchored to the identity model.
 - Where the user stands in the gap — not a progress bar, but the honest read: "Your blast-radius containment has been tested once. It hasn't been tested under pressure yet. That's next."
 
-The home screen is where the mentor layer surfaces its recommendation. If the mentor has flagged a pattern, the home screen reflects it.
+The workspace is where the mentor layer surfaces its recommendation. If the mentor has flagged a pattern, the workspace reflects it.
 
 ---
 
@@ -310,7 +310,7 @@ These are the specific failure conditions. If any of these are true, the product
 | Debrief | Uses words like "great effort" or gives advice without a specific divergence point |
 | Skill graph | No visible distinction between "learned in theory" and "pressure-tested" |
 | Mentor | Gives the same recommendation twice without a new performance signal |
-| Home screen | Shows anything other than the next single most important action |
+| Workspace | Shows anything other than the next single most important action |
 | Proof profile | Shows anything the user hasn't actually demonstrated under pressure |
 
 ---

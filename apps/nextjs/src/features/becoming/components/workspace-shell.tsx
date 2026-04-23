@@ -18,7 +18,7 @@ import { OnboardingShell } from "./onboarding-shell";
 import { RecallGateView } from "./recall/RecallGateView";
 import { UnitQuestionPanel } from "./unit-question-panel";
 
-type HomeState = RouterOutputs["becoming"]["home"];
+type WorkspaceState = RouterOutputs["becoming"]["home"];
 type PlanState = RouterOutputs["becoming"]["activePlan"];
 type EducationUnit = RouterOutputs["becoming"]["unit"];
 type CapstoneState = RouterOutputs["becoming"]["getCapstone"];
@@ -33,8 +33,8 @@ const LAST_SESSION_COOKIE = "bp-last-learning-session";
 
 type WorkspaceMode = "onboarding" | "recall" | "unit" | "capstone" | "idle";
 
-export function HomeShell({
-  home,
+export function WorkspaceShell({
+  workspace,
   plan,
   unit,
   capstone,
@@ -45,7 +45,7 @@ export function HomeShell({
   preview = false,
   userName,
 }: {
-  home: HomeState | null;
+  workspace: WorkspaceState | null;
   plan: PlanState | null;
   unit: EducationUnit | null;
   capstone: CapstoneState | null;
@@ -101,17 +101,8 @@ export function HomeShell({
         : mode === "capstone"
           ? (capstone?.capstone.scenario.title ?? "Cluster capstone")
           : (liveUnit?.title ??
-            home?.nextUnitTitle ??
+            workspace?.nextUnitTitle ??
             "Preparing your next unit");
-  const shellSubtitle =
-    mode === "onboarding"
-      ? "Use the same onboarding system to define a new topic and build its path."
-      : mode === "recall"
-        ? "One stale concept, one recall, then back into new learning."
-        : mode === "capstone"
-          ? "Pressure-test the cluster before moving on."
-          : (liveUnit?.summary ?? home?.headline ?? "Learning workspace");
-
   const handleNavigate = (
     result: FinalizeForgeUnitResult | SubmitRecallProbeResult["nextAction"],
   ) => {
@@ -122,7 +113,7 @@ export function HomeShell({
       return;
     }
 
-    router.push(`/home?session=${sessionId}`);
+    router.push(`/workspace?session=${sessionId}`);
     router.refresh();
   };
 
@@ -157,10 +148,10 @@ export function HomeShell({
   };
 
   return (
-    <div className="bg-background text-foreground flex h-dvh overflow-hidden">
+    <div className="bg-sidebar text-foreground flex h-dvh overflow-hidden">
       <div
         className={[
-          "border-foreground/[0.06] bg-sidebar shrink-0 border-r transition-[width] duration-200",
+          "bg-sidebar shrink-0 transition-[width] duration-200",
           sidebarCollapsed ? "w-[56px]" : "w-[200px]",
         ].join(" ")}
       >
@@ -174,59 +165,57 @@ export function HomeShell({
         />
       </div>
 
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        {mode === "onboarding" ? null : (
-        <header className="border-foreground/[0.06] flex h-14 items-center justify-between border-b px-4 sm:px-6">
-          <div className="min-w-0">
-            <div
-              role="heading"
-              aria-level={1}
-              className="font-display text-foreground text-[16px] tracking-[-0.02em]"
-            >
-              <AssistantRichText
-                content={shellTitle}
-                className="overflow-hidden [&>*]:overflow-hidden [&>*]:text-ellipsis [&>*]:whitespace-nowrap"
-              />
-            </div>
-            <div className="text-foreground/34 text-[11px]">
-              <AssistantRichText
-                content={shellSubtitle}
-                className="overflow-hidden [&>*]:overflow-hidden [&>*]:text-ellipsis [&>*]:whitespace-nowrap"
-              />
-            </div>
-          </div>
+      <div className="flex min-w-0 flex-1 flex-col pr-2">
+        <header className="flex h-14 shrink-0 items-center justify-between px-4 sm:px-6">
+          {mode === "onboarding" ? null : (
+            <>
+              <div className="min-w-0">
+                <div
+                  role="heading"
+                  aria-level={1}
+                  className="font-display text-foreground text-[16px] tracking-[-0.02em]"
+                >
+                  <AssistantRichText
+                    content={shellTitle}
+                    className="overflow-hidden [&>*]:overflow-hidden [&>*]:text-ellipsis [&>*]:whitespace-nowrap"
+                  />
+                </div>
+              </div>
 
-          {mode === "unit" && liveUnit ? (
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => {}}
-                className="border-foreground/12 text-foreground hover:border-foreground/24 hover:text-foreground rounded-none bg-transparent px-3 text-[12px] before:rounded-none before:shadow-none hover:bg-transparent"
-              >
-                Hint
-              </Button>
-              <Button
-                type="button"
-                variant="default"
-                size="sm"
-                onClick={() =>
-                  setQuestionPanelOpen((prev) =>
-                    questionPanelFocused ? true : !prev,
-                  )
-                }
-                className="border-primary bg-primary text-primary-foreground hover:bg-primary/90 rounded-none px-3 text-[12px] before:rounded-none"
-              >
-                <Lightbulb size={15} weight="fill" />
-                Ask
-              </Button>
-            </div>
-          ) : null}
+              {mode === "unit" && liveUnit ? (
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {}}
+                    className="border-foreground/12 text-foreground hover:border-foreground/24 hover:text-foreground rounded-none bg-transparent px-3 text-[12px] before:rounded-none before:shadow-none hover:bg-transparent"
+                  >
+                    Hint
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="default"
+                    size="sm"
+                    onClick={() =>
+                      setQuestionPanelOpen((prev) =>
+                        questionPanelFocused ? true : !prev,
+                      )
+                    }
+                    className="border-primary bg-primary text-primary-foreground hover:bg-primary/90 rounded-none px-3 text-[12px] before:rounded-none"
+                  >
+                    <Lightbulb size={15} weight="fill" />
+                    Ask
+                  </Button>
+                </div>
+              ) : null}
+            </>
+          )}
         </header>
-        )}
 
-        <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="flex min-h-0 flex-1 py-1">
+          <div className="border-foreground/[0.06] bg-background flex min-w-0 flex-1 flex-col overflow-hidden border">
+            <div className="flex min-h-0 flex-1 overflow-hidden">
           {!questionPanelFocused && (
             <main
               className={[
@@ -258,7 +247,7 @@ export function HomeShell({
                     onSubmitProbe={handleRecallProbeSubmit}
                     isPending={submitRecallProbe.isPending}
                     onContinue={() => {
-                      router.push(`/home?session=${sessionId}`);
+                      router.push(`/workspace?session=${sessionId}`);
                       router.refresh();
                     }}
                   />
@@ -293,7 +282,7 @@ export function HomeShell({
                       >
                         <AssistantRichText
                           content={
-                            home?.nextUnitTitle ?? "Preparing your next unit"
+                            workspace?.nextUnitTitle ?? "Preparing your next unit"
                           }
                         />
                       </div>
@@ -323,6 +312,8 @@ export function HomeShell({
               />
             </div>
           ) : null}
+            </div>
+          </div>
         </div>
       </div>
     </div>

@@ -15,7 +15,7 @@ export function ProfileOverview({
   sessionId: string;
   preview?: boolean;
 }) {
-  const backHref = preview ? "/ui/home" : `/home?session=${sessionId}`;
+  const backHref = preview ? "/ui/workspace" : `/workspace?session=${sessionId}`;
   const transformationHref = preview
     ? "/ui/transformation"
     : `/transformation?session=${sessionId}`;

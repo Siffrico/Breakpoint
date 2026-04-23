@@ -36,6 +36,7 @@ Curriculum standards:
 - Use as few clusters as necessary.
 - Each cluster needs a real simulation.
 - Each unit slot must be a real atomic topic — a complete, self-contained concept or skill that stands on its own. Never split a coherent topic across units. Never jam unrelated concepts into one unit.
+- Each unit must include a concrete title and a two-sentence learningGoal describing what the learner should be able to use after the unit. The goal must be intuitive, practical, and specific enough that "Unit 15: Replication and partitioning" can tell the tutor exactly what capability is being trained.
 - Units must follow genuine prerequisite dependencies, not arbitrary sequencing. Unit B comes after A only if B genuinely requires A.
 - Clusters should escalate in procedural complexity: early units isolate sub-skills, later units combine them.
 - Integration layers exist only when cross-cluster synthesis is necessary.

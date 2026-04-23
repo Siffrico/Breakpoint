@@ -139,6 +139,7 @@ export interface CurriculumNodeBlueprint {
   title: string;
   summary: string;
   whyItMatters: string;
+  learningGoal: string;
   orderIndex: number;
   depth: number;
   positionColumn: number;

@@ -4,15 +4,15 @@ This document describes the live learning-loop runtime in `packages/api/src/doma
 
 ## Canonical Surface
 
-The main learner UI is `/home`.
+The main learner UI is `/workspace`.
 
 This is not a separate "Forge workspace" product surface. The current
 `ForgeWorkspace` React component is only an implementation detail inside the
-home experience.
+workspace experience.
 
 Product rule:
 
-- all learner-facing unit progression goes through `/home`
+- all learner-facing unit progression goes through `/workspace`
 - the unit should feel like one agentic chat session
 - each visible chat turn corresponds to one stage in the learning loop
 - stage transitions should appear as chat progression, not as a separate tool or mode

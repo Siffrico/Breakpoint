@@ -12,7 +12,7 @@ const buildNodes = (
   headline: string,
 ): CurriculumNodeBlueprint[] => {
   const maxUnitsPerCluster = Math.max(
-    ...draft.clusters.map((cluster) => cluster.unitCount),
+    ...draft.clusters.map((cluster) => cluster.units.length),
     1,
   );
   const clusterSpan = maxUnitsPerCluster + 2;
@@ -27,6 +27,8 @@ const buildNodes = (
       title: targetIdentity,
       summary: headline,
       whyItMatters: "This path exists because of the operator the learner wants to become.",
+      learningGoal:
+        "Use this path to turn the target identity into observable decisions and execution. Each unit should make one part of that operator behavior easier to perform under pressure.",
       orderIndex: 0,
       depth: 0,
       positionColumn: Math.floor(totalClusterWidth / 2),
@@ -40,7 +42,7 @@ const buildNodes = (
   draft.clusters.forEach((cluster, clusterIndex) => {
     const clusterOrderIndex = orderIndex++;
     const baseColumn = clusterIndex * clusterSpan;
-    const clusterCenter = baseColumn + Math.floor((cluster.unitCount - 1) / 2);
+    const clusterCenter = baseColumn + Math.floor((cluster.units.length - 1) / 2);
     const clusterHasInitiallyReadyUnit = unitNumber < 1;
 
     nodes.push({
@@ -50,21 +52,24 @@ const buildNodes = (
       title: cluster.title,
       summary: cluster.summary,
       whyItMatters: cluster.whyItMatters,
+      learningGoal:
+        "Use this cluster to build the core operating pattern behind this capability. By the end, the learner should handle the cluster's pressure test without relying on surface explanations.",
       orderIndex: clusterOrderIndex,
       depth: 1,
       positionColumn: clusterCenter,
       positionRow: 1,
     });
 
-    Array.from({ length: cluster.unitCount }).forEach((_, unitIndex) => {
+    cluster.units.forEach((unit, unitIndex) => {
       unitNumber += 1;
       nodes.push({
         parentOrderIndex: clusterOrderIndex,
         kind: "unit",
         status: unitNumber <= 1 ? "ready" : "planned",
-        title: `Unit Slot ${unitIndex + 1}`,
-        summary: `Generated when the learner reaches slot ${unitIndex + 1} in ${cluster.title}.`,
+        title: unit.title,
+        summary: unit.learningGoal,
         whyItMatters: cluster.whyItMatters,
+        learningGoal: unit.learningGoal,
         orderIndex: orderIndex++,
         depth: 2,
         positionColumn: baseColumn + unitIndex,
@@ -79,6 +84,8 @@ const buildNodes = (
       title: cluster.simulation.title,
       summary: cluster.simulation.summary,
       whyItMatters: cluster.simulation.whyItMatters,
+      learningGoal:
+        "Use this simulation to prove the learner can combine the cluster's units in one demanding situation. Passing means they can choose and execute the right moves without being told which concept applies.",
       orderIndex: orderIndex++,
       depth: 3,
       positionColumn: clusterCenter,
@@ -96,20 +103,23 @@ const buildNodes = (
       title: layer.title,
       summary: layer.summary,
       whyItMatters: `${layer.whyItMatters} Combines ${layer.clusterSynthesis.join(", ")}.`,
+      learningGoal:
+        "Use this integration layer to combine separate clusters into one operating system. The learner should be able to decide which prior tools matter and coordinate them without treating them as isolated lessons.",
       orderIndex: layerOrderIndex,
       depth: 1,
       positionColumn: integrationStartColumn + layerIndex,
       positionRow: 1,
     });
 
-    Array.from({ length: layer.unitCount }).forEach((_, slotIndex) => {
+    layer.units.forEach((unit, slotIndex) => {
       nodes.push({
         parentOrderIndex: layerOrderIndex,
         kind: "integration",
         status: "planned",
-        title: `Integration Slot ${slotIndex + 1}`,
-        summary: `Generated when the learner reaches integration slot ${slotIndex + 1}. Combines ${layer.clusterSynthesis.join(", ")}.`,
+        title: unit.title,
+        summary: unit.learningGoal,
         whyItMatters: layer.whyItMatters,
+        learningGoal: unit.learningGoal,
         orderIndex: orderIndex++,
         depth: 2,
         positionColumn: integrationStartColumn + layerIndex,

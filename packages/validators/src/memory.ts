@@ -10,6 +10,8 @@ export const MemorySourceSchema = z.enum([
   "manual",
   "file",
   "chatgpt_import",
+  "profile_update",
+  "unit_report",
 ]);
 
 export const MemoryImportSourceSchema = z.enum(["file", "chatgpt_import"]);

@@ -24,7 +24,7 @@ export default async function HomePage() {
               asChild
               className="h-11 rounded-none bg-white px-6 text-black hover:bg-white/90"
             >
-              <Link href="/home">Open workspace</Link>
+              <Link href="/workspace">Open workspace</Link>
             </Button>
           ) : (
             <AuthShowcase />

@@ -24,6 +24,7 @@ const LegacyEducationUnitStateSchema = z.object({
   title: z.string().min(1),
   summary: z.string().min(1),
   whyItMatters: z.string().min(1),
+  learningGoal: z.string().min(1).optional(),
   clusterArcFrame: z.string().nullable(),
   clusterBriefing: z.unknown().nullable(),
   currentStep: z.enum(["scenario", "evaluate", "complete"]),
@@ -104,6 +105,7 @@ const mapLegacySnapshot = (
     title: snapshot.title,
     summary: snapshot.summary,
     whyItMatters: snapshot.whyItMatters,
+    learningGoal: snapshot.learningGoal ?? snapshot.summary,
     clusterArcFrame: snapshot.clusterArcFrame,
     clusterBriefing: snapshot.clusterBriefing,
     activeStage:
@@ -191,6 +193,7 @@ export const createInitialEducationUnitState = ({
     title: unit.title,
     summary: unit.summary,
     whyItMatters: unit.whyItMatters,
+    learningGoal: unit.learningGoal,
     clusterArcFrame: unit.clusterArcFrame,
     clusterBriefing: unit.clusterBriefing,
     activeStage: "challenge",

@@ -12,6 +12,7 @@ import {
 } from "@acme/validators";
 
 import { runAgent } from "../orchestration/agent-runtime";
+import type { TutorContext } from "../tutor";
 
 const ConceptLayerSchema = z.object({
   conceptName: z.string().min(1),
@@ -59,11 +60,17 @@ You are training two linked capabilities inside one unit:
 
 Quality rules:
 - Make the learner feel the prediction error before patching it.
-- Teach the smallest concept correction that unlocks transfer.
+- Teach the concept at the size of the learner's failure: focused enough to explain exactly what broke, complete enough to support transfer into a new scenario.
 - Avoid filler pedagogy language and generic praise.
 - Use concrete engineering constraints, not vague "best practice" advice.
 - Procedural evaluation must inspect sequencing, primitives, verification, and failure handling.
 - When a learner needs a retry, preserve momentum and narrow the fix.`;
+
+const formatTutorContext = (context?: TutorContext | null) =>
+  context
+    ? `Tutor context:
+${context.userPrompt}`
+    : "Tutor context: Not available.";
 
 export const educationUnitAiService = {
   generateConceptLayer: async ({
@@ -73,6 +80,7 @@ export const educationUnitAiService = {
     confidence,
     retryCount,
     priorLearning,
+    tutorContext,
   }: {
     unit: UnitContent;
     initialResponse: string;
@@ -88,6 +96,7 @@ export const educationUnitAiService = {
       failureTags: string[];
       nextStep: string;
     }>;
+    tutorContext?: TutorContext | null;
   }) =>
     runAgent({
       agent: "buildContent",
@@ -124,6 +133,8 @@ Self-reported confidence: ${confidence}
 Prior learning:
 ${formatPriorLearning(priorLearning)}
 
+${formatTutorContext(tutorContext)}
+
 Learner initial response:
 ${initialResponse.trim()}`,
     }),
@@ -132,10 +143,12 @@ ${initialResponse.trim()}`,
     unit,
     state,
     masteryCheckResponse,
+    tutorContext,
   }: {
     unit: UnitContent;
     state: EducationUnitState;
     masteryCheckResponse: string;
+    tutorContext?: TutorContext | null;
   }) =>
     runAgent({
       agent: "buildContent",
@@ -165,6 +178,8 @@ ${state.conceptCorrection?.summary ?? ""}
 Prediction error:
 ${state.diagnosticGap?.predictionError ?? "None"}
 
+${formatTutorContext(tutorContext)}
+
 Worked examples:
 ${state.workedExamples.map((example) => `${example.label}: ${example.content}`).join("\n")}
 
@@ -180,10 +195,12 @@ ${masteryCheckResponse.trim()}`,
     unit,
     state,
     buildResponse,
+    tutorContext,
   }: {
     unit: UnitContent;
     state: EducationUnitState;
     buildResponse: string;
+    tutorContext?: TutorContext | null;
   }) =>
     runAgent({
       agent: "buildContent",
@@ -214,6 +231,8 @@ Transfer challenge:
 ${state.transferChallenge?.title ?? ""}
 ${state.transferChallenge?.prompt ?? ""}
 
+${formatTutorContext(tutorContext)}
+
 Learner build response:
 ${buildResponse.trim()}`,
     }),
@@ -222,10 +241,12 @@ ${buildResponse.trim()}`,
     unit,
     state,
     revisionResponse,
+    tutorContext,
   }: {
     unit: UnitContent;
     state: EducationUnitState;
     revisionResponse: string;
+    tutorContext?: TutorContext | null;
   }) =>
     runAgent({
       agent: "buildContent",
@@ -260,6 +281,8 @@ ${state.diagnosticGap?.predictionError ?? "None"}
 Transfer challenge:
 ${state.transferChallenge?.title ?? ""}
 ${state.transferChallenge?.prompt ?? ""}
+
+${formatTutorContext(tutorContext)}
 
 First build response:
 ${state.buildResponse?.response ?? ""}

@@ -39,10 +39,10 @@ export function ProfileSidebar({
   const query = sessionId ? `?session=${sessionId}` : "";
   const backHref =
     basePath === "/ui/profile"
-      ? "/ui/home"
+      ? "/ui/workspace"
       : sessionId
-        ? `/home?session=${sessionId}`
-        : "/home";
+        ? `/workspace?session=${sessionId}`
+        : "/workspace";
 
   return (
     <div className="flex h-full flex-col">

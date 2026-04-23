@@ -7,8 +7,8 @@ const previews = [
     description: "Conversation flow with local fake progression.",
   },
   {
-    href: "/ui/home",
-    label: "Home",
+    href: "/ui/workspace",
+    label: "Workspace",
     description: "Two-column dashboard: curriculum sidebar + live concept-to-execution loop.",
   },
   {

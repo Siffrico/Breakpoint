@@ -51,6 +51,8 @@ export const previewForgeUnit: RouterOutputs["becoming"]["unit"] = {
     "Train the learner to compute freshness guarantees from actual replica intersections instead of repeating quorum slogans.",
   whyItMatters:
     "Distributed systems engineers need to predict stale-read risk from write acknowledgements, lag, and replica selection under failure.",
+  learningGoal:
+    "Use quorum intersections to decide whether a read can see the latest acknowledged write. The learner should explain the guarantee from replica sets and lag, not from CAP slogans.",
   clusterArcFrame:
     "This first unit establishes the replication model the rest of the sequence depends on: which replicas have seen the write, which replicas answer the read, and where those sets stop intersecting.",
   clusterBriefing: {

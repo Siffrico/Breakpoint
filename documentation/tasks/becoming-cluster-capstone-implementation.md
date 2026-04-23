@@ -53,7 +53,7 @@ apps
       └─ features
          └─ becoming
             ├─ components
-            │  ├─ home-overview.tsx
+            │  ├─ workspace-overview.tsx
             │  ├─ capstone
             │  │  ├─ build-capstone.tsx
             │  │  ├─ capstone-workspace.tsx

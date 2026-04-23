@@ -5,5 +5,5 @@ export default async function PlanPage(props: {
 }) {
   const searchParams = await props.searchParams;
   const sessionId = searchParams.session;
-  redirect(sessionId ? `/home?session=${sessionId}` : "/onboarding");
+  redirect(sessionId ? `/workspace?session=${sessionId}` : "/onboarding");
 }

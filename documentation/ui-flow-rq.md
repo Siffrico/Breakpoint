@@ -105,7 +105,7 @@ Primary actions:
 - inspect locked future units
 - ask mentor why this is next
 
-### 5. Home / Today View
+### 5. Workspace / Today View
 
 Purpose:
 

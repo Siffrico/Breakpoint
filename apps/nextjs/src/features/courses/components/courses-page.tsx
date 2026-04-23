@@ -146,7 +146,7 @@ export function CoursesPage({ sessionId }: { sessionId?: string }) {
     return c.difficulty === filter;
   });
 
-  const homeHref = sessionId ? `/home?session=${sessionId}` : "/home";
+  const workspaceHref = sessionId ? `/workspace?session=${sessionId}` : "/workspace";
 
   return (
     <div className="flex min-h-dvh flex-col bg-background text-foreground">
@@ -154,7 +154,7 @@ export function CoursesPage({ sessionId }: { sessionId?: string }) {
         <div className="mx-auto flex h-12 max-w-[1600px] items-center justify-between">
           <div className="flex items-center gap-2 text-[14px] tracking-[-0.02em]">
             <Link
-              href={homeHref}
+              href={workspaceHref}
               className="text-foreground/40 transition-colors hover:text-foreground/70"
             >
               Breakpoint
@@ -163,7 +163,7 @@ export function CoursesPage({ sessionId }: { sessionId?: string }) {
             <span className="font-medium text-foreground/80">Courses</span>
           </div>
           <Link
-            href={homeHref}
+            href={workspaceHref}
             className="text-[13px] tracking-[-0.02em] text-foreground/40 transition-colors hover:text-foreground/70"
           >
             Back

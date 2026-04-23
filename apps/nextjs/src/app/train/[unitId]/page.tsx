@@ -6,5 +6,5 @@ export default async function TrainUnitPage(props: {
   const searchParams = await props.searchParams;
   const sessionId = searchParams.session;
 
-  redirect(sessionId ? `/home?session=${sessionId}` : "/home");
+  redirect(sessionId ? `/workspace?session=${sessionId}` : "/workspace");
 }

@@ -62,7 +62,7 @@ export function OnboardingShell({
         }
 
         if (embedded) {
-          router.push(`/home?session=${activeSessionId}`);
+          router.push(`/workspace?session=${activeSessionId}`);
           router.refresh();
           return;
         }

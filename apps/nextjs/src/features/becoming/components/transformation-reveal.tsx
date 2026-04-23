@@ -16,8 +16,8 @@ export function TransformationReveal({
   sessionId: string;
   preview?: boolean;
 }) {
-  const beginHref = preview ? "/ui/train" : `/home?session=${sessionId}`;
-  const workspaceHref = preview ? "/ui/home" : `/home?session=${sessionId}`;
+  const beginHref = preview ? "/ui/train" : `/workspace?session=${sessionId}`;
+  const workspaceHref = preview ? "/ui/workspace" : `/workspace?session=${sessionId}`;
   const beforeAfter = plan.beforeAfter;
 
   return (

@@ -304,6 +304,8 @@ export const previewPlanState: PlanState = {
       title: "Distributed Systems Core",
       summary: "Build production-grade intuition for replicated services.",
       whyItMatters: "This becomes the standard every unit trains toward.",
+      learningGoal:
+        "Use the path to reason from concrete system behavior instead of memorized labels. Each unit should make a production failure easier to predict and explain.",
       orderIndex: 0,
       depth: 0,
       positionColumn: 0,
@@ -317,6 +319,8 @@ export const previewPlanState: PlanState = {
       title: "Replication and Quorum",
       summary: "Model how writes, reads, and acknowledgements move across replicas.",
       whyItMatters: "Most distributed failures become visible here first.",
+      learningGoal:
+        "Use this cluster to trace replication decisions through lag, quorum, and failure. By the end, stale reads should feel mechanically predictable rather than mysterious.",
       orderIndex: 1,
       depth: 1,
       positionColumn: 1,
@@ -330,6 +334,8 @@ export const previewPlanState: PlanState = {
       title: "Quorum reads under replica lag",
       summary: "Decide when a read is fresh enough and what quorum size actually buys you.",
       whyItMatters: "Replica lag is where consistency claims become real.",
+      learningGoal:
+        "Use quorum intersections to decide whether a read can see the latest acknowledged write. The learner should be able to explain the guarantee from replica sets, not slogans.",
       orderIndex: 2,
       depth: 2,
       positionColumn: 2,
@@ -343,6 +349,8 @@ export const previewPlanState: PlanState = {
       title: "Cross-region checkout under partial partition",
       summary: "Diagnose stale inventory reads during a live network event.",
       whyItMatters: "This is the systems environment you are actually training for.",
+      learningGoal:
+        "Use the simulation to combine replication, lag, and user-visible correctness in one incident. Passing means the learner can diagnose the failure path and choose a defensible tradeoff.",
       orderIndex: 3,
       depth: 3,
       positionColumn: 3,
@@ -356,6 +364,8 @@ export const previewPlanState: PlanState = {
       title: "Coordination and Recovery",
       summary: "Reason through leader election, retries, replay, and safe failover.",
       whyItMatters: "Recovery paths determine whether the system is merely slow or actually wrong.",
+      learningGoal:
+        "Use this cluster to keep correctness intact while systems recover. The learner should distinguish temporary unavailability from decisions that can corrupt state.",
       orderIndex: 4,
       depth: 1,
       positionColumn: 1,
@@ -369,6 +379,8 @@ export const previewPlanState: PlanState = {
       title: "Leader election without split brain",
       summary: "Analyze election timers, quorum ownership, and stale leader cleanup.",
       whyItMatters: "Coordination bugs quietly corrupt correctness guarantees.",
+      learningGoal:
+        "Use election evidence to decide who is allowed to lead and when that authority expires. The learner should be able to prevent split brain with concrete checks.",
       orderIndex: 5,
       depth: 2,
       positionColumn: 2,

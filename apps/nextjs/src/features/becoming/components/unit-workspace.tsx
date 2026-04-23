@@ -30,7 +30,7 @@ export function UnitWorkspace({
   const [response, setResponse] = useState("");
 
   const canOpenScenario = retrievalResult?.passed ?? false;
-  const workspaceHref = `/ui/home?session=${sessionId}`;
+  const workspaceHref = `/ui/workspace?session=${sessionId}`;
 
   return (
     <main className="min-h-screen bg-[#06070a] px-5 py-8 text-white sm:px-8 lg:px-10">

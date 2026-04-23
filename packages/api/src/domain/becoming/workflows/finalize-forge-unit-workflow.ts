@@ -12,6 +12,13 @@ import type {
   RecallGate,
   UnitContent,
 } from "../types/becoming.types";
+import type { Memory, MemoryError } from "../../memory/types";
+import type { Result as DomainResult } from "../../../lib/result";
+import {
+  applyPostUnitReport,
+  buildTutorContext,
+  createPostUnitReport,
+} from "../tutor";
 
 interface FinalizeForgeUnitDependencies {
   getUnitByNodeId: (nodeId: string) => Promise<UnitContent | null>;
@@ -81,6 +88,13 @@ interface FinalizeForgeUnitDependencies {
     sessionId: string;
     userId?: string | null;
   }) => Promise<Result<RecallGate | null>>;
+  listMemories?: (userId: string) => Promise<Memory[]>;
+  createMemory?: (payload: {
+    userId: string;
+    content: string;
+    contentHash: string;
+    source: "profile_update" | "unit_report";
+  }) => Promise<DomainResult<Memory, MemoryError>>;
 }
 
 const deriveNextAction = (
@@ -148,6 +162,60 @@ export const finalizeForgeUnitWorkflow = async ({
 
   if (state.assessmentStatus !== "pass") {
     return ok({ nextAction: "home" });
+  }
+
+  if (userId && deps.listMemories && deps.createMemory) {
+    try {
+      const tutorContext = await buildTutorContext({
+        userId,
+        sessionId,
+        stage: "post_unit_report",
+        curriculumStage: {
+          unitId: unit.nodeId,
+          unitTitle: unit.title,
+          unitSummary: unit.summary,
+          learningGoal: unit.learningGoal,
+          activeStage: state.activeStage,
+          retryCount: state.retryCount,
+          unitPosition: null,
+          clusterTitle: state.clusterBriefing?.briefingArc ?? null,
+        },
+        latestLearnerMessage: state.revisedBuildResponse?.response,
+        deps: {
+          listMemories: () => deps.listMemories?.(userId) ?? Promise.resolve([]),
+        },
+      });
+      const report = await createPostUnitReport({
+        context: tutorContext,
+        completedUnit: {
+          unitTitle: unit.title,
+          learningGoal: unit.learningGoal,
+          finalScore: debrief.score,
+          assessmentStatus: state.assessmentStatus,
+          strengths: debrief.strengths,
+          improvements: debrief.improvements,
+          failureTags: debrief.failureTags,
+          finalArticulation: debrief.finalArticulation,
+          nextStep: debrief.nextStep,
+        },
+      });
+      const memoryResult = await applyPostUnitReport({
+        userId,
+        currentMemory: tutorContext.memory,
+        report,
+        deps: {
+          createMemory: deps.createMemory,
+        },
+      });
+
+      if (!memoryResult.success) {
+        console.error(memoryResult.error);
+      }
+    } catch (error) {
+      if (error instanceof Error) {
+        console.error(error);
+      }
+    }
   }
 
   if (node.status !== "completed") {

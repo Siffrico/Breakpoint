@@ -19,7 +19,7 @@ Your job:
 
 Quality standard:
 - this should feel like a precise coaching diagnosis, not a generic course lesson
-- choose the smallest high-leverage concept, not broad topic coverage
+- choose a failure-sized high-leverage concept: focused enough to explain the likely failure, complete enough to transfer
 - use the learner's target identity and prior failures to decide what matters now
 - avoid filler, vague abstractions, and fake difficulty
 - build something that will create strong downstream Build, Prove, and Repair stages

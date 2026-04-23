@@ -217,6 +217,11 @@ export const getUnitWorkflow = async ({
         targetIdentity,
         priorLearning,
         nodeId: node.id,
+        plannedUnit: {
+          title: node.title,
+          summary: node.summary,
+          whyItMatters: node.whyItMatters,
+        },
       }),
       briefingPromise,
     ]);

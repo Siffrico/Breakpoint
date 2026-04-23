@@ -24,8 +24,8 @@ export function CurriculumReveal({
   const unitCount = plan.nodes.filter(
     (n) => n.kind === "unit" || n.kind === "integration",
   ).length;
-  const beginHref = preview ? "/ui/train" : `/home?session=${sessionId}`;
-  const workspaceHref = preview ? "/ui/home" : `/home?session=${sessionId}`;
+  const beginHref = preview ? "/ui/train" : `/workspace?session=${sessionId}`;
+  const workspaceHref = preview ? "/ui/workspace" : `/workspace?session=${sessionId}`;
 
   return (
     <main className="min-h-dvh bg-background text-foreground">

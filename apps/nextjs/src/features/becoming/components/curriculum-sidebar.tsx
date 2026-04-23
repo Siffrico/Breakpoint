@@ -193,7 +193,7 @@ export function CurriculumSidebar({
   const startOnboarding = useMutation(
     trpc.becoming.startOnboarding.mutationOptions({
       onSuccess: (data) => {
-        router.push(`/home?session=${data.sessionId}`);
+        router.push(`/workspace?session=${data.sessionId}`);
         router.refresh();
       },
       onError: (error) => toast.error(error.message),
@@ -223,7 +223,7 @@ export function CurriculumSidebar({
   if (collapsed) {
     return (
       <aside className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
-        <div className="flex h-10 items-center justify-center border-b border-foreground/[0.05]">
+        <div className="flex h-14 items-center justify-center">
           <IconButton label="Open sidebar" onClick={onToggleCollapsed}>
             <SidebarSimple size={15} />
           </IconButton>
@@ -242,7 +242,7 @@ export function CurriculumSidebar({
 
         <div className="flex-1" />
 
-        <div className="flex flex-col items-center gap-2 border-t border-foreground/[0.05] py-3">
+        <div className="flex flex-col items-center gap-2 py-3">
           <Link
             href={profileHref}
             aria-label="Settings"
@@ -261,7 +261,7 @@ export function CurriculumSidebar({
   return (
     <aside className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
       {/* Top icon row */}
-      <div className="flex h-10 items-center justify-between px-2">
+      <div className="flex h-14 items-center justify-between px-2">
         <div className="flex items-center gap-0.5">
           <IconButton label="Collapse sidebar" onClick={onToggleCollapsed}>
             <SidebarSimple size={15} />
@@ -319,8 +319,8 @@ export function CurriculumSidebar({
             const isCurrent = project.sessionId === currentSessionId;
             const isExpanded = expanded[project.sessionId] ?? isCurrent;
             const href = preview
-              ? "/ui/home"
-              : `/home?session=${project.sessionId}`;
+              ? "/ui/workspace"
+              : `/workspace?session=${project.sessionId}`;
             return (
               <ProjectRow
                 key={project.sessionId}
