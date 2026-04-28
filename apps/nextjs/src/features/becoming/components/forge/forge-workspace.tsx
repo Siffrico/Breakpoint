@@ -286,6 +286,7 @@ export function ForgeWorkspace({
   embedded = false,
   onNavigate,
   onStateChange,
+  onRunningChange,
 }: {
   unit: EducationUnit;
   sessionId: string;
@@ -296,6 +297,7 @@ export function ForgeWorkspace({
     result: FinalizeForgeUnitResult | SubmitRecallProbeResult["nextAction"],
   ) => void;
   onStateChange?: (state: EducationUnit) => void;
+  onRunningChange?: (isRunning: boolean) => void;
 }) {
   const router = useRouter();
   const trpc = useTRPC();
@@ -312,7 +314,9 @@ export function ForgeWorkspace({
   const bottomRef = useRef<HTMLDivElement>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const workspaceHref = preview ? "/ui/workspace" : `/workspace?session=${sessionId}`;
+  const workspaceHref = preview
+    ? "/ui/workspace"
+    : `/workspace?session=${sessionId}`;
   const activePromptCard = getActivePromptCard(state);
   const submissionStep = getSubmissionStep(state);
   const canSubmit = response.trim().length > 0;
@@ -380,6 +384,15 @@ export function ForgeWorkspace({
       onError: (error) => toast.error(error.message),
     }),
   );
+  const isRunning =
+    submitEducationUnitStep.isPending ||
+    finalizeForgeUnit.isPending ||
+    submitRecallProbe.isPending;
+
+  useEffect(() => {
+    onRunningChange?.(isRunning);
+    return () => onRunningChange?.(false);
+  }, [isRunning, onRunningChange]);
 
   const handleSubmit = async () => {
     if (!submissionStep || preview) {

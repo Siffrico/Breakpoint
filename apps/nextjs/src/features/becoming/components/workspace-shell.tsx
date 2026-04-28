@@ -63,6 +63,7 @@ export function WorkspaceShell({
   const [questionPanelFocused, setQuestionPanelFocused] = useState(false);
   const [liveUnit, setLiveUnit] = useState(unit);
   const [liveRecallGate, setLiveRecallGate] = useState(recallGate);
+  const [isSessionRunning, setIsSessionRunning] = useState(false);
 
   useEffect(() => {
     document.cookie = `${LAST_SESSION_COOKIE}=${sessionId}; path=/; SameSite=Lax`;
@@ -91,6 +92,10 @@ export function WorkspaceShell({
         : capstone
           ? "capstone"
           : "idle";
+
+  useEffect(() => {
+    setIsSessionRunning(false);
+  }, [mode, sessionId]);
 
   const shellTitle =
     mode === "onboarding"
@@ -162,6 +167,8 @@ export function WorkspaceShell({
           collapsed={sidebarCollapsed}
           onToggleCollapsed={() => setSidebarCollapsed((prev) => !prev)}
           userName={userName}
+          activeLessonId={liveUnit?.nodeId ?? null}
+          isSessionRunning={isSessionRunning}
         />
       </div>
 
@@ -216,102 +223,106 @@ export function WorkspaceShell({
         <div className="flex min-h-0 flex-1 py-1">
           <div className="border-foreground/[0.06] bg-background flex min-w-0 flex-1 flex-col overflow-hidden border">
             <div className="flex min-h-0 flex-1 overflow-hidden">
-          {!questionPanelFocused && (
-            <main
-              className={[
-                "flex min-w-0 flex-1 overflow-y-auto",
-                mode === "onboarding"
-                  ? "p-0"
-                  : "px-6 pt-1 pb-6 sm:px-10 sm:pt-2",
-              ].join(" ")}
-            >
-              <div
-                className={
-                  mode === "onboarding"
-                    ? "flex min-h-full w-full flex-col"
-                    : "bp-prose flex min-h-full flex-col"
-                }
-              >
-                {mode === "onboarding" && onboardingState ? (
-                  <OnboardingShell
-                    embedded
-                    variant="landscape"
-                    initialState={onboardingState}
-                    sessionId={sessionId}
-                  />
-                ) : null}
+              {!questionPanelFocused && (
+                <main
+                  className={[
+                    "flex min-w-0 flex-1 overflow-y-auto",
+                    mode === "onboarding"
+                      ? "p-0"
+                      : "px-6 pt-1 pb-6 sm:px-10 sm:pt-2",
+                  ].join(" ")}
+                >
+                  <div
+                    className={
+                      mode === "onboarding"
+                        ? "flex min-h-full w-full flex-col"
+                        : "bp-prose flex min-h-full flex-col"
+                    }
+                  >
+                    {mode === "onboarding" && onboardingState ? (
+                      <OnboardingShell
+                        embedded
+                        variant="landscape"
+                        initialState={onboardingState}
+                        sessionId={sessionId}
+                        onRunningChange={setIsSessionRunning}
+                      />
+                    ) : null}
 
-                {mode === "recall" && liveRecallGate ? (
-                  <RecallGateView
-                    gate={liveRecallGate}
-                    onSubmitProbe={handleRecallProbeSubmit}
-                    isPending={submitRecallProbe.isPending}
-                    onContinue={() => {
-                      router.push(`/workspace?session=${sessionId}`);
-                      router.refresh();
-                    }}
-                  />
-                ) : null}
+                    {mode === "recall" && liveRecallGate ? (
+                      <RecallGateView
+                        gate={liveRecallGate}
+                        onSubmitProbe={handleRecallProbeSubmit}
+                        isPending={submitRecallProbe.isPending}
+                        onContinue={() => {
+                          router.push(`/workspace?session=${sessionId}`);
+                          router.refresh();
+                        }}
+                      />
+                    ) : null}
 
-                {mode === "unit" && liveUnit ? (
-                  <ForgeWorkspace
-                    unit={liveUnit}
-                    sessionId={sessionId}
-                    preview={preview}
-                    embedded
-                    onNavigate={handleNavigate}
-                    onStateChange={setLiveUnit}
-                  />
-                ) : null}
+                    {mode === "unit" && liveUnit ? (
+                      <ForgeWorkspace
+                        unit={liveUnit}
+                        sessionId={sessionId}
+                        preview={preview}
+                        embedded
+                        onNavigate={handleNavigate}
+                        onStateChange={setLiveUnit}
+                        onRunningChange={setIsSessionRunning}
+                      />
+                    ) : null}
 
-                {mode === "capstone" && capstone ? (
-                  <CapstoneWorkspace
-                    state={capstone}
-                    sessionId={sessionId}
-                    embedded
-                  />
-                ) : null}
+                    {mode === "capstone" && capstone ? (
+                      <CapstoneWorkspace
+                        state={capstone}
+                        sessionId={sessionId}
+                        embedded
+                        onRunningChange={setIsSessionRunning}
+                      />
+                    ) : null}
 
-                {mode === "idle" ? (
-                  <div className="flex min-h-[60vh] flex-col justify-center">
-                    <div className="border-foreground/[0.08] border px-7 py-6">
-                      <div
-                        role="heading"
-                        aria-level={2}
-                        className="font-display text-foreground text-base font-semibold tracking-[-0.02em]"
-                      >
-                        <AssistantRichText
-                          content={
-                            workspace?.nextUnitTitle ?? "Preparing your next unit"
-                          }
-                        />
+                    {mode === "idle" ? (
+                      <div className="flex min-h-[60vh] flex-col justify-center">
+                        <div className="border-foreground/[0.08] border px-7 py-6">
+                          <div
+                            role="heading"
+                            aria-level={2}
+                            className="font-display text-foreground text-base font-semibold tracking-[-0.02em]"
+                          >
+                            <AssistantRichText
+                              content={
+                                workspace?.nextUnitTitle ??
+                                "Preparing your next unit"
+                              }
+                            />
+                          </div>
+                          <div className="text-foreground/52 mt-3 text-[13px] leading-6">
+                            <AssistantRichText content="Your next learning step is being prepared." />
+                          </div>
+                        </div>
                       </div>
-                      <div className="text-foreground/52 mt-3 text-[13px] leading-6">
-                        <AssistantRichText content="Your next learning step is being prepared." />
-                      </div>
-                    </div>
+                    ) : null}
                   </div>
-                ) : null}
-              </div>
-            </main>
-          )}
+                </main>
+              )}
 
-          {questionPanelOpen && liveUnit ? (
-            <div
-              className={[
-                "min-w-0 transition-[width] duration-200",
-                questionPanelFocused ? "w-full" : "w-[380px]",
-              ].join(" ")}
-            >
-              <UnitQuestionPanel
-                unit={liveUnit}
-                isFocused={questionPanelFocused}
-                onClose={closeQuestionPanel}
-                onToggleFocus={toggleQuestionPanelFocus}
-                onReturnToUnit={() => setQuestionPanelFocused(false)}
-              />
-            </div>
-          ) : null}
+              {questionPanelOpen && liveUnit ? (
+                <div
+                  className={[
+                    "min-w-0 transition-[width] duration-200",
+                    questionPanelFocused ? "w-full" : "w-[380px]",
+                  ].join(" ")}
+                >
+                  <UnitQuestionPanel
+                    unit={liveUnit}
+                    isFocused={questionPanelFocused}
+                    onClose={closeQuestionPanel}
+                    onToggleFocus={toggleQuestionPanelFocus}
+                    onReturnToUnit={() => setQuestionPanelFocused(false)}
+                  />
+                </div>
+              ) : null}
             </div>
           </div>
         </div>

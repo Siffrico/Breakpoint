@@ -1,6 +1,9 @@
 "use client";
 
+import type { CSSProperties, ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   CaretRight,
   CircleDashed,
@@ -13,8 +16,6 @@ import {
   Storefront,
 } from "@phosphor-icons/react";
 import { useMutation } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
-import { type CSSProperties, type ReactNode } from "react";
 
 import type { RouterOutputs } from "@acme/api";
 import { toast } from "@acme/ui/toast";
@@ -22,7 +23,8 @@ import { toast } from "@acme/ui/toast";
 import { useLocalStorage } from "~/hooks/use-local-storage";
 import { useTRPC } from "~/trpc/react";
 
-type LearningProject = RouterOutputs["becoming"]["listLearningProjects"][number];
+type LearningProject =
+  RouterOutputs["becoming"]["listLearningProjects"][number];
 
 const SIDEBAR_FADE_STYLE = {
   WebkitMaskImage:
@@ -30,6 +32,117 @@ const SIDEBAR_FADE_STYLE = {
   maskImage:
     "linear-gradient(90deg, rgba(0,0,0,1) 0%, rgba(0,0,0,1) calc(100% - 18px), rgba(0,0,0,0) 100%)",
 } satisfies CSSProperties;
+
+const DOT_MATRIX_PATH: readonly number[] = [
+  1, 2, 3, 9, 14, 19, 23, 22, 21, 15, 10, 5,
+] as const;
+
+const DOT_MATRIX_TAIL = [1, 0.78, 0.56, 0.36, 0.22] as const;
+
+function usePrefersReducedMotion() {
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => setPrefersReducedMotion(mediaQuery.matches);
+
+    update();
+    mediaQuery.addEventListener("change", update);
+    return () => mediaQuery.removeEventListener("change", update);
+  }, []);
+
+  return prefersReducedMotion;
+}
+
+function DotMatrixCircularLoader({
+  size = 14,
+  dotSize = 2,
+}: {
+  size?: number;
+  dotSize?: number;
+}) {
+  const prefersReducedMotion = usePrefersReducedMotion();
+  const [step, setStep] = useState(0);
+  const pathLength = DOT_MATRIX_PATH.length;
+
+  useEffect(() => {
+    if (prefersReducedMotion) return;
+
+    const interval = window.setInterval(() => {
+      setStep((current) => (current + 1) % pathLength);
+    }, 95);
+
+    return () => window.clearInterval(interval);
+  }, [pathLength, prefersReducedMotion]);
+
+  const dots = useMemo(() => {
+    const leadA = step % pathLength;
+    const leadB = (leadA + Math.floor(pathLength / 2)) % pathLength;
+
+    return Array.from({ length: 25 }, (_, index) => {
+      const row = Math.floor(index / 5);
+      const col = index % 5;
+      const isCorner = (row === 0 || row === 4) && (col === 0 || col === 4);
+      const pathOrder = DOT_MATRIX_PATH.indexOf(index);
+      const isCore = row === 2 && col === 2;
+
+      if (isCorner) {
+        return { opacity: 0 };
+      }
+
+      if (pathOrder === -1) {
+        return { opacity: isCore ? 0.16 : 0.08 };
+      }
+
+      if (prefersReducedMotion) {
+        return { opacity: 0.2 + (pathOrder / (pathLength - 1)) * 0.56 };
+      }
+
+      let opacity = 0.08;
+
+      for (let tail = 0; tail < DOT_MATRIX_TAIL.length; tail += 1) {
+        const weight = DOT_MATRIX_TAIL[tail] ?? 0;
+        const tailA = (leadA - tail + pathLength) % pathLength;
+        const tailB = (leadB - tail + pathLength) % pathLength;
+
+        if (pathOrder === tailA) {
+          opacity = Math.max(opacity, weight);
+        }
+
+        if (pathOrder === tailB) {
+          opacity = Math.max(opacity, weight * 0.72);
+        }
+      }
+
+      return { opacity };
+    });
+  }, [pathLength, prefersReducedMotion, step]);
+
+  return (
+    <span
+      aria-hidden="true"
+      className="grid shrink-0 place-items-center"
+      style={{
+        width: size,
+        height: size,
+        gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+        gridTemplateRows: "repeat(5, minmax(0, 1fr))",
+      }}
+    >
+      {dots.map((dot, index) => (
+        <span
+          key={index}
+          className="rounded-full bg-current"
+          style={{
+            width: dotSize,
+            height: dotSize,
+            opacity: dot.opacity,
+          }}
+        />
+      ))}
+    </span>
+  );
+}
 
 function FadeLabel({
   children,
@@ -64,7 +177,7 @@ function IconButton({
       type="button"
       onClick={onClick}
       aria-label={label}
-      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-foreground/44 outline-none transition-colors hover:text-foreground/80 focus:outline-none focus-visible:outline-none"
+      className="text-foreground/44 hover:text-foreground/80 flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors outline-none focus:outline-none focus-visible:outline-none"
     >
       {children}
     </button>
@@ -75,10 +188,12 @@ function ChatRow({
   title,
   status,
   href,
+  isRunning = false,
 }: {
   title: string;
   status?: string;
   href: string;
+  isRunning?: boolean;
 }) {
   const isReady = status === "ready";
   const isCompleted = status === "completed";
@@ -86,7 +201,7 @@ function ChatRow({
     <Link
       href={href}
       className={[
-        "group flex w-full items-center gap-2 rounded-md px-2.5 py-[6px] text-left text-[12px] outline-none transition-colors focus:outline-none focus-visible:outline-none",
+        "group flex w-full items-center gap-2 rounded-md px-2.5 py-[6px] text-left text-[12px] transition-colors outline-none focus:outline-none focus-visible:outline-none",
         isReady
           ? "text-foreground/82"
           : isCompleted
@@ -94,17 +209,24 @@ function ChatRow({
             : "text-foreground/46",
       ].join(" ")}
     >
-      <CircleDashed
-        size={14}
+      <span
         className={[
-          "shrink-0",
-          isReady
-            ? "text-foreground/60"
-            : isCompleted
-              ? "text-foreground/28"
-              : "text-foreground/18",
+          "flex h-[14px] w-[14px] shrink-0 items-center justify-center",
+          isRunning
+            ? "text-foreground/72"
+            : isReady
+              ? "text-foreground/60"
+              : isCompleted
+                ? "text-foreground/28"
+                : "text-foreground/18",
         ].join(" ")}
-      />
+      >
+        {isRunning ? (
+          <DotMatrixCircularLoader />
+        ) : (
+          <CircleDashed size={14} className="shrink-0" />
+        )}
+      </span>
       <FadeLabel className="min-w-0 flex-1 leading-5">{title}</FadeLabel>
     </Link>
   );
@@ -115,15 +237,22 @@ function ProjectRow({
   href,
   isCurrent,
   isExpanded,
+  activeLessonId,
+  isSessionRunning,
   onToggle,
 }: {
   project: LearningProject;
   href: string;
   isCurrent: boolean;
   isExpanded: boolean;
+  activeLessonId?: string | null;
+  isSessionRunning?: boolean;
   onToggle: () => void;
 }) {
   const lessons = project.lessonPreview.slice(0, 3);
+  const runningLessonId =
+    activeLessonId ?? lessons.find((lesson) => lesson.status === "ready")?.id;
+
   return (
     <div>
       <button
@@ -134,7 +263,7 @@ function ProjectRow({
         }}
         aria-expanded={isExpanded}
         className={[
-          "flex w-full items-center gap-1.5 rounded-md pl-1.5 pr-2.5 py-[7px] text-left text-[12px] font-medium outline-none transition-colors focus:outline-none focus-visible:outline-none",
+          "flex w-full items-center gap-1.5 rounded-md py-[7px] pr-2.5 pl-1.5 text-left text-[12px] font-medium transition-colors outline-none focus:outline-none focus-visible:outline-none",
           isCurrent
             ? "bg-foreground/[0.06] text-foreground/92"
             : "text-foreground/78 hover:text-foreground/92",
@@ -144,7 +273,7 @@ function ProjectRow({
           size={12}
           weight="bold"
           className={[
-            "shrink-0 text-foreground/40 transition-transform duration-150",
+            "text-foreground/40 shrink-0 transition-transform duration-150",
             isExpanded ? "rotate-90" : "",
           ].join(" ")}
         />
@@ -161,6 +290,10 @@ function ProjectRow({
               title={lesson.title}
               status={lesson.status}
               href={href}
+              isRunning={
+                Boolean(isSessionRunning && isCurrent) &&
+                lesson.id === runningLessonId
+              }
             />
           ))}
         </div>
@@ -177,6 +310,8 @@ export function CurriculumSidebar({
   onToggleCollapsed,
   userName,
   userPlan = "Free Plan",
+  activeLessonId,
+  isSessionRunning = false,
 }: {
   projects?: LearningProject[];
   currentSessionId: string;
@@ -185,10 +320,14 @@ export function CurriculumSidebar({
   onToggleCollapsed?: () => void;
   userName?: string;
   userPlan?: string;
+  activeLessonId?: string | null;
+  isSessionRunning?: boolean;
 }) {
   const trpc = useTRPC();
   const router = useRouter();
-  const profileHref = preview ? "/ui/profile" : `/profile?session=${currentSessionId}`;
+  const profileHref = preview
+    ? "/ui/profile"
+    : `/profile?session=${currentSessionId}`;
 
   const startOnboarding = useMutation(
     trpc.becoming.startOnboarding.mutationOptions({
@@ -222,7 +361,7 @@ export function CurriculumSidebar({
 
   if (collapsed) {
     return (
-      <aside className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
+      <aside className="bg-sidebar text-sidebar-foreground flex h-full flex-col">
         <div className="flex h-14 items-center justify-center">
           <IconButton label="Open sidebar" onClick={onToggleCollapsed}>
             <SidebarSimple size={15} />
@@ -246,11 +385,11 @@ export function CurriculumSidebar({
           <Link
             href={profileHref}
             aria-label="Settings"
-            className="flex h-7 w-7 items-center justify-center text-foreground/44 outline-none transition-colors hover:text-foreground/80 focus:outline-none focus-visible:outline-none"
+            className="text-foreground/44 hover:text-foreground/80 flex h-7 w-7 items-center justify-center transition-colors outline-none focus:outline-none focus-visible:outline-none"
           >
             <Gear size={14} />
           </Link>
-          <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/70 text-[10px] font-semibold text-primary-foreground">
+          <div className="bg-primary/70 text-primary-foreground flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-semibold">
             {initial}
           </div>
         </div>
@@ -259,7 +398,7 @@ export function CurriculumSidebar({
   }
 
   return (
-    <aside className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
+    <aside className="bg-sidebar text-sidebar-foreground flex h-full flex-col">
       {/* Top icon row */}
       <div className="flex h-14 items-center justify-between px-2">
         <div className="flex items-center gap-0.5">
@@ -278,38 +417,42 @@ export function CurriculumSidebar({
           type="button"
           onClick={handleNewProject}
           disabled={startOnboarding.isPending}
-          className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left outline-none transition-colors hover:bg-foreground/[0.04] focus:outline-none focus-visible:outline-none disabled:opacity-50"
+          className="hover:bg-foreground/[0.04] flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors outline-none focus:outline-none focus-visible:outline-none disabled:opacity-50"
         >
-          <Plus size={15} weight="bold" className="shrink-0 text-foreground/64" />
-          <FadeLabel className="min-w-0 flex-1 text-[12px] font-medium text-foreground/82">
+          <Plus
+            size={15}
+            weight="bold"
+            className="text-foreground/64 shrink-0"
+          />
+          <FadeLabel className="text-foreground/82 min-w-0 flex-1 text-[12px] font-medium">
             New topic
           </FadeLabel>
-          <span className="shrink-0 font-mono text-[10px] text-foreground/34">
+          <span className="text-foreground/34 shrink-0 font-mono text-[10px]">
             ⌘N
           </span>
         </button>
 
         <Link
           href="/courses"
-          className="mt-0.5 flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left outline-none transition-colors hover:bg-foreground/[0.04] focus:outline-none focus-visible:outline-none"
+          className="hover:bg-foreground/[0.04] mt-0.5 flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors outline-none focus:outline-none focus-visible:outline-none"
         >
-          <Storefront size={15} className="shrink-0 text-foreground/44" />
-          <FadeLabel className="min-w-0 flex-1 text-[12px] font-medium text-foreground/64">
+          <Storefront size={15} className="text-foreground/44 shrink-0" />
+          <FadeLabel className="text-foreground/64 min-w-0 flex-1 text-[12px] font-medium">
             Courses
           </FadeLabel>
         </Link>
       </div>
 
       {/* Scrollable projects list (each project = a header with its chats under it) */}
-      <div className="flex-1 overflow-y-auto px-2 pb-2 pt-4">
+      <div className="flex-1 overflow-y-auto px-2 pt-4 pb-2">
         {projects.length > 0 ? (
-          <div className="px-2.5 pb-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-foreground/36">
+          <div className="text-foreground/36 px-2.5 pb-1.5 text-[10px] font-medium tracking-[0.08em] uppercase">
             Projects
           </div>
         ) : null}
 
         {projects.length === 0 ? (
-          <div className="px-3 pt-4 text-[11px] leading-5 text-foreground/34">
+          <div className="text-foreground/34 px-3 pt-4 text-[11px] leading-5">
             No projects yet. Start a new one above.
           </div>
         ) : null}
@@ -328,6 +471,8 @@ export function CurriculumSidebar({
                 href={href}
                 isCurrent={isCurrent}
                 isExpanded={isExpanded}
+                activeLessonId={activeLessonId}
+                isSessionRunning={isSessionRunning}
                 onToggle={() => toggleProject(project.sessionId, isCurrent)}
               />
             );
@@ -337,7 +482,7 @@ export function CurriculumSidebar({
         {projects.length > 5 ? (
           <button
             type="button"
-            className="mt-3 flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-foreground/44 transition-colors hover:text-foreground/70"
+            className="text-foreground/44 hover:text-foreground/70 mt-3 flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors"
           >
             <DotsThree size={16} weight="bold" className="shrink-0" />
             <FadeLabel className="min-w-0 flex-1 text-[12px] font-medium">
@@ -348,16 +493,16 @@ export function CurriculumSidebar({
       </div>
 
       {/* Footer: user */}
-      <div className="flex items-center gap-2 border-t border-foreground/[0.05] px-2 py-2">
+      <div className="border-foreground/[0.05] flex items-center gap-2 border-t px-2 py-2">
         <div className="flex min-w-0 flex-1 items-center gap-2 px-1.5 py-1">
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/70 text-[11px] font-semibold text-primary-foreground">
+          <div className="bg-primary/70 text-primary-foreground flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold">
             {initial}
           </div>
           <div className="min-w-0 flex-1">
-            <FadeLabel className="text-[12px] font-medium leading-4 text-foreground/84">
+            <FadeLabel className="text-foreground/84 text-[12px] leading-4 font-medium">
               {displayName}
             </FadeLabel>
-            <FadeLabel className="text-[10px] leading-4 text-foreground/40">
+            <FadeLabel className="text-foreground/40 text-[10px] leading-4">
               {userPlan}
             </FadeLabel>
           </div>
@@ -365,7 +510,7 @@ export function CurriculumSidebar({
         <Link
           href={profileHref}
           aria-label="Settings"
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-foreground/44 outline-none transition-colors hover:text-foreground/80 focus:outline-none focus-visible:outline-none"
+          className="text-foreground/44 hover:text-foreground/80 flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors outline-none focus:outline-none focus-visible:outline-none"
         >
           <Gear size={14} />
         </Link>

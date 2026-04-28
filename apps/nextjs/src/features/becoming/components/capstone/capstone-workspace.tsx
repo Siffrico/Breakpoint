@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useMutation } from "@tanstack/react-query";
 
@@ -20,10 +20,12 @@ export function CapstoneWorkspace({
   state,
   sessionId,
   embedded = false,
+  onRunningChange,
 }: {
   state: CapstoneState;
   sessionId: string;
   embedded?: boolean;
+  onRunningChange?: (isRunning: boolean) => void;
 }) {
   const trpc = useTRPC();
   const [response, setResponse] = useState("");
@@ -35,6 +37,11 @@ export function CapstoneWorkspace({
       onError: (error) => toast.error(error.message),
     }),
   );
+
+  useEffect(() => {
+    onRunningChange?.(submitCapstoneMessage.isPending);
+    return () => onRunningChange?.(false);
+  }, [onRunningChange, submitCapstoneMessage.isPending]);
 
   const handleSubmit = async () => {
     const trimmed = response.trim();

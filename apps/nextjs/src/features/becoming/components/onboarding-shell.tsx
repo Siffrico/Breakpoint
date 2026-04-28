@@ -27,12 +27,14 @@ export function OnboardingShell({
   sessionId,
   initialState = null,
   variant = "default",
+  onRunningChange,
 }: {
   preview?: boolean;
   embedded?: boolean;
   sessionId?: string;
   initialState?: OnboardingState | null;
   variant?: OnboardingVariant;
+  onRunningChange?: (isRunning: boolean) => void;
 }) {
   const trpc = useTRPC();
   const router = useRouter();
@@ -92,6 +94,17 @@ export function OnboardingShell({
       onError: (error) => toast.error(error.message),
     }),
   );
+
+  const isRunning =
+    startOnboarding.isPending ||
+    submitAnswer.isPending ||
+    generateCurriculum.isPending ||
+    isGenerating;
+
+  useEffect(() => {
+    onRunningChange?.(isRunning);
+    return () => onRunningChange?.(false);
+  }, [isRunning, onRunningChange]);
 
   useEffect(() => {
     if (preview) {
@@ -291,7 +304,9 @@ export function OnboardingShell({
           <div
             className={[
               "flex items-center justify-between px-5 py-3",
-              isLandscape ? "border-t border-black/8" : "border-t border-white/8",
+              isLandscape
+                ? "border-t border-black/8"
+                : "border-t border-white/8",
             ].join(" ")}
           >
             <div
@@ -360,9 +375,7 @@ export function OnboardingShell({
           <div
             className={[
               "mt-3 text-xs",
-              isLandscape
-                ? "text-center text-[#0f1a2e]/55"
-                : "text-white/35",
+              isLandscape ? "text-center text-[#0f1a2e]/55" : "text-white/35",
             ].join(" ")}
           >
             <AssistantRichText content={state.activeQuestion.helper} />
