@@ -30,6 +30,9 @@ export function initAuth<
       expo(),
       ...(options.extraPlugins ?? []),
     ],
+    emailAndPassword: {
+      enabled: true,
+    },
     socialProviders: {
       discord: {
         clientId: options.discordClientId,

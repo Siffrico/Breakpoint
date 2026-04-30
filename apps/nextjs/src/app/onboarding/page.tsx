@@ -7,7 +7,7 @@ export default async function OnboardingPage() {
   const session = await getSession();
 
   if (!session?.user) {
-    redirect("/");
+    redirect("/auth");
   }
 
   return <OnboardingShell />;

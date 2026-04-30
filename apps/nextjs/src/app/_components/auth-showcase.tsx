@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
@@ -10,26 +11,9 @@ export async function AuthShowcase() {
 
   if (!session) {
     return (
-      <form>
-        <Button
-          size="lg"
-          formAction={async () => {
-            "use server";
-            const res = await auth.api.signInSocial({
-              body: {
-                provider: "discord",
-                callbackURL: "/",
-              },
-            });
-            if (!res.url) {
-              throw new Error("No URL returned from signInSocial");
-            }
-            redirect(res.url);
-          }}
-        >
-          Sign in with Discord
-        </Button>
-      </form>
+      <Button size="lg" asChild>
+        <Link href="/auth">Sign in</Link>
+      </Button>
     );
   }
 
@@ -47,7 +31,7 @@ export async function AuthShowcase() {
             await auth.api.signOut({
               headers: await headers(),
             });
-            redirect("/");
+            redirect("/auth");
           }}
         >
           Sign out
