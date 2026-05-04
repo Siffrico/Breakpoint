@@ -14,7 +14,10 @@ import { planWorkspaceTurn } from "../workspace-ai/orchestrator";
 
 interface GetAiWorkspaceDependencies {
   getActivePlan: (sessionId: string) => Promise<CurriculumPlan | null>;
-  listMessages: (sessionId: string) => Promise<WorkspaceAiMessage[]>;
+  listMessages: (
+    sessionId: string,
+    slot?: "education_unit" | "recall",
+  ) => Promise<WorkspaceAiMessage[]>;
   listPhaseResponsesBySession: (
     sessionId: string,
   ) => Promise<PhaseResponseRecord[]>;
@@ -39,6 +42,10 @@ export interface AiWorkspaceView {
   plan: CurriculumPlan;
   state: WorkspaceAiState | null;
   messages: WorkspaceAiMessage[];
+  introMessage: {
+    prompt: string;
+    helper: string | null;
+  } | null;
 }
 
 /**
@@ -93,7 +100,19 @@ export const getAiWorkspaceWorkflow = async ({
     }
   }
 
-  return ok({ plan, state, messages });
+  const activeMessages = state
+    ? await deps.listMessages(sessionId, getWorkspaceMessageSlot(state.mode))
+    : messages;
+
+  return ok({
+    plan,
+    state,
+    messages: activeMessages,
+    introMessage: buildWorkspaceIntroMessage({
+      plan,
+      state,
+    }),
+  });
 };
 
 const getNextReadyLearningNode = (nodes: CurriculumNode[]) =>
@@ -102,6 +121,31 @@ const getNextReadyLearningNode = (nodes: CurriculumNode[]) =>
       (node.kind === "unit" || node.kind === "integration") &&
       node.status === "ready",
   ) ?? null;
+
+const getWorkspaceMessageSlot = (mode: WorkspaceAiState["mode"]) =>
+  mode === "recall" ? "recall" : "education_unit";
+
+export const buildWorkspaceIntroMessage = ({
+  plan,
+  state,
+}: {
+  plan: CurriculumPlan;
+  state: WorkspaceAiState | null;
+}) => {
+  if (!state || state.mode !== "recall" || !state.recallUnitId) {
+    return null;
+  }
+
+  const recallUnit = plan.nodes.find((node) => node.id === state.recallUnitId);
+  if (!recallUnit) {
+    return null;
+  }
+
+  return {
+    helper: "Recall",
+    prompt: `Return to ${recallUnit.title}. Reconstruct the key distinction, mechanism, or procedure from memory before you move on.`,
+  };
+};
 
 export const ensureWorkspaceUnit = async ({
   node,

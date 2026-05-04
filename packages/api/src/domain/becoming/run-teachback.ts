@@ -2,7 +2,7 @@ import { z } from "zod/v4";
 
 import { executePrompt } from "./engine";
 import { formatTeachbackTranscript, formatUnitContext } from "./prompts/fragments";
-import { teachbackPrompt } from "./prompts/registry";
+import { teachbackPrompt } from "./prompts/legacy-registry";
 import type {
   ForgeUnitContent,
   TeachbackMessage,

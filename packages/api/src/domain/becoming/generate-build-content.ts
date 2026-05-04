@@ -1,7 +1,7 @@
 import { z } from "zod/v4";
 
 import { executePrompt } from "./engine";
-import { buildContentPrompt } from "./prompts/registry";
+import { buildContentPrompt } from "./prompts/legacy-registry";
 
 const BuildContentSchema = z.object({
   buildContent: z.string().min(200),

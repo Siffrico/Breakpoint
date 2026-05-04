@@ -3,7 +3,7 @@ import { BeforeAfterProfileSchema } from "@acme/validators";
 import type { BeforeAfterProfile, IdentityReport } from "../types/becoming.types";
 import { executePrompt } from "../engine";
 import { formatIdentityReport } from "../prompts/fragments";
-import { beforeAfterPrompt } from "../prompts/registry";
+import { beforeAfterPrompt } from "../prompts/legacy-registry";
 
 export const buildBeforeAfterProfile = async (
   report: IdentityReport,

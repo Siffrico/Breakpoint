@@ -1,4 +1,4 @@
-import { asc, desc, eq, inArray } from "@acme/db";
+import { and, asc, desc, eq, inArray } from "@acme/db";
 import type { db as databaseClient } from "@acme/db/client";
 import {
   BecomingIdentityProfile,
@@ -189,12 +189,20 @@ export const becomingOnboardingRepository = {
   listWorkspaceMessages: async ({
     db,
     sessionId,
+    slot,
   }: {
     db: Database;
     sessionId: string;
+    slot?: string | null;
   }) => {
     const messages = await db.query.BecomingOnboardingMessage.findMany({
-      where: eq(BecomingOnboardingMessage.sessionId, sessionId),
+      where:
+        slot == null
+          ? eq(BecomingOnboardingMessage.sessionId, sessionId)
+          : and(
+              eq(BecomingOnboardingMessage.sessionId, sessionId),
+              eq(BecomingOnboardingMessage.slot, slot),
+            ),
       orderBy: asc(BecomingOnboardingMessage.sequence),
     });
 

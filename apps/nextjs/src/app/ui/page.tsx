@@ -9,7 +9,7 @@ const previews = [
   {
     href: "/ui/workspace",
     label: "Workspace",
-    description: "Two-column dashboard: curriculum sidebar + live concept-to-execution loop.",
+    description: "Main workspace shell with local preview data.",
   },
   {
     href: "/ui/profile/general",
@@ -35,11 +35,6 @@ const previews = [
     href: "/ui/train",
     label: "Unit",
     description: "Retrieval check, scenario unlock, and debrief preview.",
-  },
-  {
-    href: "/ui/forge",
-    label: "Forge",
-    description: "4-phase education unit: seed → build → prove → repair.",
   },
   {
     href: "/ui/domains",

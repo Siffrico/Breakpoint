@@ -6,7 +6,7 @@ import {
   formatPracticeResponses,
   formatTeachbackTranscript,
 } from "./prompts/fragments";
-import { isolateFailurePrompt } from "./prompts/registry";
+import { isolateFailurePrompt } from "./prompts/legacy-registry";
 import type {
   FailureGap,
   ForgeUnitContent,

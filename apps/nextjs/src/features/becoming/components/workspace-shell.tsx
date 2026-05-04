@@ -96,7 +96,7 @@ export function WorkspaceShell({
   };
 
   return (
-    <div className="bg-sidebar text-foreground flex h-dvh overflow-hidden">
+    <div className="bg-background text-foreground flex h-dvh overflow-hidden">
       {!sidebarCollapsed ? (
         <div className="bg-sidebar w-[232px] shrink-0">
           <CurriculumSidebar
@@ -111,7 +111,7 @@ export function WorkspaceShell({
         </div>
       ) : null}
 
-      <div className="flex min-w-0 flex-1 flex-col pr-2">
+      <div className="border-foreground/[0.08] flex min-w-0 flex-1 flex-col border-l">
         <header className="flex h-14 shrink-0 items-center justify-between px-4 sm:px-6">
           <div className="flex min-w-0 items-center gap-2">
             {sidebarCollapsed ? (
@@ -172,8 +172,8 @@ export function WorkspaceShell({
           )}
         </header>
 
-        <div className="flex min-h-0 flex-1 py-1">
-          <div className="border-foreground/[0.06] bg-background flex min-w-0 flex-1 flex-col overflow-hidden border">
+        <div className="flex min-h-0 flex-1">
+          <div className="bg-background flex min-w-0 flex-1 flex-col overflow-hidden">
             <div className="flex min-h-0 flex-1 overflow-hidden">
               {!questionPanelFocused && (
                 <main

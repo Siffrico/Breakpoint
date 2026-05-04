@@ -2,7 +2,7 @@ import { z } from "zod/v4";
 
 import { executePrompt } from "../engine";
 import { formatCapstoneTranscript } from "../prompts/fragments";
-import { teachRoundPrompt } from "../prompts/registry";
+import { teachRoundPrompt } from "../prompts/legacy-registry";
 
 import type { CapstoneMessage, TeachCapstoneScenario } from "./types/capstone.types";
 

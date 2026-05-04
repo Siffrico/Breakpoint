@@ -7,7 +7,7 @@ import {
   formatLearningHistory,
 } from "./prompts/fragments";
 import type { PriorLearningRecord } from "./prompts/fragments";
-import { unitSetupPrompt } from "./prompts/registry";
+import { unitSetupPrompt } from "./prompts/legacy-registry";
 import type { PreSeedUnitContentDraft } from "./types/becoming.types";
 
 export const generateUnitSetup = async ({

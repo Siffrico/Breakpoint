@@ -5,7 +5,7 @@ import {
   recallCompressionPrompt,
   recallInterleavePrompt,
   recallSeedReturnPrompt,
-} from "./prompts/registry";
+} from "./prompts/legacy-registry";
 import type { RecallProbeType } from "./types/becoming.types";
 
 export interface RecallSourceUnit {

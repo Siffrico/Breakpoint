@@ -2,7 +2,7 @@ import { ForgeDebriefSchema } from "@acme/validators";
 
 import { executePrompt } from "./engine";
 import { formatUnitContext, formatTeachbackTranscript } from "./prompts/fragments";
-import { forgeDebriefPrompt } from "./prompts/registry";
+import { forgeDebriefPrompt } from "./prompts/legacy-registry";
 import type {
   ForgeDebrief,
   ForgeUnitContent,

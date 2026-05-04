@@ -2,7 +2,7 @@ import { z } from "zod/v4";
 import { PracticePromptSchema } from "@acme/validators";
 
 import { executePrompt } from "./engine";
-import { practicePromptsPrompt } from "./prompts/registry";
+import { practicePromptsPrompt } from "./prompts/legacy-registry";
 import type { PracticePrompt } from "./types/becoming.types";
 
 const PracticePromptListSchema = z.object({

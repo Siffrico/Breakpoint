@@ -10,7 +10,7 @@ import type {
 import { getModelForTier } from "../engine/model-router";
 import { composePrompt } from "../prompts/compose";
 import { formatOnboardingTranscript } from "../prompts/fragments";
-import { onboardingStepPrompt } from "../prompts/registry";
+import { onboardingStepPrompt } from "../prompts/legacy-registry";
 
 const NextOnboardingStepSchema = z.object({
   decision: z.enum(["ask", "complete"]),

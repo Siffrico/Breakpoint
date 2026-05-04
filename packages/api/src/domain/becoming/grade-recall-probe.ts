@@ -1,7 +1,7 @@
 import { z } from "zod/v4";
 
 import { executePrompt } from "./engine";
-import { gradeRecallProbePrompt } from "./prompts/registry";
+import { gradeRecallProbePrompt } from "./prompts/legacy-registry";
 import type { RecallProbeType } from "./types/becoming.types";
 
 const RecallProbeGradeSchema = z.object({

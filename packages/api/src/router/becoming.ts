@@ -483,10 +483,11 @@ export const becomingRouter = {
                 db: ctx.db,
                 sessionId,
               }),
-            listMessages: (sessionId) =>
+            listMessages: (sessionId, slot) =>
               becomingOnboardingRepository.listWorkspaceMessages({
                 db: ctx.db,
                 sessionId,
+                slot,
               }),
             listPhaseResponsesBySession: (sessionId) =>
               becomingCurriculumRepository.listPhaseResponsesBySession({
@@ -530,10 +531,11 @@ export const becomingRouter = {
                 db: ctx.db,
                 sessionId,
               }),
-            listMessages: (sessionId) =>
+            listMessages: (sessionId, slot) =>
               becomingOnboardingRepository.listWorkspaceMessages({
                 db: ctx.db,
                 sessionId,
+                slot,
               }),
             appendMessage: (payload) =>
               becomingOnboardingRepository.appendWorkspaceMessage({

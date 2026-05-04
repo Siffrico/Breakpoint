@@ -2,7 +2,7 @@ import { z } from "zod/v4";
 
 import { executePrompt } from "./engine";
 import { formatGapContext } from "./prompts/fragments";
-import { gradeGhostPrompt } from "./prompts/registry";
+import { gradeGhostPrompt } from "./prompts/legacy-registry";
 import type {
   FailureGap,
   GhostEvaluation,

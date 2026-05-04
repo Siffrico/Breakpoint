@@ -6,7 +6,7 @@ import { getModelForTier } from "../engine/model-router";
 import { composePrompt } from "../prompts/compose";
 import { formatCapstoneHistory } from "../prompts/fragments";
 import type { CapstoneClusterHistory } from "../prompts/fragments";
-import { capstoneAgentPrompt } from "../prompts/registry";
+import { capstoneAgentPrompt } from "../prompts/legacy-registry";
 
 import { buildFallbackTeachCapstone } from "./fallback-capstone";
 import { createBuildChallengeTool } from "./tools/build-challenge.tool";

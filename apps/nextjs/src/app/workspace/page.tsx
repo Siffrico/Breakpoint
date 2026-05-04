@@ -64,12 +64,15 @@ export default async function WorkspacePage(props: {
   }
 
   const workspace = await getWorkspaceState(resolvedSessionId);
-  const activeNodeId = workspace.nextUnitId ?? plan.nextUnitId;
+  const aiWorkspace = await getAiWorkspace(resolvedSessionId).catch(() => null);
+  const activeNodeId =
+    aiWorkspace?.state?.recallUnitId ??
+    aiWorkspace?.state?.activeUnitId ??
+    workspace.nextUnitId ??
+    plan.nextUnitId;
   const activeNode = activeNodeId
     ? plan.nodes.find((node) => node.id === activeNodeId) ?? null
     : null;
-
-  const aiWorkspace = await getAiWorkspace(resolvedSessionId).catch(() => null);
 
   const [unit, capstone] = await Promise.all([
     activeNode && activeNode.kind !== "simulation"

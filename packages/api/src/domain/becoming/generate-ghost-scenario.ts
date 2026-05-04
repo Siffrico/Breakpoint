@@ -2,7 +2,7 @@ import { GhostScenarioSchema } from "@acme/validators";
 
 import { executePrompt } from "./engine";
 import { formatUnitContext, formatGapContext } from "./prompts/fragments";
-import { ghostScenarioPrompt } from "./prompts/registry";
+import { ghostScenarioPrompt } from "./prompts/legacy-registry";
 import type {
   FailureGap,
   ForgeUnitContent,

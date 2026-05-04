@@ -1,50 +1,7 @@
 import type { RouterOutputs } from "@acme/api";
 
-export type PracticePrompt = {
-  prompt: string;
-  type: "identification" | "construction" | "debugging";
-};
-
-export type TeachbackMessage = {
-  role: "student" | "user";
-  content: string;
-  round: number;
-};
-
-export type FailureGap = {
-  description: string;
-  gapType: string;
-  whereItBroke: string;
-};
-
-export type GhostScenario = {
-  domain: string;
-  prompt: string;
-  targetDepth: number;
-};
-
-export type ForgeDebrief = {
-  seedResponse: string;
-  finalArticulation: string;
-  growthDimensions: string[];
-  score: number;
-  readiness: "needs_repair" | "developing" | "ready_for_next_unit";
-  strengths: string[];
-  improvements: string[];
-  failureTags: string[];
-  nextStep: string;
-};
-
-export type ForgePhase =
-  | "seed"
-  | "build"
-  | "practice"
-  | "prove"
-  | "isolation"
-  | "recall";
-
-export const previewForgeUnit: RouterOutputs["becoming"]["unit"] = {
-  id: "forge-unit-quorum-reads",
+export const previewEducationUnit: RouterOutputs["becoming"]["unit"] = {
+  id: "education-unit-quorum-reads",
   nodeId: "00000000-0000-4000-8000-000000000101",
   title: "Reason about quorum reads under replica lag",
   summary:

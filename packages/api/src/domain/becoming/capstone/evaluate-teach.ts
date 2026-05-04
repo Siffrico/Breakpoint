@@ -2,7 +2,7 @@ import { z } from "zod/v4";
 
 import { executePrompt } from "../engine";
 import { formatCapstoneTranscript } from "../prompts/fragments";
-import { evaluateTeachPrompt } from "../prompts/registry";
+import { evaluateTeachPrompt } from "../prompts/legacy-registry";
 
 import type {
   CapstoneEvaluation,

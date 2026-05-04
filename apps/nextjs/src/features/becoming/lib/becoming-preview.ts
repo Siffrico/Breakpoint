@@ -207,13 +207,13 @@ export const previewOnboardingStates: OnboardingState[] = [
 ];
 
 export const previewHomeState: HomeState = {
-  targetIdentity: "Distributed Systems Engineer",
+  targetIdentity: "AI Engineer",
   headline:
-    "Build intuition for fault tolerance, replication, and consistency by training through production-shaped systems problems.",
-  planTitle: "Distributed Systems Core",
+    "Train the operating intuition to ship LLM systems that survive contact with real traffic — drift, evals, retrieval, and latency.",
+  planTitle: "AI Engineering Core",
   planSummary:
-    "This path starts with replication and quorum fundamentals, then moves into leader election, log ordering, and recovery behavior.",
-  nextUnitTitle: "Reason about quorum reads under replica lag",
+    "This path starts with how LLM serving actually behaves, then moves into evals that catch regressions, retrieval correctness, and latency-shaped system design.",
+  nextUnitTitle: "Why temperature 0 is not deterministic",
   nextUnitId: "00000000-0000-4000-8000-000000000101",
   totalUnits: 8,
   completedUnits: 3,
@@ -393,28 +393,29 @@ export const previewPlanState: PlanState = {
 export const previewLearningProjects: LearningProject[] = [
   {
     sessionId: previewSessionId,
-    title: "Distributed Systems",
-    headline: "Replication, quorum, leader election, and failure recovery across production-shaped scenarios.",
+    title: "AI Engineering",
+    headline:
+      "Build intuition for how production LLM systems actually behave: determinism, evals, retrieval, latency, and failure modes.",
     status: "active",
     lessonPreview: [
       {
-        id: "ds-unit-1",
-        title: "Quorum reads under replica lag",
+        id: "ai-unit-1",
+        title: "Why temperature 0 is not deterministic",
         status: "ready",
       },
       {
-        id: "ds-unit-2",
-        title: "Leader election without split brain",
+        id: "ai-unit-2",
+        title: "Designing evals that actually catch regressions",
         status: "planned",
       },
       {
-        id: "ds-unit-3",
-        title: "Exactly-once semantics versus idempotency",
+        id: "ai-unit-3",
+        title: "RAG retrieval scoring vs. answer correctness",
         status: "planned",
       },
       {
-        id: "ds-unit-4",
-        title: "Log compaction and snapshot recovery",
+        id: "ai-unit-4",
+        title: "Streaming, tool loops, and latency budgets",
         status: "planned",
       },
     ],
@@ -422,8 +423,39 @@ export const previewLearningProjects: LearningProject[] = [
   },
   {
     sessionId: "00000000-0000-4000-8000-000000000002",
+    title: "Machine Learning",
+    headline:
+      "Reason about gradients, generalization, and optimization the way researchers do — from loss landscapes, not slogans.",
+    status: "active",
+    lessonPreview: [
+      {
+        id: "ml-unit-1",
+        title: "Why batch norm changes the loss landscape",
+        status: "ready",
+      },
+      {
+        id: "ml-unit-2",
+        title: "Vanishing gradients and residual connections",
+        status: "planned",
+      },
+      {
+        id: "ml-unit-3",
+        title: "Train/eval gap and the role of distribution shift",
+        status: "planned",
+      },
+      {
+        id: "ml-unit-4",
+        title: "Why Adam fails on sparse rewards",
+        status: "planned",
+      },
+    ],
+    updatedAt: new Date("2026-04-10T20:10:00.000Z"),
+  },
+  {
+    sessionId: "00000000-0000-4000-8000-000000000003",
     title: "Computer Engineering",
-    headline: "Digital logic, pipelining, memory hierarchy, and embedded systems performance analysis.",
+    headline:
+      "Trace what actually happens between your program and the hardware: pipelines, caches, memory, and interrupts.",
     status: "active",
     lessonPreview: [
       {
@@ -438,36 +470,7 @@ export const previewLearningProjects: LearningProject[] = [
       },
       {
         id: "ce-unit-3",
-        title: "Interrupt handling on microcontrollers",
-        status: "planned",
-      },
-      {
-        id: "ce-unit-4",
-        title: "Finite-state machines for bus arbitration",
-        status: "planned",
-      },
-    ],
-    updatedAt: new Date("2026-04-10T20:10:00.000Z"),
-  },
-  {
-    sessionId: "00000000-0000-4000-8000-000000000003",
-    title: "Rust Fundamentals",
-    headline: "Ownership, borrowing, lifetimes, and error handling through small programs.",
-    status: "active",
-    lessonPreview: [
-      {
-        id: "rs-unit-1",
-        title: "Ownership and move semantics",
-        status: "ready",
-      },
-      {
-        id: "rs-unit-2",
-        title: "References and the borrow checker",
-        status: "planned",
-      },
-      {
-        id: "rs-unit-3",
-        title: "Result, Option, and the ? operator",
+        title: "Interrupt latency on microcontrollers",
         status: "planned",
       },
     ],

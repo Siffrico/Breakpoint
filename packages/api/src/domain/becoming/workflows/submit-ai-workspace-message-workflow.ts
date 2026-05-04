@@ -20,11 +20,17 @@ import {
   WorkspaceAiEducationOutputSchema,
   WorkspaceAiRecallOutputSchema,
 } from "../workspace-ai/types";
-import { ensureWorkspaceUnit } from "./get-ai-workspace-workflow";
+import {
+  buildWorkspaceIntroMessage,
+  ensureWorkspaceUnit,
+} from "./get-ai-workspace-workflow";
 
 interface SubmitAiWorkspaceMessageDependencies {
   getActivePlan: (sessionId: string) => Promise<CurriculumPlan | null>;
-  listMessages: (sessionId: string) => Promise<WorkspaceAiMessage[]>;
+  listMessages: (
+    sessionId: string,
+    slot?: "education_unit" | "recall",
+  ) => Promise<WorkspaceAiMessage[]>;
   appendMessage: (input: {
     sessionId: string;
     role: "assistant" | "user";
@@ -128,19 +134,31 @@ export const submitAiWorkspaceMessageWorkflow = async ({
     sessionId,
     role: "user",
     content: trimmedMessage,
-    slot: state.mode,
+    slot: getWorkspaceMessageSlot(state.mode),
   });
   if (!userMessage) {
     return err("User message could not be saved.");
   }
 
-  const messagesWithUser = await deps.listMessages(sessionId);
+  const messagesWithUser = await deps.listMessages(
+    sessionId,
+    getWorkspaceMessageSlot(state.mode),
+  );
+  const introMessage =
+    state.mode === "recall" &&
+    !messagesWithUser.some((message) => message.role === "assistant")
+      ? buildWorkspaceIntroMessage({
+          plan,
+          state,
+        })
+      : null;
   const context = formatWorkspaceContext({
     plan,
     node: unitNode,
     unit,
     state,
     messages: messagesWithUser,
+    introMessage,
     memories,
   });
 
@@ -183,9 +201,16 @@ export const submitAiWorkspaceMessageWorkflow = async ({
     });
 
     await deps.touchSession(sessionId);
+
+    const nextState = await planNextWorkspaceTurn({
+      sessionId,
+      plan,
+      deps,
+    });
+
     return ok({
-      state,
-      messages: await deps.listMessages(sessionId),
+      state: nextState ?? state,
+      messages: await deps.listMessages(sessionId, "recall"),
       assistantMessage,
     });
   }
@@ -242,12 +267,32 @@ export const submitAiWorkspaceMessageWorkflow = async ({
   }
 
   await deps.touchSession(sessionId);
-  return ok({
-    state: {
-      ...state,
-      educationStage: nextStage,
+
+  const nextState = await planNextWorkspaceTurn({
+    sessionId,
+    plan: {
+      ...plan,
+      nodes:
+        nextStage === "completed"
+          ? plan.nodes.map((node) =>
+              node.id === unit.nodeId ? { ...node, status: "completed" } : node,
+            )
+          : plan.nodes,
     },
-    messages: await deps.listMessages(sessionId),
+    deps,
+  });
+
+  return ok({
+    state:
+      nextState ??
+      ({
+        ...state,
+        educationStage: nextStage,
+      } as WorkspaceAiTurnResult["state"]),
+    messages: await deps.listMessages(
+      sessionId,
+      nextState ? getWorkspaceMessageSlot(nextState.mode) : "education_unit",
+    ),
     assistantMessage,
   });
 };
@@ -276,6 +321,7 @@ const formatWorkspaceContext = ({
   unit,
   state,
   messages,
+  introMessage,
   memories,
 }: {
   plan: CurriculumPlan;
@@ -283,6 +329,7 @@ const formatWorkspaceContext = ({
   unit: UnitContent;
   state: { mode: string; educationStage: string | null };
   messages: WorkspaceAiMessage[];
+  introMessage?: { prompt: string; helper: string | null } | null;
   memories: Memory[];
 }) => `Workspace state:
 Mode: ${state.mode}
@@ -304,6 +351,7 @@ Focus areas: ${unit.scenario.focusAreas.join("; ")}
 Relevant memory:
 ${formatMemories(memories)}
 
+${formatIntroMessage(introMessage)}
 Recent transcript:
 ${formatMessages(messages)}`;
 
@@ -320,3 +368,50 @@ const formatMessages = (messages: WorkspaceAiMessage[]) =>
     .slice(-18)
     .map((message) => `${message.role.toUpperCase()}: ${message.content}`)
     .join("\n");
+
+const formatIntroMessage = (
+  introMessage?: { prompt: string; helper: string | null } | null,
+) =>
+  introMessage
+    ? `Prompt shown to learner:
+${introMessage.helper ? `Helper: ${introMessage.helper}\n` : ""}${introMessage.prompt}
+
+`
+    : "";
+
+const getWorkspaceMessageSlot = (mode: "education_unit" | "recall") =>
+  mode === "recall" ? "recall" : "education_unit";
+
+const planNextWorkspaceTurn = async ({
+  sessionId,
+  plan,
+  deps,
+}: {
+  sessionId: string;
+  plan: CurriculumPlan;
+  deps: Pick<
+    SubmitAiWorkspaceMessageDependencies,
+    | "listPhaseResponsesBySession"
+    | "getPhaseResponses"
+    | "getUnitByNodeId"
+    | "createUnitContent"
+  >;
+}) => {
+  const allResponses = await deps.listPhaseResponsesBySession(sessionId);
+  const readyUnitNode = getNextReadyLearningNode(plan.nodes);
+  const readyUnit = readyUnitNode
+    ? await ensureWorkspaceUnit({
+        node: readyUnitNode,
+        deps,
+      })
+    : null;
+  const readyUnitResponses = readyUnit
+    ? await deps.getPhaseResponses(readyUnit.id, sessionId)
+    : [];
+
+  return planWorkspaceTurn({
+    nodes: plan.nodes,
+    allResponses,
+    activeUnitResponses: readyUnitResponses,
+  });
+};

@@ -471,7 +471,7 @@ export function CurriculumSidebar({
           </div>
         ) : null}
 
-        <div className="space-y-1">
+        <div className="space-y-2">
           {projects.map((project) => {
             const isCurrent = project.sessionId === currentSessionId;
             const isExpanded = expanded[project.sessionId] ?? isCurrent;

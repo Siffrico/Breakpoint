@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono, Sora } from "next/font/google";
+import { Geist, Geist_Mono, Inter, Sora } from "next/font/google";
 
 import { cn } from "@acme/ui";
 import { ThemeProvider, ThemeToggle } from "@acme/ui/theme";
@@ -50,6 +50,10 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
   variable: "--font-geist-mono",
 });
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-ai",
+});
 
 export default function RootLayout(props: { children: React.ReactNode }) {
   return (
@@ -60,6 +64,7 @@ export default function RootLayout(props: { children: React.ReactNode }) {
           geist.variable,
           sora.variable,
           geistMono.variable,
+          inter.variable,
         )}
       >
         <ThemeProvider>

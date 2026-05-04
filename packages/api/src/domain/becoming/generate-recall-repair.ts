@@ -1,7 +1,7 @@
 import { z } from "zod/v4";
 
 import { executePrompt } from "./engine";
-import { recallRepairPrompt } from "./prompts/registry";
+import { recallRepairPrompt } from "./prompts/legacy-registry";
 
 const RecallRepairSchema = z.object({
   prompt: z.string().min(1),
