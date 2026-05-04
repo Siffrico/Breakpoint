@@ -20,7 +20,6 @@ import {
 import {
   evaluatePracticeRound,
   generateProveStage,
-  getTeachbackStudentReply,
   reviewTeachbackProof,
 } from "./prove-stage";
 import { runSeedStage } from "./seed-stage";
@@ -231,18 +230,6 @@ export const educationUnitBuilder = {
       practicePrompt,
       unitTitle,
       userResponse,
-    }),
-
-  getTeachbackPrompt: ({
-    unit,
-    round,
-  }: {
-    unit: ForgeUnitContent;
-    round: number;
-  }) =>
-    getTeachbackStudentReply({
-      teachbackSetup: hydrateProveStageFromUnit(unit).teachbackSetup,
-      round,
     }),
 
   reviewProve: ({

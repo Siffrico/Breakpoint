@@ -419,6 +419,14 @@ export const BecomingUnitPhaseResponse = pgTable(
             reasoningStyle: string;
           };
           stateSnapshot?: unknown;
+          aiEducationStage?:
+            | "diagnostic_scenario"
+            | "concept_instruction"
+            | "guided_application"
+            | "performance_evaluation"
+            | "transfer_scenario"
+            | "completed";
+          recallUnitId?: string;
           assessmentStatus?: "pass" | "retry_concept" | "retry_application";
           gap?: {
             description: string;

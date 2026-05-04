@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowBendUpLeft, ArrowUp } from "@phosphor-icons/react";
+import { ArrowUp, Microphone, Plus } from "@phosphor-icons/react";
 import { useMutation } from "@tanstack/react-query";
 
 import type { RouterOutputs } from "@acme/api";
@@ -11,19 +11,10 @@ import { Button } from "@acme/ui/button";
 import { toast } from "@acme/ui/toast";
 
 import { AssistantRichText } from "~/features/becoming/components/assistant-rich-text";
-import { RecallGateView } from "~/features/becoming/components/recall/RecallGateView";
 import { useTRPC } from "~/trpc/react";
 
 type EducationUnit = RouterOutputs["becoming"]["unit"];
-type RecallGate = RouterOutputs["becoming"]["getRecallGate"];
-type FinalizeForgeUnitResult = RouterOutputs["becoming"]["finalizeForgeUnit"];
-type SubmitRecallProbeResult = RouterOutputs["becoming"]["submitRecallProbe"];
-
-type LoopSubmitStep =
-  | "initial_response"
-  | "mastery_check"
-  | "build_response"
-  | "revision";
+type AiWorkspace = RouterOutputs["becoming"]["aiWorkspace"];
 
 type InteractionMode =
   | {
@@ -34,8 +25,8 @@ type InteractionMode =
     }
   | { kind: "compose" };
 
-const COLLAPSED_COMPOSER_MIN_HEIGHT = 112;
-const COLLAPSED_COMPOSER_MAX_HEIGHT = 280;
+const COLLAPSED_COMPOSER_MIN_HEIGHT = 64;
+const COLLAPSED_COMPOSER_MAX_HEIGHT = 220;
 
 const getComposerHeightBounds = (element: HTMLTextAreaElement | null) => {
   if (typeof window === "undefined") {
@@ -147,6 +138,24 @@ function UserResponse({ text }: { text: string }) {
   );
 }
 
+function ComposerIconButton({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      className="text-foreground/42 hover:text-foreground/72 hover:bg-foreground/[0.04] flex h-7 w-7 items-center justify-center rounded-[3px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
+    >
+      {children}
+    </button>
+  );
+}
+
 function ActionGate({
   title,
   description,
@@ -190,21 +199,6 @@ const getActivePromptCard = (state: EducationUnit) => {
       return state.masteryCheck;
     case "transfer_challenge":
       return state.transferChallenge;
-    default:
-      return null;
-  }
-};
-
-const getSubmissionStep = (state: EducationUnit): LoopSubmitStep | null => {
-  switch (state.activeStage) {
-    case "challenge":
-      return "initial_response";
-    case "mastery_check":
-      return "mastery_check";
-    case "transfer_challenge":
-      return "build_response";
-    case "revision":
-      return "revision";
     default:
       return null;
   }
@@ -278,39 +272,32 @@ const getInteractionMode = ({
   return { kind: "compose" };
 };
 
-export function ForgeWorkspace({
+export function EducationUnitWorkspace({
   unit,
   sessionId,
   preview = false,
-  recallGate = null,
+  aiWorkspace = null,
   embedded = false,
-  onNavigate,
   onStateChange,
   onRunningChange,
 }: {
   unit: EducationUnit;
   sessionId: string;
   preview?: boolean;
-  recallGate?: RecallGate | null;
+  aiWorkspace?: AiWorkspace | null;
   embedded?: boolean;
-  onNavigate?: (
-    result: FinalizeForgeUnitResult | SubmitRecallProbeResult["nextAction"],
-  ) => void;
   onStateChange?: (state: EducationUnit) => void;
   onRunningChange?: (isRunning: boolean) => void;
 }) {
   const router = useRouter();
   const trpc = useTRPC();
   const [state, setState] = useState(unit);
+  const [aiMessages, setAiMessages] = useState(aiWorkspace?.messages ?? []);
   const [response, setResponse] = useState("");
   const [responseMode, setResponseMode] = useState<
     "free_response" | "multiple_choice"
   >(state.challenge.responseMode);
   const [openedGateKeys, setOpenedGateKeys] = useState<string[]>([]);
-  const [stepStartedAt, setStepStartedAt] = useState(() => Date.now());
-  const [activeRecallGate, setActiveRecallGate] = useState<RecallGate | null>(
-    recallGate,
-  );
   const bottomRef = useRef<HTMLDivElement>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -318,7 +305,7 @@ export function ForgeWorkspace({
     ? "/ui/workspace"
     : `/workspace?session=${sessionId}`;
   const activePromptCard = getActivePromptCard(state);
-  const submissionStep = getSubmissionStep(state);
+  const isAiBacked = !preview;
   const canSubmit = response.trim().length > 0;
   const instructionGateKey = getInstructionGateKey(state);
   const gateLocked =
@@ -327,17 +314,9 @@ export function ForgeWorkspace({
     state,
     gateLocked,
   });
-  const confidence =
-    state.revisedBuildResponse?.confidence ??
-    state.buildResponse?.confidence ??
-    state.masteryCheckResponse?.confidence ??
-    state.initialResponse?.confidence ??
-    "medium";
-
   useEffect(() => {
     setResponse("");
     setResponseMode(activePromptCard?.responseMode ?? "free_response");
-    setStepStartedAt(Date.now());
     setTimeout(
       () => bottomRef.current?.scrollIntoView({ behavior: "smooth" }),
       100,
@@ -368,26 +347,27 @@ export function ForgeWorkspace({
     onStateChange?.(state);
   }, [onStateChange, state]);
 
-  const submitEducationUnitStep = useMutation(
-    trpc.becoming.submitEducationUnitStep.mutationOptions({
-      onSuccess: (nextState) => setState(nextState),
+  useEffect(() => {
+    setAiMessages(aiWorkspace?.messages ?? []);
+  }, [aiWorkspace?.messages]);
+
+  const submitAiWorkspaceMessage = useMutation(
+    trpc.becoming.submitAiWorkspaceMessage.mutationOptions({
+      onSuccess: (result) => {
+        setAiMessages(result.messages);
+        setResponse("");
+        if (
+          result.state.mode === "recall" ||
+          result.state.educationStage === "completed"
+        ) {
+          router.refresh();
+        }
+      },
       onError: (error) => toast.error(error.message),
     }),
   );
-  const finalizeForgeUnit = useMutation(
-    trpc.becoming.finalizeForgeUnit.mutationOptions({
-      onError: (error) => toast.error(error.message),
-    }),
-  );
-  const submitRecallProbe = useMutation(
-    trpc.becoming.submitRecallProbe.mutationOptions({
-      onError: (error) => toast.error(error.message),
-    }),
-  );
-  const isRunning =
-    submitEducationUnitStep.isPending ||
-    finalizeForgeUnit.isPending ||
-    submitRecallProbe.isPending;
+  const isRunning = submitAiWorkspaceMessage.isPending;
+  const isSubmitPending = submitAiWorkspaceMessage.isPending;
 
   useEffect(() => {
     onRunningChange?.(isRunning);
@@ -395,62 +375,19 @@ export function ForgeWorkspace({
   }, [isRunning, onRunningChange]);
 
   const handleSubmit = async () => {
-    if (!submissionStep || preview) {
+    if (!response.trim() || preview) {
       return;
     }
 
-    const nextState = await submitEducationUnitStep.mutateAsync({
-      nodeId: state.nodeId,
+    await submitAiWorkspaceMessage.mutateAsync({
       sessionId,
-      step: submissionStep,
-      response: response.trim(),
-      responseMode,
-      confidence,
-      latencyMs: Math.max(0, Date.now() - stepStartedAt),
+      message: response.trim(),
     });
-
-    setState(nextState);
-  };
-
-  const navigateToNextAction = (
-    result: FinalizeForgeUnitResult | SubmitRecallProbeResult["nextAction"],
-  ) => {
-    if (!result) return;
-    if (result.nextAction === "recall_gate") {
-      setActiveRecallGate(result.gate);
-      return;
-    }
-    if (onNavigate) {
-      onNavigate(result);
-      return;
-    }
-    router.push(`/workspace?session=${sessionId}`);
-    router.refresh();
   };
 
   const handleContinue = async () => {
     if (preview) return;
-    const result = await finalizeForgeUnit.mutateAsync({
-      nodeId: state.nodeId,
-      sessionId,
-    });
-    navigateToNextAction(result);
-  };
-
-  const handleRecallProbeSubmit = async (
-    probeId: string,
-    mode: "probe" | "repair",
-    recallResponse: string,
-  ) => {
-    if (!activeRecallGate || preview) return;
-    const result = await submitRecallProbe.mutateAsync({
-      gateId: activeRecallGate.id,
-      probeId,
-      mode,
-      response: recallResponse,
-    });
-    setActiveRecallGate(result.gate);
-    if (result.nextAction) navigateToNextAction(result.nextAction);
+    router.refresh();
   };
 
   const handleOpenInstructionGate = () => {
@@ -477,16 +414,37 @@ export function ForgeWorkspace({
   );
 
   const messages: React.ReactNode[] = [];
+  const visibleAiMessages = aiMessages.filter(
+    (message) => message.slot === "education_unit" || message.slot === "recall",
+  );
 
-  if (activeRecallGate) {
-    messages.push(
-      <RecallGateView
-        key="recall"
-        gate={activeRecallGate}
-        onSubmitProbe={handleRecallProbeSubmit}
-        isPending={submitRecallProbe.isPending}
-      />,
-    );
+  if (isAiBacked) {
+    if (visibleAiMessages.length === 0) {
+      messages.push(
+        <PromptTurn
+          key="ai-initial-prompt"
+          prompt={state.challenge.prompt}
+          helper={state.challenge.helper}
+        />,
+      );
+    } else {
+      visibleAiMessages.forEach((message) => {
+        messages.push(
+          message.role === "assistant" ? (
+            <PromptTurn
+              key={`ai-${message.sequence}`}
+              prompt={message.content}
+              helper={null}
+            />
+          ) : (
+            <UserResponse
+              key={`ai-${message.sequence}`}
+              text={message.content}
+            />
+          ),
+        );
+      });
+    }
   } else {
     messages.push(
       <PromptTurn
@@ -778,10 +736,10 @@ export function ForgeWorkspace({
   }
 
   const inputZone =
-    !activeRecallGate && state.activeStage !== "complete" ? (
+    state.activeStage !== "complete" ? (
       <div
         className={
-          embedded ? "bg-background shrink-0 px-4 pt-4 pb-6 sm:px-8" : "mt-10"
+          embedded ? "bg-background shrink-0 px-4 pt-1 pb-3 sm:px-8" : "mt-10"
         }
       >
         <div className={embedded ? "mx-auto w-full max-w-[1820px]" : ""}>
@@ -816,7 +774,7 @@ export function ForgeWorkspace({
                   type="button"
                   onClick={handleSubmit}
                   disabled={
-                    !canSubmit || submitEducationUnitStep.isPending || preview
+                    !canSubmit || isSubmitPending || preview
                   }
                   aria-label="Submit response"
                   className="border-primary bg-primary text-primary-foreground inline-flex h-8 w-8 items-center justify-center border transition hover:brightness-110 disabled:pointer-events-none disabled:opacity-40"
@@ -827,8 +785,8 @@ export function ForgeWorkspace({
             </div>
           ) : (
             <div className="font-sans">
-              <div className="border-foreground/[0.08] bg-card focus-within:border-foreground/18 rounded-[10px] border shadow-[0_1px_0_rgba(0,0,0,0.02),0_4px_18px_-12px_rgba(0,0,0,0.14)] transition-[border-color,box-shadow] duration-150">
-                <div className="relative">
+              <div className="mx-auto w-full max-w-[760px]">
+                <div className="border-foreground/[0.13] bg-sidebar flex min-h-[96px] flex-col overflow-hidden border">
                   <textarea
                     ref={composerTextareaRef}
                     value={response}
@@ -840,19 +798,41 @@ export function ForgeWorkspace({
                     }
                     placeholder={getPlaceholder(state)}
                     rows={1}
-                    className="text-foreground/92 placeholder:text-foreground/30 block w-full resize-none bg-transparent px-3.5 pt-3 pb-10 text-[14px] leading-[1.5] tracking-[-0.005em] outline-none"
+                    className="text-foreground/92 placeholder:text-foreground/30 block w-full flex-1 resize-none bg-transparent px-4 pt-3.5 pb-1 text-[14px] leading-5 outline-none"
                   />
-                  <button
-                    type="button"
-                    onClick={handleSubmit}
-                    disabled={
-                      !canSubmit || submitEducationUnitStep.isPending || preview
-                    }
-                    aria-label="Submit response"
-                    className="text-foreground/40 hover:bg-foreground/[0.04] hover:text-foreground/82 absolute right-2 bottom-2 inline-flex h-7 w-7 items-center justify-center rounded-md transition disabled:pointer-events-none disabled:opacity-40"
-                  >
-                    <ArrowBendUpLeft size={16} />
-                  </button>
+
+                  <div className="flex min-h-10 flex-wrap items-center justify-between gap-2 px-3.5 pb-2.5">
+                    <div className="flex min-w-0 items-center gap-1.5">
+                    <ComposerIconButton label="Add attachment">
+                      <Plus size={18} />
+                    </ComposerIconButton>
+                  </div>
+
+                    <div className="flex shrink-0 items-center gap-2">
+                      {isSubmitPending ? (
+                        <div
+                          aria-label="Submitting"
+                          className="border-foreground/18 border-t-foreground/55 h-4 w-4 animate-spin rounded-full border"
+                        />
+                      ) : null}
+                      <ComposerIconButton label="Voice input">
+                        <Microphone size={18} />
+                      </ComposerIconButton>
+                      <button
+                        type="button"
+                        onClick={handleSubmit}
+                        disabled={
+                          !canSubmit ||
+                          isSubmitPending ||
+                          preview
+                        }
+                        aria-label="Submit response"
+                        className="bg-foreground text-background hover:bg-foreground/85 disabled:bg-foreground/25 inline-flex h-8 w-8 items-center justify-center rounded-[5px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
+                      >
+                        <ArrowUp size={16} weight="bold" />
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -895,10 +875,10 @@ export function ForgeWorkspace({
             <Button
               type="button"
               onClick={handleContinue}
-              disabled={finalizeForgeUnit.isPending || preview}
+              disabled={preview}
               className="bg-foreground text-background hover:bg-foreground/92 h-9 rounded-xl px-5 text-[13px] font-medium tracking-[-0.02em] before:rounded-[11px]"
             >
-              {finalizeForgeUnit.isPending ? "..." : "Continue"}
+              Continue
             </Button>
           </div>
         </div>

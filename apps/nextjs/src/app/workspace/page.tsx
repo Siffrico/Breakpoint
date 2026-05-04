@@ -4,11 +4,11 @@ import { redirect } from "next/navigation";
 import { getSession } from "~/auth/server";
 import { WorkspaceShell } from "~/features/becoming/components/workspace-shell";
 import {
+  getAiWorkspace,
   getActivePlan,
   getCapstone,
-  getForgeUnit,
+  getEducationUnit,
   getOnboardingState,
-  getRecallGate,
   getWorkspaceState,
   listLearningProjects,
 } from "~/features/becoming/server/becoming-queries";
@@ -56,7 +56,6 @@ export default async function WorkspacePage(props: {
         unit={null}
         capstone={null}
         onboardingState={onboardingState}
-        recallGate={null}
         projects={projects}
         sessionId={resolvedSessionId}
         userName={authSession.user.name ?? undefined}
@@ -65,17 +64,16 @@ export default async function WorkspacePage(props: {
   }
 
   const workspace = await getWorkspaceState(resolvedSessionId);
-  const activeRecallGate = await getRecallGate({ sessionId: resolvedSessionId }).catch(
-    () => null,
-  );
   const activeNodeId = workspace.nextUnitId ?? plan.nextUnitId;
   const activeNode = activeNodeId
     ? plan.nodes.find((node) => node.id === activeNodeId) ?? null
     : null;
 
+  const aiWorkspace = await getAiWorkspace(resolvedSessionId).catch(() => null);
+
   const [unit, capstone] = await Promise.all([
     activeNode && activeNode.kind !== "simulation"
-      ? getForgeUnit({ nodeId: activeNode.id, sessionId: resolvedSessionId }).catch(
+      ? getEducationUnit({ nodeId: activeNode.id, sessionId: resolvedSessionId }).catch(
           () => null,
         )
       : Promise.resolve(null),
@@ -93,7 +91,7 @@ export default async function WorkspacePage(props: {
       unit={unit}
       capstone={capstone}
       onboardingState={null}
-      recallGate={activeRecallGate}
+      aiWorkspace={aiWorkspace}
       projects={projects}
       sessionId={resolvedSessionId}
     />

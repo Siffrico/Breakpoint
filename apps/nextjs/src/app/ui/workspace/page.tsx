@@ -15,7 +15,6 @@ export default function UiPreviewWorkspacePage() {
       unit={previewForgeUnit}
       capstone={null}
       onboardingState={null}
-      recallGate={null}
       projects={previewLearningProjects}
       sessionId={previewSessionId}
       preview

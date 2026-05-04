@@ -1,21 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { Lightbulb } from "@phosphor-icons/react";
-import { useMutation } from "@tanstack/react-query";
+import { Lightbulb, SidebarSimple } from "@phosphor-icons/react";
 
 import type { RouterOutputs } from "@acme/api";
 import { Button } from "@acme/ui/button";
-import { toast } from "@acme/ui/toast";
 
-import { useTRPC } from "~/trpc/react";
 import { AssistantRichText } from "./assistant-rich-text";
 import { CapstoneWorkspace } from "./capstone/capstone-workspace";
 import { CurriculumSidebar } from "./curriculum-sidebar";
-import { ForgeWorkspace } from "./forge/forge-workspace";
+import { EducationUnitWorkspace } from "./education-unit/education-unit-workspace";
 import { OnboardingShell } from "./onboarding-shell";
-import { RecallGateView } from "./recall/RecallGateView";
 import { UnitQuestionPanel } from "./unit-question-panel";
 
 type WorkspaceState = RouterOutputs["becoming"]["home"];
@@ -23,15 +18,13 @@ type PlanState = RouterOutputs["becoming"]["activePlan"];
 type EducationUnit = RouterOutputs["becoming"]["unit"];
 type CapstoneState = RouterOutputs["becoming"]["getCapstone"];
 type OnboardingState = RouterOutputs["becoming"]["onboardingState"];
-type RecallGate = RouterOutputs["becoming"]["getRecallGate"];
+type AiWorkspace = RouterOutputs["becoming"]["aiWorkspace"];
 type LearningProject =
   RouterOutputs["becoming"]["listLearningProjects"][number];
-type FinalizeForgeUnitResult = RouterOutputs["becoming"]["finalizeForgeUnit"];
-type SubmitRecallProbeResult = RouterOutputs["becoming"]["submitRecallProbe"];
 
 const LAST_SESSION_COOKIE = "bp-last-learning-session";
 
-type WorkspaceMode = "onboarding" | "recall" | "unit" | "capstone" | "idle";
+type WorkspaceMode = "onboarding" | "unit" | "capstone" | "idle";
 
 export function WorkspaceShell({
   workspace,
@@ -39,7 +32,7 @@ export function WorkspaceShell({
   unit,
   capstone,
   onboardingState,
-  recallGate,
+  aiWorkspace,
   projects = [],
   sessionId,
   preview = false,
@@ -50,19 +43,16 @@ export function WorkspaceShell({
   unit: EducationUnit | null;
   capstone: CapstoneState | null;
   onboardingState: OnboardingState | null;
-  recallGate: RecallGate | null;
+  aiWorkspace?: AiWorkspace | null;
   projects?: LearningProject[];
   sessionId: string;
   preview?: boolean;
   userName?: string;
 }) {
-  const router = useRouter();
-  const trpc = useTRPC();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [questionPanelOpen, setQuestionPanelOpen] = useState(false);
   const [questionPanelFocused, setQuestionPanelFocused] = useState(false);
   const [liveUnit, setLiveUnit] = useState(unit);
-  const [liveRecallGate, setLiveRecallGate] = useState(recallGate);
   const [isSessionRunning, setIsSessionRunning] = useState(false);
 
   useEffect(() => {
@@ -73,24 +63,12 @@ export function WorkspaceShell({
     setLiveUnit(unit);
   }, [unit]);
 
-  useEffect(() => {
-    setLiveRecallGate(recallGate);
-  }, [recallGate]);
-
-  const submitRecallProbe = useMutation(
-    trpc.becoming.submitRecallProbe.mutationOptions({
-      onError: (error) => toast.error(error.message),
-    }),
-  );
-
   const mode: WorkspaceMode = onboardingState
     ? "onboarding"
-    : liveRecallGate
-      ? "recall"
-      : liveUnit
-        ? "unit"
-        : capstone
-          ? "capstone"
+    : liveUnit
+      ? "unit"
+      : capstone
+        ? "capstone"
           : "idle";
 
   useEffect(() => {
@@ -101,26 +79,11 @@ export function WorkspaceShell({
     mode === "onboarding"
       ? (onboardingState?.activeQuestion?.prompt ??
         "Start a new learning track")
-      : mode === "recall"
-        ? "Recall checkpoint"
-        : mode === "capstone"
+      : mode === "capstone"
           ? (capstone?.capstone.scenario.title ?? "Cluster capstone")
           : (liveUnit?.title ??
             workspace?.nextUnitTitle ??
             "Preparing your next unit");
-  const handleNavigate = (
-    result: FinalizeForgeUnitResult | SubmitRecallProbeResult["nextAction"],
-  ) => {
-    if (!result) return;
-
-    if (result.nextAction === "recall_gate") {
-      setLiveRecallGate(result.gate);
-      return;
-    }
-
-    router.push(`/workspace?session=${sessionId}`);
-    router.refresh();
-  };
 
   const closeQuestionPanel = () => {
     setQuestionPanelFocused(false);
@@ -132,63 +95,52 @@ export function WorkspaceShell({
     setQuestionPanelFocused((prev) => !prev);
   };
 
-  const handleRecallProbeSubmit = async (
-    probeId: string,
-    mode: "probe" | "repair",
-    response: string,
-  ) => {
-    if (!liveRecallGate || preview) return;
-
-    const result = await submitRecallProbe.mutateAsync({
-      gateId: liveRecallGate.id,
-      probeId,
-      mode,
-      response,
-    });
-
-    setLiveRecallGate(result.gate);
-    if (result.nextAction) {
-      handleNavigate(result.nextAction);
-    }
-  };
-
   return (
     <div className="bg-sidebar text-foreground flex h-dvh overflow-hidden">
-      <div
-        className={[
-          "bg-sidebar shrink-0 transition-[width] duration-200",
-          sidebarCollapsed ? "w-[56px]" : "w-[200px]",
-        ].join(" ")}
-      >
-        <CurriculumSidebar
-          projects={projects}
-          currentSessionId={sessionId}
-          preview={preview}
-          collapsed={sidebarCollapsed}
-          onToggleCollapsed={() => setSidebarCollapsed((prev) => !prev)}
-          userName={userName}
-          activeLessonId={liveUnit?.nodeId ?? null}
-          isSessionRunning={isSessionRunning}
-        />
-      </div>
+      {!sidebarCollapsed ? (
+        <div className="bg-sidebar w-[232px] shrink-0">
+          <CurriculumSidebar
+            projects={projects}
+            currentSessionId={sessionId}
+            preview={preview}
+            onToggleCollapsed={() => setSidebarCollapsed(true)}
+            userName={userName}
+            activeLessonId={liveUnit?.nodeId ?? null}
+            isSessionRunning={isSessionRunning}
+          />
+        </div>
+      ) : null}
 
       <div className="flex min-w-0 flex-1 flex-col pr-2">
         <header className="flex h-14 shrink-0 items-center justify-between px-4 sm:px-6">
+          <div className="flex min-w-0 items-center gap-2">
+            {sidebarCollapsed ? (
+              <button
+                type="button"
+                aria-label="Open sidebar"
+                onClick={() => setSidebarCollapsed(false)}
+                className="text-foreground/40 hover:text-foreground/80 hover:bg-foreground/[0.04] flex h-6 w-6 shrink-0 items-center justify-center rounded-[5px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
+              >
+                <SidebarSimple size={14} />
+              </button>
+            ) : null}
+
+            {mode === "onboarding" ? null : (
+              <div
+                role="heading"
+                aria-level={1}
+                className="font-display text-foreground text-[16px] tracking-[-0.02em]"
+              >
+                <AssistantRichText
+                  content={shellTitle}
+                  className="overflow-hidden [&>*]:overflow-hidden [&>*]:text-ellipsis [&>*]:whitespace-nowrap"
+                />
+              </div>
+            )}
+          </div>
+
           {mode === "onboarding" ? null : (
             <>
-              <div className="min-w-0">
-                <div
-                  role="heading"
-                  aria-level={1}
-                  className="font-display text-foreground text-[16px] tracking-[-0.02em]"
-                >
-                  <AssistantRichText
-                    content={shellTitle}
-                    className="overflow-hidden [&>*]:overflow-hidden [&>*]:text-ellipsis [&>*]:whitespace-nowrap"
-                  />
-                </div>
-              </div>
-
               {mode === "unit" && liveUnit ? (
                 <div className="flex items-center gap-2">
                   <Button
@@ -249,25 +201,13 @@ export function WorkspaceShell({
                       />
                     ) : null}
 
-                    {mode === "recall" && liveRecallGate ? (
-                      <RecallGateView
-                        gate={liveRecallGate}
-                        onSubmitProbe={handleRecallProbeSubmit}
-                        isPending={submitRecallProbe.isPending}
-                        onContinue={() => {
-                          router.push(`/workspace?session=${sessionId}`);
-                          router.refresh();
-                        }}
-                      />
-                    ) : null}
-
                     {mode === "unit" && liveUnit ? (
-                      <ForgeWorkspace
+                      <EducationUnitWorkspace
                         unit={liveUnit}
                         sessionId={sessionId}
                         preview={preview}
                         embedded
-                        onNavigate={handleNavigate}
+                        aiWorkspace={aiWorkspace ?? null}
                         onStateChange={setLiveUnit}
                         onRunningChange={setIsSessionRunning}
                       />

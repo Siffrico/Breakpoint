@@ -5,12 +5,6 @@ import { sql } from "@acme/db";
 import type { CurriculumNode } from "@acme/validators";
 import {
   CapstoneSubmissionSchema,
-  SubmitRecallProbeSchema,
-  SubmitEducationUnitStepSchema,
-  GhostSubmissionSchema,
-  PracticeSubmissionSchema,
-  SeedResponseSchema,
-  TeachbackSubmissionSchema,
 } from "@acme/validators";
 
 import {
@@ -32,32 +26,14 @@ import {
   getProfileWorkflow,
 } from "../domain/becoming/workflows/get-profile-workflow";
 import {
-  getTeachbackPromptWorkflow,
-} from "../domain/becoming/workflows/get-teachback-prompt-workflow";
-import {
   getUnitWorkflow,
 } from "../domain/becoming/workflows/get-unit-workflow";
 import {
-  getFailureIsolationWorkflow,
-} from "../domain/becoming/workflows/get-failure-isolation-workflow";
-import {
-  getForgeDebriefWorkflow,
-} from "../domain/becoming/workflows/get-forge-debrief-workflow";
-import {
-  finalizeForgeUnitWorkflow,
-} from "../domain/becoming/workflows/finalize-forge-unit-workflow";
+  getAiWorkspaceWorkflow,
+} from "../domain/becoming/workflows/get-ai-workspace-workflow";
 import {
   startOnboardingWorkflow,
 } from "../domain/becoming/workflows/start-onboarding-workflow";
-import {
-  submitRecallProbeWorkflow,
-} from "../domain/becoming/workflows/submit-recall-probe-workflow";
-import {
-  submitPracticeWorkflow,
-} from "../domain/becoming/workflows/submit-practice-workflow";
-import {
-  submitGhostResponseWorkflow,
-} from "../domain/becoming/workflows/submit-ghost-response-workflow";
 import {
   submitCapstoneMessageWorkflow,
 } from "../domain/becoming/workflows/submit-capstone-message-workflow";
@@ -65,17 +41,8 @@ import {
   submitOnboardingAnswerWorkflow,
 } from "../domain/becoming/workflows/submit-onboarding-answer-workflow";
 import {
-  submitSeedWorkflow,
-} from "../domain/becoming/workflows/submit-seed-workflow";
-import {
-  submitEducationUnitStepWorkflow,
-} from "../domain/becoming/workflows/submit-education-unit-step-workflow";
-import {
-  submitTeachbackWorkflow,
-} from "../domain/becoming/workflows/submit-teachback-workflow";
-import {
-  triggerRecallGateWorkflow,
-} from "../domain/becoming/workflows/trigger-recall-gate-workflow";
+  submitAiWorkspaceMessageWorkflow,
+} from "../domain/becoming/workflows/submit-ai-workspace-message-workflow";
 import { becomingCapstoneRepository } from "../repositories/becoming-capstone-repository";
 import { becomingCurriculumRepository } from "../repositories/becoming-curriculum-repository";
 import { becomingOnboardingRepository } from "../repositories/becoming-onboarding-repository";
@@ -93,30 +60,19 @@ const SubmitOnboardingAnswerSchema = z.object({
   answer: z.string().min(1).max(4_000),
 });
 
+const SubmitAiWorkspaceMessageSchema = z.object({
+  sessionId: z.string().uuid(),
+  message: z.string().min(1).max(8_000),
+});
+
 const NodeSessionSchema = z.object({
   nodeId: z.string().uuid(),
   sessionId: z.string().uuid(),
 });
 
-const SubmitSeedSchema = NodeSessionSchema.extend(SeedResponseSchema.shape);
-const SubmitPracticeSchema = PracticeSubmissionSchema.extend({
-  sessionId: z.string().uuid(),
-});
-const SubmitTeachbackSchema = TeachbackSubmissionSchema.extend({
-  sessionId: z.string().uuid(),
-});
-const SubmitGhostResponseSchema = GhostSubmissionSchema.extend({
-  sessionId: z.string().uuid(),
-});
 const SubmitCapstoneMessageSchema = CapstoneSubmissionSchema.extend({
   sessionId: z.string().uuid(),
 });
-const GetRecallGateSchema = z.object({
-  sessionId: z.string().uuid(),
-  gateId: z.string().uuid().optional(),
-});
-const FinalizeForgeUnitSchema = NodeSessionSchema;
-
 type Database = Parameters<
   typeof becomingCurriculumRepository.getNodeById
 >[0]["db"];
@@ -192,99 +148,6 @@ const createCapstoneGenerationDeps = (
       db,
       sessionId,
       unitIds,
-    }),
-});
-
-const createRecallRepositoryDeps = (db: Database) => ({
-  getGateById: (gateId: string) =>
-    becomingRecallRepository.getGateById({
-      db,
-      gateId,
-    }),
-  getActiveGateBySession: (sessionId: string) =>
-    becomingRecallRepository.getActiveGateBySession({
-      db,
-      sessionId,
-    }),
-  getGateByTriggerUnit: (planId: string, triggerAfterUnitNodeId: string) =>
-    becomingRecallRepository.getGateByTriggerUnit({
-      db,
-      planId,
-      triggerAfterUnitNodeId,
-    }),
-  createGate: (payload: {
-    planId: string;
-    sessionId: string;
-    userId?: string | null;
-    triggerAfterUnitNodeId: string;
-  }) =>
-    becomingRecallRepository.createGate({
-      db,
-      ...payload,
-    }),
-  createProbes: (payload: {
-    gateId: string;
-    probes: Array<{
-      probeOrder: number;
-      probeType: "seed_return" | "interleave" | "compression";
-      sourceUnitNodeIds: string[];
-      prompt: string;
-      seedSnapshot?: string | null;
-    }>;
-  }) =>
-    becomingRecallRepository.createProbes({
-      db,
-      ...payload,
-    }),
-  updateGate: (payload: {
-    gateId: string;
-    status?: "pending" | "active" | "passed" | "repaired" | "flagged";
-    completedAt?: Date | null;
-  }) =>
-    becomingRecallRepository.updateGate({
-      db,
-      ...payload,
-    }),
-  updateProbe: (payload: {
-    probeId: string;
-    userResponse?: string | null;
-    score?: number | null;
-    passed?: boolean | null;
-    repairPrompt?: string | null;
-    repairResponse?: string | null;
-    repairScore?: number | null;
-    repairPassed?: boolean | null;
-    status?: "pending" | "answered" | "repair_pending" | "repaired" | "failed";
-    completedAt?: Date | null;
-  }) =>
-    becomingRecallRepository.updateProbe({
-      db,
-      ...payload,
-    }),
-  listRecallStates: (planId: string, unitNodeIds: string[]) =>
-    becomingRecallRepository.listRecallStates({
-      db,
-      planId,
-      unitNodeIds,
-    }),
-  upsertRecallState: (payload: {
-    unitNodeId: string;
-    planId: string;
-    lastRecalledAt: Date | null;
-    lastRecallOrderIndex: number | null;
-    recallCount: number;
-    decayCount: number;
-    lastRecallScore: number | null;
-    status: "retained" | "decayed" | "repaired";
-  }) =>
-    becomingRecallRepository.upsertRecallState({
-      db,
-      ...payload,
-    }),
-  getActiveGateSummaryBySession: (sessionId: string) =>
-    becomingRecallRepository.getActiveGateSummaryBySession({
-      db,
-      sessionId,
     }),
 });
 
@@ -606,6 +469,126 @@ export const becomingRouter = {
       );
     }),
 
+  aiWorkspace: protectedProcedure
+    .input(SessionIdSchema)
+    .query(async ({ ctx, input }) => {
+      await requireSessionOwner({ ctx, sessionId: input.sessionId });
+
+      return throwOnFailure(
+        await getAiWorkspaceWorkflow({
+          sessionId: input.sessionId,
+          deps: {
+            getActivePlan: (sessionId) =>
+              becomingCurriculumRepository.getActivePlan({
+                db: ctx.db,
+                sessionId,
+              }),
+            listMessages: (sessionId) =>
+              becomingOnboardingRepository.listWorkspaceMessages({
+                db: ctx.db,
+                sessionId,
+              }),
+            listPhaseResponsesBySession: (sessionId) =>
+              becomingCurriculumRepository.listPhaseResponsesBySession({
+                db: ctx.db,
+                sessionId,
+              }),
+            getPhaseResponses: (unitContentId, sessionId) =>
+              becomingCurriculumRepository.getPhaseResponses({
+                db: ctx.db,
+                unitContentId,
+                sessionId,
+              }),
+            getUnitByNodeId: (nodeId) =>
+              becomingCurriculumRepository.getUnitByNodeId({
+                db: ctx.db,
+                nodeId,
+              }),
+            createUnitContent: (payload) =>
+              becomingCurriculumRepository.createUnitContent({
+                db: ctx.db,
+                ...payload,
+              }),
+          },
+        }),
+      );
+    }),
+
+  submitAiWorkspaceMessage: protectedProcedure
+    .input(SubmitAiWorkspaceMessageSchema)
+    .mutation(async ({ ctx, input }) => {
+      await requireSessionOwner({ ctx, sessionId: input.sessionId });
+
+      return throwOnFailure(
+        await submitAiWorkspaceMessageWorkflow({
+          sessionId: input.sessionId,
+          userId: ctx.session.user.id,
+          message: input.message,
+          deps: {
+            getActivePlan: (sessionId) =>
+              becomingCurriculumRepository.getActivePlan({
+                db: ctx.db,
+                sessionId,
+              }),
+            listMessages: (sessionId) =>
+              becomingOnboardingRepository.listWorkspaceMessages({
+                db: ctx.db,
+                sessionId,
+              }),
+            appendMessage: (payload) =>
+              becomingOnboardingRepository.appendWorkspaceMessage({
+                db: ctx.db,
+                ...payload,
+              }),
+            listPhaseResponsesBySession: (sessionId) =>
+              becomingCurriculumRepository.listPhaseResponsesBySession({
+                db: ctx.db,
+                sessionId,
+              }),
+            getPhaseResponses: (unitContentId, sessionId) =>
+              becomingCurriculumRepository.getPhaseResponses({
+                db: ctx.db,
+                unitContentId,
+                sessionId,
+              }),
+            getUnitByNodeId: (nodeId) =>
+              becomingCurriculumRepository.getUnitByNodeId({
+                db: ctx.db,
+                nodeId,
+              }),
+            createUnitContent: (payload) =>
+              becomingCurriculumRepository.createUnitContent({
+                db: ctx.db,
+                ...payload,
+              }),
+            savePhaseResponse: (payload) =>
+              becomingCurriculumRepository.savePhaseResponse({
+                db: ctx.db,
+                ...payload,
+              }),
+            completeNode: (nodeId) =>
+              becomingCurriculumRepository.completeNode({
+                db: ctx.db,
+                nodeId,
+              }),
+            listMemories: async (userId) => {
+              const result = await memoryRepository.listByUserId({
+                db: ctx.db,
+                userId,
+              });
+
+              return result.success ? result.data : [];
+            },
+            touchSession: (sessionId) =>
+              becomingOnboardingRepository.touchSession({
+                db: ctx.db,
+                sessionId,
+              }),
+          },
+        }),
+      );
+    }),
+
   unit: protectedProcedure.input(NodeSessionSchema).query(async ({ ctx, input }) => {
     await requireSessionOwner({ ctx, sessionId: input.sessionId });
 
@@ -662,584 +645,6 @@ export const becomingRouter = {
       }),
     );
   }),
-
-  submitEducationUnitStep: protectedProcedure
-    .input(SubmitEducationUnitStepSchema)
-    .mutation(async ({ ctx, input }) => {
-      await requireSessionOwner({ ctx, sessionId: input.sessionId });
-
-      const result = throwOnFailure(
-        await submitEducationUnitStepWorkflow({
-          ...input,
-          userId: ctx.session?.user.id,
-          deps: {
-            getUnitByNodeId: (nodeId) =>
-              becomingCurriculumRepository.getUnitByNodeId({
-                db: ctx.db,
-                nodeId,
-              }),
-            getPhaseResponses: (unitContentId, sessionId) =>
-              becomingCurriculumRepository.getPhaseResponses({
-                db: ctx.db,
-                unitContentId,
-                sessionId,
-              }),
-            listAttemptHistory: (sessionId) =>
-              becomingTrainingRepository.listAttemptHistory({
-                db: ctx.db,
-                sessionId,
-              }),
-            listMemories: async (userId) => {
-              const result = await memoryRepository.listByUserId({
-                db: ctx.db,
-                userId,
-              });
-
-              return result.success ? result.data : [];
-            },
-            savePhaseResponse: (payload) =>
-              becomingCurriculumRepository.savePhaseResponse({
-                db: ctx.db,
-                ...payload,
-              }),
-          },
-        }),
-      );
-
-      await becomingOnboardingRepository.touchSession({
-        db: ctx.db,
-        sessionId: input.sessionId,
-      });
-
-      return result;
-    }),
-
-  submitSeed: protectedProcedure
-    .input(SubmitSeedSchema)
-    .mutation(async ({ ctx, input }) => {
-      await requireSessionOwner({ ctx, sessionId: input.sessionId });
-
-      return throwOnFailure(
-        await submitSeedWorkflow({
-          nodeId: input.nodeId,
-          sessionId: input.sessionId,
-          response: input.response,
-          userId: ctx.session?.user.id,
-          deps: {
-            getUnitByNodeId: (nodeId) =>
-              becomingCurriculumRepository.getUnitByNodeId({
-                db: ctx.db,
-                nodeId,
-              }),
-            getTargetIdentity: async (sessionId) => {
-              const profile = await becomingOnboardingRepository.getProfileBySession({
-                db: ctx.db,
-                sessionId,
-              });
-
-              return profile?.version.targetIdentity ?? null;
-            },
-            getNodeById: (nodeId) =>
-              becomingCurriculumRepository.getNodeById({
-                db: ctx.db,
-                nodeId,
-              }),
-            getPlanNodesBySession: (sessionId) =>
-              becomingCurriculumRepository.getPlanNodesBySession({
-                db: ctx.db,
-                sessionId,
-              }),
-            listAttemptHistory: (sessionId) =>
-              becomingTrainingRepository.listAttemptHistory({
-                db: ctx.db,
-                sessionId,
-              }),
-            savePhaseResponse: (payload) =>
-              becomingCurriculumRepository.savePhaseResponse({
-                db: ctx.db,
-                ...payload,
-              }),
-            updateUnitContent: (payload) =>
-              becomingCurriculumRepository.updateUnitContent({
-                db: ctx.db,
-                ...payload,
-              }),
-          },
-        }),
-      );
-    }),
-
-  submitPractice: protectedProcedure
-    .input(SubmitPracticeSchema)
-    .mutation(async ({ ctx, input }) => {
-      await requireSessionOwner({ ctx, sessionId: input.sessionId });
-
-      return throwOnFailure(
-        await submitPracticeWorkflow({
-          sessionId: input.sessionId,
-          nodeId: input.nodeId,
-          response: input.response,
-          sequence: input.sequence,
-          userId: ctx.session?.user.id,
-          deps: {
-            getUnitByNodeId: (nodeId) =>
-              becomingCurriculumRepository.getUnitByNodeId({
-                db: ctx.db,
-                nodeId,
-              }),
-            getPhaseResponses: (unitContentId, sessionId) =>
-              becomingCurriculumRepository.getPhaseResponses({
-                db: ctx.db,
-                unitContentId,
-                sessionId,
-              }),
-            savePhaseResponse: (payload) =>
-              becomingCurriculumRepository.savePhaseResponse({
-                db: ctx.db,
-                ...payload,
-              }),
-          },
-        }),
-      );
-    }),
-
-  getTeachbackPrompt: protectedProcedure
-    .input(NodeSessionSchema)
-    .query(async ({ ctx, input }) => {
-      await requireSessionOwner({ ctx, sessionId: input.sessionId });
-
-      return throwOnFailure(
-        await getTeachbackPromptWorkflow({
-          sessionId: input.sessionId,
-          nodeId: input.nodeId,
-          deps: {
-            getUnitByNodeId: (nodeId) =>
-              becomingCurriculumRepository.getUnitByNodeId({
-                db: ctx.db,
-                nodeId,
-              }),
-            getPhaseResponses: (unitContentId, sessionId) =>
-              becomingCurriculumRepository.getPhaseResponses({
-                db: ctx.db,
-                unitContentId,
-                sessionId,
-              }),
-          },
-        }),
-      );
-    }),
-
-  submitTeachback: protectedProcedure
-    .input(SubmitTeachbackSchema)
-    .mutation(async ({ ctx, input }) => {
-      await requireSessionOwner({ ctx, sessionId: input.sessionId });
-
-      return throwOnFailure(
-        await submitTeachbackWorkflow({
-          sessionId: input.sessionId,
-          nodeId: input.nodeId,
-          round: input.round,
-          response: input.response,
-          userId: ctx.session?.user.id,
-          deps: {
-            getUnitByNodeId: (nodeId) =>
-              becomingCurriculumRepository.getUnitByNodeId({
-                db: ctx.db,
-                nodeId,
-              }),
-            getPhaseResponses: (unitContentId, sessionId) =>
-              becomingCurriculumRepository.getPhaseResponses({
-                db: ctx.db,
-                unitContentId,
-                sessionId,
-              }),
-            savePhaseResponse: (payload) =>
-              becomingCurriculumRepository.savePhaseResponse({
-                db: ctx.db,
-                ...payload,
-              }),
-          },
-        }),
-      );
-    }),
-
-  getFailureIsolation: protectedProcedure
-    .input(NodeSessionSchema)
-    .query(async ({ ctx, input }) => {
-      await requireSessionOwner({ ctx, sessionId: input.sessionId });
-
-      return throwOnFailure(
-        await getFailureIsolationWorkflow({
-          sessionId: input.sessionId,
-          nodeId: input.nodeId,
-          userId: ctx.session?.user.id,
-          deps: {
-            getUnitByNodeId: (nodeId) =>
-              becomingCurriculumRepository.getUnitByNodeId({
-                db: ctx.db,
-                nodeId,
-              }),
-            getPhaseResponses: (unitContentId, sessionId) =>
-              becomingCurriculumRepository.getPhaseResponses({
-                db: ctx.db,
-                unitContentId,
-                sessionId,
-              }),
-            getLatestFailureIsolation: (unitContentId, sessionId) =>
-              becomingCurriculumRepository.getLatestFailureIsolation({
-                db: ctx.db,
-                unitContentId,
-                sessionId,
-              }),
-            savePhaseResponse: (payload) =>
-              becomingCurriculumRepository.savePhaseResponse({
-                db: ctx.db,
-                ...payload,
-              }),
-          },
-        }),
-      );
-    }),
-
-  submitGhostResponse: protectedProcedure
-    .input(SubmitGhostResponseSchema)
-    .mutation(async ({ ctx, input }) => {
-      await requireSessionOwner({ ctx, sessionId: input.sessionId });
-
-      return throwOnFailure(
-        await submitGhostResponseWorkflow({
-          sessionId: input.sessionId,
-          nodeId: input.nodeId,
-          response: input.response,
-          userId: ctx.session?.user.id,
-          deps: {
-            getUnitByNodeId: (nodeId) =>
-              becomingCurriculumRepository.getUnitByNodeId({
-                db: ctx.db,
-                nodeId,
-              }),
-            getPhaseResponses: (unitContentId, sessionId) =>
-              becomingCurriculumRepository.getPhaseResponses({
-                db: ctx.db,
-                unitContentId,
-                sessionId,
-              }),
-            getLatestFailureIsolation: (unitContentId, sessionId) =>
-              becomingCurriculumRepository.getLatestFailureIsolation({
-                db: ctx.db,
-                unitContentId,
-                sessionId,
-              }),
-            savePhaseResponse: (payload) =>
-              becomingCurriculumRepository.savePhaseResponse({
-                db: ctx.db,
-                ...payload,
-              }),
-          },
-        }),
-      );
-    }),
-
-  getForgeDebrief: protectedProcedure
-    .input(NodeSessionSchema)
-    .query(async ({ ctx, input }) => {
-      await requireSessionOwner({ ctx, sessionId: input.sessionId });
-
-      return throwOnFailure(
-        await getForgeDebriefWorkflow({
-          sessionId: input.sessionId,
-          nodeId: input.nodeId,
-          deps: {
-            getUnitByNodeId: (nodeId) =>
-              becomingCurriculumRepository.getUnitByNodeId({
-                db: ctx.db,
-                nodeId,
-              }),
-            getPhaseResponses: (unitContentId, sessionId) =>
-              becomingCurriculumRepository.getPhaseResponses({
-                db: ctx.db,
-                unitContentId,
-                sessionId,
-              }),
-            getTargetIdentity: async (sessionId) => {
-              const profile = await becomingOnboardingRepository.getProfileBySession({
-                db: ctx.db,
-                sessionId,
-              });
-
-              return profile?.version.targetIdentity ?? null;
-            },
-            getLatestAttemptByUnit: (sessionId, unitId) =>
-              becomingTrainingRepository.getLatestAttemptByUnit({
-                db: ctx.db,
-                sessionId,
-                unitId,
-              }),
-          },
-        }),
-      );
-    }),
-
-  finalizeForgeUnit: protectedProcedure
-    .input(FinalizeForgeUnitSchema)
-    .mutation(async ({ ctx, input }) =>
-      ctx.db.transaction(async (tx) => {
-        await requireSessionOwner({ ctx, sessionId: input.sessionId });
-
-        const db = tx as unknown as Database;
-        await lockCapstoneNode({
-          db,
-          nodeId: input.nodeId,
-          sessionId: input.sessionId,
-        });
-
-        const result = throwOnFailure(
-          await finalizeForgeUnitWorkflow({
-            nodeId: input.nodeId,
-            sessionId: input.sessionId,
-            userId: ctx.session?.user.id,
-            deps: {
-              getUnitByNodeId: (nodeId) =>
-                becomingCurriculumRepository.getUnitByNodeId({
-                  db,
-                  nodeId,
-                }),
-              getPhaseResponses: (unitContentId, sessionId) =>
-                becomingCurriculumRepository.getPhaseResponses({
-                  db,
-                  unitContentId,
-                  sessionId,
-                }),
-              getLatestAttemptByUnit: (sessionId, unitId) =>
-                becomingTrainingRepository.getLatestAttemptByUnit({
-                  db,
-                  sessionId,
-                  unitId,
-                }),
-              saveAttempt: (payload) =>
-                becomingTrainingRepository.saveAttempt({
-                  db,
-                  ...payload,
-                }),
-              getNodeById: (nodeId) =>
-                becomingCurriculumRepository.getNodeById({
-                  db,
-                  nodeId,
-                }),
-              markNodeCompleted: (nodeId) =>
-                becomingCurriculumRepository.markNodeCompleted({
-                  db,
-                  nodeId,
-                }),
-              advancePlanAfterCompletion: (nodeId) =>
-                becomingCurriculumRepository.advancePlanAfterCompletion({
-                  db,
-                  nodeId,
-                }),
-              getPlanNodesBySession: (sessionId) =>
-                becomingCurriculumRepository.getPlanNodesBySession({
-                  db,
-                  sessionId,
-                }),
-              generateCapstone: async ({ nodeId, sessionId, userId }) => {
-                const result = await generateCapstoneWorkflow({
-                  nodeId,
-                  sessionId,
-                  userId,
-                  deps: createCapstoneGenerationDeps(db),
-                });
-
-                if (!result.success) {
-                  throw new Error(result.error ?? "Failed to generate capstone.");
-                }
-              },
-              getGateByTriggerUnit: (planId, triggerAfterUnitNodeId) =>
-                becomingRecallRepository.getGateByTriggerUnit({
-                  db,
-                  planId,
-                  triggerAfterUnitNodeId,
-                }),
-              triggerRecallGate: ({ triggerAfterUnitNodeId, sessionId, userId }) =>
-                triggerRecallGateWorkflow({
-                  triggerAfterUnitNodeId,
-                  sessionId,
-                  userId,
-                  deps: {
-                    getNodeById: (nodeId) =>
-                      becomingCurriculumRepository.getNodeById({
-                        db,
-                        nodeId,
-                      }),
-                    getPlanNodesBySession: (sessionId) =>
-                      becomingCurriculumRepository.getPlanNodesBySession({
-                        db,
-                        sessionId,
-                      }),
-                    listUnitContentsByNodeIds: (nodeIds) =>
-                      becomingCurriculumRepository.listUnitContentsByNodeIds({
-                        db,
-                        nodeIds,
-                      }),
-                    listLatestAttemptsByUnitIds: (sessionId, unitIds) =>
-                      becomingTrainingRepository.listLatestAttemptsByUnitIds({
-                        db,
-                        sessionId,
-                        unitIds,
-                      }),
-                    listRecallStates: (planId, unitNodeIds) =>
-                      becomingRecallRepository.listRecallStates({
-                        db,
-                        planId,
-                        unitNodeIds,
-                      }),
-                    getGateByTriggerUnit: (planId, triggerAfterUnitNodeId) =>
-                      becomingRecallRepository.getGateByTriggerUnit({
-                        db,
-                        planId,
-                        triggerAfterUnitNodeId,
-                      }),
-                    getLatestResolvedGateBySession: (sessionId) =>
-                      becomingRecallRepository.getLatestResolvedGateBySession({
-                        db,
-                        sessionId,
-                      }),
-                    createGate: (payload) =>
-                      becomingRecallRepository.createGate({
-                        db,
-                        ...payload,
-                      }),
-                    createProbes: (payload) =>
-                      becomingRecallRepository.createProbes({
-                        db,
-                        ...payload,
-                      }),
-                    getGateById: (gateId) =>
-                      becomingRecallRepository.getGateById({
-                        db,
-                        gateId,
-                      }),
-                  },
-                }),
-              listMemories: async (userId) => {
-                const result = await memoryRepository.listByUserId({
-                  db,
-                  userId,
-                });
-
-                return result.success ? result.data : [];
-              },
-              createMemory: ({ userId, content, contentHash, source }) =>
-                memoryRepository.create({
-                  db,
-                  userId,
-                  content,
-                  contentHash,
-                  source,
-                }),
-            },
-          }),
-        );
-
-        await becomingOnboardingRepository.touchSession({
-          db,
-          sessionId: input.sessionId,
-        });
-
-        return result;
-      })),
-
-  getRecallGate: protectedProcedure
-    .input(GetRecallGateSchema)
-    .query(async ({ ctx, input }) => {
-      await requireSessionOwner({ ctx, sessionId: input.sessionId });
-
-      const recallDeps = createRecallRepositoryDeps(ctx.db);
-      const gate = input.gateId
-        ? await recallDeps.getGateById(input.gateId)
-        : await recallDeps.getActiveGateBySession(input.sessionId);
-
-      if (!gate) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Recall gate does not exist.",
-        });
-      }
-
-      return gate;
-    }),
-
-  submitRecallProbe: protectedProcedure
-    .input(SubmitRecallProbeSchema)
-    .mutation(async ({ ctx, input }) =>
-      ctx.db.transaction(async (tx) => {
-        const db = tx as unknown as Database;
-        const recallDeps = createRecallRepositoryDeps(db);
-        const gate = await recallDeps.getGateById(input.gateId);
-        if (!gate) {
-          throw new TRPCError({
-            code: "NOT_FOUND",
-            message: "Recall gate does not exist.",
-          });
-        }
-
-        await requireSessionOwner({ ctx, sessionId: gate.sessionId });
-
-        await lockCapstoneNode({
-          db,
-          nodeId: gate.triggerAfterUnitNodeId,
-          sessionId: gate.sessionId,
-        });
-
-        const result = throwOnFailure(
-          await submitRecallProbeWorkflow({
-            gateId: input.gateId,
-            probeId: input.probeId,
-            mode: input.mode,
-            response: input.response,
-            deps: {
-              getGateById: recallDeps.getGateById,
-              updateProbe: recallDeps.updateProbe,
-              getPlanNodesBySession: (sessionId) =>
-                becomingCurriculumRepository.getPlanNodesBySession({
-                  db,
-                  sessionId,
-                }),
-              listUnitContentsByNodeIds: (nodeIds) =>
-                becomingCurriculumRepository.listUnitContentsByNodeIds({
-                  db,
-                  nodeIds,
-                }),
-              updateGate: recallDeps.updateGate,
-              listRecallStates: recallDeps.listRecallStates,
-              upsertRecallState: recallDeps.upsertRecallState,
-              advancePlanAfterCompletion: (nodeId) =>
-                becomingCurriculumRepository.advancePlanAfterCompletion({
-                  db,
-                  nodeId,
-                }),
-              generateCapstone: async ({ nodeId, sessionId }) => {
-                const result = await generateCapstoneWorkflow({
-                  nodeId,
-                  sessionId,
-                  userId: ctx.session?.user.id,
-                  deps: createCapstoneGenerationDeps(db),
-                });
-
-                if (!result.success) {
-                  throw new Error(result.error ?? "Failed to generate capstone.");
-                }
-              },
-            },
-          }),
-        );
-
-        await becomingOnboardingRepository.touchSession({
-          db,
-          sessionId: gate.sessionId,
-        });
-
-        return result;
-      })),
 
   getCapstone: protectedProcedure
     .input(NodeSessionSchema)

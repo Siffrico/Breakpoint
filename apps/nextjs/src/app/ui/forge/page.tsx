@@ -1,10 +1,10 @@
 import { previewSessionId } from "~/features/becoming/lib/becoming-preview";
 import { previewForgeUnit } from "~/features/becoming/lib/forge-preview";
-import { ForgeWorkspace } from "~/features/becoming/components/forge/forge-workspace";
+import { EducationUnitWorkspace } from "~/features/becoming/components/education-unit/education-unit-workspace";
 
 export default function UiPreviewForgePage() {
   return (
-    <ForgeWorkspace
+    <EducationUnitWorkspace
       unit={previewForgeUnit}
       sessionId={previewSessionId}
       preview

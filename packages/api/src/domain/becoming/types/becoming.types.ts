@@ -214,7 +214,9 @@ export type BecomingPhase =
   | "loop_initial_response"
   | "loop_mastery_check"
   | "loop_build_response"
-  | "loop_revision";
+  | "loop_revision"
+  | "ai_education"
+  | "ai_recall";
 
 export interface PhaseResponseMetadata {
   attempts?: number;
@@ -225,6 +227,14 @@ export interface PhaseResponseMetadata {
   latencyMs?: number | null;
   signals?: EducationUnitAttemptSignals;
   stateSnapshot?: EducationUnitState;
+  aiEducationStage?:
+    | "diagnostic_scenario"
+    | "concept_instruction"
+    | "guided_application"
+    | "performance_evaluation"
+    | "transfer_scenario"
+    | "completed";
+  recallUnitId?: string;
   assessmentStatus?: EducationUnitAssessmentStatus;
   gap?: FailureGap;
   ghostScenario?: GhostScenario;

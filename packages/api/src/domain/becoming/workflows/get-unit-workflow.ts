@@ -88,7 +88,7 @@ export const getUnitWorkflow = async ({
   }
 
   if (node.kind !== "unit" && node.kind !== "integration") {
-    return err("This node is not a Forge unit.");
+    return err("This node is not an education unit.");
   }
 
   if (node.status !== "ready" && existingUnit == null) {

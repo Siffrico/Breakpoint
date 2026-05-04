@@ -6,9 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   CaretRight,
-  CircleDashed,
   DotsThree,
-  Funnel,
   Gear,
   MagnifyingGlass,
   Plus,
@@ -177,10 +175,30 @@ function IconButton({
       type="button"
       onClick={onClick}
       aria-label={label}
-      className="text-foreground/44 hover:text-foreground/80 flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors outline-none focus:outline-none focus-visible:outline-none"
+      className="text-foreground/40 hover:text-foreground/80 hover:bg-foreground/[0.04] flex h-6 w-6 shrink-0 items-center justify-center rounded-[5px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
     >
       {children}
     </button>
+  );
+}
+
+function StatusDot({
+  state,
+}: {
+  state: "planned" | "ready" | "completed";
+}) {
+  return (
+    <span
+      aria-hidden="true"
+      className={[
+        "block h-[8px] w-[8px] shrink-0 rounded-full transition-colors",
+        state === "ready"
+          ? "bg-foreground/68"
+          : state === "completed"
+            ? "bg-foreground/24"
+            : "border-foreground/22 border bg-transparent",
+      ].join(" ")}
+    />
   );
 }
 
@@ -197,37 +215,37 @@ function ChatRow({
 }) {
   const isReady = status === "ready";
   const isCompleted = status === "completed";
+  const dotState: "planned" | "ready" | "completed" = isReady
+    ? "ready"
+    : isCompleted
+      ? "completed"
+      : "planned";
+
   return (
     <Link
       href={href}
       className={[
-        "group flex w-full items-center gap-2 rounded-md px-2.5 py-[6px] text-left text-[12px] transition-colors outline-none focus:outline-none focus-visible:outline-none",
+        "group hover:bg-foreground/[0.035] flex w-full items-center gap-2.5 rounded-[6px] px-2 py-[6px] text-left text-[13px] transition-colors outline-none focus:outline-none focus-visible:outline-none",
         isReady
-          ? "text-foreground/82"
+          ? "text-foreground/86"
           : isCompleted
-            ? "text-foreground/46"
-            : "text-foreground/46",
+            ? "text-foreground/40"
+            : "text-foreground/56",
       ].join(" ")}
     >
       <span
         className={[
           "flex h-[14px] w-[14px] shrink-0 items-center justify-center",
-          isRunning
-            ? "text-foreground/72"
-            : isReady
-              ? "text-foreground/60"
-              : isCompleted
-                ? "text-foreground/28"
-                : "text-foreground/18",
+          isRunning ? "text-foreground/72" : "",
         ].join(" ")}
       >
         {isRunning ? (
-          <DotMatrixCircularLoader />
+          <DotMatrixCircularLoader size={13} dotSize={1.5} />
         ) : (
-          <CircleDashed size={14} className="shrink-0" />
+          <StatusDot state={dotState} />
         )}
       </span>
-      <FadeLabel className="min-w-0 flex-1 leading-5">{title}</FadeLabel>
+      <FadeLabel className="min-w-0 flex-1 leading-[18px]">{title}</FadeLabel>
     </Link>
   );
 }
@@ -263,27 +281,27 @@ function ProjectRow({
         }}
         aria-expanded={isExpanded}
         className={[
-          "flex w-full items-center gap-1.5 rounded-md py-[7px] pr-2.5 pl-1.5 text-left text-[12px] font-medium transition-colors outline-none focus:outline-none focus-visible:outline-none",
+          "hover:bg-foreground/[0.035] flex w-full items-center gap-1.5 rounded-[6px] py-[6px] pr-2 pl-1.5 text-left text-[13px] font-normal transition-colors outline-none focus:outline-none focus-visible:outline-none",
           isCurrent
-            ? "bg-foreground/[0.06] text-foreground/92"
-            : "text-foreground/78 hover:text-foreground/92",
+            ? "text-foreground/92"
+            : "text-foreground/72 hover:text-foreground/92",
         ].join(" ")}
       >
         <CaretRight
-          size={12}
-          weight="bold"
+          size={10}
+          weight="regular"
           className={[
-            "text-foreground/40 shrink-0 transition-transform duration-150",
+            "text-foreground/36 shrink-0 transition-transform duration-150",
             isExpanded ? "rotate-90" : "",
           ].join(" ")}
         />
-        <FadeLabel className="min-w-0 flex-1 leading-5">
+        <FadeLabel className="min-w-0 flex-1 leading-[18px]">
           {project.title}
         </FadeLabel>
       </button>
 
       {isExpanded && lessons.length > 0 ? (
-        <div className="mt-px">
+        <div className="border-foreground/[0.06] mt-px ml-[10px] border-l pl-[6px]">
           {lessons.map((lesson) => (
             <ChatRow
               key={lesson.id}
@@ -362,34 +380,34 @@ export function CurriculumSidebar({
   if (collapsed) {
     return (
       <aside className="bg-sidebar text-sidebar-foreground flex h-full flex-col">
-        <div className="flex h-14 items-center justify-center">
+        <div className="flex h-12 items-center justify-center">
           <IconButton label="Open sidebar" onClick={onToggleCollapsed}>
-            <SidebarSimple size={15} />
+            <SidebarSimple size={14} />
           </IconButton>
         </div>
 
-        <div className="flex flex-col items-center gap-1 px-2 pt-2">
+        <div className="flex flex-col items-center gap-0.5 px-2 pt-1">
           <IconButton label="New project" onClick={handleNewProject}>
-            <Plus size={15} weight="bold" />
+            <Plus size={14} />
           </IconButton>
           <Link href="/courses" aria-label="Courses">
             <IconButton label="Courses">
-              <Storefront size={15} />
+              <Storefront size={14} />
             </IconButton>
           </Link>
         </div>
 
         <div className="flex-1" />
 
-        <div className="flex flex-col items-center gap-2 py-3">
+        <div className="flex flex-col items-center gap-1.5 py-2.5">
           <Link
             href={profileHref}
             aria-label="Settings"
-            className="text-foreground/44 hover:text-foreground/80 flex h-7 w-7 items-center justify-center transition-colors outline-none focus:outline-none focus-visible:outline-none"
+            className="text-foreground/40 hover:text-foreground/80 hover:bg-foreground/[0.04] flex h-6 w-6 items-center justify-center rounded-[5px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
           >
-            <Gear size={14} />
+            <Gear size={13} />
           </Link>
-          <div className="bg-primary/70 text-primary-foreground flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-semibold">
+          <div className="bg-primary/70 text-primary-foreground flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-medium">
             {initial}
           </div>
         </div>
@@ -400,44 +418,40 @@ export function CurriculumSidebar({
   return (
     <aside className="bg-sidebar text-sidebar-foreground flex h-full flex-col">
       {/* Top icon row */}
-      <div className="flex h-14 items-center justify-between px-2">
+      <div className="flex h-12 items-center justify-between px-2.5">
         <div className="flex items-center gap-0.5">
           <IconButton label="Collapse sidebar" onClick={onToggleCollapsed}>
-            <SidebarSimple size={15} />
+            <SidebarSimple size={14} />
           </IconButton>
           <IconButton label="Search">
-            <MagnifyingGlass size={15} />
+            <MagnifyingGlass size={14} />
           </IconButton>
         </div>
       </div>
 
       {/* Quick actions */}
-      <div className="px-2 pt-1">
+      <div className="px-2">
         <button
           type="button"
           onClick={handleNewProject}
           disabled={startOnboarding.isPending}
-          className="hover:bg-foreground/[0.04] flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors outline-none focus:outline-none focus-visible:outline-none disabled:opacity-50"
+          className="hover:bg-foreground/[0.04] flex w-full items-center gap-2.5 rounded-[6px] px-2 py-[7px] text-left transition-colors outline-none focus:outline-none focus-visible:outline-none disabled:opacity-50"
         >
-          <Plus
-            size={15}
-            weight="bold"
-            className="text-foreground/64 shrink-0"
-          />
-          <FadeLabel className="text-foreground/82 min-w-0 flex-1 text-[12px] font-medium">
+          <Plus size={15} className="text-foreground/56 shrink-0" />
+          <FadeLabel className="text-foreground/86 min-w-0 flex-1 text-[13px] font-normal">
             New topic
           </FadeLabel>
-          <span className="text-foreground/34 shrink-0 font-mono text-[10px]">
+          <span className="text-foreground/30 shrink-0 font-mono text-[11px] tracking-tight">
             ⌘N
           </span>
         </button>
 
         <Link
           href="/courses"
-          className="hover:bg-foreground/[0.04] mt-0.5 flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors outline-none focus:outline-none focus-visible:outline-none"
+          className="hover:bg-foreground/[0.04] flex w-full items-center gap-2.5 rounded-[6px] px-2 py-[7px] text-left transition-colors outline-none focus:outline-none focus-visible:outline-none"
         >
-          <Storefront size={15} className="text-foreground/44 shrink-0" />
-          <FadeLabel className="text-foreground/64 min-w-0 flex-1 text-[12px] font-medium">
+          <Storefront size={15} className="text-foreground/40 shrink-0" />
+          <FadeLabel className="text-foreground/68 min-w-0 flex-1 text-[13px] font-normal">
             Courses
           </FadeLabel>
         </Link>
@@ -446,13 +460,13 @@ export function CurriculumSidebar({
       {/* Scrollable projects list (each project = a header with its chats under it) */}
       <div className="flex-1 overflow-y-auto px-2 pt-4 pb-2">
         {projects.length > 0 ? (
-          <div className="text-foreground/36 px-2.5 pb-1.5 text-[10px] font-medium tracking-[0.08em] uppercase">
+          <div className="text-foreground/36 px-2 pb-1.5 text-[12px] font-normal">
             Projects
           </div>
         ) : null}
 
         {projects.length === 0 ? (
-          <div className="text-foreground/34 px-3 pt-4 text-[11px] leading-5">
+          <div className="text-foreground/34 px-2 pt-3 text-[12px] leading-[18px]">
             No projects yet. Start a new one above.
           </div>
         ) : null}
@@ -482,10 +496,10 @@ export function CurriculumSidebar({
         {projects.length > 5 ? (
           <button
             type="button"
-            className="text-foreground/44 hover:text-foreground/70 mt-3 flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors"
+            className="text-foreground/40 hover:text-foreground/72 hover:bg-foreground/[0.035] mt-2 flex w-full items-center gap-2.5 rounded-[6px] px-2 py-[7px] text-left transition-colors"
           >
-            <DotsThree size={16} weight="bold" className="shrink-0" />
-            <FadeLabel className="min-w-0 flex-1 text-[12px] font-medium">
+            <DotsThree size={15} className="shrink-0" />
+            <FadeLabel className="min-w-0 flex-1 text-[13px] font-normal">
               More
             </FadeLabel>
           </button>
@@ -493,24 +507,21 @@ export function CurriculumSidebar({
       </div>
 
       {/* Footer: user */}
-      <div className="border-foreground/[0.05] flex items-center gap-2 border-t px-2 py-2">
-        <div className="flex min-w-0 flex-1 items-center gap-2 px-1.5 py-1">
-          <div className="bg-primary/70 text-primary-foreground flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold">
+      <div className="flex items-center gap-1 px-2 py-2">
+        <div className="hover:bg-foreground/[0.035] flex min-w-0 flex-1 items-center gap-2.5 rounded-[6px] px-1.5 py-1.5 transition-colors">
+          <div className="bg-primary/70 text-primary-foreground flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full text-[11px] font-medium">
             {initial}
           </div>
-          <div className="min-w-0 flex-1">
-            <FadeLabel className="text-foreground/84 text-[12px] leading-4 font-medium">
-              {displayName}
-            </FadeLabel>
-            <FadeLabel className="text-foreground/40 text-[10px] leading-4">
-              {userPlan}
-            </FadeLabel>
-          </div>
+          <FadeLabel className="text-foreground/84 min-w-0 flex-1 text-[13px] leading-[18px] font-normal">
+            {displayName}
+            <span className="text-foreground/30"> · </span>
+            <span className="text-foreground/52">{userPlan}</span>
+          </FadeLabel>
         </div>
         <Link
           href={profileHref}
           aria-label="Settings"
-          className="text-foreground/44 hover:text-foreground/80 flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors outline-none focus:outline-none focus-visible:outline-none"
+          className="text-foreground/40 hover:text-foreground/80 hover:bg-foreground/[0.04] flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
         >
           <Gear size={14} />
         </Link>

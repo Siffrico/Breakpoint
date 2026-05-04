@@ -84,6 +84,45 @@ export const becomingOnboardingRepository = {
     return message ?? null;
   },
 
+  appendWorkspaceMessage: async ({
+    db,
+    sessionId,
+    role,
+    content,
+    slot,
+  }: {
+    db: Database;
+    sessionId: string;
+    role: "assistant" | "user";
+    content: string;
+    slot: string | null;
+  }) => {
+    const existingCount = await db.query.BecomingOnboardingMessage.findMany({
+      where: eq(BecomingOnboardingMessage.sessionId, sessionId),
+      columns: { id: true },
+    });
+
+    const [message] = await db
+      .insert(BecomingOnboardingMessage)
+      .values({
+        sessionId,
+        role,
+        content,
+        slot,
+        sequence: existingCount.length,
+      })
+      .returning();
+
+    return message
+      ? {
+          role: message.role as "assistant" | "user",
+          content: message.content,
+          sequence: message.sequence,
+          slot: message.slot,
+        }
+      : null;
+  },
+
   getSession: async ({ db, sessionId }: { db: Database; sessionId: string }) =>
     (await db.query.BecomingOnboardingSession.findFirst({
       where: eq(BecomingOnboardingSession.id, sessionId),
@@ -144,6 +183,26 @@ export const becomingOnboardingRepository = {
       content: message.content,
       sequence: message.sequence,
       slot: (message.slot as OnboardingTranscriptMessage["slot"]) ?? null,
+    }));
+  },
+
+  listWorkspaceMessages: async ({
+    db,
+    sessionId,
+  }: {
+    db: Database;
+    sessionId: string;
+  }) => {
+    const messages = await db.query.BecomingOnboardingMessage.findMany({
+      where: eq(BecomingOnboardingMessage.sessionId, sessionId),
+      orderBy: asc(BecomingOnboardingMessage.sequence),
+    });
+
+    return messages.map((message) => ({
+      role: message.role as "assistant" | "user",
+      content: message.content,
+      sequence: message.sequence,
+      slot: message.slot,
     }));
   },
 

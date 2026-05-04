@@ -36,12 +36,17 @@ export const getWorkspaceState = async (sessionId: string) => {
   return caller.becoming.home({ sessionId });
 };
 
+export const getAiWorkspace = async (sessionId: string) => {
+  const caller = await createCaller();
+  return caller.becoming.aiWorkspace({ sessionId });
+};
+
 export const getProfileState = async (sessionId: string) => {
   const caller = await createCaller();
   return caller.becoming.profile({ sessionId });
 };
 
-export const getForgeUnit = async ({
+export const getEducationUnit = async ({
   nodeId,
   sessionId,
 }: {
@@ -50,17 +55,6 @@ export const getForgeUnit = async ({
 }) => {
   const caller = await createCaller();
   return caller.becoming.unit({ nodeId, sessionId });
-};
-
-export const getRecallGate = async ({
-  sessionId,
-  gateId,
-}: {
-  sessionId: string;
-  gateId?: string;
-}) => {
-  const caller = await createCaller();
-  return caller.becoming.getRecallGate({ sessionId, gateId });
 };
 
 export const getCapstone = async ({
@@ -74,4 +68,4 @@ export const getCapstone = async ({
   return caller.becoming.getCapstone({ nodeId, sessionId });
 };
 
-export const getUnit = getForgeUnit;
+export const getUnit = getEducationUnit;
