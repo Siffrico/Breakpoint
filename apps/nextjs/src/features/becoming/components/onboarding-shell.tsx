@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useChat } from "@ai-sdk/react";
 import { useMutation } from "@tanstack/react-query";
+import { DefaultChatTransport, type UIMessage } from "ai";
 
 import type { RouterOutputs } from "@acme/api";
 import { Button } from "@acme/ui/button";
@@ -17,14 +19,30 @@ type OnboardingState =
   | RouterOutputs["becoming"]["startOnboarding"]
   | RouterOutputs["becoming"]["onboardingState"];
 
-const TOTAL_ONBOARDING_ANSWERS = 4;
-
 type OnboardingVariant = "default" | "landscape";
+
+type CurriculumToolOutput = {
+  ok: true;
+  planId: string;
+  title: string;
+  summary: string;
+  unitCount: number;
+  nextUnitId: string | null;
+} | { ok: false; reason: string };
+
+const transcriptToMessages = (state: OnboardingState | null): UIMessage[] => {
+  if (!state) return [];
+  return state.transcript.map((message, index) => ({
+    id: `seed-${state.sessionId}-${message.sequence ?? index}`,
+    role: message.role,
+    parts: [{ type: "text" as const, text: message.content }],
+  }));
+};
 
 export function OnboardingShell({
   preview = false,
   embedded = false,
-  sessionId,
+  sessionId: sessionIdProp,
   initialState = null,
   variant = "default",
   onRunningChange,
@@ -39,111 +57,105 @@ export function OnboardingShell({
   const trpc = useTRPC();
   const router = useRouter();
   const startedRef = useRef(false);
-  const [state, setState] = useState<OnboardingState | null>(initialState);
-  const [answer, setAnswer] = useState("");
-  const [isGenerating, setIsGenerating] = useState(false);
   const [previewStep, setPreviewStep] = useState(0);
+  const [previewState, setPreviewState] = useState<OnboardingState | null>(null);
 
-  useEffect(() => {
-    setState(initialState);
-  }, [initialState]);
+  const [sessionId, setSessionId] = useState<string | null>(
+    sessionIdProp ?? initialState?.sessionId ?? null,
+  );
+  const [seedMessages] = useState<UIMessage[]>(() =>
+    transcriptToMessages(initialState),
+  );
 
   const startOnboarding = useMutation(
     trpc.becoming.startOnboarding.mutationOptions({
-      onSuccess: (data) => setState(data),
-      onError: (error) => toast.error(error.message),
-    }),
-  );
-
-  const generateCurriculum = useMutation(
-    trpc.becoming.generateCurriculum.mutationOptions({
-      onSuccess: (plan) => {
-        const activeSessionId = state?.sessionId ?? sessionId;
-        if (!activeSessionId) {
-          return;
-        }
-
-        if (embedded) {
-          router.push(`/workspace?session=${activeSessionId}`);
-          router.refresh();
-          return;
-        }
-
-        router.push(
-          `/transformation?session=${activeSessionId}&unit=${plan.nextUnitId ?? ""}`,
-        );
-      },
-      onError: (error) => {
-        setIsGenerating(false);
-        toast.error(error.message);
-      },
-    }),
-  );
-
-  const submitAnswer = useMutation(
-    trpc.becoming.submitOnboardingAnswer.mutationOptions({
-      onSuccess: async (data) => {
-        setState(data);
-        setAnswer("");
-
-        if (data.phase === "ready_for_generation") {
-          setIsGenerating(true);
-          await generateCurriculum.mutateAsync({ sessionId: data.sessionId });
-        }
+      onSuccess: (data) => {
+        setSessionId(data.sessionId);
       },
       onError: (error) => toast.error(error.message),
     }),
   );
 
-  const isRunning =
-    startOnboarding.isPending ||
-    submitAnswer.isPending ||
-    generateCurriculum.isPending ||
-    isGenerating;
-
   useEffect(() => {
-    onRunningChange?.(isRunning);
-    return () => onRunningChange?.(false);
-  }, [isRunning, onRunningChange]);
-
-  useEffect(() => {
-    if (preview) {
-      const previewState =
-        previewOnboardingStates[previewStep] ?? previewOnboardingStates[0];
-      if (previewState) {
-        setState(previewState);
-      }
-      return;
-    }
-
-    if (initialState || sessionId || startedRef.current) {
-      return;
-    }
-
+    if (preview || sessionId || startedRef.current) return;
     startedRef.current = true;
     startOnboarding.mutate();
-  }, [initialState, preview, previewStep, sessionId, startOnboarding]);
+  }, [preview, sessionId, startOnboarding]);
+
+  const sessionIdRef = useRef<string | null>(sessionId);
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
+
+  const transport = useMemo(
+    () =>
+      new DefaultChatTransport({
+        api: "/api/onboarding/chat",
+        body: () => ({ sessionId: sessionIdRef.current }),
+      }),
+    [],
+  );
+
+  const initialUiMessages = useMemo<UIMessage[]>(() => {
+    if (seedMessages.length > 0) return seedMessages;
+    if (sessionId == null) {
+      return [
+        {
+          id: "intro",
+          role: "assistant",
+          parts: [{ type: "text", text: "Who do you want to become?" }],
+        },
+      ];
+    }
+    return [];
+  }, [seedMessages, sessionId]);
+
+  const { messages, sendMessage, status, error, setMessages } = useChat({
+    transport,
+    messages: initialUiMessages,
+    onError: (err) => toast.error(err.message),
+  });
+
+  // Once startOnboarding seeds the intro server-side, replace the placeholder intro
+  // message with the real transcript so message ids stay stable across reloads.
+  const seededFromStartRef = useRef(false);
+  useEffect(() => {
+    if (seededFromStartRef.current) return;
+    if (!startOnboarding.data) return;
+    seededFromStartRef.current = true;
+    setMessages(transcriptToMessages(startOnboarding.data));
+  }, [setMessages, startOnboarding.data]);
+
+  const isStreaming = status === "submitted" || status === "streaming";
+  const curriculum = useMemo<CurriculumToolOutput | null>(() => {
+    for (const message of messages) {
+      if (message.role !== "assistant") continue;
+      for (const part of message.parts) {
+        if (part.type === "tool-buildCurriculum" && part.state === "output-available") {
+          return part.output as CurriculumToolOutput;
+        }
+      }
+    }
+    return null;
+  }, [messages]);
+  const hasReadyCurriculum = curriculum?.ok === true;
 
   useEffect(() => {
-    if (
-      preview ||
-      !state ||
-      state.phase !== "ready_for_generation" ||
-      isGenerating ||
-      generateCurriculum.isPending
-    ) {
-      return;
-    }
+    onRunningChange?.(isStreaming || startOnboarding.isPending);
+    return () => onRunningChange?.(false);
+  }, [isStreaming, onRunningChange, startOnboarding.isPending]);
 
-    setIsGenerating(true);
-    void generateCurriculum.mutateAsync({ sessionId: state.sessionId });
-  }, [generateCurriculum, isGenerating, preview, state]);
+  // Preview mode: walk through static states without calling any APIs.
+  useEffect(() => {
+    if (!preview) return;
+    const next =
+      previewOnboardingStates[previewStep] ?? previewOnboardingStates[0] ?? null;
+    setPreviewState(next);
+  }, [preview, previewStep]);
+
+  const [answer, setAnswer] = useState("");
 
   const handleSubmit = () => {
-    if (!state || !answer.trim() || submitAnswer.isPending || isGenerating) {
-      return;
-    }
-
     if (preview) {
       const nextStep = Math.min(
         previewStep + 1,
@@ -151,31 +163,43 @@ export function OnboardingShell({
       );
       setAnswer("");
       setPreviewStep(nextStep);
-
       if (nextStep === previewOnboardingStates.length - 1) {
-        setIsGenerating(true);
-        window.setTimeout(() => {
-          router.push("/ui/transformation");
-        }, 700);
+        window.setTimeout(() => router.push("/ui/transformation"), 700);
       }
-
       return;
     }
 
-    submitAnswer.mutate({
-      sessionId: state.sessionId,
-      answer,
-    });
+    const trimmed = answer.trim();
+    if (!trimmed || !sessionId || isStreaming || hasReadyCurriculum) return;
+
+    setAnswer("");
+    void sendMessage({ text: trimmed });
   };
 
-  const transcript = state?.transcript ?? [];
-  const isStarted = transcript.some((message) => message.role === "user");
-  const currentPrompt =
-    transcript
-      .slice()
-      .reverse()
-      .find((message) => message.role === "assistant")?.content ??
-    "Who do you want to become?";
+  // Source of messages to render: real chat in normal mode, static state in preview.
+  const renderMessages = preview
+    ? transcriptToMessages(previewState)
+    : messages;
+
+  const isStarted = renderMessages.some((message) => message.role === "user");
+  const lastAssistant = [...renderMessages]
+    .reverse()
+    .find((message) => message.role === "assistant");
+  const lastAssistantText = lastAssistant
+    ? lastAssistant.parts
+        .filter((part) => part.type === "text")
+        .map((part) => (part.type === "text" ? part.text : ""))
+        .join("\n")
+        .trim()
+    : "";
+  const currentPrompt = lastAssistantText || "Who do you want to become?";
+
+  const priorMessages = renderMessages.slice(
+    0,
+    renderMessages.length > 0 && renderMessages[renderMessages.length - 1]?.role === "assistant"
+      ? -1
+      : renderMessages.length,
+  );
 
   const isLandscape = variant === "landscape";
   const shellClassName = isLandscape
@@ -188,6 +212,16 @@ export function OnboardingShell({
     : embedded
       ? "relative z-10 mx-auto flex w-full max-w-[54rem] flex-col"
       : "relative z-10 mx-auto flex w-full max-w-[54rem] flex-col px-5 py-8";
+
+  const statusText = !sessionId
+    ? "Starting..."
+    : hasReadyCurriculum
+      ? "Curriculum ready"
+      : isStreaming
+        ? "Thinking..."
+        : error
+          ? "Tap retry"
+          : "";
 
   return (
     <main className={shellClassName}>
@@ -246,108 +280,119 @@ export function OnboardingShell({
 
         {isStarted ? (
           <div className="mb-4 space-y-2">
-            {transcript.slice(0, -1).map((message) => (
-              <div
-                key={`${message.role}-${message.sequence}`}
-                className={[
-                  "max-w-lg rounded-none px-3 py-2",
-                  isLandscape
-                    ? message.role === "assistant"
-                      ? "border border-black/10 bg-white/70 text-[#1a2742] backdrop-blur-sm"
-                      : "ml-auto border border-[#0f1a2e]/15 bg-white/85 text-[#0f1a2e] backdrop-blur-sm"
-                    : message.role === "assistant"
-                      ? "border border-white/8 bg-white/[0.03] text-white/70"
-                      : "ml-auto border border-white/12 bg-white/[0.06] text-white/90",
-                ].join(" ")}
-              >
-                <div className="text-xs leading-5">
-                  {message.role === "assistant" ? (
-                    <AssistantRichText content={message.content} />
-                  ) : (
-                    message.content
-                  )}
+            {priorMessages.map((message) => {
+              const text = message.parts
+                .filter((part) => part.type === "text")
+                .map((part) => (part.type === "text" ? part.text : ""))
+                .join("\n")
+                .trim();
+              if (!text) return null;
+              return (
+                <div
+                  key={message.id}
+                  className={[
+                    "max-w-lg rounded-none px-3 py-2",
+                    isLandscape
+                      ? message.role === "assistant"
+                        ? "border border-black/10 bg-white/70 text-[#1a2742] backdrop-blur-sm"
+                        : "ml-auto border border-[#0f1a2e]/15 bg-white/85 text-[#0f1a2e] backdrop-blur-sm"
+                      : message.role === "assistant"
+                        ? "border border-white/8 bg-white/[0.03] text-white/70"
+                        : "ml-auto border border-white/12 bg-white/[0.06] text-white/90",
+                  ].join(" ")}
+                >
+                  <div className="text-xs leading-5">
+                    {message.role === "assistant" ? (
+                      <AssistantRichText content={text} />
+                    ) : (
+                      text
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : null}
 
-        <div
-          className={
-            isLandscape
-              ? "w-full rounded-none border border-black/10 bg-white/92 shadow-[0_10px_30px_-16px_rgba(15,26,46,0.35)] backdrop-blur"
-              : "w-full border border-white/[0.06] bg-[#111111]"
-          }
-        >
-          <Textarea
-            value={answer}
-            onChange={(event) => setAnswer(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                handleSubmit();
-              }
+        {hasReadyCurriculum && curriculum?.ok ? (
+          <CurriculumReadyCard
+            curriculum={curriculum}
+            sessionId={sessionId}
+            isLandscape={isLandscape}
+            onOpen={() => {
+              if (!sessionId) return;
+              router.push(`/workspace?session=${sessionId}`);
+              router.refresh();
             }}
-            placeholder={
-              isGenerating ? "Building your path..." : "Type your answer..."
-            }
-            disabled={
-              !state || (!preview && submitAnswer.isPending) || isGenerating
-            }
+          />
+        ) : null}
+
+        {!hasReadyCurriculum ? (
+          <div
             className={
               isLandscape
-                ? "min-h-24 resize-none rounded-none border-0 bg-transparent px-5 py-4 text-sm leading-6 text-[#0f1a2e] shadow-none placeholder:text-[#0f1a2e]/40 focus-visible:ring-0"
-                : "min-h-24 resize-none rounded-none border-0 bg-transparent px-5 py-4 text-sm leading-6 text-white shadow-none placeholder:text-white/20 focus-visible:ring-0"
+                ? "w-full rounded-none border border-black/10 bg-white/92 shadow-[0_10px_30px_-16px_rgba(15,26,46,0.35)] backdrop-blur"
+                : "w-full border border-white/[0.06] bg-[#111111]"
             }
-          />
-
-          <div
-            className={[
-              "flex items-center justify-between px-5 py-3",
-              isLandscape
-                ? "border-t border-black/8"
-                : "border-t border-white/8",
-            ].join(" ")}
           >
-            <div
-              className={[
-                "text-[11px]",
-                isLandscape ? "text-[#0f1a2e]/45" : "text-white/30",
-              ].join(" ")}
-            >
-              {isGenerating
-                ? "Generating curriculum..."
-                : !preview && submitAnswer.isPending
-                  ? "Thinking..."
-                  : state
-                    ? `${Math.max(
-                        0,
-                        TOTAL_ONBOARDING_ANSWERS -
-                          transcript.filter(
-                            (message) => message.role === "user",
-                          ).length,
-                      )} steps left`
-                    : "Starting..."}
-            </div>
-            <Button
-              type="button"
-              onClick={handleSubmit}
-              disabled={
-                !state ||
-                !answer.trim() ||
-                (!preview && submitAnswer.isPending) ||
-                isGenerating
+            <Textarea
+              value={answer}
+              onChange={(event) => setAnswer(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  handleSubmit();
+                }
+              }}
+              placeholder={
+                !sessionId
+                  ? "Starting..."
+                  : isStreaming
+                    ? "Thinking..."
+                    : "Type your answer..."
               }
+              disabled={!preview && (!sessionId || isStreaming)}
               className={
                 isLandscape
-                  ? "h-8 rounded-none bg-[#0f1a2e] px-4 text-xs font-medium text-white hover:bg-[#0f1a2e]/90"
-                  : "h-8 rounded-none bg-white px-4 text-xs font-medium text-black hover:bg-white/90"
+                  ? "min-h-24 resize-none rounded-none border-0 bg-transparent px-5 py-4 text-sm leading-6 text-[#0f1a2e] shadow-none placeholder:text-[#0f1a2e]/40 focus-visible:ring-0"
+                  : "min-h-24 resize-none rounded-none border-0 bg-transparent px-5 py-4 text-sm leading-6 text-white shadow-none placeholder:text-white/20 focus-visible:ring-0"
               }
+            />
+
+            <div
+              className={[
+                "flex items-center justify-between px-5 py-3",
+                isLandscape
+                  ? "border-t border-black/8"
+                  : "border-t border-white/8",
+              ].join(" ")}
             >
-              {isGenerating ? "Building" : "Submit"}
-            </Button>
+              <div
+                className={[
+                  "text-[11px]",
+                  isLandscape ? "text-[#0f1a2e]/45" : "text-white/30",
+                ].join(" ")}
+              >
+                {statusText}
+              </div>
+              <Button
+                type="button"
+                onClick={handleSubmit}
+                disabled={
+                  !answer.trim() ||
+                  (!preview && (!sessionId || isStreaming))
+                }
+                className={
+                  isLandscape
+                    ? "h-8 rounded-none bg-[#0f1a2e] px-4 text-xs font-medium text-white hover:bg-[#0f1a2e]/90"
+                    : "h-8 rounded-none bg-white px-4 text-xs font-medium text-black hover:bg-white/90"
+                }
+              >
+                Submit
+              </Button>
+            </div>
           </div>
-        </div>
+        ) : null}
 
         {!isStarted ? (
           <div className="mt-2 flex gap-2">
@@ -370,19 +415,69 @@ export function OnboardingShell({
             ))}
           </div>
         ) : null}
-
-        {state?.activeQuestion?.helper ? (
-          <div
-            className={[
-              "mt-3 text-xs",
-              isLandscape ? "text-center text-[#0f1a2e]/55" : "text-white/35",
-            ].join(" ")}
-          >
-            <AssistantRichText content={state.activeQuestion.helper} />
-          </div>
-        ) : null}
       </div>
     </main>
+  );
+}
+
+function CurriculumReadyCard({
+  curriculum,
+  sessionId,
+  isLandscape,
+  onOpen,
+}: {
+  curriculum: Extract<CurriculumToolOutput, { ok: true }>;
+  sessionId: string | null;
+  isLandscape: boolean;
+  onOpen: () => void;
+}) {
+  return (
+    <div
+      className={
+        isLandscape
+          ? "w-full rounded-none border border-black/12 bg-white/95 px-5 py-4 backdrop-blur"
+          : "w-full border border-white/12 bg-white/[0.04] px-5 py-4"
+      }
+    >
+      <div
+        className={[
+          "text-[11px] tracking-wide uppercase",
+          isLandscape ? "text-[#0f1a2e]/55" : "text-white/40",
+        ].join(" ")}
+      >
+        Curriculum ready
+      </div>
+      <div
+        className={[
+          "mt-1 text-base font-medium",
+          isLandscape ? "text-[#0f1a2e]" : "text-white",
+        ].join(" ")}
+      >
+        {curriculum.title}
+      </div>
+      <div
+        className={[
+          "mt-1 text-xs leading-5",
+          isLandscape ? "text-[#0f1a2e]/65" : "text-white/55",
+        ].join(" ")}
+      >
+        {curriculum.unitCount} {curriculum.unitCount === 1 ? "unit" : "units"} · ready to start
+      </div>
+      <div className="mt-4">
+        <Button
+          type="button"
+          onClick={onOpen}
+          disabled={!sessionId}
+          className={
+            isLandscape
+              ? "h-8 rounded-none bg-[#0f1a2e] px-4 text-xs font-medium text-white hover:bg-[#0f1a2e]/90"
+              : "h-8 rounded-none bg-white px-4 text-xs font-medium text-black hover:bg-white/90"
+          }
+        >
+          Open workspace →
+        </Button>
+      </div>
+    </div>
   );
 }
 

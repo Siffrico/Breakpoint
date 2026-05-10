@@ -17,9 +17,6 @@ import {
   getCapstoneWorkflow,
 } from "../domain/becoming/workflows/get-capstone-workflow";
 import {
-  generateCurriculumWorkflow,
-} from "../domain/becoming/workflows/generate-curriculum-workflow";
-import {
   getHomeStateWorkflow,
 } from "../domain/becoming/workflows/get-home-state-workflow";
 import {
@@ -38,9 +35,6 @@ import {
   submitCapstoneMessageWorkflow,
 } from "../domain/becoming/workflows/submit-capstone-message-workflow";
 import {
-  submitOnboardingAnswerWorkflow,
-} from "../domain/becoming/workflows/submit-onboarding-answer-workflow";
-import {
   submitAiWorkspaceMessageWorkflow,
 } from "../domain/becoming/workflows/submit-ai-workspace-message-workflow";
 import { becomingCapstoneRepository } from "../repositories/becoming-capstone-repository";
@@ -53,11 +47,6 @@ import { publicProcedure, protectedProcedure } from "../trpc";
 
 const SessionIdSchema = z.object({
   sessionId: z.string().uuid(),
-});
-
-const SubmitOnboardingAnswerSchema = z.object({
-  sessionId: z.string().uuid(),
-  answer: z.string().min(1).max(4_000),
 });
 
 const SubmitAiWorkspaceMessageSchema = z.object({
@@ -376,79 +365,6 @@ export const becomingRouter = {
       };
     });
   }),
-
-  submitOnboardingAnswer: protectedProcedure
-    .input(SubmitOnboardingAnswerSchema)
-    .mutation(async ({ ctx, input }) => {
-      await requireSessionOwner({ ctx, sessionId: input.sessionId });
-
-      return throwOnFailure(
-        await submitOnboardingAnswerWorkflow({
-          sessionId: input.sessionId,
-          answer: input.answer,
-          deps: {
-            getSession: (sessionId) =>
-              becomingOnboardingRepository.getSession({ db: ctx.db, sessionId }),
-            appendMessage: (payload) =>
-              becomingOnboardingRepository.appendMessage({
-                db: ctx.db,
-                ...payload,
-              }),
-            updateSession: (payload) =>
-              becomingOnboardingRepository.updateSession({
-                db: ctx.db,
-                ...payload,
-              }),
-            listMessages: (sessionId) =>
-              becomingOnboardingRepository.listMessages({
-                db: ctx.db,
-                sessionId,
-              }),
-          },
-        }),
-      );
-    }),
-
-  generateCurriculum: protectedProcedure
-    .input(SessionIdSchema)
-    .mutation(async ({ ctx, input }) => {
-      await requireSessionOwner({ ctx, sessionId: input.sessionId });
-
-      return throwOnFailure(
-        await generateCurriculumWorkflow({
-          sessionId: input.sessionId,
-          deps: {
-            getSession: (sessionId) =>
-              becomingOnboardingRepository.getSession({ db: ctx.db, sessionId }),
-            listMessages: (sessionId) =>
-              becomingOnboardingRepository.listMessages({
-                db: ctx.db,
-                sessionId,
-              }),
-            createProfileVersion: (payload) =>
-              becomingOnboardingRepository.createProfileVersion({
-                db: ctx.db,
-                ...payload,
-              }),
-            createPlan: (payload) =>
-              becomingCurriculumRepository.createPlan({
-                db: ctx.db,
-                ...payload,
-              }),
-            getActivePlan: (sessionId) =>
-              becomingCurriculumRepository.getActivePlan({
-                db: ctx.db,
-                sessionId,
-              }),
-            updateSession: (payload) =>
-              becomingOnboardingRepository.updateSession({
-                db: ctx.db,
-                ...payload,
-              }),
-          },
-        }),
-      );
-    }),
 
   activePlan: protectedProcedure
     .input(SessionIdSchema)

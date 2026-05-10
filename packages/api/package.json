@@ -6,6 +6,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./src/index.ts"
+    },
+    "./onboarding-chat": {
+      "types": "./dist/onboarding-chat.d.ts",
+      "default": "./src/onboarding-chat.ts"
     }
   },
   "license": "MIT",

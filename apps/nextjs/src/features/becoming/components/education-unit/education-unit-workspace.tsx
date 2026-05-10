@@ -80,23 +80,18 @@ function PromptTurn({
   helper?: string | null;
 }) {
   return (
-    <section className="py-3 font-sans">
-      <div className="max-w-[1720px]">
+    <section className="py-3 pl-6 font-sans sm:pl-10">
+      <div className="max-w-[760px]">
+        <AssistantRichText
+          content={prompt}
+          className="text-foreground text-[20px] leading-[1.55] tracking-[-0.01em] [&_h2]:mt-0 [&_h2]:!mb-4 [&_h2]:text-[30px] [&_h2]:font-semibold [&_h2]:tracking-[-0.02em] [&_li]:my-1.5 [&_li]:leading-[1.55] [&_ol]:!my-4 [&_ol]:list-decimal [&_ol]:pl-8 [&_p]:!my-4 [&_strong]:font-semibold [&_ul]:!my-4 [&_ul]:list-disc [&_ul]:pl-8 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
+        />
         {helper ? (
           <AssistantRichText
             content={helper}
-            className="text-foreground/34 text-[13px] leading-[1.4] tracking-[-0.01em] italic"
+            className="text-foreground/45 mt-10 text-[16px] leading-[1.65] tracking-[-0.01em] [&_em]:not-italic"
           />
         ) : null}
-        <AssistantRichText
-          content={prompt}
-          className={[
-            "text-foreground tracking-[-0.035em]",
-            helper
-              ? "mt-3 text-[16px] leading-[1.32] font-medium"
-              : "text-[16px] leading-[1.36] font-medium",
-          ].join(" ")}
-        />
       </div>
     </section>
   );
@@ -397,16 +392,22 @@ export function EducationUnitWorkspace({
           {renderedMessages}
           <div ref={bottomRef} />
         </div>
-        <div className="-mx-6 mt-auto sm:-mx-10">{inputZone}</div>
+        <div className="bg-background sticky bottom-0 z-10 -mx-6 mt-auto sm:-mx-10">
+          {inputZone}
+        </div>
       </div>
     );
   }
 
   return (
     <main className="bp-page-bg text-foreground min-h-screen px-5 py-8 sm:px-8 lg:px-10">
-      <div className="mx-auto flex w-full max-w-3xl flex-col">
+      <div className="mx-auto flex w-full max-w-3xl flex-col pb-32">
         {renderedMessages}
-        {inputZone}
+        <div className="bg-background/95 fixed inset-x-0 bottom-0 z-20 backdrop-blur-sm">
+          <div className="mx-auto w-full max-w-3xl px-5 py-4 sm:px-8 lg:px-10">
+            {inputZone}
+          </div>
+        </div>
       </div>
     </main>
   );

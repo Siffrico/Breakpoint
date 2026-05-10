@@ -4,6 +4,7 @@ export const WorkspaceAiPromptKindSchema = z.enum([
   "onboarding_curriculum",
   "education_unit",
   "recall",
+  "evaluate_feedback",
 ]);
 
 export const WorkspaceAiEducationStageSchema = z.enum([

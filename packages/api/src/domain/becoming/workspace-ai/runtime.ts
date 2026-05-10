@@ -5,6 +5,7 @@ import type { WorkspaceAiPromptKind } from "./types";
 import { getBecomingModel } from "../services/becoming-model";
 import {
   WORKSPACE_AI_EDUCATION_UNIT_PROMPT,
+  WORKSPACE_AI_EVALUATE_FEEDBACK_PROMPT,
   WORKSPACE_AI_ONBOARDING_CURRICULUM_PROMPT,
   WORKSPACE_AI_RECALL_PROMPT,
 } from "./prompts";
@@ -13,12 +14,14 @@ const SYSTEM_PROMPT_BY_KIND: Record<WorkspaceAiPromptKind, string> = {
   onboarding_curriculum: WORKSPACE_AI_ONBOARDING_CURRICULUM_PROMPT,
   education_unit: WORKSPACE_AI_EDUCATION_UNIT_PROMPT,
   recall: WORKSPACE_AI_RECALL_PROMPT,
+  evaluate_feedback: WORKSPACE_AI_EVALUATE_FEEDBACK_PROMPT,
 };
 
 const MODEL_BY_KIND: Record<WorkspaceAiPromptKind, string> = {
   onboarding_curriculum: process.env.OPENAI_MODEL_ONBOARDING ?? "gpt-4.1",
   education_unit: process.env.OPENAI_MODEL_EDUCATION ?? "gpt-4.1",
   recall: process.env.OPENAI_MODEL_RECALL ?? "gpt-4.1-mini",
+  evaluate_feedback: process.env.OPENAI_MODEL_EVALUATION ?? "gpt-4.1",
 };
 
 /**

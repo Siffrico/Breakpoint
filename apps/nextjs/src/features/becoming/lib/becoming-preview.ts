@@ -478,40 +478,51 @@ export const previewLearningProjects: LearningProject[] = [
   },
 ];
 
+// NOTE: `previewUnitState` feeds the legacy /ui/train preview only — that
+// route is NOT the active learning surface. The real workspace preview at
+// /ui/workspace uses `previewEducationUnit` in `education-unit-preview.ts`.
+// If the user asks to change "the preview" / "the unit", edit that one
+// first and confirm before touching this.
 export const previewUnitState: UnitPreviewState = {
-  id: "unit-quorum-reads",
+  id: "unit-first-training-loop",
   nodeId: "00000000-0000-4000-8000-000000000101",
-  title: "Reason about quorum reads under replica lag",
+  title: "Unit 1 — Your First Training Loop",
   concept:
-    "Quorum settings are only useful if you can trace which replicas have observed the write and whether the read set intersects that acknowledged write set.",
+    "You're given this training setup: a model that predicts whether a movie review is positive or negative, 10,000 labeled reviews to train on, and a simple loop that runs through the data, makes predictions, compares them to the correct labels, and adjusts the model after each comparison. After 10 epochs of training, the model is getting 97% accuracy.",
   workedExample:
-    "A write is acknowledged by replicas A and B in a three-replica cluster. Replica C is behind by several hundred milliseconds. A later read from B and C can still return stale data if B has failed and the quorum no longer intersects the acknowledged write set the way you assumed.",
+    "Your colleague looks at the results and says: \"Ship it. 97% is basically perfect.\" You look at the results and feel uneasy. Something might be wrong — even though 97% sounds great. What's making you uneasy? What would you check before agreeing to ship it? Hint: think about where that 97% number came from — specifically, what data the model saw during training versus what data it will see in the real world.",
   retrievalItems: [
     {
-      prompt: "What condition has to hold for a quorum read to guarantee seeing the latest committed write?",
-      intent: "Check whether the learner understands quorum intersection rather than memorized formulas.",
-      expectedSignals: ["intersect", "acknowledged replicas", "latest write"],
+      prompt:
+        "What exactly is that 97% measuring? Name the data the model is being graded on and why that matters.",
+      intent:
+        "Check whether the learner sees that accuracy is only meaningful relative to the data it was computed on.",
+      expectedSignals: ["training data", "evaluation set", "what was measured"],
     },
     {
-      prompt: "Why can replica lag still produce stale reads even when the system uses a majority write quorum?",
-      intent: "Check whether the learner can connect lag to actual replica selection.",
-      expectedSignals: ["read set", "stale replica", "intersection"],
+      prompt:
+        "What is the gap between the data the model saw during training and the data it will see in production?",
+      intent:
+        "Check whether the learner can articulate distribution shift and unseen-example risk.",
+      expectedSignals: ["unseen reviews", "distribution shift", "generalization"],
     },
     {
-      prompt: "What changes when one acknowledged replica fails before the client issues the read?",
-      intent: "Check whether the learner updates the quorum reasoning after a topology change.",
-      expectedSignals: ["available replicas", "freshness risk", "failure impact"],
+      prompt:
+        "List two concrete checks you would run before agreeing to ship this model.",
+      intent:
+        "Check whether the learner can translate unease into a concrete verification plan.",
+      expectedSignals: ["held-out test set", "train/test split", "error analysis"],
     },
   ],
   scenario: {
-    title: "Inventory service during cross-zone lag",
+    title: "Decide whether to ship",
     prompt:
-      "A retail inventory service replicates across three zones. Writes require two acknowledgements, and reads normally query the nearest two replicas. One zone is lagging after a network event, but traffic is still being routed to it for latency reasons. Explain when stale reads can occur and how you would adjust the read or write path to preserve correctness.",
-    focusAreas: ["quorum", "replication", "read freshness"],
+      "Walk through what you would actually do before signing off on shipping. State what you would measure, on what data, what threshold would convince you the model is safe for real users, and what failure modes you would actively look for. Be specific enough that another engineer could repeat your check.",
+    focusAreas: ["train/test split", "generalization", "data leakage"],
     successCriteria: [
-      "Explains quorum intersection with the actual replica sets involved.",
-      "Identifies when lag plus failure breaks the freshness assumption.",
-      "Proposes a mitigation that changes either routing or quorum behavior.",
+      "Names the train vs. real-world data gap as the source of unease.",
+      "Specifies a held-out evaluation set the model has never seen.",
+      "Proposes a concrete acceptance bar before shipping, not just a number.",
     ],
   },
 };

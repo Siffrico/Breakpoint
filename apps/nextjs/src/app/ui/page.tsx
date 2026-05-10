@@ -33,8 +33,9 @@ const previews = [
   },
   {
     href: "/ui/train",
-    label: "Unit",
-    description: "Retrieval check, scenario unlock, and debrief preview.",
+    label: "Unit 1 — Your First Training Loop",
+    description:
+      "97% accuracy challenge: spot the train/real-world gap before shipping.",
   },
   {
     href: "/ui/domains",

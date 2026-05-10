@@ -1,17 +1,5 @@
-import type { OnboardingQuestion, OnboardingTranscriptMessage } from "../types/becoming.types";
-import { buildOnboardingPacket, decideNextOnboardingStep } from "../agents/onboarding";
-
-export const getNextOnboardingQuestion = ({
-  transcript,
-  followUpCount,
-}: {
-  transcript: OnboardingTranscriptMessage[];
-  followUpCount: number;
-}): Promise<OnboardingQuestion | null> =>
-  decideNextOnboardingStep({
-    transcript,
-    followUpCount,
-  });
+import type { OnboardingTranscriptMessage } from "../types/becoming.types";
+import { buildOnboardingPacket } from "../agents/onboarding";
 
 export const createOnboardingPacket = (
   transcript: OnboardingTranscriptMessage[],
