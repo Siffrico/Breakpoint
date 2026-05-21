@@ -19,7 +19,7 @@ The existing loop is already close to the desired product shape:
       UnitDebrief     -> evaluate / next move
 
 API
-  becoming router
+  training router
     submitEducationUnitStepWorkflow
       initial_response -> diagnostic gap + concept + mastery_check + transfer
       mastery_check    -> ready_for_application | retry_concept
@@ -43,7 +43,7 @@ scenario
 ## Proposed File Tree
 
 ```text
-packages/api/src/domain/becoming/
+packages/api/src/domain/training/
   context-engine/
     build-context-envelope.ts       # one bounded context object per AI call
     context-budget.ts               # token and section budgets
@@ -64,7 +64,7 @@ packages/api/src/domain/becoming/
 apps/nextjs/src/app/workspace/
   page.tsx                          # main server entrypoint
 
-apps/nextjs/src/features/becoming/components/
+apps/nextjs/src/features/training/components/
   workspace-shell.tsx               # main learner shell
   forge/forge-workspace.tsx         # unit execution UI
 ```
@@ -162,7 +162,7 @@ scenario, attempt, concept, mastery_check, scenario, build, evaluate.
          |                             |
          +--------------+--------------+
                         |
-                 becoming router
+                 training router
                         |
               Teaching Loop Service
                         |

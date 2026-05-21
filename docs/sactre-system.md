@@ -1,6 +1,6 @@
 # Concept-To-Execution Loop
 
-This document describes the live learning-loop runtime in `packages/api/src/domain/becoming`.
+This document describes the live learning-loop runtime in `packages/api/src/domain/training`.
 
 ## Canonical Surface
 
@@ -103,9 +103,9 @@ The state policy includes a legacy mapper so older `scenario / evaluate / comple
 
 ## Key Files
 
-- `packages/validators/src/becoming.ts`
-- `packages/api/src/domain/becoming/policies/education-unit-state-policy.ts`
-- `packages/api/src/domain/becoming/services/education-unit-ai-service.ts`
-- `packages/api/src/domain/becoming/workflows/submit-education-unit-step-workflow.ts`
-- `apps/nextjs/src/features/becoming/components/forge/forge-workspace.tsx`
-- `apps/nextjs/src/features/becoming/components/unit-question-panel.tsx`
+- `packages/validators/src/training.ts`
+- `packages/api/src/domain/training/policies/education-unit-state-policy.ts`
+- `packages/api/src/domain/training/services/education-unit-ai-service.ts`
+- `packages/api/src/domain/training/workflows/submit-education-unit-step-workflow.ts`
+- `apps/nextjs/src/features/training/components/forge/forge-workspace.tsx`
+- `apps/nextjs/src/features/training/components/unit-question-panel.tsx`

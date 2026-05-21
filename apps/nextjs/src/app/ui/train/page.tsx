@@ -6,8 +6,8 @@
 import {
   previewSessionId,
   previewUnitState,
-} from "~/features/becoming/lib/becoming-preview";
-import { UnitWorkspace } from "~/features/becoming/components/unit-workspace";
+} from "~/features/training/lib/training-preview";
+import { UnitWorkspace } from "~/features/training/components/unit-workspace";
 
 export default function UiPreviewTrainPage() {
   return (

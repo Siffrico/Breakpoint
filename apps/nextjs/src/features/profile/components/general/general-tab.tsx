@@ -101,7 +101,7 @@ export function GeneralTab({
     <div>
       <SettingsPageHeader title="General" />
 
-      <SettingsSection title="Becoming">
+      <SettingsSection title="Training">
         <SettingRow
           label="Target identity"
           description="What the learning path should train toward."

@@ -168,7 +168,7 @@ export const EsdeScenarioAttempt = pgTable("esde_scenario_attempt", (t) => ({
     .notNull(),
 }));
 
-export const BecomingOnboardingSession = pgTable("becoming_onboarding_session", (t) => ({
+export const TrainingOnboardingSession = pgTable("becoming_onboarding_session", (t) => ({
   id: t.uuid().notNull().primaryKey().defaultRandom(),
   userId: t
     .text()
@@ -185,14 +185,14 @@ export const BecomingOnboardingSession = pgTable("becoming_onboarding_session", 
     .$onUpdateFn(() => sql`now()`),
 }));
 
-export const BecomingOnboardingMessage = pgTable(
+export const TrainingOnboardingMessage = pgTable(
   "becoming_onboarding_message",
   (t) => ({
     id: t.uuid().notNull().primaryKey().defaultRandom(),
     sessionId: t
       .uuid()
       .notNull()
-      .references(() => BecomingOnboardingSession.id, { onDelete: "cascade" }),
+      .references(() => TrainingOnboardingSession.id, { onDelete: "cascade" }),
     role: t.varchar({ length: 16 }).notNull(),
     slot: t.varchar({ length: 32 }),
     content: t.text().notNull(),
@@ -210,7 +210,7 @@ export const BecomingOnboardingMessage = pgTable(
   ],
 );
 
-export const BecomingIdentityProfile = pgTable(
+export const TrainingIdentityProfile = pgTable(
   "becoming_identity_profile",
   (t) => ({
     id: t.uuid().notNull().primaryKey().defaultRandom(),
@@ -220,7 +220,7 @@ export const BecomingIdentityProfile = pgTable(
     onboardingSessionId: t
       .uuid()
       .notNull()
-      .references(() => BecomingOnboardingSession.id, { onDelete: "cascade" }),
+      .references(() => TrainingOnboardingSession.id, { onDelete: "cascade" }),
     status: t.varchar({ length: 32 }).notNull().default("draft"),
     currentVersionId: t.uuid(),
     targetIdentity: t.varchar({ length: 240 }).notNull(),
@@ -240,14 +240,14 @@ export const BecomingIdentityProfile = pgTable(
   ],
 );
 
-export const BecomingIdentityProfileVersion = pgTable(
+export const TrainingIdentityProfileVersion = pgTable(
   "becoming_identity_profile_version",
   (t) => ({
     id: t.uuid().notNull().primaryKey().defaultRandom(),
     profileId: t
       .uuid()
       .notNull()
-      .references(() => BecomingIdentityProfile.id, { onDelete: "cascade" }),
+      .references(() => TrainingIdentityProfile.id, { onDelete: "cascade" }),
     targetIdentity: t.varchar({ length: 240 }).notNull(),
     headline: t.text().notNull(),
     motivation: t.text().notNull(),
@@ -271,7 +271,7 @@ export const BecomingIdentityProfileVersion = pgTable(
   }),
 );
 
-export const BecomingCurriculumPlan = pgTable("becoming_curriculum_plan", (t) => ({
+export const TrainingCurriculumPlan = pgTable("becoming_curriculum_plan", (t) => ({
   id: t.uuid().notNull().primaryKey().defaultRandom(),
   userId: t
     .text()
@@ -279,11 +279,11 @@ export const BecomingCurriculumPlan = pgTable("becoming_curriculum_plan", (t) =>
   onboardingSessionId: t
     .uuid()
     .notNull()
-    .references(() => BecomingOnboardingSession.id, { onDelete: "cascade" }),
+    .references(() => TrainingOnboardingSession.id, { onDelete: "cascade" }),
   profileVersionId: t
     .uuid()
     .notNull()
-    .references(() => BecomingIdentityProfileVersion.id, { onDelete: "cascade" }),
+    .references(() => TrainingIdentityProfileVersion.id, { onDelete: "cascade" }),
   status: t.varchar({ length: 32 }).notNull().default("active"),
   title: t.varchar({ length: 240 }).notNull(),
   summary: t.text().notNull(),
@@ -297,14 +297,14 @@ export const BecomingCurriculumPlan = pgTable("becoming_curriculum_plan", (t) =>
     .$onUpdateFn(() => sql`now()`),
 }));
 
-export const BecomingCurriculumNode = pgTable(
+export const TrainingCurriculumNode = pgTable(
   "becoming_curriculum_node",
   (t) => ({
     id: t.uuid().notNull().primaryKey().defaultRandom(),
     planId: t
       .uuid()
       .notNull()
-      .references(() => BecomingCurriculumPlan.id, { onDelete: "cascade" }),
+      .references(() => TrainingCurriculumPlan.id, { onDelete: "cascade" }),
     parentNodeId: t.uuid(),
     kind: t.varchar({ length: 32 }).notNull(),
     status: t.varchar({ length: 32 }).notNull().default("planned"),
@@ -337,14 +337,14 @@ export const BecomingCurriculumNode = pgTable(
   ],
 );
 
-export const BecomingUnitContent = pgTable(
+export const TrainingUnitContent = pgTable(
   "becoming_unit_content",
   (t) => ({
     id: t.uuid().notNull().primaryKey().defaultRandom(),
     nodeId: t
       .uuid()
       .notNull()
-      .references(() => BecomingCurriculumNode.id, { onDelete: "cascade" }),
+      .references(() => TrainingCurriculumNode.id, { onDelete: "cascade" }),
     title: t.varchar({ length: 240 }).notNull(),
     seedPrompt: t.text().notNull(),
     seedHint: t.text(),
@@ -380,18 +380,18 @@ export const BecomingUnitContent = pgTable(
   (table) => [uniqueIndex("becoming_unit_content_node_idx").on(table.nodeId)],
 );
 
-export const BecomingUnitPhaseResponse = pgTable(
+export const TrainingUnitPhaseResponse = pgTable(
   "becoming_unit_phase_response",
   (t) => ({
     id: t.uuid().notNull().primaryKey().defaultRandom(),
     unitContentId: t
       .uuid()
       .notNull()
-      .references(() => BecomingUnitContent.id, { onDelete: "cascade" }),
+      .references(() => TrainingUnitContent.id, { onDelete: "cascade" }),
     sessionId: t
       .uuid()
       .notNull()
-      .references(() => BecomingOnboardingSession.id, { onDelete: "cascade" }),
+      .references(() => TrainingOnboardingSession.id, { onDelete: "cascade" }),
     userId: t
       .text()
       .references(() => user.id, { onDelete: "set null" }),
@@ -466,16 +466,16 @@ export const BecomingUnitPhaseResponse = pgTable(
   ],
 );
 
-export const BecomingUnitAttempt = pgTable("becoming_unit_attempt", (t) => ({
+export const TrainingUnitAttempt = pgTable("becoming_unit_attempt", (t) => ({
   id: t.uuid().notNull().primaryKey().defaultRandom(),
   unitContentId: t
     .uuid()
     .notNull()
-    .references(() => BecomingUnitContent.id, { onDelete: "cascade" }),
+    .references(() => TrainingUnitContent.id, { onDelete: "cascade" }),
   onboardingSessionId: t
     .uuid()
     .notNull()
-    .references(() => BecomingOnboardingSession.id, { onDelete: "cascade" }),
+    .references(() => TrainingOnboardingSession.id, { onDelete: "cascade" }),
   userId: t
     .text()
     .references(() => user.id, { onDelete: "set null" }),
@@ -496,22 +496,22 @@ export const BecomingUnitAttempt = pgTable("becoming_unit_attempt", (t) => ({
     .notNull(),
 }));
 
-export const BecomingCapstoneAttempt = pgTable(
+export const TrainingCapstoneAttempt = pgTable(
   "becoming_capstone_attempt",
   (t) => ({
     id: t.uuid().notNull().primaryKey().defaultRandom(),
     simulationNodeId: t
       .uuid()
       .notNull()
-      .references(() => BecomingCurriculumNode.id, { onDelete: "cascade" }),
+      .references(() => TrainingCurriculumNode.id, { onDelete: "cascade" }),
     planId: t
       .uuid()
       .notNull()
-      .references(() => BecomingCurriculumPlan.id, { onDelete: "cascade" }),
+      .references(() => TrainingCurriculumPlan.id, { onDelete: "cascade" }),
     sessionId: t
       .uuid()
       .notNull()
-      .references(() => BecomingOnboardingSession.id, { onDelete: "cascade" }),
+      .references(() => TrainingOnboardingSession.id, { onDelete: "cascade" }),
     userId: t
       .text()
       .references(() => user.id, { onDelete: "set null" }),
@@ -570,14 +570,14 @@ export const BecomingCapstoneAttempt = pgTable(
   ],
 );
 
-export const BecomingCapstoneMessage = pgTable(
+export const TrainingCapstoneMessage = pgTable(
   "becoming_capstone_message",
   (t) => ({
     id: t.uuid().notNull().primaryKey().defaultRandom(),
     capstoneId: t
       .uuid()
       .notNull()
-      .references(() => BecomingCapstoneAttempt.id, { onDelete: "cascade" }),
+      .references(() => TrainingCapstoneAttempt.id, { onDelete: "cascade" }),
     role: t.varchar({ length: 16 }).notNull(),
     content: t.text().notNull(),
     sequence: t.integer().notNull(),
@@ -596,25 +596,25 @@ export const BecomingCapstoneMessage = pgTable(
   ],
 );
 
-export const BecomingRecallGate = pgTable(
+export const TrainingRecallGate = pgTable(
   "becoming_recall_gate",
   (t) => ({
     id: t.uuid().notNull().primaryKey().defaultRandom(),
     planId: t
       .uuid()
       .notNull()
-      .references(() => BecomingCurriculumPlan.id, { onDelete: "cascade" }),
+      .references(() => TrainingCurriculumPlan.id, { onDelete: "cascade" }),
     sessionId: t
       .uuid()
       .notNull()
-      .references(() => BecomingOnboardingSession.id, { onDelete: "cascade" }),
+      .references(() => TrainingOnboardingSession.id, { onDelete: "cascade" }),
     userId: t
       .text()
       .references(() => user.id, { onDelete: "set null" }),
     triggerAfterUnitNodeId: t
       .uuid()
       .notNull()
-      .references(() => BecomingCurriculumNode.id, { onDelete: "cascade" }),
+      .references(() => TrainingCurriculumNode.id, { onDelete: "cascade" }),
     status: t.varchar({ length: 32 }).notNull().default("pending"),
     completedAt: t.timestamp({ mode: "date", withTimezone: true }),
     createdAt: t
@@ -634,14 +634,14 @@ export const BecomingRecallGate = pgTable(
   ],
 );
 
-export const BecomingRecallProbe = pgTable(
+export const TrainingRecallProbe = pgTable(
   "becoming_recall_probe",
   (t) => ({
     id: t.uuid().notNull().primaryKey().defaultRandom(),
     gateId: t
       .uuid()
       .notNull()
-      .references(() => BecomingRecallGate.id, { onDelete: "cascade" }),
+      .references(() => TrainingRecallGate.id, { onDelete: "cascade" }),
     probeOrder: t.integer().notNull(),
     probeType: t.varchar({ length: 32 }).notNull(),
     sourceUnitNodeIds: t.jsonb().$type<string[]>().notNull(),
@@ -673,18 +673,18 @@ export const BecomingRecallProbe = pgTable(
   ],
 );
 
-export const BecomingUnitRecallState = pgTable(
+export const TrainingUnitRecallState = pgTable(
   "becoming_unit_recall_state",
   (t) => ({
     id: t.uuid().notNull().primaryKey().defaultRandom(),
     unitNodeId: t
       .uuid()
       .notNull()
-      .references(() => BecomingCurriculumNode.id, { onDelete: "cascade" }),
+      .references(() => TrainingCurriculumNode.id, { onDelete: "cascade" }),
     planId: t
       .uuid()
       .notNull()
-      .references(() => BecomingCurriculumPlan.id, { onDelete: "cascade" }),
+      .references(() => TrainingCurriculumPlan.id, { onDelete: "cascade" }),
     lastRecalledAt: t.timestamp({ mode: "date", withTimezone: true }),
     lastRecallOrderIndex: t.integer(),
     recallCount: t.integer().notNull().default(0),

@@ -75,7 +75,7 @@ Breakpoint should feel like a serious training environment, not a playful edtech
 - **Body**: `Manrope`
 - **Mono**: `Geist Mono`
 
-Typography should feel modern and technical without becoming startup-generic.
+Typography should feel modern and technical without training startup-generic.
 
 ### Spacing
 

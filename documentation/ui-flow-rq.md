@@ -2,7 +2,7 @@
 
 ## Product Frame
 
-The UI should make one thing obvious: this product is about becoming a specific kind of person, not browsing lessons.
+The UI should make one thing obvious: this product is about training a specific kind of person, not browsing lessons.
 
 The primary user-facing arc is:
 

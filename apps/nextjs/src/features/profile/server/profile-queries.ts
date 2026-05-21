@@ -22,7 +22,7 @@ export const resolveProfileSessionId = async (preferredSessionId?: string | null
   }
 
   const caller = await createCaller();
-  const projects = await caller.becoming.listLearningProjects().catch(() => []);
+  const projects = await caller.training.listLearningProjects().catch(() => []);
 
   return projects[0]?.sessionId ?? null;
 };

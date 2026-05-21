@@ -1,8 +1,8 @@
 import {
   previewPlanState,
   previewSessionId,
-} from "~/features/becoming/lib/becoming-preview";
-import { TransformationReveal } from "~/features/becoming/components/transformation-reveal";
+} from "~/features/training/lib/training-preview";
+import { TransformationReveal } from "~/features/training/components/transformation-reveal";
 
 export default function UiPreviewTransformationPage() {
   return (

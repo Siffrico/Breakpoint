@@ -87,7 +87,7 @@ The AI must:
 - call out rationalization, vagueness, and fake understanding
 - separate confidence from competence
 - push for first-principles thinking
-- adapt pressure without becoming abusive or random
+- adapt pressure without training abusive or random
 
 We are not building an AI cheerleader. We are building an AI trainer, evaluator, and repair system that users still trust and want to return to.
 

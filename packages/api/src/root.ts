@@ -1,5 +1,5 @@
 import { authRouter } from "./router/auth";
-import { becomingRouter } from "./router/becoming";
+import { trainingRouter } from "./router/training";
 import { esdeSimulationRouter } from "./router/esde-simulation";
 import { memoryRouter } from "./router/memory";
 import { postRouter } from "./router/post";
@@ -8,7 +8,7 @@ import { createTRPCRouter } from "./trpc";
 
 export const appRouter = createTRPCRouter({
   auth: authRouter,
-  becoming: becomingRouter,
+  training: trainingRouter,
   esdeSimulation: esdeSimulationRouter,
   memory: memoryRouter,
   post: postRouter,

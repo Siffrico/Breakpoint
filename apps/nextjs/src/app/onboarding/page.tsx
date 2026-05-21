@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { getSession } from "~/auth/server";
-import { OnboardingShell } from "~/features/becoming/components/onboarding-shell";
+import { OnboardingShell } from "~/features/training/components/onboarding-shell";
 
 export default async function OnboardingPage() {
   const session = await getSession();

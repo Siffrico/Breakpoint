@@ -7,6 +7,6 @@ export const unused = z.string().describe(
   `,
 );
 
-export * from "./becoming";
+export * from "./training";
 export * from "./memory";
 export * from "./profile";

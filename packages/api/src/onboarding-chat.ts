@@ -1,20 +1,19 @@
-import {
-  convertToModelMessages,
-  isTextUIPart,
-  streamText,
-  type UIMessage,
-} from "ai";
+import type { UIMessage } from "ai";
+import { convertToModelMessages, isTextUIPart, streamText } from "ai";
 
 import type { db as databaseClient } from "@acme/db/client";
 
 import {
-  ONBOARDING_CHAT_SYSTEM,
   createBuildCurriculumTool,
-} from "./domain/becoming/agents/onboarding-chat-agent";
-import { getModelForTier } from "./domain/becoming/engine/model-router";
-import { generateCurriculumWorkflow } from "./domain/becoming/workflows/generate-curriculum-workflow";
-import { becomingCurriculumRepository } from "./repositories/becoming-curriculum-repository";
-import { becomingOnboardingRepository } from "./repositories/becoming-onboarding-repository";
+  ONBOARDING_CHAT_SYSTEM,
+} from "./domain/training/agents/onboarding-chat-agent";
+import {
+  getAiModelForPurpose,
+  getMissingAiKeyMessage,
+} from "./domain/training/engine/model-router";
+import { generateCurriculumWorkflow } from "./domain/training/workflows/generate-curriculum-workflow";
+import { trainingCurriculumRepository } from "./repositories/training-curriculum-repository";
+import { trainingOnboardingRepository } from "./repositories/training-onboarding-repository";
 
 type Database = typeof databaseClient;
 
@@ -36,7 +35,7 @@ export const streamOnboardingChat = async ({
   userId: string;
   messages: UIMessage[];
 }): Promise<Response> => {
-  const session = await becomingOnboardingRepository.getSession({
+  const session = await trainingOnboardingRepository.getSession({
     db,
     sessionId,
   });
@@ -51,7 +50,7 @@ export const streamOnboardingChat = async ({
   if (last?.role === "user") {
     const text = extractText(last);
     if (text.length > 0) {
-      await becomingOnboardingRepository.appendMessage({
+      await trainingOnboardingRepository.appendMessage({
         db,
         sessionId,
         role: "user",
@@ -61,9 +60,9 @@ export const streamOnboardingChat = async ({
     }
   }
 
-  const model = getModelForTier("standard");
+  const model = getAiModelForPurpose("onboarding");
   if (!model) {
-    return new Response("OPENAI_API_KEY is required for onboarding chat.", {
+    return new Response(getMissingAiKeyMessage("onboarding chat"), {
       status: 500,
     });
   }
@@ -74,17 +73,17 @@ export const streamOnboardingChat = async ({
         sessionId,
         deps: {
           getSession: (id) =>
-            becomingOnboardingRepository.getSession({ db, sessionId: id }),
+            trainingOnboardingRepository.getSession({ db, sessionId: id }),
           listMessages: (id) =>
-            becomingOnboardingRepository.listMessages({ db, sessionId: id }),
+            trainingOnboardingRepository.listMessages({ db, sessionId: id }),
           createProfileVersion: (input) =>
-            becomingOnboardingRepository.createProfileVersion({ db, ...input }),
+            trainingOnboardingRepository.createProfileVersion({ db, ...input }),
           createPlan: (input) =>
-            becomingCurriculumRepository.createPlan({ db, ...input }),
+            trainingCurriculumRepository.createPlan({ db, ...input }),
           getActivePlan: (id) =>
-            becomingCurriculumRepository.getActivePlan({ db, sessionId: id }),
+            trainingCurriculumRepository.getActivePlan({ db, sessionId: id }),
           updateSession: (input) =>
-            becomingOnboardingRepository.updateSession({ db, ...input }),
+            trainingOnboardingRepository.updateSession({ db, ...input }),
         },
       });
       if (!result.success) {
@@ -103,7 +102,7 @@ export const streamOnboardingChat = async ({
     onFinish: async ({ text }) => {
       const trimmed = text.trim();
       if (trimmed.length === 0) return;
-      await becomingOnboardingRepository.appendMessage({
+      await trainingOnboardingRepository.appendMessage({
         db,
         sessionId,
         role: "assistant",

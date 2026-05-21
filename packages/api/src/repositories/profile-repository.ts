@@ -2,9 +2,9 @@ import { eq } from "@acme/db";
 import type { db as databaseClient } from "@acme/db/client";
 import {
   account,
-  BecomingCurriculumPlan,
-  BecomingIdentityProfile,
-  BecomingIdentityProfileVersion,
+  TrainingCurriculumPlan,
+  TrainingIdentityProfile,
+  TrainingIdentityProfileVersion,
   user,
 } from "@acme/db/schema";
 
@@ -22,8 +22,8 @@ export const profileRepository = {
     sessionId: string;
   }): Promise<Result<ProfileGeneral | null, ProfileError>> => {
     try {
-      const profile = await db.query.BecomingIdentityProfile.findFirst({
-        where: eq(BecomingIdentityProfile.onboardingSessionId, sessionId),
+      const profile = await db.query.TrainingIdentityProfile.findFirst({
+        where: eq(TrainingIdentityProfile.onboardingSessionId, sessionId),
       });
 
       if (!profile?.currentVersionId) {
@@ -33,8 +33,8 @@ export const profileRepository = {
         };
       }
 
-      const version = await db.query.BecomingIdentityProfileVersion.findFirst({
-        where: eq(BecomingIdentityProfileVersion.id, profile.currentVersionId),
+      const version = await db.query.TrainingIdentityProfileVersion.findFirst({
+        where: eq(TrainingIdentityProfileVersion.id, profile.currentVersionId),
       });
 
       if (!version) {
@@ -78,8 +78,8 @@ export const profileRepository = {
     hardMoments: string[];
   }): Promise<Result<ProfileGeneral, ProfileError>> => {
     try {
-      const profile = await db.query.BecomingIdentityProfile.findFirst({
-        where: eq(BecomingIdentityProfile.onboardingSessionId, sessionId),
+      const profile = await db.query.TrainingIdentityProfile.findFirst({
+        where: eq(TrainingIdentityProfile.onboardingSessionId, sessionId),
       });
 
       if (!profile?.currentVersionId) {
@@ -93,13 +93,13 @@ export const profileRepository = {
       }
 
       const [version] = await db
-        .update(BecomingIdentityProfileVersion)
+        .update(TrainingIdentityProfileVersion)
         .set({
           targetIdentity,
           motivation,
           hardMoments,
         })
-        .where(eq(BecomingIdentityProfileVersion.id, profile.currentVersionId))
+        .where(eq(TrainingIdentityProfileVersion.id, profile.currentVersionId))
         .returning();
 
       if (!version) {
@@ -113,20 +113,20 @@ export const profileRepository = {
       }
 
       await db
-        .update(BecomingIdentityProfile)
+        .update(TrainingIdentityProfile)
         .set({
           targetIdentity,
           updatedAt: new Date(),
         })
-        .where(eq(BecomingIdentityProfile.id, profile.id));
+        .where(eq(TrainingIdentityProfile.id, profile.id));
 
       await db
-        .update(BecomingCurriculumPlan)
+        .update(TrainingCurriculumPlan)
         .set({
           targetIdentity,
           updatedAt: new Date(),
         })
-        .where(eq(BecomingCurriculumPlan.onboardingSessionId, sessionId));
+        .where(eq(TrainingCurriculumPlan.onboardingSessionId, sessionId));
 
       return {
         success: true,

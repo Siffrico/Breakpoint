@@ -14,7 +14,7 @@ const previews = [
   {
     href: "/ui/profile/general",
     label: "Profile · General",
-    description: "Becoming, account, and billing surfaces.",
+    description: "Training, account, and billing surfaces.",
   },
   {
     href: "/ui/profile/preferences",

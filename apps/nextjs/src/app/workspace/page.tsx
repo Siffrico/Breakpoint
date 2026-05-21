@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { getSession } from "~/auth/server";
-import { WorkspaceShell } from "~/features/becoming/components/workspace-shell";
+import { WorkspaceShell } from "~/features/training/components/workspace-shell";
 import {
   getAiWorkspace,
   getActivePlan,
@@ -11,7 +11,7 @@ import {
   getOnboardingState,
   getWorkspaceState,
   listLearningProjects,
-} from "~/features/becoming/server/becoming-queries";
+} from "~/features/training/server/training-queries";
 
 const LAST_SESSION_COOKIE = "bp-last-learning-session";
 

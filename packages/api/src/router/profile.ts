@@ -7,7 +7,7 @@ import { getProfileAccountWorkflow } from "../domain/profile/workflows/get-accou
 import { getProfileBillingWorkflow } from "../domain/profile/workflows/get-billing";
 import { getProfileGeneralWorkflow } from "../domain/profile/workflows/get-general";
 import { updateProfileGeneralWorkflow } from "../domain/profile/workflows/update-general";
-import { becomingOnboardingRepository } from "../repositories/becoming-onboarding-repository";
+import { trainingOnboardingRepository } from "../repositories/training-onboarding-repository";
 import { profileRepository } from "../repositories/profile-repository";
 import { protectedProcedure } from "../trpc";
 
@@ -35,11 +35,11 @@ const requireOwnedSession = async ({
   userId,
   sessionId,
 }: {
-  db: Parameters<typeof becomingOnboardingRepository.getSession>[0]["db"];
+  db: Parameters<typeof trainingOnboardingRepository.getSession>[0]["db"];
   userId: string;
   sessionId: string;
 }) => {
-  const session = await becomingOnboardingRepository.getSession({
+  const session = await trainingOnboardingRepository.getSession({
     db,
     sessionId,
   });
@@ -120,7 +120,7 @@ export const profileRouter = {
           }),
         );
 
-        await becomingOnboardingRepository.touchSession({
+        await trainingOnboardingRepository.touchSession({
           db,
           sessionId: input.sessionId,
         });
