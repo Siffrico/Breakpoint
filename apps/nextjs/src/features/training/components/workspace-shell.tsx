@@ -145,15 +145,6 @@ export function WorkspaceShell({
                 <div className="flex items-center gap-2">
                   <Button
                     type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {}}
-                    className="border-foreground/12 text-foreground hover:border-foreground/24 hover:text-foreground rounded-none bg-transparent px-3 text-[12px] before:rounded-none before:shadow-none hover:bg-transparent"
-                  >
-                    Hint
-                  </Button>
-                  <Button
-                    type="button"
                     variant="default"
                     size="sm"
                     onClick={() =>
