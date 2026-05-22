@@ -187,8 +187,11 @@ export function OnboardingShell({
     .find((message) => message.role === "assistant");
   const lastAssistantText = lastAssistant
     ? lastAssistant.parts
-        .filter((part) => part.type === "text")
-        .map((part) => (part.type === "text" ? part.text : ""))
+        .reduce<string[]>(
+          (textParts, part) =>
+            part.type === "text" ? [...textParts, part.text] : textParts,
+          [],
+        )
         .join("\n")
         .trim()
     : "";
@@ -280,8 +283,11 @@ export function OnboardingShell({
           <div className="mb-4 space-y-2">
             {priorMessages.map((message) => {
               const text = message.parts
-                .filter((part) => part.type === "text")
-                .map((part) => (part.type === "text" ? part.text : ""))
+                .reduce<string[]>(
+                  (textParts, part) =>
+                    part.type === "text" ? [...textParts, part.text] : textParts,
+                  [],
+                )
                 .join("\n")
                 .trim();
               if (!text) return null;

@@ -23,7 +23,17 @@
       "react-doctor/exhaustive-deps",
       "react-doctor/prefer-tag-over-role",
       "react-doctor/no-mirror-prop-effect",
-      "react-doctor/js-combine-iterations"
+      "react-doctor/rn-no-deprecated-modules",
+      "react-doctor/only-export-components",
+      "react-doctor/no-multi-comp",
+      "react-doctor/design-no-bold-heading",
+      "react-doctor/rn-no-raw-text",
+      "react-doctor/rules-of-hooks",
+      "react-doctor/no-danger",
+      "react-doctor/heading-has-content",
+      "react-doctor/rerender-memo-before-early-return",
+      "react-doctor/no-array-index-key",
+      "react-doctor/no-array-index-as-key"
     ]
   }
 }

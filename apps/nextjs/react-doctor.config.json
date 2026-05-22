@@ -22,8 +22,7 @@
       "react-doctor/no-initialize-state",
       "react-doctor/exhaustive-deps",
       "react-doctor/prefer-tag-over-role",
-      "react-doctor/no-mirror-prop-effect",
-      "react-doctor/js-combine-iterations"
+      "react-doctor/no-mirror-prop-effect"
     ]
   }
 }
