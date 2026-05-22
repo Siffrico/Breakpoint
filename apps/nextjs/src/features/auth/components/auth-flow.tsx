@@ -2,31 +2,43 @@
 
 import { type FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import {
+  ArrowLeft,
+  CheckCircle,
+  DiscordLogo,
+  Warning,
+} from "@phosphor-icons/react";
 
+import { cn } from "@acme/ui";
 import { Button } from "@acme/ui/button";
 import { Input } from "@acme/ui/input";
 
 import { authClient } from "~/auth/client";
 
-function FieldLabel({
+type Mode = "sign-in" | "sign-up";
+const STEPS = ["Identify", "Credentials", "Welcome"] as const;
+
+function Field({
+  label,
   htmlFor,
   children,
 }: {
+  label: string;
   htmlFor: string;
   children: React.ReactNode;
 }) {
   return (
-    <label
-      htmlFor={htmlFor}
-      className="select-none text-sm font-medium leading-none"
-    >
+    <div className="flex flex-col gap-2">
+      <label
+        htmlFor={htmlFor}
+        className="select-none font-mono text-[10px] uppercase tracking-[0.25em] text-muted-foreground"
+      >
+        {label}
+      </label>
       {children}
-    </label>
+    </div>
   );
 }
-
-type Mode = "sign-in" | "sign-up";
-const STEPS = ["Identify", "Credentials", "Welcome"] as const;
 
 export function AuthFlow() {
   const router = useRouter();
@@ -50,7 +62,7 @@ export function AuthFlow() {
   const submitEmail = (e: FormEvent) => {
     e.preventDefault();
     if (!email.includes("@")) {
-      setError("Enter a valid email.");
+      setError("Enter a valid email address.");
       return;
     }
     setError(null);
@@ -101,6 +113,14 @@ export function AuthFlow() {
 
   return (
     <div className="w-full">
+      {/* brand mark — carries identity on the form side and on mobile */}
+      <div className="mb-10 flex items-center gap-2.5">
+        <span className="size-2.5 rounded-full bg-primary" />
+        <span className="font-display text-sm font-semibold uppercase tracking-[0.1em]">
+          Breakpoint
+        </span>
+      </div>
+
       <ModeToggle mode={mode} onChange={switchMode} />
       <Stepper step={step} />
 
@@ -146,53 +166,53 @@ function ModeToggle({
   mode: Mode;
   onChange: (m: Mode) => void;
 }) {
-  const base =
-    "flex-1 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.3em] transition-colors";
+  const options: { value: Mode; label: string }[] = [
+    { value: "sign-in", label: "Sign in" },
+    { value: "sign-up", label: "Sign up" },
+  ];
   return (
-    <div className="flex w-fit overflow-hidden rounded-md border border-border/70 bg-background/40">
-      <button
-        type="button"
-        onClick={() => onChange("sign-in")}
-        className={`${base} ${
-          mode === "sign-in"
-            ? "bg-foreground text-background"
-            : "text-muted-foreground hover:text-foreground"
-        }`}
-      >
-        Sign in
-      </button>
-      <button
-        type="button"
-        onClick={() => onChange("sign-up")}
-        className={`${base} ${
-          mode === "sign-up"
-            ? "bg-foreground text-background"
-            : "text-muted-foreground hover:text-foreground"
-        }`}
-      >
-        Sign up
-      </button>
+    <div className="flex gap-7 border-b border-border">
+      {options.map(({ value, label }) => {
+        const active = mode === value;
+        return (
+          <button
+            key={value}
+            type="button"
+            onClick={() => onChange(value)}
+            className={cn(
+              "relative pb-3 font-mono text-[11px] uppercase tracking-[0.25em] outline-none transition-colors",
+              active
+                ? "text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {label}
+            {active ? (
+              <span className="absolute inset-x-0 -bottom-px h-0.5 bg-foreground" />
+            ) : null}
+          </button>
+        );
+      })}
     </div>
   );
 }
 
 function Stepper({ step }: { step: number }) {
   return (
-    <div className="mt-6 flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.3em] text-muted-foreground">
+    <div className="mt-7 flex items-center gap-3 font-mono text-[10px] uppercase tracking-[0.3em] text-muted-foreground">
       <span>
-        Step {String(step + 1).padStart(2, "0")} / {STEPS.length}
+        Step {String(step + 1).padStart(2, "0")} /{" "}
+        {String(STEPS.length).padStart(2, "0")}
       </span>
-      <div className="ml-2 flex items-center gap-1.5">
-        {STEPS.map((_, i) => (
+      <span className="text-foreground/75">{STEPS[step]}</span>
+      <div className="ml-auto flex items-center gap-1.5">
+        {STEPS.map((label, i) => (
           <span
-            key={i}
-            className={`h-1.5 rounded-full transition-all ${
-              i === step
-                ? "w-5 bg-foreground"
-                : i < step
-                  ? "w-1.5 bg-foreground/70"
-                  : "w-1.5 bg-foreground/20"
-            }`}
+            key={label}
+            className={cn(
+              "h-0.5 w-6 transition-colors",
+              i <= step ? "bg-foreground" : "bg-border",
+            )}
           />
         ))}
       </div>
@@ -202,7 +222,34 @@ function Stepper({ step }: { step: number }) {
 
 function ErrorLine({ message }: { message: string | null }) {
   if (!message) return null;
-  return <p className="mt-3 text-sm text-destructive">{message}</p>;
+  return (
+    <div className="mt-4 flex items-start gap-2.5 border border-destructive/30 bg-destructive/8 px-3 py-2.5 text-sm text-foreground">
+      <Warning
+        weight="fill"
+        className="mt-0.5 size-4 shrink-0 text-destructive"
+      />
+      <span>{message}</span>
+    </div>
+  );
+}
+
+function StepHeading({
+  title,
+  description,
+}: {
+  title: string;
+  description: React.ReactNode;
+}) {
+  return (
+    <div className="mt-9">
+      <h1 className="font-display text-3xl font-semibold leading-tight tracking-tight text-foreground">
+        {title}
+      </h1>
+      <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+        {description}
+      </p>
+    </div>
+  );
 }
 
 function EmailStep({
@@ -225,24 +272,21 @@ function EmailStep({
   const isSignIn = mode === "sign-in";
   return (
     <>
-      <div className="mt-8 font-mono text-[11px] uppercase tracking-[0.3em] text-muted-foreground">
-        {isSignIn ? "Welcome back" : "Create your account"}
-      </div>
-      <h1 className="mt-2 font-display text-3xl leading-tight">
-        {isSignIn ? "Sign in to continue." : "Let's get you set up."}
-      </h1>
-      <p className="mt-2 text-sm text-muted-foreground">
-        {isSignIn
-          ? "Enter your email to continue."
-          : "Start with your email — we'll do the rest in a moment."}
-      </p>
+      <StepHeading
+        title={isSignIn ? "Sign in to continue." : "Create your account."}
+        description={
+          isSignIn
+            ? "Enter the email tied to your Breakpoint account."
+            : "Start with your email — credentials come next."
+        }
+      />
 
-      <form onSubmit={onSubmit} className="mt-8 flex flex-col gap-4">
-        <div className="flex flex-col gap-1.5">
-          <FieldLabel htmlFor="auth-email">Email</FieldLabel>
+      <form onSubmit={onSubmit} className="mt-8 flex flex-col gap-5">
+        <Field label="Email" htmlFor="auth-email">
           <Input
             id="auth-email"
             type="email"
+            size="lg"
             placeholder="you@example.com"
             autoComplete="email"
             autoFocus
@@ -250,33 +294,29 @@ function EmailStep({
             onChange={(e) => onEmailChange(e.target.value)}
             nativeInput
           />
-        </div>
-        <Button
-          type="submit"
-          size="lg"
-          disabled={!email.trim()}
-          className="mt-2"
-        >
+        </Field>
+        <Button type="submit" size="lg" disabled={!email.trim()}>
           Continue
         </Button>
       </form>
 
       <ErrorLine message={error} />
 
-      <div className="mt-6 flex items-center gap-3 font-mono text-[10px] uppercase tracking-[0.3em] text-muted-foreground">
-        <span className="h-px flex-1 bg-border/70" />
-        or
-        <span className="h-px flex-1 bg-border/70" />
+      <div className="my-7 flex items-center gap-4 font-mono text-[10px] uppercase tracking-[0.3em] text-muted-foreground">
+        <span className="h-px flex-1 bg-border" />
+        Or
+        <span className="h-px flex-1 bg-border" />
       </div>
 
       <Button
         type="button"
         variant="outline"
         size="lg"
-        className="mt-6 w-full"
+        className="w-full"
         onClick={onDiscord}
         loading={loading}
       >
+        <DiscordLogo />
         Continue with Discord
       </Button>
     </>
@@ -309,24 +349,23 @@ function CredentialsStep({
   const isSignIn = mode === "sign-in";
   return (
     <>
-      <div className="mt-8 font-mono text-[11px] uppercase tracking-[0.3em] text-muted-foreground">
-        {isSignIn ? "Almost there" : "Tell us who you are"}
-      </div>
-      <h1 className="mt-2 font-display text-3xl leading-tight">
-        {isSignIn ? "Enter your password." : "A name and a password."}
-      </h1>
-      <p className="mt-2 text-sm text-muted-foreground">
-        Signing in as{" "}
-        <span className="text-foreground/85">{email}</span>.
-      </p>
+      <StepHeading
+        title={isSignIn ? "Enter your password." : "Tell us who you are."}
+        description={
+          <>
+            Continuing as{" "}
+            <span className="text-foreground">{email}</span>.
+          </>
+        }
+      />
 
-      <form onSubmit={onSubmit} className="mt-8 flex flex-col gap-4">
+      <form onSubmit={onSubmit} className="mt-8 flex flex-col gap-5">
         {!isSignIn ? (
-          <div className="flex flex-col gap-1.5">
-            <FieldLabel htmlFor="auth-name">Name</FieldLabel>
+          <Field label="Name" htmlFor="auth-name">
             <Input
               id="auth-name"
               type="text"
+              size="lg"
               placeholder="Ada Lovelace"
               autoComplete="name"
               autoFocus
@@ -334,14 +373,14 @@ function CredentialsStep({
               onChange={(e) => onNameChange(e.target.value)}
               nativeInput
             />
-          </div>
+          </Field>
         ) : null}
 
-        <div className="flex flex-col gap-1.5">
-          <FieldLabel htmlFor="auth-password">Password</FieldLabel>
+        <Field label="Password" htmlFor="auth-password">
           <Input
             id="auth-password"
             type="password"
+            size="lg"
             placeholder="••••••••"
             autoComplete={isSignIn ? "current-password" : "new-password"}
             autoFocus={isSignIn}
@@ -349,14 +388,13 @@ function CredentialsStep({
             onChange={(e) => onPasswordChange(e.target.value)}
             nativeInput
           />
-        </div>
+        </Field>
 
         <Button
           type="submit"
           size="lg"
           loading={loading}
           disabled={!password || (!isSignIn && !name.trim())}
-          className="mt-2"
         >
           {isSignIn ? "Sign in" : "Create account"}
         </Button>
@@ -364,20 +402,20 @@ function CredentialsStep({
 
       <ErrorLine message={error} />
 
-      <div className="mt-6">
-        <Button variant="ghost" type="button" onClick={onBack} disabled={loading}>
-          Back
-        </Button>
-      </div>
+      <button
+        type="button"
+        onClick={onBack}
+        disabled={loading}
+        className="mt-7 inline-flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.25em] text-muted-foreground outline-none transition-colors hover:text-foreground disabled:opacity-50"
+      >
+        <ArrowLeft className="size-3.5" />
+        Back
+      </button>
     </>
   );
 }
 
-function DoneStep({
-  router,
-}: {
-  router: ReturnType<typeof useRouter>;
-}) {
+function DoneStep({ router }: { router: ReturnType<typeof useRouter> }) {
   useEffect(() => {
     const t = setTimeout(() => {
       router.refresh();
@@ -388,12 +426,14 @@ function DoneStep({
 
   return (
     <>
-      <div className="mt-8 font-mono text-[11px] uppercase tracking-[0.3em] text-muted-foreground">
-        You're in
+      <div className="mt-9 flex size-11 items-center justify-center border border-primary/30 bg-primary/10">
+        <CheckCircle weight="fill" className="size-6 text-primary" />
       </div>
-      <h1 className="mt-2 font-display text-3xl leading-tight">Welcome.</h1>
+      <h1 className="mt-6 font-display text-3xl font-semibold leading-tight tracking-tight text-foreground">
+        You're in.
+      </h1>
       <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-        Taking you home…
+        Taking you to your environments…
       </p>
     </>
   );

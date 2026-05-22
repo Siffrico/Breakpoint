@@ -1,17 +1,31 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { Lightbulb, SidebarSimple } from "@phosphor-icons/react";
 
 import type { RouterOutputs } from "@acme/api";
 import { Button } from "@acme/ui/button";
 
 import { AssistantRichText } from "./assistant-rich-text";
-import { CapstoneWorkspace } from "./capstone/capstone-workspace";
-import { CurriculumSidebar } from "./curriculum-sidebar";
-import { EducationUnitWorkspace } from "./education-unit/education-unit-workspace";
-import { OnboardingShell } from "./onboarding-shell";
-import { UnitQuestionPanel } from "./unit-question-panel";
+
+const CapstoneWorkspace = dynamic(() =>
+  import("./capstone/capstone-workspace").then((mod) => mod.CapstoneWorkspace),
+);
+const CurriculumSidebar = dynamic(() =>
+  import("./curriculum-sidebar").then((mod) => mod.CurriculumSidebar),
+);
+const EducationUnitWorkspace = dynamic(() =>
+  import("./education-unit/education-unit-workspace").then(
+    (mod) => mod.EducationUnitWorkspace,
+  ),
+);
+const OnboardingShell = dynamic(() =>
+  import("./onboarding-shell").then((mod) => mod.OnboardingShell),
+);
+const UnitQuestionPanel = dynamic(() =>
+  import("./unit-question-panel").then((mod) => mod.UnitQuestionPanel),
+);
 
 type WorkspaceState = RouterOutputs["training"]["home"];
 type PlanState = RouterOutputs["training"]["activePlan"];
@@ -69,7 +83,7 @@ export function WorkspaceShell({
       ? "unit"
       : capstone
         ? "capstone"
-          : "idle";
+        : "idle";
 
   useEffect(() => {
     setIsSessionRunning(false);
@@ -80,10 +94,10 @@ export function WorkspaceShell({
       ? (onboardingState?.activeQuestion?.prompt ??
         "Start a new learning track")
       : mode === "capstone"
-          ? (capstone?.capstone.scenario.title ?? "Cluster capstone")
-          : (liveUnit?.title ??
-            workspace?.nextUnitTitle ??
-            "Preparing your next unit");
+        ? (capstone?.capstone.scenario.title ?? "Cluster capstone")
+        : (liveUnit?.title ??
+          workspace?.nextUnitTitle ??
+          "Preparing your next unit");
 
   const closeQuestionPanel = () => {
     setQuestionPanelFocused(false);

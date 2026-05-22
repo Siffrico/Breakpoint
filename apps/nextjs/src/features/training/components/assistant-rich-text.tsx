@@ -7,6 +7,8 @@ const mathPlugin = createMathPlugin({
   singleDollarTextMath: true,
 });
 
+const RICH_TEXT_PATTERN = /[$*_`#[\]()>-]|\n|\d+\.\s/;
+
 export function AssistantRichText({
   content,
   className,
@@ -18,6 +20,10 @@ export function AssistantRichText({
 
   if (!trimmedContent) {
     return null;
+  }
+
+  if (!RICH_TEXT_PATTERN.test(trimmedContent)) {
+    return <span className={className}>{trimmedContent}</span>;
   }
 
   return (

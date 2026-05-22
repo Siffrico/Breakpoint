@@ -1,49 +1,28 @@
 import type { TRPCRouterRecord } from "@trpc/server";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod/v4";
-import { sql } from "@acme/db";
-import type { CurriculumNode } from "@acme/validators";
-import {
-  CapstoneSubmissionSchema,
-} from "@acme/validators";
 
-import {
-  generateCapstoneWorkflow,
-} from "../domain/training/workflows/generate-capstone-workflow";
-import {
-  getActivePlanWorkflow,
-} from "../domain/training/workflows/get-active-plan-workflow";
-import {
-  getCapstoneWorkflow,
-} from "../domain/training/workflows/get-capstone-workflow";
-import {
-  getHomeStateWorkflow,
-} from "../domain/training/workflows/get-home-state-workflow";
-import {
-  getProfileWorkflow,
-} from "../domain/training/workflows/get-profile-workflow";
-import {
-  getUnitWorkflow,
-} from "../domain/training/workflows/get-unit-workflow";
-import {
-  getAiWorkspaceWorkflow,
-} from "../domain/training/workflows/get-ai-workspace-workflow";
-import {
-  startOnboardingWorkflow,
-} from "../domain/training/workflows/start-onboarding-workflow";
-import {
-  submitCapstoneMessageWorkflow,
-} from "../domain/training/workflows/submit-capstone-message-workflow";
-import {
-  submitAiWorkspaceMessageWorkflow,
-} from "../domain/training/workflows/submit-ai-workspace-message-workflow";
+import type { CurriculumNode } from "@acme/validators";
+import { sql } from "@acme/db";
+import { CapstoneSubmissionSchema } from "@acme/validators";
+
+import { generateCapstoneWorkflow } from "../domain/training/workflows/generate-capstone-workflow";
+import { getActivePlanWorkflow } from "../domain/training/workflows/get-active-plan-workflow";
+import { getAiWorkspaceWorkflow } from "../domain/training/workflows/get-ai-workspace-workflow";
+import { getCapstoneWorkflow } from "../domain/training/workflows/get-capstone-workflow";
+import { getHomeStateWorkflow } from "../domain/training/workflows/get-home-state-workflow";
+import { getProfileWorkflow } from "../domain/training/workflows/get-profile-workflow";
+import { getUnitWorkflow } from "../domain/training/workflows/get-unit-workflow";
+import { startOnboardingWorkflow } from "../domain/training/workflows/start-onboarding-workflow";
+import { submitAiWorkspaceMessageWorkflow } from "../domain/training/workflows/submit-ai-workspace-message-workflow";
+import { submitCapstoneMessageWorkflow } from "../domain/training/workflows/submit-capstone-message-workflow";
+import { memoryRepository } from "../repositories/memory-repository";
+import { trainingAttemptRepository } from "../repositories/training-attempt-repository";
 import { trainingCapstoneRepository } from "../repositories/training-capstone-repository";
 import { trainingCurriculumRepository } from "../repositories/training-curriculum-repository";
 import { trainingOnboardingRepository } from "../repositories/training-onboarding-repository";
 import { trainingRecallRepository } from "../repositories/training-recall-repository";
-import { trainingAttemptRepository } from "../repositories/training-attempt-repository";
-import { memoryRepository } from "../repositories/memory-repository";
-import { publicProcedure, protectedProcedure } from "../trpc";
+import { protectedProcedure, publicProcedure } from "../trpc";
 
 const SessionIdSchema = z.object({
   sessionId: z.string().uuid(),
@@ -109,7 +88,9 @@ const createCapstoneGenerationDeps = (
     planId: string;
     sessionId: string;
     userId?: string | null;
-    scenario: Parameters<typeof trainingCapstoneRepository.saveCapstone>[0]["scenario"];
+    scenario: Parameters<
+      typeof trainingCapstoneRepository.saveCapstone
+    >[0]["scenario"];
     maxRounds: number;
   }) =>
     trainingCapstoneRepository.saveCapstone({
@@ -118,7 +99,9 @@ const createCapstoneGenerationDeps = (
     }),
   appendCapstoneMessage: (payload: {
     capstoneId: string;
-    role: Parameters<typeof trainingCapstoneRepository.appendMessage>[0]["role"];
+    role: Parameters<
+      typeof trainingCapstoneRepository.appendMessage
+    >[0]["role"];
     content: string;
     sequence: number;
     round: number;
@@ -161,7 +144,9 @@ const createCapstoneSubmissionDeps = (
     }),
   appendCapstoneMessage: (payload: {
     capstoneId: string;
-    role: Parameters<typeof trainingCapstoneRepository.appendMessage>[0]["role"];
+    role: Parameters<
+      typeof trainingCapstoneRepository.appendMessage
+    >[0]["role"];
     content: string;
     sequence: number;
     round: number;
@@ -172,7 +157,9 @@ const createCapstoneSubmissionDeps = (
     }),
   updateCapstone: (payload: {
     capstoneId: string;
-    status?: Parameters<typeof trainingCapstoneRepository.updateCapstone>[0]["status"];
+    status?: Parameters<
+      typeof trainingCapstoneRepository.updateCapstone
+    >[0]["status"];
     currentRound?: number;
     score?: number | null;
     feedback?: string | null;
@@ -215,7 +202,11 @@ const getErrorCode = (message: string) => {
   return "INTERNAL_SERVER_ERROR" as const;
 };
 
-const throwOnFailure = <T>(result: { success: boolean; data?: T; error?: string }) => {
+const throwOnFailure = <T>(result: {
+  success: boolean;
+  data?: T;
+  error?: string;
+}) => {
   if (result.success) {
     return result.data as T;
   }
@@ -273,7 +264,8 @@ export const trainingRouter = {
             }),
         },
       }),
-    )),
+    ),
+  ),
 
   onboardingState: protectedProcedure
     .input(SessionIdSchema)
@@ -325,32 +317,45 @@ export const trainingRouter = {
       plans.map((plan) => [plan.onboardingSessionId, plan]),
     );
 
-    const projectNodesBySessionId = new Map<string, Awaited<ReturnType<typeof trainingCurriculumRepository.getPlanNodesBySession>>>();
-    await Promise.all(
-      plans.map(async (plan) => {
-        const nodes = await trainingCurriculumRepository.getPlanNodesBySession({
-          db: ctx.db,
-          sessionId: plan.onboardingSessionId,
-        });
-        projectNodesBySessionId.set(plan.onboardingSessionId, nodes);
-      }),
+    const nodes = await trainingCurriculumRepository.listNodesByPlanIds({
+      db: ctx.db,
+      planIds: plans.map((plan) => plan.id),
+    });
+    const sessionIdByPlanId = new Map(
+      plans.map((plan) => [plan.id, plan.onboardingSessionId]),
     );
+    const projectNodesBySessionId = new Map<string, typeof nodes>();
+
+    for (const node of nodes) {
+      const sessionId = sessionIdByPlanId.get(node.planId);
+      if (!sessionId) {
+        continue;
+      }
+
+      const existing = projectNodesBySessionId.get(sessionId);
+      if (existing) {
+        existing.push(node);
+      } else {
+        projectNodesBySessionId.set(sessionId, [node]);
+      }
+    }
 
     return sessions.map((session) => {
       const profile = profileBySessionId.get(session.id) ?? null;
       const plan = planBySessionId.get(session.id) ?? null;
       const planNodes = projectNodesBySessionId.get(session.id) ?? null;
-      const lessonPreview = (planNodes ?? [])
-        ?.filter(
-          (node) => node.kind === "unit" || node.kind === "integration",
-        )
-        .sort((left, right) => left.orderIndex - right.orderIndex)
-        .slice(0, 3)
-        .map((node) => ({
-          id: node.id,
-          title: node.title,
-          status: node.status,
-        })) ?? [];
+      const lessonPreview =
+        (planNodes ?? [])
+          ?.filter(
+            (node) => node.kind === "unit" || node.kind === "integration",
+          )
+          .sort((left, right) => left.orderIndex - right.orderIndex)
+          .slice(0, 3)
+          .map((node) => ({
+            id: node.id,
+            title: node.title,
+            status: node.status,
+          })) ?? [];
 
       return {
         sessionId: session.id,
@@ -358,10 +363,12 @@ export const trainingRouter = {
           profile?.targetIdentity ??
           plan?.targetIdentity ??
           "New learning track",
-        headline: profile?.headline ?? plan?.summary ?? "Interview in progress.",
+        headline:
+          profile?.headline ?? plan?.summary ?? "Interview in progress.",
         status: plan
           ? "active"
-          : session.status === "ready_for_generation" || session.status === "complete"
+          : session.status === "ready_for_generation" ||
+              session.status === "complete"
             ? "building"
             : "onboarding",
         lessonPreview,
@@ -516,62 +523,65 @@ export const trainingRouter = {
       );
     }),
 
-  unit: protectedProcedure.input(NodeSessionSchema).query(async ({ ctx, input }) => {
-    await requireSessionOwner({ ctx, sessionId: input.sessionId });
+  unit: protectedProcedure
+    .input(NodeSessionSchema)
+    .query(async ({ ctx, input }) => {
+      await requireSessionOwner({ ctx, sessionId: input.sessionId });
 
-    return throwOnFailure(
-      await getUnitWorkflow({
-        nodeId: input.nodeId,
-        sessionId: input.sessionId,
-        deps: {
-          getUnitByNodeId: (nodeId) =>
-            trainingCurriculumRepository.getUnitByNodeId({
-              db: ctx.db,
-              nodeId,
-            }),
-          getPhaseResponses: (unitContentId, sessionId) =>
-            trainingCurriculumRepository.getPhaseResponses({
-              db: ctx.db,
-              unitContentId,
-              sessionId,
-            }),
-          getNodeById: (nodeId) =>
-            trainingCurriculumRepository.getNodeById({
-              db: ctx.db,
-              nodeId,
-            }),
-          getPlanNodesBySession: (sessionId) =>
-            trainingCurriculumRepository.getPlanNodesBySession({
-              db: ctx.db,
-              sessionId,
-            }),
-          getTargetIdentity: async (sessionId) => {
-            const profile = await trainingOnboardingRepository.getProfileBySession({
-              db: ctx.db,
-              sessionId,
-            });
+      return throwOnFailure(
+        await getUnitWorkflow({
+          nodeId: input.nodeId,
+          sessionId: input.sessionId,
+          deps: {
+            getUnitByNodeId: (nodeId) =>
+              trainingCurriculumRepository.getUnitByNodeId({
+                db: ctx.db,
+                nodeId,
+              }),
+            getPhaseResponses: (unitContentId, sessionId) =>
+              trainingCurriculumRepository.getPhaseResponses({
+                db: ctx.db,
+                unitContentId,
+                sessionId,
+              }),
+            getNodeById: (nodeId) =>
+              trainingCurriculumRepository.getNodeById({
+                db: ctx.db,
+                nodeId,
+              }),
+            getPlanNodesBySession: (sessionId) =>
+              trainingCurriculumRepository.getPlanNodesBySession({
+                db: ctx.db,
+                sessionId,
+              }),
+            getTargetIdentity: async (sessionId) => {
+              const profile =
+                await trainingOnboardingRepository.getProfileBySession({
+                  db: ctx.db,
+                  sessionId,
+                });
 
-            return profile?.version.targetIdentity ?? null;
+              return profile?.version.targetIdentity ?? null;
+            },
+            listAttemptHistory: (sessionId) =>
+              trainingAttemptRepository.listAttemptHistory({
+                db: ctx.db,
+                sessionId,
+              }),
+            createUnitContent: (payload) =>
+              trainingCurriculumRepository.createUnitContent({
+                db: ctx.db,
+                ...payload,
+              }),
+            saveNodeBriefing: (payload) =>
+              trainingCurriculumRepository.saveNodeBriefing({
+                db: ctx.db,
+                ...payload,
+              }),
           },
-          listAttemptHistory: (sessionId) =>
-            trainingAttemptRepository.listAttemptHistory({
-              db: ctx.db,
-              sessionId,
-            }),
-          createUnitContent: (payload) =>
-            trainingCurriculumRepository.createUnitContent({
-              db: ctx.db,
-              ...payload,
-            }),
-          saveNodeBriefing: (payload) =>
-            trainingCurriculumRepository.saveNodeBriefing({
-              db: ctx.db,
-              ...payload,
-            }),
-        },
-      }),
-    );
-  }),
+        }),
+      );
+    }),
 
   getCapstone: protectedProcedure
     .input(NodeSessionSchema)
@@ -594,7 +604,8 @@ export const trainingRouter = {
             deps: createCapstoneGenerationDeps(db),
           }),
         );
-      })),
+      }),
+    ),
 
   generateCapstone: protectedProcedure
     .input(NodeSessionSchema)
@@ -617,7 +628,8 @@ export const trainingRouter = {
             deps: createCapstoneGenerationDeps(db),
           }),
         );
-      })),
+      }),
+    ),
 
   submitCapstoneMessage: protectedProcedure
     .input(SubmitCapstoneMessageSchema)
@@ -647,18 +659,27 @@ export const trainingRouter = {
         });
 
         return result;
-      })),
+      }),
+    ),
 
-  home: protectedProcedure.input(SessionIdSchema).query(async ({ ctx, input }) => {
-    await requireSessionOwner({ ctx, sessionId: input.sessionId });
+  home: protectedProcedure
+    .input(SessionIdSchema)
+    .query(async ({ ctx, input }) => {
+      await requireSessionOwner({ ctx, sessionId: input.sessionId });
 
-    return throwOnFailure(
-      await getHomeStateWorkflow({
-        sessionId: input.sessionId,
-        deps: {
-          getHomeState: async (sessionId) => {
-            const [profile, plan, summary, activeRecallGate, attemptHistory, nodeScores] =
-              await Promise.all([
+      return throwOnFailure(
+        await getHomeStateWorkflow({
+          sessionId: input.sessionId,
+          deps: {
+            getHomeState: async (sessionId) => {
+              const [
+                profile,
+                plan,
+                summary,
+                activeRecallGate,
+                attemptHistory,
+                nodeScores,
+              ] = await Promise.all([
                 trainingOnboardingRepository.getProfileBySession({
                   db: ctx.db,
                   sessionId,
@@ -685,110 +706,113 @@ export const trainingRouter = {
                 }),
               ]);
 
-            if (!profile || !plan || !summary) {
-              return null;
-            }
-
-            const totalUnits = plan.nodes.filter(
-              (node: CurriculumNode) =>
-                node.kind === "unit" || node.kind === "integration",
-            ).length;
-            const completedUnits = plan.nodes.filter(
-              (node: CurriculumNode) =>
-                (node.kind === "unit" || node.kind === "integration") &&
-                node.status === "completed",
-            ).length;
-            const nextNode = plan.nodes.find(
-              (node: CurriculumNode) => node.id === plan.nextUnitId,
-            );
-
-            const lastAttempt =
-              attemptHistory.length > 0
-                ? attemptHistory[attemptHistory.length - 1]
-                : null;
-
-            const recentDimensions = attemptHistory
-              .slice(-10)
-              .flatMap((a) => a.growthDimensions ?? []);
-            const seen = new Set<string>();
-            const demonstratedCapabilities: string[] = [];
-            for (const dim of [...recentDimensions].reverse()) {
-              if (!seen.has(dim)) {
-                seen.add(dim);
-                demonstratedCapabilities.unshift(dim);
+              if (!profile || !plan || !summary) {
+                return null;
               }
-              if (demonstratedCapabilities.length >= 3) break;
-            }
 
-            return {
-              targetIdentity: profile.version.targetIdentity,
-              headline: profile.version.headline,
-              planTitle: plan.title,
-              planSummary: plan.summary,
-              completedUnits,
-              totalUnits,
-              nextUnitId: plan.nextUnitId,
-              nextUnitTitle:
-                summary.currentUnit?.title ??
-                (nextNode
-                  ? nextNode.kind === "integration"
-                    ? "Integration unit ready"
-                    : nextNode.kind === "simulation"
-                      ? "Cluster capstone ready"
-                      : "Next unit ready"
-                  : null),
-              activeRecallGate,
-              blockingSignals:
-                summary.recentFailureTags.length > 0
-                  ? summary.recentFailureTags
-                  : profile.version.confidenceFlags.length > 0
-                    ? profile.version.confidenceFlags
-                    : profile.version.behaviorSignals.slice(0, 3),
-              lastCompletedUnit: lastAttempt
-                ? {
-                    title: lastAttempt.title,
-                    score: lastAttempt.score,
-                    failureTags: lastAttempt.failureTags,
-                  }
-                : null,
-              demonstratedCapabilities,
-              nodeScores,
-            };
+              const totalUnits = plan.nodes.filter(
+                (node: CurriculumNode) =>
+                  node.kind === "unit" || node.kind === "integration",
+              ).length;
+              const completedUnits = plan.nodes.filter(
+                (node: CurriculumNode) =>
+                  (node.kind === "unit" || node.kind === "integration") &&
+                  node.status === "completed",
+              ).length;
+              const nextNode = plan.nodes.find(
+                (node: CurriculumNode) => node.id === plan.nextUnitId,
+              );
+
+              const lastAttempt =
+                attemptHistory.length > 0
+                  ? attemptHistory[attemptHistory.length - 1]
+                  : null;
+
+              const recentDimensions = attemptHistory
+                .slice(-10)
+                .flatMap((a) => a.growthDimensions ?? []);
+              const seen = new Set<string>();
+              const demonstratedCapabilities: string[] = [];
+              for (const dim of [...recentDimensions].reverse()) {
+                if (!seen.has(dim)) {
+                  seen.add(dim);
+                  demonstratedCapabilities.unshift(dim);
+                }
+                if (demonstratedCapabilities.length >= 3) break;
+              }
+
+              return {
+                targetIdentity: profile.version.targetIdentity,
+                headline: profile.version.headline,
+                planTitle: plan.title,
+                planSummary: plan.summary,
+                completedUnits,
+                totalUnits,
+                nextUnitId: plan.nextUnitId,
+                nextUnitTitle:
+                  summary.currentUnit?.title ??
+                  (nextNode
+                    ? nextNode.kind === "integration"
+                      ? "Integration unit ready"
+                      : nextNode.kind === "simulation"
+                        ? "Cluster capstone ready"
+                        : "Next unit ready"
+                    : null),
+                activeRecallGate,
+                blockingSignals:
+                  summary.recentFailureTags.length > 0
+                    ? summary.recentFailureTags
+                    : profile.version.confidenceFlags.length > 0
+                      ? profile.version.confidenceFlags
+                      : profile.version.behaviorSignals.slice(0, 3),
+                lastCompletedUnit: lastAttempt
+                  ? {
+                      title: lastAttempt.title,
+                      score: lastAttempt.score,
+                      failureTags: lastAttempt.failureTags,
+                    }
+                  : null,
+                demonstratedCapabilities,
+                nodeScores,
+              };
+            },
           },
-        },
-      }),
-    );
-  }),
+        }),
+      );
+    }),
 
-  profile: protectedProcedure.input(SessionIdSchema).query(async ({ ctx, input }) => {
-    await requireSessionOwner({ ctx, sessionId: input.sessionId });
+  profile: protectedProcedure
+    .input(SessionIdSchema)
+    .query(async ({ ctx, input }) => {
+      await requireSessionOwner({ ctx, sessionId: input.sessionId });
 
-    return throwOnFailure(
-      await getProfileWorkflow({
-        sessionId: input.sessionId,
-        deps: {
-          getProfileState: async (sessionId) => {
-            const profile = await trainingOnboardingRepository.getProfileBySession({
-              db: ctx.db,
-              sessionId,
-            });
-            if (!profile) {
-              return null;
-            }
+      return throwOnFailure(
+        await getProfileWorkflow({
+          sessionId: input.sessionId,
+          deps: {
+            getProfileState: async (sessionId) => {
+              const profile =
+                await trainingOnboardingRepository.getProfileBySession({
+                  db: ctx.db,
+                  sessionId,
+                });
+              if (!profile) {
+                return null;
+              }
 
-            return {
-              targetIdentity: profile.version.targetIdentity,
-              headline: profile.version.headline,
-              motivation: profile.version.motivation,
-              currentBaseline: profile.version.currentBaseline,
-              proofOfProgress: profile.version.proofOfProgress,
-              hardMoments: profile.version.hardMoments,
-              constraints: profile.version.constraints,
-              behaviorSignals: profile.version.behaviorSignals,
-            };
+              return {
+                targetIdentity: profile.version.targetIdentity,
+                headline: profile.version.headline,
+                motivation: profile.version.motivation,
+                currentBaseline: profile.version.currentBaseline,
+                proofOfProgress: profile.version.proofOfProgress,
+                hardMoments: profile.version.hardMoments,
+                constraints: profile.version.constraints,
+                behaviorSignals: profile.version.behaviorSignals,
+              };
+            },
           },
-        },
-      }),
-    );
-  }),
+        }),
+      );
+    }),
 } satisfies TRPCRouterRecord;

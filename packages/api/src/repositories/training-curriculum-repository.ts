@@ -1,5 +1,5 @@
-import { and, asc, desc, eq, inArray } from "@acme/db";
 import type { db as databaseClient } from "@acme/db/client";
+import { and, asc, desc, eq, inArray } from "@acme/db";
 import {
   TrainingCurriculumNode,
   TrainingCurriculumPlan,
@@ -14,8 +14,8 @@ import type {
   CurriculumNode,
   CurriculumPlan,
   PhaseResponseRecord,
-  UpdateUnitContentInput,
   UnitContent,
+  UpdateUnitContentInput,
 } from "../domain/training/types/training.types";
 
 type Database = typeof databaseClient;
@@ -170,9 +170,10 @@ export const trainingCurriculumRepository = {
       return null;
     }
 
-    const profileVersion = await db.query.TrainingIdentityProfileVersion.findFirst({
-      where: eq(TrainingIdentityProfileVersion.id, plan.profileVersionId),
-    });
+    const profileVersion =
+      await db.query.TrainingIdentityProfileVersion.findFirst({
+        where: eq(TrainingIdentityProfileVersion.id, plan.profileVersionId),
+      });
 
     if (!profileVersion) {
       return null;
@@ -242,10 +243,12 @@ export const trainingCurriculumRepository = {
     db: Database;
     sessionId: string;
   }): Promise<CurriculumPlan | null> => {
-    const planState = await trainingCurriculumRepository.getActivePlanWithNodes({
-      db,
-      sessionId,
-    });
+    const planState = await trainingCurriculumRepository.getActivePlanWithNodes(
+      {
+        db,
+        sessionId,
+      },
+    );
 
     if (!planState) {
       return null;
@@ -279,6 +282,26 @@ export const trainingCurriculumRepository = {
     });
   },
 
+  listNodesByPlanIds: async ({
+    db,
+    planIds,
+  }: {
+    db: Database;
+    planIds: string[];
+  }): Promise<Array<typeof TrainingCurriculumNode.$inferSelect>> => {
+    if (planIds.length === 0) {
+      return [];
+    }
+
+    return db.query.TrainingCurriculumNode.findMany({
+      where: inArray(TrainingCurriculumNode.planId, planIds),
+      orderBy: [
+        asc(TrainingCurriculumNode.planId),
+        asc(TrainingCurriculumNode.orderIndex),
+      ],
+    });
+  },
+
   getUnitByNodeId: async ({
     db,
     nodeId,
@@ -306,7 +329,8 @@ export const trainingCurriculumRepository = {
     return mapUnitContent({
       node,
       unit,
-      clusterBriefing: (parentNode?.briefing ?? null) as UnitContent["clusterBriefing"],
+      clusterBriefing: (parentNode?.briefing ??
+        null) as UnitContent["clusterBriefing"],
     });
   },
 
@@ -361,13 +385,7 @@ export const trainingCurriculumRepository = {
       .filter((unit): unit is UnitContent => unit != null);
   },
 
-  getNodeById: async ({
-    db,
-    nodeId,
-  }: {
-    db: Database;
-    nodeId: string;
-  }) =>
+  getNodeById: async ({ db, nodeId }: { db: Database; nodeId: string }) =>
     (await db.query.TrainingCurriculumNode.findFirst({
       where: eq(TrainingCurriculumNode.id, nodeId),
     })) ?? null,
@@ -466,7 +484,8 @@ export const trainingCurriculumRepository = {
     return mapUnitContent({
       node,
       unit,
-      clusterBriefing: (parentNode?.briefing ?? null) as UnitContent["clusterBriefing"],
+      clusterBriefing: (parentNode?.briefing ??
+        null) as UnitContent["clusterBriefing"],
     });
   },
 
@@ -539,7 +558,8 @@ export const trainingCurriculumRepository = {
     return mapUnitContent({
       node,
       unit,
-      clusterBriefing: (parentNode?.briefing ?? null) as UnitContent["clusterBriefing"],
+      clusterBriefing: (parentNode?.briefing ??
+        null) as UnitContent["clusterBriefing"],
     });
   },
 
@@ -640,7 +660,10 @@ export const trainingCurriculumRepository = {
             eq(TrainingUnitPhaseResponse.unitContentId, unitContentId),
             eq(TrainingUnitPhaseResponse.sessionId, sessionId),
           ),
-      orderBy: [asc(TrainingUnitPhaseResponse.sequence), asc(TrainingUnitPhaseResponse.createdAt)],
+      orderBy: [
+        asc(TrainingUnitPhaseResponse.sequence),
+        asc(TrainingUnitPhaseResponse.createdAt),
+      ],
     });
 
     return rows.map((row) => ({
@@ -695,28 +718,28 @@ export const trainingCurriculumRepository = {
     db: Database;
     unitContentId: string;
     sessionId: string;
-  }): Promise<
-    | {
-        gap: NonNullable<NonNullable<PhaseResponseRecord["metadata"]>["gap"]>;
-        evidenceAnchors?: string[];
-        repairTarget?: NonNullable<
-          NonNullable<PhaseResponseRecord["metadata"]>["repairTarget"]
-        >;
-        ghostScenario: NonNullable<
-          NonNullable<PhaseResponseRecord["metadata"]>["ghostScenario"]
-        >;
-        sequence: number;
-        submitted: boolean;
-      }
-    | null
-  > => {
+  }): Promise<{
+    gap: NonNullable<NonNullable<PhaseResponseRecord["metadata"]>["gap"]>;
+    evidenceAnchors?: string[];
+    repairTarget?: NonNullable<
+      NonNullable<PhaseResponseRecord["metadata"]>["repairTarget"]
+    >;
+    ghostScenario: NonNullable<
+      NonNullable<PhaseResponseRecord["metadata"]>["ghostScenario"]
+    >;
+    sequence: number;
+    submitted: boolean;
+  } | null> => {
     const row = await db.query.TrainingUnitPhaseResponse.findFirst({
       where: and(
         eq(TrainingUnitPhaseResponse.unitContentId, unitContentId),
         eq(TrainingUnitPhaseResponse.sessionId, sessionId),
         eq(TrainingUnitPhaseResponse.phase, "ghost"),
       ),
-      orderBy: [desc(TrainingUnitPhaseResponse.sequence), desc(TrainingUnitPhaseResponse.createdAt)],
+      orderBy: [
+        desc(TrainingUnitPhaseResponse.sequence),
+        desc(TrainingUnitPhaseResponse.createdAt),
+      ],
     });
 
     const metadata = row?.metadata as PhaseResponseRecord["metadata"];
@@ -767,7 +790,9 @@ export const trainingCurriculumRepository = {
         return;
       }
 
-      const parentStatus = parentChildren.every((node) => node.status === "completed")
+      const parentStatus = parentChildren.every(
+        (node) => node.status === "completed",
+      )
         ? "completed"
         : parentChildren.some(
               (node) => node.status === "ready" || node.status === "completed",
@@ -782,7 +807,6 @@ export const trainingCurriculumRepository = {
     };
 
     await syncParentStatus(completedNode.parentNodeId);
-
   },
 
   advancePlanAfterCompletion: async ({
@@ -818,7 +842,9 @@ export const trainingCurriculumRepository = {
         return;
       }
 
-      const parentStatus = parentChildren.every((node) => node.status === "completed")
+      const parentStatus = parentChildren.every(
+        (node) => node.status === "completed",
+      )
         ? "completed"
         : parentChildren.some(
               (node) => node.status === "ready" || node.status === "completed",
@@ -835,7 +861,8 @@ export const trainingCurriculumRepository = {
     if (completedNode.kind === "unit" && completedNode.parentNodeId) {
       const siblingUnits = nextNode.filter(
         (node) =>
-          node.parentNodeId === completedNode.parentNodeId && node.kind === "unit",
+          node.parentNodeId === completedNode.parentNodeId &&
+          node.kind === "unit",
       );
       const clusterFinished =
         siblingUnits.length > 0 &&
@@ -895,13 +922,7 @@ export const trainingCurriculumRepository = {
     return null;
   },
 
-  completeNode: async ({
-    db,
-    nodeId,
-  }: {
-    db: Database;
-    nodeId: string;
-  }) => {
+  completeNode: async ({ db, nodeId }: { db: Database; nodeId: string }) => {
     await trainingCurriculumRepository.markNodeCompleted({
       db,
       nodeId,

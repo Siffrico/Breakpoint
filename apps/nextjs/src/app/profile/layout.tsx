@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { getSession } from "~/auth/server";
 import { ProfileShell } from "~/features/profile/components/profile-shell";
+import { TRPCReactProvider } from "~/trpc/react";
 
 export default async function ProfileLayout({
   children,
@@ -14,5 +15,9 @@ export default async function ProfileLayout({
     redirect("/");
   }
 
-  return <ProfileShell>{children}</ProfileShell>;
+  return (
+    <TRPCReactProvider>
+      <ProfileShell>{children}</ProfileShell>
+    </TRPCReactProvider>
+  );
 }

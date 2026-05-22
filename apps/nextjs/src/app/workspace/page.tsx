@@ -4,14 +4,15 @@ import { redirect } from "next/navigation";
 import { getSession } from "~/auth/server";
 import { WorkspaceShell } from "~/features/training/components/workspace-shell";
 import {
-  getAiWorkspace,
   getActivePlan,
+  getAiWorkspace,
   getCapstone,
   getEducationUnit,
   getOnboardingState,
   getWorkspaceState,
   listLearningProjects,
 } from "~/features/training/server/training-queries";
+import { TRPCReactProvider } from "~/trpc/react";
 
 const LAST_SESSION_COOKIE = "bp-last-learning-session";
 
@@ -30,7 +31,8 @@ export default async function WorkspacePage(props: {
 
   const projects = await listLearningProjects().catch(() => []);
   const cookieSessionId = cookieStore.get(LAST_SESSION_COOKIE)?.value;
-  const resolvedSessionId = session ?? cookieSessionId ?? projects[0]?.sessionId ?? null;
+  const resolvedSessionId =
+    session ?? cookieSessionId ?? projects[0]?.sessionId ?? null;
 
   if (!resolvedSessionId) {
     redirect("/onboarding");
@@ -43,60 +45,70 @@ export default async function WorkspacePage(props: {
   const plan = await getActivePlan(resolvedSessionId).catch(() => null);
 
   if (!plan) {
-    const onboardingState = await getOnboardingState(resolvedSessionId).catch(() => null);
+    const onboardingState = await getOnboardingState(resolvedSessionId).catch(
+      () => null,
+    );
 
     if (!onboardingState) {
       redirect("/onboarding");
     }
 
     return (
-      <WorkspaceShell
-        workspace={null}
-        plan={null}
-        unit={null}
-        capstone={null}
-        onboardingState={onboardingState}
-        projects={projects}
-        sessionId={resolvedSessionId}
-        userName={authSession.user.name ?? undefined}
-      />
+      <TRPCReactProvider>
+        <WorkspaceShell
+          workspace={null}
+          plan={null}
+          unit={null}
+          capstone={null}
+          onboardingState={onboardingState}
+          projects={projects}
+          sessionId={resolvedSessionId}
+          userName={authSession.user.name ?? undefined}
+        />
+      </TRPCReactProvider>
     );
   }
 
-  const workspace = await getWorkspaceState(resolvedSessionId);
-  const aiWorkspace = await getAiWorkspace(resolvedSessionId).catch(() => null);
+  const [workspace, aiWorkspace] = await Promise.all([
+    getWorkspaceState(resolvedSessionId),
+    getAiWorkspace(resolvedSessionId).catch(() => null),
+  ]);
   const activeNodeId =
     aiWorkspace?.state?.recallUnitId ??
     aiWorkspace?.state?.activeUnitId ??
     workspace.nextUnitId ??
     plan.nextUnitId;
   const activeNode = activeNodeId
-    ? plan.nodes.find((node) => node.id === activeNodeId) ?? null
+    ? (plan.nodes.find((node) => node.id === activeNodeId) ?? null)
     : null;
 
   const [unit, capstone] = await Promise.all([
     activeNode && activeNode.kind !== "simulation"
-      ? getEducationUnit({ nodeId: activeNode.id, sessionId: resolvedSessionId }).catch(
-          () => null,
-        )
+      ? getEducationUnit({
+          nodeId: activeNode.id,
+          sessionId: resolvedSessionId,
+        }).catch(() => null)
       : Promise.resolve(null),
     activeNode?.kind === "simulation"
-      ? getCapstone({ nodeId: activeNode.id, sessionId: resolvedSessionId }).catch(
-          () => null,
-        )
+      ? getCapstone({
+          nodeId: activeNode.id,
+          sessionId: resolvedSessionId,
+        }).catch(() => null)
       : Promise.resolve(null),
   ]);
 
   return (
-    <WorkspaceShell
-      workspace={workspace}
-      plan={plan}
-      unit={unit}
-      capstone={capstone}
-      onboardingState={null}
-      aiWorkspace={aiWorkspace}
-      projects={projects}
-      sessionId={resolvedSessionId}
-    />
+    <TRPCReactProvider>
+      <WorkspaceShell
+        workspace={workspace}
+        plan={plan}
+        unit={unit}
+        capstone={capstone}
+        onboardingState={null}
+        aiWorkspace={aiWorkspace}
+        projects={projects}
+        sessionId={resolvedSessionId}
+      />
+    </TRPCReactProvider>
   );
 }

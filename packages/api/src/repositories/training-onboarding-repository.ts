@@ -1,5 +1,6 @@
-import { and, asc, desc, eq, inArray } from "@acme/db";
 import type { db as databaseClient } from "@acme/db/client";
+import type { BeforeAfterProfile } from "@acme/validators";
+import { and, asc, desc, eq, inArray, sql } from "@acme/db";
 import {
   TrainingIdentityProfile,
   TrainingIdentityProfileVersion,
@@ -13,9 +14,70 @@ import type {
   OnboardingSessionState,
   OnboardingTranscriptMessage,
 } from "../domain/training/types/training.types";
-import type { BeforeAfterProfile } from "@acme/validators";
 
 type Database = typeof databaseClient;
+type OnboardingMessageInsert = {
+  sessionId: string;
+  role: "assistant" | "user";
+  content: string;
+  slot: string | null;
+};
+
+const isUniqueViolation = (error: unknown) =>
+  typeof error === "object" &&
+  error !== null &&
+  "code" in error &&
+  error.code === "23505";
+
+const getNextMessageSequence = async ({
+  db,
+  sessionId,
+}: {
+  db: Database;
+  sessionId: string;
+}) => {
+  const [row] = await db
+    .select({
+      sequence: sql<number>`coalesce(max(${TrainingOnboardingMessage.sequence}), -1) + 1`,
+    })
+    .from(TrainingOnboardingMessage)
+    .where(eq(TrainingOnboardingMessage.sessionId, sessionId));
+
+  return row?.sequence ?? 0;
+};
+
+const insertMessageWithNextSequence = async ({
+  db,
+  input,
+}: {
+  db: Database;
+  input: OnboardingMessageInsert;
+}) => {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const sequence = await getNextMessageSequence({
+      db,
+      sessionId: input.sessionId,
+    });
+
+    try {
+      const [message] = await db
+        .insert(TrainingOnboardingMessage)
+        .values({
+          ...input,
+          sequence,
+        })
+        .returning();
+
+      return message ?? null;
+    } catch (error) {
+      if (!isUniqueViolation(error) || attempt === 2) {
+        throw error;
+      }
+    }
+  }
+
+  return null;
+};
 
 export const trainingOnboardingRepository = {
   createSession: async ({
@@ -65,21 +127,15 @@ export const trainingOnboardingRepository = {
     content: string;
     slot: string | null;
   }) => {
-    const existingCount = await db.query.TrainingOnboardingMessage.findMany({
-      where: eq(TrainingOnboardingMessage.sessionId, sessionId),
-      columns: { id: true },
-    });
-
-    const [message] = await db
-      .insert(TrainingOnboardingMessage)
-      .values({
+    const message = await insertMessageWithNextSequence({
+      db,
+      input: {
         sessionId,
         role,
         content,
         slot,
-        sequence: existingCount.length,
-      })
-      .returning();
+      },
+    });
 
     return message ?? null;
   },
@@ -97,21 +153,15 @@ export const trainingOnboardingRepository = {
     content: string;
     slot: string | null;
   }) => {
-    const existingCount = await db.query.TrainingOnboardingMessage.findMany({
-      where: eq(TrainingOnboardingMessage.sessionId, sessionId),
-      columns: { id: true },
-    });
-
-    const [message] = await db
-      .insert(TrainingOnboardingMessage)
-      .values({
+    const message = await insertMessageWithNextSequence({
+      db,
+      input: {
         sessionId,
         role,
         content,
         slot,
-        sequence: existingCount.length,
-      })
-      .returning();
+      },
+    });
 
     return message
       ? {
@@ -137,7 +187,10 @@ export const trainingOnboardingRepository = {
   }) =>
     db.query.TrainingOnboardingSession.findMany({
       where: eq(TrainingOnboardingSession.userId, userId),
-      orderBy: [desc(TrainingOnboardingSession.updatedAt), desc(TrainingOnboardingSession.createdAt)],
+      orderBy: [
+        desc(TrainingOnboardingSession.updatedAt),
+        desc(TrainingOnboardingSession.createdAt),
+      ],
     }),
 
   updateSession: async ({
@@ -242,14 +295,17 @@ export const trainingOnboardingRepository = {
             slot: lastAssistantMessage.slot ?? "target_identity",
             prompt: lastAssistantMessage.content,
             helper: null,
-            sequence: transcript.filter((message) => message.role === "assistant").length - 1,
+            sequence:
+              transcript.filter((message) => message.role === "assistant")
+                .length - 1,
           }
         : null;
 
     return {
       sessionId,
       phase:
-        session.status === "ready_for_generation" || session.status === "complete"
+        session.status === "ready_for_generation" ||
+        session.status === "complete"
           ? "ready_for_generation"
           : session.status === "questioning"
             ? "questioning"
@@ -367,11 +423,13 @@ export const trainingOnboardingRepository = {
         })
       : [];
 
-    const versionsById = new Map(versions.map((version) => [version.id, version]));
+    const versionsById = new Map(
+      versions.map((version) => [version.id, version]),
+    );
 
     return profiles.flatMap((profile) => {
       const version = profile.currentVersionId
-        ? versionsById.get(profile.currentVersionId) ?? null
+        ? (versionsById.get(profile.currentVersionId) ?? null)
         : null;
 
       return version ? [{ profile, version }] : [];

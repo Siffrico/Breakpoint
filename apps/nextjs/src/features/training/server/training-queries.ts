@@ -1,10 +1,11 @@
+import { cache } from "react";
 import { headers } from "next/headers";
 
 import { appRouter, createTRPCContext } from "@acme/api";
 
 import { auth } from "~/auth/server";
 
-const createCaller = async () => {
+const createCaller = cache(async () => {
   const requestHeaders = new Headers(await headers());
   requestHeaders.set("x-trpc-source", "training-rsc");
 
@@ -14,7 +15,7 @@ const createCaller = async () => {
   });
 
   return appRouter.createCaller(context);
-};
+});
 
 export const getActivePlan = async (sessionId: string) => {
   const caller = await createCaller();

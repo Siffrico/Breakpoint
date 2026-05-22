@@ -1,33 +1,41 @@
 import { sql } from "drizzle-orm";
-import { pgTable, uniqueIndex } from "drizzle-orm/pg-core";
+import { index, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
 
 import { user } from "../../auth-schema";
 import { TrainingOnboardingSession } from "./onboarding";
 import { TrainingIdentityProfileVersion } from "./profile";
 
-export const TrainingCurriculumPlan = pgTable("becoming_curriculum_plan", (t) => ({
-  id: t.uuid().notNull().primaryKey().defaultRandom(),
-  userId: t.text().references(() => user.id, { onDelete: "set null" }),
-  onboardingSessionId: t
-    .uuid()
-    .notNull()
-    .references(() => TrainingOnboardingSession.id, { onDelete: "cascade" }),
-  profileVersionId: t
-    .uuid()
-    .notNull()
-    .references(() => TrainingIdentityProfileVersion.id, { onDelete: "cascade" }),
-  status: t.varchar({ length: 32 }).notNull().default("active"),
-  title: t.varchar({ length: 240 }).notNull(),
-  summary: t.text().notNull(),
-  targetIdentity: t.varchar({ length: 240 }).notNull(),
-  createdAt: t
-    .timestamp({ mode: "date", withTimezone: true })
-    .defaultNow()
-    .notNull(),
-  updatedAt: t
-    .timestamp({ mode: "date", withTimezone: true })
-    .$onUpdateFn(() => sql`now()`),
-}));
+export const TrainingCurriculumPlan = pgTable(
+  "becoming_curriculum_plan",
+  (t) => ({
+    id: t.uuid().notNull().primaryKey().defaultRandom(),
+    userId: t.text().references(() => user.id, { onDelete: "set null" }),
+    onboardingSessionId: t
+      .uuid()
+      .notNull()
+      .references(() => TrainingOnboardingSession.id, { onDelete: "cascade" }),
+    profileVersionId: t
+      .uuid()
+      .notNull()
+      .references(() => TrainingIdentityProfileVersion.id, {
+        onDelete: "cascade",
+      }),
+    status: t.varchar({ length: 32 }).notNull().default("active"),
+    title: t.varchar({ length: 240 }).notNull(),
+    summary: t.text().notNull(),
+    targetIdentity: t.varchar({ length: 240 }).notNull(),
+    createdAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .$onUpdateFn(() => sql`now()`),
+  }),
+  (table) => [
+    index("becoming_curriculum_plan_session_idx").on(table.onboardingSessionId),
+  ],
+);
 
 export const TrainingCurriculumNode = pgTable(
   "becoming_curriculum_node",
@@ -43,15 +51,13 @@ export const TrainingCurriculumNode = pgTable(
     title: t.varchar({ length: 240 }).notNull(),
     summary: t.text().notNull(),
     whyItMatters: t.text().notNull(),
-    briefing: t
-      .jsonb()
-      .$type<{
-        briefingArc: string;
-        briefingMap: Array<{
-          position: number;
-          role: string;
-        }>;
-      }>(),
+    briefing: t.jsonb().$type<{
+      briefingArc: string;
+      briefingMap: Array<{
+        position: number;
+        role: string;
+      }>;
+    }>(),
     orderIndex: t.integer().notNull(),
     depth: t.integer().notNull(),
     positionColumn: t.integer().notNull(),
@@ -64,6 +70,10 @@ export const TrainingCurriculumNode = pgTable(
   (table) => [
     uniqueIndex("becoming_curriculum_node_plan_order_idx").on(
       table.planId,
+      table.orderIndex,
+    ),
+    index("becoming_curriculum_node_parent_order_idx").on(
+      table.parentNodeId,
       table.orderIndex,
     ),
   ],
