@@ -38,11 +38,6 @@ const previews = [
       "97% accuracy challenge: spot the train/real-world gap before shipping.",
   },
   {
-    href: "/ui/domains",
-    label: "E.S.D.E.",
-    description: "Domain grid plus an interactive scenario preview.",
-  },
-  {
     href: "/ui/courses",
     label: "Courses",
     description: "Outcome-based course catalog and discovery.",

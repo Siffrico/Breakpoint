@@ -92,20 +92,25 @@ pnpm i
 # There is an `.env.example` in the root directory you can use for reference
 cp .env.example .env
 
-# Push the Drizzle schema to the database
-pnpm db:push
-```
+# Generate a Better Auth secret and put it in AUTH_SECRET
+openssl rand -base64 32
 
-### 2. Generate Better Auth Schema
+# Add your Supabase pooled URL to POSTGRES_URL
+# Add your Supabase direct URL to DIRECT_DATABASE_URL
 
-This project uses [Better Auth](https://www.better-auth.com) for authentication. The auth schema needs to be generated using the Better Auth CLI before you can use the authentication features.
-
-```bash
 # Generate the Better Auth schema
-pnpm --filter @acme/auth generate
+pnpm auth:generate
+
+# Push the full Drizzle schema, including Better Auth tables, to Supabase
+pnpm db:push
+
+# Verify package types
+pnpm typecheck
 ```
 
-This command runs the Better Auth CLI with the following configuration:
+### 2. Better Auth schema generation
+
+The `pnpm auth:generate` command runs the Better Auth CLI with the following configuration:
 
 - **Config file**: `packages/auth/script/auth-cli.ts` - A CLI-only configuration file (isolated from src to prevent imports)
 - **Output**: `packages/db/src/auth-schema.ts` - Generated Drizzle schema for authentication tables
