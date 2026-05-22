@@ -183,3 +183,57 @@
   overflow-x: auto;
   overflow-y: hidden;
 }
+
+/* ─── Landing page — Cursor-style warm-dark token system ───────────────────
+   Page base is #14120B. Every surface is derived from two anchors (fg + bg)
+   the way cursor.com does it. The mockup "AI workspace" surfaces sit at
+   #1B1913 — exactly Cursor's bg→card delta (+7/+7/+8 sRGB): a tiny bit
+   lighter than the page, just enough to read as an elevated panel.        */
+.bp-landing {
+  --bp-bg: #14120b;
+  --bp-bg-raised: #181610;
+  --bp-card: #1b1913;
+  --bp-card-01: #1d1b15;
+  --bp-card-02: #201e18;
+  --bp-card-03: #26241e;
+  --bp-card-04: #2b2923;
+  --bp-card-hover: #201e18;
+
+  --bp-fg: #edecec;
+  --bp-fg-soft: #d7d6d5;
+  --bp-text-sec: color-mix(in oklab, var(--bp-fg) 60%, transparent);
+  --bp-text-mid: color-mix(in oklab, var(--bp-fg) 50%, transparent);
+  --bp-text-tert: color-mix(in oklab, var(--bp-fg) 40%, transparent);
+
+  --bp-border-soft: color-mix(in oklab, var(--bp-fg) 5%, transparent);
+  --bp-border: color-mix(in oklab, var(--bp-fg) 10%, transparent);
+  --bp-border-strong: color-mix(in oklab, var(--bp-fg) 22%, transparent);
+
+  --bp-accent: #f54e00;
+  --bp-accent-soft: color-mix(in srgb, #f54e00 12%, transparent);
+  --bp-success: #1f8a65;
+  --bp-danger: #cf2d56;
+
+  /* agent-timeline action colors, lifted straight from cursor.com */
+  --bp-edit: #c0a8dd;
+  --bp-grep: #9fc9a2;
+  --bp-read: #9fbbe0;
+  --bp-think: #dfa88f;
+
+  background: var(--bp-bg);
+  color: var(--bp-fg);
+  -webkit-font-smoothing: antialiased;
+}
+
+.bp-landing ::selection {
+  background: var(--bp-accent-soft);
+}
+
+/* faint dotted backdrop for mockup canvases */
+.bp-mock-grid {
+  background-image: radial-gradient(
+    color-mix(in oklab, var(--bp-fg) 8%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 22px 22px;
+}
