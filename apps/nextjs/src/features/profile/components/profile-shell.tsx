@@ -1,3 +1,5 @@
+import { Suspense } from "react";
+
 import { ProfileSidebar, type ProfileTabKey } from "./profile-tabs";
 
 export function ProfileShell({
@@ -12,7 +14,9 @@ export function ProfileShell({
   return (
     <div className="bg-background text-foreground flex h-dvh overflow-hidden">
       <aside className="border-foreground/[0.06] bg-sidebar flex w-[220px] shrink-0 flex-col border-r">
-        <ProfileSidebar basePath={basePath} activeTab={activeTab} />
+        <Suspense fallback={null}>
+          <ProfileSidebar basePath={basePath} activeTab={activeTab} />
+        </Suspense>
       </aside>
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">

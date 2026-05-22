@@ -1,3 +1,10 @@
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Breakpoint",
+  description: "Build adaptive training paths with Breakpoint.",
+};
+
 import Image from "next/image";
 import Link from "next/link";
 
@@ -87,7 +94,7 @@ function Hero({ isAuthed }: { isAuthed: boolean }) {
         <div className="absolute inset-x-0 bottom-0 z-10">
           <div className="mx-auto max-w-7xl px-6 pb-20 sm:pb-28">
             <p className="font-mono text-[11px] uppercase tracking-[0.3em] text-white/70">
-              <span className="mr-2 inline-block h-1.5 w-1.5 translate-y-[-2px] bg-[oklch(0.72_0.18_245)]" />
+              <span className="mr-2 inline-block size-1.5 translate-y-[-2px] bg-[oklch(0.72_0.18_245)]" />
               A training environment, not a course
             </p>
             <h1 className="mt-5 max-w-4xl font-display text-[40px] leading-[1.02] tracking-[-0.045em] text-white sm:text-[64px] md:text-[80px]">
@@ -161,7 +168,7 @@ function Premise() {
           Skill is not learned in lectures.
           <br />
           <span className="text-muted-foreground">
-            It is forged under repeated, surgical pressure —
+            It is forged under repeated, surgical pressure:
           </span>
           <br />
           <span className="text-foreground">
@@ -185,13 +192,13 @@ function TheLoop() {
       n: "01",
       label: "Diagnose",
       title: "Find the exact fracture.",
-      body: "A surgical assessment maps where you actually break — not where you say you do. The gap is named, scored, and located inside a domain.",
+      body: "A surgical assessment maps where you actually break, not where you say you do. The gap is named, scored, and located inside a domain.",
     },
     {
       n: "02",
       label: "Pressure",
       title: "Live scenarios at the edge of your range.",
-      body: "Stakes-real simulations target the weakness directly. Difficulty is calibrated upward until your performance starts to shake — that is the breakpoint.",
+      body: "Stakes-real simulations target the weakness directly. Difficulty is calibrated upward until your performance starts to shake, that is the breakpoint.",
     },
     {
       n: "03",
@@ -267,12 +274,12 @@ function BuiltForTheGap() {
     {
       kicker: "Diagnosis",
       title: "Maps your real weakness, not the obvious one.",
-      body: "Multi-axis evaluation isolates root cause from symptom. You don't get told to 'practice more' — you get told exactly which sub-skill is failing under load.",
+      body: "Multi-axis evaluation isolates root cause from symptom. You don't get told to 'practice more', you get told exactly which sub-skill is failing under load.",
     },
     {
       kicker: "Scenarios",
       title: "High-stakes simulations, calibrated to you.",
-      body: "Domain-specific arenas pressure-test the skill in context. Difficulty climbs until you reach the edge of your range — the only place real growth happens.",
+      body: "Domain-specific arenas pressure-test the skill in context. Difficulty climbs until you reach the edge of your range, the only place real growth happens.",
     },
     {
       kicker: "Repair",
@@ -294,7 +301,7 @@ function BuiltForTheGap() {
             Built for the gap
           </p>
           <h2 className="mt-5 font-display text-3xl leading-[1.1] tracking-[-0.035em] text-foreground sm:text-5xl">
-            A surgical training stack —
+            A surgical training stack:
             <br />
             <span className="text-muted-foreground">not another course.</span>
           </h2>
@@ -307,7 +314,7 @@ function BuiltForTheGap() {
               className="group relative border border-white/8 bg-[oklch(0.19_0_0)] p-8 transition-colors hover:border-white/20"
             >
               <div className="flex items-center gap-3">
-                <span className="h-1.5 w-1.5 bg-[oklch(0.72_0.18_245)]" />
+                <span className="size-1.5 bg-[oklch(0.72_0.18_245)]" />
                 <span className="font-mono text-[10px] uppercase tracking-[0.3em] text-muted-foreground">
                   {f.kicker}
                 </span>

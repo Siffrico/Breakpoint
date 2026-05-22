@@ -1,3 +1,10 @@
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Breakpoint preview",
+  description: "Preview the Breakpoint application shell.",
+};
+
 import Link from "next/link";
 
 const previews = [

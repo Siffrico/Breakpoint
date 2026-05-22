@@ -263,9 +263,7 @@ export function OnboardingShell({
             isStarted ? "mb-6" : "mb-10",
           ].join(" ")}
         >
-          <div
-            role="heading"
-            aria-level={1}
+          <h1
             className={[
               "font-display tracking-[-0.03em] transition-all duration-500",
               isLandscape
@@ -275,7 +273,7 @@ export function OnboardingShell({
             ].join(" ")}
           >
             <AssistantRichText content={currentPrompt} />
-          </div>
+          </h1>
         </div>
 
         {isStarted ? (
@@ -388,7 +386,7 @@ export function OnboardingShell({
                     : "h-8 rounded-none bg-white px-4 text-xs font-medium text-black hover:bg-white/90"
                 }
               >
-                Submit
+                Send answer
               </Button>
             </div>
           </div>

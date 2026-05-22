@@ -1,3 +1,10 @@
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Transformation preview",
+  description: "Preview the Breakpoint transformation screen.",
+};
+
 import {
   previewPlanState,
   previewSessionId,

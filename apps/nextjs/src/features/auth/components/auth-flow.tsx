@@ -296,7 +296,7 @@ function EmailStep({
           />
         </Field>
         <Button type="submit" size="lg" disabled={!email.trim()}>
-          Continue
+          Continue with email
         </Button>
       </form>
 
@@ -317,7 +317,7 @@ function EmailStep({
         loading={loading}
       >
         <DiscordLogo />
-        Continue with Discord
+        Sign in with Discord
       </Button>
     </>
   );

@@ -1,3 +1,10 @@
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Workspace preview",
+  description: "Preview the Breakpoint workspace.",
+};
+
 import {
   previewHomeState as previewWorkspaceState,
   previewLearningProjects,

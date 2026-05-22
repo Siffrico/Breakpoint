@@ -288,7 +288,7 @@ export function UnitQuestionPanel({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-5 py-5">
+      <div className="flex-1 overflow-y-auto p-5">
         <div className="space-y-6">
           {messages.map((message) =>
             message.role === "assistant" ? (
@@ -313,6 +313,7 @@ export function UnitQuestionPanel({
         <div className="border-foreground/[0.08] bg-card focus-within:border-foreground/18 relative rounded-[10px] border shadow-[0_1px_0_rgba(0,0,0,0.02),0_4px_18px_-12px_rgba(0,0,0,0.14)] transition-[border-color,box-shadow] duration-150">
           <textarea
             ref={composerTextareaRef}
+            aria-label="Ask a question about this unit"
             value={question}
             onChange={(event) => setQuestion(event.target.value)}
             onInput={(event) => syncAskComposerHeight(event.currentTarget)}
@@ -326,7 +327,7 @@ export function UnitQuestionPanel({
             disabled={!canSubmit}
             variant="ghost"
             size="icon"
-            className="bg-primary text-primary-foreground hover:bg-primary/90 absolute right-2 bottom-2 h-7 w-7 rounded-md border-0 p-0 before:rounded-md"
+            className="bg-primary text-primary-foreground hover:bg-primary/90 absolute right-2 bottom-2 size-7 rounded-md border-0 p-0 before:rounded-md"
             aria-label="Ask question"
           >
             <ArrowUp size={13} weight="bold" />

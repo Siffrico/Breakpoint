@@ -9,15 +9,15 @@ import { env } from "~/env";
 const allowedOrigins = new Set(
   [
     "http://localhost:3000",
-    env.VERCEL_PROJECT_PRODUCTION_URL
-      ? `https://${env.VERCEL_PROJECT_PRODUCTION_URL}`
-      : null,
-    env.VERCEL_URL ? `https://${env.VERCEL_URL}` : null,
+    ...(env.VERCEL_PROJECT_PRODUCTION_URL
+      ? [`https://${env.VERCEL_PROJECT_PRODUCTION_URL}`]
+      : []),
+    ...(env.VERCEL_URL ? [`https://${env.VERCEL_URL}`] : []),
     ...(env.ALLOWED_ORIGINS?.split(",") ?? []),
-  ]
-    .filter((origin): origin is string => Boolean(origin))
-    .map((origin) => origin.trim())
-    .filter(Boolean),
+  ].flatMap((origin) => {
+    const trimmed = origin.trim();
+    return trimmed ? [trimmed] : [];
+  }),
 );
 
 /**

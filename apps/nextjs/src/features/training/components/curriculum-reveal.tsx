@@ -30,7 +30,7 @@ export function CurriculumReveal({
   return (
     <main className="min-h-dvh bg-background text-foreground">
       <div className="mx-auto max-w-3xl border-x border-border/50">
-        <section className="border-b border-border px-6 py-6">
+        <section className="border-b border-border p-6">
           <h1 className="font-display text-2xl tracking-[-0.04em]">
             {plan.title}
           </h1>
@@ -39,17 +39,17 @@ export function CurriculumReveal({
           </div>
         </section>
 
-        <section className="border-b border-border px-6 py-6">
+        <section className="border-b border-border p-6">
           <p className="text-sm leading-6 text-muted-foreground">
             {plan.summary}
           </p>
         </section>
 
-        <section className="border-b border-border px-6 py-6">
+        <section className="border-b border-border p-6">
           <TreeView nodes={tree} defaultExpanded />
         </section>
 
-        <section className="flex gap-3 px-6 py-6">
+        <section className="flex gap-3 p-6">
           {plan.nextUnitId ? (
             <Button
               asChild

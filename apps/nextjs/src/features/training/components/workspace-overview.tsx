@@ -36,7 +36,7 @@ export function WorkspaceOverview({
           </span>
         </section>
 
-        <section className="border-b border-border px-6 py-6">
+        <section className="border-b border-border p-6">
           <h1 className="font-display text-2xl tracking-[-0.04em]">
             {workspace.targetIdentity}
           </h1>
@@ -45,7 +45,7 @@ export function WorkspaceOverview({
           </p>
         </section>
 
-        <section className="border-b border-border px-6 py-6">
+        <section className="border-b border-border p-6">
           <h2 className="font-display text-lg tracking-[-0.03em]">
             {workspace.activeRecallGate
               ? "Recall gate active"
@@ -70,7 +70,7 @@ export function WorkspaceOverview({
           </div>
         </section>
 
-        <section className="border-b border-border px-6 py-6">
+        <section className="border-b border-border p-6">
           <details>
             <summary className="cursor-pointer text-sm text-foreground">
               {workspace.blockingSignals.length} patterns blocking progress
@@ -88,7 +88,7 @@ export function WorkspaceOverview({
           </details>
         </section>
 
-        <section className="flex gap-3 px-6 py-6">
+        <section className="flex gap-3 p-6">
           <Button
             asChild
             variant="outline"

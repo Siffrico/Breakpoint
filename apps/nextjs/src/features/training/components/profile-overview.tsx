@@ -44,7 +44,7 @@ export function ProfileOverview({
           </div>
         </section>
 
-        <section className="border-b border-border px-6 py-6">
+        <section className="border-b border-border p-6">
           <h1 className="font-display text-2xl tracking-[-0.04em]">
             {profile.targetIdentity}
           </h1>
@@ -53,7 +53,7 @@ export function ProfileOverview({
           </p>
         </section>
 
-        <section className="border-b border-border px-6 py-6">
+        <section className="border-b border-border p-6">
           <div className="text-xs uppercase tracking-wider text-muted-foreground">
             Motivation
           </div>
@@ -62,7 +62,7 @@ export function ProfileOverview({
           </p>
         </section>
 
-        <section className="border-b border-border px-6 py-6">
+        <section className="border-b border-border p-6">
           <div className="text-xs uppercase tracking-wider text-muted-foreground">
             Current baseline
           </div>
@@ -71,7 +71,7 @@ export function ProfileOverview({
           </p>
         </section>
 
-        <section className="border-b border-border px-6 py-6">
+        <section className="border-b border-border p-6">
           <div className="text-xs uppercase tracking-wider text-muted-foreground">
             Hard moments
           </div>
@@ -87,7 +87,7 @@ export function ProfileOverview({
           </div>
         </section>
 
-        <section className="border-b border-border px-6 py-6">
+        <section className="border-b border-border p-6">
           <div className="text-xs uppercase tracking-wider text-muted-foreground">
             Behavior signals
           </div>

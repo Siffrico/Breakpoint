@@ -129,7 +129,7 @@ export function PostList() {
         <PostCardSkeleton pulse={false} />
 
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/10">
-          <p className="text-2xl font-bold text-white">No posts yet</p>
+          <p className="text-2xl font-semibold text-white">No posts yet</p>
         </div>
       </div>
     );
@@ -167,13 +167,13 @@ export function PostCard(props: {
   return (
     <div className="bg-muted flex flex-row rounded-lg p-4">
       <div className="grow">
-        <h2 className="text-primary text-2xl font-bold">{props.post.title}</h2>
+        <h2 className="text-primary text-2xl font-semibold">{props.post.title}</h2>
         <p className="mt-2 text-sm">{props.post.content}</p>
       </div>
       <div>
         <Button
           variant="ghost"
-          className="text-primary cursor-pointer text-sm font-bold uppercase hover:bg-transparent hover:text-white"
+          className="text-primary cursor-pointer text-sm font-semibold uppercase hover:bg-transparent hover:text-white"
           onClick={() => deletePost.mutate(props.post.id)}
         >
           Delete
@@ -190,7 +190,7 @@ export function PostCardSkeleton(props: { pulse?: boolean }) {
       <div className="grow">
         <h2
           className={cn(
-            "bg-primary w-1/4 rounded-sm text-2xl font-bold",
+            "bg-primary w-1/4 rounded-sm text-2xl font-semibold",
             pulse && "animate-pulse",
           )}
         >

@@ -144,7 +144,7 @@ export function NotionComposer({
   );
 
   // Markdown shortcuts run after the space lands so we see the trigger text.
-  const handleInput = useCallback(() => {
+  const syncEditorContent = useCallback(() => {
     const root = editorRef.current;
     if (!root) {
       return;
@@ -174,8 +174,8 @@ export function NotionComposer({
   if (!open) return null;
 
   return (
-    <div
-      role="dialog"
+    <dialog
+      open
       aria-modal="true"
       aria-label="Expanded note editor"
       className="bg-background fixed inset-0 z-50 flex flex-col"
@@ -185,7 +185,7 @@ export function NotionComposer({
           type="button"
           onClick={onClose}
           aria-label="Collapse editor"
-          className="text-foreground/55 hover:text-foreground/85 hover:bg-foreground/[0.04] flex h-8 w-8 items-center justify-center transition-colors outline-none focus:outline-none focus-visible:outline-none"
+          className="text-foreground/55 hover:text-foreground/85 hover:bg-foreground/[0.04] flex size-8 items-center justify-center transition-colors outline-none focus:outline-none focus-visible:outline-none"
         >
           <ArrowsInSimple size={16} />
         </button>
@@ -198,7 +198,7 @@ export function NotionComposer({
           {isSubmitting ? (
             <div
               aria-label="Submitting"
-              className="border-foreground/18 border-t-foreground/55 h-4 w-4 animate-spin rounded-full border"
+              className="border-foreground/18 border-t-foreground/55 size-4 animate-spin rounded-full border"
             />
           ) : null}
           <button
@@ -206,7 +206,7 @@ export function NotionComposer({
             onClick={handleSubmit}
             disabled={!canSubmit || isSubmitting}
             aria-label="Send"
-            className="bg-foreground text-background hover:bg-foreground/85 disabled:bg-foreground/25 inline-flex h-8 w-8 items-center justify-center rounded-[5px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
+            className="bg-foreground text-background hover:bg-foreground/85 disabled:bg-foreground/25 inline-flex size-8 items-center justify-center rounded-[5px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
           >
             <ArrowUp size={15} weight="bold" />
           </button>
@@ -224,18 +224,21 @@ export function NotionComposer({
                 {placeholder}
               </span>
             ) : null}
-            <div
-              ref={editorRef}
-              contentEditable
-              suppressContentEditableWarning
-              spellCheck
-              onInput={handleInput}
-              onKeyDown={handleKeyDown}
-              className="notion-composer text-foreground/92 caret-foreground relative min-h-[60vh] text-[16px] leading-[1.6] tracking-[-0.005em] outline-none [&_blockquote]:border-foreground/20 [&_blockquote]:text-foreground/65 [&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:pl-4 [&_code]:bg-foreground/[0.06] [&_code]:rounded-[3px] [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[14px] [&_h1]:mt-6 [&_h1]:mb-2 [&_h1]:text-[30px] [&_h1]:font-semibold [&_h1]:tracking-[-0.02em] [&_h2]:mt-5 [&_h2]:mb-2 [&_h2]:text-[24px] [&_h2]:font-semibold [&_h2]:tracking-[-0.015em] [&_h3]:mt-4 [&_h3]:mb-2 [&_h3]:text-[19px] [&_h3]:font-semibold [&_li]:my-0.5 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-7 [&_p]:my-2 [&_strong]:font-semibold [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-7 [&>*:first-child]:mt-0"
-            />
+              <div
+                ref={editorRef}
+                contentEditable
+                role="textbox"
+                aria-label="Expanded note editor content"
+                suppressContentEditableWarning
+                spellCheck
+                tabIndex={0}
+                onInput={syncEditorContent}
+                onKeyDown={handleKeyDown}
+                className="notion-composer text-foreground/92 caret-foreground relative min-h-[60vh] text-[16px] leading-[1.6] tracking-[-0.005em] outline-none [&_blockquote]:border-foreground/20 [&_blockquote]:text-foreground/65 [&_blockquote]:my-3 [&_blockquote]:border-l [&_blockquote]:pl-4 [&_code]:bg-foreground/[0.06] [&_code]:rounded-[3px] [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[14px] [&_h1]:mt-6 [&_h1]:mb-2 [&_h1]:text-[30px] [&_h1]:font-semibold [&_h1]:tracking-[-0.02em] [&_h2]:mt-5 [&_h2]:mb-2 [&_h2]:text-[24px] [&_h2]:font-semibold [&_h2]:tracking-[-0.015em] [&_h3]:mt-4 [&_h3]:mb-2 [&_h3]:text-[19px] [&_h3]:font-semibold [&_li]:my-0.5 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-7 [&_p]:my-2 [&_strong]:font-semibold [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-7 [&>*:first-child]:mt-0"
+              />
           </div>
         </div>
       </div>
-    </div>
+    </dialog>
   );
 }

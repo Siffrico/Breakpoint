@@ -1,3 +1,10 @@
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Profile customization",
+  description: "Customize your Breakpoint profile.",
+};
+
 import { MemoryPanel } from "~/features/profile/components/customization/memory-panel";
 import { listMemories } from "~/features/profile/server/profile-queries";
 

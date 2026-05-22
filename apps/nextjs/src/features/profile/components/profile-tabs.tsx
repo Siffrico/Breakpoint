@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
@@ -31,6 +32,20 @@ export function ProfileSidebar({
   activeTab,
 }: {
   basePath?: string;
+  activeTab?: ProfileTabKey;
+}) {
+  return (
+    <Suspense fallback={null}>
+      <ProfileSidebarContent basePath={basePath} activeTab={activeTab} />
+    </Suspense>
+  );
+}
+
+function ProfileSidebarContent({
+  basePath,
+  activeTab,
+}: {
+  basePath: string;
   activeTab?: ProfileTabKey;
 }) {
   const pathname = usePathname();

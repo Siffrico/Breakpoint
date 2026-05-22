@@ -1,3 +1,10 @@
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Workspace",
+  description: "Work through your Breakpoint learning workspace.",
+};
+
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 

@@ -1,3 +1,10 @@
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "General profile settings",
+  description: "Manage your Breakpoint account details.",
+};
+
 import { redirect } from "next/navigation";
 
 import { GeneralTab } from "~/features/profile/components/general/general-tab";

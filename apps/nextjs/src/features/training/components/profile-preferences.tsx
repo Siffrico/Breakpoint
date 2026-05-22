@@ -28,7 +28,7 @@ export function ProfilePreferences() {
   const { themeMode, setTheme } = useTheme();
 
   return (
-    <section className="border-b border-border px-6 py-6">
+    <section className="border-b border-border p-6">
       <h2 className="font-display text-lg tracking-[-0.03em] text-foreground">
         Preferences
       </h2>

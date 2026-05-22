@@ -39,13 +39,11 @@ export function BuildCapstone({
           <div className="text-muted-foreground font-mono text-xs tracking-[0.24em] uppercase">
             Build capstone
           </div>
-          <div
-            role="heading"
-            aria-level={2}
+          <h2
             className="font-display mt-3 text-3xl tracking-[-0.04em]"
           >
             <AssistantRichText content={scenario.title} />
-          </div>
+          </h2>
           <AssistantRichText
             content={scenario.briefing}
             className="text-muted-foreground mt-4 text-sm leading-7"
@@ -122,7 +120,7 @@ export function BuildCapstone({
           onChange={(event) => onResponseChange(event.target.value)}
           disabled={status === "passed" || status === "failed" || isSubmitting}
           placeholder="Submit the artifact, memo, or framework you built."
-          className="border-border bg-background min-h-[260px] rounded-none px-4 py-4 text-sm leading-7 shadow-none focus-visible:ring-0"
+          className="border-border bg-background min-h-[260px] rounded-none p-4 text-sm leading-7 shadow-none focus-visible:ring-0"
         />
 
         <div className="flex items-center justify-between gap-4">

@@ -1,3 +1,10 @@
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Courses",
+  description: "Browse your Breakpoint courses.",
+};
+
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 

@@ -41,13 +41,11 @@ export function TeachCapstone({
           <div className="text-muted-foreground font-mono text-xs tracking-[0.24em] uppercase">
             Teach capstone
           </div>
-          <div
-            role="heading"
-            aria-level={2}
+          <h2
             className="font-display mt-3 text-3xl tracking-[-0.04em]"
           >
             <AssistantRichText content={scenario.title} />
-          </div>
+          </h2>
           <AssistantRichText
             content={scenario.deliveryGoal}
             className="text-muted-foreground mt-4 text-sm leading-7"
@@ -101,7 +99,7 @@ export function TeachCapstone({
           onChange={(event) => onResponseChange(event.target.value)}
           disabled={status === "passed" || status === "failed" || isSubmitting}
           placeholder="Teach the idea clearly, then answer the audience's pushback without losing the core insight."
-          className="border-border bg-background min-h-[220px] rounded-none px-4 py-4 text-sm leading-7 shadow-none focus-visible:ring-0"
+          className="border-border bg-background min-h-[220px] rounded-none p-4 text-sm leading-7 shadow-none focus-visible:ring-0"
         />
 
         <div className="flex items-center justify-between gap-4">

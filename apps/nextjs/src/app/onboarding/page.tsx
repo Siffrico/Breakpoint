@@ -1,3 +1,10 @@
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Onboarding",
+  description: "Set up your Breakpoint learning path.",
+};
+
 import { redirect } from "next/navigation";
 
 import { getSession } from "~/auth/server";

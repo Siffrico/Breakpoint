@@ -15,7 +15,7 @@ const CAPABILITIES = [
 export function AuthArt() {
   return (
     <div className="bp-page-bg relative flex h-full w-full flex-col justify-between overflow-hidden border-r border-border p-12 xl:p-16">
-      {/* faint technical grid — clinical, not theatrical */}
+      {/* faint technical grid, clinical, not theatrical */}
       <div
         aria-hidden
         className="bp-grid-line pointer-events-none absolute inset-0 opacity-50"
@@ -27,7 +27,7 @@ export function AuthArt() {
           <span className="size-2.5 rounded-full bg-primary" />
           <span>Breakpoint</span>
         </div>
-        <span>v0.1 — Secure</span>
+        <span>v0.1, Secure</span>
       </div>
 
       {/* wordmark */}
@@ -42,7 +42,7 @@ export function AuthArt() {
         </p>
       </div>
 
-      {/* capability ladder — implies movement through a system */}
+      {/* capability ladder, implies movement through a system */}
       <div className="relative border-t border-border">
         {CAPABILITIES.map((c) => (
           <div

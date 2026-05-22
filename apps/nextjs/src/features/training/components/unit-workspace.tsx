@@ -76,7 +76,7 @@ export function UnitWorkspace({
                       ),
                     )
                   }
-                  className="mt-4 min-h-28 rounded-none border-white/10 bg-transparent px-3 py-3 text-sm text-white shadow-none focus-visible:ring-0"
+                  className="mt-4 min-h-28 rounded-none border-white/10 bg-transparent p-3 text-sm text-white shadow-none focus-visible:ring-0"
                 />
               </div>
             ))}
@@ -137,7 +137,7 @@ export function UnitWorkspace({
                 ? "Explain what is happening, your first move, how you contain it, and how you verify it."
                 : "Pass retrieval first to unlock the scenario."
             }
-            className="mt-6 min-h-[220px] rounded-none border-white/10 bg-transparent px-4 py-4 text-base leading-8 text-white shadow-none focus-visible:ring-0"
+            className="mt-6 min-h-[220px] rounded-none border-white/10 bg-transparent p-4 text-base leading-8 text-white shadow-none focus-visible:ring-0"
           />
 
           <div className="mt-5 flex items-center justify-between gap-4">

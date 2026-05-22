@@ -1,3 +1,10 @@
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Training preview",
+  description: "Preview the Breakpoint training unit.",
+};
+
 // NOTE: This /ui/train route is NOT the active learning surface — the real
 // preview lives at /ui/workspace (powered by `previewEducationUnit` in
 // `education-unit-preview.ts`). When the user asks to edit "the preview"

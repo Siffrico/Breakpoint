@@ -28,7 +28,7 @@ const formatCountLabel = (count: number) =>
   `${count} memor${count === 1 ? "y" : "ies"}`;
 
 const sortMemories = (memories: Memory[]) =>
-  [...memories].sort((left, right) => {
+  memories.toSorted((left, right) => {
     const leftTime = new Date(left.updatedAt ?? left.createdAt).getTime();
     const rightTime = new Date(right.updatedAt ?? right.createdAt).getTime();
     return rightTime - leftTime;
@@ -37,7 +37,7 @@ const sortMemories = (memories: Memory[]) =>
 export function MemoryPanel({ initialMemories }: { initialMemories: Memory[] }) {
   const trpc = useTRPC();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [memories, setMemories] = useState(sortMemories(initialMemories));
+  const [memories, setMemories] = useState(() => sortMemories(initialMemories));
   const [manualContent, setManualContent] = useState("");
   const [chatGptPaste, setChatGptPaste] = useState("");
   const [activeEditId, setActiveEditId] = useState<string | null>(null);

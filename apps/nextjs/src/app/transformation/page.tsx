@@ -1,3 +1,10 @@
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  title: "Transformation",
+  description: "Review your Breakpoint transformation plan.",
+};
+
 import { redirect } from "next/navigation";
 
 import { TransformationReveal } from "~/features/training/components/transformation-reveal";

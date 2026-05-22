@@ -34,7 +34,7 @@ export function RecallRepairPrompt({
         value={response}
         onChange={(event) => setResponse(event.target.value)}
         disabled={disabled || isPending}
-        className="border-border bg-background mt-5 min-h-32 px-4 py-4 text-sm leading-7 shadow-none focus-visible:ring-0"
+        className="border-border bg-background mt-5 min-h-32 p-4 text-sm leading-7 shadow-none focus-visible:ring-0"
         placeholder="Repair the specific decay the system found."
       />
 

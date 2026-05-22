@@ -120,7 +120,7 @@ function ComposerIconButton({
     <button
       type="button"
       aria-label={label}
-      className="text-foreground/42 hover:text-foreground/72 hover:bg-foreground/[0.04] flex h-7 w-7 items-center justify-center rounded-[3px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
+      className="text-foreground/42 hover:text-foreground/72 hover:bg-foreground/[0.04] flex size-7 items-center justify-center rounded-[3px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
     >
       {children}
     </button>
@@ -214,10 +214,11 @@ export function EducationUnitWorkspace({
   }, [aiWorkspace?.messages]);
 
   useEffect(() => {
-    setTimeout(
+    const timeoutId = setTimeout(
       () => bottomRef.current?.scrollIntoView({ behavior: "smooth" }),
       100,
     );
+    return () => clearTimeout(timeoutId);
   }, [messages.length]);
 
   useLayoutEffect(() => {
@@ -345,14 +346,15 @@ export function EducationUnitWorkspace({
                 disabled={!canCompose}
                 aria-label="Open as full page"
                 title="Open as full page"
-                className="text-foreground/35 hover:text-foreground/70 hover:bg-foreground/[0.05] disabled:text-foreground/20 absolute top-1.5 right-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-[3px] transition-colors outline-none focus:outline-none focus-visible:outline-none disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                className="text-foreground/35 hover:text-foreground/70 hover:bg-foreground/[0.05] disabled:text-foreground/20 absolute top-1.5 right-1.5 z-10 flex size-6 items-center justify-center rounded-[3px] transition-colors outline-none focus:outline-none focus-visible:outline-none disabled:cursor-not-allowed disabled:hover:bg-transparent"
               >
                 <ArrowsOutSimple size={13} weight="bold" />
               </button>
 
-              <textarea
-                ref={composerTextareaRef}
-                value={response}
+                <textarea
+                  ref={composerTextareaRef}
+                  aria-label="Response"
+                  value={response}
                 onChange={(event) => setResponse(event.target.value)}
                 disabled={!canCompose}
                 onInput={(event) =>
@@ -376,7 +378,7 @@ export function EducationUnitWorkspace({
                   {isRunning ? (
                     <div
                       aria-label="Submitting"
-                      className="border-foreground/18 border-t-foreground/55 h-4 w-4 animate-spin rounded-full border"
+                      className="border-foreground/18 border-t-foreground/55 size-4 animate-spin rounded-full border"
                     />
                   ) : null}
                   <ComposerIconButton label="Voice input">
@@ -387,7 +389,7 @@ export function EducationUnitWorkspace({
                     onClick={() => handleSubmit()}
                     disabled={!response.trim() || isRunning || preview || !canCompose}
                     aria-label="Submit response"
-                    className="bg-foreground text-background hover:bg-foreground/85 disabled:bg-foreground/25 inline-flex h-8 w-8 items-center justify-center rounded-[5px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
+                    className="bg-foreground text-background hover:bg-foreground/85 disabled:bg-foreground/25 inline-flex size-8 items-center justify-center rounded-[5px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
                   >
                     <ArrowUp size={16} weight="bold" />
                   </button>

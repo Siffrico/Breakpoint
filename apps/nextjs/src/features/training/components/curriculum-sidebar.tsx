@@ -24,6 +24,8 @@ import { useTRPC } from "~/trpc/react";
 type LearningProject =
   RouterOutputs["training"]["listLearningProjects"][number];
 
+const EMPTY_PROJECTS: LearningProject[] = [];
+
 const SIDEBAR_FADE_STYLE = {
   WebkitMaskImage:
     "linear-gradient(90deg, rgba(0,0,0,1) 0%, rgba(0,0,0,1) calc(100% - 18px), rgba(0,0,0,0) 100%)",
@@ -175,7 +177,7 @@ function IconButton({
       type="button"
       onClick={onClick}
       aria-label={label}
-      className="text-foreground/40 hover:text-foreground/80 hover:bg-foreground/[0.04] flex h-6 w-6 shrink-0 items-center justify-center rounded-[5px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
+      className="text-foreground/40 hover:text-foreground/80 hover:bg-foreground/[0.04] flex size-6 shrink-0 items-center justify-center rounded-[5px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
     >
       {children}
     </button>
@@ -321,7 +323,7 @@ function ProjectRow({
 }
 
 export function CurriculumSidebar({
-  projects = [],
+  projects = EMPTY_PROJECTS,
   currentSessionId,
   preview = false,
   collapsed = false,
@@ -403,11 +405,11 @@ export function CurriculumSidebar({
           <Link
             href={profileHref}
             aria-label="Settings"
-            className="text-foreground/40 hover:text-foreground/80 hover:bg-foreground/[0.04] flex h-6 w-6 items-center justify-center rounded-[5px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
+            className="text-foreground/40 hover:text-foreground/80 hover:bg-foreground/[0.04] flex size-6 items-center justify-center rounded-[5px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
           >
             <Gear size={13} />
           </Link>
-          <div className="bg-primary/70 text-primary-foreground flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-medium">
+          <div className="bg-primary/70 text-primary-foreground flex size-5 items-center justify-center rounded-full text-[10px] font-medium">
             {initial}
           </div>
         </div>
@@ -507,9 +509,9 @@ export function CurriculumSidebar({
       </div>
 
       {/* Footer: user */}
-      <div className="flex items-center gap-1 px-2 py-2">
-        <div className="hover:bg-foreground/[0.035] flex min-w-0 flex-1 items-center gap-2.5 rounded-[6px] px-1.5 py-1.5 transition-colors">
-          <div className="bg-primary/70 text-primary-foreground flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full text-[11px] font-medium">
+      <div className="flex items-center gap-1 p-2">
+        <div className="hover:bg-foreground/[0.035] flex min-w-0 flex-1 items-center gap-2.5 rounded-[6px] p-1.5 transition-colors">
+          <div className="bg-primary/70 text-primary-foreground flex size-[22px] shrink-0 items-center justify-center rounded-full text-[11px] font-medium">
             {initial}
           </div>
           <FadeLabel className="text-foreground/84 min-w-0 flex-1 text-[13px] leading-[18px] font-normal">
@@ -521,7 +523,7 @@ export function CurriculumSidebar({
         <Link
           href={profileHref}
           aria-label="Settings"
-          className="text-foreground/40 hover:text-foreground/80 hover:bg-foreground/[0.04] flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
+          className="text-foreground/40 hover:text-foreground/80 hover:bg-foreground/[0.04] flex size-7 shrink-0 items-center justify-center rounded-[6px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
         >
           <Gear size={14} />
         </Link>

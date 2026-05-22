@@ -37,6 +37,7 @@ type LearningProject =
   RouterOutputs["training"]["listLearningProjects"][number];
 
 const LAST_SESSION_COOKIE = "bp-last-learning-session";
+const EMPTY_PROJECTS: LearningProject[] = [];
 
 type WorkspaceMode = "onboarding" | "unit" | "capstone" | "idle";
 
@@ -47,7 +48,7 @@ export function WorkspaceShell({
   capstone,
   onboardingState,
   aiWorkspace,
-  projects = [],
+  projects = EMPTY_PROJECTS,
   sessionId,
   preview = false,
   userName,
@@ -133,23 +134,21 @@ export function WorkspaceShell({
                 type="button"
                 aria-label="Open sidebar"
                 onClick={() => setSidebarCollapsed(false)}
-                className="text-foreground/40 hover:text-foreground/80 hover:bg-foreground/[0.04] flex h-6 w-6 shrink-0 items-center justify-center rounded-[5px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
+                className="text-foreground/40 hover:text-foreground/80 hover:bg-foreground/[0.04] flex size-6 shrink-0 items-center justify-center rounded-[5px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
               >
                 <SidebarSimple size={14} />
               </button>
             ) : null}
 
             {mode === "onboarding" ? null : (
-              <div
-                role="heading"
-                aria-level={1}
+              <h1
                 className="font-display text-foreground text-[16px] tracking-[-0.02em]"
               >
                 <AssistantRichText
                   content={shellTitle}
                   className="overflow-hidden [&>*]:overflow-hidden [&>*]:text-ellipsis [&>*]:whitespace-nowrap"
                 />
-              </div>
+              </h1>
             )}
           </div>
 
@@ -230,9 +229,7 @@ export function WorkspaceShell({
                     {mode === "idle" ? (
                       <div className="flex min-h-[60vh] flex-col justify-center">
                         <div className="border-foreground/[0.08] border px-7 py-6">
-                          <div
-                            role="heading"
-                            aria-level={2}
+                          <h2
                             className="font-display text-foreground text-base font-semibold tracking-[-0.02em]"
                           >
                             <AssistantRichText
@@ -241,7 +238,7 @@ export function WorkspaceShell({
                                 "Preparing your next unit"
                               }
                             />
-                          </div>
+                          </h2>
                           <div className="text-foreground/52 mt-3 text-[13px] leading-6">
                             <AssistantRichText content="Your next learning step is being prepared." />
                           </div>
