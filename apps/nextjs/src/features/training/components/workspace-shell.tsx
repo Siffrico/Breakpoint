@@ -7,6 +7,8 @@ import { Lightbulb, SidebarSimple } from "@phosphor-icons/react";
 import type { RouterOutputs } from "@acme/api";
 import { Button } from "@acme/ui/button";
 
+import { useLocalStorage } from "~/hooks/use-local-storage";
+
 import { AssistantRichText } from "./assistant-rich-text";
 
 const CapstoneWorkspace = dynamic(() =>
@@ -40,6 +42,7 @@ const LAST_SESSION_COOKIE = "bp-last-learning-session";
 const EMPTY_PROJECTS: LearningProject[] = [];
 
 type WorkspaceMode = "onboarding" | "unit" | "capstone" | "idle";
+type WorkspaceTheme = "light" | "dark" | "warm";
 
 export function WorkspaceShell({
   workspace,
@@ -69,6 +72,10 @@ export function WorkspaceShell({
   const [questionPanelFocused, setQuestionPanelFocused] = useState(false);
   const [liveUnit, setLiveUnit] = useState(unit);
   const [isSessionRunning, setIsSessionRunning] = useState(false);
+  const [workspaceTheme, setWorkspaceTheme] = useLocalStorage<WorkspaceTheme>(
+    "bp-workspace-theme",
+    "warm",
+  );
 
   useEffect(() => {
     document.cookie = `${LAST_SESSION_COOKIE}=${sessionId}; path=/; SameSite=Lax`;
@@ -111,7 +118,10 @@ export function WorkspaceShell({
   };
 
   return (
-    <div className="bg-background text-foreground flex h-dvh overflow-hidden">
+    <div
+      className="bp-workspace-theme bg-background text-foreground flex h-dvh overflow-hidden"
+      data-workspace-theme={workspaceTheme}
+    >
       {!sidebarCollapsed ? (
         <div className="bg-sidebar w-[232px] shrink-0">
           <CurriculumSidebar
@@ -122,6 +132,8 @@ export function WorkspaceShell({
             userName={userName}
             activeLessonId={liveUnit?.nodeId ?? null}
             isSessionRunning={isSessionRunning}
+            workspaceTheme={workspaceTheme}
+            onWorkspaceThemeChange={setWorkspaceTheme}
           />
         </div>
       ) : null}

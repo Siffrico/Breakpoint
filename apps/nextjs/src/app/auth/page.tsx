@@ -1,30 +1,35 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
+
+import { getSession } from "~/auth/server";
+import { AuthFlow } from "~/features/auth/components/auth-flow";
+import { SiteWordmark } from "~/features/marketing/components/site-wordmark";
 
 export const metadata: Metadata = {
   title: "Sign in",
   description: "Sign in or create your Breakpoint account.",
 };
 
-import { redirect } from "next/navigation";
-
-import { getSession } from "~/auth/server";
-import { AuthArt } from "~/features/auth/components/auth-art";
-import { AuthFlow } from "~/features/auth/components/auth-flow";
-
 export default async function AuthPage() {
   const session = await getSession();
   if (session?.user) redirect("/");
 
   return (
-    <main className="grid min-h-screen grid-cols-1 lg:grid-cols-[1.1fr_minmax(0,560px)]">
-      <aside className="relative hidden lg:block">
-        <AuthArt />
-      </aside>
-      <section className="grid place-items-center px-6 py-12 sm:px-10">
-        <div className="w-full max-w-md">
+    <div className="bp-site relative min-h-dvh w-full overflow-x-hidden">
+      {/* name — top-left corner of the page, no navbar */}
+      <div className="absolute top-7 left-7 z-10 sm:top-9 sm:left-10">
+        <SiteWordmark />
+      </div>
+
+      <main className="flex min-h-dvh items-center justify-center px-6 py-28">
+        <div className="w-full max-w-[400px]">
           <AuthFlow />
         </div>
-      </section>
-    </main>
+      </main>
+
+      <p className="absolute inset-x-0 bottom-8 text-center font-mono text-[12px] tracking-[0.03em] text-[var(--site-text-3)]">
+        Terms of Service and Privacy Policy
+      </p>
+    </div>
   );
 }

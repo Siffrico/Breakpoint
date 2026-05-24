@@ -11,9 +11,13 @@ import { useEffect, useState } from "react";
  */
 export function useLocalStorage<T>(key: string, initial: T) {
   const [value, setValue] = useState<T>(initial);
+  const [hasHydrated, setHasHydrated] = useState(false);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined") {
+      setHasHydrated(true);
+      return;
+    }
     try {
       const raw = window.localStorage.getItem(key);
       if (raw !== null) {
@@ -21,19 +25,19 @@ export function useLocalStorage<T>(key: string, initial: T) {
       }
     } catch {
       // Corrupted or unparseable — keep the initial value.
+    } finally {
+      setHasHydrated(true);
     }
-    // We only want to hydrate once per key.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || !hasHydrated) return;
     try {
       window.localStorage.setItem(key, JSON.stringify(value));
     } catch {
       // Storage full or disabled — ignore.
     }
-  }, [key, value]);
+  }, [hasHydrated, key, value]);
 
   return [value, setValue] as const;
 }

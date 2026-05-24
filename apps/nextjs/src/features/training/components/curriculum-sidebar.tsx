@@ -16,6 +16,17 @@ import {
 import { useMutation } from "@tanstack/react-query";
 
 import type { RouterOutputs } from "@acme/api";
+import {
+  Menu,
+  MenuGroup,
+  MenuGroupLabel,
+  MenuItem,
+  MenuPopup,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuSeparator,
+  MenuTrigger,
+} from "@acme/ui/menu";
 import { toast } from "@acme/ui/toast";
 
 import { useLocalStorage } from "~/hooks/use-local-storage";
@@ -25,6 +36,17 @@ type LearningProject =
   RouterOutputs["training"]["listLearningProjects"][number];
 
 const EMPTY_PROJECTS: LearningProject[] = [];
+
+type WorkspaceTheme = "light" | "dark" | "warm";
+
+const WORKSPACE_THEME_OPTIONS: Array<{
+  label: string;
+  value: WorkspaceTheme;
+}> = [
+  { label: "Light", value: "light" },
+  { label: "Dark", value: "dark" },
+  { label: "Warm", value: "warm" },
+];
 
 const SIDEBAR_FADE_STYLE = {
   WebkitMaskImage:
@@ -184,11 +206,69 @@ function IconButton({
   );
 }
 
-function StatusDot({
-  state,
+function SettingsQuickMenu({
+  profileHref,
+  workspaceTheme,
+  onWorkspaceThemeChange,
 }: {
-  state: "planned" | "ready" | "completed";
+  profileHref: string;
+  workspaceTheme: WorkspaceTheme;
+  onWorkspaceThemeChange: (theme: WorkspaceTheme) => void;
 }) {
+  return (
+    <Menu>
+      <MenuTrigger
+        openOnHover
+        delay={80}
+        closeDelay={450}
+        render={
+          <button
+            type="button"
+            aria-label="Settings"
+            className="text-foreground/40 hover:text-foreground/80 hover:bg-foreground/[0.04] flex size-7 shrink-0 items-center justify-center rounded-[6px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
+          />
+        }
+      >
+        <Gear size={14} />
+      </MenuTrigger>
+      <MenuPopup
+        side="top"
+        align="center"
+        sideOffset={8}
+        className="w-40 bg-background text-foreground"
+      >
+        <MenuGroup>
+          <MenuGroupLabel>Workspace theme</MenuGroupLabel>
+          <MenuRadioGroup
+            value={workspaceTheme}
+            onValueChange={(value) =>
+              onWorkspaceThemeChange(value as WorkspaceTheme)
+            }
+          >
+            {WORKSPACE_THEME_OPTIONS.map((option) => (
+              <MenuRadioItem
+                key={option.value}
+                value={option.value}
+                className="data-checked:bg-primary/12 data-checked:text-primary data-highlighted:data-checked:bg-primary/16 data-highlighted:data-checked:text-primary"
+              >
+                {option.label}
+              </MenuRadioItem>
+            ))}
+          </MenuRadioGroup>
+        </MenuGroup>
+        <MenuSeparator />
+        <MenuGroup>
+          <MenuItem render={<Link href={profileHref} />}>
+            <Gear size={14} aria-hidden="true" />
+            All settings
+          </MenuItem>
+        </MenuGroup>
+      </MenuPopup>
+    </Menu>
+  );
+}
+
+function StatusDot({ state }: { state: "planned" | "ready" | "completed" }) {
   return (
     <span
       aria-hidden="true"
@@ -332,6 +412,8 @@ export function CurriculumSidebar({
   userPlan = "Free Plan",
   activeLessonId,
   isSessionRunning = false,
+  workspaceTheme = "warm",
+  onWorkspaceThemeChange,
 }: {
   projects?: LearningProject[];
   currentSessionId: string;
@@ -342,6 +424,8 @@ export function CurriculumSidebar({
   userPlan?: string;
   activeLessonId?: string | null;
   isSessionRunning?: boolean;
+  workspaceTheme?: WorkspaceTheme;
+  onWorkspaceThemeChange?: (theme: WorkspaceTheme) => void;
 }) {
   const trpc = useTRPC();
   const router = useRouter();
@@ -402,13 +486,11 @@ export function CurriculumSidebar({
         <div className="flex-1" />
 
         <div className="flex flex-col items-center gap-1.5 py-2.5">
-          <Link
-            href={profileHref}
-            aria-label="Settings"
-            className="text-foreground/40 hover:text-foreground/80 hover:bg-foreground/[0.04] flex size-6 items-center justify-center rounded-[5px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
-          >
-            <Gear size={13} />
-          </Link>
+          <SettingsQuickMenu
+            profileHref={profileHref}
+            workspaceTheme={workspaceTheme}
+            onWorkspaceThemeChange={onWorkspaceThemeChange ?? (() => undefined)}
+          />
           <div className="bg-primary/70 text-primary-foreground flex size-5 items-center justify-center rounded-full text-[10px] font-medium">
             {initial}
           </div>
@@ -510,23 +592,22 @@ export function CurriculumSidebar({
 
       {/* Footer: user */}
       <div className="flex items-center gap-1 p-2">
-        <div className="hover:bg-foreground/[0.035] flex min-w-0 flex-1 items-center gap-2.5 rounded-[6px] p-1.5 transition-colors">
+        <div className="hover:bg-foreground/[0.035] flex min-w-0 max-w-[calc(100%-2rem)] items-center gap-2.5 rounded-[6px] p-1.5 transition-colors">
           <div className="bg-primary/70 text-primary-foreground flex size-[22px] shrink-0 items-center justify-center rounded-full text-[11px] font-medium">
             {initial}
           </div>
-          <FadeLabel className="text-foreground/84 min-w-0 flex-1 text-[13px] leading-[18px] font-normal">
+          <FadeLabel className="text-foreground/84 min-w-0 text-[13px] leading-[18px] font-normal">
             {displayName}
             <span className="text-foreground/30"> · </span>
             <span className="text-foreground/52">{userPlan}</span>
           </FadeLabel>
         </div>
-        <Link
-          href={profileHref}
-          aria-label="Settings"
-          className="text-foreground/40 hover:text-foreground/80 hover:bg-foreground/[0.04] flex size-7 shrink-0 items-center justify-center rounded-[6px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
-        >
-          <Gear size={14} />
-        </Link>
+        <div className="flex-1" />
+        <SettingsQuickMenu
+          profileHref={profileHref}
+          workspaceTheme={workspaceTheme}
+          onWorkspaceThemeChange={onWorkspaceThemeChange ?? (() => undefined)}
+        />
       </div>
     </aside>
   );

@@ -27,9 +27,7 @@
   }
   body {
     letter-spacing: -0.005em;
-    font-feature-settings:
-      "ss01",
-      "cv11";
+    font-feature-settings: "ss01", "cv11";
     line-height: 1.55;
   }
 }
@@ -37,6 +35,10 @@
 @layer utilities {
   .font-display {
     font-family: var(--font-display);
+  }
+
+  .font-wordmark {
+    font-family: var(--font-wordmark), var(--font-display), sans-serif;
   }
 
   .bp-prose {
@@ -50,7 +52,11 @@
 
   .bp-ai-rich {
     font-family:
-      var(--font-ai), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      var(--font-ai),
+      -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      sans-serif;
     font-size: 15px;
     line-height: 1.45;
     font-weight: 400;
@@ -106,8 +112,8 @@
   }
   .bp-ai-rich :not(pre) > code {
     font-family:
-      "SF Mono", ui-monospace, Menlo, Monaco, Consolas,
-      "Liberation Mono", monospace;
+      "SF Mono", ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono",
+      monospace;
     font-size: 0.86em;
     background: color-mix(in oklab, currentColor 8%, transparent);
     border-radius: 5px;
@@ -116,8 +122,8 @@
   }
   .bp-ai-rich pre {
     font-family:
-      "SF Mono", ui-monospace, Menlo, Monaco, Consolas,
-      "Liberation Mono", monospace;
+      "SF Mono", ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono",
+      monospace;
     font-size: 13px;
     line-height: 1.45;
     border-radius: 8px;
@@ -184,6 +190,85 @@
   overflow-y: hidden;
 }
 
+/* Workspace — warm Cursor-style darks scoped to the training shell. */
+.bp-workspace-theme {
+  --background: var(--workspace-background);
+  --foreground: #edecec;
+  --card: var(--workspace-secondary);
+  --card-foreground: #edecec;
+  --popover: var(--workspace-secondary);
+  --popover-foreground: #edecec;
+  --secondary: var(--workspace-secondary);
+  --secondary-foreground: color-mix(
+    in oklab,
+    var(--foreground) 78%,
+    transparent
+  );
+  --muted: var(--workspace-secondary);
+  --muted-foreground: color-mix(in oklab, var(--foreground) 55%, transparent);
+  --accent: #201e18;
+  --accent-foreground: #edecec;
+  --border: color-mix(in oklab, var(--foreground) 10%, transparent);
+  --input: #181610;
+  --sidebar: var(--workspace-secondary);
+  --sidebar-foreground: color-mix(in oklab, var(--foreground) 78%, transparent);
+  --sidebar-accent: #24221c;
+  --sidebar-accent-foreground: #edecec;
+  --sidebar-border: color-mix(in oklab, var(--foreground) 10%, transparent);
+}
+
+.bp-workspace-theme[data-workspace-theme="dark"] {
+  --background: #151515;
+  --foreground: #eeeeee;
+  --card: #191919;
+  --card-foreground: #eeeeee;
+  --popover: #191919;
+  --popover-foreground: #eeeeee;
+  --secondary: #191919;
+  --secondary-foreground: color-mix(
+    in oklab,
+    var(--foreground) 78%,
+    transparent
+  );
+  --muted: #191919;
+  --muted-foreground: color-mix(in oklab, var(--foreground) 55%, transparent);
+  --accent: #242424;
+  --accent-foreground: #eeeeee;
+  --border: color-mix(in oklab, var(--foreground) 10%, transparent);
+  --input: #191919;
+  --sidebar: #191919;
+  --sidebar-foreground: color-mix(in oklab, var(--foreground) 78%, transparent);
+  --sidebar-accent: #262626;
+  --sidebar-accent-foreground: #eeeeee;
+  --sidebar-border: color-mix(in oklab, var(--foreground) 10%, transparent);
+}
+
+.bp-workspace-theme[data-workspace-theme="light"] {
+  --background: #f7f6f2;
+  --foreground: #1f1d18;
+  --card: #ffffff;
+  --card-foreground: #1f1d18;
+  --popover: #ffffff;
+  --popover-foreground: #1f1d18;
+  --secondary: #eeece5;
+  --secondary-foreground: color-mix(
+    in oklab,
+    var(--foreground) 78%,
+    transparent
+  );
+  --muted: #eeece5;
+  --muted-foreground: color-mix(in oklab, var(--foreground) 58%, transparent);
+  --accent: #e7e4dc;
+  --accent-foreground: #1f1d18;
+  --border: color-mix(in oklab, var(--foreground) 12%, transparent);
+  --input: #ffffff;
+  --sidebar: #eeece5;
+  --sidebar-foreground: color-mix(in oklab, var(--foreground) 76%, transparent);
+  --sidebar-accent: #e4e1d8;
+  --sidebar-accent-foreground: #1f1d18;
+  --sidebar-border: color-mix(in oklab, var(--foreground) 12%, transparent);
+}
+
 /* ─── Landing page — Cursor-style warm-dark token system ───────────────────
    Page base is #14120B. Every surface is derived from two anchors (fg + bg)
    the way cursor.com does it. The mockup "AI workspace" surfaces sit at
@@ -229,11 +314,56 @@
   background: var(--bp-accent-soft);
 }
 
-/* faint dotted backdrop for mockup canvases */
-.bp-mock-grid {
-  background-image: radial-gradient(
-    color-mix(in oklab, var(--bp-fg) 8%, transparent) 1px,
-    transparent 1px
-  );
-  background-size: 22px 22px;
+/* ─── Site landing — minimal one-page site on the workspace *dark* theme ────
+   Mirrors `.bp-workspace-theme[data-workspace-theme="dark"]` from the chat
+   workspace (#151515 base, #eeeeee fg) — the cool dark, not the warm one.   */
+.bp-site {
+  --site-bg: #141414;
+  --site-fg: #eeeeee;
+  --site-line: color-mix(in oklab, var(--site-fg) 10%, transparent);
+  --site-line-strong: color-mix(in oklab, var(--site-fg) 22%, transparent);
+  --site-text-2: color-mix(in oklab, var(--site-fg) 58%, transparent);
+  --site-text-3: color-mix(in oklab, var(--site-fg) 40%, transparent);
+  --site-accent: #f54e00;
+  --site-raised: #1c1c1c;
+
+  /* design-system surface tokens — so @acme/ui controls (Button, Input …)
+     inherit this palette when rendered inside a `.bp-site` scope. */
+  --background: var(--site-bg);
+  --foreground: var(--site-fg);
+  --card: var(--site-raised);
+  --card-foreground: var(--site-fg);
+  --popover: var(--site-raised);
+  --popover-foreground: var(--site-fg);
+  --primary: #2b2b2b;
+  --primary-foreground: var(--site-fg);
+  --secondary: var(--site-raised);
+  --secondary-foreground: var(--site-fg);
+  --muted: var(--site-raised);
+  --muted-foreground: var(--site-text-2);
+  --accent: #242424;
+  --accent-foreground: var(--site-fg);
+  --border: var(--site-line);
+  --input: color-mix(in oklab, var(--site-fg) 13%, transparent);
+  --ring: color-mix(in oklab, var(--site-fg) 24%, transparent);
+
+  background: var(--site-bg);
+  color: var(--site-fg);
+  -webkit-font-smoothing: antialiased;
+}
+
+.bp-site ::selection {
+  background: color-mix(in srgb, var(--site-accent) 22%, transparent);
+}
+
+:root {
+  --destructive-foreground: var(--color-red-700);
+}
+
+.dark {
+  --destructive-foreground: var(--color-red-400);
+}
+
+@theme inline {
+  --color-destructive-foreground: var(--destructive-foreground);
 }

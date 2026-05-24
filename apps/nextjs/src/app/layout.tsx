@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono, Inter, Sora } from "next/font/google";
+import { Geist, Geist_Mono, Inter, Sora, Space_Grotesk } from "next/font/google";
 
 import { cn } from "@acme/ui";
 import { ThemeProvider, ThemeToggle } from "@acme/ui/theme";
@@ -53,6 +53,11 @@ const inter = Inter({
   subsets: ["latin"],
   variable: "--font-ai",
 });
+// Wordmark face for the marketing site — distinct from the product UI fonts.
+const spaceGrotesk = Space_Grotesk({
+  subsets: ["latin"],
+  variable: "--font-wordmark",
+});
 
 export default function RootLayout(props: { children: React.ReactNode }) {
   return (
@@ -64,6 +69,7 @@ export default function RootLayout(props: { children: React.ReactNode }) {
           sora.variable,
           geistMono.variable,
           inter.variable,
+          spaceGrotesk.variable,
         )}
       >
         <ThemeProvider>

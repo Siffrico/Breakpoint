@@ -10,6 +10,7 @@
     "./field": "./src/field.tsx",
     "./input": "./src/input.tsx",
     "./label": "./src/label.tsx",
+    "./menu": "./src/menu.tsx",
     "./separator": "./src/separator.tsx",
     "./surface": "./src/surface.tsx",
     "./textarea": "./src/textarea.tsx",
@@ -30,6 +31,7 @@
     "@base-ui/react": "^1.3.0",
     "@radix-ui/react-icons": "^1.3.2",
     "class-variance-authority": "^0.7.1",
+    "lucide-react": "^1.16.0",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.3.1"
   },
