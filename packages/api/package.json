@@ -10,6 +10,10 @@
     "./onboarding-chat": {
       "types": "./dist/onboarding-chat.d.ts",
       "default": "./src/onboarding-chat.ts"
+    },
+    "./workspace-chat": {
+      "types": "./dist/workspace-chat.d.ts",
+      "default": "./src/workspace-chat.ts"
     }
   },
   "license": "MIT",

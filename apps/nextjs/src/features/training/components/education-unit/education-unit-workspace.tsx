@@ -1,16 +1,26 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import { useRouter } from "next/navigation";
-import { ArrowsOutSimple, ArrowUp, Microphone, Plus } from "@phosphor-icons/react";
-import { useMutation } from "@tanstack/react-query";
+import {
+  ArrowsOutSimple,
+  ArrowUp,
+  CaretDown,
+  CaretRight,
+  Microphone,
+  Plus,
+} from "@phosphor-icons/react";
 
 import type { RouterOutputs } from "@acme/api";
 import { toast } from "@acme/ui/toast";
 
 import { AssistantRichText } from "~/features/training/components/assistant-rich-text";
-import { useTRPC } from "~/trpc/react";
-
 import { NotionComposer } from "./notion-composer";
 
 type EducationUnit = RouterOutputs["training"]["unit"];
@@ -24,9 +34,60 @@ type WorkspaceFallbackTurn = {
   prompt: string;
   canCompose: boolean;
 };
+type WorkspaceUiState =
+  | { status: "idle" }
+  | { status: "streaming"; submission: string; assistantText: string }
+  | { status: "error"; submission: string; message: string };
+type WorkspaceUiAction =
+  | { type: "submit"; submission: string }
+  | { type: "assistant-delta"; delta: string }
+  | { type: "complete" }
+  | { type: "error"; message: string }
+  | { type: "reset" };
 
 const COLLAPSED_COMPOSER_MIN_HEIGHT = 64;
 const COLLAPSED_COMPOSER_MAX_HEIGHT = 220;
+const AUTO_SCROLL_BOTTOM_THRESHOLD = 160;
+
+const isViewportNearBottom = () => {
+  if (typeof window === "undefined") return true;
+
+  const scrollableHeight = document.documentElement.scrollHeight;
+  const viewportBottom = window.scrollY + window.innerHeight;
+
+  return scrollableHeight - viewportBottom < AUTO_SCROLL_BOTTOM_THRESHOLD;
+};
+
+const workspaceUiReducer = (
+  state: WorkspaceUiState,
+  action: WorkspaceUiAction,
+): WorkspaceUiState => {
+  switch (action.type) {
+    case "submit":
+      return {
+        status: "streaming",
+        submission: action.submission,
+        assistantText: "",
+      };
+    case "assistant-delta":
+      return state.status === "streaming"
+        ? { ...state, assistantText: `${state.assistantText}${action.delta}` }
+        : state;
+    case "complete":
+    case "reset":
+      return { status: "idle" };
+    case "error":
+      return state.status === "streaming"
+        ? {
+            status: "error",
+            submission: state.submission,
+            message: action.message,
+          }
+        : state;
+    default:
+      return state;
+  }
+};
 
 const getComposerHeightBounds = (element: HTMLTextAreaElement | null) => {
   if (typeof window === "undefined") {
@@ -37,10 +98,7 @@ const getComposerHeightBounds = (element: HTMLTextAreaElement | null) => {
   }
 
   const viewportRatioMax = Math.floor(window.innerHeight * 0.24);
-  const viewportCap = Math.min(
-    COLLAPSED_COMPOSER_MAX_HEIGHT,
-    viewportRatioMax,
-  );
+  const viewportCap = Math.min(COLLAPSED_COMPOSER_MAX_HEIGHT, viewportRatioMax);
 
   const availableSpaceFromTop = element
     ? Math.floor(window.innerHeight - element.getBoundingClientRect().top - 44)
@@ -99,13 +157,72 @@ function PromptTurn({
   );
 }
 
-function UserResponse({ text }: { text: string }) {
+const countWords = (text: string) =>
+  text.trim().split(/\s+/).filter(Boolean).length;
+
+function SubmittedAnswerReceipt({
+  text,
+  pending = false,
+}: {
+  text: string;
+  pending?: boolean;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const wordCount = countWords(text);
+  const wordLabel = `${wordCount} ${wordCount === 1 ? "word" : "words"}`;
+
   return (
-    <div className="py-5 font-sans">
-      <div className="max-w-[78%] rounded-[16px] bg-[#eaf1ff] px-5 py-3 text-[14px] leading-[1.4] tracking-[-0.015em] text-[#0a63d8] shadow-[inset_0_1px_0_rgba(255,255,255,0.45)]">
-        {text}
+    <section className="py-3 pl-6 font-sans sm:pl-10">
+      <div className="border-foreground/[0.12] bg-foreground/[0.035] max-w-[760px] border">
+        <button
+          type="button"
+          onClick={() => setIsOpen((current) => !current)}
+          className="text-foreground/68 hover:bg-foreground/[0.035] focus-visible:bg-foreground/[0.045] flex min-h-11 w-full items-center justify-between gap-4 px-3.5 text-left text-[13px] tracking-[-0.01em] transition-colors outline-none focus:outline-none"
+          aria-expanded={isOpen}
+        >
+          <span className="flex min-w-0 items-center gap-2.5">
+            {isOpen ? (
+              <CaretDown size={13} weight="bold" className="shrink-0" />
+            ) : (
+              <CaretRight size={13} weight="bold" className="shrink-0" />
+            )}
+            <span className="text-foreground/78 font-medium">
+              Submitted answer
+            </span>
+            {pending ? (
+              <span className="text-foreground/38">Submitting...</span>
+            ) : null}
+          </span>
+          <span className="text-foreground/38 shrink-0">{wordLabel}</span>
+        </button>
+
+        {isOpen ? (
+          <div className="border-foreground/[0.1] border-t px-3.5 py-3">
+            <p className="text-foreground/78 text-[14px] leading-[1.55] tracking-[-0.01em] whitespace-pre-wrap">
+              {text}
+            </p>
+          </div>
+        ) : null}
       </div>
-    </div>
+    </section>
+  );
+}
+
+function PendingAssistantTurn({ content }: { content: string }) {
+  if (content.trim()) {
+    return <PromptTurn prompt={content} helper={null} />;
+  }
+
+  return (
+    <section className="py-3 pl-6 font-sans sm:pl-10">
+      <div className="text-foreground/42 flex max-w-[760px] items-center gap-3 text-[14px] tracking-[-0.01em]">
+        <div
+          aria-label="AI response pending"
+          className="border-foreground/18 border-t-foreground/55 size-4 animate-spin rounded-full border"
+        />
+        <span>Preparing feedback...</span>
+      </div>
+    </section>
   );
 }
 
@@ -126,9 +243,6 @@ function ComposerIconButton({
     </button>
   );
 }
-
-const getActiveWorkspaceNodeId = (state: AiWorkspace["state"]) =>
-  state?.recallUnitId ?? state?.activeUnitId ?? null;
 
 const getFallbackTurn = (unit: EducationUnit): WorkspaceFallbackTurn => {
   switch (unit.activeStage) {
@@ -173,11 +287,15 @@ const getFallbackTurn = (unit: EducationUnit): WorkspaceFallbackTurn => {
   }
 };
 
-const getIntroMessage = (workspace: AiWorkspace | null): AiWorkspaceIntroMessage | null =>
+const getIntroMessage = (
+  workspace: AiWorkspace | null,
+): AiWorkspaceIntroMessage | null =>
   (
-    workspace as (AiWorkspace & {
-      introMessage?: AiWorkspaceIntroMessage | null;
-    }) | null
+    workspace as
+      | (AiWorkspace & {
+          introMessage?: AiWorkspaceIntroMessage | null;
+        })
+      | null
   )?.introMessage ?? null;
 
 export function EducationUnitWorkspace({
@@ -198,12 +316,15 @@ export function EducationUnitWorkspace({
   onRunningChange?: (isRunning: boolean) => void;
 }) {
   const router = useRouter();
-  const trpc = useTRPC();
   const [messages, setMessages] = useState(aiWorkspace?.messages ?? []);
   const [response, setResponse] = useState("");
   const [isExpanded, setIsExpanded] = useState(false);
+  const [uiState, dispatchUiState] = useReducer(workspaceUiReducer, {
+    status: "idle",
+  });
   const bottomRef = useRef<HTMLDivElement>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const shouldAutoFollowRef = useRef(true);
 
   useEffect(() => {
     onStateChange?.(unit);
@@ -214,12 +335,29 @@ export function EducationUnitWorkspace({
   }, [aiWorkspace?.messages]);
 
   useEffect(() => {
-    const timeoutId = setTimeout(
-      () => bottomRef.current?.scrollIntoView({ behavior: "smooth" }),
-      100,
-    );
-    return () => clearTimeout(timeoutId);
-  }, [messages.length]);
+    const updateAutoFollow = () => {
+      shouldAutoFollowRef.current = isViewportNearBottom();
+    };
+
+    updateAutoFollow();
+    window.addEventListener("scroll", updateAutoFollow, { passive: true });
+    window.addEventListener("resize", updateAutoFollow);
+
+    return () => {
+      window.removeEventListener("scroll", updateAutoFollow);
+      window.removeEventListener("resize", updateAutoFollow);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!shouldAutoFollowRef.current) return;
+
+    const frameId = window.requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [messages.length, uiState]);
 
   useLayoutEffect(() => {
     syncComposerTextareaHeight({
@@ -236,20 +374,7 @@ export function EducationUnitWorkspace({
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  const submitAiWorkspaceMessage = useMutation(
-    trpc.training.submitAiWorkspaceMessage.mutationOptions({
-      onSuccess: (result) => {
-        setMessages(result.messages);
-        setResponse("");
-        if (getActiveWorkspaceNodeId(result.state) !== unit.nodeId) {
-          router.refresh();
-        }
-      },
-      onError: (error) => toast.error(error.message),
-    }),
-  );
-
-  const isRunning = submitAiWorkspaceMessage.isPending;
+  const isRunning = uiState.status === "streaming";
   const introMessage = getIntroMessage(aiWorkspace);
   const fallbackTurn = getFallbackTurn(unit);
   const workspaceUnavailable = !preview && aiWorkspace == null;
@@ -264,7 +389,7 @@ export function EducationUnitWorkspace({
     !missingTranscriptForResumedUnit &&
     fallbackTurn.canCompose;
   const composerPlaceholder = canCompose
-    ? "Reply to continue."
+    ? "Submit your answer."
     : workspaceUnavailable
       ? "Refresh the workspace before continuing."
       : missingTranscriptForResumedUnit
@@ -278,57 +403,114 @@ export function EducationUnitWorkspace({
 
   const handleSubmit = async (override?: string) => {
     const message = (override ?? response).trim();
-    if (!message || preview) {
+    if (!message || preview || isRunning) {
       return;
     }
 
-    await submitAiWorkspaceMessage.mutateAsync({
-      sessionId,
-      message,
-    });
+    dispatchUiState({ type: "submit", submission: message });
+    setResponse("");
     setIsExpanded(false);
+
+    try {
+      const result = await fetch("/api/training/workspace/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ sessionId, message }),
+      });
+
+      if (!result.ok) {
+        throw new Error(await result.text());
+      }
+
+      const reader = result.body?.getReader();
+      if (!reader) {
+        throw new Error("AI response stream could not be opened.");
+      }
+
+      const decoder = new TextDecoder();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        dispatchUiState({
+          type: "assistant-delta",
+          delta: decoder.decode(value, { stream: true }),
+        });
+      }
+
+      const trailingText = decoder.decode();
+      if (trailingText) {
+        dispatchUiState({ type: "assistant-delta", delta: trailingText });
+      }
+
+      dispatchUiState({ type: "complete" });
+      router.refresh();
+    } catch {
+      dispatchUiState({
+        type: "error",
+        message: "AI feedback could not be prepared.",
+      });
+      setResponse(message);
+      toast.error("AI feedback could not be prepared.");
+    }
   };
 
   const visibleMessages = messages;
-  const renderedMessages =
-    workspaceUnavailable
+  const pendingMessages =
+    uiState.status === "streaming" && !preview
       ? [
-          <PromptTurn
-            key="workspace-unavailable"
-            helper="Workspace unavailable"
-            prompt="The AI workspace could not be loaded, so replying here could advance the wrong stage. Refresh the workspace before continuing."
+          <SubmittedAnswerReceipt
+            key="pending-submission"
+            text={uiState.submission}
+            pending
+          />,
+          <PendingAssistantTurn
+            key="pending-assistant"
+            content={uiState.assistantText}
           />,
         ]
-      : missingTranscriptForResumedUnit
+      : [];
+  const renderedMessages = workspaceUnavailable
+    ? [
+        <PromptTurn
+          key="workspace-unavailable"
+          helper="Workspace unavailable"
+          prompt="The AI workspace could not be loaded, so replying here could advance the wrong stage. Refresh the workspace before continuing."
+        />,
+      ]
+    : missingTranscriptForResumedUnit
+      ? [
+          <PromptTurn
+            key="missing-transcript"
+            helper="Resume unavailable"
+            prompt={`This unit already has saved progress, but the AI workspace transcript for this stage is missing. Replying here could rewind the lesson. Refresh the workspace before continuing.\n\nCurrent checkpoint: ${fallbackTurn.prompt}`}
+          />,
+        ]
+      : visibleMessages.length === 0
         ? [
             <PromptTurn
-              key="missing-transcript"
-              helper="Resume unavailable"
-              prompt={`This unit already has saved progress, but the AI workspace transcript for this stage is missing. Replying here could rewind the lesson. Refresh the workspace before continuing.\n\nCurrent checkpoint: ${fallbackTurn.prompt}`}
+              key="initial-prompt"
+              prompt={introMessage?.prompt ?? fallbackTurn.prompt}
+              helper={introMessage?.helper ?? fallbackTurn.helper}
             />,
-          ]
-        : visibleMessages.length === 0
-      ? [
-          <PromptTurn
-            key="initial-prompt"
-            prompt={introMessage?.prompt ?? fallbackTurn.prompt}
-            helper={introMessage?.helper ?? fallbackTurn.helper}
-          />,
-        ]
-      : visibleMessages.map((message) =>
-          message.role === "assistant" ? (
-            <PromptTurn
-              key={`ai-${message.sequence}`}
-              prompt={message.content}
-              helper={null}
-            />
-          ) : (
-            <UserResponse
-              key={`ai-${message.sequence}`}
-              text={message.content}
-            />
-          ),
-        );
+          ].concat(pendingMessages)
+        : visibleMessages
+            .map((message) =>
+              message.role === "assistant" ? (
+                <PromptTurn
+                  key={`ai-${message.sequence}`}
+                  prompt={message.content}
+                  helper={null}
+                />
+              ) : (
+                <SubmittedAnswerReceipt
+                  key={`ai-${message.sequence}`}
+                  text={message.content}
+                />
+              ),
+            )
+            .concat(pendingMessages);
 
   const inputZone = (
     <div
@@ -351,12 +533,12 @@ export function EducationUnitWorkspace({
                 <ArrowsOutSimple size={13} weight="bold" />
               </button>
 
-                <textarea
-                  ref={composerTextareaRef}
-                  aria-label="Response"
-                  value={response}
+              <textarea
+                ref={composerTextareaRef}
+                aria-label="Response"
+                value={response}
                 onChange={(event) => setResponse(event.target.value)}
-                disabled={!canCompose}
+                disabled={!canCompose || isRunning}
                 onInput={(event) =>
                   syncComposerTextareaHeight({
                     element: event.currentTarget,
@@ -387,7 +569,9 @@ export function EducationUnitWorkspace({
                   <button
                     type="button"
                     onClick={() => handleSubmit()}
-                    disabled={!response.trim() || isRunning || preview || !canCompose}
+                    disabled={
+                      !response.trim() || isRunning || preview || !canCompose
+                    }
                     aria-label="Submit response"
                     className="bg-foreground text-background hover:bg-foreground/85 disabled:bg-foreground/25 inline-flex size-8 items-center justify-center rounded-[5px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
                   >
