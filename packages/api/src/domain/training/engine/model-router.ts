@@ -1,6 +1,12 @@
 import type { LanguageModel, ToolSet } from "ai";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createGoogleGenerativeAI, google } from "@ai-sdk/google";
 import { createOpenAI, openai } from "@ai-sdk/openai";
+
+import {
+  AiModelPreferenceSchema,
+  type AiModelPreference,
+} from "@acme/validators";
 
 import type { ModelTier } from "../prompts/types";
 
@@ -56,6 +62,7 @@ const LEGACY_OPENAI_PURPOSE_ENV: Partial<Record<AiModelPurpose, string>> = {
 };
 
 const PROVIDER_ENV = ["AI_PROVIDER", "AI_MODEL_PROVIDER"] as const;
+const modelPreferenceStorage = new AsyncLocalStorage<AiModelPreference>();
 
 const getEnv = (name: string): string | undefined => {
   const value = process.env[name]?.trim();
@@ -109,6 +116,11 @@ const resolveModelName = ({
 }): string => {
   if (modelName?.trim()) return modelName.trim();
 
+  const preferredModel = modelPreferenceStorage.getStore();
+  if (provider === "google" && preferredModel) {
+    return preferredModel;
+  }
+
   const purposeModel = purpose
     ? (getEnv(getPurposeEnvName(purpose)) ??
       (provider === "openai"
@@ -147,6 +159,25 @@ const createModel = ({
 };
 
 export const getAiProvider = (): AiProvider => getSelectedProvider();
+
+export const parseAiModelPreference = (
+  modelName?: string | null,
+): AiModelPreference | null => {
+  const parsed = AiModelPreferenceSchema.safeParse(modelName);
+  return parsed.success ? parsed.data : null;
+};
+
+export const withAiModelPreference = async <T>(
+  modelName: string | null | undefined,
+  callback: () => Promise<T>,
+): Promise<T> => {
+  const preferredModel = parseAiModelPreference(modelName);
+  if (!preferredModel) {
+    return callback();
+  }
+
+  return modelPreferenceStorage.run(preferredModel, callback);
+};
 
 export const getSearchToolsForSelectedProvider = (): ToolSet => {
   const provider = getSelectedProvider();

@@ -100,6 +100,18 @@ export const trainingCurriculumRepository = {
         title: blueprint.title,
         summary: blueprint.summary,
         targetIdentity: blueprint.targetIdentity,
+        overview: blueprint.overview
+          ? {
+              title: blueprint.overview.title,
+              summary: blueprint.overview.summary,
+              body: blueprint.overview.body,
+            }
+          : null,
+        overviewGeneratedAt: blueprint.overview
+          ? blueprint.overview.generatedAt
+            ? new Date(blueprint.overview.generatedAt)
+            : new Date()
+          : null,
       })
       .returning();
 
@@ -259,9 +271,38 @@ export const trainingCurriculumRepository = {
       title: planState.plan.title,
       summary: planState.plan.summary,
       targetIdentity: planState.plan.targetIdentity,
+      overview: planState.plan.overview
+        ? {
+            title: planState.plan.overview.title,
+            summary: planState.plan.overview.summary,
+            generatedAt:
+              planState.plan.overviewGeneratedAt?.toISOString() ?? null,
+          }
+        : null,
       beforeAfter: planState.beforeAfter,
       nodes: planState.nodes,
       nextUnitId: planState.nextUnitId,
+    };
+  },
+
+  getProjectOverview: async ({
+    db,
+    sessionId,
+  }: {
+    db: Database;
+    sessionId: string;
+  }) => {
+    const plan = await db.query.TrainingCurriculumPlan.findFirst({
+      where: eq(TrainingCurriculumPlan.onboardingSessionId, sessionId),
+    });
+
+    if (!plan?.overview) {
+      return null;
+    }
+
+    return {
+      ...plan.overview,
+      generatedAt: plan.overviewGeneratedAt?.toISOString() ?? null,
     };
   },
 

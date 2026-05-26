@@ -9,6 +9,7 @@ import {
   CaretRight,
   DotsThree,
   Gear,
+  MapTrifold,
   MagnifyingGlass,
   Plus,
   SidebarSimple,
@@ -336,6 +337,7 @@ function ChatRow({
 function ProjectRow({
   project,
   href,
+  overviewHref,
   curriculumHref,
   isCurrent,
   isExpanded,
@@ -345,6 +347,7 @@ function ProjectRow({
 }: {
   project: LearningProject;
   href: string;
+  overviewHref: string;
   curriculumHref: string;
   isCurrent: boolean;
   isExpanded: boolean;
@@ -393,7 +396,10 @@ function ProjectRow({
           </FadeLabel>
         </Link>
 
-        <ProjectActionsMenu curriculumHref={curriculumHref} />
+        <ProjectActionsMenu
+          overviewHref={overviewHref}
+          curriculumHref={curriculumHref}
+        />
       </div>
 
       {isExpanded && lessons.length > 0 ? (
@@ -416,7 +422,13 @@ function ProjectRow({
   );
 }
 
-function ProjectActionsMenu({ curriculumHref }: { curriculumHref: string }) {
+function ProjectActionsMenu({
+  overviewHref,
+  curriculumHref,
+}: {
+  overviewHref: string;
+  curriculumHref: string;
+}) {
   return (
     <Menu>
       <MenuTrigger
@@ -445,6 +457,13 @@ function ProjectActionsMenu({ curriculumHref }: { curriculumHref: string }) {
         >
           <BookOpenText size={14} aria-hidden="true" />
           Curriculum
+        </MenuItem>
+        <MenuItem
+          render={<Link href={overviewHref} />}
+          className="rounded-none text-[13px]"
+        >
+          <MapTrifold size={14} aria-hidden="true" />
+          Overview
         </MenuItem>
       </MenuPopup>
     </Menu>
@@ -614,11 +633,15 @@ export function CurriculumSidebar({
             const curriculumHref = preview
               ? "/ui/curriculum"
               : `/curriculum?session=${project.sessionId}`;
+            const overviewHref = preview
+              ? "/ui/overview"
+              : `/overview?session=${project.sessionId}`;
             return (
               <ProjectRow
                 key={project.sessionId}
                 project={project}
                 href={href}
+                overviewHref={overviewHref}
                 curriculumHref={curriculumHref}
                 isCurrent={isCurrent}
                 isExpanded={isExpanded}

@@ -22,6 +22,11 @@ export const getActivePlan = async (sessionId: string) => {
   return caller.training.activePlan({ sessionId });
 };
 
+export const getProjectOverview = async (sessionId: string) => {
+  const caller = await createCaller();
+  return caller.training.projectOverview({ sessionId });
+};
+
 export const getOnboardingState = async (sessionId: string) => {
   const caller = await createCaller();
   return caller.training.onboardingState({ sessionId });

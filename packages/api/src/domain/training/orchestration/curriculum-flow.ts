@@ -3,8 +3,9 @@ import type {
   CurriculumNodeBlueprint,
   OnboardingTranscriptMessage,
 } from "../types/training.types";
-import { createOnboardingPacket } from "./onboarding-flow";
 import { designCurriculum } from "../agents/curriculum-designer";
+import { designProjectOverview } from "../agents/project-overview";
+import { createOnboardingPacket } from "./onboarding-flow";
 
 const buildNodes = (
   draft: Awaited<ReturnType<typeof designCurriculum>>["planDraft"],
@@ -16,7 +17,10 @@ const buildNodes = (
     1,
   );
   const clusterSpan = maxUnitsPerCluster + 2;
-  const totalClusterWidth = Math.max(draft.clusters.length * clusterSpan - 1, 1);
+  const totalClusterWidth = Math.max(
+    draft.clusters.length * clusterSpan - 1,
+    1,
+  );
   const integrationStartColumn = totalClusterWidth + 2;
 
   const nodes: CurriculumNodeBlueprint[] = [
@@ -26,7 +30,8 @@ const buildNodes = (
       status: "completed",
       title: targetIdentity,
       summary: headline,
-      whyItMatters: "This path exists because of the operator the learner wants to become.",
+      whyItMatters:
+        "This path exists because of the operator the learner wants to become.",
       learningGoal:
         "Use this path to turn the target identity into observable decisions and execution. Each unit should make one part of that operator behavior easier to perform under pressure.",
       orderIndex: 0,
@@ -42,7 +47,8 @@ const buildNodes = (
   draft.clusters.forEach((cluster, clusterIndex) => {
     const clusterOrderIndex = orderIndex++;
     const baseColumn = clusterIndex * clusterSpan;
-    const clusterCenter = baseColumn + Math.floor((cluster.units.length - 1) / 2);
+    const clusterCenter =
+      baseColumn + Math.floor((cluster.units.length - 1) / 2);
     const clusterHasInitiallyReadyUnit = unitNumber < 1;
 
     nodes.push({
@@ -139,10 +145,21 @@ export const generateCurriculumBlueprint = async (
   blueprint: CurriculumBlueprint;
 }> => {
   const packet = await createOnboardingPacket(transcript);
-  const design = await designCurriculum({
-    packet,
-    transcript,
-  });
+  const [design, overviewResult] = await Promise.all([
+    designCurriculum({
+      packet,
+      transcript,
+    }),
+    designProjectOverview({
+      packet,
+      transcript,
+    }).then(
+      (value) => ({ status: "fulfilled" as const, value }),
+      (reason: unknown) => ({ status: "rejected" as const, reason }),
+    ),
+  ]);
+  const overview =
+    overviewResult.status === "fulfilled" ? overviewResult.value : null;
 
   return {
     report: design.identityReport,
@@ -151,6 +168,12 @@ export const generateCurriculumBlueprint = async (
       title: design.planDraft.title,
       summary: design.planDraft.summary,
       targetIdentity: design.planDraft.targetIdentity,
+      overview: overview
+        ? {
+            ...overview,
+            generatedAt: new Date().toISOString(),
+          }
+        : null,
       nodes: buildNodes(
         design.planDraft,
         design.identityReport.targetIdentity,

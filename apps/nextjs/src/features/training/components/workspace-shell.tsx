@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
 import { Lightbulb, SidebarSimple } from "@phosphor-icons/react";
 
 import type { RouterOutputs } from "@acme/api";
@@ -67,11 +68,13 @@ export function WorkspaceShell({
   preview?: boolean;
   userName?: string;
 }) {
+  const router = useRouter();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [questionPanelOpen, setQuestionPanelOpen] = useState(false);
   const [questionPanelFocused, setQuestionPanelFocused] = useState(false);
   const [liveUnit, setLiveUnit] = useState(unit);
   const [isSessionRunning, setIsSessionRunning] = useState(false);
+  const [onboardingTurnCount, setOnboardingTurnCount] = useState(0);
   const [workspaceTheme, setWorkspaceTheme] = useLocalStorage<WorkspaceTheme>(
     "bp-workspace-theme",
     "warm",
@@ -96,6 +99,30 @@ export function WorkspaceShell({
   useEffect(() => {
     setIsSessionRunning(false);
   }, [mode, sessionId]);
+
+  // Auto-collapse the sidebar to a rail when entering onboarding for a new
+  // topic, and auto-expand once the curriculum is ready and we move on.
+  const lastModeRef = useRef<WorkspaceMode | null>(null);
+  useEffect(() => {
+    const prev = lastModeRef.current;
+    lastModeRef.current = mode;
+    if (prev === mode) return;
+    if (mode === "onboarding") {
+      setSidebarCollapsed(true);
+    } else if (prev === "onboarding") {
+      setSidebarCollapsed(false);
+    }
+  }, [mode]);
+
+  // Reset the onboarding turn counter when the session or mode changes so the
+  // header doesn't display a stale count between sessions.
+  useEffect(() => {
+    setOnboardingTurnCount(0);
+  }, [mode, sessionId]);
+
+  const handleExitOnboarding = () => {
+    router.push("/");
+  };
 
   const shellTitle =
     mode === "onboarding"
@@ -122,37 +149,48 @@ export function WorkspaceShell({
       className="bp-workspace-theme bg-background text-foreground flex h-dvh overflow-hidden"
       data-workspace-theme={workspaceTheme}
     >
-      {!sidebarCollapsed ? (
-        <div className="bg-sidebar w-[232px] shrink-0">
-          <CurriculumSidebar
-            projects={projects}
-            currentSessionId={sessionId}
-            preview={preview}
-            onToggleCollapsed={() => setSidebarCollapsed(true)}
-            userName={userName}
-            activeLessonId={liveUnit?.nodeId ?? null}
-            isSessionRunning={isSessionRunning}
-            workspaceTheme={workspaceTheme}
-            onWorkspaceThemeChange={setWorkspaceTheme}
-          />
-        </div>
-      ) : null}
+      <div
+        className={[
+          "bg-sidebar shrink-0 transition-[width] duration-200",
+          sidebarCollapsed ? "w-12" : "w-[232px]",
+        ].join(" ")}
+      >
+        <CurriculumSidebar
+          projects={projects}
+          currentSessionId={sessionId}
+          preview={preview}
+          collapsed={sidebarCollapsed}
+          onToggleCollapsed={() =>
+            setSidebarCollapsed((prev) => !prev)
+          }
+          userName={userName}
+          activeLessonId={liveUnit?.nodeId ?? null}
+          isSessionRunning={isSessionRunning}
+          workspaceTheme={workspaceTheme}
+          onWorkspaceThemeChange={setWorkspaceTheme}
+        />
+      </div>
 
       <div className="border-foreground/[0.08] flex min-w-0 flex-1 flex-col border-l">
         <header className="flex h-14 shrink-0 items-center justify-between px-4 sm:px-6">
-          <div className="flex min-w-0 items-center gap-2">
-            {sidebarCollapsed ? (
-              <button
-                type="button"
-                aria-label="Open sidebar"
-                onClick={() => setSidebarCollapsed(false)}
-                className="text-foreground/40 hover:text-foreground/80 hover:bg-foreground/[0.04] flex size-6 shrink-0 items-center justify-center rounded-[5px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
-              >
-                <SidebarSimple size={14} />
-              </button>
-            ) : null}
-
-            {mode === "onboarding" ? null : (
+          <div className="flex min-w-0 items-center gap-3">
+            {mode === "onboarding" ? (
+              <>
+                <h1 className="font-display text-foreground/82 text-[14px] tracking-[-0.01em]">
+                  Defining your track
+                </h1>
+                <span
+                  aria-live="polite"
+                  className="text-foreground/40 text-[11px]"
+                >
+                  {isSessionRunning
+                    ? "Still calibrating..."
+                    : onboardingTurnCount > 0
+                      ? `Question ${onboardingTurnCount + 1}`
+                      : "Tell me who you want to become"}
+                </span>
+              </>
+            ) : (
               <h1
                 className="font-display text-foreground text-[16px] tracking-[-0.02em]"
               >
@@ -164,28 +202,34 @@ export function WorkspaceShell({
             )}
           </div>
 
-          {mode === "onboarding" ? null : (
-            <>
-              {mode === "unit" && liveUnit ? (
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="default"
-                    size="sm"
-                    onClick={() =>
-                      setQuestionPanelOpen((prev) =>
-                        questionPanelFocused ? true : !prev,
-                      )
-                    }
-                    className="border-primary bg-primary text-primary-foreground hover:bg-primary/90 rounded-none px-3 text-[12px] before:rounded-none"
-                  >
-                    <Lightbulb size={15} weight="fill" />
-                    Ask
-                  </Button>
-                </div>
-              ) : null}
-            </>
-          )}
+          {mode === "onboarding" ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={handleExitOnboarding}
+              className="text-foreground/52 hover:text-foreground hover:bg-foreground/[0.04] h-7 rounded-none px-2 text-[12px] before:rounded-none"
+            >
+              Exit
+            </Button>
+          ) : mode === "unit" && liveUnit ? (
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="default"
+                size="sm"
+                onClick={() =>
+                  setQuestionPanelOpen((prev) =>
+                    questionPanelFocused ? true : !prev,
+                  )
+                }
+                className="border-primary bg-primary text-primary-foreground hover:bg-primary/90 rounded-none px-3 text-[12px] before:rounded-none"
+              >
+                <Lightbulb size={15} weight="fill" />
+                Ask
+              </Button>
+            </div>
+          ) : null}
         </header>
 
         <div className="flex min-h-0 flex-1">
@@ -214,6 +258,7 @@ export function WorkspaceShell({
                         initialState={onboardingState}
                         sessionId={sessionId}
                         onRunningChange={setIsSessionRunning}
+                        onTurnCountChange={setOnboardingTurnCount}
                       />
                     ) : null}
 

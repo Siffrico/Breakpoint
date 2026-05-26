@@ -13,6 +13,7 @@ const PURPOSE_BY_AGENT = {
   buildContent: "buildContent",
   failureIsolation: "failure",
   ghostReplay: "ghost",
+  projectOverview: "curriculum",
 } as const;
 
 export const runAgent = async <TSchema extends z.ZodTypeAny>({

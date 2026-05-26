@@ -17,6 +17,7 @@ import { renderWorkspaceContextPrompt } from "./domain/training/context-engine/r
 import {
   getSearchToolsForSelectedProvider,
   requireAiModelForPurpose,
+  withAiModelPreference,
 } from "./domain/training/engine/model-router";
 import {
   buildWorkspaceIntroMessage,
@@ -399,6 +400,28 @@ const saveEducationOutput = async ({
 };
 
 export const streamWorkspaceChat = async ({
+  db,
+  sessionId,
+  userId,
+  message,
+  modelName,
+}: {
+  db: Database;
+  sessionId: string;
+  userId: string;
+  message: string;
+  modelName?: string | null;
+}) =>
+  withAiModelPreference(modelName, () =>
+    streamWorkspaceChatWithModelPreference({
+      db,
+      sessionId,
+      userId,
+      message,
+    }),
+  );
+
+const streamWorkspaceChatWithModelPreference = async ({
   db,
   sessionId,
   userId,

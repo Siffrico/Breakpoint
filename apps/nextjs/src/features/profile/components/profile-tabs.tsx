@@ -6,6 +6,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   Brain,
+  FolderOpen,
   Gear,
   User,
   type Icon as PhosphorIconType,
@@ -13,7 +14,11 @@ import {
 
 import { cn } from "@acme/ui";
 
-export type ProfileTabKey = "general" | "preferences" | "customization";
+export type ProfileTabKey =
+  | "general"
+  | "preferences"
+  | "customization"
+  | "projects";
 
 type TabDef = {
   key: ProfileTabKey;
@@ -24,6 +29,7 @@ type TabDef = {
 const accountTabs: readonly TabDef[] = [
   { key: "general", label: "General", icon: User },
   { key: "preferences", label: "Preferences", icon: Gear },
+  { key: "projects", label: "Projects", icon: FolderOpen },
   { key: "customization", label: "Customization", icon: Brain },
 ];
 

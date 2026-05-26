@@ -1,8 +1,6 @@
 import type {
-  CurriculumNode,
-  CurriculumNodeKind,
-  CurriculumNodeStatus,
-  CurriculumPlan,
+  BeforeAfterProfile,
+  BuildCapstoneScenario,
   CapstoneAttempt,
   CapstoneEvaluation,
   CapstoneFormat,
@@ -12,34 +10,36 @@ import type {
   CapstoneState,
   CapstoneStatus,
   CapstoneTurnResult,
-  ComplexityBudget,
-  BuildCapstoneScenario,
-  BeforeAfterProfile,
   ClusterBriefing,
   ClusterBriefingMapItem,
+  ComplexityBudget,
+  CurriculumNode,
+  CurriculumNodeKind,
+  CurriculumNodeStatus,
+  CurriculumPlan,
+  DebateCapstoneScenario,
   Debrief,
-  EducationUnitAttemptMode,
+  EducationUnitActiveStage,
   EducationUnitAssessmentStatus,
+  EducationUnitAttemptMode,
   EducationUnitAttemptSignals,
   EducationUnitConceptCorrection,
   EducationUnitConfidence,
-  EducationUnitActiveStage,
   EducationUnitDiagnosticGap,
   EducationUnitImplementationReview,
   EducationUnitPromptCard,
   EducationUnitResponseRecord,
   EducationUnitState,
   EducationUnitWorkedExample,
-  DebateCapstoneScenario,
   FailureGap,
   FailureIsolationResult,
+  FinalizeForgeUnitResult,
   ForgeDebrief,
   ForgeUnitContent,
   ForgeUnitScenario,
   GhostEvaluation,
   GhostScenario,
   IdentityReport,
-  FinalizeForgeUnitResult,
   OnboardingQuestion,
   OnboardingSlot,
   OnboardingTranscriptMessage,
@@ -48,21 +48,22 @@ import type {
   PracticePrompt,
   PracticeSubmission,
   PreSeedUnitContentDraft,
+  ProjectOverview,
   RecallGate,
-  RecallGateSummary,
   RecallGateStatus,
+  RecallGateSummary,
   RecallProbe,
   RecallProbeStatus,
   RecallProbeType,
-  SubmitRecallProbe,
   SubmitEducationUnitStep,
+  SubmitRecallProbe,
   TeachbackMessage,
   TeachbackRoundResult,
   TeachbackSetup,
   TeachCapstoneScenario,
+  UnitContent,
   UnitRecallState,
   UnitRecallStatus,
-  UnitContent,
 } from "@acme/validators";
 
 export type {
@@ -115,6 +116,7 @@ export type {
   PracticePrompt,
   PracticeSubmission,
   PreSeedUnitContentDraft,
+  ProjectOverview,
   RecallGate,
   RecallGateSummary,
   RecallGateStatus,
@@ -164,6 +166,7 @@ export interface CurriculumBlueprint {
   title: string;
   summary: string;
   targetIdentity: string;
+  overview: ProjectOverview | null;
   nodes: CurriculumNodeBlueprint[];
   beforeAfter: BeforeAfterProfile;
 }
@@ -186,7 +189,11 @@ export interface HomeState {
   nextUnitTitle: string | null;
   activeRecallGate: RecallGateSummary | null;
   blockingSignals: string[];
-  lastCompletedUnit: { title: string; score: number | null; failureTags: string[] } | null;
+  lastCompletedUnit: {
+    title: string;
+    score: number | null;
+    failureTags: string[];
+  } | null;
   demonstratedCapabilities: string[];
   nodeScores: Record<string, number>;
 }

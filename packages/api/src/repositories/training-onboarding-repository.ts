@@ -193,6 +193,28 @@ export const trainingOnboardingRepository = {
       ],
     }),
 
+  deleteSessionByUser: async ({
+    db,
+    sessionId,
+    userId,
+  }: {
+    db: Database;
+    sessionId: string;
+    userId: string;
+  }) => {
+    const [session] = await db
+      .delete(TrainingOnboardingSession)
+      .where(
+        and(
+          eq(TrainingOnboardingSession.id, sessionId),
+          eq(TrainingOnboardingSession.userId, userId),
+        ),
+      )
+      .returning({ id: TrainingOnboardingSession.id });
+
+    return session ?? null;
+  },
+
   updateSession: async ({
     db,
     sessionId,

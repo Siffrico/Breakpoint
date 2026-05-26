@@ -27,6 +27,31 @@ export const previewProfileBilling: ProfileBilling = {
   manageUrl: null,
 };
 
+export const previewLearningProjects = [
+  {
+    sessionId: "00000000-0000-0000-0000-000000000000",
+    title: "Staff backend engineer",
+    headline: "Operate clearly inside ambiguous infrastructure decisions.",
+    status: "active",
+    lessonPreview: [
+      {
+        id: "unit-1",
+        title: "Tradeoff framing under uncertainty",
+        status: "ready",
+      },
+    ],
+    updatedAt: new Date("2026-05-20T10:00:00Z"),
+  },
+  {
+    sessionId: "11111111-1111-1111-1111-111111111111",
+    title: "Financial independence operator",
+    headline: "Build repeatable money systems without reactive decisions.",
+    status: "onboarding",
+    lessonPreview: [],
+    updatedAt: new Date("2026-05-18T10:00:00Z"),
+  },
+];
+
 export const previewMemories = [
   {
     id: "mem-1",

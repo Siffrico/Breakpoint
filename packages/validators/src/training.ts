@@ -85,11 +85,23 @@ export const CurriculumNodeSchema = z.object({
   status: CurriculumNodeStatusSchema,
 });
 
+export const ProjectOverviewSchema = z.object({
+  title: z.string().min(1),
+  summary: z.string().min(1),
+  body: z.string().min(1),
+  generatedAt: z.string().datetime().nullable(),
+});
+
+export const ProjectOverviewSummarySchema = ProjectOverviewSchema.omit({
+  body: true,
+});
+
 export const CurriculumPlanSchema = z.object({
   id: z.string().min(1),
   title: z.string().min(1),
   summary: z.string().min(1),
   targetIdentity: z.string().min(1),
+  overview: ProjectOverviewSummarySchema.nullable(),
   beforeAfter: BeforeAfterProfileSchema,
   nodes: z.array(CurriculumNodeSchema).min(1),
   nextUnitId: z.string().min(1).nullable(),
@@ -278,7 +290,11 @@ export const CapstoneScenarioSchema = z.discriminatedUnion("format", [
   TeachCapstoneScenarioSchema,
 ]);
 
-export const CapstoneMessageRoleSchema = z.enum(["system", "user", "assistant"]);
+export const CapstoneMessageRoleSchema = z.enum([
+  "system",
+  "user",
+  "assistant",
+]);
 
 export const CapstoneMessageSchema = z.object({
   id: z.string().min(1),
@@ -661,8 +677,9 @@ export const getBuildContentSection = (
   buildContent: string,
   move: BuildContentMove,
 ): BuildContentSection | null =>
-  parseBuildContentSections(buildContent).find((section) => section.move === move) ??
-  null;
+  parseBuildContentSections(buildContent).find(
+    (section) => section.move === move,
+  ) ?? null;
 
 export type OnboardingSlot = z.infer<typeof OnboardingSlotSchema>;
 export type OnboardingPhase = z.infer<typeof OnboardingPhaseSchema>;
@@ -676,17 +693,25 @@ export type BeforeAfterProfile = z.infer<typeof BeforeAfterProfileSchema>;
 export type CurriculumNodeKind = z.infer<typeof CurriculumNodeKindSchema>;
 export type CurriculumNodeStatus = z.infer<typeof CurriculumNodeStatusSchema>;
 export type CurriculumNode = z.infer<typeof CurriculumNodeSchema>;
+export type ProjectOverview = z.infer<typeof ProjectOverviewSchema>;
+export type ProjectOverviewSummary = z.infer<
+  typeof ProjectOverviewSummarySchema
+>;
 export type CurriculumPlan = z.infer<typeof CurriculumPlanSchema>;
 export type PracticePrompt = z.infer<typeof PracticePromptSchema>;
 export type ComplexityBudget = z.infer<typeof ComplexityBudgetSchema>;
-export type ClusterBriefingMapItem = z.infer<typeof ClusterBriefingMapItemSchema>;
+export type ClusterBriefingMapItem = z.infer<
+  typeof ClusterBriefingMapItemSchema
+>;
 export type ClusterBriefing = z.infer<typeof ClusterBriefingSchema>;
 export type TeachbackSetup = z.infer<typeof TeachbackSetupSchema>;
 export type ForgeUnitScenario = z.infer<typeof ForgeUnitScenarioSchema>;
 export type ForgeUnitContent = z.infer<typeof ForgeUnitContentSchema>;
 export type BuildContentMove = z.infer<typeof BuildContentMoveSchema>;
 export type BuildContentSection = z.infer<typeof BuildContentSectionSchema>;
-export type PreSeedUnitContentDraft = z.infer<typeof PreSeedUnitContentDraftSchema>;
+export type PreSeedUnitContentDraft = z.infer<
+  typeof PreSeedUnitContentDraftSchema
+>;
 export type PostSeedUnitContentDraft = z.infer<
   typeof PostSeedUnitContentDraftSchema
 >;
@@ -697,7 +722,9 @@ export type TeachbackSubmission = z.infer<typeof TeachbackSubmissionSchema>;
 export type TeachbackRoundResult = z.infer<typeof TeachbackRoundResultSchema>;
 export type FailureGap = z.infer<typeof FailureGapSchema>;
 export type GhostScenario = z.infer<typeof GhostScenarioSchema>;
-export type FailureIsolationResult = z.infer<typeof FailureIsolationResultSchema>;
+export type FailureIsolationResult = z.infer<
+  typeof FailureIsolationResultSchema
+>;
 export type GhostSubmission = z.infer<typeof GhostSubmissionSchema>;
 export type GhostEvaluation = z.infer<typeof GhostEvaluationSchema>;
 export type TeachbackMessage = z.infer<typeof TeachbackMessageSchema>;
@@ -763,6 +790,8 @@ export type SubmitRecallProbe = z.infer<typeof SubmitRecallProbeSchema>;
 export type SubmitEducationUnitStep = z.infer<
   typeof SubmitEducationUnitStepSchema
 >;
-export type FinalizeForgeUnitResult = z.infer<typeof FinalizeForgeUnitResultSchema>;
+export type FinalizeForgeUnitResult = z.infer<
+  typeof FinalizeForgeUnitResultSchema
+>;
 export type UnitContent = z.infer<typeof UnitContentSchema>;
 export type Debrief = z.infer<typeof DebriefSchema>;

@@ -46,3 +46,8 @@ export const listMemories = async () => {
   const caller = await createCaller();
   return caller.memory.list();
 };
+
+export const listLearningProjects = async () => {
+  const caller = await createCaller();
+  return caller.training.listLearningProjects();
+};

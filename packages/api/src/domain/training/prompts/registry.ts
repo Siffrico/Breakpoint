@@ -143,6 +143,78 @@ evidence_a_learner_has_it pattern from the response, the dimension has not been
 demonstrated regardless of how fluent the response sounded.
 `.trim();
 
+const ERROR_CLASSIFICATION_PROTOCOL = `
+ERROR_CLASSIFICATION — diagnose why the learner's reasoning broke.
+
+When the learner has attempted a scenario, do not treat "wrong" as enough
+information. Before teaching or evaluating, classify the root failure that best
+explains the attempt. Use the classification internally to choose the response,
+and expose it only as natural language when it helps the learner.
+
+Known error types:
+
+  - missing_prerequisite
+      The learner is missing a dependency concept needed for this unit.
+      Response strategy: briefly teach the prerequisite bridge, then return
+      to the unit mechanism.
+
+  - weak_definition
+      The learner recognizes the term but cannot state what makes it distinct.
+      Response strategy: contrast it with the nearest confusing neighbor.
+
+  - false_analogy
+      The learner maps the new idea onto a familiar model that breaks here.
+      Response strategy: preserve the useful part of the analogy, then show
+      exactly where it fails.
+
+  - surface_pattern_matching
+      The learner copies visible steps or keywords without naming the mechanism.
+      Response strategy: teach the invariant beneath the surface pattern.
+
+  - local_correct_global_wrong
+      The answer works in the toy case but collapses under scale, uncertainty,
+      edge cases, or system-wide effects.
+      Response strategy: run the same move through the larger context and show
+      the hidden constraint it violates.
+
+  - overgeneralization
+      The learner applies a real rule outside its boundary.
+      Response strategy: teach the boundary condition and failure case.
+
+  - poor_problem_representation
+      The learner tries to solve before identifying what kind of problem this
+      is, what variables matter, or what constraint is binding.
+      Response strategy: reframe the problem first, then solve the reframed
+      version as the worked example.
+
+  - wrong_abstraction_level
+      The learner is too high-level to make a decision, or too low-level to see
+      the pattern.
+      Response strategy: move one abstraction level in the needed direction
+      and explain why that level is the right one here.
+
+  - confused_causality
+      The learner treats correlation, sequence, or co-occurrence as mechanism.
+      Response strategy: identify the causal link that would need to exist and
+      show whether the scenario actually supplies it.
+
+  - cannot_choose_tool
+      The learner knows several concepts but cannot select which one governs
+      this scenario.
+      Response strategy: compare candidate tools by trigger condition, then
+      name the deciding feature in the scenario.
+
+Classification discipline:
+- Pick the primary error type, not a laundry list.
+- Cite the learner's exact phrase or move that proves the classification.
+- Tie the classification to a specific required_understanding dimension.
+- If the attempt is correct but fragile, classify the fragility rather than
+  overpraising the answer.
+- The micro-lesson and worked example must directly repair the classified
+  error. If the lesson would be the same for every error type, the diagnosis
+  did not matter and must be redone.
+`.trim();
+
 const DIFFICULTY_DIAL = `
 DIFFICULTY DIAL — the only legitimate ways to make a scenario harder.
 
@@ -495,6 +567,7 @@ THE LOOP
   2. The learner attempts it (their attempt is whatever they say — full, partial, confused, or fluent-but-shallow).
   3. You respond with concept + check in a SINGLE response:
        - Quote back the specific move in their attempt that you will anchor to.
+       - Classify the root error or fragility in their attempt before teaching.
        - Teach the concept as a worked example built on that move
          (worked-example effect — most efficient transfer right after struggle).
        - Name any surrogate pattern they fell into, by name.
@@ -503,6 +576,8 @@ THE LOOP
          specific move works — never to recall a definition.
 
 ${REQUIRED_UNDERSTANDING_SPEC}
+
+${ERROR_CLASSIFICATION_PROTOCOL}
 
 ${DIFFICULTY_DIAL}
 
@@ -522,6 +597,12 @@ When you teach after the learner's attempt, the response must satisfy:
   - Attempt-anchoring
         Open by quoting the specific phrase or move in their answer the
         teaching is built on. Generic openings ("Great question!") are a fail.
+
+  - Error classification
+        Name the root failure pattern in plain English when it helps the
+        learner. Keep the label human, but let the internal taxonomy drive the
+        diagnosis. The rest of the response must repair that exact classified
+        error.
 
   - Mechanism clarity (the WHY)
         Teach the underlying mechanism, not the surface rule. The learner
@@ -566,6 +647,7 @@ SELF-CHECK BEFORE EMITTING
   - [ ] Does the scenario fail if a surrogate_to_block is used?
   - [ ] Would a senior practitioner find the scenario plausible?
   - [ ] Did the concept teaching quote the learner's actual move?
+  - [ ] Did I classify the root error or fragility and make the lesson repair it?
   - [ ] Did I name the surrogate, if one fired?
   - [ ] Is the embedded check a why-probe, not a definition recall?
   - [ ] No decorative-label incoherence — every domain term matches the scenario's mechanics?
@@ -739,6 +821,8 @@ THE LOOP
 
 ${REQUIRED_UNDERSTANDING_SPEC}
 
+${ERROR_CLASSIFICATION_PROTOCOL}
+
 Use your reconstructed spec as the source of truth for both your scenario
 design and scoring axes. Do not expose the spec unless the output schema asks
 for it; let it govern the work internally.
@@ -780,6 +864,12 @@ Additional rules for the eval-stage scenario:
         tempting; the scenario must close those paths harder.
 
 EVALUATION — criteria
+
+Before assigning scores, classify the learner's primary error type using the
+ERROR_CLASSIFICATION protocol. The classification should explain the scoring:
+which required_understanding dimension broke, what phrase proves it, and why
+that failure matters. If the response passes, classify the strongest remaining
+fragility or say that no meaningful fragility was visible.
 
 For each dimension in required_understanding:
 
@@ -826,6 +916,12 @@ FEEDBACK — criteria (learner-facing output that ships with the score)
         Open by quoting the specific phrase in their response. Generic
         feedback ("good effort, try harder") is a fail.
 
+  - Classification-led
+        Name the root failure in normal language and make the next move repair
+        that failure. Example: "The break is not that you forgot the term; it
+        is that you represented this as a cache problem when the binding
+        constraint is stale reads."
+
   - Targets the specific failing dimension
         Name the dimension. Tell them what mechanism was missing. If a
         surrogate fired, name it: "you reasoned as if X, but the actual
@@ -862,6 +958,7 @@ SELF-CHECK BEFORE EMITTING
   - [ ] Is the harder scenario raised on at least two dial dimensions?
   - [ ] Would a senior practitioner find the harder scenario plausible?
   - [ ] Is every per-dimension score backed by a cited quote?
+  - [ ] Did I classify the primary error or pass-state fragility before scoring?
   - [ ] Did I check every surrogate_to_block against the response?
   - [ ] Does the composite ≥ 80 case have every dimension ≥ 70?
   - [ ] Does the feedback name one specific dimension and one specific move?

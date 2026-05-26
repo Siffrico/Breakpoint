@@ -377,6 +377,25 @@ export const trainingRouter = {
     });
   }),
 
+  deleteLearningProject: protectedProcedure
+    .input(SessionIdSchema)
+    .mutation(async ({ ctx, input }) => {
+      const deleted = await trainingOnboardingRepository.deleteSessionByUser({
+        db: ctx.db,
+        sessionId: input.sessionId,
+        userId: ctx.session.user.id,
+      });
+
+      if (!deleted) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "This learning project could not be found.",
+        });
+      }
+
+      return { sessionId: deleted.id };
+    }),
+
   activePlan: protectedProcedure
     .input(SessionIdSchema)
     .query(async ({ ctx, input }) => {
@@ -394,6 +413,26 @@ export const trainingRouter = {
           },
         }),
       );
+    }),
+
+  projectOverview: protectedProcedure
+    .input(SessionIdSchema)
+    .query(async ({ ctx, input }) => {
+      await requireSessionOwner({ ctx, sessionId: input.sessionId });
+
+      const overview = await trainingCurriculumRepository.getProjectOverview({
+        db: ctx.db,
+        sessionId: input.sessionId,
+      });
+
+      if (!overview) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Project overview does not exist yet.",
+        });
+      }
+
+      return overview;
     }),
 
   aiWorkspace: protectedProcedure

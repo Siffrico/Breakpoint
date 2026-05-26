@@ -24,6 +24,12 @@ export const TrainingCurriculumPlan = pgTable(
     title: t.varchar({ length: 240 }).notNull(),
     summary: t.text().notNull(),
     targetIdentity: t.varchar({ length: 240 }).notNull(),
+    overview: t.jsonb().$type<{
+      title: string;
+      summary: string;
+      body: string;
+    }>(),
+    overviewGeneratedAt: t.timestamp({ mode: "date", withTimezone: true }),
     createdAt: t
       .timestamp({ mode: "date", withTimezone: true })
       .defaultNow()

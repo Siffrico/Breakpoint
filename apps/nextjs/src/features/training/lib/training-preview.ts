@@ -272,6 +272,7 @@ export const previewPlanState: PlanState = {
   summary:
     "A systems curriculum that trains replication, coordination, and recovery behavior through realistic infrastructure cases.",
   targetIdentity: "Distributed Systems Engineer",
+  overview: null,
   beforeAfter: {
     headline: "You are moving from vocabulary-level familiarity to operational systems judgment.",
     beforeSummary:

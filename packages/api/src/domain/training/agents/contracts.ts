@@ -10,6 +10,7 @@ import {
   PostSeedUnitContentDraftSchema,
   PracticePromptSchema,
   PreSeedUnitContentDraftSchema,
+  ProjectOverviewSchema,
   TeachbackMessageSchema,
 } from "@acme/validators";
 
@@ -87,6 +88,10 @@ export const CurriculumDesignerOutputSchema = z.object({
   identityReport: IdentityReportSchema,
   beforeAfter: BeforeAfterProfileSchema,
   planDraft: CurriculumPlanDraftSchema,
+});
+
+export const ProjectOverviewOutputSchema = ProjectOverviewSchema.omit({
+  generatedAt: true,
 });
 
 export const BuildContentAgentInputSchema = z.object({
@@ -168,6 +173,7 @@ export type CurriculumPlanDraft = z.infer<typeof CurriculumPlanDraftSchema>;
 export type CurriculumDesignerOutput = z.infer<
   typeof CurriculumDesignerOutputSchema
 >;
+export type ProjectOverviewOutput = z.infer<typeof ProjectOverviewOutputSchema>;
 export type BuildContentAgentInput = z.infer<typeof BuildContentAgentInputSchema>;
 export type BuildContentPreSeedOutput = z.infer<
   typeof PreSeedUnitContentDraftSchema

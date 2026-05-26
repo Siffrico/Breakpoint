@@ -10,3 +10,4 @@ export const unused = z.string().describe(
 export * from "./training";
 export * from "./memory";
 export * from "./profile";
+export * from "./ai-model";
