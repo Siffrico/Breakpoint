@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 
 import { getSession } from "~/auth/server";
 import { AuthFlow } from "~/features/auth/components/auth-flow";
-import { SiteWordmark } from "~/features/marketing/components/site-wordmark";
 
 export const metadata: Metadata = {
   title: "Sign in",
@@ -16,11 +15,6 @@ export default async function AuthPage() {
 
   return (
     <div className="bp-site relative min-h-dvh w-full overflow-x-hidden">
-      {/* name — top-left corner of the page, no navbar */}
-      <div className="absolute top-7 left-7 z-10 sm:top-9 sm:left-10">
-        <SiteWordmark />
-      </div>
-
       <main className="flex min-h-dvh items-center justify-center px-6 py-28">
         <div className="w-full max-w-[400px]">
           <AuthFlow />

@@ -1,5 +1,11 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono, Inter, Sora, Space_Grotesk } from "next/font/google";
+import {
+  Geist,
+  Geist_Mono,
+  Inter,
+  Playwrite_GB_J_Guides,
+  Sora,
+} from "next/font/google";
 
 import { cn } from "@acme/ui";
 import { ThemeProvider, ThemeToggle } from "@acme/ui/theme";
@@ -54,9 +60,13 @@ const inter = Inter({
   variable: "--font-ai",
 });
 // Wordmark face for the marketing site — distinct from the product UI fonts.
-const spaceGrotesk = Space_Grotesk({
-  subsets: ["latin"],
+// Playwrite GB J Guides ships a single weight (400) with no italic, and is
+// only available as a variable font — declare both explicitly.
+const playwrite = Playwrite_GB_J_Guides({
   variable: "--font-wordmark",
+  weight: "400",
+  style: "normal",
+  display: "swap",
 });
 
 export default function RootLayout(props: { children: React.ReactNode }) {
@@ -69,7 +79,7 @@ export default function RootLayout(props: { children: React.ReactNode }) {
           sora.variable,
           geistMono.variable,
           inter.variable,
-          spaceGrotesk.variable,
+          playwrite.variable,
         )}
       >
         <ThemeProvider>
