@@ -1,8 +1,6 @@
-import {
-  CurriculumDesignerOutputSchema,
-  type OnboardingPacket,
-  type OnboardingTranscript,
-} from "./contracts";
+import type { OnboardingPacket, OnboardingTranscript } from "./contracts";
+
+import { CurriculumDesignerOutputSchema } from "./contracts";
 import { runAgent } from "../orchestration/agent-runtime";
 
 const CURRICULUM_DESIGNER_SYSTEM = `You are Breakpoint's curriculum designer.
@@ -40,7 +38,12 @@ Curriculum standards:
 - Units must follow genuine prerequisite dependencies, not arbitrary sequencing. Unit B comes after A only if B genuinely requires A.
 - Clusters should escalate in procedural complexity: early units isolate sub-skills, later units combine them.
 - Integration layers exist only when cross-cluster synthesis is necessary.
-- Fewer stronger nodes beat padded coverage.`;
+- Fewer stronger nodes beat padded coverage.
+
+Search policy:
+- You have access to a web search tool. Use it whenever you are not 100% certain about a factual claim, named artifact, current state, API/tool detail, person, company, market, event, schedule, law, or anything that may have changed.
+- Search before building the curriculum around external facts, field norms, tools, projects, or examples you have not verified.
+- Do not guess when a quick search would remove uncertainty.`;
 
 export const designCurriculum = async ({
   packet,

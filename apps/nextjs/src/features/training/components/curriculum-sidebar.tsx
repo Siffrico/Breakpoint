@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  BookOpenText,
   CaretRight,
   DotsThree,
   Gear,
@@ -335,6 +336,7 @@ function ChatRow({
 function ProjectRow({
   project,
   href,
+  curriculumHref,
   isCurrent,
   isExpanded,
   activeLessonId,
@@ -343,6 +345,7 @@ function ProjectRow({
 }: {
   project: LearningProject;
   href: string;
+  curriculumHref: string;
   isCurrent: boolean;
   isExpanded: boolean;
   activeLessonId?: string | null;
@@ -355,32 +358,43 @@ function ProjectRow({
 
   return (
     <div>
-      <button
-        type="button"
-        onClick={(event) => {
-          event.currentTarget.blur();
-          onToggle();
-        }}
-        aria-expanded={isExpanded}
+      <div
         className={[
-          "hover:bg-foreground/[0.035] flex w-full items-center gap-1.5 rounded-[6px] py-[6px] pr-2 pl-1.5 text-left text-[13px] font-normal transition-colors outline-none focus:outline-none focus-visible:outline-none",
-          isCurrent
-            ? "text-foreground/92"
-            : "text-foreground/72 hover:text-foreground/92",
+          "group/project hover:bg-foreground/[0.035] flex w-full items-center rounded-[6px] transition-colors",
+          isCurrent ? "text-foreground/92" : "text-foreground/72",
         ].join(" ")}
       >
-        <CaretRight
-          size={10}
-          weight="regular"
-          className={[
-            "text-foreground/36 shrink-0 transition-transform duration-150",
-            isExpanded ? "rotate-90" : "",
-          ].join(" ")}
-        />
-        <FadeLabel className="min-w-0 flex-1 leading-[18px]">
-          {project.title}
-        </FadeLabel>
-      </button>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.currentTarget.blur();
+            onToggle();
+          }}
+          aria-expanded={isExpanded}
+          aria-label={`${isExpanded ? "Collapse" : "Expand"} ${project.title}`}
+          className="text-foreground/36 flex size-6 shrink-0 items-center justify-center pl-1 transition-colors outline-none focus:outline-none focus-visible:outline-none hover:text-foreground/72"
+        >
+          <CaretRight
+            size={10}
+            weight="regular"
+            className={[
+              "shrink-0 transition-transform duration-150",
+              isExpanded ? "rotate-90" : "",
+            ].join(" ")}
+          />
+        </button>
+
+        <Link
+          href={href}
+          className="flex min-w-0 flex-1 py-[6px] pr-1 text-left text-[13px] font-normal transition-colors outline-none focus:outline-none focus-visible:outline-none hover:text-foreground/92"
+        >
+          <FadeLabel className="min-w-0 flex-1 leading-[18px]">
+            {project.title}
+          </FadeLabel>
+        </Link>
+
+        <ProjectActionsMenu curriculumHref={curriculumHref} />
+      </div>
 
       {isExpanded && lessons.length > 0 ? (
         <div className="border-foreground/[0.06] mt-px ml-[10px] border-l pl-[6px]">
@@ -399,6 +413,41 @@ function ProjectRow({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function ProjectActionsMenu({ curriculumHref }: { curriculumHref: string }) {
+  return (
+    <Menu>
+      <MenuTrigger
+        openOnHover
+        delay={80}
+        closeDelay={320}
+        render={
+          <button
+            type="button"
+            aria-label="Project actions"
+            className="text-foreground/28 hover:text-foreground/76 hover:bg-foreground/[0.05] flex size-6 shrink-0 items-center justify-center rounded-[5px] opacity-80 transition-colors outline-none focus:outline-none focus-visible:outline-none group-hover/project:opacity-100"
+          />
+        }
+      >
+        <DotsThree size={16} weight="bold" />
+      </MenuTrigger>
+      <MenuPopup
+        side="right"
+        align="start"
+        sideOffset={6}
+        className="w-36 rounded-none border-foreground/[0.1] bg-background text-foreground shadow-[0_10px_30px_rgba(0,0,0,0.12)] before:rounded-none"
+      >
+        <MenuItem
+          render={<Link href={curriculumHref} />}
+          className="rounded-none text-[13px]"
+        >
+          <BookOpenText size={14} aria-hidden="true" />
+          Curriculum
+        </MenuItem>
+      </MenuPopup>
+    </Menu>
   );
 }
 
@@ -562,11 +611,15 @@ export function CurriculumSidebar({
             const href = preview
               ? "/ui/workspace"
               : `/workspace?session=${project.sessionId}`;
+            const curriculumHref = preview
+              ? "/ui/curriculum"
+              : `/curriculum?session=${project.sessionId}`;
             return (
               <ProjectRow
                 key={project.sessionId}
                 project={project}
                 href={href}
+                curriculumHref={curriculumHref}
                 isCurrent={isCurrent}
                 isExpanded={isExpanded}
                 activeLessonId={activeLessonId}

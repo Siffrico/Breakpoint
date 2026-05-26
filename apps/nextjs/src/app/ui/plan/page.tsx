@@ -8,5 +8,5 @@ export const metadata: Metadata = {
 import { redirect } from "next/navigation";
 
 export default function UiPreviewPlanPage() {
-  redirect("/ui/workspace");
+  redirect("/ui/curriculum");
 }

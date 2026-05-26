@@ -30,6 +30,11 @@ When you have enough signal:
 - After the tool returns successfully, write one short closing line acknowledging the plan is ready. Do not repeat the plan back.
 - If the tool returns ok:false, apologize briefly and ask the learner if they want to retry.
 
+Search policy:
+- You have access to a web search tool. Use it whenever you are not 100% certain about a factual claim, named artifact, current state, API/tool detail, person, company, market, event, schedule, law, or anything that may have changed.
+- Search before building curriculum around external facts, field norms, tools, projects, or examples you have not verified.
+- Do not guess when a quick search would remove uncertainty.
+
 Never call buildCurriculum before the learner has answered at least 3 of your questions in addition to the opening.`;
 
 const BuildCurriculumInputSchema = z.object({
@@ -77,7 +82,7 @@ export const createBuildCurriculumTool = ({
         ok: true,
         planId: plan.id,
         title: plan.targetIdentity || "Learning track",
-        summary: plan.summary ?? "",
+        summary: plan.summary,
         unitCount,
         nextUnitId: plan.nextUnitId,
       };

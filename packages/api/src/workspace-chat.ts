@@ -1,12 +1,11 @@
 import type { z } from "zod/v4";
-import { Output, streamText } from "ai";
+import { Output, stepCountIs, streamText } from "ai";
 
 import type { db as databaseClient } from "@acme/db/client";
 
 import type {
   CurriculumNode,
   CurriculumPlan,
-  PhaseResponseRecord,
   UnitContent,
 } from "./domain/training/types/training.types";
 import type {
@@ -15,7 +14,10 @@ import type {
 } from "./domain/training/workspace-ai/types";
 import { buildWorkspaceContextEnvelope } from "./domain/training/context-engine/build-context-envelope";
 import { renderWorkspaceContextPrompt } from "./domain/training/context-engine/render-context-prompt";
-import { requireAiModelForPurpose } from "./domain/training/engine/model-router";
+import {
+  getSearchToolsForSelectedProvider,
+  requireAiModelForPurpose,
+} from "./domain/training/engine/model-router";
 import {
   buildWorkspaceIntroMessage,
   ensureWorkspaceUnit,
@@ -499,6 +501,8 @@ export const streamWorkspaceChat = async ({
             }),
             system: WORKSPACE_AI_RECALL_PROMPT,
             prompt: context,
+            tools: getSearchToolsForSelectedProvider(),
+            stopWhen: stepCountIs(4),
           });
 
           for await (const partial of result.partialOutputStream) {
@@ -530,6 +534,8 @@ export const streamWorkspaceChat = async ({
             }),
             system: WORKSPACE_AI_EDUCATION_UNIT_PROMPT,
             prompt: context,
+            tools: getSearchToolsForSelectedProvider(),
+            stopWhen: stepCountIs(4),
           });
 
           for await (const partial of result.partialOutputStream) {

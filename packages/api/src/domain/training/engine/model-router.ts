@@ -1,6 +1,6 @@
-import type { LanguageModel } from "ai";
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { createOpenAI } from "@ai-sdk/openai";
+import type { LanguageModel, ToolSet } from "ai";
+import { createGoogleGenerativeAI, google } from "@ai-sdk/google";
+import { createOpenAI, openai } from "@ai-sdk/openai";
 
 import type { ModelTier } from "../prompts/types";
 
@@ -59,7 +59,8 @@ const PROVIDER_ENV = ["AI_PROVIDER", "AI_MODEL_PROVIDER"] as const;
 
 const getEnv = (name: string): string | undefined => {
   const value = process.env[name]?.trim();
-  return value ? value : undefined;
+  if (!value) return undefined;
+  return value;
 };
 
 const getSelectedProvider = (): AiProvider => {
@@ -146,6 +147,22 @@ const createModel = ({
 };
 
 export const getAiProvider = (): AiProvider => getSelectedProvider();
+
+export const getSearchToolsForSelectedProvider = (): ToolSet => {
+  const provider = getSelectedProvider();
+
+  if (provider === "openai") {
+    return {
+      web_search: openai.tools.webSearch({
+        searchContextSize: "high",
+      }),
+    } as unknown as ToolSet;
+  }
+
+  return {
+    google_search: google.tools.googleSearch({}),
+  } as unknown as ToolSet;
+};
 
 export const getAiModelForTier = (tier: ModelTier): LanguageModel | null => {
   const provider = getSelectedProvider();

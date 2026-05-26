@@ -1,5 +1,10 @@
 import type { UIMessage } from "ai";
-import { convertToModelMessages, isTextUIPart, streamText } from "ai";
+import {
+  convertToModelMessages,
+  isTextUIPart,
+  stepCountIs,
+  streamText,
+} from "ai";
 
 import type { db as databaseClient } from "@acme/db/client";
 
@@ -8,6 +13,7 @@ import {
   ONBOARDING_CHAT_SYSTEM,
 } from "./domain/training/agents/onboarding-chat-agent";
 import {
+  getSearchToolsForSelectedProvider,
   getAiModelForPurpose,
   getMissingAiKeyMessage,
 } from "./domain/training/engine/model-router";
@@ -98,7 +104,11 @@ export const streamOnboardingChat = async ({
     model,
     system: ONBOARDING_CHAT_SYSTEM,
     messages: modelMessages,
-    tools: { buildCurriculum: buildCurriculumTool },
+    tools: {
+      ...getSearchToolsForSelectedProvider(),
+      buildCurriculum: buildCurriculumTool,
+    },
+    stopWhen: stepCountIs(5),
     onFinish: async ({ text }) => {
       const trimmed = text.trim();
       if (trimmed.length === 0) return;

@@ -1,8 +1,11 @@
 import type { z } from "zod/v4";
-import { generateObject } from "ai";
+import { Output, stepCountIs, streamText } from "ai";
 
 import type { AiModelPurpose } from "../engine/model-router";
-import { requireAiModelForPurpose } from "../engine/model-router";
+import {
+  getSearchToolsForSelectedProvider,
+  requireAiModelForPurpose,
+} from "../engine/model-router";
 
 const PURPOSE_BY_AGENT = {
   onboarding: "onboarding",
@@ -31,12 +34,18 @@ export const runAgent = async <TSchema extends z.ZodTypeAny>({
   );
 
   try {
-    const { object } = await generateObject({
+    const result = streamText({
       model,
-      schema,
+      output: Output.object({
+        schema,
+        name: `${agent}_output`,
+      }),
       system,
       prompt,
+      tools: getSearchToolsForSelectedProvider(),
+      stopWhen: stepCountIs(4),
     });
+    const object = await result.output;
 
     return object as z.infer<TSchema>;
   } catch (error) {

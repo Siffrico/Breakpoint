@@ -6,6 +6,11 @@ import {
   recallPrompt,
 } from "../prompts/registry";
 
+const SEARCH_POLICY = `Search policy:
+- You have access to a web search tool. Use it whenever you are not 100% certain about a factual claim, named artifact, current state, API/tool detail, person, company, market, event, schedule, law, or anything that may have changed.
+- Search before building curriculum or teaching around external facts you have not verified.
+- Do not guess when a quick search would remove uncertainty.`;
+
 const formatMainPrompt = (template: PromptTemplate) =>
   [
     template.persona.role,
@@ -18,6 +23,8 @@ const formatMainPrompt = (template: PromptTemplate) =>
     "",
     "Output expectation:",
     template.persona.outputExpectation,
+    "",
+    SEARCH_POLICY,
     "",
     template.instruction,
   ].join("\n");

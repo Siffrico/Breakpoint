@@ -57,6 +57,7 @@ export function OnboardingShell({
   const trpc = useTRPC();
   const router = useRouter();
   const startedRef = useRef(false);
+  const openedGeneratedWorkspaceRef = useRef(false);
   const [previewStep, setPreviewStep] = useState(0);
   const [previewState, setPreviewState] = useState<OnboardingState | null>(null);
 
@@ -140,6 +141,35 @@ export function OnboardingShell({
   }, [messages]);
   const hasReadyCurriculum = curriculum?.ok === true;
 
+  const openGeneratedWorkspace = useCallback(() => {
+    if (preview || !sessionId) return;
+
+    router.replace(`/workspace?session=${encodeURIComponent(sessionId)}`);
+    router.refresh();
+  }, [preview, router, sessionId]);
+
+  useEffect(() => {
+    if (
+      preview ||
+      !sessionId ||
+      !hasReadyCurriculum ||
+      openedGeneratedWorkspaceRef.current
+    ) {
+      return;
+    }
+
+    openedGeneratedWorkspaceRef.current = true;
+    const redirectTimer = window.setTimeout(openGeneratedWorkspace, 350);
+
+    return () => window.clearTimeout(redirectTimer);
+  }, [
+    curriculum,
+    hasReadyCurriculum,
+    openGeneratedWorkspace,
+    preview,
+    sessionId,
+  ]);
+
   useEffect(() => {
     onRunningChange?.(isStreaming || startOnboarding.isPending);
     return () => onRunningChange?.(false);
@@ -206,7 +236,7 @@ export function OnboardingShell({
 
   const isLandscape = variant === "landscape";
   const shellClassName = isLandscape
-    ? "relative flex h-full min-h-0 flex-1 items-center justify-center overflow-hidden"
+    ? "bg-background text-foreground relative flex h-full min-h-0 flex-1 items-center justify-center overflow-hidden"
     : embedded
       ? "relative flex min-h-[70vh] flex-col text-white"
       : "relative flex min-h-screen items-center justify-center overflow-hidden bg-[#050709] text-white";
@@ -230,14 +260,8 @@ export function OnboardingShell({
     <main className={shellClassName}>
       {isLandscape ? (
         <>
-          <div
-            className="pointer-events-none absolute inset-0"
-            style={{
-              background:
-                "linear-gradient(180deg, #cfe8ff 0%, #e9f4ff 45%, #f5f1e6 100%)",
-            }}
-          />
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/5" />
+          <div className="bg-background pointer-events-none absolute inset-0" />
+          <div className="from-foreground/[0.025] pointer-events-none absolute inset-0 bg-gradient-to-b via-transparent to-transparent" />
         </>
       ) : null}
 
@@ -270,7 +294,7 @@ export function OnboardingShell({
             className={[
               "font-display tracking-[-0.03em] transition-all duration-500",
               isLandscape
-                ? "text-center text-[#0f1a2e] drop-shadow-[0_1px_0_rgba(255,255,255,0.4)]"
+                ? "text-foreground text-center"
                 : "text-white",
               isStarted ? "text-xl sm:text-2xl" : "text-2xl sm:text-3xl",
             ].join(" ")}
@@ -298,8 +322,8 @@ export function OnboardingShell({
                     "max-w-lg rounded-none px-3 py-2",
                     isLandscape
                       ? message.role === "assistant"
-                        ? "border border-black/10 bg-white/70 text-[#1a2742] backdrop-blur-sm"
-                        : "ml-auto border border-[#0f1a2e]/15 bg-white/85 text-[#0f1a2e] backdrop-blur-sm"
+                        ? "border-border bg-card text-card-foreground border backdrop-blur-sm"
+                        : "border-border bg-secondary text-foreground ml-auto border backdrop-blur-sm"
                       : message.role === "assistant"
                         ? "border border-white/8 bg-white/[0.03] text-white/70"
                         : "ml-auto border border-white/12 bg-white/[0.06] text-white/90",
@@ -318,16 +342,12 @@ export function OnboardingShell({
           </div>
         ) : null}
 
-        {hasReadyCurriculum && curriculum?.ok ? (
+        {curriculum?.ok ? (
           <CurriculumReadyCard
             curriculum={curriculum}
             sessionId={sessionId}
             isLandscape={isLandscape}
-            onOpen={() => {
-              if (!sessionId) return;
-              router.push(`/workspace?session=${sessionId}`);
-              router.refresh();
-            }}
+            onOpen={openGeneratedWorkspace}
           />
         ) : null}
 
@@ -335,7 +355,7 @@ export function OnboardingShell({
           <div
             className={
               isLandscape
-                ? "w-full rounded-none border border-black/10 bg-white/92 shadow-[0_10px_30px_-16px_rgba(15,26,46,0.35)] backdrop-blur"
+                ? "border-border bg-card w-full rounded-none border shadow-[0_10px_30px_-16px_rgba(0,0,0,0.35)] backdrop-blur"
                 : "w-full border border-white/[0.06] bg-[#111111]"
             }
           >
@@ -358,7 +378,7 @@ export function OnboardingShell({
               disabled={!preview && (!sessionId || isStreaming)}
               className={
                 isLandscape
-                  ? "min-h-24 resize-none rounded-none border-0 bg-transparent px-5 py-4 text-sm leading-6 text-[#0f1a2e] shadow-none placeholder:text-[#0f1a2e]/40 focus-visible:ring-0"
+                  ? "text-foreground placeholder:text-muted-foreground min-h-24 resize-none rounded-none border-0 bg-transparent px-5 py-4 text-sm leading-6 shadow-none focus-visible:ring-0"
                   : "min-h-24 resize-none rounded-none border-0 bg-transparent px-5 py-4 text-sm leading-6 text-white shadow-none placeholder:text-white/20 focus-visible:ring-0"
               }
             />
@@ -367,14 +387,14 @@ export function OnboardingShell({
               className={[
                 "flex items-center justify-between px-5 py-3",
                 isLandscape
-                  ? "border-t border-black/8"
+                  ? "border-border border-t"
                   : "border-t border-white/8",
               ].join(" ")}
             >
               <div
                 className={[
                   "text-[11px]",
-                  isLandscape ? "text-[#0f1a2e]/45" : "text-white/30",
+                  isLandscape ? "text-muted-foreground" : "text-white/30",
                 ].join(" ")}
               >
                 {statusText}
@@ -388,7 +408,7 @@ export function OnboardingShell({
                 }
                 className={
                   isLandscape
-                    ? "h-8 rounded-none bg-[#0f1a2e] px-4 text-xs font-medium text-white hover:bg-[#0f1a2e]/90"
+                    ? "bg-foreground text-background hover:bg-foreground/90 h-8 rounded-none px-4 text-xs font-medium"
                     : "h-8 rounded-none bg-white px-4 text-xs font-medium text-black hover:bg-white/90"
                 }
               >
@@ -410,7 +430,7 @@ export function OnboardingShell({
                 onClick={() => setAnswer(suggestion)}
                 className={
                   isLandscape
-                    ? "flex-1 rounded-none border border-black/10 bg-white/80 px-4 py-3 text-left text-xs leading-5 text-[#0f1a2e]/70 backdrop-blur-sm transition-colors hover:border-black/20 hover:text-[#0f1a2e]"
+                    ? "border-border bg-card text-muted-foreground hover:text-foreground flex-1 rounded-none border px-4 py-3 text-left text-xs leading-5 backdrop-blur-sm transition-colors hover:bg-secondary"
                     : "flex-1 border border-white/[0.06] bg-[#111111] px-4 py-3 text-left text-xs leading-5 text-white/40 transition-colors hover:border-white/12 hover:text-white/60"
                 }
               >
@@ -439,14 +459,14 @@ function CurriculumReadyCard({
     <div
       className={
         isLandscape
-          ? "w-full rounded-none border border-black/12 bg-white/95 px-5 py-4 backdrop-blur"
+          ? "border-border bg-card w-full rounded-none border px-5 py-4 backdrop-blur"
           : "w-full border border-white/12 bg-white/[0.04] px-5 py-4"
       }
     >
       <div
         className={[
           "text-[11px] tracking-wide uppercase",
-          isLandscape ? "text-[#0f1a2e]/55" : "text-white/40",
+          isLandscape ? "text-muted-foreground" : "text-white/40",
         ].join(" ")}
       >
         Curriculum ready
@@ -454,7 +474,7 @@ function CurriculumReadyCard({
       <div
         className={[
           "mt-1 text-base font-medium",
-          isLandscape ? "text-[#0f1a2e]" : "text-white",
+          isLandscape ? "text-foreground" : "text-white",
         ].join(" ")}
       >
         {curriculum.title}
@@ -462,7 +482,7 @@ function CurriculumReadyCard({
       <div
         className={[
           "mt-1 text-xs leading-5",
-          isLandscape ? "text-[#0f1a2e]/65" : "text-white/55",
+          isLandscape ? "text-muted-foreground" : "text-white/55",
         ].join(" ")}
       >
         {curriculum.unitCount} {curriculum.unitCount === 1 ? "unit" : "units"} · ready to start
@@ -474,7 +494,7 @@ function CurriculumReadyCard({
           disabled={!sessionId}
           className={
             isLandscape
-              ? "h-8 rounded-none bg-[#0f1a2e] px-4 text-xs font-medium text-white hover:bg-[#0f1a2e]/90"
+              ? "bg-foreground text-background hover:bg-foreground/90 h-8 rounded-none px-4 text-xs font-medium"
               : "h-8 rounded-none bg-white px-4 text-xs font-medium text-black hover:bg-white/90"
           }
         >

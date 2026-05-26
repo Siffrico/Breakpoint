@@ -42,7 +42,8 @@ export function initAuth<
       discord: {
         clientId: options.discordClientId,
         clientSecret: options.discordClientSecret,
-        redirectURI: `${options.productionUrl}/api/auth/callback/discord`,
+        redirectURI: `${options.baseUrl}/api/auth/callback/discord`,
+        prompt: "consent",
       },
     },
     trustedOrigins,
