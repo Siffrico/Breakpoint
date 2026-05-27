@@ -24,7 +24,11 @@ export const resolveProfileSessionId = async (preferredSessionId?: string | null
   const caller = await createCaller();
   const projects = await caller.training.listLearningProjects().catch(() => []);
 
-  return projects[0]?.sessionId ?? null;
+  return (
+    projects.find((project) => project.status === "active")?.sessionId ??
+    projects[0]?.sessionId ??
+    null
+  );
 };
 
 export const getProfileGeneral = async (sessionId: string) => {

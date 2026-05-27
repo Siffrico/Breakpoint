@@ -11,8 +11,8 @@ export async function AuthShowcase() {
 
   if (!session) {
     return (
-      <Button size="lg" asChild>
-        <Link href="/auth">Sign in</Link>
+      <Button size="lg" render={<Link href="/auth" />}>
+        Sign in
       </Button>
     );
   }

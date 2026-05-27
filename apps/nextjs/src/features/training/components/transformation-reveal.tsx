@@ -106,18 +106,18 @@ export function TransformationReveal({
           <div className="flex gap-3">
             {plan.nextUnitId ? (
               <Button
-                asChild
+                render={<Link href={beginHref} />}
                 className="h-10 rounded-none bg-white px-5 text-black hover:bg-white/90"
               >
-                <Link href={beginHref}>Start the first shift</Link>
+                Start the first shift
               </Button>
             ) : null}
             <Button
-              asChild
+              render={<Link href={workspaceHref} />}
               variant="outline"
               className="h-10 rounded-none border-white/15 bg-transparent px-5 text-white hover:bg-white/5"
             >
-              <Link href={workspaceHref}>Go to workspace</Link>
+              Go to workspace
             </Button>
           </div>
         </section>

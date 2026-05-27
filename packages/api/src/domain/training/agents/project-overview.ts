@@ -168,7 +168,7 @@ const runProjectOverviewPrompt = async ({
   }) => void;
 }) => {
   const model = requireAiModelForPurpose(
-    "curriculum",
+    "projectOverview",
     "AI-generated training workflows",
   );
   const result = streamText({

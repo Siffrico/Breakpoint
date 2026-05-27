@@ -48,23 +48,7 @@ export function initAuth<
     },
     trustedOrigins,
     rateLimit: {
-      enabled: true,
-      window: 60,
-      max: 120,
-      customRules: {
-        "/sign-in/email": {
-          window: 60,
-          max: 10,
-        },
-        "/sign-up/email": {
-          window: 60,
-          max: 5,
-        },
-        "/forget-password": {
-          window: 60 * 10,
-          max: 3,
-        },
-      },
+      enabled: false,
     },
     advanced: {
       useSecureCookies: options.baseUrl.startsWith("https://"),

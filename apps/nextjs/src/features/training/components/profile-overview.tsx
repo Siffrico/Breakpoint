@@ -26,20 +26,20 @@ export function ProfileOverview({
         <section className="border-b border-border px-6 py-4">
           <div className="flex gap-3">
             <Button
-              asChild
+              render={<Link href={backHref} />}
               variant="outline"
               size="sm"
               className="h-8 rounded-none border-border bg-transparent px-3 text-xs text-muted-foreground hover:bg-white/5 hover:text-foreground"
             >
-              <Link href={backHref}>&larr; Back to workspace</Link>
+              &larr; Back to workspace
             </Button>
             <Button
-              asChild
+              render={<Link href={transformationHref} />}
               variant="outline"
               size="sm"
               className="h-8 rounded-none border-border bg-transparent px-3 text-xs text-muted-foreground hover:bg-white/5 hover:text-foreground"
             >
-              <Link href={transformationHref}>Before / after</Link>
+              Before / after
             </Button>
           </div>
         </section>

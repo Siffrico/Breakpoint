@@ -114,11 +114,11 @@ export function CapstoneWorkspace({
             </h1>
           </div>
           <Button
-            asChild
+            render={<Link href={workspaceHref} />}
             variant="outline"
             className="border-border text-foreground hover:bg-accent hover:text-foreground h-11 bg-transparent px-5"
           >
-            <Link href={workspaceHref}>Workspace</Link>
+            Workspace
           </Button>
         </div>
       ) : null}

@@ -59,12 +59,10 @@ export function WorkspaceOverview({
           <div className="mt-5">
             {activeUnitId ? (
               <Button
-                asChild
+                render={<Link href={trainHref} />}
                 className="h-10 rounded-none bg-white px-5 text-black hover:bg-white/90"
               >
-                <Link href={trainHref}>
-                  {workspace.activeRecallGate ? "Open recall gate" : "Continue training"}
-                </Link>
+                {workspace.activeRecallGate ? "Open recall gate" : "Continue training"}
               </Button>
             ) : null}
           </div>
@@ -90,18 +88,18 @@ export function WorkspaceOverview({
 
         <section className="flex gap-3 p-6">
           <Button
-            asChild
+            render={<Link href={planHref} />}
             variant="outline"
             className="h-10 rounded-none border-border bg-transparent px-5 text-foreground hover:bg-white/5"
           >
-            <Link href={planHref}>View path</Link>
+            View path
           </Button>
           <Button
-            asChild
+            render={<Link href={profileHref} />}
             variant="outline"
             className="h-10 rounded-none border-border bg-transparent px-5 text-foreground hover:bg-white/5"
           >
-            <Link href={profileHref}>Identity profile</Link>
+            Identity profile
           </Button>
         </section>
       </div>

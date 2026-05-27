@@ -32,10 +32,12 @@ const formatProvider = (provider: string | null) => {
 };
 
 export function GeneralTab({
+  sessionId,
   initialGeneral,
   account,
   billing,
 }: {
+  sessionId?: string;
   initialGeneral: GeneralState;
   account: AccountState;
   billing: BillingState;
@@ -43,18 +45,22 @@ export function GeneralTab({
   const trpc = useTRPC();
   const [savedGeneral, setSavedGeneral] = useState(initialGeneral);
   const [targetIdentity, setTargetIdentity] = useState(
-    initialGeneral.targetIdentity,
+    initialGeneral?.targetIdentity ?? "",
   );
-  const [motivation, setMotivation] = useState(initialGeneral.motivation);
-  const [hardMoments, setHardMoments] = useState(initialGeneral.hardMoments);
+  const [motivation, setMotivation] = useState(
+    initialGeneral?.motivation ?? "",
+  );
+  const [hardMoments, setHardMoments] = useState(
+    initialGeneral?.hardMoments ?? [],
+  );
   const [hardMomentDraft, setHardMomentDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setSavedGeneral(initialGeneral);
-    setTargetIdentity(initialGeneral.targetIdentity);
-    setMotivation(initialGeneral.motivation);
-    setHardMoments(initialGeneral.hardMoments);
+    setTargetIdentity(initialGeneral?.targetIdentity ?? "");
+    setMotivation(initialGeneral?.motivation ?? "");
+    setHardMoments(initialGeneral?.hardMoments ?? []);
   }, [initialGeneral]);
 
   const updateGeneral = useMutation(
@@ -76,9 +82,10 @@ export function GeneralTab({
 
   const isDirty = useMemo(
     () =>
-      targetIdentity !== savedGeneral.targetIdentity ||
-      motivation !== savedGeneral.motivation ||
-      hardMoments.join("\u0001") !== savedGeneral.hardMoments.join("\u0001"),
+      Boolean(savedGeneral) &&
+      (targetIdentity !== savedGeneral?.targetIdentity ||
+        motivation !== savedGeneral?.motivation ||
+        hardMoments.join("\u0001") !== savedGeneral.hardMoments.join("\u0001")),
     [hardMoments, motivation, savedGeneral, targetIdentity],
   );
 
@@ -102,90 +109,117 @@ export function GeneralTab({
       <SettingsPageHeader title="General" />
 
       <SettingsSection title="Training">
-        <SettingRow
-          label="Target identity"
-          description="What the learning path should train toward."
-          control={
-            <Input
-              value={targetIdentity}
-              onChange={(event) => setTargetIdentity(event.target.value)}
-              placeholder="Staff backend engineer"
-              className="w-[280px]"
+        {savedGeneral ? (
+          <>
+            <SettingRow
+              label="Target identity"
+              description="What the learning path should train toward."
+              control={
+                <Input
+                  value={targetIdentity}
+                  onChange={(event) => setTargetIdentity(event.target.value)}
+                  placeholder="Staff backend engineer"
+                  className="w-[280px]"
+                />
+              }
             />
-          }
-        />
-        <SettingField
-          label="Motivation"
-          description="Why this identity matters right now."
-        >
-          <Textarea
-            value={motivation}
-            onChange={(event) => setMotivation(event.target.value)}
-            placeholder="Why this identity matters right now."
-          />
-        </SettingField>
-        <SettingField
-          label="Hard moments"
-          description="Situations that break your current default."
-        >
-          <div className="flex flex-wrap gap-2">
-            {hardMoments.length > 0 ? (
-              hardMoments.map((moment) => (
-                <button
-                  key={moment}
-                  type="button"
-                  onClick={() => removeHardMoment(moment)}
-                  className="group border-foreground/12 bg-foreground/[0.04] hover:border-foreground/28 text-foreground/88 inline-flex items-center gap-2 border px-2.5 py-1 text-[12px] transition-colors"
-                >
-                  <span>{moment}</span>
-                  <span className="text-foreground/44 group-hover:text-foreground/88 text-[13px] leading-none transition-colors">
-                    ×
-                  </span>
-                </button>
-              ))
-            ) : (
-              <div className="text-foreground/48 text-[12px]">
-                No hard moments yet.
+            <SettingField
+              label="Motivation"
+              description="Why this identity matters right now."
+            >
+              <Textarea
+                value={motivation}
+                onChange={(event) => setMotivation(event.target.value)}
+                placeholder="Why this identity matters right now."
+              />
+            </SettingField>
+            <SettingField
+              label="Hard moments"
+              description="Situations that break your current default."
+            >
+              <div className="flex flex-wrap gap-2">
+                {hardMoments.length > 0 ? (
+                  hardMoments.map((moment) => (
+                    <button
+                      key={moment}
+                      type="button"
+                      onClick={() => removeHardMoment(moment)}
+                      className="group border-foreground/12 bg-foreground/[0.04] hover:border-foreground/28 text-foreground/88 inline-flex items-center gap-2 border px-2.5 py-1 text-[12px] transition-colors"
+                    >
+                      <span>{moment}</span>
+                      <span className="text-foreground/44 group-hover:text-foreground/88 text-[13px] leading-none transition-colors">
+                        ×
+                      </span>
+                    </button>
+                  ))
+                ) : (
+                  <div className="text-foreground/48 text-[12px]">
+                    No hard moments yet.
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-            <Input
-              value={hardMomentDraft}
-              onChange={(event) => setHardMomentDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  addHardMoment();
-                }
-              }}
-              placeholder="Add a hard moment"
-            />
-            <Button variant="outline" size="sm" onClick={addHardMoment}>
-              Add
-            </Button>
-          </div>
-        </SettingField>
-        {error ? (
-          <div className="text-destructive px-5 pb-3 text-[12px]">{error}</div>
-        ) : null}
-        <SettingFooter>
-          <Button
-            size="sm"
-            loading={updateGeneral.isPending}
-            disabled={!isDirty || updateGeneral.isPending}
-            onClick={() =>
-              updateGeneral.mutate({
-                sessionId: initialGeneral.sessionId,
-                targetIdentity,
-                motivation,
-                hardMoments,
-              })
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                <Input
+                  value={hardMomentDraft}
+                  onChange={(event) => setHardMomentDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      addHardMoment();
+                    }
+                  }}
+                  placeholder="Add a hard moment"
+                />
+                <Button variant="outline" size="sm" onClick={addHardMoment}>
+                  Add
+                </Button>
+              </div>
+            </SettingField>
+            {error ? (
+              <div className="text-destructive px-5 pb-3 text-[12px]">
+                {error}
+              </div>
+            ) : null}
+            <SettingFooter>
+              <Button
+                size="sm"
+                loading={updateGeneral.isPending}
+                disabled={!isDirty || updateGeneral.isPending}
+                onClick={() => {
+                  if (!savedGeneral) return;
+                  updateGeneral.mutate({
+                    sessionId: savedGeneral.sessionId,
+                    targetIdentity,
+                    motivation,
+                    hardMoments,
+                  });
+                }}
+              >
+                Save
+              </Button>
+            </SettingFooter>
+          </>
+        ) : (
+          <SettingRow
+            label="Learning profile"
+            description="Finish onboarding to generate the training fields for this project."
+            control={
+              sessionId ? (
+                <Button
+                  render={<Link href={`/workspace?session=${sessionId}`} />}
+                  variant="outline"
+                  size="sm"
+                >
+                  Open workspace
+                </Button>
+              ) : (
+                <span className="text-foreground/48 text-[12px]">
+                  Not generated
+                </span>
+              )
             }
-          >
-            Save
-          </Button>
-        </SettingFooter>
+          />
+        )}
       </SettingsSection>
 
       <SettingsSection title="Account">
@@ -221,14 +255,18 @@ export function GeneralTab({
           description={billing.plan}
           control={
             billing.manageUrl ? (
-              <Button asChild variant="outline" size="sm">
-                <Link
-                  href={billing.manageUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Manage
-                </Link>
+              <Button
+                render={
+                  <Link
+                    href={billing.manageUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  />
+                }
+                variant="outline"
+                size="sm"
+              >
+                Manage
               </Button>
             ) : (
               <Button variant="outline" size="sm" disabled>

@@ -23,11 +23,12 @@ export type AiModelPurpose =
   | "evaluation"
   | "tutor"
   | "capstone"
+  | "projectOverview"
   | "default";
 
 const GOOGLE_TIER_DEFAULTS: Record<ModelTier, string> = {
-  critical: "gemini-3.5-flash",
-  standard: "gemini-3.5-flash",
+  critical: "gemini-3.1-flash-lite",
+  standard: "gemini-3.1-flash-lite",
 };
 
 const OPENAI_TIER_DEFAULTS: Record<ModelTier, string> = {
@@ -46,6 +47,7 @@ const PURPOSE_TIER: Record<AiModelPurpose, ModelTier> = {
   evaluation: "critical",
   tutor: "standard",
   capstone: "critical",
+  projectOverview: "critical",
   default: "standard",
 };
 
@@ -59,6 +61,7 @@ const LEGACY_OPENAI_PURPOSE_ENV: Partial<Record<AiModelPurpose, string>> = {
   recall: "OPENAI_MODEL_RECALL",
   evaluation: "OPENAI_MODEL_EVALUATION",
   tutor: "OPENAI_MODEL_TUTOR",
+  projectOverview: "OPENAI_MODEL_PROJECT_OVERVIEW",
 };
 
 const PROVIDER_ENV = ["AI_PROVIDER", "AI_MODEL_PROVIDER"] as const;
@@ -70,8 +73,19 @@ const getEnv = (name: string): string | undefined => {
   return value;
 };
 
-const getSelectedProvider = (): AiProvider => {
-  const configured = PROVIDER_ENV.map((name) => getEnv(name)).find(Boolean);
+const isEnabled = (name: string): boolean => {
+  const value = getEnv(name)?.toLowerCase();
+  return value === "1" || value === "true" || value === "yes";
+};
+
+const getPurposeProviderEnvName = (purpose: AiModelPurpose): string =>
+  `AI_PROVIDER_${purpose.replace(/[A-Z]/g, (letter) => `_${letter}`).toUpperCase()}`;
+
+const getSelectedProvider = (purpose?: AiModelPurpose): AiProvider => {
+  const configured = [
+    ...(purpose ? [getEnv(getPurposeProviderEnvName(purpose))] : []),
+    ...PROVIDER_ENV.map((name) => getEnv(name)),
+  ].find(Boolean);
   if (configured === "openai" || configured === "google") {
     return configured;
   }
@@ -180,6 +194,10 @@ export const withAiModelPreference = async <T>(
 };
 
 export const getSearchToolsForSelectedProvider = (): ToolSet => {
+  if (!isEnabled("AI_ENABLE_SEARCH_TOOLS")) {
+    return {};
+  }
+
   const provider = getSelectedProvider();
 
   if (provider === "openai") {
@@ -211,7 +229,7 @@ export const getAiModelForPurpose = (
   purpose: AiModelPurpose,
   modelName?: string,
 ): LanguageModel | null => {
-  const provider = getSelectedProvider();
+  const provider = getSelectedProvider(purpose);
   const apiKey = getProviderApiKey(provider);
   if (!apiKey) return null;
 
@@ -228,7 +246,7 @@ export const requireAiModelForPurpose = (
   context: string,
   modelName?: string,
 ): LanguageModel => {
-  const provider = getSelectedProvider();
+  const provider = getSelectedProvider(purpose);
   const model = getAiModelForPurpose(purpose, modelName);
   if (!model) {
     throw new Error(getProviderMissingKeyMessage(provider, context));

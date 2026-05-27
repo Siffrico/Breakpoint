@@ -23,7 +23,7 @@ const themeOptions: { value: ThemeMode; label: string }[] = [
 ];
 
 const AI_MODEL_COOKIE = "bp-ai-model";
-const DEFAULT_AI_MODEL: AiModelPreference = "gemini-3.5-flash";
+const DEFAULT_AI_MODEL: AiModelPreference = "gemini-3.1-flash-lite";
 
 const readModelPreference = (): AiModelPreference => {
   const cookieValue = document.cookie

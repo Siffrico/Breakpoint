@@ -102,10 +102,14 @@ export function ProjectsTab({
                 description={`${project.headline} Updated ${formatUpdatedAt(project.updatedAt)}.`}
                 control={
                   <div className="flex items-center gap-2">
-                    <Button asChild variant="outline" size="sm">
-                      <Link href={`/workspace?session=${project.sessionId}`}>
-                        Open
-                      </Link>
+                    <Button
+                      render={
+                        <Link href={`/workspace?session=${project.sessionId}`} />
+                      }
+                      variant="outline"
+                      size="sm"
+                    >
+                      Open
                     </Button>
                     <Button
                       variant="destructive-outline"

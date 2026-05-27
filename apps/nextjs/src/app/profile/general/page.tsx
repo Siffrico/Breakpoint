@@ -31,5 +31,12 @@ export default async function ProfileGeneralPage(props: {
     getProfileBilling(),
   ]);
 
-  return <GeneralTab initialGeneral={general} account={account} billing={billing} />;
+  return (
+    <GeneralTab
+      sessionId={sessionId}
+      initialGeneral={general}
+      account={account}
+      billing={billing}
+    />
+  );
 }

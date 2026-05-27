@@ -42,11 +42,11 @@ export function UnitWorkspace({
             </h1>
           </div>
           <Button
-            asChild
+            render={<Link href={workspaceHref} />}
             variant="outline"
             className="h-11 rounded-none border-white/15 bg-transparent px-5 text-white hover:bg-white/5 hover:text-white"
           >
-            <Link href={workspaceHref}>Workspace</Link>
+            Workspace
           </Button>
         </div>
 

@@ -52,18 +52,18 @@ export function CurriculumReveal({
         <section className="flex gap-3 p-6">
           {plan.nextUnitId ? (
             <Button
-              asChild
+              render={<Link href={beginHref} />}
               className="h-10 rounded-none bg-white px-5 text-black hover:bg-white/90"
             >
-              <Link href={beginHref}>Begin first unit</Link>
+              Begin first unit
             </Button>
           ) : null}
           <Button
-            asChild
+            render={<Link href={workspaceHref} />}
             variant="outline"
             className="h-10 rounded-none border-border bg-transparent px-5 text-foreground hover:bg-white/5"
           >
-            <Link href={workspaceHref}>Back</Link>
+            Back
           </Button>
         </section>
       </div>

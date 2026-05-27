@@ -1,6 +1,12 @@
+"use client";
+
 import { Suspense } from "react";
 
+import { useLocalStorage } from "~/hooks/use-local-storage";
+
 import { ProfileSidebar, type ProfileTabKey } from "./profile-tabs";
+
+type WorkspaceTheme = "light" | "dark" | "warm";
 
 export function ProfileShell({
   basePath = "/profile",
@@ -11,9 +17,17 @@ export function ProfileShell({
   activeTab?: ProfileTabKey;
   children: React.ReactNode;
 }) {
+  const [workspaceTheme] = useLocalStorage<WorkspaceTheme>(
+    "bp-workspace-theme",
+    "warm",
+  );
+
   return (
-    <div className="bg-background text-foreground flex h-dvh overflow-hidden">
-      <aside className="border-foreground/[0.06] bg-sidebar flex w-[220px] shrink-0 flex-col border-r">
+    <div
+      className="bp-workspace-theme bg-background text-foreground flex h-dvh overflow-hidden"
+      data-workspace-theme={workspaceTheme}
+    >
+      <aside className="border-sidebar-border bg-sidebar flex w-[220px] shrink-0 flex-col border-r">
         <Suspense fallback={null}>
           <ProfileSidebar basePath={basePath} activeTab={activeTab} />
         </Suspense>
@@ -52,7 +66,7 @@ export function SettingsSection({
       <h2 className="font-display text-foreground/84 mb-3 text-[13px] font-semibold">
         {title}
       </h2>
-      <div className="divide-foreground/[0.06] border-foreground/[0.06] bg-card divide-y border">
+      <div className="divide-border border-border bg-card divide-y border">
         {children}
       </div>
     </section>

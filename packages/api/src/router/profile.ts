@@ -84,10 +84,7 @@ export const profileRouter = {
       );
 
       if (!result) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "This learning profile could not be found.",
-        });
+        return null;
       }
 
       return result;
