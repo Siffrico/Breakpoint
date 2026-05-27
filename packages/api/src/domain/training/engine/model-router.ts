@@ -3,10 +3,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { createGoogleGenerativeAI, google } from "@ai-sdk/google";
 import { createOpenAI, openai } from "@ai-sdk/openai";
 
-import {
-  AiModelPreferenceSchema,
-  type AiModelPreference,
-} from "@acme/validators";
+import type { AiModelPreference } from "@acme/validators";
+import { AiModelPreferenceSchema } from "@acme/validators";
 
 import type { ModelTier } from "../prompts/types";
 
@@ -34,6 +32,12 @@ const GOOGLE_TIER_DEFAULTS: Record<ModelTier, string> = {
 const OPENAI_TIER_DEFAULTS: Record<ModelTier, string> = {
   critical: "gpt-4.1",
   standard: "gpt-4.1-mini",
+};
+
+const OPENAI_PURPOSE_DEFAULTS: Partial<Record<AiModelPurpose, string>> = {
+  onboarding: "gpt-5.4",
+  curriculum: "gpt-5.4",
+  evaluation: "gpt-5.4-mini",
 };
 
 const PURPOSE_TIER: Record<AiModelPurpose, ModelTier> = {
@@ -144,6 +148,9 @@ const resolveModelName = ({
 
   return (
     purposeModel ??
+    (provider === "openai"
+      ? OPENAI_PURPOSE_DEFAULTS[purpose ?? "default"]
+      : undefined) ??
     getEnv(getTierEnvName(tier)) ??
     (provider === "openai"
       ? tier === "critical"

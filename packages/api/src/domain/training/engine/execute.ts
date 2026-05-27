@@ -3,7 +3,11 @@ import { generateObject } from "ai";
 
 import type { PromptContext, PromptTemplate } from "../prompts/types";
 import { composePrompt } from "../prompts/compose";
-import { getMissingAiKeyMessage, getModelForTier } from "./model-router";
+import {
+  getMissingAiKeyMessage,
+  getModelForTier,
+  requireAiModelForPurpose,
+} from "./model-router";
 import { logPromptExecution } from "./observe";
 
 interface ExecuteOptions<TSchema extends z.ZodTypeAny> {
@@ -28,7 +32,9 @@ export const executePrompt = async <TSchema extends z.ZodTypeAny>({
   context,
   errorMessage,
 }: ExecuteOptions<TSchema>): Promise<z.infer<TSchema>> => {
-  const model = getModelForTier(template.tier);
+  const model = isEvaluationTemplate(template)
+    ? requireAiModelForPurpose("evaluation", "AI-generated training workflows")
+    : getModelForTier(template.tier);
   if (!model) {
     throw new Error(getMissingAiKeyMessage("AI-generated training workflows"));
   }
@@ -82,6 +88,11 @@ export const executePrompt = async <TSchema extends z.ZodTypeAny>({
 
   throw new Error(errorMessage);
 };
+
+const isEvaluationTemplate = (template: PromptTemplate): boolean =>
+  Boolean(template.rubric) ||
+  template.id.startsWith("grade-") ||
+  template.id.startsWith("evaluate-");
 
 /**
  * Attempts to extract a 'score' field from the generated object

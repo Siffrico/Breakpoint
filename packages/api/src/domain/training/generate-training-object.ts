@@ -1,6 +1,7 @@
 import type { z } from "zod/v4";
 import { generateObject } from "ai";
 
+import type { AiModelPurpose } from "./engine/model-router";
 import { requireAiModelForPurpose } from "./engine/model-router";
 
 export const generateTrainingObject = async <TSchema extends z.ZodTypeAny>({
@@ -10,6 +11,7 @@ export const generateTrainingObject = async <TSchema extends z.ZodTypeAny>({
   errorMessage,
   retryPromptSuffix,
   modelName,
+  purpose = "default",
 }: {
   schema: TSchema;
   system: string;
@@ -17,9 +19,10 @@ export const generateTrainingObject = async <TSchema extends z.ZodTypeAny>({
   errorMessage: string;
   retryPromptSuffix?: string;
   modelName?: string;
+  purpose?: AiModelPurpose;
 }): Promise<z.infer<TSchema>> => {
   const model = requireAiModelForPurpose(
-    "default",
+    purpose,
     "AI-generated training workflows",
     modelName,
   );

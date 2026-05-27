@@ -28,6 +28,7 @@ export const evaluatePracticeResponse = async ({
 }): Promise<PracticeEvaluation> =>
   generateTrainingObject({
     schema: PracticeEvaluationSchema,
+    purpose: "evaluation",
     errorMessage: "Failed to evaluate the practice response.",
     system:
       "You are evaluating whether a learner has genuinely applied a concept, not just restated it. Be demanding. Vague application fails. Generic responses fail. Only pass when the learner demonstrates they can actually DO something with the concept.",
