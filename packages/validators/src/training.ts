@@ -649,7 +649,7 @@ export const parseBuildContentSections = (
   };
 
   for (const line of lines) {
-    const marker = line.trim().match(/^\[([a-z_]+)\]$/)?.[1];
+    const marker = (/^\[([a-z_]+)\]$/.exec(line.trim()))?.[1];
     if (marker && BUILD_CONTENT_MOVE_SET.has(marker)) {
       flush();
       currentMove = marker as BuildContentMove;

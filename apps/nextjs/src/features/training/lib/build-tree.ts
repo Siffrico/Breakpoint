@@ -12,7 +12,10 @@ export function buildTree(
   for (const node of nodes) {
     const parentId = node.parentNodeId;
     if (!childrenMap.has(parentId)) childrenMap.set(parentId, []);
-    childrenMap.get(parentId)!.push(node);
+    const siblings = childrenMap.get(parentId);
+    if (siblings) {
+      siblings.push(node);
+    }
   }
 
   function convert(node: PlanNodes[number]): TreeNode {

@@ -9,7 +9,7 @@ import {
 } from "@acme/db/schema";
 
 import type { ProfileAccount, ProfileBilling, ProfileError, ProfileGeneral } from "../domain/profile/types";
-import { type Result } from "../lib/result";
+import type {Result} from "../lib/result";
 
 type Database = typeof databaseClient;
 

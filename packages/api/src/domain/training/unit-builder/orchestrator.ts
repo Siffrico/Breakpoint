@@ -6,13 +6,7 @@ import type {
   TeachbackMessage,
 } from "../types/training.types";
 import { runBuildStage } from "./build-stage";
-import {
-  type PriorLearningRecord,
-  type ProveStageGeneration,
-  type SeedStageOutput,
-  type StageTeachbackSetup,
-  type UnitBuilderContext,
-} from "./contracts";
+import type {PriorLearningRecord, ProveStageGeneration, SeedStageOutput, StageTeachbackSetup, UnitBuilderContext} from "./contracts";
 import {
   evaluateRepairStage,
   generateRepairStage,
@@ -238,12 +232,12 @@ export const educationUnitBuilder = {
     teachbackTranscript,
   }: {
     unit: ForgeUnitContent;
-    practiceResponses: Array<{
+    practiceResponses: {
       sequence: number;
       response: string;
       feedback: string;
       passed: boolean;
-    }>;
+    }[];
     teachbackTranscript: TeachbackMessage[];
   }) =>
     reviewTeachbackProof({
@@ -261,12 +255,12 @@ export const educationUnitBuilder = {
     proveReview,
   }: {
     unit: ForgeUnitContent;
-    practiceResponses: Array<{
+    practiceResponses: {
       sequence: number;
       response: string;
       feedback: string;
       passed: boolean;
-    }>;
+    }[];
     teachbackTranscript: TeachbackMessage[];
     proveReview: Awaited<
       ReturnType<typeof reviewTeachbackProof>

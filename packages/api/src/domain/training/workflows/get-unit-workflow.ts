@@ -1,4 +1,5 @@
-import { err, ok, type Result } from "../../../lib/result";
+import { err, ok  } from "../../../lib/result";
+import type {Result} from "../../../lib/result";
 import { generateClusterBriefing } from "../generate-cluster-briefing";
 import { generateUnitScaffold } from "../orchestration/unit-flow";
 import {
@@ -24,7 +25,7 @@ interface GetUnitDependencies {
     status: string;
   } | null>;
   getPlanNodesBySession: (sessionId: string) => Promise<
-    Array<{
+    {
       id: string;
       parentNodeId: string | null;
       kind: string;
@@ -33,11 +34,11 @@ interface GetUnitDependencies {
       whyItMatters: string;
       orderIndex: number;
       status: string;
-    }> | null
+    }[] | null
   >;
   getTargetIdentity: (sessionId: string) => Promise<string | null>;
   listAttemptHistory: (sessionId: string) => Promise<
-    Array<{
+    {
       title: string;
       score: number;
       readiness: string;
@@ -46,7 +47,7 @@ interface GetUnitDependencies {
       improvements: string[];
       failureTags: string[];
       nextStep: string;
-    }>
+    }[]
   >;
   createUnitContent: (input: {
     nodeId: string;
@@ -143,7 +144,7 @@ export const getUnitWorkflow = async ({
   const briefingPromise =
     parentNode && existingUnit?.clusterBriefing == null
       ? generateClusterBriefing({
-          slotKind: node.kind as "unit" | "integration",
+          slotKind: node.kind,
           totalSlots: siblingUnits.length || 1,
           clusterContext: {
             title: parentNode.title,
@@ -204,7 +205,7 @@ export const getUnitWorkflow = async ({
   try {
     [setup, generatedBriefing] = await Promise.all([
       generateUnitScaffold({
-        slotKind: node.kind as "unit" | "integration",
+        slotKind: node.kind,
         slotIndex,
         totalSlots: siblingUnits.length || 1,
         clusterContext,

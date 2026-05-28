@@ -525,5 +525,5 @@ export const getPrompt = (id: string): PromptTemplate => {
 };
 
 /** List all registered prompt IDs and versions. */
-export const listPrompts = (): Array<{ id: string; version: number; tier: string }> =>
+export const listPrompts = (): { id: string; version: number; tier: string }[] =>
   ALL_PROMPTS.map((p) => ({ id: p.id, version: p.version, tier: p.tier }));

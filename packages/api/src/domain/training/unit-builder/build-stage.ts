@@ -1,10 +1,11 @@
 import { runAgent } from "../orchestration/agent-runtime";
 import {
   BuildStageInputSchema,
-  BuildStageOutputSchema,
-  type BuildStageInput,
-  type BuildStageOutput,
+  BuildStageOutputSchema
+  
+  
 } from "./contracts";
+import type {BuildStageInput, BuildStageOutput} from "./contracts";
 
 const BUILD_STAGE_SYSTEM = `You are Breakpoint's build-stage agent inside the education-unit-builder.
 

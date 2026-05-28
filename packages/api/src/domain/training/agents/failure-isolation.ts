@@ -1,8 +1,9 @@
 import type { FailureGap, ForgeUnitContent, TeachbackMessage } from "../types/training.types";
 import {
-  FailureIsolationReviewSchema,
-  type FailureIsolationReview,
+  FailureIsolationReviewSchema
+  
 } from "./contracts";
+import type {FailureIsolationReview} from "./contracts";
 import { runAgent } from "../orchestration/agent-runtime";
 
 const FAILURE_ISOLATION_SYSTEM = `You are Breakpoint's failure-isolation agent.
@@ -34,12 +35,12 @@ export const reviewTeachbackFailure = async ({
   teachbackTranscript,
 }: {
   unitContent: ForgeUnitContent;
-  practiceResponses: Array<{
+  practiceResponses: {
     sequence: number;
     response: string;
     feedback: string;
     passed: boolean;
-  }>;
+  }[];
   teachbackTranscript: TeachbackMessage[];
 }): Promise<FailureIsolationReview> =>
   runAgent({
@@ -87,12 +88,12 @@ Build content:
 ${unitContent.buildContent ?? "Not generated."}`;
 
 const formatPracticeResponses = (
-  practiceResponses: Array<{
+  practiceResponses: {
     sequence: number;
     response: string;
     feedback: string;
     passed: boolean;
-  }>,
+  }[],
 ): string =>
   practiceResponses.length > 0
     ? practiceResponses

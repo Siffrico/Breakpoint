@@ -3,7 +3,7 @@ import type { db as databaseClient } from "@acme/db/client";
 import { Memory as MemoryTable } from "@acme/db/schema";
 
 import type { Memory, MemoryError, MemorySource } from "../domain/memory/types";
-import { type Result } from "../lib/result";
+import type {Result} from "../lib/result";
 
 type Database = typeof databaseClient;
 
@@ -166,7 +166,7 @@ export const memoryRepository = {
     userId: string;
     importId: string;
     source: Extract<MemorySource, "file" | "chatgpt_import">;
-    entries: Array<{ content: string; contentHash: string }>;
+    entries: { content: string; contentHash: string }[];
   }): Promise<Result<Memory[], MemoryError>> => {
     if (entries.length === 0) {
       return {

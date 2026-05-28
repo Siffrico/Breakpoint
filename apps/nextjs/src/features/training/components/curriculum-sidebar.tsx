@@ -41,10 +41,10 @@ const EMPTY_PROJECTS: LearningProject[] = [];
 
 type WorkspaceTheme = "light" | "dark" | "warm";
 
-const WORKSPACE_THEME_OPTIONS: Array<{
+const WORKSPACE_THEME_OPTIONS: {
   label: string;
   value: WorkspaceTheme;
-}> = [
+}[] = [
   { label: "Light", value: "light" },
   { label: "Dark", value: "dark" },
   { label: "Warm", value: "warm" },

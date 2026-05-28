@@ -35,7 +35,7 @@ export const logPromptExecution = (execution: PromptExecution): void => {
     if (execution.error) {
       parts.push(`error=${execution.error}`);
     }
-    // eslint-disable-next-line no-console
+     
     console.log(parts.join(" "));
   }
 };

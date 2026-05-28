@@ -18,7 +18,7 @@ import {
   replaceBlockWithTag,
 } from "./rich-text-helpers";
 
-type NotionComposerProps = {
+interface NotionComposerProps {
   open: boolean;
   initialMarkdown: string;
   placeholder: string;
@@ -27,7 +27,7 @@ type NotionComposerProps = {
   onChange: (markdown: string) => void;
   onClose: () => void;
   onSubmit: (markdown: string) => void;
-};
+}
 
 export function NotionComposer({
   open,
@@ -132,7 +132,7 @@ export function NotionComposer({
       if (event.key === "Enter" && !event.shiftKey) {
         const anchor = window.getSelection()?.anchorNode ?? null;
         const li = getAncestorLi(anchor);
-        if (li && (li.textContent ?? "").length === 0) {
+        if (li?.textContent.length === 0) {
           event.preventDefault();
           exitEmptyListItem(li);
           emitChange();
@@ -156,7 +156,7 @@ export function NotionComposer({
     const block = getDirectChildBlock(root, anchor);
 
     if (block && block.tagName !== "UL" && block.tagName !== "OL") {
-      const trigger = matchMarkdownTrigger(block.textContent ?? "");
+      const trigger = matchMarkdownTrigger(block.textContent);
       if (trigger) {
         if (trigger.type === "ul" || trigger.type === "ol") {
           convertBlockToList(block, trigger.type, trigger.rest);

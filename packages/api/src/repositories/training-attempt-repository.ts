@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, sql } from "@acme/db";
+import { and, asc, desc, eq, inArray } from "@acme/db";
 import type { db as databaseClient } from "@acme/db/client";
 import {
   TrainingCurriculumNode,
@@ -212,7 +212,7 @@ export const trainingAttemptRepository = {
 
     const latestByContent = new Map<string, number>();
     for (const attempt of attempts) {
-      if (!latestByContent.has(attempt.unitContentId) && attempt.score != null) {
+      if (!latestByContent.has(attempt.unitContentId)) {
         latestByContent.set(attempt.unitContentId, attempt.score);
       }
     }

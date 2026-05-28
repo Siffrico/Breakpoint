@@ -1,5 +1,5 @@
 import { tool } from "ai";
-import { z } from "zod/v4";
+import type { z } from "zod/v4";
 
 import { DebateCapstoneScenarioSchema } from "@acme/validators";
 
@@ -12,7 +12,7 @@ export const createDebateScenarioTool = () =>
     description:
       "Create a debate-style capstone when the learner should defend judgment under pressure against a strong opposing argument.",
     inputSchema: DebateScenarioInputSchema,
-    execute: async (input: DebateScenarioInput) =>
+    execute: (input: DebateScenarioInput) =>
       DebateCapstoneScenarioSchema.parse({
         format: "debate",
         ...input,

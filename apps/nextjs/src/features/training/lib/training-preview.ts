@@ -12,11 +12,11 @@ export interface UnitPreviewState {
   title: string;
   concept: string;
   workedExample: string;
-  retrievalItems: Array<{
+  retrievalItems: {
     prompt: string;
     intent: string;
     expectedSignals: string[];
-  }>;
+  }[];
   scenario: {
     title: string;
     prompt: string;

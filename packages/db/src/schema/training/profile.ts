@@ -54,7 +54,7 @@ export const TrainingIdentityProfileVersion = pgTable(
     afterStateSummary: t.text(),
     beforeAfterContrastPairs: t
       .jsonb()
-      .$type<Array<{ before: string; after: string }>>(),
+      .$type<{ before: string; after: string }[]>(),
     firstShift: t.text(),
     createdAt: t
       .timestamp({ mode: "date", withTimezone: true })

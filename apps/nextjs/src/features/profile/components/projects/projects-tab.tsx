@@ -66,6 +66,7 @@ export function ProjectsTab({
           currentSessionId === sessionId ||
           readCookie(LAST_SESSION_COOKIE) === sessionId
         ) {
+          // eslint-disable-next-line react-hooks/immutability -- Cookie deletion is an intentional browser side effect after project deletion.
           document.cookie = `${LAST_SESSION_COOKIE}=; path=/; max-age=0; SameSite=Lax`;
           router.replace("/workspace");
           router.refresh();

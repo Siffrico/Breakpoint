@@ -16,11 +16,11 @@ import { AssistantRichText } from "./assistant-rich-text";
 
 type EducationUnit = RouterOutputs["training"]["unit"];
 
-type PanelMessage = {
+interface PanelMessage {
   id: string;
   role: "assistant" | "user";
   content: string;
-};
+}
 
 const ASK_COMPOSER_MIN_HEIGHT = 112;
 const ASK_COMPOSER_MAX_HEIGHT = 280;
@@ -203,6 +203,7 @@ export function UnitQuestionPanel({
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Reset panel history when the active unit changes.
     setMessages([initialAssistantMessage]);
   }, [initialAssistantMessage]);
 

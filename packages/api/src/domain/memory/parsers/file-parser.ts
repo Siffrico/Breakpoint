@@ -5,7 +5,7 @@ export const parseFileMemories = (input: string) =>
     .split(/\n+/)
     .map((line) =>
       normalizeMemoryContent(
-        line.replace(/^(?:[-*•]+|\d+[\.\)])\s+/i, "").replace(/^["'`]+|["'`]+$/g, ""),
+        line.replace(/^(?:[-*•]+|\d+[.)])\s+/i, "").replace(/^["'`]+|["'`]+$/g, ""),
       ).slice(0, memoryCaps.maxContentChars),
     )
     .filter((entry) => entry.length > 0)

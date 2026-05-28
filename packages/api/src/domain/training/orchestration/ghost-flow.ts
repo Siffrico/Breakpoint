@@ -8,17 +8,17 @@ export const generateGhostReplay = ({
   proveReview,
 }: {
   unitContent: ForgeUnitContent;
-  practiceResponses: Array<{
+  practiceResponses: {
     sequence: number;
     response: string;
     feedback: string;
     passed: boolean;
-  }>;
-  teachbackTranscript: Array<{
+  }[];
+  teachbackTranscript: {
     role: "student" | "user";
     content: string;
     round: number;
-  }>;
+  }[];
   proveReview: {
     verdict: {
       passed: boolean;

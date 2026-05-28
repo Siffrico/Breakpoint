@@ -1,9 +1,4 @@
-import type {
-  Memory,
-  MemoryImport,
-  MemoryImportSource,
-  MemorySource,
-} from "@acme/validators";
+import type { Memory, MemoryImport } from "@acme/validators";
 
 export type {
   Memory,

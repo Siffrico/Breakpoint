@@ -16,12 +16,12 @@ import type {
 } from "../domain/training/types/training.types";
 
 type Database = typeof databaseClient;
-type OnboardingMessageInsert = {
+interface OnboardingMessageInsert {
   sessionId: string;
   role: "assistant" | "user";
   content: string;
   slot: string | null;
-};
+}
 
 const isUniqueViolation = (error: unknown) =>
   typeof error === "object" &&
@@ -417,7 +417,7 @@ export const trainingOnboardingRepository = {
       where: eq(TrainingIdentityProfileVersion.id, profile.currentVersionId),
     });
 
-    return profile && version ? { profile, version } : null;
+    return version ? { profile, version } : null;
   },
 
   listProfilesBySessionIds: async ({

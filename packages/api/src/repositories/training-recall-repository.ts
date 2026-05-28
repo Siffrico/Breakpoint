@@ -63,7 +63,7 @@ const buildGateSummary = ({
   probes,
 }: {
   gate: typeof TrainingRecallGate.$inferSelect;
-  probes: Array<typeof TrainingRecallProbe.$inferSelect>;
+  probes: typeof TrainingRecallProbe.$inferSelect[];
 }): RecallGateSummary => ({
   id: gate.id,
   status: gate.status as RecallGateStatus,
@@ -82,7 +82,7 @@ const getGateWithProbes = async ({
   where:
     | ReturnType<typeof eq>
     | ReturnType<typeof and>
-    | ReturnType<typeof or>;
+     ;
 }): Promise<RecallGate | null> => {
   const gate = await db.query.TrainingRecallGate.findFirst({
     where,
@@ -166,14 +166,14 @@ export const trainingRecallRepository = {
   }: {
     db: Database;
     gateId: string;
-    probes: Array<{
+    probes: {
       probeOrder: number;
       probeType: RecallProbeType;
       sourceUnitNodeIds: string[];
       prompt: string;
       seedSnapshot?: string | null;
       status?: RecallProbeStatus;
-    }>;
+    }[];
   }) => {
     const existing = await db.query.TrainingRecallProbe.findMany({
       where: eq(TrainingRecallProbe.gateId, gateId),

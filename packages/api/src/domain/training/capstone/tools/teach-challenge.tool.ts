@@ -1,5 +1,5 @@
 import { tool } from "ai";
-import { z } from "zod/v4";
+import type { z } from "zod/v4";
 
 import { TeachCapstoneScenarioSchema } from "@acme/validators";
 
@@ -12,7 +12,7 @@ export const createTeachChallengeTool = () =>
     description:
       "Create a teach-style capstone when the learner should explain the cluster's core insight to a constrained audience and handle pushback.",
     inputSchema: TeachChallengeInputSchema,
-    execute: async (input: TeachChallengeInput) =>
+    execute: (input: TeachChallengeInput) =>
       TeachCapstoneScenarioSchema.parse({
         format: "teach",
         ...input,

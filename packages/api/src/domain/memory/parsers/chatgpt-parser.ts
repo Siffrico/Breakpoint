@@ -1,6 +1,6 @@
 import { memoryCaps, normalizeImportPayload, normalizeMemoryContent } from "../policies/memory-caps";
 
-const bulletPattern = /^(?:[-*•]+|\d+[\.\)]|[a-z][\.\)])\s+/i;
+const bulletPattern = /^(?:[-*•]+|\d+[.)]|[a-z][.)])\s+/i;
 
 const finalizeEntry = (value: string) => {
   const cleaned = normalizeMemoryContent(

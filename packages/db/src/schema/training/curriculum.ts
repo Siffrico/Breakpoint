@@ -59,10 +59,10 @@ export const TrainingCurriculumNode = pgTable(
     whyItMatters: t.text().notNull(),
     briefing: t.jsonb().$type<{
       briefingArc: string;
-      briefingMap: Array<{
+      briefingMap: {
         position: number;
         role: string;
-      }>;
+      }[];
     }>(),
     orderIndex: t.integer().notNull(),
     depth: t.integer().notNull(),

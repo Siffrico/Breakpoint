@@ -1,9 +1,10 @@
 import { z } from "zod/v4";
 import {
-  EducationUnitStateSchema,
-  type EducationUnitConceptCorrection,
-  type EducationUnitState,
+  EducationUnitStateSchema
+  
+  
 } from "@acme/validators";
+import type {EducationUnitConceptCorrection, EducationUnitState} from "@acme/validators";
 
 import type { PhaseResponseRecord, UnitContent } from "../types/training.types";
 
@@ -254,10 +255,10 @@ export const createEducationUnitConceptCorrection = ({
   conceptName?: string | null;
   conceptSummary?: string | null;
 }): EducationUnitConceptCorrection => ({
-  id: toConceptId(conceptName?.trim() || unit.title),
-  name: conceptName?.trim() || unit.title,
+  id: toConceptId(conceptName?.trim() ?? unit.title),
+  name: conceptName?.trim() ?? unit.title,
   summary:
-    conceptSummary?.trim() ||
+    conceptSummary?.trim() ??
     "This unit sharpens the concept the learner needs next.",
 });
 

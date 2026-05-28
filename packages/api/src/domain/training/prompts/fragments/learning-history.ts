@@ -50,9 +50,9 @@ export const formatCapstoneHistory = (
 - Summary: ${item.summary}
 - Score: ${item.score}
 - Readiness: ${item.readiness}
-- Growth dimensions: ${item.growthDimensions?.join(", ") || "None captured"}
-- Improvements: ${item.improvements.join("; ") || "None captured"}
-- Failure tags: ${item.failureTags.join("; ") || "None captured"}`,
+- Growth dimensions: ${item.growthDimensions?.join(", ") ?? "None captured"}
+- Improvements: ${item.improvements.length > 0 ? item.improvements.join("; ") : "None captured"}
+- Failure tags: ${item.failureTags.length > 0 ? item.failureTags.join("; ") : "None captured"}`,
     )
     .join("\n");
 };

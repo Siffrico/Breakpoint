@@ -2,7 +2,8 @@
 
 import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
-import { cva, type VariantProps } from "class-variance-authority";
+import { cva  } from "class-variance-authority";
+import type {VariantProps} from "class-variance-authority";
 import { cloneElement, isValidElement } from "react";
 import type * as React from "react";
 
@@ -90,8 +91,25 @@ export function Button({
     </>
   );
 
-  if (asChild && isValidElement(children)) {
-    return cloneElement(
+  const renderedButton = useRender({
+    defaultTagName: "button",
+    props: mergeProps<"button">(
+      {
+        children: content,
+        className: classes,
+        "aria-disabled": loading || undefined,
+        "data-loading": loading ? "" : undefined,
+        "data-slot": "button",
+        disabled: isDisabled,
+        type: buttonType,
+      },
+      props,
+    ),
+    render,
+  });
+
+  return asChild && isValidElement(children)
+    ? cloneElement(
       children as React.ReactElement<Record<string, unknown>>,
       {
         "aria-disabled": loading || undefined,
@@ -104,22 +122,6 @@ export function Button({
         ...props,
       },
       content,
-    );
-  }
-
-  const defaultProps = {
-    children: content,
-    className: classes,
-    "aria-disabled": loading || undefined,
-    "data-loading": loading ? "" : undefined,
-    "data-slot": "button",
-    disabled: isDisabled,
-    type: buttonType,
-  };
-
-  return useRender({
-    defaultTagName: "button",
-    props: mergeProps<"button">(defaultProps, props),
-    render,
-  });
+    )
+    : renderedButton;
 }

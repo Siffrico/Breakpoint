@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable react-hooks/refs -- This component performs imperative file input resets in mutation callbacks. */
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 
@@ -73,11 +75,13 @@ export function MemoryPanel({ initialMemories }: { initialMemories: Memory[] }) 
     }),
   );
 
+   
   const uploadFile = useMutation(
     trpc.memory.uploadFile.mutationOptions({
       onSuccess: (result) => {
         setPanelError(null);
         setOversizeWarning(null);
+         
         if (fileInputRef.current) {
           fileInputRef.current.value = "";
         }

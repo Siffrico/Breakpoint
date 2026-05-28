@@ -1,4 +1,5 @@
-import { err, ok, type Result } from "../../../lib/result";
+import { err, ok  } from "../../../lib/result";
+import type {Result} from "../../../lib/result";
 import type { HomeState } from "../types/training.types";
 
 interface GetHomeStateDependencies {

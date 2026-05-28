@@ -1,14 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { cn } from "@acme/ui";
-import { useTheme, type ThemeMode } from "@acme/ui/theme";
+import { useTheme  } from "@acme/ui/theme";
+import type {ThemeMode} from "@acme/ui/theme";
 import {
   AI_MODEL_OPTIONS,
-  AiModelPreferenceSchema,
-  type AiModelPreference,
+  AiModelPreferenceSchema
+  
 } from "@acme/validators";
+import type {AiModelPreference} from "@acme/validators";
 
 import {
   SettingRow,
@@ -42,11 +44,7 @@ const writeModelPreference = (model: AiModelPreference) => {
 export function ThemePreferenceCard() {
   const { themeMode, setTheme } = useTheme();
   const [selectedModel, setSelectedModel] =
-    useState<AiModelPreference>(DEFAULT_AI_MODEL);
-
-  useEffect(() => {
-    setSelectedModel(readModelPreference());
-  }, []);
+    useState<AiModelPreference>(readModelPreference);
 
   const handleModelChange = (model: AiModelPreference) => {
     setSelectedModel(model);

@@ -1,4 +1,5 @@
-import { err, ok, type Result } from "../../../lib/result";
+import { err, ok  } from "../../../lib/result";
+import type {Result} from "../../../lib/result";
 import type { CapstoneState, CapstoneScenario } from "../types/training.types";
 import { runCapstoneAgent } from "../capstone/run-capstone-agent";
 import { getCapstoneMaxRounds } from "../capstone/fallback-capstone";
@@ -15,7 +16,7 @@ interface GenerateCapstoneDependencies {
     status: string;
   } | null>;
   getPlanNodesBySession: (sessionId: string) => Promise<
-    Array<{
+    {
       id: string;
       parentNodeId: string | null;
       kind: string;
@@ -24,7 +25,7 @@ interface GenerateCapstoneDependencies {
       whyItMatters: string;
       status: string;
       orderIndex: number;
-    }> | null
+    }[] | null
   >;
   getCapstoneByNodeId: (simulationNodeId: string, sessionId: string) => Promise<CapstoneState["capstone"] | null>;
   listCapstoneMessages: (capstoneId: string) => Promise<CapstoneState["messages"]>;
@@ -52,14 +53,14 @@ interface GenerateCapstoneDependencies {
     sessionId: string,
     unitIds: string[],
   ) => Promise<
-    Array<{
+    {
       unitContentId: string;
       score: number;
       readiness: string;
       growthDimensions: string[] | null;
       improvements: string[];
       failureTags: string[];
-    }>
+    }[]
   >;
 }
 

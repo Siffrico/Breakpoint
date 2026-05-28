@@ -68,9 +68,7 @@ export interface PromptTemplate {
 }
 
 /** Context slots filled at call time by compose.ts. */
-export interface PromptContext {
-  [key: string]: string | undefined;
-}
+export type PromptContext = Record<string, string | undefined>;
 
 /** Result of composing a template + context into final strings. */
 export interface ComposedPrompt {

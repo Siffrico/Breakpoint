@@ -30,9 +30,8 @@ Pacing:
 
 When you have enough signal:
 - Write a short message (3-6 sentences) describing the curriculum you would build. Name the through-line of the path and 2-4 of the major skill areas. Use the learner's own framing.
-- Call the nameLearningTrack tool to produce the saved learning track name. The name must be only the topic, in lowercase kebab-case, such as "computer-engineering" or "machine-learning". Do not use an identity phrase, sentence, goal, or marketing title.
 - In that same assistant turn, immediately call the buildCurriculum tool. Do not ask for permission, wait for "ok", or say you are going to generate it without calling the tool.
-- The buildCurriculum tool input is the complete curriculum payload. You must write the full identity report, before/after profile, plan draft, and optional project overview into the tool call. Set planDraft.title to the exact name returned by nameLearningTrack. This tool persists exactly that curriculum as the learner's saved curriculum plan.
+- The buildCurriculum tool input is the complete curriculum payload. You must write the saved learningTrackName, full identity report, before/after profile, plan draft, and optional project overview into the tool call. The saved learningTrackName must be only the topic, such as "computer engineering" or "machine learning", not an identity phrase, sentence, goal, or marketing title. The backend normalizes and persists that name as the curriculum title.
 - After the tool returns successfully, write one short closing line acknowledging the plan is ready. Do not repeat the plan back.
 - If the tool returns ok:false, apologize briefly and ask the learner if they want to retry.
 
@@ -45,6 +44,12 @@ Never call buildCurriculum before the learner has answered at least 3 of your qu
 
 export const BuildCurriculumInputSchema = CurriculumDesignerOutputSchema.extend(
   {
+    learningTrackName: z
+      .string()
+      .min(1)
+      .describe(
+        'The saved curriculum title as the core study topic only, for example "computer engineering" or "machine learning". Do not use an identity phrase or long descriptive title.',
+      ),
     overview: ProjectOverviewOutputSchema.nullable()
       .optional()
       .describe(
@@ -79,23 +84,6 @@ export const normalizeLearningTrackName = (input: string): string => {
   return normalized || "learning-track";
 };
 
-export const createNameLearningTrackTool = () =>
-  tool({
-    description:
-      "Create the saved learning track name from the learner's topic. Return only the topic in lowercase kebab-case, not an identity phrase or descriptive title.",
-    inputSchema: z.object({
-      topic: z
-        .string()
-        .min(1)
-        .describe(
-          'The core topic the learner is studying, such as "computer engineering" or "machine learning".',
-        ),
-    }),
-    execute: ({ topic }): { name: string } => ({
-      name: normalizeLearningTrackName(topic),
-    }),
-  });
-
 export const createBuildCurriculumTool = ({
   buildCurriculum,
 }: {
@@ -107,7 +95,7 @@ export const createBuildCurriculumTool = ({
 }) =>
   tool({
     description:
-      "Persist the learner's complete curriculum from the conversation so far. The input must contain the full identity report, before/after profile, and curriculum plan draft that should become the saved curriculum. Call this only after the learner has answered enough questions for you to confidently design the path.",
+      "Persist the learner's complete curriculum from the conversation so far. The input must contain the saved learningTrackName plus the full identity report, before/after profile, and curriculum plan draft that should become the saved curriculum. Call this only after the learner has answered enough questions for you to confidently design the path.",
     inputSchema: BuildCurriculumInputSchema,
     execute: async (input): Promise<BuildCurriculumResult> => {
       const result = await buildCurriculum(input);

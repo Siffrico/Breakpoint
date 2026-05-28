@@ -1,10 +1,11 @@
 import { runAgent } from "../orchestration/agent-runtime";
 import {
   SeedStageOutputSchema,
-  UnitBuilderContextSchema,
-  type SeedStageOutput,
-  type UnitBuilderContext,
+  UnitBuilderContextSchema
+  
+  
 } from "./contracts";
+import type {SeedStageOutput, UnitBuilderContext} from "./contracts";
 
 const SEED_STAGE_SYSTEM = `You are Breakpoint's seed-stage agent inside the education-unit-builder.
 

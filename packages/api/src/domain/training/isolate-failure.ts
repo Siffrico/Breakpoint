@@ -20,12 +20,12 @@ export const isolateFailure = async ({
   teachbackScore,
 }: {
   unitContent: ForgeUnitContent;
-  practiceResponses: Array<{
+  practiceResponses: {
     sequence: number;
     response: string;
     feedback: string;
     passed: boolean;
-  }>;
+  }[];
   teachbackTranscript: TeachbackMessage[];
   teachbackScore: number;
 }): Promise<FailureGap> =>

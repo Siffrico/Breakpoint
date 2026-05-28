@@ -16,10 +16,10 @@ export const AI_MODEL_OPTIONS = [
     label: "Gemini 3.5 Flash",
     description: "Higher-capability model for curriculum and tutor work.",
   },
-] as const satisfies ReadonlyArray<{
+] as const satisfies readonly {
   value: AiModelPreference;
   label: string;
   description: string;
-}>;
+}[];
 
 export type AiModelPreference = z.infer<typeof AiModelPreferenceSchema>;

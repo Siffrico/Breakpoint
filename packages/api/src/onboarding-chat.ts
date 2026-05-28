@@ -1,23 +1,19 @@
 import type { UIMessage } from "ai";
 import {
   convertToModelMessages,
-  createUIMessageStream,
-  createUIMessageStreamResponse,
   isTextUIPart,
   stepCountIs,
   streamText,
+  tool,
 } from "ai";
+import { z } from "zod/v4";
 
 import type { db as databaseClient } from "@acme/db/client";
 
-import type {
-  BuildCurriculumInput,
-  BuildCurriculumResult,
-} from "./domain/training/agents/onboarding-chat-agent";
+import type { BuildCurriculumInput } from "./domain/training/agents/onboarding-chat-agent";
 import type { CurriculumPlan } from "./domain/training/types/training.types";
 import {
   createBuildCurriculumTool,
-  createNameLearningTrackTool,
   normalizeLearningTrackName,
   ONBOARDING_CHAT_SYSTEM,
 } from "./domain/training/agents/onboarding-chat-agent";
@@ -28,7 +24,6 @@ import {
   withAiModelPreference,
 } from "./domain/training/engine/model-router";
 import { buildCurriculumNodes } from "./domain/training/orchestration/curriculum-flow";
-import { generateCurriculumWorkflow } from "./domain/training/workflows/generate-curriculum-workflow";
 import { trainingCurriculumRepository } from "./repositories/training-curriculum-repository";
 import { trainingOnboardingRepository } from "./repositories/training-onboarding-repository";
 
@@ -45,58 +40,22 @@ const extractText = (message: UIMessage): string =>
     .join("\n")
     .trim();
 
-const isGenerationConfirmation = (text: string): boolean =>
-  /^(ok|okay|yes|yeah|yep|sure|do it|generate it|let'?s do it|go ahead)[.!]*$/i.test(
-    text.trim(),
-  );
-
-const assistantAskedToGenerate = (text: string): boolean => {
-  const normalized = text.toLowerCase();
-  return (
-    normalized.includes("generate your custom path") ||
-    normalized.includes("let's generate") ||
-    (normalized.includes("curriculum") && normalized.includes("generate"))
-  );
-};
-
-const createCurriculumReadyResponse = ({
-  output,
-  assistantText,
-}: {
-  output: BuildCurriculumResult;
-  assistantText: string;
-}): Response => {
-  const stream = createUIMessageStream({
-    execute: ({ writer }) => {
-      const textId = "curriculum-ready-text";
-      const toolCallId = "build-curriculum-recovery";
-
-      writer.write({ type: "start" });
-      writer.write({ type: "start-step" });
-      writer.write({ type: "text-start", id: textId });
-      writer.write({ type: "text-delta", id: textId, delta: assistantText });
-      writer.write({ type: "text-end", id: textId });
-      writer.write({
-        type: "tool-input-available",
-        toolCallId,
-        toolName: "buildCurriculum",
-        input: {
-          reasoning:
-            "The learner already gave enough onboarding signal and confirmed generation.",
-        },
-      });
-      writer.write({
-        type: "tool-output-available",
-        toolCallId,
-        output,
-      });
-      writer.write({ type: "finish-step" });
-      writer.write({ type: "finish", finishReason: "stop" });
-    },
+const createNameLearningTrackTool = () =>
+  tool({
+    description:
+      "Create the saved learning track name from the learner's topic. Return only the topic in lowercase kebab-case, not an identity phrase or descriptive title.",
+    inputSchema: z.object({
+      topic: z
+        .string()
+        .min(1)
+        .describe(
+          'The core topic the learner is studying, such as "computer engineering" or "machine learning".',
+        ),
+    }),
+    execute: ({ topic }): { name: string } => ({
+      name: normalizeLearningTrackName(topic),
+    }),
   });
-
-  return createUIMessageStreamResponse({ stream });
-};
 
 export const streamOnboardingChat = async ({
   db,
@@ -163,6 +122,14 @@ const streamOnboardingChatWithModelPreference = async ({
     });
   }
 
+  const persistedMessages = await trainingOnboardingRepository.listMessages({
+    db,
+    sessionId,
+  });
+  const userAnswerCount = persistedMessages.filter(
+    (message) => message.role === "user",
+  ).length;
+
   const buildCurriculumFromDesigner = async (
     input: BuildCurriculumInput,
   ): Promise<BuildCurriculumOutcome> => {
@@ -172,6 +139,12 @@ const streamOnboardingChatWithModelPreference = async ({
     });
     if (existingPlan) {
       return { success: true, plan: existingPlan };
+    }
+    if (userAnswerCount < 4) {
+      return {
+        success: false,
+        error: "The learner has not answered enough onboarding questions yet.",
+      };
     }
 
     const createdProfile =
@@ -193,7 +166,7 @@ const streamOnboardingChatWithModelPreference = async ({
       profileVersionId: createdProfile.version.id,
       userId: session.userId,
       blueprint: {
-        title: normalizeLearningTrackName(input.planDraft.title),
+        title: normalizeLearningTrackName(input.learningTrackName),
         summary: input.planDraft.summary,
         targetIdentity: input.planDraft.targetIdentity,
         overview: input.overview
@@ -231,86 +204,19 @@ const streamOnboardingChatWithModelPreference = async ({
       : { success: false, error: "Curriculum plan was not found." };
   };
 
-  const generateAndBuildCurriculum =
-    async (): Promise<BuildCurriculumOutcome> => {
-      const result = await generateCurriculumWorkflow({
-        sessionId,
-        deps: {
-          getSession: (id) =>
-            trainingOnboardingRepository.getSession({ db, sessionId: id }),
-          listMessages: (id) =>
-            trainingOnboardingRepository.listMessages({ db, sessionId: id }),
-          createProfileVersion: (input) =>
-            trainingOnboardingRepository.createProfileVersion({ db, ...input }),
-          createPlan: (input) =>
-            trainingCurriculumRepository.createPlan({ db, ...input }),
-          getActivePlan: (id) =>
-            trainingCurriculumRepository.getActivePlan({ db, sessionId: id }),
-          updateSession: (input) =>
-            trainingOnboardingRepository.updateSession({ db, ...input }),
-        },
-      });
-      if (!result.success) {
-        return { success: false, error: result.error };
-      }
-      return { success: true, plan: result.data };
-    };
-
-  const persistedMessages = await trainingOnboardingRepository.listMessages({
-    db,
-    sessionId,
-  });
-  const userAnswerCount = persistedMessages.filter(
-    (message) => message.role === "user",
-  ).length;
-  const previousAssistantMessage = [...persistedMessages]
-    .reverse()
-    .find((message) => message.role === "assistant");
-  const lastUserText = last?.role === "user" ? extractText(last) : "";
-
-  if (
-    userAnswerCount >= 4 &&
-    isGenerationConfirmation(lastUserText) &&
-    previousAssistantMessage &&
-    assistantAskedToGenerate(previousAssistantMessage.content)
-  ) {
-    const result = await generateAndBuildCurriculum();
-    const output: BuildCurriculumResult = result.success
-      ? {
-          ok: true,
-          planId: result.plan.id,
-          title: result.plan.title || "learning-track",
-          summary: result.plan.summary,
-          unitCount: result.plan.nodes.filter(
-            (node) => node.kind === "unit" || node.kind === "integration",
-          ).length,
-          nextUnitId: result.plan.nextUnitId,
-        }
-      : { ok: false, reason: result.error };
-    const assistantText = output.ok
-      ? "Your curriculum is ready."
-      : "I could not generate the curriculum. Try again in a moment.";
-
-    await trainingOnboardingRepository.appendMessage({
-      db,
-      sessionId,
-      role: "assistant",
-      content: assistantText,
-      slot: "chat",
-    });
-
-    return createCurriculumReadyResponse({ output, assistantText });
-  }
-
   const buildCurriculumTool = createBuildCurriculumTool({
     buildCurriculum: buildCurriculumFromDesigner,
   });
   const nameLearningTrackTool = createNameLearningTrackTool();
 
   const modelMessages = await convertToModelMessages(messages);
+  const runtimeInstruction =
+    userAnswerCount >= 4
+      ? "\n\nRuntime state: The learner has answered four times. In this response, call nameLearningTrack to produce the topic-only saved track name, then call buildCurriculum with learningTrackName set to that exact name."
+      : "\n\nRuntime state: Keep interviewing. Do not call buildCurriculum until the learner has answered at least four times.";
   const stream = streamText({
     model,
-    system: ONBOARDING_CHAT_SYSTEM,
+    system: `${ONBOARDING_CHAT_SYSTEM}${runtimeInstruction}`,
     messages: modelMessages,
     tools: {
       ...getSearchToolsForSelectedProvider(),

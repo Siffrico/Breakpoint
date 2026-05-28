@@ -20,10 +20,10 @@ export const TrainingUnitContent = pgTable(
     complexityBudget: t.integer().notNull().default(1),
     buildContent: t.text(),
     practicePrompts: t.jsonb().$type<
-      Array<{
+      {
         prompt: string;
         type: "identification" | "construction" | "debugging";
-      }>
+      }[]
     >(),
     contentGeneratedAt: t.timestamp({ mode: "date", withTimezone: true }),
     teachbackSetup: t

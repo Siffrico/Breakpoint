@@ -1,4 +1,5 @@
-import { err, ok, type Result } from "../../../lib/result";
+import { err, ok  } from "../../../lib/result";
+import type {Result} from "../../../lib/result";
 import { INTRO_PROMPT } from "../services/onboarding-prompts";
 import type { OnboardingSessionState } from "../types/training.types";
 

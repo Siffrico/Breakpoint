@@ -1,11 +1,14 @@
 "use client";
 
+/* eslint-disable react-hooks/refs -- AI transport callbacks need access to the latest session id ref at send time. */
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import { ArrowClockwise, ArrowUp } from "@phosphor-icons/react";
 import { useMutation } from "@tanstack/react-query";
-import { DefaultChatTransport, type UIMessage } from "ai";
+import { DefaultChatTransport  } from "ai";
+import type {UIMessage} from "ai";
 
 import type { RouterOutputs } from "@acme/api";
 import { Button } from "@acme/ui/button";
@@ -27,7 +30,7 @@ import { AssistantRichText } from "./assistant-rich-text";
 
 type OnboardingState =
   | RouterOutputs["training"]["startOnboarding"]
-  | RouterOutputs["training"]["onboardingState"];
+   ;
 
 type CurriculumToolOutput =
   | {
@@ -47,8 +50,8 @@ const SUGGESTIONS = [
 
 const transcriptToMessages = (state: OnboardingState | null): UIMessage[] => {
   if (!state) return [];
-  return state.transcript.map((message, index) => ({
-    id: `seed-${state.sessionId}-${message.sequence ?? index}`,
+  return state.transcript.map((message) => ({
+    id: `seed-${state.sessionId}-${message.sequence}`,
     role: message.role,
     parts: [{ type: "text" as const, text: message.content }],
   }));
@@ -113,10 +116,12 @@ export function OnboardingShell({
     sessionIdRef.current = sessionId;
   }, [sessionId]);
 
+   
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
         api: "/api/onboarding/chat",
+         
         body: () => ({ sessionId: sessionIdRef.current }),
       }),
     [],
@@ -252,7 +257,7 @@ export function OnboardingShell({
 
   const handlePrimaryAction = () => {
     if (isStreaming) {
-      stop();
+      void stop();
       return;
     }
     if (hasError) {

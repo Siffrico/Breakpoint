@@ -24,6 +24,8 @@ function TreeBranch({
     return <TreeLeaf node={node} />;
   }
 
+  const children = node.children ?? [];
+
   return (
     <div>
       <button
@@ -44,7 +46,7 @@ function TreeBranch({
       </button>
       {expanded && (
         <div className="ml-2 border-l border-border pl-3">
-          {node.children!.map((child) => (
+          {children.map((child) => (
             <TreeBranch key={child.id} node={child} defaultExpanded={defaultExpanded} />
           ))}
         </div>

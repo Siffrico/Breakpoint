@@ -1,12 +1,13 @@
 "use client";
 
-import { useTheme, type ThemeMode } from "@acme/ui/theme";
+import { useTheme  } from "@acme/ui/theme";
+import type {ThemeMode} from "@acme/ui/theme";
 
-const themeOptions: Array<{
+const themeOptions: {
   label: string;
   value: ThemeMode;
   description: string;
-}> = [
+}[] = [
   {
     label: "System",
     value: "auto",

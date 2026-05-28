@@ -1,9 +1,10 @@
 import type { FailureGap, ForgeUnitContent } from "../types/training.types";
 import {
   GhostReplayEvaluationSchema,
-  GhostReplayScenarioEnvelopeSchema,
-  type RepairTarget,
+  GhostReplayScenarioEnvelopeSchema
+  
 } from "./contracts";
+import type {RepairTarget} from "./contracts";
 import { runAgent } from "../orchestration/agent-runtime";
 
 const GHOST_REPLAY_SYSTEM = `You are Breakpoint's ghost-replay agent.
@@ -57,10 +58,10 @@ Repair target:
 ${formatRepairTarget(repairTarget)}
 
 Evidence anchors:
-${evidenceAnchors?.join("; ") || "None provided"}
+${evidenceAnchors?.join("; ") ?? "None provided"}
 
 Previous ghost domains:
-${previousDomains.join(", ") || "None"}`,
+${previousDomains.length > 0 ? previousDomains.join(", ") : "None"}`,
   });
 
 export const evaluateGhostReplay = async ({
@@ -104,7 +105,7 @@ Repair target:
 ${formatRepairTarget(repairTarget)}
 
 Evidence anchors:
-${evidenceAnchors?.join("; ") || "None provided"}
+${evidenceAnchors?.join("; ") ?? "None provided"}
 
 Ghost scenario:
 Domain: ${ghostScenario.domain}

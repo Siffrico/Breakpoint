@@ -31,9 +31,12 @@ export const buildForgeDebrief = async ({
       "Target identity": targetIdentity,
       "Unit context": formatUnitContext(unitContent),
       "Seed response": seedResponse,
-      "Practice responses": practiceResponses.join("\n") || "None recorded.",
+      "Practice responses":
+        practiceResponses.length > 0
+          ? practiceResponses.join("\n")
+          : "None recorded.",
       "Teach-back transcript": formatTeachbackTranscript(teachbackTranscript),
-      "Ghost responses": ghostResponses?.join("\n") || "None",
+      "Ghost responses": ghostResponses?.join("\n") ?? "None",
     },
     errorMessage: "Failed to build the Forge debrief.",
   });

@@ -15,7 +15,7 @@ export const formatBeforeAfter = (ba: {
   headline: string;
   beforeSummary: string;
   afterSummary: string;
-  contrastPairs: Array<{ before: string; after: string }>;
+  contrastPairs: { before: string; after: string }[];
   firstShift: string;
 }): string =>
   `Headline: ${ba.headline}

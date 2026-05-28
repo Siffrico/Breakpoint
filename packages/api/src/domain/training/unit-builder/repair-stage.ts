@@ -2,11 +2,12 @@ import { runAgent } from "../orchestration/agent-runtime";
 import {
   RepairStageEvaluationSchema,
   RepairStageGenerationSchema,
-  RepairStageInputSchema,
-  type RepairStageEvaluation,
-  type RepairStageGeneration,
-  type RepairStageInput,
+  RepairStageInputSchema
+  
+  
+  
 } from "./contracts";
+import type {RepairStageEvaluation, RepairStageGeneration, RepairStageInput} from "./contracts";
 
 const REPAIR_STAGE_SYSTEM = `You are Breakpoint's repair-stage agent inside the education-unit-builder.
 

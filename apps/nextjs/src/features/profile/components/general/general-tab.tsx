@@ -57,6 +57,7 @@ export function GeneralTab({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Server-provided profile data can change after navigation.
     setSavedGeneral(initialGeneral);
     setTargetIdentity(initialGeneral?.targetIdentity ?? "");
     setMotivation(initialGeneral?.motivation ?? "");
@@ -83,8 +84,8 @@ export function GeneralTab({
   const isDirty = useMemo(
     () =>
       Boolean(savedGeneral) &&
-      (targetIdentity !== savedGeneral?.targetIdentity ||
-        motivation !== savedGeneral?.motivation ||
+      (targetIdentity !== savedGeneral.targetIdentity ||
+        motivation !== savedGeneral.motivation ||
         hardMoments.join("\u0001") !== savedGeneral.hardMoments.join("\u0001")),
     [hardMoments, motivation, savedGeneral, targetIdentity],
   );
@@ -186,7 +187,6 @@ export function GeneralTab({
                 loading={updateGeneral.isPending}
                 disabled={!isDirty || updateGeneral.isPending}
                 onClick={() => {
-                  if (!savedGeneral) return;
                   updateGeneral.mutate({
                     sessionId: savedGeneral.sessionId,
                     targetIdentity,

@@ -17,7 +17,7 @@ interface ImportChatGptMemoryDependencies {
   }) => Promise<Result<MemoryImportResult["import"], MemoryError>>;
   createMemories: (payload: {
     importId: string;
-    entries: Array<{ content: string; contentHash: string }>;
+    entries: { content: string; contentHash: string }[];
   }) => Promise<Result<MemoryImportResult["entries"], MemoryError>>;
 }
 

@@ -11,12 +11,13 @@ import type {
 import {
   ProveStageGenerationSchema,
   ProveStageInputSchema,
-  ProveStageReviewSchema,
-  type StageTeachbackSetup,
-  type ProveStageGeneration,
-  type ProveStageInput,
-  type ProveStageReview,
+  ProveStageReviewSchema
+  
+  
+  
+  
 } from "./contracts";
+import type {StageTeachbackSetup, ProveStageGeneration, ProveStageInput, ProveStageReview} from "./contracts";
 
 const PROVE_STAGE_SYSTEM = `You are Breakpoint's prove-stage agent inside the education-unit-builder.
 
@@ -127,12 +128,12 @@ export const reviewTeachbackProof = async ({
 }: {
   buildContent: string;
   proveStage: ProveStageGeneration;
-  practiceResponses: Array<{
+  practiceResponses: {
     sequence: number;
     response: string;
     feedback: string;
     passed: boolean;
-  }>;
+  }[];
   teachbackTranscript: TeachbackMessage[];
   unitTitle: string;
 }): Promise<ProveStageReview> =>
@@ -193,12 +194,12 @@ Learner seed response:
 ${input.learnerSeedResponse}`;
 
 const formatPracticeResponses = (
-  practiceResponses: Array<{
+  practiceResponses: {
     sequence: number;
     response: string;
     feedback: string;
     passed: boolean;
-  }>,
+  }[],
 ): string =>
   practiceResponses.length > 0
     ? practiceResponses

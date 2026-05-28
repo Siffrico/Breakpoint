@@ -1,5 +1,6 @@
 import type { OnboardingTranscriptMessage } from "../types/training.types";
-import { OnboardingPacketSchema, type OnboardingPacket } from "./contracts";
+import { OnboardingPacketSchema  } from "./contracts";
+import type {OnboardingPacket} from "./contracts";
 import { runAgent } from "../orchestration/agent-runtime";
 
 const ONBOARDING_PACKET_SYSTEM = `You are Breakpoint's onboarding synthesis agent.

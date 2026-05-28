@@ -22,7 +22,7 @@ import { trainingCapstoneRepository } from "../repositories/training-capstone-re
 import { trainingCurriculumRepository } from "../repositories/training-curriculum-repository";
 import { trainingOnboardingRepository } from "../repositories/training-onboarding-repository";
 import { trainingRecallRepository } from "../repositories/training-recall-repository";
-import { protectedProcedure, publicProcedure } from "../trpc";
+import { protectedProcedure } from "../trpc";
 
 const SessionIdSchema = z.object({
   sessionId: z.string().uuid(),
@@ -248,7 +248,14 @@ const requireSessionOwner = async ({
     });
   }
 
-  if (!ctx.session?.user?.id || session.userId !== ctx.session.user.id) {
+  if (!ctx.session?.user?.id) {
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "You must be signed in.",
+    });
+  }
+
+  if (session.userId !== ctx.session.user.id) {
     throw new TRPCError({
       code: "FORBIDDEN",
       message: "You do not have access to this learning project.",
@@ -262,7 +269,7 @@ export const trainingRouter = {
   startOnboarding: protectedProcedure.mutation(async ({ ctx }) =>
     throwOnFailure(
       await startOnboardingWorkflow({
-        userId: ctx.session?.user.id,
+        userId: ctx.session.user.id,
         deps: {
           createSession: (userId) =>
             trainingOnboardingRepository.createSession({ db: ctx.db, userId }),
@@ -352,19 +359,16 @@ export const trainingRouter = {
     return sessions.map((session) => {
       const profile = profileBySessionId.get(session.id) ?? null;
       const plan = planBySessionId.get(session.id) ?? null;
-      const planNodes = projectNodesBySessionId.get(session.id) ?? null;
-      const lessonPreview =
-        (planNodes ?? [])
-          ?.filter(
-            (node) => node.kind === "unit" || node.kind === "integration",
-          )
-          .sort((left, right) => left.orderIndex - right.orderIndex)
-          .slice(0, 3)
-          .map((node) => ({
-            id: node.id,
-            title: node.title,
-            status: node.status,
-          })) ?? [];
+      const planNodes = projectNodesBySessionId.get(session.id) ?? [];
+      const lessonPreview = planNodes
+        .filter((node) => node.kind === "unit" || node.kind === "integration")
+        .sort((left, right) => left.orderIndex - right.orderIndex)
+        .slice(0, 3)
+        .map((node) => ({
+          id: node.id,
+          title: node.title,
+          status: node.status,
+        }));
 
       return {
         sessionId: session.id,
@@ -646,7 +650,7 @@ export const trainingRouter = {
           await getCapstoneWorkflow({
             sessionId: input.sessionId,
             nodeId: input.nodeId,
-            userId: ctx.session?.user.id,
+            userId: ctx.session.user.id,
             deps: createCapstoneGenerationDeps(db),
           }),
         );
@@ -670,7 +674,7 @@ export const trainingRouter = {
           await generateCapstoneWorkflow({
             sessionId: input.sessionId,
             nodeId: input.nodeId,
-            userId: ctx.session?.user.id,
+            userId: ctx.session.user.id,
             deps: createCapstoneGenerationDeps(db),
           }),
         );

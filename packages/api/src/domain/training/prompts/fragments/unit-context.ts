@@ -15,12 +15,12 @@ Unit summary: ${meta.summary}
 Why it matters: ${meta.whyItMatters}`;
 
 export const formatPracticeResponses = (
-  responses: Array<{
+  responses: {
     sequence: number;
     response: string;
     feedback: string;
     passed: boolean;
-  }>,
+  }[],
 ): string => {
   if (responses.length === 0) return "None recorded.";
 

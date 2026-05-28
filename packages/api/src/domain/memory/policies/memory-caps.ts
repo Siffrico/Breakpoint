@@ -13,6 +13,7 @@ export const memoryCaps = {
 } as const;
 
 export const stripControlChars = (value: string) =>
+  // eslint-disable-next-line no-control-regex -- Import normalization intentionally strips ASCII control characters.
   value.replace(/[\u0000-\u0008\u000B-\u001F\u007F]/g, "");
 
 export const normalizeMemoryContent = (value: string) =>

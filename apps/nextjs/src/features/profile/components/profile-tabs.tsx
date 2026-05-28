@@ -8,9 +8,10 @@ import {
   Brain,
   FolderOpen,
   Gear,
-  User,
-  type Icon as PhosphorIconType,
+  User
+  
 } from "@phosphor-icons/react";
+import type {Icon as PhosphorIconType} from "@phosphor-icons/react";
 
 import { cn } from "@acme/ui";
 
@@ -20,11 +21,11 @@ export type ProfileTabKey =
   | "customization"
   | "projects";
 
-type TabDef = {
+interface TabDef {
   key: ProfileTabKey;
   label: string;
   icon: PhosphorIconType;
-};
+}
 
 const accountTabs: readonly TabDef[] = [
   { key: "general", label: "General", icon: User },

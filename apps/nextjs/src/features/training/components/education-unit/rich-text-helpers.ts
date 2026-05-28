@@ -17,8 +17,8 @@ const QUOTE_RE = /^>\s(.*)$/;
 export function matchMarkdownTrigger(text: string): BlockMatch | null {
   const heading = HEADING_RE.exec(text);
   if (heading) {
-    const level = heading[1]!.length as 1 | 2 | 3;
-    return { type: `h${level}` as "h1" | "h2" | "h3", rest: heading[2] ?? "" };
+    const level = heading[1].length as 1 | 2 | 3;
+    return { type: `h${level}`, rest: heading[2] ?? "" };
   }
   const ul = UL_RE.exec(text);
   if (ul) return { type: "ul", rest: ul[1] ?? "" };
@@ -112,9 +112,7 @@ export function indentOrStartBullet(root: HTMLElement, anchor: Node | null) {
     const prev = li.previousElementSibling as HTMLLIElement | null;
     const parentList = li.parentElement;
     if (!prev || !parentList) return;
-    let nested = prev.querySelector(":scope > ul, :scope > ol") as
-      | HTMLElement
-      | null;
+    let nested = prev.querySelector(":scope > ul, :scope > ol");
     if (!nested) {
       nested = document.createElement(parentList.tagName.toLowerCase());
       prev.appendChild(nested);
@@ -125,7 +123,7 @@ export function indentOrStartBullet(root: HTMLElement, anchor: Node | null) {
   }
   const block = getDirectChildBlock(root, anchor);
   if (!block) return;
-  const text = block.textContent ?? "";
+  const text = block.textContent;
   convertBlockToList(block, "ul", text);
 }
 
@@ -148,7 +146,7 @@ export function outdent(anchor: Node | null) {
 
   const p = document.createElement("p");
   p.innerHTML = li.innerHTML || "<br>";
-  parentList.parentElement?.insertBefore(p, parentList.nextSibling);
+  parentList.parentElement.insertBefore(p, parentList.nextSibling);
   li.remove();
   if (parentList.children.length === 0) parentList.remove();
   placeCaretAtEnd(p);
@@ -160,7 +158,7 @@ export function exitEmptyListItem(li: HTMLLIElement) {
   if (!parentList) return;
   const grandparent = parentList.parentElement;
 
-  if (grandparent && grandparent.tagName === "LI") {
+  if (grandparent?.tagName === "LI") {
     const greatList = grandparent.parentElement;
     if (greatList) {
       const newLi = document.createElement("li");
@@ -214,7 +212,7 @@ export function markdownToHtml(md: string): string {
     }
     const heading = HEADING_RE.exec(line);
     if (heading) {
-      const level = heading[1]!.length;
+      const level = heading[1].length;
       blocks.push(`<h${level}>${inlineMarkdownToHtml(heading[2] ?? "")}</h${level}>`);
       i++;
       continue;

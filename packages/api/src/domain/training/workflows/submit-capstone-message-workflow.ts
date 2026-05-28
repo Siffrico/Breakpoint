@@ -1,4 +1,5 @@
-import { err, ok, type Result } from "../../../lib/result";
+import { err, ok  } from "../../../lib/result";
+import type {Result} from "../../../lib/result";
 import type {
   CapstoneEvaluation,
   CapstoneMessage,
@@ -60,7 +61,7 @@ export const submitCapstoneMessageWorkflow = async ({
   deps: SubmitCapstoneDependencies;
 }): Promise<Result<CapstoneTurnResult>> => {
   const node = await deps.getNodeById(nodeId);
-  if (!node || node.kind !== "simulation") {
+  if (node?.kind !== "simulation") {
     return err("This node is not a simulation capstone.");
   }
 

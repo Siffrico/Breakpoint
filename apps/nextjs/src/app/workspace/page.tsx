@@ -70,7 +70,7 @@ export default async function WorkspacePage(props: {
           onboardingState={onboardingState}
           projects={projects}
           sessionId={resolvedSessionId}
-          userName={authSession.user.name ?? undefined}
+          userName={authSession.user.name}
         />
       </TRPCReactProvider>
     );

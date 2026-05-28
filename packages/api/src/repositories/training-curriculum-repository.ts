@@ -329,7 +329,7 @@ export const trainingCurriculumRepository = {
   }: {
     db: Database;
     planIds: string[];
-  }): Promise<Array<typeof TrainingCurriculumNode.$inferSelect>> => {
+  }): Promise<typeof TrainingCurriculumNode.$inferSelect[]> => {
     if (planIds.length === 0) {
       return [];
     }

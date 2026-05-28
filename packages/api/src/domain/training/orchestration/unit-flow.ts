@@ -6,7 +6,7 @@ import type { PracticePrompt } from "../types/training.types";
 import type { StageTeachbackSetup } from "../unit-builder/contracts";
 import { educationUnitBuilder } from "../unit-builder/orchestrator";
 
-type PriorLearningRecord = {
+interface PriorLearningRecord {
   title: string;
   score: number;
   readiness: string;
@@ -15,7 +15,7 @@ type PriorLearningRecord = {
   improvements: string[];
   failureTags: string[];
   nextStep: string;
-};
+}
 
 export const generateUnitScaffold = ({
   slotKind,

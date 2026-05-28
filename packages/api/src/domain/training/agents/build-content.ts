@@ -4,9 +4,10 @@ import {
 } from "@acme/validators";
 
 import {
-  type BuildContentAgentInput,
-  BuildContentAgentInputSchema,
+  
+  BuildContentAgentInputSchema
 } from "./contracts";
+import type {BuildContentAgentInput} from "./contracts";
 import { runAgent } from "../orchestration/agent-runtime";
 
 const BUILD_CONTENT_SYSTEM = `You are Breakpoint's build-content agent.
@@ -126,5 +127,5 @@ Target identity: ${input.learner.targetIdentity}
 Prior learning:
 ${priorLearning}
 Learner seed response:
-${input.learner.seedResponse?.trim() || "Not provided yet."}`;
+${input.learner.seedResponse?.trim() ?? "Not provided yet."}`;
 };

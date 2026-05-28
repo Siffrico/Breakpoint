@@ -4,12 +4,13 @@ import {
   EducationUnitAttemptSignalsSchema,
   EducationUnitImplementationReviewSchema,
   EducationUnitPromptCardSchema,
-  EducationUnitWorkedExampleSchema,
-  type EducationUnitAttemptMode,
-  type EducationUnitConfidence,
-  type EducationUnitState,
-  type UnitContent,
+  EducationUnitWorkedExampleSchema
+  
+  
+  
+  
 } from "@acme/validators";
+import type {EducationUnitAttemptMode, EducationUnitConfidence, EducationUnitState, UnitContent} from "@acme/validators";
 
 import { runAgent } from "../orchestration/agent-runtime";
 import type { TutorContext } from "../tutor";
@@ -87,7 +88,7 @@ export const educationUnitAiService = {
     responseMode: EducationUnitAttemptMode;
     confidence: EducationUnitConfidence;
     retryCount: number;
-    priorLearning: Array<{
+    priorLearning: {
       title: string;
       score: number;
       readiness: string;
@@ -95,7 +96,7 @@ export const educationUnitAiService = {
       improvements: string[];
       failureTags: string[];
       nextStep: string;
-    }>;
+    }[];
     tutorContext?: TutorContext | null;
   }) =>
     runAgent({
@@ -297,7 +298,7 @@ ${revisionResponse.trim()}`,
 };
 
 const formatPriorLearning = (
-  priorLearning: Array<{
+  priorLearning: {
     title: string;
     score: number;
     readiness: string;
@@ -305,7 +306,7 @@ const formatPriorLearning = (
     improvements: string[];
     failureTags: string[];
     nextStep: string;
-  }>,
+  }[],
 ) =>
   priorLearning.length > 0
     ? priorLearning

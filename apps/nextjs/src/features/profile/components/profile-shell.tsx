@@ -4,7 +4,8 @@ import { Suspense } from "react";
 
 import { useLocalStorage } from "~/hooks/use-local-storage";
 
-import { ProfileSidebar, type ProfileTabKey } from "./profile-tabs";
+import { ProfileSidebar  } from "./profile-tabs";
+import type {ProfileTabKey} from "./profile-tabs";
 
 type WorkspaceTheme = "light" | "dark" | "warm";
 

@@ -1,17 +1,18 @@
 import { z } from "zod/v4";
 
+import type {
+  OnboardingTranscriptMessageSchema,
+  PostSeedUnitContentDraftSchema,
+  PracticePromptSchema,
+  PreSeedUnitContentDraftSchema,
+  TeachbackMessageSchema} from "@acme/validators";
 import {
   BeforeAfterProfileSchema,
   FailureGapSchema,
   GhostScenarioSchema,
   IdentityReportSchema,
   OnboardingQuestionSchema,
-  OnboardingTranscriptMessageSchema,
-  PostSeedUnitContentDraftSchema,
-  PracticePromptSchema,
-  PreSeedUnitContentDraftSchema,
-  ProjectOverviewSchema,
-  TeachbackMessageSchema,
+  ProjectOverviewSchema
 } from "@acme/validators";
 
 export const OnboardingPacketSchema = z.object({

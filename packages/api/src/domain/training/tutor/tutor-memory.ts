@@ -1,16 +1,6 @@
 import type { Memory } from "../../memory/types";
 import type { PostUnitReport, UserProfileMemory } from "./schemas";
 
-const EMPTY_MEMORY: UserProfileMemory = {
-  targetIdentity: null,
-  currentLearningGoal: null,
-  knownStrengths: [],
-  recurringFailurePatterns: [],
-  teachingPreferences: [],
-  preferredExamples: [],
-  recentUnitSummaries: [],
-};
-
 const PROFILE_PREFIX = "Breakpoint profile memory:";
 const UNIT_PREFIX = "Breakpoint unit memory:";
 
@@ -22,7 +12,7 @@ const parseProfileMemory = (content: string): Partial<UserProfileMemory> | null 
 
   try {
     const parsed = JSON.parse(content.slice(PROFILE_PREFIX.length).trim()) as Partial<UserProfileMemory>;
-    return parsed && typeof parsed === "object" ? parsed : null;
+    return typeof parsed === "object" ? parsed : null;
   } catch {
     return null;
   }

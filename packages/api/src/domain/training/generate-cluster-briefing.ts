@@ -52,6 +52,6 @@ Cluster title: ${clusterContext.title}
 Cluster summary: ${clusterContext.summary}
 Why it matters: ${clusterContext.whyItMatters}
 Completed clusters available for synthesis: ${
-      completedClusterTitles?.join(", ") || "None"
+      completedClusterTitles?.join(", ") ?? "None"
     }`,
   });

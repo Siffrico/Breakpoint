@@ -1,5 +1,5 @@
 import { tool } from "ai";
-import { z } from "zod/v4";
+import type { z } from "zod/v4";
 
 import { BuildCapstoneScenarioSchema } from "@acme/validators";
 
@@ -12,7 +12,7 @@ export const createBuildChallengeTool = () =>
     description:
       "Create a build-style capstone when the learner should produce a concrete artifact that integrates the cluster's skills.",
     inputSchema: BuildChallengeInputSchema,
-    execute: async (input: BuildChallengeInput) =>
+    execute: (input: BuildChallengeInput) =>
       BuildCapstoneScenarioSchema.parse({
         format: "build",
         ...input,

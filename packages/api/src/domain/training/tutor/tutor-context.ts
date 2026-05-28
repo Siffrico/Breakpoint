@@ -2,11 +2,12 @@ import type { Memory } from "../../memory/types";
 import { BREAKPOINT_TUTOR_PROMPT } from "./tutor-prompt";
 import { getUserProfileMemory } from "./tutor-memory";
 import {
-  CurriculumStageSchema,
-  type CurriculumStage,
-  type TutorContext,
-  type TutorStage,
+  CurriculumStageSchema
+  
+  
+  
 } from "./schemas";
+import type {CurriculumStage, TutorContext, TutorStage} from "./schemas";
 
 const formatList = (items: string[]) =>
   items.length > 0 ? items.map((item) => `- ${item}`).join("\n") : "- None yet";
@@ -45,7 +46,7 @@ Active stage: ${curriculumStage.activeStage}
 Retry count: ${curriculumStage.retryCount}
 
 ## Latest Learner Message
-${latestLearnerMessage?.trim() || "None"}`;
+${latestLearnerMessage?.trim() ?? "None"}`;
 
 export const buildTutorContext = async ({
   stage,

@@ -1,5 +1,3 @@
-import type { ProfileAccount, ProfileBilling, ProfileGeneral } from "@acme/validators";
-
 export type { ProfileAccount, ProfileBilling, ProfileGeneral } from "@acme/validators";
 
 export type ProfileErrorCode =

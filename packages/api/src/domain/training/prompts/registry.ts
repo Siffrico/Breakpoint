@@ -1266,11 +1266,11 @@ export const getPrompt = (id: string): PromptTemplate => {
   return found;
 };
 
-export const listPrompts = (): Array<{
+export const listPrompts = (): {
   id: string;
   version: number;
   tier: string;
-}> =>
+}[] =>
   MAIN_PROMPTS.map((prompt) => ({
     id: prompt.id,
     version: prompt.version,
