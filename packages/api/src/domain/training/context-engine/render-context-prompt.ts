@@ -1,3 +1,4 @@
+import type { WorkspaceTurnRuntime } from "../workspace-ai/stage-runtime";
 import type { WorkspaceContextEnvelope } from "./schemas";
 
 export const renderWorkspaceContextPrompt = (
@@ -49,11 +50,101 @@ ${formatList(envelope.outputContract.mustDo)}
 Must not do:
 ${formatList(envelope.outputContract.mustNotDo)}`;
 
+export const renderWorkspaceStageContextPrompt = ({
+  envelope,
+  runtime,
+}: {
+  envelope: WorkspaceContextEnvelope;
+  runtime: WorkspaceTurnRuntime;
+}): string => {
+  if (runtime.contextMode === "evaluator") {
+    return renderEvaluatorContextPrompt(envelope, runtime);
+  }
+
+  return renderWorkspaceContextPrompt(envelope);
+};
+
+const renderEvaluatorContextPrompt = (
+  envelope: WorkspaceContextEnvelope,
+  runtime: WorkspaceTurnRuntime,
+): string => `Evaluation context envelope
+
+## Runtime
+Prompt kind: ${runtime.promptKind}
+Model purpose: ${runtime.modelPurpose}
+Education stage: ${envelope.state.educationStage ?? "none"}
+Move: ${envelope.outputContract.move}
+
+## Evaluation plan policy
+Pick the mode from the topic's actual mastery signal, not generic difficulty.
+- intuition_sprint: mastery means spotting the governing pattern quickly across varied surfaces.
+- deep_reasoning: mastery means building, deriving, proving, planning, or reasoning through linked steps.
+- standard: mastery needs both but neither dominates.
+
+Mode defaults enforced by code:
+- intuition_sprint: 3 scenarios, 30-60 seconds each.
+- standard: 2 scenarios, 300 seconds each.
+- deep_reasoning: 1 scenario, 600 seconds.
+- after a failed evaluation, retries use 1 scenario with the same mode timing until pass or repair.
+
+Active plan: ${formatEvaluationPlan(envelope)}
+Timing evidence for latest learner answer: ${formatAttemptTiming(envelope)}
+
+## Unit target
+Title: ${envelope.unit.title}
+Learning goal: ${envelope.unit.learningGoal}
+Summary: ${envelope.unit.summary}
+Why it matters: ${envelope.unit.whyItMatters}
+Seed scenario: ${envelope.unit.seedScenario}
+Focus areas: ${formatInline(envelope.unit.focusAreas)}
+
+## Learner answer to evaluate
+${envelope.evidence.latestLearnerMessage}
+
+${formatPromptShownToLearner(envelope)}
+## Evidence allowed for calibration
+Most relevant prior failure: ${envelope.evidence.mostRelevantFailure ?? "None selected"}
+Strongest prior success: ${envelope.evidence.strongestPriorSuccess ?? "None selected"}
+Unresolved pattern: ${envelope.evidence.unresolvedPattern ?? "None selected"}
+
+## Minimal teaching transcript
+${formatList(envelope.evidence.recentTranscript)}
+
+## Evaluator contract
+Maximum words: ${envelope.outputContract.maxWords}
+Must do:
+${formatList([
+  ...envelope.outputContract.mustDo,
+  "Score only evidence visible in the learner answer and allowed calibration evidence.",
+  "Do not infer improvement from the teacher's intent or warmth.",
+  "If repair is needed, route to the narrowest prior stage that can fix the missing mechanism.",
+])}
+Must not do:
+${formatList([
+  ...envelope.outputContract.mustNotDo,
+  "Do not reward fluency without cited evidence.",
+  "Do not grade the teacher or the curriculum.",
+])}`;
+
 const formatList = (items: string[]): string =>
   items.length > 0 ? items.map((item) => `- ${item}`).join("\n") : "- None";
 
 const formatInline = (items: string[]): string =>
   items.length > 0 ? items.join("; ") : "None";
+
+const formatEvaluationPlan = (envelope: WorkspaceContextEnvelope): string => {
+  const plan = envelope.evaluationPlan;
+  if (!plan) return "None selected yet.";
+
+  return `${plan.mode}; scenarios=${plan.scenarioCount}; timeLimit=${plan.timeLimitSeconds}s; feedback=${plan.feedbackMode}; reason=${plan.reason}`;
+};
+
+const formatAttemptTiming = (envelope: WorkspaceContextEnvelope): string => {
+  const timing = envelope.attemptTiming;
+  if (!timing) return "No timing submitted for this turn.";
+
+  return `elapsed=${timing.elapsedSeconds}s; limit=${timing.timeLimitSeconds}s; overrun=${timing.overrunSeconds}s; overTime=${timing.wasOverTime}; paused=${timing.pausedSeconds ?? 0}s`;
+};
 
 const formatPosition = (envelope: WorkspaceContextEnvelope): string => {
   if (envelope.curriculum.currentUnitIndex == null) {

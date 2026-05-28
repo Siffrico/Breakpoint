@@ -4,10 +4,11 @@ import type {
   OnboardingTranscriptMessage,
 } from "../types/training.types";
 import { designCurriculum } from "../agents/curriculum-designer";
+import { normalizeLearningTrackName } from "../agents/onboarding-chat-agent";
 import { designProjectOverview } from "../agents/project-overview";
 import { createOnboardingPacket } from "./onboarding-flow";
 
-const buildNodes = (
+export const buildCurriculumNodes = (
   draft: Awaited<ReturnType<typeof designCurriculum>>["planDraft"],
   targetIdentity: string,
   headline: string,
@@ -165,7 +166,7 @@ export const generateCurriculumBlueprint = async (
     report: design.identityReport,
     beforeAfter: design.beforeAfter,
     blueprint: {
-      title: design.planDraft.title,
+      title: normalizeLearningTrackName(design.planDraft.title),
       summary: design.planDraft.summary,
       targetIdentity: design.planDraft.targetIdentity,
       overview: overview
@@ -174,7 +175,7 @@ export const generateCurriculumBlueprint = async (
             generatedAt: new Date().toISOString(),
           }
         : null,
-      nodes: buildNodes(
+      nodes: buildCurriculumNodes(
         design.planDraft,
         design.identityReport.targetIdentity,
         design.identityReport.headline,

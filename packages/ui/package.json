@@ -6,6 +6,7 @@
     ".": "./src/index.ts",
     "./badge": "./src/badge.tsx",
     "./button": "./src/button.tsx",
+    "./chat": "./src/chat/index.ts",
     "./dropdown-menu": "./src/dropdown-menu.tsx",
     "./field": "./src/field.tsx",
     "./input": "./src/input.tsx",
@@ -29,11 +30,13 @@
   "dependencies": {
     "@base-ui-components/react": "1.0.0-rc.0",
     "@base-ui/react": "^1.3.0",
+    "@phosphor-icons/react": "^2.1.10",
     "@radix-ui/react-icons": "^1.3.2",
     "class-variance-authority": "^0.7.1",
     "lucide-react": "^1.16.0",
     "sonner": "^2.0.7",
-    "tailwind-merge": "^3.3.1"
+    "tailwind-merge": "^3.3.1",
+    "use-stick-to-bottom": "^1.1.4"
   },
   "devDependencies": {
     "@acme/eslint-config": "workspace:*",

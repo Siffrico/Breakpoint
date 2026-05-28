@@ -2,11 +2,11 @@ import type { z } from "zod/v4";
 import { Output, stepCountIs, streamText } from "ai";
 
 import type { AiModelPurpose } from "../engine/model-router";
+import type { WorkspaceAiPromptKind } from "./types";
 import {
   getSearchToolsForSelectedProvider,
   requireAiModelForPurpose,
 } from "../engine/model-router";
-import type { WorkspaceAiPromptKind } from "./types";
 import {
   WORKSPACE_AI_EDUCATION_UNIT_PROMPT,
   WORKSPACE_AI_EVALUATE_FEEDBACK_PROMPT,
@@ -27,6 +27,14 @@ const PURPOSE_BY_KIND: Record<WorkspaceAiPromptKind, AiModelPurpose> = {
   recall: "recall",
   evaluate_feedback: "evaluation",
 };
+
+export const getWorkspaceAiSystemPrompt = (
+  kind: WorkspaceAiPromptKind,
+): string => SYSTEM_PROMPT_BY_KIND[kind];
+
+export const getWorkspaceAiModelPurpose = (
+  kind: WorkspaceAiPromptKind,
+): AiModelPurpose => PURPOSE_BY_KIND[kind];
 
 /**
  * Takes one AI prompt kind, structured context, and an output schema; produces

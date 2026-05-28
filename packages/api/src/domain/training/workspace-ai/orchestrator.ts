@@ -78,11 +78,11 @@ export const getCurrentEducationStage = (
     .find((response) => response.metadata?.aiEducationStage)
     ?.metadata?.aiEducationStage;
 
-  return EDUCATION_STAGE_ORDER.includes(
-    latestState as WorkspaceAiEducationStage,
-  )
-    ? (latestState as WorkspaceAiEducationStage)
-    : "diagnostic_scenario";
+  if (latestState && EDUCATION_STAGE_ORDER.includes(latestState)) {
+    return latestState;
+  }
+
+  return "diagnostic_scenario";
 };
 
 /**
@@ -95,14 +95,26 @@ export const normalizeEducationStageTransition = ({
   requestedStage,
   stageComplete,
   unitComplete,
+  allowRepairRoute = false,
 }: {
   currentStage: WorkspaceAiEducationStage;
   requestedStage: WorkspaceAiEducationStage;
   stageComplete: boolean;
   unitComplete: boolean;
+  allowRepairRoute?: boolean;
 }): WorkspaceAiEducationStage => {
   if (unitComplete) {
     return "completed";
+  }
+
+  if (
+    allowRepairRoute &&
+    (currentStage === "performance_evaluation" ||
+      currentStage === "transfer_scenario") &&
+    (requestedStage === "concept_instruction" ||
+      requestedStage === "guided_application")
+  ) {
+    return requestedStage;
   }
 
   if (!stageComplete) {

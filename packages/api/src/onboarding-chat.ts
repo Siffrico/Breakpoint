@@ -10,18 +10,24 @@ import {
 
 import type { db as databaseClient } from "@acme/db/client";
 
-import {
-  createBuildCurriculumTool,
-  ONBOARDING_CHAT_SYSTEM,
-  type BuildCurriculumResult,
+import type {
+  BuildCurriculumInput,
+  BuildCurriculumResult,
 } from "./domain/training/agents/onboarding-chat-agent";
 import type { CurriculumPlan } from "./domain/training/types/training.types";
 import {
-  getSearchToolsForSelectedProvider,
+  createBuildCurriculumTool,
+  createNameLearningTrackTool,
+  normalizeLearningTrackName,
+  ONBOARDING_CHAT_SYSTEM,
+} from "./domain/training/agents/onboarding-chat-agent";
+import {
   getAiModelForPurpose,
   getMissingAiKeyMessage,
+  getSearchToolsForSelectedProvider,
   withAiModelPreference,
 } from "./domain/training/engine/model-router";
+import { buildCurriculumNodes } from "./domain/training/orchestration/curriculum-flow";
 import { generateCurriculumWorkflow } from "./domain/training/workflows/generate-curriculum-workflow";
 import { trainingCurriculumRepository } from "./repositories/training-curriculum-repository";
 import { trainingOnboardingRepository } from "./repositories/training-onboarding-repository";
@@ -53,13 +59,13 @@ const assistantAskedToGenerate = (text: string): boolean => {
   );
 };
 
-const createCurriculumReadyResponse = async ({
+const createCurriculumReadyResponse = ({
   output,
   assistantText,
 }: {
   output: BuildCurriculumResult;
   assistantText: string;
-}): Promise<Response> => {
+}): Response => {
   const stream = createUIMessageStream({
     execute: ({ writer }) => {
       const textId = "curriculum-ready-text";
@@ -157,29 +163,98 @@ const streamOnboardingChatWithModelPreference = async ({
     });
   }
 
-  const buildCurriculum = async (): Promise<BuildCurriculumOutcome> => {
-    const result = await generateCurriculumWorkflow({
+  const buildCurriculumFromDesigner = async (
+    input: BuildCurriculumInput,
+  ): Promise<BuildCurriculumOutcome> => {
+    const existingPlan = await trainingCurriculumRepository.getActivePlan({
+      db,
       sessionId,
-      deps: {
-        getSession: (id) =>
-          trainingOnboardingRepository.getSession({ db, sessionId: id }),
-        listMessages: (id) =>
-          trainingOnboardingRepository.listMessages({ db, sessionId: id }),
-        createProfileVersion: (input) =>
-          trainingOnboardingRepository.createProfileVersion({ db, ...input }),
-        createPlan: (input) =>
-          trainingCurriculumRepository.createPlan({ db, ...input }),
-        getActivePlan: (id) =>
-          trainingCurriculumRepository.getActivePlan({ db, sessionId: id }),
-        updateSession: (input) =>
-          trainingOnboardingRepository.updateSession({ db, ...input }),
+    });
+    if (existingPlan) {
+      return { success: true, plan: existingPlan };
+    }
+
+    const createdProfile =
+      await trainingOnboardingRepository.createProfileVersion({
+        db,
+        sessionId,
+        userId: session.userId,
+        report: input.identityReport,
+        beforeAfter: input.beforeAfter,
+      });
+
+    if (!createdProfile) {
+      return { success: false, error: "Failed to build identity profile." };
+    }
+
+    const plan = await trainingCurriculumRepository.createPlan({
+      db,
+      onboardingSessionId: sessionId,
+      profileVersionId: createdProfile.version.id,
+      userId: session.userId,
+      blueprint: {
+        title: normalizeLearningTrackName(input.planDraft.title),
+        summary: input.planDraft.summary,
+        targetIdentity: input.planDraft.targetIdentity,
+        overview: input.overview
+          ? {
+              ...input.overview,
+              generatedAt: new Date().toISOString(),
+            }
+          : null,
+        beforeAfter: input.beforeAfter,
+        nodes: buildCurriculumNodes(
+          input.planDraft,
+          input.identityReport.targetIdentity,
+          input.identityReport.headline,
+        ),
       },
     });
-    if (!result.success) {
-      return { success: false, error: result.error };
+
+    if (!plan) {
+      return { success: false, error: "Failed to create curriculum plan." };
     }
-    return { success: true, plan: result.data };
+
+    await trainingOnboardingRepository.updateSession({
+      db,
+      sessionId,
+      status: "complete",
+    });
+
+    const createdPlan = await trainingCurriculumRepository.getActivePlan({
+      db,
+      sessionId,
+    });
+
+    return createdPlan
+      ? { success: true, plan: createdPlan }
+      : { success: false, error: "Curriculum plan was not found." };
   };
+
+  const generateAndBuildCurriculum =
+    async (): Promise<BuildCurriculumOutcome> => {
+      const result = await generateCurriculumWorkflow({
+        sessionId,
+        deps: {
+          getSession: (id) =>
+            trainingOnboardingRepository.getSession({ db, sessionId: id }),
+          listMessages: (id) =>
+            trainingOnboardingRepository.listMessages({ db, sessionId: id }),
+          createProfileVersion: (input) =>
+            trainingOnboardingRepository.createProfileVersion({ db, ...input }),
+          createPlan: (input) =>
+            trainingCurriculumRepository.createPlan({ db, ...input }),
+          getActivePlan: (id) =>
+            trainingCurriculumRepository.getActivePlan({ db, sessionId: id }),
+          updateSession: (input) =>
+            trainingOnboardingRepository.updateSession({ db, ...input }),
+        },
+      });
+      if (!result.success) {
+        return { success: false, error: result.error };
+      }
+      return { success: true, plan: result.data };
+    };
 
   const persistedMessages = await trainingOnboardingRepository.listMessages({
     db,
@@ -199,12 +274,12 @@ const streamOnboardingChatWithModelPreference = async ({
     previousAssistantMessage &&
     assistantAskedToGenerate(previousAssistantMessage.content)
   ) {
-    const result = await buildCurriculum();
+    const result = await generateAndBuildCurriculum();
     const output: BuildCurriculumResult = result.success
       ? {
           ok: true,
           planId: result.plan.id,
-          title: result.plan.targetIdentity || "Learning track",
+          title: result.plan.title || "learning-track",
           summary: result.plan.summary,
           unitCount: result.plan.nodes.filter(
             (node) => node.kind === "unit" || node.kind === "integration",
@@ -228,8 +303,9 @@ const streamOnboardingChatWithModelPreference = async ({
   }
 
   const buildCurriculumTool = createBuildCurriculumTool({
-    buildCurriculum,
+    buildCurriculum: buildCurriculumFromDesigner,
   });
+  const nameLearningTrackTool = createNameLearningTrackTool();
 
   const modelMessages = await convertToModelMessages(messages);
   const stream = streamText({
@@ -238,6 +314,7 @@ const streamOnboardingChatWithModelPreference = async ({
     messages: modelMessages,
     tools: {
       ...getSearchToolsForSelectedProvider(),
+      nameLearningTrack: nameLearningTrackTool,
       buildCurriculum: buildCurriculumTool,
     },
     stopWhen: stepCountIs(5),

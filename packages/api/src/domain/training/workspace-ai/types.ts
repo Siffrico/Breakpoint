@@ -18,6 +18,34 @@ export const WorkspaceAiEducationStageSchema = z.enum([
 
 export const WorkspaceAiTurnModeSchema = z.enum(["education_unit", "recall"]);
 
+export const EvaluationModeSchema = z.enum([
+  "intuition_sprint",
+  "deep_reasoning",
+  "standard",
+]);
+
+export const EvaluationPlanSchema = z.object({
+  mode: EvaluationModeSchema,
+  scenarioCount: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  timeLimitSeconds: z.union([
+    z.literal(30),
+    z.literal(45),
+    z.literal(60),
+    z.literal(300),
+    z.literal(600),
+  ]),
+  feedbackMode: z.literal("full_after_each"),
+  reason: z.string().min(1),
+});
+
+export const AttemptTimingSchema = z.object({
+  elapsedSeconds: z.number().int(),
+  timeLimitSeconds: z.number().int().positive(),
+  overrunSeconds: z.number().int().min(0),
+  wasOverTime: z.boolean(),
+  pausedSeconds: z.number().int().min(0).optional(),
+});
+
 export const WorkspaceAiMessageSchema = z.object({
   role: z.enum(["assistant", "user"]),
   content: z.string().min(1),
@@ -45,6 +73,15 @@ export const WorkspaceAiEducationOutputSchema = z.object({
   improvements: z.array(z.string().min(1)).max(4),
 });
 
+export const WorkspaceAiEvaluationOutputSchema =
+  WorkspaceAiEducationOutputSchema.extend({
+    evaluationPlan: EvaluationPlanSchema,
+    routingDecision: z.enum(["pass", "retry", "repair"]),
+    evaluationSummary: z.string().min(1),
+    evidenceCitations: z.array(z.string().min(1)).min(1).max(6),
+    failedDimensions: z.array(z.string().min(1)).max(4),
+  });
+
 export const WorkspaceAiRecallOutputSchema = z.object({
   assistantMessage: z.string().min(1),
   recallComplete: z.boolean(),
@@ -64,10 +101,16 @@ export type WorkspaceAiEducationStage = z.infer<
   typeof WorkspaceAiEducationStageSchema
 >;
 export type WorkspaceAiTurnMode = z.infer<typeof WorkspaceAiTurnModeSchema>;
+export type EvaluationMode = z.infer<typeof EvaluationModeSchema>;
+export type EvaluationPlan = z.infer<typeof EvaluationPlanSchema>;
+export type AttemptTiming = z.infer<typeof AttemptTimingSchema>;
 export type WorkspaceAiMessage = z.infer<typeof WorkspaceAiMessageSchema>;
 export type WorkspaceAiState = z.infer<typeof WorkspaceAiStateSchema>;
 export type WorkspaceAiEducationOutput = z.infer<
   typeof WorkspaceAiEducationOutputSchema
+>;
+export type WorkspaceAiEvaluationOutput = z.infer<
+  typeof WorkspaceAiEvaluationOutputSchema
 >;
 export type WorkspaceAiRecallOutput = z.infer<
   typeof WorkspaceAiRecallOutputSchema

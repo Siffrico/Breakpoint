@@ -31,6 +31,15 @@ const SessionIdSchema = z.object({
 const SubmitAiWorkspaceMessageSchema = z.object({
   sessionId: z.string().uuid(),
   message: z.string().min(1).max(8_000),
+  attemptTiming: z
+    .object({
+      elapsedSeconds: z.number().int(),
+      timeLimitSeconds: z.number().int().positive(),
+      overrunSeconds: z.number().int().min(0),
+      wasOverTime: z.boolean(),
+      pausedSeconds: z.number().int().min(0).optional(),
+    })
+    .optional(),
 });
 
 const NodeSessionSchema = z.object({
@@ -359,10 +368,7 @@ export const trainingRouter = {
 
       return {
         sessionId: session.id,
-        title:
-          profile?.targetIdentity ??
-          plan?.targetIdentity ??
-          "New learning track",
+        title: plan?.title ?? profile?.targetIdentity ?? "New learning track",
         headline:
           profile?.headline ?? plan?.summary ?? "Interview in progress.",
         status: plan
@@ -491,6 +497,7 @@ export const trainingRouter = {
           sessionId: input.sessionId,
           userId: ctx.session.user.id,
           message: input.message,
+          attemptTiming: input.attemptTiming ?? null,
           deps: {
             getActivePlan: (sessionId) =>
               trainingCurriculumRepository.getActivePlan({

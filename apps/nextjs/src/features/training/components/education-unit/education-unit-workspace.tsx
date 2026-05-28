@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactElement } from "react";
 import {
   useEffect,
   useLayoutEffect,
@@ -25,15 +26,22 @@ import { NotionComposer } from "./notion-composer";
 
 type EducationUnit = RouterOutputs["training"]["unit"];
 type AiWorkspace = RouterOutputs["training"]["aiWorkspace"];
-type AiWorkspaceIntroMessage = {
+interface AttemptTiming {
+  elapsedSeconds: number;
+  timeLimitSeconds: number;
+  overrunSeconds: number;
+  wasOverTime: boolean;
+  pausedSeconds: number;
+}
+interface AiWorkspaceIntroMessage {
   prompt: string;
   helper: string | null;
-};
-type WorkspaceFallbackTurn = {
+}
+interface WorkspaceFallbackTurn {
   helper: string | null;
   prompt: string;
   canCompose: boolean;
-};
+}
 type WorkspaceUiState =
   | { status: "idle" }
   | { status: "streaming"; submission: string; assistantText: string }
@@ -306,12 +314,16 @@ export function EducationUnitWorkspace({
   embedded = false,
   onStateChange,
   onRunningChange,
+  canRequestNextScenario = false,
+  attemptTiming = null,
 }: {
   unit: EducationUnit;
   sessionId: string;
   preview?: boolean;
   aiWorkspace?: AiWorkspace | null;
   embedded?: boolean;
+  canRequestNextScenario?: boolean;
+  attemptTiming?: AttemptTiming | null;
   onStateChange?: (state: EducationUnit) => void;
   onRunningChange?: (isRunning: boolean) => void;
 }) {
@@ -387,6 +399,7 @@ export function EducationUnitWorkspace({
   const canCompose =
     !workspaceUnavailable &&
     !missingTranscriptForResumedUnit &&
+    !canRequestNextScenario &&
     fallbackTurn.canCompose;
   const composerPlaceholder = canCompose
     ? "Submit your answer."
@@ -394,7 +407,9 @@ export function EducationUnitWorkspace({
       ? "Refresh the workspace before continuing."
       : missingTranscriptForResumedUnit
         ? "Refresh to resume this unit safely."
-        : "This unit is complete.";
+        : canRequestNextScenario
+          ? "Continue to the next scenario."
+          : "This unit is complete.";
 
   useEffect(() => {
     onRunningChange?.(isRunning);
@@ -417,7 +432,12 @@ export function EducationUnitWorkspace({
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ sessionId, message }),
+        body: JSON.stringify({
+          action: "submit_answer",
+          sessionId,
+          message,
+          attemptTiming,
+        }),
       });
 
       if (!result.ok) {
@@ -456,21 +476,91 @@ export function EducationUnitWorkspace({
     }
   };
 
+  const handleNextScenario = async () => {
+    if (preview || isRunning || !canRequestNextScenario) {
+      return;
+    }
+
+    dispatchUiState({ type: "submit", submission: "" });
+
+    try {
+      const result = await fetch("/api/training/workspace/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ action: "next_scenario", sessionId }),
+      });
+
+      if (!result.ok) {
+        throw new Error(await result.text());
+      }
+
+      const reader = result.body?.getReader();
+      if (!reader) {
+        throw new Error("Next scenario stream could not be opened.");
+      }
+
+      const decoder = new TextDecoder();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        dispatchUiState({
+          type: "assistant-delta",
+          delta: decoder.decode(value, { stream: true }),
+        });
+      }
+
+      const trailingText = decoder.decode();
+      if (trailingText) {
+        dispatchUiState({ type: "assistant-delta", delta: trailingText });
+      }
+
+      dispatchUiState({ type: "complete" });
+      router.refresh();
+    } catch {
+      dispatchUiState({
+        type: "error",
+        message: "Next scenario could not be prepared.",
+      });
+      toast.error("Next scenario could not be prepared.");
+    }
+  };
+
   const visibleMessages = messages;
   const pendingMessages =
     uiState.status === "streaming" && !preview
       ? [
-          <SubmittedAnswerReceipt
-            key="pending-submission"
-            text={uiState.submission}
-            pending
-          />,
+          uiState.submission ? (
+            <SubmittedAnswerReceipt
+              key="pending-submission"
+              text={uiState.submission}
+              pending
+            />
+          ) : null,
           <PendingAssistantTurn
             key="pending-assistant"
             content={uiState.assistantText}
           />,
-        ]
+        ].filter((item): item is ReactElement => item != null)
       : [];
+  const nextScenarioControl =
+    canRequestNextScenario && uiState.status !== "streaming" && !preview ? (
+      <section
+        key="next-scenario-control"
+        className="py-1 pl-6 font-sans sm:pl-10"
+      >
+        <div className="flex max-w-[760px] justify-end">
+          <button
+            type="button"
+            onClick={handleNextScenario}
+            className="text-foreground/42 hover:text-foreground/82 focus-visible:text-foreground bg-transparent text-[12px] leading-5 transition-colors outline-none"
+          >
+            Next scenario
+          </button>
+        </div>
+      </section>
+    ) : null;
   const renderedMessages = workspaceUnavailable
     ? [
         <PromptTurn
@@ -510,6 +600,7 @@ export function EducationUnitWorkspace({
                 />
               ),
             )
+            .concat(nextScenarioControl ? [nextScenarioControl] : [])
             .concat(pendingMessages);
 
   const inputZone = (

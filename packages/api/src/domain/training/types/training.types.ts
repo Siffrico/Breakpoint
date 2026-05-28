@@ -66,6 +66,8 @@ import type {
   UnitRecallStatus,
 } from "@acme/validators";
 
+import type { AttemptTiming, EvaluationPlan } from "../workspace-ai/types";
+
 export type {
   CurriculumNode,
   CurriculumNodeKind,
@@ -198,9 +200,9 @@ export interface HomeState {
   nodeScores: Record<string, number>;
 }
 
-export interface CapstoneAttemptRecord extends CapstoneAttempt {}
+export type CapstoneAttemptRecord = CapstoneAttempt;
 
-export interface CapstoneMessageRecord extends CapstoneMessage {}
+export type CapstoneMessageRecord = CapstoneMessage;
 
 export interface ProfileState {
   targetIdentity: string;
@@ -242,6 +244,18 @@ export interface PhaseResponseMetadata {
     | "transfer_scenario"
     | "completed";
   recallUnitId?: string;
+  promptKind?:
+    | "onboarding_curriculum"
+    | "education_unit"
+    | "recall"
+    | "evaluate_feedback";
+  modelPurpose?: string;
+  routingDecision?: "pass" | "retry" | "repair";
+  evaluationSummary?: string;
+  failedDimensions?: string[];
+  evaluationPlan?: EvaluationPlan;
+  attemptTiming?: AttemptTiming;
+  nextScenarioPrompt?: boolean;
   assessmentStatus?: EducationUnitAssessmentStatus;
   gap?: FailureGap;
   ghostScenario?: GhostScenario;

@@ -8,21 +8,27 @@ import type {
   UnitContent,
 } from "../types/training.types";
 import type {
+  AttemptTiming,
+  WorkspaceAiEducationOutput,
+  WorkspaceAiEvaluationOutput,
   WorkspaceAiMessage,
+  WorkspaceAiRecallOutput,
   WorkspaceAiTurnResult,
 } from "../workspace-ai/types";
 import { err, ok } from "../../../lib/result";
 import { buildWorkspaceContextEnvelope } from "../context-engine/build-context-envelope";
-import { renderWorkspaceContextPrompt } from "../context-engine/render-context-prompt";
+import { renderWorkspaceStageContextPrompt } from "../context-engine/render-context-prompt";
+import {
+  hasFailedEvaluationAttempt,
+  normalizeEvaluationPlan,
+  selectLatestEvaluationPlan,
+} from "../workspace-ai/evaluation-plan";
 import {
   normalizeEducationStageTransition,
   planWorkspaceTurn,
 } from "../workspace-ai/orchestrator";
 import { runWorkspaceAiPrompt } from "../workspace-ai/runtime";
-import {
-  WorkspaceAiEducationOutputSchema,
-  WorkspaceAiRecallOutputSchema,
-} from "../workspace-ai/types";
+import { selectWorkspaceTurnRuntime } from "../workspace-ai/stage-runtime";
 import {
   buildWorkspaceIntroMessage,
   ensureWorkspaceUnit,
@@ -94,11 +100,13 @@ export const submitAiWorkspaceMessageWorkflow = async ({
   sessionId,
   userId,
   message,
+  attemptTiming,
   deps,
 }: {
   sessionId: string;
   userId: string;
   message: string;
+  attemptTiming?: AttemptTiming | null;
   deps: SubmitAiWorkspaceMessageDependencies;
 }): Promise<Result<WorkspaceAiTurnResult>> => {
   const trimmedMessage = message.trim();
@@ -169,6 +177,8 @@ export const submitAiWorkspaceMessageWorkflow = async ({
           state,
         })
       : null;
+  const runtime = selectWorkspaceTurnRuntime(state);
+  const activeEvaluationPlan = selectLatestEvaluationPlan(turnUnitResponses);
   const contextEnvelope = buildWorkspaceContextEnvelope({
     plan,
     node: unitNode,
@@ -179,16 +189,22 @@ export const submitAiWorkspaceMessageWorkflow = async ({
     memories,
     activeUnitResponses: turnUnitResponses,
     allResponses,
+    runtime,
+    evaluationPlan: activeEvaluationPlan,
+    attemptTiming,
   });
-  const context = renderWorkspaceContextPrompt(contextEnvelope);
+  const context = renderWorkspaceStageContextPrompt({
+    envelope: contextEnvelope,
+    runtime,
+  });
 
   if (state.mode === "recall") {
-    const output = await runWorkspaceAiPrompt({
-      kind: "recall",
-      schema: WorkspaceAiRecallOutputSchema,
+    const output = (await runWorkspaceAiPrompt({
+      kind: runtime.promptKind,
+      schema: runtime.outputSchema,
       errorMessage: "Failed to run recall.",
       context,
-    });
+    })) as WorkspaceAiRecallOutput;
 
     const assistantMessage = await deps.appendMessage({
       sessionId,
@@ -215,6 +231,8 @@ export const submitAiWorkspaceMessageWorkflow = async ({
       score: output.score,
       metadata: {
         recallUnitId: unit.nodeId,
+        promptKind: runtime.promptKind,
+        modelPurpose: runtime.modelPurpose,
         feedback: output.assistantMessage,
         evidenceAnchors: output.strengths,
       },
@@ -239,17 +257,26 @@ export const submitAiWorkspaceMessageWorkflow = async ({
     return err("Education stage is missing.");
   }
 
-  const output = await runWorkspaceAiPrompt({
-    kind: "education_unit",
-    schema: WorkspaceAiEducationOutputSchema,
+  const output = (await runWorkspaceAiPrompt({
+    kind: runtime.promptKind,
+    schema: runtime.outputSchema,
     errorMessage: "Failed to run education unit.",
     context,
-  });
+  })) as WorkspaceAiEducationOutput | WorkspaceAiEvaluationOutput;
+  const evaluationPlan =
+    "evaluationPlan" in output
+      ? normalizeEvaluationPlan({
+          plan: output.evaluationPlan,
+          isRetryAfterFailure: hasFailedEvaluationAttempt(turnUnitResponses),
+        })
+      : null;
   const nextStage = normalizeEducationStageTransition({
     currentStage: state.educationStage,
     requestedStage: output.nextStage,
     stageComplete: output.stageComplete,
     unitComplete: output.unitComplete,
+    allowRepairRoute:
+      "routingDecision" in output && output.routingDecision === "repair",
   });
 
   const assistantMessage = await deps.appendMessage({
@@ -277,8 +304,24 @@ export const submitAiWorkspaceMessageWorkflow = async ({
     score: output.score,
     metadata: {
       aiEducationStage: nextStage,
+      promptKind: runtime.promptKind,
+      modelPurpose: runtime.modelPurpose,
+      routingDecision:
+        "routingDecision" in output ? output.routingDecision : undefined,
+      evaluationSummary:
+        "evaluationSummary" in output ? output.evaluationSummary : undefined,
+      failedDimensions:
+        "failedDimensions" in output ? output.failedDimensions : undefined,
+      evaluationPlan:
+        "evaluationPlan" in output
+          ? (evaluationPlan ?? output.evaluationPlan)
+          : undefined,
+      attemptTiming: attemptTiming ?? undefined,
       feedback: output.assistantMessage,
-      evidenceAnchors: output.strengths,
+      evidenceAnchors:
+        "evidenceCitations" in output
+          ? output.evidenceCitations
+          : output.strengths,
     },
   });
 
@@ -291,11 +334,20 @@ export const submitAiWorkspaceMessageWorkflow = async ({
       debrief: {
         seedResponse: "",
         finalArticulation: trimmedMessage,
-        growthDimensions: output.strengths.length > 0 ? output.strengths : ["Completed the unit."],
+        growthDimensions:
+          output.strengths.length > 0
+            ? output.strengths
+            : ["Completed the unit."],
         score: output.score ?? 0,
         readiness: "ready_for_next_unit",
-        strengths: output.strengths.length > 0 ? output.strengths : ["Completed the unit."],
-        improvements: output.improvements.length > 0 ? output.improvements : ["Continue applying this under realistic constraints."],
+        strengths:
+          output.strengths.length > 0
+            ? output.strengths
+            : ["Completed the unit."],
+        improvements:
+          output.improvements.length > 0
+            ? output.improvements
+            : ["Continue applying this under realistic constraints."],
         failureTags: output.improvements,
         nextStep: "Continue to the next training unit.",
       },

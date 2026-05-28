@@ -1,4 +1,3 @@
-import type { z } from "zod/v4";
 import { Output, stepCountIs, streamText } from "ai";
 
 import type { db as databaseClient } from "@acme/db/client";
@@ -9,11 +8,15 @@ import type {
   UnitContent,
 } from "./domain/training/types/training.types";
 import type {
+  AttemptTiming,
+  WorkspaceAiEducationOutput,
+  WorkspaceAiEvaluationOutput,
+  WorkspaceAiRecallOutput,
   WorkspaceAiState,
   WorkspaceAiTurnResult,
 } from "./domain/training/workspace-ai/types";
 import { buildWorkspaceContextEnvelope } from "./domain/training/context-engine/build-context-envelope";
-import { renderWorkspaceContextPrompt } from "./domain/training/context-engine/render-context-prompt";
+import { renderWorkspaceStageContextPrompt } from "./domain/training/context-engine/render-context-prompt";
 import {
   getSearchToolsForSelectedProvider,
   requireAiModelForPurpose,
@@ -24,15 +27,19 @@ import {
   ensureWorkspaceUnit,
 } from "./domain/training/workflows/get-ai-workspace-workflow";
 import {
+  hasFailedEvaluationAttempt,
+  normalizeEvaluationPlan,
+  selectLatestEvaluationPlan,
+} from "./domain/training/workspace-ai/evaluation-plan";
+import {
   normalizeEducationStageTransition,
   planWorkspaceTurn,
 } from "./domain/training/workspace-ai/orchestrator";
-import {
-  WORKSPACE_AI_EDUCATION_UNIT_PROMPT,
-  WORKSPACE_AI_RECALL_PROMPT,
-} from "./domain/training/workspace-ai/prompts";
+import { getWorkspaceAiSystemPrompt } from "./domain/training/workspace-ai/runtime";
+import { selectWorkspaceTurnRuntime } from "./domain/training/workspace-ai/stage-runtime";
 import {
   WorkspaceAiEducationOutputSchema,
+  WorkspaceAiEvaluationOutputSchema,
   WorkspaceAiRecallOutputSchema,
 } from "./domain/training/workspace-ai/types";
 import { memoryRepository } from "./repositories/memory-repository";
@@ -205,7 +212,7 @@ const saveRecallOutput = async ({
   state: WorkspaceAiState;
   unit: UnitContent;
   plan: CurriculumPlan;
-  output: z.infer<typeof WorkspaceAiRecallOutputSchema>;
+  output: WorkspaceAiRecallOutput;
 }): Promise<WorkspaceAiTurnResult> => {
   const assistantMessage =
     await trainingOnboardingRepository.appendWorkspaceMessage({
@@ -240,6 +247,8 @@ const saveRecallOutput = async ({
     score: output.score,
     metadata: {
       recallUnitId: unit.nodeId,
+      promptKind: "recall",
+      modelPurpose: "recall",
       feedback: output.assistantMessage,
       evidenceAnchors: output.strengths,
     },
@@ -269,6 +278,8 @@ const saveEducationOutput = async ({
   unit,
   plan,
   output,
+  attemptTiming,
+  evaluationPlan,
 }: {
   db: Database;
   sessionId: string;
@@ -277,17 +288,36 @@ const saveEducationOutput = async ({
   state: WorkspaceAiState;
   unit: UnitContent;
   plan: CurriculumPlan;
-  output: z.infer<typeof WorkspaceAiEducationOutputSchema>;
+  output: WorkspaceAiEducationOutput | WorkspaceAiEvaluationOutput;
+  attemptTiming?: AttemptTiming | null;
+  evaluationPlan?: WorkspaceAiEvaluationOutput["evaluationPlan"] | null;
 }): Promise<WorkspaceAiTurnResult> => {
   if (!state.educationStage) {
     throw new Error("Education stage is missing.");
   }
 
+  const educationResponses =
+    await trainingCurriculumRepository.getPhaseResponses({
+      db,
+      unitContentId: unit.id,
+      sessionId,
+    });
+  const priorEvaluationAttempts = educationResponses.filter(
+    (response) =>
+      response.phase === "ai_education" &&
+      response.metadata?.promptKind === "evaluate_feedback" &&
+      response.metadata.nextScenarioPrompt !== true,
+  ).length;
+  const evaluationComplete =
+    !evaluationPlan ||
+    priorEvaluationAttempts + 1 >= evaluationPlan.scenarioCount;
   const nextStage = normalizeEducationStageTransition({
     currentStage: state.educationStage,
     requestedStage: output.nextStage,
     stageComplete: output.stageComplete,
-    unitComplete: output.unitComplete,
+    unitComplete: output.unitComplete && evaluationComplete,
+    allowRepairRoute:
+      "routingDecision" in output && output.routingDecision === "repair",
   });
 
   const assistantMessage =
@@ -303,12 +333,6 @@ const saveEducationOutput = async ({
     throw new Error("AI response could not be saved.");
   }
 
-  const educationResponses =
-    await trainingCurriculumRepository.getPhaseResponses({
-      db,
-      unitContentId: unit.id,
-      sessionId,
-    });
   await trainingCurriculumRepository.savePhaseResponse({
     db,
     unitContentId: unit.id,
@@ -324,8 +348,25 @@ const saveEducationOutput = async ({
     score: output.score,
     metadata: {
       aiEducationStage: nextStage,
+      promptKind:
+        "routingDecision" in output ? "evaluate_feedback" : "education_unit",
+      modelPurpose: "routingDecision" in output ? "evaluation" : "education",
+      routingDecision:
+        "routingDecision" in output ? output.routingDecision : undefined,
+      evaluationSummary:
+        "evaluationSummary" in output ? output.evaluationSummary : undefined,
+      failedDimensions:
+        "failedDimensions" in output ? output.failedDimensions : undefined,
+      evaluationPlan:
+        "evaluationPlan" in output
+          ? (evaluationPlan ?? output.evaluationPlan)
+          : undefined,
+      attemptTiming: attemptTiming ?? undefined,
       feedback: output.assistantMessage,
-      evidenceAnchors: output.strengths,
+      evidenceAnchors:
+        "evidenceCitations" in output
+          ? output.evidenceCitations
+          : output.strengths,
     },
   });
 
@@ -399,18 +440,92 @@ const saveEducationOutput = async ({
   };
 };
 
+const saveNextScenarioPrompt = async ({
+  db,
+  sessionId,
+  userId,
+  unit,
+  output,
+  evaluationPlan,
+  currentStage,
+}: {
+  db: Database;
+  sessionId: string;
+  userId: string;
+  unit: UnitContent;
+  output: WorkspaceAiEducationOutput | WorkspaceAiEvaluationOutput;
+  evaluationPlan?: WorkspaceAiEvaluationOutput["evaluationPlan"] | null;
+  currentStage: WorkspaceAiState["educationStage"];
+}) => {
+  if (!currentStage) {
+    throw new Error("Education stage is missing.");
+  }
+
+  const assistantMessage =
+    await trainingOnboardingRepository.appendWorkspaceMessage({
+      db,
+      sessionId,
+      role: "assistant",
+      content: output.assistantMessage,
+      slot: "education_unit",
+    });
+
+  if (!assistantMessage) {
+    throw new Error("AI response could not be saved.");
+  }
+
+  const educationResponses =
+    await trainingCurriculumRepository.getPhaseResponses({
+      db,
+      unitContentId: unit.id,
+      sessionId,
+    });
+
+  await trainingCurriculumRepository.savePhaseResponse({
+    db,
+    unitContentId: unit.id,
+    sessionId,
+    userId,
+    phase: "ai_education",
+    sequence: educationResponses.filter(
+      (response) => response.phase === "ai_education",
+    ).length,
+    userResponse: "[next_scenario_requested]",
+    aiResponse: output.assistantMessage,
+    passed: null,
+    score: null,
+    metadata: {
+      aiEducationStage: currentStage,
+      promptKind: "evaluate_feedback",
+      modelPurpose: "evaluation",
+      nextScenarioPrompt: true,
+      evaluationPlan:
+        "evaluationPlan" in output
+          ? (evaluationPlan ?? output.evaluationPlan)
+          : undefined,
+      feedback: output.assistantMessage,
+    },
+  });
+
+  await trainingOnboardingRepository.touchSession({ db, sessionId });
+};
+
 export const streamWorkspaceChat = async ({
   db,
   sessionId,
   userId,
   message,
   modelName,
+  attemptTiming,
+  action = "submit_answer",
 }: {
   db: Database;
   sessionId: string;
   userId: string;
   message: string;
   modelName?: string | null;
+  attemptTiming?: AttemptTiming | null;
+  action?: "submit_answer" | "next_scenario";
 }) =>
   withAiModelPreference(modelName, () =>
     streamWorkspaceChatWithModelPreference({
@@ -418,6 +533,8 @@ export const streamWorkspaceChat = async ({
       sessionId,
       userId,
       message,
+      attemptTiming,
+      action,
     }),
   );
 
@@ -426,14 +543,18 @@ const streamWorkspaceChatWithModelPreference = async ({
   sessionId,
   userId,
   message,
+  attemptTiming,
+  action,
 }: {
   db: Database;
   sessionId: string;
   userId: string;
   message: string;
+  attemptTiming?: AttemptTiming | null;
+  action: "submit_answer" | "next_scenario";
 }) => {
   const trimmedMessage = message.trim();
-  if (trimmedMessage.length < 2) {
+  if (action === "submit_answer" && trimmedMessage.length < 2) {
     return new Response(
       "Write a fuller message so the AI can respond usefully.",
       {
@@ -459,17 +580,19 @@ const streamWorkspaceChatWithModelPreference = async ({
         const { plan, allResponses, state, node, unit, unitResponses } =
           await getCurrentTurn({ db, sessionId });
         const slot = getWorkspaceMessageSlot(state.mode);
-        const userMessage =
-          await trainingOnboardingRepository.appendWorkspaceMessage({
-            db,
-            sessionId,
-            role: "user",
-            content: trimmedMessage,
-            slot,
-          });
+        if (action === "submit_answer") {
+          const userMessage =
+            await trainingOnboardingRepository.appendWorkspaceMessage({
+              db,
+              sessionId,
+              role: "user",
+              content: trimmedMessage,
+              slot,
+            });
 
-        if (!userMessage) {
-          throw new Error("User message could not be saved.");
+          if (!userMessage) {
+            throw new Error("User message could not be saved.");
+          }
         }
 
         const messagesWithUser =
@@ -489,6 +612,8 @@ const streamWorkspaceChatWithModelPreference = async ({
           db,
           userId,
         });
+        const runtime = selectWorkspaceTurnRuntime(state);
+        const activeEvaluationPlan = selectLatestEvaluationPlan(unitResponses);
         const contextEnvelope = buildWorkspaceContextEnvelope({
           plan,
           node,
@@ -499,8 +624,18 @@ const streamWorkspaceChatWithModelPreference = async ({
           memories: memoriesResult.success ? memoriesResult.data : [],
           activeUnitResponses: unitResponses,
           allResponses,
+          runtime,
+          evaluationPlan: activeEvaluationPlan,
+          attemptTiming,
         });
-        const context = renderWorkspaceContextPrompt(contextEnvelope);
+        const context = renderWorkspaceStageContextPrompt({
+          envelope: contextEnvelope,
+          runtime,
+        });
+        const promptContext =
+          action === "next_scenario"
+            ? `${context}\n\n## Turn instruction\nThe learner clicked Next scenario after reading evaluator feedback. Generate the next planned evaluation scenario only. Do not treat this as a learner answer. Do not re-grade the previous answer. Keep the current evaluation stage active unless this prompt is impossible.`
+            : context;
         let streamedAssistantMessage = "";
         const streamAssistantDelta = (nextAssistantMessage: string) => {
           if (
@@ -517,13 +652,16 @@ const streamWorkspaceChatWithModelPreference = async ({
 
         if (state.mode === "recall") {
           const result = streamText({
-            model: requireAiModelForPurpose("recall", "AI workspace turns"),
+            model: requireAiModelForPurpose(
+              runtime.modelPurpose,
+              "AI workspace turns",
+            ),
             output: Output.object({
               schema: WorkspaceAiRecallOutputSchema,
               name: "workspace_recall_turn",
             }),
-            system: WORKSPACE_AI_RECALL_PROMPT,
-            prompt: context,
+            system: getWorkspaceAiSystemPrompt(runtime.promptKind),
+            prompt: promptContext,
             tools: getSearchToolsForSelectedProvider(),
             stopWhen: stepCountIs(4),
           });
@@ -549,14 +687,21 @@ const streamWorkspaceChatWithModelPreference = async ({
             output,
           });
         } else {
+          const educationSchema =
+            runtime.promptKind === "evaluate_feedback"
+              ? WorkspaceAiEvaluationOutputSchema
+              : WorkspaceAiEducationOutputSchema;
           const result = streamText({
-            model: requireAiModelForPurpose("education", "AI workspace turns"),
+            model: requireAiModelForPurpose(
+              runtime.modelPurpose,
+              "AI workspace turns",
+            ),
             output: Output.object({
-              schema: WorkspaceAiEducationOutputSchema,
+              schema: educationSchema,
               name: "workspace_education_turn",
             }),
-            system: WORKSPACE_AI_EDUCATION_UNIT_PROMPT,
-            prompt: context,
+            system: getWorkspaceAiSystemPrompt(runtime.promptKind),
+            prompt: promptContext,
             tools: getSearchToolsForSelectedProvider(),
             stopWhen: stepCountIs(4),
           });
@@ -569,18 +714,42 @@ const streamWorkspaceChatWithModelPreference = async ({
             );
           }
 
-          const output = await result.output;
+          const output = (await result.output) as unknown as
+            | WorkspaceAiEducationOutput
+            | WorkspaceAiEvaluationOutput;
+          const evaluationPlan =
+            "evaluationPlan" in output
+              ? normalizeEvaluationPlan({
+                  plan: output.evaluationPlan,
+                  isRetryAfterFailure:
+                    hasFailedEvaluationAttempt(unitResponses),
+                })
+              : null;
           streamAssistantDelta(output.assistantMessage);
-          await saveEducationOutput({
-            db,
-            sessionId,
-            userId,
-            message: trimmedMessage,
-            state,
-            unit,
-            plan,
-            output,
-          });
+          if (action === "next_scenario") {
+            await saveNextScenarioPrompt({
+              db,
+              sessionId,
+              userId,
+              unit,
+              output,
+              evaluationPlan,
+              currentStage: state.educationStage,
+            });
+          } else {
+            await saveEducationOutput({
+              db,
+              sessionId,
+              userId,
+              message: trimmedMessage,
+              state,
+              unit,
+              plan,
+              output,
+              attemptTiming,
+              evaluationPlan,
+            });
+          }
         }
 
         controller.close();

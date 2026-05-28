@@ -247,6 +247,12 @@ Forbidden ways to scale difficulty:
 const SCENARIO_DESIGN_CRITERIA = `
 SCENARIO DESIGN CRITERIA — self-score every scenario before emitting it.
 
+  - Stakes derivation (run this first)
+        Before designing, answer internally: "At [target_identity] level, what
+        decision does understanding this mechanism change? What goes wrong
+        without it?" The scenario must BE that decision moment — not an
+        identification task. If you cannot name a real decision that depends
+        on this mechanism, the scenario is not ready.
   - Forces every required_understanding dimension
         Solving requires the evidence patterns; surrogates do not work.
   - Blocks every surrogate
@@ -896,36 +902,25 @@ When you teach after the learner's attempt, the response must satisfy:
         Briefly tie the mechanism to what they want to be able to do. One
         sentence. No more.
 
+  - Intuitive diction
+        Explain as if talking to a smart person who just arrived in the field.
+        No jargon without a plain-language translation on first use. Prefer
+        analogies and concrete images over abstract definitions. The learner
+        should not have to re-read a sentence to understand it.
+        Also name the HOW: not just why the mechanism exists, but what
+        the learner actually does differently now that they understand it.
+
   - Embedded check (generation + self-explanation)
         End with a why-probe that forces the learner to GENERATE the mechanism
         in their own words on a slightly varied case. Never a definition recall.
         Never a separate quiz feel.
 
-ANTI-PATTERNS
-
-  - Teaching the concept before the learner attempts the scenario.
-  - Generic explanations not anchored to their actual attempt.
-  - Closing with "does that make sense?" instead of a real why-probe.
-  - Adding decorative prose that raises extraneous load.
-  - Wandering into adjacent concepts the unit is not teaching.
-  - Confusing fluency in the learner's attempt with understanding — surface
-    polish does not skip the productive-failure step.
-
 SELF-CHECK BEFORE EMITTING
 
-  - [ ] Did I derive required_understanding for this unit and design against it?
-  - [ ] Does the scenario fail if a surrogate_to_block is used?
-  - [ ] Would a senior practitioner find the scenario plausible?
+  - [ ] Stakes derivation complete — scenario is a decision moment, not an identification task?
   - [ ] Did the concept teaching quote the learner's actual move?
-  - [ ] Did I classify the root error or fragility and make the lesson repair it?
-  - [ ] Did I name the surrogate, if one fired?
-  - [ ] Is the embedded check a why-probe, not a definition recall?
-  - [ ] No decorative-label incoherence — every domain term matches the scenario's mechanics?
-  - [ ] Probe forces a contrast pair (before-state vs after-state), not a one-word answer?
-  - [ ] Every silent choice in the scenario is load-bearing or stipulated — never silent?
-  - [ ] At least 2 surrogates_to_block named per dimension?
-  - [ ] Intuition-lever sentence concretely fillable: "After this scenario, the learner will see ____"?
-  - [ ] If learner_artifacts available, scenario uses at least one?`,
+  - [ ] Did I classify the root error and make the lesson directly repair it?
+  - [ ] Intuition-lever sentence concretely fillable: "After this scenario, the learner will see ____"?`,
   retryInstructions:
     "Return only the requested structured education-unit output. Respect the current loop position (scenario vs concept+check). If the previous attempt taught before the learner attempted, regenerate as scenario-only.",
 };
@@ -1180,6 +1175,35 @@ Emit exactly one of:
                 teach phase did not land. Hand back to the teacher with a
                 note on which dimension and which surrogate fired.
 
+ADAPTIVE EVALUATION PLAN
+
+Every evaluation-stage output must include an evaluationPlan. Pick the mode
+from the topic's actual mastery signal, not from generic difficulty:
+
+  - intuition_sprint
+      Use when mastery means spotting the governing pattern quickly across
+      varied surfaces: debugging smell, taste, triage, fast judgment, or
+      selecting the right mechanism under surface variation.
+
+  - deep_reasoning
+      Use when mastery means deriving, proving, planning, architecting,
+      constructing, or reasoning through linked steps. Hard math and proof-like
+      work usually belong here.
+
+  - standard
+      Use when both recognition and reasoning matter, but neither dominates.
+
+Code enforces the exact counts and timing:
+  - intuition_sprint = 3 scenarios, 30-60 seconds each
+  - standard = 2 scenarios, 300 seconds each
+  - deep_reasoning = 1 scenario, 600 seconds
+  - after a failed evaluation, retry plans use 1 scenario with the same mode
+    timing until the learner passes or needs repair
+
+Give full feedback after every learner attempt. If timing evidence says the
+learner exceeded the time limit, treat that as weaker fluency and make passing
+less likely unless the answer is exceptionally strong.
+
 FEEDBACK — criteria (learner-facing output that ships with the score)
 
   - Evidence-anchored
@@ -1213,31 +1237,12 @@ FEEDBACK — criteria (learner-facing output that ships with the score)
         One observation, one action. No waffle. The feedback is a nudge,
         not a report.
 
-ANTI-PATTERNS
-
-  - Grading against axes you did not derive from required_understanding.
-  - Composite hiding a failing dimension.
-  - Praise inflation. Cruelty. Either breaks trust.
-  - Feedback as a list of issues — pick the one that matters most.
-  - Harder scenarios that are weirder, not deeper.
-  - Reusing the teacher's framing in the harder scenario.
-
 SELF-CHECK BEFORE EMITTING
 
-  - [ ] Did I reconstruct required_understanding from the available context?
-  - [ ] Is the harder scenario raised on at least two dial dimensions?
-  - [ ] Would a senior practitioner find the harder scenario plausible?
-  - [ ] Is every per-dimension score backed by a cited quote?
-  - [ ] Did I classify the primary error or pass-state fragility before scoring?
-  - [ ] Did I check every surrogate_to_block against the response?
+  - [ ] Did I reconstruct required_understanding — and does the stakes derivation check pass?
+  - [ ] Is every per-dimension score backed by a cited quote from the learner's response?
   - [ ] Does the composite ≥ 80 case have every dimension ≥ 70?
-  - [ ] Does the feedback name one specific dimension and one specific move?
-  - [ ] No decorative-label incoherence — every domain term matches the scenario's mechanics?
-  - [ ] Probe / question forces a contrast pair, not a one-word answer?
-  - [ ] Every silent choice in the harder scenario is load-bearing or stipulated — never silent?
-  - [ ] At least 2 surrogates_to_block named per dimension and checked against the response?
-  - [ ] Intuition-lever sentence concretely fillable: "After this scenario, the learner will see ____"?
-  - [ ] If learner_artifacts available, scenario uses at least one?`,
+  - [ ] Does the feedback name one specific dimension and one specific move?`,
   retryInstructions:
     "Return only the requested structured evaluation output. If the previous attempt produced a composite ≥ 80 with any dimension < 70, regenerate the decision as retry.",
 };

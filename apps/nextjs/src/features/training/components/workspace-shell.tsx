@@ -3,13 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { Lightbulb, SidebarSimple } from "@phosphor-icons/react";
+import { Lightbulb } from "@phosphor-icons/react";
 
 import type { RouterOutputs } from "@acme/api";
 import { Button } from "@acme/ui/button";
 
 import { useLocalStorage } from "~/hooks/use-local-storage";
-
 import { AssistantRichText } from "./assistant-rich-text";
 
 const CapstoneWorkspace = dynamic(() =>
@@ -36,6 +35,7 @@ type EducationUnit = RouterOutputs["training"]["unit"];
 type CapstoneState = RouterOutputs["training"]["getCapstone"];
 type OnboardingState = RouterOutputs["training"]["onboardingState"];
 type AiWorkspace = RouterOutputs["training"]["aiWorkspace"];
+type EvaluationPlan = NonNullable<AiWorkspace["evaluationPlan"]>;
 type LearningProject =
   RouterOutputs["training"]["listLearningProjects"][number];
 
@@ -44,10 +44,26 @@ const EMPTY_PROJECTS: LearningProject[] = [];
 
 type WorkspaceMode = "onboarding" | "unit" | "capstone" | "idle";
 type WorkspaceTheme = "light" | "dark" | "warm";
+interface EvaluationTimerSnapshot {
+  elapsedSeconds: number;
+  timeLimitSeconds: number;
+  overrunSeconds: number;
+  wasOverTime: boolean;
+  pausedSeconds: number;
+}
+
+const formatTimerSeconds = (seconds: number) => {
+  const sign = seconds < 0 ? "-" : "";
+  const absolute = Math.abs(seconds);
+  const minutes = Math.floor(absolute / 60);
+  const remainder = absolute % 60;
+
+  return `${sign}${minutes}:${remainder.toString().padStart(2, "0")}`;
+};
 
 export function WorkspaceShell({
   workspace,
-  plan,
+  plan: _plan,
   unit,
   capstone,
   onboardingState,
@@ -75,6 +91,8 @@ export function WorkspaceShell({
   const [liveUnit, setLiveUnit] = useState(unit);
   const [isSessionRunning, setIsSessionRunning] = useState(false);
   const [onboardingTurnCount, setOnboardingTurnCount] = useState(0);
+  const [timerStartedAt, setTimerStartedAt] = useState<number | null>(null);
+  const [timerNow, setTimerNow] = useState(() => Date.now());
   const [workspaceTheme, setWorkspaceTheme] = useLocalStorage<WorkspaceTheme>(
     "bp-workspace-theme",
     "warm",
@@ -95,10 +113,65 @@ export function WorkspaceShell({
       : capstone
         ? "capstone"
         : "idle";
+  const latestAssistantSequence =
+    aiWorkspace?.messages
+      .filter((message) => message.role === "assistant")
+      .at(-1)?.sequence ?? null;
+  const activeEducationState =
+    aiWorkspace?.state?.mode === "education_unit" ? aiWorkspace.state : null;
+  const activeEvaluationPlan: EvaluationPlan | null =
+    mode === "unit" &&
+    activeEducationState &&
+    (activeEducationState.educationStage === "performance_evaluation" ||
+      activeEducationState.educationStage === "transfer_scenario")
+      ? (aiWorkspace?.evaluationPlan ?? null)
+      : null;
+  const canRequestNextScenario =
+    aiWorkspace?.evaluationProgress?.canRequestNextScenario ?? false;
+  const timerIsActive = activeEvaluationPlan != null && !canRequestNextScenario;
+  const runningEvaluationPlan = timerIsActive ? activeEvaluationPlan : null;
+  const timerKey = timerIsActive
+    ? [
+        sessionId,
+        activeEducationState?.activeUnitId,
+        activeEducationState?.educationStage,
+        latestAssistantSequence,
+        activeEvaluationPlan.mode,
+        activeEvaluationPlan.timeLimitSeconds,
+      ].join(":")
+    : null;
+  const timerKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     setIsSessionRunning(false);
   }, [mode, sessionId]);
+
+  useEffect(() => {
+    if (!timerKey) {
+      timerKeyRef.current = null;
+      setTimerStartedAt(null);
+      return;
+    }
+
+    if (timerKeyRef.current === timerKey) return;
+
+    const now = Date.now();
+    timerKeyRef.current = timerKey;
+    setTimerStartedAt(now);
+    setTimerNow(now);
+  }, [timerKey]);
+
+  useEffect(() => {
+    if (!timerIsActive || timerStartedAt == null) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setTimerNow(Date.now());
+    }, 250);
+
+    return () => window.clearInterval(intervalId);
+  }, [timerIsActive, timerStartedAt]);
 
   // Auto-collapse the sidebar to a rail when entering onboarding for a new
   // topic, and auto-expand once the curriculum is ready and we move on.
@@ -143,6 +216,23 @@ export function WorkspaceShell({
     setQuestionPanelOpen(true);
     setQuestionPanelFocused((prev) => !prev);
   };
+  const elapsedSeconds =
+    timerStartedAt == null ? 0 : Math.floor((timerNow - timerStartedAt) / 1000);
+  const remainingSeconds = runningEvaluationPlan
+    ? runningEvaluationPlan.timeLimitSeconds - elapsedSeconds
+    : 0;
+  const timerSnapshot: EvaluationTimerSnapshot | null = runningEvaluationPlan
+    ? {
+        elapsedSeconds,
+        timeLimitSeconds: runningEvaluationPlan.timeLimitSeconds,
+        overrunSeconds: Math.max(
+          0,
+          elapsedSeconds - runningEvaluationPlan.timeLimitSeconds,
+        ),
+        wasOverTime: elapsedSeconds > runningEvaluationPlan.timeLimitSeconds,
+        pausedSeconds: 0,
+      }
+    : null;
 
   return (
     <div
@@ -160,9 +250,7 @@ export function WorkspaceShell({
           currentSessionId={sessionId}
           preview={preview}
           collapsed={sidebarCollapsed}
-          onToggleCollapsed={() =>
-            setSidebarCollapsed((prev) => !prev)
-          }
+          onToggleCollapsed={() => setSidebarCollapsed((prev) => !prev)}
           userName={userName}
           activeLessonId={liveUnit?.nodeId ?? null}
           isSessionRunning={isSessionRunning}
@@ -172,7 +260,7 @@ export function WorkspaceShell({
       </div>
 
       <div className="border-foreground/[0.08] flex min-w-0 flex-1 flex-col border-l">
-        <header className="flex h-14 shrink-0 items-center justify-between px-4 sm:px-6">
+        <header className="relative flex h-14 shrink-0 items-center justify-between px-4 sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
             {mode === "onboarding" ? (
               <>
@@ -191,9 +279,7 @@ export function WorkspaceShell({
                 </span>
               </>
             ) : (
-              <h1
-                className="font-display text-foreground text-[16px] tracking-[-0.02em]"
-              >
+              <h1 className="font-display text-foreground text-[16px] tracking-[-0.02em]">
                 <AssistantRichText
                   content={shellTitle}
                   className="overflow-hidden [&>*]:overflow-hidden [&>*]:text-ellipsis [&>*]:whitespace-nowrap"
@@ -201,6 +287,14 @@ export function WorkspaceShell({
               </h1>
             )}
           </div>
+
+          {runningEvaluationPlan ? (
+            <div className="text-foreground/76 absolute left-1/2 flex -translate-x-1/2 items-center gap-2 font-mono text-[13px] tabular-nums">
+              <span aria-live="polite">
+                {formatTimerSeconds(remainingSeconds)}
+              </span>
+            </div>
+          ) : null}
 
           {mode === "onboarding" ? (
             <Button
@@ -232,22 +326,22 @@ export function WorkspaceShell({
           ) : null}
         </header>
 
-        <div className="flex min-h-0 flex-1">
+        <div className="relative flex min-h-0 flex-1">
           <div className="bg-background flex min-w-0 flex-1 flex-col overflow-hidden">
             <div className="flex min-h-0 flex-1 overflow-hidden">
               {!questionPanelFocused && (
                 <main
                   className={[
-                    "flex min-w-0 flex-1 overflow-y-auto",
+                    "flex min-w-0 flex-1 flex-col",
                     mode === "onboarding"
-                      ? "p-0"
-                      : "px-6 pt-1 pb-6 sm:px-10 sm:pt-2",
+                      ? "min-h-0 overflow-hidden"
+                      : "overflow-y-auto px-6 pt-1 pb-6 sm:px-10 sm:pt-2",
                   ].join(" ")}
                 >
                   <div
                     className={
                       mode === "onboarding"
-                        ? "flex min-h-full w-full flex-col"
+                        ? "flex min-h-0 w-full flex-1 flex-col"
                         : "bp-prose flex min-h-full flex-col"
                     }
                   >
@@ -269,6 +363,8 @@ export function WorkspaceShell({
                         preview={preview}
                         embedded
                         aiWorkspace={aiWorkspace ?? null}
+                        canRequestNextScenario={canRequestNextScenario}
+                        attemptTiming={timerSnapshot}
                         onStateChange={setLiveUnit}
                         onRunningChange={setIsSessionRunning}
                       />
@@ -286,9 +382,7 @@ export function WorkspaceShell({
                     {mode === "idle" ? (
                       <div className="flex min-h-[60vh] flex-col justify-center">
                         <div className="border-foreground/[0.08] border px-7 py-6">
-                          <h2
-                            className="font-display text-foreground text-base font-semibold tracking-[-0.02em]"
-                          >
+                          <h2 className="font-display text-foreground text-base font-semibold tracking-[-0.02em]">
                             <AssistantRichText
                               content={
                                 workspace?.nextUnitTitle ??

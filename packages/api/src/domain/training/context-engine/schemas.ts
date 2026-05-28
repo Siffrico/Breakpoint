@@ -1,6 +1,10 @@
 import { z } from "zod/v4";
 
-import { WorkspaceAiEducationStageSchema } from "../workspace-ai/types";
+import {
+  AttemptTimingSchema,
+  EvaluationPlanSchema,
+  WorkspaceAiEducationStageSchema,
+} from "../workspace-ai/types";
 
 export const WorkspaceContextMoveSchema = z.enum([
   "diagnose",
@@ -51,6 +55,8 @@ export const WorkspaceContextEnvelopeSchema = z.object({
       prompt: z.string().min(1),
     })
     .nullable(),
+  evaluationPlan: EvaluationPlanSchema.nullable(),
+  attemptTiming: AttemptTimingSchema.nullable(),
   outputContract: z.object({
     move: WorkspaceContextMoveSchema,
     maxWords: z.number().int().min(80).max(400),

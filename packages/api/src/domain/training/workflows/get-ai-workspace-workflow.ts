@@ -6,10 +6,12 @@ import type {
   UnitContent,
 } from "../types/training.types";
 import type {
+  EvaluationPlan,
   WorkspaceAiMessage,
   WorkspaceAiState,
 } from "../workspace-ai/types";
 import { err, ok } from "../../../lib/result";
+import { getEvaluationProgress } from "../workspace-ai/evaluation-plan";
 import { planWorkspaceTurn } from "../workspace-ai/orchestrator";
 
 interface GetAiWorkspaceDependencies {
@@ -45,6 +47,12 @@ export interface AiWorkspaceView {
   introMessage: {
     prompt: string;
     helper: string | null;
+  } | null;
+  evaluationPlan: EvaluationPlan | null;
+  evaluationProgress: {
+    completedAttempts: number;
+    scenarioCount: number;
+    canRequestNextScenario: boolean;
   } | null;
 }
 
@@ -103,11 +111,22 @@ export const getAiWorkspaceWorkflow = async ({
   const activeMessages = state
     ? await deps.listMessages(sessionId, getWorkspaceMessageSlot(state.mode))
     : messages;
+  const evaluationProgress = getEvaluationProgress(activeUnitResponses);
 
   return ok({
     plan,
     state,
     messages: activeMessages,
+    evaluationPlan:
+      state?.mode === "education_unit" ? evaluationProgress.latestPlan : null,
+    evaluationProgress:
+      state?.mode === "education_unit" && evaluationProgress.latestPlan
+        ? {
+            completedAttempts: evaluationProgress.completedAttempts,
+            scenarioCount: evaluationProgress.latestPlan.scenarioCount,
+            canRequestNextScenario: evaluationProgress.canRequestNextScenario,
+          }
+        : null,
     introMessage: buildWorkspaceIntroMessage({
       plan,
       state,
@@ -132,7 +151,7 @@ export const buildWorkspaceIntroMessage = ({
   plan: CurriculumPlan;
   state: WorkspaceAiState | null;
 }) => {
-  if (!state || state.mode !== "recall" || !state.recallUnitId) {
+  if (state?.mode !== "recall" || !state.recallUnitId) {
     return null;
   }
 

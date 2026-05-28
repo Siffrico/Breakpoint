@@ -5,7 +5,10 @@ import type {
   PhaseResponseRecord,
   UnitContent,
 } from "../types/training.types";
+import type { WorkspaceTurnRuntime } from "../workspace-ai/stage-runtime";
 import type {
+  AttemptTiming,
+  EvaluationPlan,
   WorkspaceAiMessage,
   WorkspaceAiState,
 } from "../workspace-ai/types";
@@ -24,6 +27,9 @@ export const buildWorkspaceContextEnvelope = ({
   memories,
   activeUnitResponses,
   allResponses,
+  runtime,
+  evaluationPlan,
+  attemptTiming,
 }: {
   plan: CurriculumPlan;
   node: CurriculumNode;
@@ -34,6 +40,9 @@ export const buildWorkspaceContextEnvelope = ({
   memories: Memory[];
   activeUnitResponses: PhaseResponseRecord[];
   allResponses: PhaseResponseRecord[];
+  runtime?: WorkspaceTurnRuntime;
+  evaluationPlan?: EvaluationPlan | null;
+  attemptTiming?: AttemptTiming | null;
 }): WorkspaceContextEnvelope => {
   const selectedMemory = selectWorkspaceMemory({ memories, node, unit });
   const selectedEvidence = selectWorkspaceEvidence({
@@ -84,14 +93,17 @@ export const buildWorkspaceContextEnvelope = ({
       unresolvedPattern: selectedEvidence.unresolvedPattern,
     },
     promptShownToLearner: introMessage ?? null,
-    outputContract: buildOutputContract(state),
+    evaluationPlan: evaluationPlan ?? null,
+    attemptTiming: attemptTiming ?? null,
+    outputContract: buildOutputContract(state, runtime),
   });
 };
 
 const buildOutputContract = (
   state: WorkspaceAiState,
+  runtime?: WorkspaceTurnRuntime,
 ): WorkspaceContextEnvelope["outputContract"] => {
-  const move = selectMove(state);
+  const move = runtime?.contextMove ?? selectMove(state);
 
   return {
     move,

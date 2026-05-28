@@ -19,14 +19,12 @@ export const TrainingUnitContent = pgTable(
     clusterArcFrame: t.text(),
     complexityBudget: t.integer().notNull().default(1),
     buildContent: t.text(),
-    practicePrompts: t
-      .jsonb()
-      .$type<
-        Array<{
-          prompt: string;
-          type: "identification" | "construction" | "debugging";
-        }>
-      >(),
+    practicePrompts: t.jsonb().$type<
+      Array<{
+        prompt: string;
+        type: "identification" | "construction" | "debugging";
+      }>
+    >(),
     contentGeneratedAt: t.timestamp({ mode: "date", withTimezone: true }),
     teachbackSetup: t
       .jsonb()
@@ -67,52 +65,73 @@ export const TrainingUnitPhaseResponse = pgTable(
     aiResponse: t.text(),
     passed: t.boolean(),
     score: t.integer(),
-    metadata: t.jsonb().$type<
-      | {
-          attempts?: number;
-          feedback?: string;
-          step?:
-            | "initial_response"
-            | "mastery_check"
-            | "build_response"
-            | "revision";
-          responseMode?: "free_response" | "multiple_choice";
-          confidence?: "low" | "medium" | "high";
-          latencyMs?: number | null;
-          signals?: {
-            correctnessBand: "strong" | "close" | "partial" | "off_track";
-            misconceptionDirection: string;
-            reasoningStyle: string;
-          };
-          stateSnapshot?: unknown;
-          aiEducationStage?:
-            | "diagnostic_scenario"
-            | "concept_instruction"
-            | "guided_application"
-            | "performance_evaluation"
-            | "transfer_scenario"
-            | "completed";
-          recallUnitId?: string;
-          assessmentStatus?: "pass" | "retry_concept" | "retry_application";
-          gap?: {
-            description: string;
-            gapType: string;
-            whereItBroke: string;
-          };
-          evidenceAnchors?: string[];
-          repairTarget?: {
-            skill: string;
-            transferObjective: string;
-            successCriteria: string[];
-          };
-          ghostScenario?: {
-            domain: string;
-            prompt: string;
-            targetDepth: number;
-          };
-        }
-      | null
-    >(),
+    metadata: t.jsonb().$type<{
+      attempts?: number;
+      feedback?: string;
+      step?:
+        | "initial_response"
+        | "mastery_check"
+        | "build_response"
+        | "revision";
+      responseMode?: "free_response" | "multiple_choice";
+      confidence?: "low" | "medium" | "high";
+      latencyMs?: number | null;
+      signals?: {
+        correctnessBand: "strong" | "close" | "partial" | "off_track";
+        misconceptionDirection: string;
+        reasoningStyle: string;
+      };
+      stateSnapshot?: unknown;
+      aiEducationStage?:
+        | "diagnostic_scenario"
+        | "concept_instruction"
+        | "guided_application"
+        | "performance_evaluation"
+        | "transfer_scenario"
+        | "completed";
+      recallUnitId?: string;
+      promptKind?:
+        | "onboarding_curriculum"
+        | "education_unit"
+        | "recall"
+        | "evaluate_feedback";
+      modelPurpose?: string;
+      routingDecision?: "pass" | "retry" | "repair";
+      evaluationSummary?: string;
+      failedDimensions?: string[];
+      evaluationPlan?: {
+        mode: "intuition_sprint" | "deep_reasoning" | "standard";
+        scenarioCount: 1 | 2 | 3;
+        timeLimitSeconds: 30 | 45 | 60 | 300 | 600;
+        feedbackMode: "full_after_each";
+        reason: string;
+      };
+      attemptTiming?: {
+        elapsedSeconds: number;
+        timeLimitSeconds: number;
+        overrunSeconds: number;
+        wasOverTime: boolean;
+        pausedSeconds?: number;
+      };
+      nextScenarioPrompt?: boolean;
+      assessmentStatus?: "pass" | "retry_concept" | "retry_application";
+      gap?: {
+        description: string;
+        gapType: string;
+        whereItBroke: string;
+      };
+      evidenceAnchors?: string[];
+      repairTarget?: {
+        skill: string;
+        transferObjective: string;
+        successCriteria: string[];
+      };
+      ghostScenario?: {
+        domain: string;
+        prompt: string;
+        targetDepth: number;
+      };
+    } | null>(),
     createdAt: t
       .timestamp({ mode: "date", withTimezone: true })
       .defaultNow()

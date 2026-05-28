@@ -46,7 +46,24 @@ export default async function CurriculumPage(props: {
   const plan = await getActivePlan(resolvedSessionId).catch(() => null);
 
   if (!plan) {
-    redirect(`/workspace?session=${resolvedSessionId}`);
+    return (
+      <main className="min-h-dvh bg-background text-foreground">
+        <div className="mx-auto flex min-h-dvh w-full max-w-2xl flex-col justify-center px-5 py-12">
+          <div className="border border-border bg-card p-6">
+            <div className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+              Curriculum unavailable
+            </div>
+            <h1 className="mt-3 font-display text-2xl tracking-[-0.03em]">
+              The curriculum could not be loaded.
+            </h1>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">
+              The onboarding session exists, but no saved curriculum plan was
+              found for it yet.
+            </p>
+          </div>
+        </div>
+      </main>
+    );
   }
 
   return <CurriculumReveal plan={plan} sessionId={resolvedSessionId} />;
