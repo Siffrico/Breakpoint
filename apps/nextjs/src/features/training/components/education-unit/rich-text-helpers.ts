@@ -17,7 +17,7 @@ const QUOTE_RE = /^>\s(.*)$/;
 export function matchMarkdownTrigger(text: string): BlockMatch | null {
   const heading = HEADING_RE.exec(text);
   if (heading) {
-    const level = heading[1].length as 1 | 2 | 3;
+    const level = heading[1]?.length as 1 | 2 | 3;
     return { type: `h${level}`, rest: heading[2] ?? "" };
   }
   const ul = UL_RE.exec(text);
@@ -212,7 +212,7 @@ export function markdownToHtml(md: string): string {
     }
     const heading = HEADING_RE.exec(line);
     if (heading) {
-      const level = heading[1].length;
+      const level = heading[1]?.length ?? 1;
       blocks.push(`<h${level}>${inlineMarkdownToHtml(heading[2] ?? "")}</h${level}>`);
       i++;
       continue;

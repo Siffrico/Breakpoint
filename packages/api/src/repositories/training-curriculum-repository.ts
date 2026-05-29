@@ -162,6 +162,24 @@ export const trainingCurriculumRepository = {
     return plan;
   },
 
+  renameActivePlan: async ({
+    db,
+    sessionId,
+    title,
+  }: {
+    db: Database;
+    sessionId: string;
+    title: string;
+  }) => {
+    const [plan] = await db
+      .update(TrainingCurriculumPlan)
+      .set({ title })
+      .where(eq(TrainingCurriculumPlan.onboardingSessionId, sessionId))
+      .returning();
+
+    return plan ?? null;
+  },
+
   getActivePlanWithNodes: async ({
     db,
     sessionId,

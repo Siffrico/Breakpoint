@@ -248,14 +248,16 @@ const requireSessionOwner = async ({
     });
   }
 
-  if (!ctx.session?.user?.id) {
+  const userId = ctx.session?.user.id;
+
+  if (!userId) {
     throw new TRPCError({
       code: "UNAUTHORIZED",
       message: "You must be signed in.",
     });
   }
 
-  if (session.userId !== ctx.session.user.id) {
+  if (session.userId !== userId) {
     throw new TRPCError({
       code: "FORBIDDEN",
       message: "You do not have access to this learning project.",

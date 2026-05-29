@@ -16,18 +16,25 @@ const PURPOSE_BY_AGENT = {
   projectOverview: "projectOverview",
 } as const;
 
+const REASONING_PROVIDER_OPTIONS = {
+  openai: { reasoningEffort: "high", reasoningSummary: "auto" },
+  google: { thinkingConfig: { thinkingBudget: 8000, includeThoughts: true } },
+} as const;
+
 export const runAgent = async <TSchema extends z.ZodTypeAny>({
   agent,
   system,
   prompt,
   schema,
   errorMessage,
+  reasoning = false,
 }: {
   agent: keyof typeof PURPOSE_BY_AGENT;
   system: string;
   prompt: string;
   schema: TSchema;
   errorMessage: string;
+  reasoning?: boolean;
 }): Promise<z.infer<TSchema>> => {
   const model = requireAiModelForPurpose(
     PURPOSE_BY_AGENT[agent] as AiModelPurpose,
@@ -45,6 +52,7 @@ export const runAgent = async <TSchema extends z.ZodTypeAny>({
       prompt,
       tools: getSearchToolsForSelectedProvider(),
       stopWhen: stepCountIs(4),
+      ...(reasoning ? { providerOptions: REASONING_PROVIDER_OPTIONS } : {}),
     });
     const object = await result.output;
 

@@ -4,9 +4,7 @@ import {
   isTextUIPart,
   stepCountIs,
   streamText,
-  tool,
 } from "ai";
-import { z } from "zod/v4";
 
 import type { db as databaseClient } from "@acme/db/client";
 
@@ -14,8 +12,10 @@ import type { BuildCurriculumInput } from "./domain/training/agents/onboarding-c
 import type { CurriculumPlan } from "./domain/training/types/training.types";
 import {
   createBuildCurriculumTool,
+  createNameLearningTrackTool,
   normalizeLearningTrackName,
   ONBOARDING_CHAT_SYSTEM,
+  type NameLearningTrackInput,
 } from "./domain/training/agents/onboarding-chat-agent";
 import {
   getAiModelForPurpose,
@@ -39,23 +39,6 @@ const extractText = (message: UIMessage): string =>
     .map((part) => part.text)
     .join("\n")
     .trim();
-
-const createNameLearningTrackTool = () =>
-  tool({
-    description:
-      "Create the saved learning track name from the learner's topic. Return only the topic in lowercase kebab-case, not an identity phrase or descriptive title.",
-    inputSchema: z.object({
-      topic: z
-        .string()
-        .min(1)
-        .describe(
-          'The core topic the learner is studying, such as "computer engineering" or "machine learning".',
-        ),
-    }),
-    execute: ({ topic }): { name: string } => ({
-      name: normalizeLearningTrackName(topic),
-    }),
-  });
 
 export const streamOnboardingChat = async ({
   db,
@@ -129,6 +112,33 @@ const streamOnboardingChatWithModelPreference = async ({
   const userAnswerCount = persistedMessages.filter(
     (message) => message.role === "user",
   ).length;
+  const MIN_USER_TURNS_BEFORE_BUILD = 7;
+  const shouldBuildCurriculum = userAnswerCount >= MIN_USER_TURNS_BEFORE_BUILD;
+  let savedLearningTrackName: string | null = null;
+
+  const nameLearningTrack = async ({
+    topic,
+  }: NameLearningTrackInput): Promise<
+    { ok: true; name: string } | { ok: false; reason: string }
+  > => {
+    if (!shouldBuildCurriculum) {
+      return {
+        ok: false,
+        reason: "The learner has not answered enough onboarding questions yet.",
+      };
+    }
+
+    const name = normalizeLearningTrackName(topic);
+    savedLearningTrackName = name;
+
+    await trainingCurriculumRepository.renameActivePlan({
+      db,
+      sessionId,
+      title: name,
+    });
+
+    return { ok: true, name };
+  };
 
   const buildCurriculumFromDesigner = async (
     input: BuildCurriculumInput,
@@ -140,10 +150,16 @@ const streamOnboardingChatWithModelPreference = async ({
     if (existingPlan) {
       return { success: true, plan: existingPlan };
     }
-    if (userAnswerCount < 4) {
+    if (userAnswerCount < MIN_USER_TURNS_BEFORE_BUILD) {
       return {
         success: false,
         error: "The learner has not answered enough onboarding questions yet.",
+      };
+    }
+    if (!savedLearningTrackName) {
+      return {
+        success: false,
+        error: "The learning track must be named before building curriculum.",
       };
     }
 
@@ -166,7 +182,7 @@ const streamOnboardingChatWithModelPreference = async ({
       profileVersionId: createdProfile.version.id,
       userId: session.userId,
       blueprint: {
-        title: normalizeLearningTrackName(input.learningTrackName),
+        title: savedLearningTrackName,
         summary: input.planDraft.summary,
         targetIdentity: input.planDraft.targetIdentity,
         overview: input.overview
@@ -207,13 +223,14 @@ const streamOnboardingChatWithModelPreference = async ({
   const buildCurriculumTool = createBuildCurriculumTool({
     buildCurriculum: buildCurriculumFromDesigner,
   });
-  const nameLearningTrackTool = createNameLearningTrackTool();
+  const nameLearningTrackTool = createNameLearningTrackTool({
+    nameLearningTrack,
+  });
 
   const modelMessages = await convertToModelMessages(messages);
-  const runtimeInstruction =
-    userAnswerCount >= 4
-      ? "\n\nRuntime state: The learner has answered four times. In this response, call nameLearningTrack to produce the topic-only saved track name, then call buildCurriculum with learningTrackName set to that exact name."
-      : "\n\nRuntime state: Keep interviewing. Do not call buildCurriculum until the learner has answered at least four times.";
+  const runtimeInstruction = shouldBuildCurriculum
+    ? `\n\nRuntime state: The learner has answered ${userAnswerCount} times. The tools nameLearningTrack and buildCurriculum are now available. Only call them once the learner has explicitly chosen one of the projects you suggested. If they have not chosen yet, keep consulting.`
+    : `\n\nRuntime state: Keep consulting. Do not call buildCurriculum until the learner has answered at least ${MIN_USER_TURNS_BEFORE_BUILD} times AND has explicitly chosen one of the projects you suggested.`;
   const stream = streamText({
     model,
     system: `${ONBOARDING_CHAT_SYSTEM}${runtimeInstruction}`,
@@ -223,6 +240,7 @@ const streamOnboardingChatWithModelPreference = async ({
       nameLearningTrack: nameLearningTrackTool,
       buildCurriculum: buildCurriculumTool,
     },
+    prepareStep: () => ({ toolChoice: "auto" }),
     stopWhen: stepCountIs(5),
     onFinish: async ({ text }) => {
       const trimmed = text.trim();

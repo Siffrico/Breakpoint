@@ -20,7 +20,8 @@
     },
     "lint": {
       "dependsOn": ["^topo", "^build"],
-      "outputs": [".cache/.eslintcache"]
+      "outputs": [".cache/.eslintcache"],
+      "env": ["POSTGRES_MAX_CONNECTIONS", "PROMPT_OBSERVABILITY"]
     },
     "typecheck": {
       "dependsOn": ["^topo", "^build"],

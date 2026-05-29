@@ -195,7 +195,7 @@ export const profileRepository = {
     }
   },
 
-  getBillingByUserId: async ({
+  getBillingByUserId: ({
     userId,
   }: {
     db: Database;
@@ -203,12 +203,12 @@ export const profileRepository = {
   }): Promise<Result<ProfileBilling, ProfileError>> => {
     void userId;
 
-    return {
+    return Promise.resolve({
       success: true,
       data: {
         plan: "free",
         manageUrl: null,
       },
-    };
+    });
   },
 };

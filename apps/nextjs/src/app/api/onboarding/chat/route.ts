@@ -28,7 +28,8 @@ const resolveModelPreference = (req: NextRequest, model?: string) => {
 
 export const POST = async (req: NextRequest) => {
   const session = await auth.api.getSession({ headers: req.headers });
-  if (!session.user.id) {
+  const userId = session?.user?.id;
+  if (!userId) {
     return new Response("Unauthorized", { status: 401 });
   }
 
@@ -47,7 +48,7 @@ export const POST = async (req: NextRequest) => {
   return streamOnboardingChat({
     db,
     sessionId,
-    userId: session.user.id,
+    userId,
     messages,
     modelName: resolveModelPreference(req, body.model),
   });

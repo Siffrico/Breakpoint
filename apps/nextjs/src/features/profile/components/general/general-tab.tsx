@@ -81,14 +81,15 @@ export function GeneralTab({
     }),
   );
 
-  const isDirty = useMemo(
-    () =>
-      Boolean(savedGeneral) &&
-      (targetIdentity !== savedGeneral.targetIdentity ||
-        motivation !== savedGeneral.motivation ||
-        hardMoments.join("\u0001") !== savedGeneral.hardMoments.join("\u0001")),
-    [hardMoments, motivation, savedGeneral, targetIdentity],
-  );
+  const isDirty = useMemo(() => {
+    if (!savedGeneral) return false;
+
+    return (
+      targetIdentity !== savedGeneral.targetIdentity ||
+      motivation !== savedGeneral.motivation ||
+      hardMoments.join("\u0001") !== savedGeneral.hardMoments.join("\u0001")
+    );
+  }, [hardMoments, motivation, savedGeneral, targetIdentity]);
 
   const addHardMoment = () => {
     const nextMoment = hardMomentDraft.trim();

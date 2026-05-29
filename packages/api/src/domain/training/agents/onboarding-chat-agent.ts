@@ -2,54 +2,33 @@ import { tool } from "ai";
 import { z } from "zod/v4";
 
 import type { CurriculumPlan } from "../types/training.types";
+import { PROJECT_FIT_CONSULTANT_SYSTEM } from "../prompts/personas/project-fit-consultant";
 import {
   CurriculumDesignerOutputSchema,
   ProjectOverviewOutputSchema,
 } from "./contracts";
 
-export const ONBOARDING_CHAT_SYSTEM = `You are Breakpoint's onboarding interviewer.
-
-Your job is to run a short, sharp consultative chat that surfaces the minimum signal needed to design a curriculum the learner will actually follow.
-
-Voice:
-- Concise, direct, psychologically intelligent. Sound like a rigorous trainer, not a therapist or chatbot.
-- Plain language. No coaching filler, no self-help fluff, no compound multi-part questions.
-- One question per turn. Short helper context only when it improves the answer.
-
-What you must surface across the conversation:
-- The live trigger: what is happening in their life right now that made them open this product. Not the topic — the trigger.
-- The concrete moment, failure, or ambition that makes this emotionally real.
-- How they currently reason about the domain — not just what they claim to know. Use a tiny scenario, decision, or walkthrough where useful.
-- The misconception, shortcut, or missing distinction underneath their current approach.
-- What proof would count as real progress for them.
-
-Pacing:
-- The user has already been shown the opening prompt: "Who do you want to become?". Their first message answers that.
-- After that, ask up to 3 follow-ups. Do not exceed 4 user answers total. Quality over quantity — stop earlier if you have enough.
-- Never re-ask the target identity. Never ask "what do you want to learn?".
-
-When you have enough signal:
-- Write a short message (3-6 sentences) describing the curriculum you would build. Name the through-line of the path and 2-4 of the major skill areas. Use the learner's own framing.
-- In that same assistant turn, immediately call the buildCurriculum tool. Do not ask for permission, wait for "ok", or say you are going to generate it without calling the tool.
-- The buildCurriculum tool input is the complete curriculum payload. You must write the saved learningTrackName, full identity report, before/after profile, plan draft, and optional project overview into the tool call. The saved learningTrackName must be only the topic, such as "computer engineering" or "machine learning", not an identity phrase, sentence, goal, or marketing title. The backend normalizes and persists that name as the curriculum title.
-- After the tool returns successfully, write one short closing line acknowledging the plan is ready. Do not repeat the plan back.
-- If the tool returns ok:false, apologize briefly and ask the learner if they want to retry.
+const ONBOARDING_RUNTIME_NOTES = `Runtime notes for this session:
+- The learner has already been shown the opener "What kind of thing would feel worth building even if it took months?" — their first message is the answer. Continue the consultation from step 2 onward; do not re-ask the opener.
+- Run the full 9-step consultation. Do not skip steps. Do not collapse multiple questions into one turn.
+- When the learner has explicitly chosen one of the 2–4 projects you suggested (step 9), and only then:
+  1. Call nameLearningTrack with the core topic only, lowercase — e.g. "computer engineering", "machine learning". Not the project name, not an identity phrase, not a sentence.
+  2. After nameLearningTrack returns, call buildCurriculum with the full curriculum payload built around the chosen project.
+  3. Do not ask permission. Do not announce the generation. Do not wait for confirmation.
+  4. After the tool returns ok:true, write one short closing line. Do not repeat the plan.
+  5. If the tool returns ok:false, apologize briefly and ask if they want to retry.
+- Until the learner has chosen, keep consulting. Never call buildCurriculum before a project has been explicitly chosen.
 
 Search policy:
-- You have access to a web search tool. Use it whenever you are not 100% certain about a factual claim, named artifact, current state, API/tool detail, person, company, market, event, schedule, law, or anything that may have changed.
-- Search before building curriculum around external facts, field norms, tools, projects, or examples you have not verified.
-- Do not guess when a quick search would remove uncertainty.
+- Search before suggesting projects or building curriculum around tools, libraries, papers, field norms, or any factual claim you have not verified.
+- Do not guess when a quick search removes uncertainty.`;
 
-Never call buildCurriculum before the learner has answered at least 3 of your questions in addition to the opening.`;
+export const ONBOARDING_CHAT_SYSTEM = `${PROJECT_FIT_CONSULTANT_SYSTEM}
+
+${ONBOARDING_RUNTIME_NOTES}`;
 
 export const BuildCurriculumInputSchema = CurriculumDesignerOutputSchema.extend(
   {
-    learningTrackName: z
-      .string()
-      .min(1)
-      .describe(
-        'The saved curriculum title as the core study topic only, for example "computer engineering" or "machine learning". Do not use an identity phrase or long descriptive title.',
-      ),
     overview: ProjectOverviewOutputSchema.nullable()
       .optional()
       .describe(
@@ -59,6 +38,19 @@ export const BuildCurriculumInputSchema = CurriculumDesignerOutputSchema.extend(
 );
 
 export type BuildCurriculumInput = z.infer<typeof BuildCurriculumInputSchema>;
+
+export const NameLearningTrackInputSchema = z.object({
+  topic: z
+    .string()
+    .min(1)
+    .describe(
+      'The saved project/sidebar name as the core study topic only, for example "computer engineering" or "machine learning". Do not use an identity phrase, sentence, or long descriptive title.',
+    ),
+});
+
+export type NameLearningTrackInput = z.infer<
+  typeof NameLearningTrackInputSchema
+>;
 
 export type BuildCurriculumResult =
   | {
@@ -84,6 +76,22 @@ export const normalizeLearningTrackName = (input: string): string => {
   return normalized || "learning-track";
 };
 
+export const createNameLearningTrackTool = ({
+  nameLearningTrack,
+}: {
+  nameLearningTrack: (
+    input: NameLearningTrackInput,
+  ) => Promise<{ ok: true; name: string } | { ok: false; reason: string }>;
+}) =>
+  tool({
+    description:
+      "Persist the saved learning track name used as the project name in the sidebar. Call this before buildCurriculum. The topic must be the core subject only, not an identity phrase or descriptive sentence.",
+    inputSchema: NameLearningTrackInputSchema,
+    execute: async (input): Promise<
+      { ok: true; name: string } | { ok: false; reason: string }
+    > => nameLearningTrack(input),
+  });
+
 export const createBuildCurriculumTool = ({
   buildCurriculum,
 }: {
@@ -95,7 +103,7 @@ export const createBuildCurriculumTool = ({
 }) =>
   tool({
     description:
-      "Persist the learner's complete curriculum from the conversation so far. The input must contain the saved learningTrackName plus the full identity report, before/after profile, and curriculum plan draft that should become the saved curriculum. Call this only after the learner has answered enough questions for you to confidently design the path.",
+      "Persist the learner's complete curriculum from the conversation so far. The input must contain the full identity report, before/after profile, and curriculum plan draft that should become the saved curriculum. Call this only after nameLearningTrack has saved the project/sidebar name.",
     inputSchema: BuildCurriculumInputSchema,
     execute: async (input): Promise<BuildCurriculumResult> => {
       const result = await buildCurriculum(input);
