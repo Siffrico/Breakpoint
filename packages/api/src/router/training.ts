@@ -6,6 +6,7 @@ import type { CurriculumNode } from "@acme/validators";
 import { sql } from "@acme/db";
 import { CapstoneSubmissionSchema } from "@acme/validators";
 
+import { createLearningProjectWorkflow } from "../domain/training/workflows/create-learning-project-workflow";
 import { generateCapstoneWorkflow } from "../domain/training/workflows/generate-capstone-workflow";
 import { getActivePlanWorkflow } from "../domain/training/workflows/get-active-plan-workflow";
 import { getAiWorkspaceWorkflow } from "../domain/training/workflows/get-ai-workspace-workflow";
@@ -50,6 +51,13 @@ const NodeSessionSchema = z.object({
 const SubmitCapstoneMessageSchema = CapstoneSubmissionSchema.extend({
   sessionId: z.string().uuid(),
 });
+
+const CreateLearningProjectSchema = z.object({
+  title: z.string().min(2).max(120),
+  targetIdentity: z.string().max(240).optional(),
+  curriculumMarkdown: z.string().max(120_000).optional(),
+});
+
 type Database = Parameters<
   typeof trainingCurriculumRepository.getNodeById
 >[0]["db"];
@@ -268,6 +276,42 @@ const requireSessionOwner = async ({
 };
 
 export const trainingRouter = {
+  createLearningProject: protectedProcedure
+    .input(CreateLearningProjectSchema)
+    .mutation(async ({ ctx, input }) =>
+      ctx.db.transaction(async (tx) => {
+        const db = tx as unknown as Database;
+
+        return throwOnFailure(
+          await createLearningProjectWorkflow({
+            userId: ctx.session.user.id,
+            title: input.title,
+            targetIdentity: input.targetIdentity,
+            curriculumMarkdown: input.curriculumMarkdown,
+            deps: {
+              createSession: (userId) =>
+                trainingOnboardingRepository.createSession({ db, userId }),
+              createProfileVersion: (payload) =>
+                trainingOnboardingRepository.createProfileVersion({
+                  db,
+                  ...payload,
+                }),
+              createPlan: (payload) =>
+                trainingCurriculumRepository.createPlan({
+                  db,
+                  ...payload,
+                }),
+              updateSession: (payload) =>
+                trainingOnboardingRepository.updateSession({
+                  db,
+                  ...payload,
+                }),
+            },
+          }),
+        );
+      }),
+    ),
+
   startOnboarding: protectedProcedure.mutation(async ({ ctx }) =>
     throwOnFailure(
       await startOnboardingWorkflow({
