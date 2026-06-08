@@ -1,14 +1,9 @@
 "use client";
 
-import type { ReactElement } from "react";
-import {
-  useEffect,
-  useLayoutEffect,
-  useReducer,
-  useRef,
-  useState,
-} from "react";
+import type { UIMessage } from "ai";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useChat } from "@ai-sdk/react";
 import {
   ArrowsOutSimple,
   ArrowUp,
@@ -17,8 +12,10 @@ import {
   Microphone,
   Plus,
 } from "@phosphor-icons/react";
+import { DefaultChatTransport, isTextUIPart } from "ai";
 
 import type { RouterOutputs } from "@acme/api";
+import { PacedAssistantText, WorkspaceStatusLine } from "@acme/ui/chat";
 import { toast } from "@acme/ui/toast";
 
 import { AssistantRichText } from "~/features/training/components/assistant-rich-text";
@@ -42,16 +39,24 @@ interface WorkspaceFallbackTurn {
   prompt: string;
   canCompose: boolean;
 }
-type WorkspaceUiState =
-  | { status: "idle" }
-  | { status: "streaming"; submission: string; assistantText: string }
-  | { status: "error"; submission: string; message: string };
-type WorkspaceUiAction =
-  | { type: "submit"; submission: string }
-  | { type: "assistant-delta"; delta: string }
-  | { type: "complete" }
-  | { type: "error"; message: string }
-  | { type: "reset" };
+type WorkspaceStreamStatus =
+  | "preparing"
+  | "thinking"
+  | "evaluating"
+  | "saving"
+  | "complete";
+interface WorkspaceStatusData {
+  status: WorkspaceStreamStatus;
+  label: string;
+}
+interface WorkspaceChatData extends Record<string, unknown> {
+  "workspace-status": WorkspaceStatusData;
+}
+interface WorkspaceChatMetadata {
+  action?: "submit_answer" | "next_scenario";
+  synthetic?: boolean;
+}
+type WorkspaceChatMessage = UIMessage<WorkspaceChatMetadata, WorkspaceChatData>;
 
 const COLLAPSED_COMPOSER_MIN_HEIGHT = 64;
 const COLLAPSED_COMPOSER_MAX_HEIGHT = 220;
@@ -64,37 +69,6 @@ const isViewportNearBottom = () => {
   const viewportBottom = window.scrollY + window.innerHeight;
 
   return scrollableHeight - viewportBottom < AUTO_SCROLL_BOTTOM_THRESHOLD;
-};
-
-const workspaceUiReducer = (
-  state: WorkspaceUiState,
-  action: WorkspaceUiAction,
-): WorkspaceUiState => {
-  switch (action.type) {
-    case "submit":
-      return {
-        status: "streaming",
-        submission: action.submission,
-        assistantText: "",
-      };
-    case "assistant-delta":
-      return state.status === "streaming"
-        ? { ...state, assistantText: `${state.assistantText}${action.delta}` }
-        : state;
-    case "complete":
-    case "reset":
-      return { status: "idle" };
-    case "error":
-      return state.status === "streaming"
-        ? {
-            status: "error",
-            submission: state.submission,
-            message: action.message,
-          }
-        : state;
-    default:
-      return state;
-  }
 };
 
 const getComposerHeightBounds = (element: HTMLTextAreaElement | null) => {
@@ -143,17 +117,40 @@ const syncComposerTextareaHeight = ({
 function PromptTurn({
   prompt,
   helper,
+  streaming = false,
+  statusLabel = null,
 }: {
   prompt: string;
   helper?: string | null;
+  streaming?: boolean;
+  statusLabel?: string | null;
 }) {
   return (
     <section className="py-3 pl-6 font-sans sm:pl-10">
       <div className="max-w-[760px]">
-        <AssistantRichText
-          content={prompt}
-          className="text-foreground text-[20px] leading-[1.55] tracking-[-0.01em] [&_h2]:mt-0 [&_h2]:!mb-4 [&_h2]:text-[30px] [&_h2]:font-semibold [&_h2]:tracking-[-0.02em] [&_li]:my-1.5 [&_li]:leading-[1.55] [&_ol]:!my-4 [&_ol]:list-decimal [&_ol]:pl-8 [&_p]:!my-4 [&_strong]:font-semibold [&_ul]:!my-4 [&_ul]:list-disc [&_ul]:pl-8 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
-        />
+        {statusLabel ? (
+          <WorkspaceStatusLine
+            label={statusLabel}
+            className={prompt.trim() ? "mb-4" : undefined}
+          />
+        ) : null}
+        {prompt.trim() ? (
+          streaming ? (
+            <PacedAssistantText text={prompt} active={streaming}>
+              {(visibleText) => (
+                <AssistantRichText
+                  content={visibleText}
+                  className="text-foreground text-[20px] leading-[1.55] tracking-[-0.01em] [&_h2]:mt-0 [&_h2]:!mb-4 [&_h2]:text-[30px] [&_h2]:font-semibold [&_h2]:tracking-[-0.02em] [&_li]:my-1.5 [&_li]:leading-[1.55] [&_ol]:!my-4 [&_ol]:list-decimal [&_ol]:pl-8 [&_p]:!my-4 [&_strong]:font-semibold [&_ul]:!my-4 [&_ul]:list-disc [&_ul]:pl-8 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
+                />
+              )}
+            </PacedAssistantText>
+          ) : (
+            <AssistantRichText
+              content={prompt}
+              className="text-foreground text-[20px] leading-[1.55] tracking-[-0.01em] [&_h2]:mt-0 [&_h2]:!mb-4 [&_h2]:text-[30px] [&_h2]:font-semibold [&_h2]:tracking-[-0.02em] [&_li]:my-1.5 [&_li]:leading-[1.55] [&_ol]:!my-4 [&_ol]:list-decimal [&_ol]:pl-8 [&_p]:!my-4 [&_strong]:font-semibold [&_ul]:!my-4 [&_ul]:list-disc [&_ul]:pl-8 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
+            />
+          )
+        ) : null}
         {helper ? (
           <AssistantRichText
             content={helper}
@@ -211,24 +208,6 @@ function SubmittedAnswerReceipt({
             </p>
           </div>
         ) : null}
-      </div>
-    </section>
-  );
-}
-
-function PendingAssistantTurn({ content }: { content: string }) {
-  if (content.trim()) {
-    return <PromptTurn prompt={content} helper={null} />;
-  }
-
-  return (
-    <section className="py-3 pl-6 font-sans sm:pl-10">
-      <div className="text-foreground/42 flex max-w-[760px] items-center gap-3 text-[14px] tracking-[-0.01em]">
-        <div
-          aria-label="AI response pending"
-          className="border-foreground/18 border-t-foreground/55 size-4 animate-spin rounded-full border"
-        />
-        <span>Preparing feedback...</span>
       </div>
     </section>
   );
@@ -306,6 +285,43 @@ const getIntroMessage = (
       | null
   )?.introMessage ?? null;
 
+const transcriptToChatMessages = (
+  workspace: AiWorkspace | null,
+  sessionId: string,
+): WorkspaceChatMessage[] =>
+  (workspace?.messages ?? []).map((message) => ({
+    id: `workspace-${sessionId}-${message.sequence}`,
+    role: message.role,
+    parts: [{ type: "text", text: message.content }],
+  }));
+
+const getChatMessageText = (message: WorkspaceChatMessage) =>
+  message.parts
+    .filter(isTextUIPart)
+    .map((part) => part.text)
+    .join("");
+
+const getWorkspaceStatus = (
+  message: WorkspaceChatMessage,
+): WorkspaceStatusData | null => {
+  let status: WorkspaceStatusData | null = null;
+
+  for (const part of message.parts) {
+    if (part.type !== "data-workspace-status") continue;
+    if (
+      typeof part.data === "object" &&
+      part.data != null &&
+      "status" in part.data &&
+      "label" in part.data &&
+      typeof part.data.label === "string"
+    ) {
+      status = part.data as WorkspaceStatusData;
+    }
+  }
+
+  return status;
+};
+
 export function EducationUnitWorkspace({
   unit,
   sessionId,
@@ -328,23 +344,54 @@ export function EducationUnitWorkspace({
   onRunningChange?: (isRunning: boolean) => void;
 }) {
   const router = useRouter();
-  const [messages, setMessages] = useState(aiWorkspace?.messages ?? []);
   const [response, setResponse] = useState("");
   const [isExpanded, setIsExpanded] = useState(false);
-  const [uiState, dispatchUiState] = useReducer(workspaceUiReducer, {
-    status: "idle",
-  });
   const bottomRef = useRef<HTMLDivElement>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
   const shouldAutoFollowRef = useRef(true);
+  const pendingSubmissionRef = useRef<string | null>(null);
+  const pendingErrorToastRef = useRef<"submit_answer" | "next_scenario" | null>(
+    null,
+  );
+  const errorHandledRef = useRef(false);
+  const initialChatMessages = useMemo(
+    () => transcriptToChatMessages(aiWorkspace, sessionId),
+    [aiWorkspace, sessionId],
+  );
+  const chatTransport = useMemo(
+    () =>
+      new DefaultChatTransport<WorkspaceChatMessage>({
+        api: "/api/training/workspace/chat",
+      }),
+    [],
+  );
+  const {
+    messages: chatMessages,
+    setMessages,
+    sendMessage,
+    clearError,
+    status,
+    error,
+  } = useChat<WorkspaceChatMessage>({
+    id: `training-workspace-${sessionId}`,
+    messages: initialChatMessages,
+    transport: chatTransport,
+    onFinish: () => {
+      pendingSubmissionRef.current = null;
+      pendingErrorToastRef.current = null;
+      router.refresh();
+    },
+  });
+  const isRunning = status === "submitted" || status === "streaming";
 
   useEffect(() => {
     onStateChange?.(unit);
   }, [onStateChange, unit]);
 
   useEffect(() => {
-    setMessages(aiWorkspace?.messages ?? []);
-  }, [aiWorkspace?.messages]);
+    if (isRunning) return;
+    setMessages(initialChatMessages);
+  }, [initialChatMessages, isRunning, setMessages]);
 
   useEffect(() => {
     const updateAutoFollow = () => {
@@ -361,6 +408,15 @@ export function EducationUnitWorkspace({
     };
   }, []);
 
+  const chatTextLength = useMemo(
+    () =>
+      chatMessages.reduce(
+        (length, message) => length + getChatMessageText(message).length,
+        0,
+      ),
+    [chatMessages],
+  );
+
   useEffect(() => {
     if (!shouldAutoFollowRef.current) return;
 
@@ -369,7 +425,7 @@ export function EducationUnitWorkspace({
     });
 
     return () => window.cancelAnimationFrame(frameId);
-  }, [messages.length, uiState]);
+  }, [chatMessages.length, chatTextLength, status]);
 
   useLayoutEffect(() => {
     syncComposerTextareaHeight({
@@ -386,14 +442,13 @@ export function EducationUnitWorkspace({
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  const isRunning = uiState.status === "streaming";
   const introMessage = getIntroMessage(aiWorkspace);
   const fallbackTurn = getFallbackTurn(unit);
   const workspaceUnavailable = !preview && aiWorkspace == null;
   const missingTranscriptForResumedUnit =
     !preview &&
     aiWorkspace != null &&
-    messages.length === 0 &&
+    chatMessages.length === 0 &&
     !introMessage &&
     unit.activeStage !== "challenge";
   const canCompose =
@@ -416,63 +471,67 @@ export function EducationUnitWorkspace({
     return () => onRunningChange?.(false);
   }, [isRunning, onRunningChange]);
 
+  useEffect(() => {
+    if (status !== "error" || !error || errorHandledRef.current) return;
+
+    errorHandledRef.current = true;
+    const pendingSubmission = pendingSubmissionRef.current;
+    const pendingAction = pendingErrorToastRef.current;
+    if (pendingSubmission) {
+      setResponse(pendingSubmission);
+    }
+    pendingSubmissionRef.current = null;
+    pendingErrorToastRef.current = null;
+    setMessages(initialChatMessages);
+    toast.error(
+      pendingAction === "next_scenario"
+        ? "Next scenario could not be prepared."
+        : "AI feedback could not be prepared.",
+    );
+  }, [error, initialChatMessages, setMessages, status]);
+
+  useEffect(() => {
+    if (status !== "error") {
+      errorHandledRef.current = false;
+    }
+  }, [status]);
+
   const handleSubmit = async (override?: string) => {
     const message = (override ?? response).trim();
     if (!message || preview || isRunning) {
       return;
     }
 
-    dispatchUiState({ type: "submit", submission: message });
+    clearError();
+    pendingSubmissionRef.current = message;
+    pendingErrorToastRef.current = "submit_answer";
     setResponse("");
     setIsExpanded(false);
 
     try {
-      const result = await fetch("/api/training/workspace/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
+      await sendMessage(
+        {
+          text: message,
+          metadata: { action: "submit_answer" },
         },
-        body: JSON.stringify({
-          action: "submit_answer",
-          sessionId,
-          message,
-          attemptTiming,
-        }),
-      });
-
-      if (!result.ok) {
-        throw new Error(await result.text());
-      }
-
-      const reader = result.body?.getReader();
-      if (!reader) {
-        throw new Error("AI response stream could not be opened.");
-      }
-
-      const decoder = new TextDecoder();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        dispatchUiState({
-          type: "assistant-delta",
-          delta: decoder.decode(value, { stream: true }),
-        });
-      }
-
-      const trailingText = decoder.decode();
-      if (trailingText) {
-        dispatchUiState({ type: "assistant-delta", delta: trailingText });
-      }
-
-      dispatchUiState({ type: "complete" });
-      router.refresh();
+        {
+          body: {
+            action: "submit_answer",
+            sessionId,
+            message,
+            attemptTiming,
+          },
+        },
+      );
     } catch {
-      dispatchUiState({
-        type: "error",
-        message: "AI feedback could not be prepared.",
-      });
-      setResponse(message);
-      toast.error("AI feedback could not be prepared.");
+      if (!errorHandledRef.current) {
+        errorHandledRef.current = true;
+        pendingSubmissionRef.current = null;
+        pendingErrorToastRef.current = null;
+        setResponse(message);
+        setMessages(initialChatMessages);
+        toast.error("AI feedback could not be prepared.");
+      }
     }
   };
 
@@ -481,71 +540,45 @@ export function EducationUnitWorkspace({
       return;
     }
 
-    dispatchUiState({ type: "submit", submission: "" });
+    clearError();
+    pendingSubmissionRef.current = null;
+    pendingErrorToastRef.current = "next_scenario";
 
     try {
-      const result = await fetch("/api/training/workspace/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
+      await sendMessage(
+        {
+          text: "Next scenario",
+          metadata: { action: "next_scenario", synthetic: true },
         },
-        body: JSON.stringify({ action: "next_scenario", sessionId }),
-      });
-
-      if (!result.ok) {
-        throw new Error(await result.text());
-      }
-
-      const reader = result.body?.getReader();
-      if (!reader) {
-        throw new Error("Next scenario stream could not be opened.");
-      }
-
-      const decoder = new TextDecoder();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        dispatchUiState({
-          type: "assistant-delta",
-          delta: decoder.decode(value, { stream: true }),
-        });
-      }
-
-      const trailingText = decoder.decode();
-      if (trailingText) {
-        dispatchUiState({ type: "assistant-delta", delta: trailingText });
-      }
-
-      dispatchUiState({ type: "complete" });
-      router.refresh();
+        {
+          body: {
+            action: "next_scenario",
+            sessionId,
+          },
+        },
+      );
     } catch {
-      dispatchUiState({
-        type: "error",
-        message: "Next scenario could not be prepared.",
-      });
-      toast.error("Next scenario could not be prepared.");
+      if (!errorHandledRef.current) {
+        errorHandledRef.current = true;
+        pendingSubmissionRef.current = null;
+        pendingErrorToastRef.current = null;
+        setMessages(initialChatMessages);
+        toast.error("Next scenario could not be prepared.");
+      }
     }
   };
 
-  const visibleMessages = messages;
-  const pendingMessages =
-    uiState.status === "streaming" && !preview
-      ? [
-          uiState.submission ? (
-            <SubmittedAnswerReceipt
-              key="pending-submission"
-              text={uiState.submission}
-              pending
-            />
-          ) : null,
-          <PendingAssistantTurn
-            key="pending-assistant"
-            content={uiState.assistantText}
-          />,
-        ].filter((item): item is ReactElement => item != null)
-      : [];
+  const visibleMessages = chatMessages.filter(
+    (message) => !(message.role === "user" && message.metadata?.synthetic),
+  );
+  const latestVisibleUserMessageId = [...visibleMessages]
+    .reverse()
+    .find((message) => message.role === "user")?.id;
+  const latestAssistantMessageId = [...chatMessages]
+    .reverse()
+    .find((message) => message.role === "assistant")?.id;
   const nextScenarioControl =
-    canRequestNextScenario && uiState.status !== "streaming" && !preview ? (
+    canRequestNextScenario && !isRunning && !preview ? (
       <section
         key="next-scenario-control"
         className="py-1 pl-6 font-sans sm:pl-10"
@@ -584,24 +617,42 @@ export function EducationUnitWorkspace({
               prompt={introMessage?.prompt ?? fallbackTurn.prompt}
               helper={introMessage?.helper ?? fallbackTurn.helper}
             />,
-          ].concat(pendingMessages)
+          ]
         : visibleMessages
-            .map((message) =>
-              message.role === "assistant" ? (
-                <PromptTurn
-                  key={`ai-${message.sequence}`}
-                  prompt={message.content}
-                  helper={null}
-                />
-              ) : (
+            .map((message) => {
+              const content = getChatMessageText(message);
+              if (message.role === "assistant") {
+                const isLiveAssistant =
+                  isRunning && message.id === latestAssistantMessageId;
+                const liveStatus = isLiveAssistant
+                  ? getWorkspaceStatus(message)
+                  : null;
+                return (
+                  <PromptTurn
+                    key={message.id}
+                    prompt={content}
+                    helper={null}
+                    streaming={isLiveAssistant}
+                    statusLabel={
+                      liveStatus && liveStatus.status !== "complete"
+                        ? liveStatus.label
+                        : null
+                    }
+                  />
+                );
+              }
+
+              return (
                 <SubmittedAnswerReceipt
-                  key={`ai-${message.sequence}`}
-                  text={message.content}
+                  key={message.id}
+                  text={content}
+                  pending={
+                    isRunning && message.id === latestVisibleUserMessageId
+                  }
                 />
-              ),
-            )
-            .concat(nextScenarioControl ? [nextScenarioControl] : [])
-            .concat(pendingMessages);
+              );
+            })
+            .concat(nextScenarioControl ? [nextScenarioControl] : []);
 
   const inputZone = (
     <div

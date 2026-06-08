@@ -1,4 +1,11 @@
-import { Output, stepCountIs, streamText } from "ai";
+import type { UIMessage } from "ai";
+import {
+  createUIMessageStream,
+  createUIMessageStreamResponse,
+  Output,
+  stepCountIs,
+  streamText,
+} from "ai";
 
 import type { db as databaseClient } from "@acme/db/client";
 
@@ -49,7 +56,23 @@ import { trainingOnboardingRepository } from "./repositories/training-onboarding
 
 type Database = typeof databaseClient;
 
-const encoder = new TextEncoder();
+type WorkspaceStreamStatus =
+  | "preparing"
+  | "thinking"
+  | "evaluating"
+  | "saving"
+  | "complete";
+
+interface WorkspaceStatusData extends Record<string, unknown> {
+  "workspace-status": {
+    status: WorkspaceStreamStatus;
+    label: string;
+  };
+}
+
+type WorkspaceChatUIMessage = UIMessage<unknown, WorkspaceStatusData>;
+
+const WORKSPACE_ASSISTANT_TEXT_PART_ID = "workspace-assistant";
 
 const getNextReadyLearningNode = (nodes: CurriculumNode[]) =>
   nodes.find(
@@ -575,109 +598,233 @@ const streamWorkspaceChatWithModelPreference = async ({
     return new Response("Forbidden.", { status: 403 });
   }
 
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      try {
-        const { plan, allResponses, state, node, unit, unitResponses } =
-          await getCurrentTurn({ db, sessionId });
-        const slot = getWorkspaceMessageSlot(state.mode);
-        if (action === "submit_answer") {
-          const userMessage =
-            await trainingOnboardingRepository.appendWorkspaceMessage({
-              db,
-              sessionId,
-              role: "user",
-              content: trimmedMessage,
-              slot,
-            });
+  const stream = createUIMessageStream<WorkspaceChatUIMessage>({
+    onError: () => "AI feedback could not be prepared.",
+    execute: async ({ writer }) => {
+      writer.write({ type: "start" });
+      writer.write({
+        type: "data-workspace-status",
+        id: "workspace-status",
+        data: {
+          status: "preparing",
+          label:
+            action === "next_scenario"
+              ? "Preparing next scenario"
+              : "Preparing feedback",
+        },
+      });
 
-          if (!userMessage) {
-            throw new Error("User message could not be saved.");
-          }
+      let textPartStarted = false;
+      let streamedAssistantMessage = "";
+      const writeStatus = (status: WorkspaceStreamStatus, label: string) => {
+        writer.write({
+          type: "data-workspace-status",
+          id: "workspace-status",
+          data: { status, label },
+        });
+      };
+      const streamAssistantDelta = (nextAssistantMessage: string) => {
+        if (
+          nextAssistantMessage.length <= streamedAssistantMessage.length ||
+          !nextAssistantMessage.startsWith(streamedAssistantMessage)
+        ) {
+          return;
         }
 
-        const messagesWithUser =
-          await trainingOnboardingRepository.listWorkspaceMessages({
+        const delta = nextAssistantMessage.slice(
+          streamedAssistantMessage.length,
+        );
+        if (!delta) return;
+
+        if (!textPartStarted) {
+          writer.write({
+            type: "text-start",
+            id: WORKSPACE_ASSISTANT_TEXT_PART_ID,
+          });
+          textPartStarted = true;
+        }
+        streamedAssistantMessage = nextAssistantMessage;
+        writer.write({
+          type: "text-delta",
+          id: WORKSPACE_ASSISTANT_TEXT_PART_ID,
+          delta,
+        });
+      };
+      const endAssistantText = () => {
+        if (!textPartStarted) return;
+        writer.write({
+          type: "text-end",
+          id: WORKSPACE_ASSISTANT_TEXT_PART_ID,
+        });
+      };
+
+      const { plan, allResponses, state, node, unit, unitResponses } =
+        await getCurrentTurn({ db, sessionId });
+      const slot = getWorkspaceMessageSlot(state.mode);
+      if (action === "submit_answer") {
+        const userMessage =
+          await trainingOnboardingRepository.appendWorkspaceMessage({
             db,
             sessionId,
+            role: "user",
+            content: trimmedMessage,
             slot,
           });
-        const introMessage =
-          state.mode === "recall" &&
-          !messagesWithUser.some(
-            (workspaceMessage) => workspaceMessage.role === "assistant",
-          )
-            ? buildWorkspaceIntroMessage({ plan, state })
-            : null;
-        const memoriesResult = await memoryRepository.listByUserId({
+
+        if (!userMessage) {
+          throw new Error("User message could not be saved.");
+        }
+      }
+
+      const messagesWithUser =
+        await trainingOnboardingRepository.listWorkspaceMessages({
           db,
+          sessionId,
+          slot,
+        });
+      const introMessage =
+        state.mode === "recall" &&
+        !messagesWithUser.some(
+          (workspaceMessage) => workspaceMessage.role === "assistant",
+        )
+          ? buildWorkspaceIntroMessage({ plan, state })
+          : null;
+      const memoriesResult = await memoryRepository.listByUserId({
+        db,
+        userId,
+      });
+      const runtime = selectWorkspaceTurnRuntime(state);
+      const activeEvaluationPlan = selectLatestEvaluationPlan(unitResponses);
+      const contextEnvelope = buildWorkspaceContextEnvelope({
+        plan,
+        node,
+        unit,
+        state,
+        messages: messagesWithUser,
+        introMessage,
+        memories: memoriesResult.success ? memoriesResult.data : [],
+        activeUnitResponses: unitResponses,
+        allResponses,
+        runtime,
+        evaluationPlan: activeEvaluationPlan,
+        attemptTiming,
+      });
+      const context = renderWorkspaceStageContextPrompt({
+        envelope: contextEnvelope,
+        runtime,
+      });
+      const promptContext =
+        action === "next_scenario"
+          ? `${context}\n\n## Turn instruction\nThe learner clicked Next scenario after reading evaluator feedback. Generate the next planned evaluation scenario only. Do not treat this as a learner answer. Do not re-grade the previous answer. Keep the current evaluation stage active unless this prompt is impossible.`
+          : context;
+
+      if (state.mode === "recall") {
+        writeStatus("thinking", "Checking recall");
+        const result = streamText({
+          model: requireAiModelForPurpose(
+            runtime.modelPurpose,
+            "AI workspace turns",
+          ),
+          output: Output.object({
+            schema: WorkspaceAiRecallOutputSchema,
+            name: "workspace_recall_turn",
+          }),
+          system: getWorkspaceAiSystemPrompt(runtime.promptKind),
+          prompt: promptContext,
+          tools: getSearchToolsForSelectedProvider(runtime.modelPurpose),
+          stopWhen: stepCountIs(4),
+        });
+
+        for await (const partial of result.partialOutputStream) {
+          streamAssistantDelta(
+            typeof partial.assistantMessage === "string"
+              ? partial.assistantMessage
+              : "",
+          );
+        }
+
+        const output = await result.output;
+        streamAssistantDelta(output.assistantMessage);
+        endAssistantText();
+        writeStatus("saving", "Saving feedback");
+        await saveRecallOutput({
+          db,
+          sessionId,
           userId,
-        });
-        const runtime = selectWorkspaceTurnRuntime(state);
-        const activeEvaluationPlan = selectLatestEvaluationPlan(unitResponses);
-        const contextEnvelope = buildWorkspaceContextEnvelope({
-          plan,
-          node,
-          unit,
+          message: trimmedMessage,
           state,
-          messages: messagesWithUser,
-          introMessage,
-          memories: memoriesResult.success ? memoriesResult.data : [],
-          activeUnitResponses: unitResponses,
-          allResponses,
-          runtime,
-          evaluationPlan: activeEvaluationPlan,
-          attemptTiming,
+          unit,
+          plan,
+          output,
         });
-        const context = renderWorkspaceStageContextPrompt({
-          envelope: contextEnvelope,
-          runtime,
-        });
-        const promptContext =
+      } else {
+        writeStatus(
+          runtime.promptKind === "evaluate_feedback"
+            ? "evaluating"
+            : "thinking",
           action === "next_scenario"
-            ? `${context}\n\n## Turn instruction\nThe learner clicked Next scenario after reading evaluator feedback. Generate the next planned evaluation scenario only. Do not treat this as a learner answer. Do not re-grade the previous answer. Keep the current evaluation stage active unless this prompt is impossible.`
-            : context;
-        let streamedAssistantMessage = "";
-        const streamAssistantDelta = (nextAssistantMessage: string) => {
-          if (
-            nextAssistantMessage.length > streamedAssistantMessage.length &&
-            nextAssistantMessage.startsWith(streamedAssistantMessage)
-          ) {
-            const delta = nextAssistantMessage.slice(
-              streamedAssistantMessage.length,
-            );
-            streamedAssistantMessage = nextAssistantMessage;
-            controller.enqueue(encoder.encode(delta));
-          }
-        };
+            ? "Preparing next scenario"
+            : runtime.promptKind === "evaluate_feedback"
+              ? "Evaluating your answer"
+              : "Preparing feedback",
+        );
+        const educationSchema =
+          runtime.promptKind === "evaluate_feedback"
+            ? WorkspaceAiEvaluationOutputSchema
+            : WorkspaceAiEducationOutputSchema;
+        const result = streamText({
+          model: requireAiModelForPurpose(
+            runtime.modelPurpose,
+            "AI workspace turns",
+          ),
+          output: Output.object({
+            schema: educationSchema,
+            name: "workspace_education_turn",
+          }),
+          system: getWorkspaceAiSystemPrompt(runtime.promptKind),
+          prompt: promptContext,
+          tools: getSearchToolsForSelectedProvider(runtime.modelPurpose),
+          stopWhen: stepCountIs(4),
+        });
 
-        if (state.mode === "recall") {
-          const result = streamText({
-            model: requireAiModelForPurpose(
-              runtime.modelPurpose,
-              "AI workspace turns",
-            ),
-            output: Output.object({
-              schema: WorkspaceAiRecallOutputSchema,
-              name: "workspace_recall_turn",
-            }),
-            system: getWorkspaceAiSystemPrompt(runtime.promptKind),
-            prompt: promptContext,
-            tools: getSearchToolsForSelectedProvider(runtime.modelPurpose),
-            stopWhen: stepCountIs(4),
+        for await (const partial of result.partialOutputStream) {
+          streamAssistantDelta(
+            typeof partial.assistantMessage === "string"
+              ? partial.assistantMessage
+              : "",
+          );
+        }
+
+        const output = (await result.output) as unknown as
+          | WorkspaceAiEducationOutput
+          | WorkspaceAiEvaluationOutput;
+        const evaluationPlan =
+          "evaluationPlan" in output
+            ? normalizeEvaluationPlan({
+                plan: output.evaluationPlan,
+                isRetryAfterFailure: hasFailedEvaluationAttempt(unitResponses),
+              })
+            : null;
+        streamAssistantDelta(output.assistantMessage);
+        endAssistantText();
+        writeStatus(
+          "saving",
+          action === "next_scenario"
+            ? "Saving next scenario"
+            : "Saving feedback",
+        );
+        if (action === "next_scenario") {
+          await saveNextScenarioPrompt({
+            db,
+            sessionId,
+            userId,
+            unit,
+            output,
+            evaluationPlan,
+            currentStage: state.educationStage,
           });
-
-          for await (const partial of result.partialOutputStream) {
-            streamAssistantDelta(
-              typeof partial.assistantMessage === "string"
-                ? partial.assistantMessage
-                : "",
-            );
-          }
-
-          const output = await result.output;
-          streamAssistantDelta(output.assistantMessage);
-          await saveRecallOutput({
+        } else {
+          await saveEducationOutput({
             db,
             sessionId,
             userId,
@@ -686,83 +833,20 @@ const streamWorkspaceChatWithModelPreference = async ({
             unit,
             plan,
             output,
+            attemptTiming,
+            evaluationPlan,
           });
-        } else {
-          const educationSchema =
-            runtime.promptKind === "evaluate_feedback"
-              ? WorkspaceAiEvaluationOutputSchema
-              : WorkspaceAiEducationOutputSchema;
-          const result = streamText({
-            model: requireAiModelForPurpose(
-              runtime.modelPurpose,
-              "AI workspace turns",
-            ),
-            output: Output.object({
-              schema: educationSchema,
-              name: "workspace_education_turn",
-            }),
-            system: getWorkspaceAiSystemPrompt(runtime.promptKind),
-            prompt: promptContext,
-            tools: getSearchToolsForSelectedProvider(runtime.modelPurpose),
-            stopWhen: stepCountIs(4),
-          });
-
-          for await (const partial of result.partialOutputStream) {
-            streamAssistantDelta(
-              typeof partial.assistantMessage === "string"
-                ? partial.assistantMessage
-                : "",
-            );
-          }
-
-          const output = (await result.output) as unknown as
-            | WorkspaceAiEducationOutput
-            | WorkspaceAiEvaluationOutput;
-          const evaluationPlan =
-            "evaluationPlan" in output
-              ? normalizeEvaluationPlan({
-                  plan: output.evaluationPlan,
-                  isRetryAfterFailure:
-                    hasFailedEvaluationAttempt(unitResponses),
-                })
-              : null;
-          streamAssistantDelta(output.assistantMessage);
-          if (action === "next_scenario") {
-            await saveNextScenarioPrompt({
-              db,
-              sessionId,
-              userId,
-              unit,
-              output,
-              evaluationPlan,
-              currentStage: state.educationStage,
-            });
-          } else {
-            await saveEducationOutput({
-              db,
-              sessionId,
-              userId,
-              message: trimmedMessage,
-              state,
-              unit,
-              plan,
-              output,
-              attemptTiming,
-              evaluationPlan,
-            });
-          }
         }
-
-        controller.close();
-      } catch (error) {
-        controller.error(error);
       }
+
+      writeStatus("complete", "Complete");
+      writer.write({ type: "finish", finishReason: "stop" });
     },
   });
 
-  return new Response(stream, {
+  return createUIMessageStreamResponse({
+    stream,
     headers: {
-      "Content-Type": "text/plain; charset=utf-8",
       "Cache-Control": "no-cache, no-transform",
       "X-Accel-Buffering": "no",
     },

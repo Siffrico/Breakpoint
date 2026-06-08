@@ -10,3 +10,9 @@ export {
 } from "./chat-message";
 export { ChatComposer, ChatComposerDock } from "./chat-composer";
 export { TypingIndicator } from "./typing-indicator";
+export {
+  PacedAssistantText,
+  TextReveal,
+  TextShimmer,
+  WorkspaceStatusLine,
+} from "./streaming-animations";
