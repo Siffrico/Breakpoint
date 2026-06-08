@@ -8,14 +8,16 @@ import {
 
 import type { db as databaseClient } from "@acme/db/client";
 
-import type { BuildCurriculumInput } from "./domain/training/agents/onboarding-chat-agent";
+import type {
+  BuildCurriculumInput,
+  NameLearningTrackInput,
+} from "./domain/training/agents/onboarding-chat-agent";
 import type { CurriculumPlan } from "./domain/training/types/training.types";
 import {
   createBuildCurriculumTool,
   createNameLearningTrackTool,
   normalizeLearningTrackName,
   ONBOARDING_CHAT_SYSTEM,
-  type NameLearningTrackInput,
 } from "./domain/training/agents/onboarding-chat-agent";
 import {
   getAiModelForPurpose,
@@ -236,7 +238,7 @@ const streamOnboardingChatWithModelPreference = async ({
     system: `${ONBOARDING_CHAT_SYSTEM}${runtimeInstruction}`,
     messages: modelMessages,
     tools: {
-      ...getSearchToolsForSelectedProvider(),
+      ...getSearchToolsForSelectedProvider("onboarding"),
       nameLearningTrack: nameLearningTrackTool,
       buildCurriculum: buildCurriculumTool,
     },

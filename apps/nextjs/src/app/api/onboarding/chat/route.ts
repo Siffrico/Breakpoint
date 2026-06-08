@@ -28,7 +28,7 @@ const resolveModelPreference = (req: NextRequest, model?: string) => {
 
 export const POST = async (req: NextRequest) => {
   const session = await auth.api.getSession({ headers: req.headers });
-  const userId = session?.user?.id;
+  const userId = session?.user.id;
   if (!userId) {
     return new Response("Unauthorized", { status: 401 });
   }

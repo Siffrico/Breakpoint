@@ -36,8 +36,9 @@ export const runAgent = async <TSchema extends z.ZodTypeAny>({
   errorMessage: string;
   reasoning?: boolean;
 }): Promise<z.infer<TSchema>> => {
+  const purpose = PURPOSE_BY_AGENT[agent] as AiModelPurpose;
   const model = requireAiModelForPurpose(
-    PURPOSE_BY_AGENT[agent] as AiModelPurpose,
+    purpose,
     "AI-generated training workflows",
   );
 
@@ -50,7 +51,7 @@ export const runAgent = async <TSchema extends z.ZodTypeAny>({
       }),
       system,
       prompt,
-      tools: getSearchToolsForSelectedProvider(),
+      tools: getSearchToolsForSelectedProvider(purpose),
       stopWhen: stepCountIs(4),
       ...(reasoning ? { providerOptions: REASONING_PROVIDER_OPTIONS } : {}),
     });

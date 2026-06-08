@@ -179,7 +179,7 @@ const runProjectOverviewPrompt = async ({
     }),
     system: PROJECT_OVERVIEW_SYSTEM,
     prompt,
-    tools: getSearchToolsForSelectedProvider(),
+    tools: getSearchToolsForSelectedProvider("projectOverview"),
     stopWhen: stepCountIs(4),
   });
 

@@ -200,12 +200,14 @@ export const withAiModelPreference = async <T>(
   return modelPreferenceStorage.run(preferredModel, callback);
 };
 
-export const getSearchToolsForSelectedProvider = (): ToolSet => {
+export const getSearchToolsForSelectedProvider = (
+  purpose?: AiModelPurpose,
+): ToolSet => {
   if (!isEnabled("AI_ENABLE_SEARCH_TOOLS")) {
     return {};
   }
 
-  const provider = getSelectedProvider();
+  const provider = getSelectedProvider(purpose);
 
   if (provider === "openai") {
     return {

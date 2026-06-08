@@ -311,10 +311,11 @@ const saveEducationOutput = async ({
   const evaluationComplete =
     !evaluationPlan ||
     priorEvaluationAttempts + 1 >= evaluationPlan.scenarioCount;
+  const stageComplete = output.stageComplete && evaluationComplete;
   const nextStage = normalizeEducationStageTransition({
     currentStage: state.educationStage,
     requestedStage: output.nextStage,
-    stageComplete: output.stageComplete,
+    stageComplete,
     unitComplete: output.unitComplete && evaluationComplete,
     allowRepairRoute:
       "routingDecision" in output && output.routingDecision === "repair",
@@ -662,7 +663,7 @@ const streamWorkspaceChatWithModelPreference = async ({
             }),
             system: getWorkspaceAiSystemPrompt(runtime.promptKind),
             prompt: promptContext,
-            tools: getSearchToolsForSelectedProvider(),
+            tools: getSearchToolsForSelectedProvider(runtime.modelPurpose),
             stopWhen: stepCountIs(4),
           });
 
@@ -702,7 +703,7 @@ const streamWorkspaceChatWithModelPreference = async ({
             }),
             system: getWorkspaceAiSystemPrompt(runtime.promptKind),
             prompt: promptContext,
-            tools: getSearchToolsForSelectedProvider(),
+            tools: getSearchToolsForSelectedProvider(runtime.modelPurpose),
             stopWhen: stepCountIs(4),
           });
 

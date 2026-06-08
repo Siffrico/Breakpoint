@@ -66,7 +66,7 @@ export const runWorkspaceAiPrompt = async <TSchema extends z.ZodTypeAny>({
       }),
       system: SYSTEM_PROMPT_BY_KIND[kind],
       prompt: context,
-      tools: getSearchToolsForSelectedProvider(),
+      tools: getSearchToolsForSelectedProvider(PURPOSE_BY_KIND[kind]),
       stopWhen: stepCountIs(4),
     });
     const object = await result.output;
