@@ -127,9 +127,10 @@
     font-size: 13px;
     line-height: 1.45;
     border-radius: 8px;
-    padding: 10px 12px;
-    background: color-mix(in oklab, currentColor 5%, transparent);
-    margin: 0.5em 0;
+    border: 1px solid color-mix(in oklab, currentColor 15%, transparent);
+    padding: 14px 16px;
+    background: color-mix(in oklab, var(--color-background) 94%, currentColor);
+    margin: 0.9em 0;
   }
   .bp-ai-rich hr {
     border: none;
@@ -141,6 +142,76 @@
     padding-left: 12px;
     color: color-mix(in oklab, currentColor 78%, transparent);
     margin: 0.5em 0;
+  }
+  .bp-ai-rich [data-streamdown="table-wrapper"] {
+    gap: 6px;
+    border: 1px solid color-mix(in oklab, currentColor 13%, transparent);
+    border-radius: 8px;
+    background: color-mix(in oklab, currentColor 3%, transparent);
+    margin: 0.75em 0;
+    padding: 6px;
+  }
+  .bp-ai-rich [data-streamdown="table-wrapper"] > div:last-child {
+    border: 1px solid color-mix(in oklab, currentColor 12%, transparent);
+    border-radius: 6px;
+    background: color-mix(in oklab, var(--color-background) 96%, currentColor);
+  }
+  .bp-ai-rich table,
+  .bp-ai-rich [data-streamdown="table"] {
+    width: 100%;
+    min-width: max-content;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 0.92em;
+    line-height: 1.4;
+  }
+  .bp-ai-rich thead,
+  .bp-ai-rich [data-streamdown="table-header"] {
+    background: color-mix(in oklab, currentColor 7%, transparent);
+  }
+  .bp-ai-rich tr,
+  .bp-ai-rich [data-streamdown="table-row"] {
+    border-color: color-mix(in oklab, currentColor 10%, transparent);
+  }
+  .bp-ai-rich tbody tr:nth-child(even),
+  .bp-ai-rich
+    [data-streamdown="table-body"]
+    [data-streamdown="table-row"]:nth-child(even) {
+    background: color-mix(in oklab, currentColor 2.5%, transparent);
+  }
+  .bp-ai-rich th,
+  .bp-ai-rich td,
+  .bp-ai-rich [data-streamdown="table-header-cell"],
+  .bp-ai-rich [data-streamdown="table-cell"] {
+    border-right: 1px solid color-mix(in oklab, currentColor 9%, transparent);
+    padding: 8px 10px;
+    vertical-align: top;
+  }
+  .bp-ai-rich th:last-child,
+  .bp-ai-rich td:last-child,
+  .bp-ai-rich [data-streamdown="table-header-cell"]:last-child,
+  .bp-ai-rich [data-streamdown="table-cell"]:last-child {
+    border-right: 0;
+  }
+  .bp-ai-rich th,
+  .bp-ai-rich [data-streamdown="table-header-cell"] {
+    color: color-mix(in oklab, currentColor 88%, transparent);
+    font-weight: 650;
+    text-align: left;
+    white-space: nowrap;
+  }
+  .bp-ai-rich td,
+  .bp-ai-rich [data-streamdown="table-cell"] {
+    color: color-mix(in oklab, currentColor 78%, transparent);
+    min-width: 9rem;
+  }
+  .bp-ai-rich td > :first-child,
+  .bp-ai-rich th > :first-child {
+    margin-top: 0;
+  }
+  .bp-ai-rich td > :last-child,
+  .bp-ai-rich th > :last-child {
+    margin-bottom: 0;
   }
 
   .bp-prose-wide {
@@ -190,53 +261,53 @@
   overflow-y: hidden;
 }
 
-/* Workspace — warm Cursor-style darks scoped to the training shell. */
+/* Workspace — opencode-style cool darks scoped to the training shell. */
 .bp-workspace-theme {
-  --background: var(--workspace-background);
-  --foreground: #edecec;
-  --card: var(--workspace-secondary);
-  --card-foreground: #edecec;
-  --popover: var(--workspace-secondary);
-  --popover-foreground: #edecec;
-  --secondary: var(--workspace-secondary);
+  --background: #0f0f0f;
+  --foreground: #eeeeee;
+  --card: #151515;
+  --card-foreground: #eeeeee;
+  --popover: #151515;
+  --popover-foreground: #eeeeee;
+  --secondary: #151515;
   --secondary-foreground: color-mix(
     in oklab,
     var(--foreground) 78%,
     transparent
   );
-  --muted: var(--workspace-secondary);
+  --muted: #151515;
   --muted-foreground: color-mix(in oklab, var(--foreground) 55%, transparent);
-  --accent: #201e18;
-  --accent-foreground: #edecec;
+  --accent: #202020;
+  --accent-foreground: #eeeeee;
   --border: color-mix(in oklab, var(--foreground) 10%, transparent);
-  --input: #181610;
-  --sidebar: var(--workspace-secondary);
+  --input: #151515;
+  --sidebar: #151515;
   --sidebar-foreground: color-mix(in oklab, var(--foreground) 78%, transparent);
-  --sidebar-accent: #24221c;
-  --sidebar-accent-foreground: #edecec;
+  --sidebar-accent: #242424;
+  --sidebar-accent-foreground: #eeeeee;
   --sidebar-border: color-mix(in oklab, var(--foreground) 10%, transparent);
 }
 
 .bp-workspace-theme[data-workspace-theme="dark"] {
-  --background: #151515;
+  --background: #0f0f0f;
   --foreground: #eeeeee;
-  --card: #191919;
+  --card: #151515;
   --card-foreground: #eeeeee;
-  --popover: #191919;
+  --popover: #151515;
   --popover-foreground: #eeeeee;
-  --secondary: #191919;
+  --secondary: #151515;
   --secondary-foreground: color-mix(
     in oklab,
     var(--foreground) 78%,
     transparent
   );
-  --muted: #191919;
+  --muted: #151515;
   --muted-foreground: color-mix(in oklab, var(--foreground) 55%, transparent);
   --accent: #242424;
   --accent-foreground: #eeeeee;
   --border: color-mix(in oklab, var(--foreground) 10%, transparent);
-  --input: #191919;
-  --sidebar: #191919;
+  --input: #151515;
+  --sidebar: #151515;
   --sidebar-foreground: color-mix(in oklab, var(--foreground) 78%, transparent);
   --sidebar-accent: #262626;
   --sidebar-accent-foreground: #eeeeee;

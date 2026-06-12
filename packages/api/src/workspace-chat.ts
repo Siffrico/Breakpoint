@@ -25,6 +25,11 @@ import type {
 import { buildWorkspaceContextEnvelope } from "./domain/training/context-engine/build-context-envelope";
 import { renderWorkspaceStageContextPrompt } from "./domain/training/context-engine/render-context-prompt";
 import {
+  compactTranscript,
+  createSummarizer,
+} from "./domain/training/engine/compaction";
+import {
+  getAiModelForPurpose,
   getSearchToolsForSelectedProvider,
   requireAiModelForPurpose,
   withAiModelPreference,
@@ -244,6 +249,7 @@ const saveRecallOutput = async ({
       role: "assistant",
       content: output.assistantMessage,
       slot: "recall",
+      unitId: unit.nodeId,
     });
 
   if (!assistantMessage) {
@@ -351,6 +357,7 @@ const saveEducationOutput = async ({
       role: "assistant",
       content: output.assistantMessage,
       slot: "education_unit",
+      unitId: unit.nodeId,
     });
 
   if (!assistantMessage) {
@@ -492,6 +499,7 @@ const saveNextScenarioPrompt = async ({
       role: "assistant",
       content: output.assistantMessage,
       slot: "education_unit",
+      unitId: unit.nodeId,
     });
 
   if (!assistantMessage) {
@@ -669,6 +677,7 @@ const streamWorkspaceChatWithModelPreference = async ({
             role: "user",
             content: trimmedMessage,
             slot,
+            unitId: unit.nodeId,
           });
 
         if (!userMessage) {
@@ -682,6 +691,41 @@ const streamWorkspaceChatWithModelPreference = async ({
           sessionId,
           slot,
         });
+
+      // Compaction: keep the most recent units verbatim and fold older units
+      // into an anchored rolling summary. The summarizer only runs when a new
+      // unit has aged out (most turns reuse the stored summary, no LLM call).
+      const storedSummary =
+        await trainingOnboardingRepository.getWorkspaceSummary({
+          db,
+          sessionId,
+          slot,
+        });
+      const summarizeModel = getAiModelForPurpose("recall");
+      const compaction = summarizeModel
+        ? await compactTranscript({
+            messages: messagesWithUser,
+            previousSummary: storedSummary?.summary ?? null,
+            previousCoverage: storedSummary?.coveredThroughUnitId ?? null,
+            previousCoverageSequence:
+              storedSummary?.coveredThroughSequence ?? null,
+            summarize: createSummarizer(summarizeModel),
+          })
+        : null;
+      if (compaction?.summaryChanged && compaction.summary) {
+        await trainingOnboardingRepository.upsertWorkspaceSummary({
+          db,
+          sessionId,
+          slot,
+          summary: compaction.summary,
+          coveredThroughUnitId: compaction.coverage,
+          coveredThroughSequence: compaction.coverageSequence,
+        });
+      }
+      const verbatimMessages = compaction?.messages ?? messagesWithUser;
+      const progressSummary =
+        compaction?.summary ?? storedSummary?.summary ?? null;
+
       const introMessage =
         state.mode === "recall" &&
         !messagesWithUser.some(
@@ -700,9 +744,10 @@ const streamWorkspaceChatWithModelPreference = async ({
         node,
         unit,
         state,
-        messages: messagesWithUser,
+        messages: verbatimMessages,
         introMessage,
         memories: memoriesResult.success ? memoriesResult.data : [],
+        progressSummary,
         activeUnitResponses: unitResponses,
         allResponses,
         runtime,

@@ -18,7 +18,9 @@ const PURPOSE_BY_AGENT = {
 
 const REASONING_PROVIDER_OPTIONS = {
   openai: { reasoningEffort: "high", reasoningSummary: "auto" },
-  google: { thinkingConfig: { thinkingBudget: 8000, includeThoughts: true } },
+  // Gemini 3.x models use `thinkingLevel`; `thinkingBudget` is the Gemini 2.5
+  // knob and is ignored by 3.x. See @ai-sdk/google provider options.
+  google: { thinkingConfig: { thinkingLevel: "high", includeThoughts: true } },
 } as const;
 
 export const runAgent = async <TSchema extends z.ZodTypeAny>({

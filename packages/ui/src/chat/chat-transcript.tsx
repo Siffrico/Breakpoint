@@ -2,10 +2,7 @@
 
 import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import { ArrowDown } from "@phosphor-icons/react";
-import {
-  StickToBottom,
-  useStickToBottomContext,
-} from "use-stick-to-bottom";
+import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
 
 import { cn } from "@acme/ui";
 
@@ -42,7 +39,7 @@ export function ChatTranscriptContent({
   return (
     <StickToBottom.Content
       className={cn(
-        "mx-auto flex w-full max-w-[48rem] flex-col gap-8 px-5 pt-10 pb-8 sm:px-8",
+        "mx-auto flex w-[calc(100%-2rem)] max-w-[61.125rem] flex-col gap-8 pb-10 pt-10 sm:w-[calc(100%-3rem)]",
         className,
       )}
       {...rest}
@@ -69,7 +66,7 @@ export function ChatScrollToBottom({
       onClick={() => void scrollToBottom()}
       aria-label={label}
       className={cn(
-        "absolute bottom-4 left-1/2 z-10 inline-flex h-9 -translate-x-1/2 items-center gap-1.5 rounded-full border border-border bg-card/95 px-3 text-[12px] font-medium text-foreground shadow-md backdrop-blur transition-colors hover:bg-card",
+        "border-foreground/[0.16] bg-card/90 text-foreground/78 hover:bg-card hover:text-foreground absolute bottom-28 left-1/2 z-10 inline-flex h-7 -translate-x-1/2 items-center gap-1.5 rounded-md border px-2.5 text-[12px] font-medium shadow-[0_8px_24px_rgba(0,0,0,0.24)] backdrop-blur transition-colors",
         className,
       )}
     >

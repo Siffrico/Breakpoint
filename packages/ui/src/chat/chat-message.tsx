@@ -24,17 +24,31 @@ export function ChatMessage({
       data-from={from}
       data-streaming={isStreaming ? "" : undefined}
       className={cn(
-        "group/message flex w-full last:min-h-[40dvh]",
-        isUser ? "justify-end" : "justify-start",
+        // One shared full-width column. Alignment is decided by item placement,
+        // not by a different container per role, so the user bubble's right edge
+        // lands on exactly the same line as the assistant content's right edge.
+        "group/message flex w-full flex-col last:min-h-[40dvh]",
+        isUser ? "items-end" : "items-start",
         className,
       )}
     >
       {isUser ? (
-        <div className="bg-secondary/70 text-foreground max-w-[78%] rounded-2xl rounded-br-md border border-border/60 px-4 py-2.5 text-[14.5px] leading-7 whitespace-pre-wrap tracking-[-0.005em] shadow-[0_1px_0_rgba(0,0,0,0.02)]">
+        <div
+          style={{
+            backgroundColor: "#1a1a1a",
+            borderColor: "#333333",
+            borderRadius: 6,
+          }}
+          // Width hugs content and scales with the column (never a fixed rem),
+          // right-anchored via the parent's items-end.
+          className="text-[#eeeeee]/92 w-fit max-w-[min(82%,64ch)] whitespace-pre-wrap border px-3.5 py-2 text-[14px] leading-6"
+        >
           {children}
         </div>
       ) : (
-        <div className="text-foreground/92 w-full max-w-[68ch] text-[15px] leading-7 tracking-[-0.005em]">
+        // No box: fills the column edge-to-edge, so left edge = column left and
+        // right edge = column right (matching the user bubble's right edge).
+        <div className="text-foreground/94 w-full font-sans text-[15px] leading-7">
           {children}
         </div>
       )}

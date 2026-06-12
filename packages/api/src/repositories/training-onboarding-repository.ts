@@ -6,6 +6,7 @@ import {
   TrainingIdentityProfileVersion,
   TrainingOnboardingMessage,
   TrainingOnboardingSession,
+  TrainingWorkspaceSummary,
 } from "@acme/db/schema";
 
 import type {
@@ -21,6 +22,7 @@ interface OnboardingMessageInsert {
   role: "assistant" | "user";
   content: string;
   slot: string | null;
+  unitId?: string | null;
 }
 
 const isUniqueViolation = (error: unknown) =>
@@ -146,12 +148,14 @@ export const trainingOnboardingRepository = {
     role,
     content,
     slot,
+    unitId = null,
   }: {
     db: Database;
     sessionId: string;
     role: "assistant" | "user";
     content: string;
     slot: string | null;
+    unitId?: string | null;
   }) => {
     const message = await insertMessageWithNextSequence({
       db,
@@ -160,6 +164,7 @@ export const trainingOnboardingRepository = {
         role,
         content,
         slot,
+        unitId,
       },
     });
 
@@ -169,6 +174,7 @@ export const trainingOnboardingRepository = {
           content: message.content,
           sequence: message.sequence,
           slot: message.slot,
+          unitId: message.unitId,
         }
       : null;
   },
@@ -286,7 +292,74 @@ export const trainingOnboardingRepository = {
       content: message.content,
       sequence: message.sequence,
       slot: message.slot,
+      unitId: message.unitId,
     }));
+  },
+
+  getWorkspaceSummary: async ({
+    db,
+    sessionId,
+    slot,
+  }: {
+    db: Database;
+    sessionId: string;
+    slot: string;
+  }): Promise<{
+    summary: string;
+    coveredThroughUnitId: string | null;
+    coveredThroughSequence: number | null;
+  } | null> => {
+    const row = await db.query.TrainingWorkspaceSummary.findFirst({
+      where: and(
+        eq(TrainingWorkspaceSummary.sessionId, sessionId),
+        eq(TrainingWorkspaceSummary.slot, slot),
+      ),
+    });
+
+    if (!row) return null;
+    return {
+      summary: row.summary,
+      coveredThroughUnitId: row.coveredThroughUnitId,
+      coveredThroughSequence: row.coveredThroughSequence,
+    };
+  },
+
+  upsertWorkspaceSummary: async ({
+    db,
+    sessionId,
+    slot,
+    summary,
+    coveredThroughUnitId,
+    coveredThroughSequence,
+  }: {
+    db: Database;
+    sessionId: string;
+    slot: string;
+    summary: string;
+    coveredThroughUnitId: string | null;
+    coveredThroughSequence: number | null;
+  }): Promise<void> => {
+    await db
+      .insert(TrainingWorkspaceSummary)
+      .values({
+        sessionId,
+        slot,
+        summary,
+        coveredThroughUnitId,
+        coveredThroughSequence,
+      })
+      .onConflictDoUpdate({
+        target: [
+          TrainingWorkspaceSummary.sessionId,
+          TrainingWorkspaceSummary.slot,
+        ],
+        set: {
+          summary,
+          coveredThroughUnitId,
+          coveredThroughSequence,
+          updatedAt: new Date(),
+        },
+      });
   },
 
   getOnboardingState: async ({

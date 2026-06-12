@@ -2,6 +2,7 @@ import type { UIMessage } from "ai";
 import {
   convertToModelMessages,
   isTextUIPart,
+  smoothStream,
   stepCountIs,
   streamText,
 } from "ai";
@@ -242,6 +243,9 @@ const streamOnboardingChatWithModelPreference = async ({
       nameLearningTrack: nameLearningTrackTool,
       buildCurriculum: buildCurriculumTool,
     },
+    // SDK-native server-side smoothing: release whole words on a short cadence
+    // so the client renders a steady stream instead of provider-shaped bursts.
+    experimental_transform: smoothStream({ delayInMs: 15, chunking: "word" }),
     prepareStep: () => ({ toolChoice: "auto" }),
     stopWhen: stepCountIs(5),
     onFinish: async ({ text }) => {

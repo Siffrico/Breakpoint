@@ -51,6 +51,7 @@ export const WorkspaceAiMessageSchema = z.object({
   content: z.string().min(1),
   sequence: z.number().int().min(0),
   slot: z.string().nullable(),
+  unitId: z.string().uuid().nullable(),
 });
 
 export const WorkspaceAiStateSchema = z.object({

@@ -7,7 +7,7 @@ const mathPlugin = createMathPlugin({
   singleDollarTextMath: true,
 });
 
-const RICH_TEXT_PATTERN = /[$*_`#[\]()>-]|\n|\d+\.\s/;
+const RICH_TEXT_PATTERN = /[$*_`#[\]()>|-]|\n|\d+\.\s/;
 
 export function AssistantRichText({
   content,

@@ -560,6 +560,17 @@ export const trainingRouter = {
                 sessionId,
                 slot,
               }),
+            getWorkspaceSummary: (sessionId, slot) =>
+              trainingOnboardingRepository.getWorkspaceSummary({
+                db: ctx.db,
+                sessionId,
+                slot,
+              }),
+            upsertWorkspaceSummary: (payload) =>
+              trainingOnboardingRepository.upsertWorkspaceSummary({
+                db: ctx.db,
+                ...payload,
+              }),
             appendMessage: (payload) =>
               trainingOnboardingRepository.appendWorkspaceMessage({
                 db: ctx.db,

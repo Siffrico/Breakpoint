@@ -21,6 +21,9 @@ export const WorkspaceContextEnvelopeSchema = z.object({
     durableMemory: z.array(z.string().min(1)),
     recurringFailurePatterns: z.array(z.string().min(1)),
     preferences: z.array(z.string().min(1)),
+    // Anchored summary of earlier units that have aged out of the verbatim
+    // transcript window. Null until the chat spans enough units to compact.
+    progressSummary: z.string().min(1).nullable(),
   }),
   curriculum: z.object({
     title: z.string().min(1),

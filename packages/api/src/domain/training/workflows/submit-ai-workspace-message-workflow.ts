@@ -19,6 +19,11 @@ import { err, ok } from "../../../lib/result";
 import { buildWorkspaceContextEnvelope } from "../context-engine/build-context-envelope";
 import { renderWorkspaceStageContextPrompt } from "../context-engine/render-context-prompt";
 import {
+  compactTranscript,
+  createSummarizer,
+} from "../engine/compaction";
+import { getAiModelForPurpose } from "../engine/model-router";
+import {
   hasFailedEvaluationAttempt,
   normalizeEvaluationPlan,
   selectLatestEvaluationPlan,
@@ -40,11 +45,27 @@ interface SubmitAiWorkspaceMessageDependencies {
     sessionId: string,
     slot?: "education_unit" | "recall",
   ) => Promise<WorkspaceAiMessage[]>;
+  getWorkspaceSummary: (
+    sessionId: string,
+    slot: "education_unit" | "recall",
+  ) => Promise<{
+    summary: string;
+    coveredThroughUnitId: string | null;
+    coveredThroughSequence: number | null;
+  } | null>;
+  upsertWorkspaceSummary: (input: {
+    sessionId: string;
+    slot: "education_unit" | "recall";
+    summary: string;
+    coveredThroughUnitId: string | null;
+    coveredThroughSequence: number | null;
+  }) => Promise<void>;
   appendMessage: (input: {
     sessionId: string;
     role: "assistant" | "user";
     content: string;
     slot: string | null;
+    unitId?: string | null;
   }) => Promise<WorkspaceAiMessage | null>;
   listPhaseResponsesBySession: (
     sessionId: string,
@@ -160,6 +181,7 @@ export const submitAiWorkspaceMessageWorkflow = async ({
     role: "user",
     content: trimmedMessage,
     slot: getWorkspaceMessageSlot(state.mode),
+    unitId: unit.nodeId,
   });
   if (!userMessage) {
     return err("User message could not be saved.");
@@ -169,6 +191,31 @@ export const submitAiWorkspaceMessageWorkflow = async ({
     sessionId,
     getWorkspaceMessageSlot(state.mode),
   );
+  const slot = getWorkspaceMessageSlot(state.mode);
+  const storedSummary = await deps.getWorkspaceSummary(sessionId, slot);
+  const summarizeModel = getAiModelForPurpose("recall");
+  const compaction = summarizeModel
+    ? await compactTranscript({
+        messages: messagesWithUser,
+        previousSummary: storedSummary?.summary ?? null,
+        previousCoverage: storedSummary?.coveredThroughUnitId ?? null,
+        previousCoverageSequence:
+          storedSummary?.coveredThroughSequence ?? null,
+        summarize: createSummarizer(summarizeModel),
+      })
+    : null;
+  if (compaction?.summaryChanged && compaction.summary) {
+    await deps.upsertWorkspaceSummary({
+      sessionId,
+      slot,
+      summary: compaction.summary,
+      coveredThroughUnitId: compaction.coverage,
+      coveredThroughSequence: compaction.coverageSequence,
+    });
+  }
+  const verbatimMessages = compaction?.messages ?? messagesWithUser;
+  const progressSummary =
+    compaction?.summary ?? storedSummary?.summary ?? null;
   const introMessage =
     state.mode === "recall" &&
     !messagesWithUser.some((message) => message.role === "assistant")
@@ -184,9 +231,10 @@ export const submitAiWorkspaceMessageWorkflow = async ({
     node: unitNode,
     unit,
     state,
-    messages: messagesWithUser,
+    messages: verbatimMessages,
     introMessage,
     memories,
+    progressSummary,
     activeUnitResponses: turnUnitResponses,
     allResponses,
     runtime,
@@ -211,6 +259,7 @@ export const submitAiWorkspaceMessageWorkflow = async ({
       role: "assistant",
       content: output.assistantMessage,
       slot: "recall",
+      unitId: unit.nodeId,
     });
     if (!assistantMessage) {
       return err("AI response could not be saved.");
@@ -294,6 +343,7 @@ export const submitAiWorkspaceMessageWorkflow = async ({
     role: "assistant",
     content: output.assistantMessage,
     slot: "education_unit",
+    unitId: unit.nodeId,
   });
   if (!assistantMessage) {
     return err("AI response could not be saved.");

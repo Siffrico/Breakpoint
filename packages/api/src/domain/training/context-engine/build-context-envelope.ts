@@ -25,6 +25,7 @@ export const buildWorkspaceContextEnvelope = ({
   messages,
   introMessage,
   memories,
+  progressSummary,
   activeUnitResponses,
   allResponses,
   runtime,
@@ -38,6 +39,7 @@ export const buildWorkspaceContextEnvelope = ({
   messages: WorkspaceAiMessage[];
   introMessage?: { prompt: string; helper: string | null } | null;
   memories: Memory[];
+  progressSummary?: string | null;
   activeUnitResponses: PhaseResponseRecord[];
   allResponses: PhaseResponseRecord[];
   runtime?: WorkspaceTurnRuntime;
@@ -64,6 +66,7 @@ export const buildWorkspaceContextEnvelope = ({
       durableMemory: selectedMemory.durableMemory,
       recurringFailurePatterns: selectedMemory.recurringFailurePatterns,
       preferences: selectedMemory.preferences,
+      progressSummary: progressSummary ?? null,
     },
     curriculum: {
       title: plan.title,

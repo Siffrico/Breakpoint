@@ -13,7 +13,7 @@ Recurring failure patterns:
 ${formatList(envelope.learner.recurringFailurePatterns)}
 Preferences:
 ${formatList(envelope.learner.preferences)}
-
+${formatProgressSummary(envelope)}
 ## Curriculum
 Title: ${envelope.curriculum.title}
 Summary: ${envelope.curriculum.summary}
@@ -97,7 +97,7 @@ Summary: ${envelope.unit.summary}
 Why it matters: ${envelope.unit.whyItMatters}
 Seed scenario: ${envelope.unit.seedScenario}
 Focus areas: ${formatInline(envelope.unit.focusAreas)}
-
+${formatProgressSummary(envelope)}
 ## Learner answer to evaluate
 ${envelope.evidence.latestLearnerMessage}
 
@@ -152,6 +152,16 @@ const formatPosition = (envelope: WorkspaceContextEnvelope): string => {
   }
 
   return `${envelope.curriculum.currentUnitIndex} of ${envelope.curriculum.totalUnits}`;
+};
+
+const formatProgressSummary = (envelope: WorkspaceContextEnvelope): string => {
+  if (!envelope.learner.progressSummary) return "";
+
+  return `
+## Progress so far
+Memory of earlier units in this project (recent units appear verbatim below):
+${envelope.learner.progressSummary}
+`;
 };
 
 const formatPromptShownToLearner = (

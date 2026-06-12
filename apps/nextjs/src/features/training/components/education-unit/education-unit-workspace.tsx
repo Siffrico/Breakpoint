@@ -1,7 +1,7 @@
 "use client";
 
 import type { UIMessage } from "ai";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import {
@@ -9,13 +9,17 @@ import {
   ArrowUp,
   CaretDown,
   CaretRight,
-  Microphone,
   Plus,
 } from "@phosphor-icons/react";
 import { DefaultChatTransport, isTextUIPart } from "ai";
 
 import type { RouterOutputs } from "@acme/api";
-import { PacedAssistantText, WorkspaceStatusLine } from "@acme/ui/chat";
+import {
+  ChatComposer,
+  ChatComposerDock,
+  PacedAssistantText,
+  WorkspaceStatusLine,
+} from "@acme/ui/chat";
 import { toast } from "@acme/ui/toast";
 
 import { AssistantRichText } from "~/features/training/components/assistant-rich-text";
@@ -58,9 +62,10 @@ interface WorkspaceChatMetadata {
 }
 type WorkspaceChatMessage = UIMessage<WorkspaceChatMetadata, WorkspaceChatData>;
 
-const COLLAPSED_COMPOSER_MIN_HEIGHT = 64;
-const COLLAPSED_COMPOSER_MAX_HEIGHT = 220;
 const AUTO_SCROLL_BOTTOM_THRESHOLD = 160;
+const CHAT_COLUMN_CLASS =
+  "mx-auto w-[calc(100%-2rem)] max-w-[61.125rem] sm:w-[calc(100%-3rem)]";
+const PREVIEW_RESPONSE_DELAY_MS = 450;
 
 const isViewportNearBottom = () => {
   if (typeof window === "undefined") return true;
@@ -71,47 +76,43 @@ const isViewportNearBottom = () => {
   return scrollableHeight - viewportBottom < AUTO_SCROLL_BOTTOM_THRESHOLD;
 };
 
-const getComposerHeightBounds = (element: HTMLTextAreaElement | null) => {
-  if (typeof window === "undefined") {
-    return {
-      minHeight: COLLAPSED_COMPOSER_MIN_HEIGHT,
-      maxHeight: COLLAPSED_COMPOSER_MAX_HEIGHT,
-    };
-  }
+const makePreviewWorkspaceMessage = (
+  role: "user" | "assistant",
+  text: string,
+  metadata?: WorkspaceChatMetadata,
+): WorkspaceChatMessage => ({
+  id: `preview-workspace-${role}-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2)}`,
+  role,
+  metadata,
+  parts: [{ type: "text", text }],
+});
 
-  const viewportRatioMax = Math.floor(window.innerHeight * 0.24);
-  const viewportCap = Math.min(COLLAPSED_COMPOSER_MAX_HEIGHT, viewportRatioMax);
+const buildPreviewWorkspaceReply = (answerText: string) => {
+  const normalized = answerText.trim();
 
-  const availableSpaceFromTop = element
-    ? Math.floor(window.innerHeight - element.getBoundingClientRect().top - 44)
-    : viewportCap;
-  const maxHeight = Math.max(
-    COLLAPSED_COMPOSER_MIN_HEIGHT,
-    Math.min(viewportCap, availableSpaceFromTop),
-  );
+  return `## Feedback
 
-  return {
-    minHeight: COLLAPSED_COMPOSER_MIN_HEIGHT,
-    maxHeight,
-  };
-};
+This is a useful answer because it names the central failure: the loop optimized the benchmark, not the real deployment outcome.
 
-const syncComposerTextareaHeight = ({
-  element,
-}: {
-  element: HTMLTextAreaElement | null;
-}) => {
-  if (!element) return;
+What I would strengthen:
 
-  const { minHeight, maxHeight } = getComposerHeightBounds(element);
-  element.style.height = "0px";
-  const nextHeight = Math.max(
-    minHeight,
-    Math.min(element.scrollHeight, maxHeight),
-  );
-  element.style.height = `${nextHeight}px`;
-  element.style.overflowY =
-    element.scrollHeight > maxHeight ? "auto" : "hidden";
+1. **Loop design** — hold back private evaluation sets and rotate tasks the agent cannot inspect.
+2. **Evaluation strategy** — include production-like runtime checks, adversarial tests, and human review for subtle logic errors.
+3. **Experiment proposal policy** — require every proposed training change to predict the failure mode it should reduce, not just the score it should raise.
+
+\`\`\`txt
+agent proposes change
+        ↓
+private eval + runtime tests + regression suite
+        ↓
+ship only if real-user proxy improves
+\`\`\`
+
+Your submitted answer started with: "${normalized.slice(0, 180)}${normalized.length > 180 ? "..." : ""}"
+
+Now revise the loop as if the benchmark is an untrusted signal the agent might learn to exploit.`;
 };
 
 function PromptTurn({
@@ -126,8 +127,10 @@ function PromptTurn({
   statusLabel?: string | null;
 }) {
   return (
-    <section className="py-3 pl-6 font-sans sm:pl-10">
-      <div className="max-w-[760px]">
+    <section className="py-3 font-sans">
+      {/* Assistant content fills the column edge-to-edge (no extra px), so its
+          right edge matches the submitted-answer receipt's right edge. */}
+      <div className={CHAT_COLUMN_CLASS}>
         {statusLabel ? (
           <WorkspaceStatusLine
             label={statusLabel}
@@ -140,21 +143,21 @@ function PromptTurn({
               {(visibleText) => (
                 <AssistantRichText
                   content={visibleText}
-                  className="text-foreground text-[20px] leading-[1.55] tracking-[-0.01em] [&_h2]:mt-0 [&_h2]:!mb-4 [&_h2]:text-[30px] [&_h2]:font-semibold [&_h2]:tracking-[-0.02em] [&_li]:my-1.5 [&_li]:leading-[1.55] [&_ol]:!my-4 [&_ol]:list-decimal [&_ol]:pl-8 [&_p]:!my-4 [&_strong]:font-semibold [&_ul]:!my-4 [&_ul]:list-disc [&_ul]:pl-8 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
+                  className="text-foreground/94 text-[15px] leading-7 [&_h2]:mt-0 [&_h2]:!mb-3 [&_h2]:text-[18px] [&_h2]:font-semibold [&_li]:my-1 [&_li]:leading-7 [&_ol]:!my-3 [&_ol]:list-decimal [&_ol]:pl-7 [&_p]:!my-3 [&_strong]:font-semibold [&_ul]:!my-3 [&_ul]:list-disc [&_ul]:pl-7 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
                 />
               )}
             </PacedAssistantText>
           ) : (
             <AssistantRichText
               content={prompt}
-              className="text-foreground text-[20px] leading-[1.55] tracking-[-0.01em] [&_h2]:mt-0 [&_h2]:!mb-4 [&_h2]:text-[30px] [&_h2]:font-semibold [&_h2]:tracking-[-0.02em] [&_li]:my-1.5 [&_li]:leading-[1.55] [&_ol]:!my-4 [&_ol]:list-decimal [&_ol]:pl-8 [&_p]:!my-4 [&_strong]:font-semibold [&_ul]:!my-4 [&_ul]:list-disc [&_ul]:pl-8 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
+              className="text-foreground/94 text-[15px] leading-7 [&_h2]:mt-0 [&_h2]:!mb-3 [&_h2]:text-[18px] [&_h2]:font-semibold [&_li]:my-1 [&_li]:leading-7 [&_ol]:!my-3 [&_ol]:list-decimal [&_ol]:pl-7 [&_p]:!my-3 [&_strong]:font-semibold [&_ul]:!my-3 [&_ul]:list-disc [&_ul]:pl-7 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
             />
           )
         ) : null}
         {helper ? (
           <AssistantRichText
             content={helper}
-            className="text-foreground/45 mt-10 text-[16px] leading-[1.65] tracking-[-0.01em] [&_em]:not-italic"
+            className="text-foreground/48 mt-3 text-[13px] leading-6 [&_em]:not-italic"
           />
         ) : null}
       </div>
@@ -177,37 +180,41 @@ function SubmittedAnswerReceipt({
   const wordLabel = `${wordCount} ${wordCount === 1 ? "word" : "words"}`;
 
   return (
-    <section className="py-3 pl-6 font-sans sm:pl-10">
-      <div className="border-foreground/[0.12] bg-foreground/[0.035] max-w-[760px] border">
-        <button
-          type="button"
-          onClick={() => setIsOpen((current) => !current)}
-          className="text-foreground/68 hover:bg-foreground/[0.035] focus-visible:bg-foreground/[0.045] flex min-h-11 w-full items-center justify-between gap-4 px-3.5 text-left text-[13px] tracking-[-0.01em] transition-colors outline-none focus:outline-none"
-          aria-expanded={isOpen}
-        >
-          <span className="flex min-w-0 items-center gap-2.5">
-            {isOpen ? (
-              <CaretDown size={13} weight="bold" className="shrink-0" />
-            ) : (
-              <CaretRight size={13} weight="bold" className="shrink-0" />
-            )}
-            <span className="text-foreground/78 font-medium">
-              Submitted answer
+    <section className="py-3 font-sans">
+      <div className={CHAT_COLUMN_CLASS}>
+        {/* Mirrors the user bubble: column-relative width, right-anchored,
+            radius matched to the composer (6px). */}
+        <div className="border-foreground/[0.14] bg-foreground/[0.055] ml-auto w-fit max-w-[min(82%,64ch)] rounded-[6px] border">
+          <button
+            type="button"
+            onClick={() => setIsOpen((current) => !current)}
+            className="text-foreground/72 hover:bg-foreground/[0.035] focus-visible:bg-foreground/[0.045] flex min-h-10 w-full items-center justify-between gap-4 px-3.5 text-left text-[13px] transition-colors outline-none focus:outline-none"
+            aria-expanded={isOpen}
+          >
+            <span className="flex min-w-0 items-center gap-2.5">
+              {isOpen ? (
+                <CaretDown size={13} weight="bold" className="shrink-0" />
+              ) : (
+                <CaretRight size={13} weight="bold" className="shrink-0" />
+              )}
+              <span className="text-foreground/78 font-medium">
+                Submitted answer
+              </span>
+              {pending ? (
+                <span className="text-foreground/38">Submitting...</span>
+              ) : null}
             </span>
-            {pending ? (
-              <span className="text-foreground/38">Submitting...</span>
-            ) : null}
-          </span>
-          <span className="text-foreground/38 shrink-0">{wordLabel}</span>
-        </button>
+            <span className="text-foreground/38 shrink-0">{wordLabel}</span>
+          </button>
 
-        {isOpen ? (
-          <div className="border-foreground/[0.1] border-t px-3.5 py-3">
-            <p className="text-foreground/78 text-[14px] leading-[1.55] tracking-[-0.01em] whitespace-pre-wrap">
-              {text}
-            </p>
-          </div>
-        ) : null}
+          {isOpen ? (
+            <div className="border-foreground/[0.1] border-t px-3.5 py-3">
+              <p className="text-foreground/82 text-[14px] leading-6 whitespace-pre-wrap">
+                {text}
+              </p>
+            </div>
+          ) : null}
+        </div>
       </div>
     </section>
   );
@@ -224,7 +231,7 @@ function ComposerIconButton({
     <button
       type="button"
       aria-label={label}
-      className="text-foreground/42 hover:text-foreground/72 hover:bg-foreground/[0.04] flex size-7 items-center justify-center rounded-[3px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
+      className="flex size-7 items-center justify-center rounded-[5px] text-[#8b8b8b] transition-colors outline-none hover:bg-white/[0.045] hover:text-[#d0d0d0] focus:outline-none focus-visible:outline-none"
     >
       {children}
     </button>
@@ -346,8 +353,10 @@ export function EducationUnitWorkspace({
   const router = useRouter();
   const [response, setResponse] = useState("");
   const [isExpanded, setIsExpanded] = useState(false);
+  const [previewIsRunning, setPreviewIsRunning] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const previewTimeoutRef = useRef<number | null>(null);
   const shouldAutoFollowRef = useRef(true);
   const pendingSubmissionRef = useRef<string | null>(null);
   const pendingErrorToastRef = useRef<"submit_answer" | "next_scenario" | null>(
@@ -372,10 +381,15 @@ export function EducationUnitWorkspace({
     clearError,
     status,
     error,
+    stop,
   } = useChat<WorkspaceChatMessage>({
     id: `training-workspace-${sessionId}`,
     messages: initialChatMessages,
     transport: chatTransport,
+    // Batch UI updates during streaming (SDK-native render throttling). The
+    // word-level reveal itself is handled client-side by PacedAssistantText
+    // because this route streams structured output, not a plain text stream.
+    experimental_throttle: 50,
     onFinish: () => {
       pendingSubmissionRef.current = null;
       pendingErrorToastRef.current = null;
@@ -383,15 +397,24 @@ export function EducationUnitWorkspace({
     },
   });
   const isRunning = status === "submitted" || status === "streaming";
+  const effectiveIsRunning = preview ? previewIsRunning : isRunning;
+
+  useEffect(() => {
+    return () => {
+      if (previewTimeoutRef.current != null) {
+        window.clearTimeout(previewTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     onStateChange?.(unit);
   }, [onStateChange, unit]);
 
   useEffect(() => {
-    if (isRunning) return;
+    if (effectiveIsRunning) return;
     setMessages(initialChatMessages);
-  }, [initialChatMessages, isRunning, setMessages]);
+  }, [effectiveIsRunning, initialChatMessages, setMessages]);
 
   useEffect(() => {
     const updateAutoFollow = () => {
@@ -427,21 +450,6 @@ export function EducationUnitWorkspace({
     return () => window.cancelAnimationFrame(frameId);
   }, [chatMessages.length, chatTextLength, status]);
 
-  useLayoutEffect(() => {
-    syncComposerTextareaHeight({
-      element: composerTextareaRef.current,
-    });
-  }, [response]);
-
-  useEffect(() => {
-    const handleResize = () =>
-      syncComposerTextareaHeight({
-        element: composerTextareaRef.current,
-      });
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
-
   const introMessage = getIntroMessage(aiWorkspace);
   const fallbackTurn = getFallbackTurn(unit);
   const workspaceUnavailable = !preview && aiWorkspace == null;
@@ -467,9 +475,9 @@ export function EducationUnitWorkspace({
           : "This unit is complete.";
 
   useEffect(() => {
-    onRunningChange?.(isRunning);
+    onRunningChange?.(effectiveIsRunning);
     return () => onRunningChange?.(false);
-  }, [isRunning, onRunningChange]);
+  }, [effectiveIsRunning, onRunningChange]);
 
   useEffect(() => {
     if (status !== "error" || !error || errorHandledRef.current) return;
@@ -498,7 +506,28 @@ export function EducationUnitWorkspace({
 
   const handleSubmit = async (override?: string) => {
     const message = (override ?? response).trim();
-    if (!message || preview || isRunning) {
+    if (!message || effectiveIsRunning) {
+      return;
+    }
+
+    if (preview) {
+      setResponse("");
+      setIsExpanded(false);
+      setPreviewIsRunning(true);
+      const userMessage = makePreviewWorkspaceMessage("user", message, {
+        action: "submit_answer",
+      });
+      setMessages((current) => [...current, userMessage]);
+
+      previewTimeoutRef.current = window.setTimeout(() => {
+        const assistantMessage = makePreviewWorkspaceMessage(
+          "assistant",
+          buildPreviewWorkspaceReply(message),
+        );
+        setMessages((current) => [...current, assistantMessage]);
+        setPreviewIsRunning(false);
+        previewTimeoutRef.current = null;
+      }, PREVIEW_RESPONSE_DELAY_MS);
       return;
     }
 
@@ -535,8 +564,20 @@ export function EducationUnitWorkspace({
     }
   };
 
+  const handleStop = () => {
+    if (preview) {
+      if (previewTimeoutRef.current != null) {
+        window.clearTimeout(previewTimeoutRef.current);
+        previewTimeoutRef.current = null;
+      }
+      setPreviewIsRunning(false);
+      return;
+    }
+    void stop();
+  };
+
   const handleNextScenario = async () => {
-    if (preview || isRunning || !canRequestNextScenario) {
+    if (preview || effectiveIsRunning || !canRequestNextScenario) {
       return;
     }
 
@@ -578,12 +619,9 @@ export function EducationUnitWorkspace({
     .reverse()
     .find((message) => message.role === "assistant")?.id;
   const nextScenarioControl =
-    canRequestNextScenario && !isRunning && !preview ? (
-      <section
-        key="next-scenario-control"
-        className="py-1 pl-6 font-sans sm:pl-10"
-      >
-        <div className="flex max-w-[760px] justify-end">
+    canRequestNextScenario && !effectiveIsRunning && !preview ? (
+      <section key="next-scenario-control" className="py-1 font-sans">
+        <div className={`${CHAT_COLUMN_CLASS} flex justify-end`}>
           <button
             type="button"
             onClick={handleNextScenario}
@@ -623,7 +661,7 @@ export function EducationUnitWorkspace({
               const content = getChatMessageText(message);
               if (message.role === "assistant") {
                 const isLiveAssistant =
-                  isRunning && message.id === latestAssistantMessageId;
+                  effectiveIsRunning && message.id === latestAssistantMessageId;
                 const liveStatus = isLiveAssistant
                   ? getWorkspaceStatus(message)
                   : null;
@@ -647,7 +685,8 @@ export function EducationUnitWorkspace({
                   key={message.id}
                   text={content}
                   pending={
-                    isRunning && message.id === latestVisibleUserMessageId
+                    effectiveIsRunning &&
+                    message.id === latestVisibleUserMessageId
                   }
                 />
               );
@@ -655,75 +694,55 @@ export function EducationUnitWorkspace({
             .concat(nextScenarioControl ? [nextScenarioControl] : []);
 
   const inputZone = (
-    <div
-      className={
-        embedded ? "bg-background shrink-0 px-4 pt-1 pb-3 sm:px-8" : "mt-10"
-      }
-    >
-      <div className={embedded ? "mx-auto w-full max-w-[1820px]" : ""}>
-        <div className="font-sans">
-          <div className="mx-auto w-full max-w-[760px]">
-            <div className="border-foreground/[0.13] bg-sidebar relative flex min-h-[96px] flex-col overflow-hidden border">
+    <div className={embedded ? "bg-background shrink-0" : "mt-10"}>
+      <div className="font-sans">
+        <ChatComposer
+          value={response}
+          onValueChange={setResponse}
+          onSubmit={() => void handleSubmit()}
+          disabled={!canCompose || effectiveIsRunning}
+          textareaRef={composerTextareaRef}
+          ariaLabel="Response"
+          placeholder={composerPlaceholder}
+          leftSlot={
+            <div className="flex min-w-0 items-center gap-1">
+              <ComposerIconButton label="Add attachment">
+                <Plus size={17} />
+              </ComposerIconButton>
               <button
                 type="button"
                 onClick={() => setIsExpanded(true)}
-                disabled={!canCompose}
+                disabled={!canCompose || effectiveIsRunning}
                 aria-label="Open as full page"
                 title="Open as full page"
-                className="text-foreground/35 hover:text-foreground/70 hover:bg-foreground/[0.05] disabled:text-foreground/20 absolute top-1.5 right-1.5 z-10 flex size-6 items-center justify-center rounded-[3px] transition-colors outline-none focus:outline-none focus-visible:outline-none disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                className="flex size-7 items-center justify-center rounded-md text-[#838383] transition-colors outline-none hover:bg-white/[0.045] hover:text-[#d0d0d0] focus:outline-none focus-visible:outline-none disabled:cursor-not-allowed disabled:text-[#4f4f4f] disabled:hover:bg-transparent"
               >
                 <ArrowsOutSimple size={13} weight="bold" />
               </button>
-
-              <textarea
-                ref={composerTextareaRef}
-                aria-label="Response"
-                value={response}
-                onChange={(event) => setResponse(event.target.value)}
-                disabled={!canCompose || isRunning}
-                onInput={(event) =>
-                  syncComposerTextareaHeight({
-                    element: event.currentTarget,
-                  })
-                }
-                placeholder={composerPlaceholder}
-                rows={1}
-                className="text-foreground/92 placeholder:text-foreground/30 disabled:text-foreground/45 disabled:placeholder:text-foreground/28 block w-full flex-1 resize-none bg-transparent px-4 pt-3.5 pr-10 pb-1 text-[14px] leading-5 outline-none"
-              />
-
-              <div className="flex min-h-10 flex-wrap items-center justify-between gap-2 px-3.5 pb-2.5">
-                <div className="flex min-w-0 items-center gap-1.5">
-                  <ComposerIconButton label="Add attachment">
-                    <Plus size={18} />
-                  </ComposerIconButton>
-                </div>
-
-                <div className="flex shrink-0 items-center gap-2">
-                  {isRunning ? (
-                    <div
-                      aria-label="Submitting"
-                      className="border-foreground/18 border-t-foreground/55 size-4 animate-spin rounded-full border"
-                    />
-                  ) : null}
-                  <ComposerIconButton label="Voice input">
-                    <Microphone size={18} />
-                  </ComposerIconButton>
-                  <button
-                    type="button"
-                    onClick={() => handleSubmit()}
-                    disabled={
-                      !response.trim() || isRunning || preview || !canCompose
-                    }
-                    aria-label="Submit response"
-                    className="bg-foreground text-background hover:bg-foreground/85 disabled:bg-foreground/25 inline-flex size-8 items-center justify-center rounded-[5px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
-                  >
-                    <ArrowUp size={16} weight="bold" />
-                  </button>
-                </div>
-              </div>
             </div>
-          </div>
-        </div>
+          }
+          rightSlot={
+            <button
+              type="button"
+              onClick={
+                effectiveIsRunning ? handleStop : () => void handleSubmit()
+              }
+              disabled={
+                !effectiveIsRunning && (!response.trim() || !canCompose)
+              }
+              aria-label={
+                effectiveIsRunning ? "Stop generating" : "Submit response"
+              }
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-[7px] border border-white/[0.055] bg-[linear-gradient(180deg,#303030_0%,#252525_48%,#1f1f1f_100%)] text-[#d7d7d7] shadow-[inset_0_1px_0_rgba(255,255,255,0.10),0_6px_16px_rgba(0,0,0,0.34)] transition-colors outline-none hover:bg-[linear-gradient(180deg,#3a3a3a_0%,#2d2d2d_48%,#242424_100%)] focus:outline-none focus-visible:outline-none disabled:border-white/[0.035] disabled:bg-[linear-gradient(180deg,#292929_0%,#222222_48%,#1d1d1d_100%)] disabled:text-[#686868] disabled:shadow-[inset_0_1px_0_rgba(255,255,255,0.07),0_5px_14px_rgba(0,0,0,0.26)]"
+            >
+              {effectiveIsRunning ? (
+                <span aria-hidden="true" className="size-2.5 bg-current" />
+              ) : (
+                <ArrowUp size={15} weight="bold" />
+              )}
+            </button>
+          }
+        />
       </div>
     </div>
   );
@@ -733,8 +752,8 @@ export function EducationUnitWorkspace({
       open={isExpanded}
       initialMarkdown={response}
       placeholder={composerPlaceholder}
-      canSubmit={Boolean(response.trim()) && canCompose && !preview}
-      isSubmitting={isRunning}
+      canSubmit={Boolean(response.trim()) && canCompose}
+      isSubmitting={effectiveIsRunning}
       onChange={setResponse}
       onClose={() => setIsExpanded(false)}
       onSubmit={(md) => {
@@ -748,13 +767,13 @@ export function EducationUnitWorkspace({
     return (
       <>
         <div className="flex min-h-full flex-1 flex-col">
-          <div className="flex-1 pt-6 pb-8">
+          <div className="flex-1 pt-8 pb-10">
             {renderedMessages}
             <div ref={bottomRef} />
           </div>
-          <div className="bg-background sticky bottom-0 z-10 -mx-6 mt-auto sm:-mx-10">
+          <ChatComposerDock className="-mx-6 mt-auto sm:-mx-10">
             {inputZone}
-          </div>
+          </ChatComposerDock>
         </div>
         {expandedOverlay}
       </>
@@ -764,10 +783,10 @@ export function EducationUnitWorkspace({
   return (
     <>
       <main className="bp-page-bg text-foreground min-h-screen px-5 py-8 sm:px-8 lg:px-10">
-        <div className="mx-auto flex w-full max-w-3xl flex-col pb-32">
+        <div className="flex w-full flex-col pb-32">
           {renderedMessages}
           <div className="bg-background/95 fixed inset-x-0 bottom-0 z-20 backdrop-blur-sm">
-            <div className="mx-auto w-full max-w-3xl px-5 py-4 sm:px-8 lg:px-10">
+            <div className="mx-auto w-[calc(100%-2rem)] max-w-[61.125rem] py-4 sm:w-[calc(100%-3rem)]">
               {inputZone}
             </div>
           </div>

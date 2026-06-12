@@ -86,6 +86,48 @@ export function WorkspaceShell({
 }) {
   const router = useRouter();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  // Hover-peek for the collapsed sidebar. Driven purely by mouseenter/leave on
+  // an edge hot zone and the floating panel itself — no mousemove tracking —
+  // with a short close delay so crossing the gap between them never flickers.
+  const [sidebarPeek, setSidebarPeek] = useState(false);
+  const peekCloseTimerRef = useRef<number | null>(null);
+
+  const cancelPeekClose = () => {
+    if (peekCloseTimerRef.current != null) {
+      window.clearTimeout(peekCloseTimerRef.current);
+      peekCloseTimerRef.current = null;
+    }
+  };
+
+  const openSidebarPeek = () => {
+    cancelPeekClose();
+    setSidebarPeek(true);
+  };
+
+  const scheduleSidebarPeekClose = () => {
+    cancelPeekClose();
+    peekCloseTimerRef.current = window.setTimeout(() => {
+      peekCloseTimerRef.current = null;
+      setSidebarPeek(false);
+    }, 240);
+  };
+
+  const toggleSidebar = () => {
+    cancelPeekClose();
+    setSidebarPeek(false);
+    setSidebarCollapsed((prev) => !prev);
+  };
+
+  useEffect(() => cancelPeekClose, []);
+
+  useEffect(() => {
+    if (!sidebarPeek) return;
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setSidebarPeek(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [sidebarPeek]);
   const [questionPanelOpen, setQuestionPanelOpen] = useState(false);
   const [questionPanelFocused, setQuestionPanelFocused] = useState(false);
   const [liveUnit, setLiveUnit] = useState(unit);
@@ -181,8 +223,10 @@ export function WorkspaceShell({
     lastModeRef.current = mode;
     if (prev === mode) return;
     if (mode === "onboarding") {
+      setSidebarPeek(false);
       setSidebarCollapsed(true);
     } else if (prev === "onboarding") {
+      setSidebarPeek(false);
       setSidebarCollapsed(false);
     }
   }, [mode]);
@@ -239,24 +283,49 @@ export function WorkspaceShell({
       className="bp-workspace-theme bg-background text-foreground flex h-dvh overflow-hidden"
       data-workspace-theme={workspaceTheme}
     >
+      {sidebarCollapsed ? (
+        <div
+          aria-hidden
+          onMouseEnter={openSidebarPeek}
+          onMouseLeave={scheduleSidebarPeekClose}
+          className="fixed inset-y-0 left-0 z-30 w-5"
+        />
+      ) : null}
+
       <div
         className={[
-          "bg-sidebar shrink-0 transition-[width] duration-200",
-          sidebarCollapsed ? "w-12" : "w-[232px]",
+          "shrink-0 transition-[width] duration-200",
+          sidebarCollapsed ? "w-0" : "bg-sidebar w-[232px]",
         ].join(" ")}
       >
-        <CurriculumSidebar
-          projects={projects}
-          currentSessionId={sessionId}
-          preview={preview}
-          collapsed={sidebarCollapsed}
-          onToggleCollapsed={() => setSidebarCollapsed((prev) => !prev)}
-          userName={userName}
-          activeLessonId={liveUnit?.nodeId ?? null}
-          isSessionRunning={isSessionRunning}
-          workspaceTheme={workspaceTheme}
-          onWorkspaceThemeChange={setWorkspaceTheme}
-        />
+        <div
+          inert={sidebarCollapsed && !sidebarPeek ? true : undefined}
+          onMouseEnter={sidebarCollapsed ? openSidebarPeek : undefined}
+          onMouseLeave={sidebarCollapsed ? scheduleSidebarPeekClose : undefined}
+          className={
+            sidebarCollapsed
+              ? [
+                  "bg-sidebar border-foreground/[0.08] fixed top-2 bottom-2 left-2 z-40 w-[232px] overflow-hidden rounded-lg border shadow-[0_16px_48px_rgba(0,0,0,0.4)] transition-[transform,opacity] duration-200 ease-out will-change-transform",
+                  sidebarPeek
+                    ? "translate-x-0 opacity-100"
+                    : "pointer-events-none -translate-x-[248px] opacity-0",
+                ].join(" ")
+              : "h-full w-[232px]"
+          }
+        >
+          <CurriculumSidebar
+            projects={projects}
+            currentSessionId={sessionId}
+            preview={preview}
+            collapsed={false}
+            onToggleCollapsed={toggleSidebar}
+            userName={userName}
+            activeLessonId={liveUnit?.nodeId ?? null}
+            isSessionRunning={isSessionRunning}
+            workspaceTheme={workspaceTheme}
+            onWorkspaceThemeChange={setWorkspaceTheme}
+          />
+        </div>
       </div>
 
       <div className="border-foreground/[0.08] flex min-w-0 flex-1 flex-col border-l">
@@ -342,7 +411,9 @@ export function WorkspaceShell({
                     className={
                       mode === "onboarding"
                         ? "flex min-h-0 w-full flex-1 flex-col"
-                        : "bp-prose flex min-h-full flex-col"
+                        : mode === "unit"
+                          ? "flex min-h-full flex-col"
+                          : "bp-prose flex min-h-full flex-col"
                     }
                   >
                     {mode === "onboarding" && onboardingState ? (

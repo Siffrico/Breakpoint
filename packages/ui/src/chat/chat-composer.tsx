@@ -1,16 +1,11 @@
 "use client";
 
-import type {
-  ChangeEvent,
-  KeyboardEvent,
-  ReactNode,
-  RefObject,
-} from "react";
+import type { ChangeEvent, KeyboardEvent, ReactNode, RefObject } from "react";
 import { useEffect, useLayoutEffect, useRef } from "react";
 
 import { cn } from "@acme/ui";
 
-const MIN_HEIGHT_PX = 56;
+const MIN_HEIGHT_PX = 94;
 const HARD_MAX_HEIGHT_PX = 240;
 const VIEWPORT_RATIO_CAP = 0.24;
 
@@ -95,8 +90,14 @@ export function ChatComposer({
 
   return (
     <div
+      style={{
+        backgroundColor: "#111111",
+        borderColor: "#2b2b2b",
+        borderRadius: 8,
+        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.025)",
+      }}
       className={cn(
-        "border-border bg-card/95 focus-within:border-foreground/24 relative w-full rounded-2xl border shadow-[0_1px_0_rgba(0,0,0,0.02),0_8px_28px_-18px_rgba(0,0,0,0.18)] backdrop-blur transition-[border-color,box-shadow]",
+        "relative min-h-[96px] w-full overflow-hidden border transition-[border-color,box-shadow]",
         className,
       )}
     >
@@ -108,14 +109,15 @@ export function ChatComposer({
         onKeyDown={submitOnEnter}
         placeholder={placeholder}
         rows={1}
-        className="text-foreground placeholder:text-foreground/35 block w-full resize-none rounded-2xl bg-transparent px-4 pt-3.5 pb-12 text-[14.5px] leading-7 tracking-[-0.005em] outline-none"
+        style={{ paddingBottom: 56, scrollPaddingBottom: 56 }}
+        className="block w-full resize-none rounded-[8px] bg-transparent px-4 pt-4 text-[14px] leading-6 text-[#eeeeee] outline-none placeholder:text-[#9a9a9a]"
       />
 
-      <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-3 px-3 pb-2.5">
-        <div className="flex min-w-0 items-center gap-2">
+      <div className="absolute inset-x-0 bottom-0 flex h-12 items-center justify-between gap-3 px-3">
+        <div className="flex min-w-0 items-center gap-2 leading-none">
           {leftSlot}
           {hint ? (
-            <div className="text-foreground/35 truncate text-[11px]">
+            <div className="truncate text-[11px] text-[#8a8a8a]">
               {hint}
             </div>
           ) : null}
@@ -136,11 +138,11 @@ export function ChatComposerDock({
   return (
     <div
       className={cn(
-        "bg-background/95 sticky bottom-0 z-10 w-full pt-2 pb-4 backdrop-blur",
+        "bg-background sticky bottom-0 z-10 w-full pb-3 pt-2",
         className,
       )}
     >
-      <div className="mx-auto w-full max-w-[48rem] px-5 sm:px-8">
+      <div className="mx-auto w-[calc(100%-2rem)] max-w-[61.125rem] sm:w-[calc(100%-3rem)]">
         {children}
       </div>
     </div>
