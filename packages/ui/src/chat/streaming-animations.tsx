@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { cn } from "@acme/ui";
 
@@ -180,39 +180,31 @@ export function TextReveal({
   const outgoingRef = useRef<HTMLSpanElement>(null);
   const frameRef = useRef<number | null>(null);
 
-  useLayoutEffect(() => {
-    const nextWidth = incomingRef.current?.scrollWidth;
-    if (nextWidth && nextWidth > 0) {
-      setWidth((currentWidth) => Math.max(currentWidth ?? 0, nextWidth));
-    }
-  }, []);
-
   useEffect(() => {
     if (text === current) return;
-    if (reducedMotion) {
+
+    const updateTimeout = window.setTimeout(() => {
+      setPrevious(current);
       setCurrent(text);
-      setPrevious(null);
-      setSwapping(false);
-      return;
-    }
+      setSwapping(!reducedMotion);
 
-    setPrevious(current);
-    setCurrent(text);
-    setSwapping(true);
-
-    if (frameRef.current != null) cancelAnimationFrame(frameRef.current);
-    frameRef.current = requestAnimationFrame(() => {
-      const incomingWidth = incomingRef.current?.scrollWidth ?? 0;
-      const outgoingWidth = outgoingRef.current?.scrollWidth ?? 0;
-      setWidth((currentWidth) =>
-        Math.max(currentWidth ?? 0, incomingWidth, outgoingWidth),
-      );
-      setSwapping(false);
-      frameRef.current = null;
-    });
+      if (frameRef.current != null) cancelAnimationFrame(frameRef.current);
+      frameRef.current = requestAnimationFrame(() => {
+        const incomingWidth = incomingRef.current?.scrollWidth ?? 0;
+        const outgoingWidth = outgoingRef.current?.scrollWidth ?? 0;
+        setWidth((currentWidth) =>
+          Math.max(currentWidth ?? 0, incomingWidth, outgoingWidth),
+        );
+        setSwapping(false);
+        frameRef.current = null;
+      });
+    }, 0);
 
     const timeout = window.setTimeout(() => setPrevious(null), 480);
-    return () => window.clearTimeout(timeout);
+    return () => {
+      window.clearTimeout(updateTimeout);
+      window.clearTimeout(timeout);
+    };
   }, [current, reducedMotion, text]);
 
   useEffect(
@@ -239,7 +231,7 @@ export function TextReveal({
             swapping && "-translate-y-1 [mask-position:0_0%]",
           )}
         >
-          {current || "\u00A0"}
+          {current.length > 0 ? current : "\u00A0"}
         </span>
         <span
           ref={outgoingRef}
@@ -250,7 +242,7 @@ export function TextReveal({
             previous == null && "hidden",
           )}
         >
-          {previous || "\u00A0"}
+          {previous == null || previous.length === 0 ? "\u00A0" : previous}
         </span>
       </span>
     </span>

@@ -74,11 +74,11 @@ export const groupByUnit = <T extends CompactableMessage>(
   messages: T[],
 ): UnitBucket<T>[] => {
   const buckets: UnitBucket<T>[] = [];
-  let current: UnitBucket<T> | null = null;
+  let current: UnitBucket<T> | undefined;
 
   for (const message of messages) {
     const key = message.unitId ?? "legacy:null-unit";
-    if (!current || current.key !== key) {
+    if (current?.key !== key) {
       current = {
         key,
         unitId: message.unitId,

@@ -1,0 +1,45 @@
+export type {
+  ApplyEvaluationResult,
+  EvaluatedAttempt,
+  RatingPredictionRecord,
+} from "./apply-evaluation";
+export { applyEvaluation } from "./apply-evaluation";
+export type {
+  DecideInput,
+  DifficultyBand,
+  DirectiveIntent,
+  JobProgressState,
+  ScenarioDirective,
+} from "./decide";
+export {
+  checkMasteryGate,
+  checkPromotionGate,
+  decideNextScenario,
+  validateDifficultyBands,
+} from "./decide";
+export type { AttemptEvidence, AttemptRecord } from "./evidence";
+export {
+  assessAttempt,
+  fadeSupport,
+  isLowSupport,
+  raiseSupport,
+} from "./evidence";
+export type { JobRatingState, RatedOutcome } from "./glicko";
+export {
+  createInitialRatingState,
+  decayRatingState,
+  expectedScore,
+  scoreToOutcome,
+  targetItemRating,
+  updateRatingState,
+} from "./glicko";
+export type {
+  MisconceptionEvidence,
+  MisconceptionState,
+  MisconceptionStatus,
+} from "./misconceptions";
+export { reduceMisconceptions, selectRepairTarget } from "./misconceptions";
+export type { RatingPolicy, SupportLevel } from "./policy";
+export { DEFAULT_RATING_POLICY, SUPPORT_LEVELS } from "./policy";
+export type { GeneratorCalibrationNote } from "./render";
+export { renderScenarioDirective } from "./render";
