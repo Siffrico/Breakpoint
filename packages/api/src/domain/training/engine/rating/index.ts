@@ -42,4 +42,4 @@ export { reduceMisconceptions, selectRepairTarget } from "./misconceptions";
 export type { RatingPolicy, SupportLevel } from "./policy";
 export { DEFAULT_RATING_POLICY, SUPPORT_LEVELS } from "./policy";
 export type { GeneratorCalibrationNote } from "./render";
-export { renderScenarioDirective } from "./render";
+export { buildGeneratorCalibrationNote, renderScenarioDirective } from "./render";

@@ -52,6 +52,12 @@ export const WorkspaceAiMessageSchema = z.object({
   sequence: z.number().int().min(0),
   slot: z.string().nullable(),
   unitId: z.string().uuid().nullable(),
+  metadata: z
+    .object({
+      difficultyDirectiveReason: z.string().min(1).optional(),
+    })
+    .nullable()
+    .optional(),
 });
 
 export const WorkspaceAiStateSchema = z.object({
@@ -66,6 +72,7 @@ export const WorkspaceAiStateSchema = z.object({
 
 export const WorkspaceAiEducationOutputSchema = z.object({
   assistantMessage: z.string().min(1),
+  estimatedItemRating: z.number().int().nullable().optional(),
   stageComplete: z.boolean(),
   nextStage: WorkspaceAiEducationStageSchema,
   unitComplete: z.boolean(),
@@ -85,6 +92,7 @@ export const WorkspaceAiEvaluationOutputSchema =
 
 export const WorkspaceAiRecallOutputSchema = z.object({
   assistantMessage: z.string().min(1),
+  estimatedItemRating: z.number().int().nullable().optional(),
   recallComplete: z.boolean(),
   score: z.number().int().min(0).max(100).nullable(),
   strengths: z.array(z.string().min(1)).max(4),

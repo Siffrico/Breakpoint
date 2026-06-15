@@ -114,6 +114,8 @@ export const TrainingUnitPhaseResponse = pgTable(
         pausedSeconds?: number;
       };
       nextScenarioPrompt?: boolean;
+      difficultyDirectiveReason?: string;
+      estimatedItemRating?: number;
       assessmentStatus?: "pass" | "retry_concept" | "retry_application";
       gap?: {
         description: string;

@@ -29,6 +29,11 @@ import {
   createSummarizer,
 } from "./domain/training/engine/compaction";
 import {
+  clampClaimedItemRating,
+  prepareScenarioDirective,
+  recordEvaluation,
+} from "./domain/training/orchestration/goldilocks";
+import {
   getAiModelForPurpose,
   getSearchToolsForSelectedProvider,
   requireAiModelForPurpose,
@@ -58,6 +63,7 @@ import { memoryRepository } from "./repositories/memory-repository";
 import { trainingAttemptRepository } from "./repositories/training-attempt-repository";
 import { trainingCurriculumRepository } from "./repositories/training-curriculum-repository";
 import { trainingOnboardingRepository } from "./repositories/training-onboarding-repository";
+import { trainingRatingRepository } from "./repositories/training-rating-repository";
 
 type Database = typeof databaseClient;
 
@@ -78,6 +84,33 @@ interface WorkspaceStatusData extends Record<string, unknown> {
 type WorkspaceChatUIMessage = UIMessage<unknown, WorkspaceStatusData>;
 
 const WORKSPACE_ASSISTANT_TEXT_PART_ID = "workspace-assistant";
+
+const SCENARIO_EDUCATION_STAGES = new Set<string>([
+  "diagnostic_scenario",
+  "guided_application",
+  "performance_evaluation",
+  "transfer_scenario",
+]);
+
+const shouldPrepareDifficultyDirective = ({
+  state,
+  action,
+  runtimeContextMode,
+}: {
+  state: WorkspaceAiState;
+  action: "submit_answer" | "next_scenario";
+  runtimeContextMode: "teacher" | "evaluator" | "recall";
+}) => {
+  if (state.mode === "recall") return true;
+  if (action === "next_scenario") return true;
+  if (runtimeContextMode === "evaluator") return false;
+  return state.educationStage
+    ? SCENARIO_EDUCATION_STAGES.has(state.educationStage)
+    : false;
+};
+
+const getDifficultyDirectiveMetadata = (reason?: string | null) =>
+  reason ? { difficultyDirectiveReason: reason } : null;
 
 const getNextReadyLearningNode = (nodes: CurriculumNode[]) =>
   nodes.find(
@@ -232,6 +265,7 @@ const saveRecallOutput = async ({
   unit,
   plan,
   output,
+  difficultyDirectiveReason,
 }: {
   db: Database;
   sessionId: string;
@@ -241,6 +275,7 @@ const saveRecallOutput = async ({
   unit: UnitContent;
   plan: CurriculumPlan;
   output: WorkspaceAiRecallOutput;
+  difficultyDirectiveReason?: string | null;
 }): Promise<WorkspaceAiTurnResult> => {
   const assistantMessage =
     await trainingOnboardingRepository.appendWorkspaceMessage({
@@ -250,6 +285,7 @@ const saveRecallOutput = async ({
       content: output.assistantMessage,
       slot: "recall",
       unitId: unit.nodeId,
+      metadata: getDifficultyDirectiveMetadata(difficultyDirectiveReason),
     });
 
   if (!assistantMessage) {
@@ -278,6 +314,8 @@ const saveRecallOutput = async ({
       recallUnitId: unit.nodeId,
       promptKind: "recall",
       modelPurpose: "recall",
+      difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
+      estimatedItemRating: output.estimatedItemRating ?? undefined,
       feedback: output.assistantMessage,
       evidenceAnchors: output.strengths,
     },
@@ -309,6 +347,7 @@ const saveEducationOutput = async ({
   output,
   attemptTiming,
   evaluationPlan,
+  difficultyDirectiveReason,
 }: {
   db: Database;
   sessionId: string;
@@ -320,6 +359,7 @@ const saveEducationOutput = async ({
   output: WorkspaceAiEducationOutput | WorkspaceAiEvaluationOutput;
   attemptTiming?: AttemptTiming | null;
   evaluationPlan?: WorkspaceAiEvaluationOutput["evaluationPlan"] | null;
+  difficultyDirectiveReason?: string | null;
 }): Promise<WorkspaceAiTurnResult> => {
   if (!state.educationStage) {
     throw new Error("Education stage is missing.");
@@ -358,6 +398,7 @@ const saveEducationOutput = async ({
       content: output.assistantMessage,
       slot: "education_unit",
       unitId: unit.nodeId,
+      metadata: getDifficultyDirectiveMetadata(difficultyDirectiveReason),
     });
 
   if (!assistantMessage) {
@@ -393,6 +434,8 @@ const saveEducationOutput = async ({
           ? (evaluationPlan ?? output.evaluationPlan)
           : undefined,
       attemptTiming: attemptTiming ?? undefined,
+      difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
+      estimatedItemRating: output.estimatedItemRating ?? undefined,
       feedback: output.assistantMessage,
       evidenceAnchors:
         "evidenceCitations" in output
@@ -479,6 +522,7 @@ const saveNextScenarioPrompt = async ({
   output,
   evaluationPlan,
   currentStage,
+  difficultyDirectiveReason,
 }: {
   db: Database;
   sessionId: string;
@@ -487,6 +531,7 @@ const saveNextScenarioPrompt = async ({
   output: WorkspaceAiEducationOutput | WorkspaceAiEvaluationOutput;
   evaluationPlan?: WorkspaceAiEvaluationOutput["evaluationPlan"] | null;
   currentStage: WorkspaceAiState["educationStage"];
+  difficultyDirectiveReason?: string | null;
 }) => {
   if (!currentStage) {
     throw new Error("Education stage is missing.");
@@ -500,6 +545,7 @@ const saveNextScenarioPrompt = async ({
       content: output.assistantMessage,
       slot: "education_unit",
       unitId: unit.nodeId,
+      metadata: getDifficultyDirectiveMetadata(difficultyDirectiveReason),
     });
 
   if (!assistantMessage) {
@@ -535,6 +581,8 @@ const saveNextScenarioPrompt = async ({
         "evaluationPlan" in output
           ? (evaluationPlan ?? output.evaluationPlan)
           : undefined,
+      difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
+      estimatedItemRating: output.estimatedItemRating ?? undefined,
       feedback: output.assistantMessage,
     },
   });
@@ -733,12 +781,27 @@ const streamWorkspaceChatWithModelPreference = async ({
         )
           ? buildWorkspaceIntroMessage({ plan, state })
           : null;
-      const memoriesResult = await memoryRepository.listByUserId({
-        db,
-        userId,
-      });
       const runtime = selectWorkspaceTurnRuntime(state);
       const activeEvaluationPlan = selectLatestEvaluationPlan(unitResponses);
+      const shouldUseDifficultyDirective = shouldPrepareDifficultyDirective({
+        state,
+        action,
+        runtimeContextMode: runtime.contextMode,
+      });
+      const [memoriesResult, difficultyDirectiveResult] = await Promise.all([
+        memoryRepository.listByUserId({
+          db,
+          userId,
+        }),
+        shouldUseDifficultyDirective
+          ? prepareScenarioDirective({
+              db,
+              userId,
+              nodeId: unit.nodeId,
+              now: new Date(),
+            })
+          : Promise.resolve(null),
+      ]);
       const contextEnvelope = buildWorkspaceContextEnvelope({
         plan,
         node,
@@ -753,6 +816,13 @@ const streamWorkspaceChatWithModelPreference = async ({
         runtime,
         evaluationPlan: activeEvaluationPlan,
         attemptTiming,
+        difficultyDirective: difficultyDirectiveResult
+          ? {
+              reason: difficultyDirectiveResult.directive.reason,
+              promptBlock: difficultyDirectiveResult.promptBlock,
+            }
+          : null,
+        ratingSnapshot: difficultyDirectiveResult?.ratingSnapshot ?? null,
       });
       const context = renderWorkspaceStageContextPrompt({
         envelope: contextEnvelope,
@@ -789,6 +859,17 @@ const streamWorkspaceChatWithModelPreference = async ({
         }
 
         const output = await result.output;
+        if (difficultyDirectiveResult) {
+          await trainingRatingRepository.updateOpenScenarioItemRating({
+            db,
+            userId,
+            nodeId: unit.nodeId,
+            itemRating: clampClaimedItemRating({
+              claimed: output.estimatedItemRating,
+              target: difficultyDirectiveResult.directive.targetItemRating,
+            }),
+          });
+        }
         streamAssistantDelta(output.assistantMessage);
         endAssistantText();
         writeStatus("saving", "Saving feedback");
@@ -801,6 +882,8 @@ const streamWorkspaceChatWithModelPreference = async ({
           unit,
           plan,
           output,
+          difficultyDirectiveReason:
+            difficultyDirectiveResult?.directive.reason ?? null,
         });
       } else {
         writeStatus(
@@ -850,6 +933,17 @@ const streamWorkspaceChatWithModelPreference = async ({
                 isRetryAfterFailure: hasFailedEvaluationAttempt(unitResponses),
               })
             : null;
+        if (difficultyDirectiveResult) {
+          await trainingRatingRepository.updateOpenScenarioItemRating({
+            db,
+            userId,
+            nodeId: unit.nodeId,
+            itemRating: clampClaimedItemRating({
+              claimed: output.estimatedItemRating,
+              target: difficultyDirectiveResult.directive.targetItemRating,
+            }),
+          });
+        }
         streamAssistantDelta(output.assistantMessage);
         endAssistantText();
         writeStatus(
@@ -867,6 +961,8 @@ const streamWorkspaceChatWithModelPreference = async ({
             output,
             evaluationPlan,
             currentStage: state.educationStage,
+            difficultyDirectiveReason:
+              difficultyDirectiveResult?.directive.reason ?? null,
           });
         } else {
           await saveEducationOutput({
@@ -880,7 +976,29 @@ const streamWorkspaceChatWithModelPreference = async ({
             output,
             attemptTiming,
             evaluationPlan,
+            difficultyDirectiveReason:
+              difficultyDirectiveResult?.directive.reason ?? null,
           });
+          if ("routingDecision" in output) {
+            try {
+              await recordEvaluation({
+                db,
+                userId,
+                nodeId: unit.nodeId,
+                score: output.score,
+                errorCodes: output.failedDimensions,
+                sidechatAskCount: 0,
+                wasOverTime: attemptTiming?.wasOverTime ?? false,
+                occurredAt: new Date(),
+              });
+            } catch (error) {
+              console.error("Training rating evaluation recording failed", {
+                userId,
+                nodeId: unit.nodeId,
+                error,
+              });
+            }
+          }
         }
       }
 

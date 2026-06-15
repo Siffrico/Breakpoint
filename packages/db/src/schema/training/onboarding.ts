@@ -43,6 +43,11 @@ export const TrainingOnboardingMessage = pgTable(
     // oldest bucket. See engine/compaction.
     unitId: t.uuid(),
     content: t.text().notNull(),
+    metadata: t
+      .jsonb()
+      .$type<{
+        difficultyDirectiveReason?: string;
+      } | null>(),
     sequence: t.integer().notNull(),
     createdAt: t
       .timestamp({ mode: "date", withTimezone: true })

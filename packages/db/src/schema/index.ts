@@ -5,5 +5,6 @@ export * from "./training/capstone";
 export * from "./training/curriculum";
 export * from "./training/onboarding";
 export * from "./training/profile";
+export * from "./training/rating";
 export * from "./training/recall";
 export * from "./training/unit";

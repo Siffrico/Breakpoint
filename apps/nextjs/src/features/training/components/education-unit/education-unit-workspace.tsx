@@ -59,6 +59,7 @@ interface WorkspaceChatData extends Record<string, unknown> {
 interface WorkspaceChatMetadata {
   action?: "submit_answer" | "next_scenario";
   synthetic?: boolean;
+  difficultyDirectiveReason?: string;
 }
 type WorkspaceChatMessage = UIMessage<WorkspaceChatMetadata, WorkspaceChatData>;
 
@@ -118,11 +119,13 @@ Now revise the loop as if the benchmark is an untrusted signal the agent might l
 function PromptTurn({
   prompt,
   helper,
+  difficultyDirectiveReason = null,
   streaming = false,
   statusLabel = null,
 }: {
   prompt: string;
   helper?: string | null;
+  difficultyDirectiveReason?: string | null;
   streaming?: boolean;
   statusLabel?: string | null;
 }) {
@@ -136,6 +139,11 @@ function PromptTurn({
             label={statusLabel}
             className={prompt.trim() ? "mb-4" : undefined}
           />
+        ) : null}
+        {difficultyDirectiveReason ? (
+          <div className="border-foreground/[0.10] bg-foreground/[0.035] text-foreground/52 mb-3 inline-flex max-w-full items-center rounded-full border px-2.5 py-1 text-[11px] leading-4">
+            <span className="truncate">{difficultyDirectiveReason}</span>
+          </div>
         ) : null}
         {prompt.trim() ? (
           streaming ? (
@@ -299,6 +307,7 @@ const transcriptToChatMessages = (
   (workspace?.messages ?? []).map((message) => ({
     id: `workspace-${sessionId}-${message.sequence}`,
     role: message.role,
+    metadata: message.metadata ?? undefined,
     parts: [{ type: "text", text: message.content }],
   }));
 
@@ -670,6 +679,9 @@ export function EducationUnitWorkspace({
                     key={message.id}
                     prompt={content}
                     helper={null}
+                    difficultyDirectiveReason={
+                      message.metadata?.difficultyDirectiveReason ?? null
+                    }
                     streaming={isLiveAssistant}
                     statusLabel={
                       liveStatus && liveStatus.status !== "complete"

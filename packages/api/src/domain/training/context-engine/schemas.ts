@@ -21,6 +21,7 @@ export const WorkspaceContextEnvelopeSchema = z.object({
     durableMemory: z.array(z.string().min(1)),
     recurringFailurePatterns: z.array(z.string().min(1)),
     preferences: z.array(z.string().min(1)),
+    ratingSnapshot: z.string().min(1).nullable(),
     // Anchored summary of earlier units that have aged out of the verbatim
     // transcript window. Null until the chat spans enough units to compact.
     progressSummary: z.string().min(1).nullable(),
@@ -60,6 +61,12 @@ export const WorkspaceContextEnvelopeSchema = z.object({
     .nullable(),
   evaluationPlan: EvaluationPlanSchema.nullable(),
   attemptTiming: AttemptTimingSchema.nullable(),
+  difficultyDirective: z
+    .object({
+      reason: z.string().min(1),
+      promptBlock: z.string().min(1),
+    })
+    .nullable(),
   outputContract: z.object({
     move: WorkspaceContextMoveSchema,
     maxWords: z.number().int().min(80).max(400),

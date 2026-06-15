@@ -13,6 +13,7 @@ Recurring failure patterns:
 ${formatList(envelope.learner.recurringFailurePatterns)}
 Preferences:
 ${formatList(envelope.learner.preferences)}
+Rating snapshot: ${envelope.learner.ratingSnapshot ?? "Not rated yet"}
 ${formatProgressSummary(envelope)}
 ## Curriculum
 Title: ${envelope.curriculum.title}
@@ -39,6 +40,7 @@ Strongest prior success: ${envelope.evidence.strongestPriorSuccess ?? "None sele
 Unresolved pattern: ${envelope.evidence.unresolvedPattern ?? "None selected"}
 
 ${formatPromptShownToLearner(envelope)}
+${formatDifficultyDirective(envelope)}
 ## Recent transcript
 ${formatList(envelope.evidence.recentTranscript)}
 
@@ -98,10 +100,12 @@ Why it matters: ${envelope.unit.whyItMatters}
 Seed scenario: ${envelope.unit.seedScenario}
 Focus areas: ${formatInline(envelope.unit.focusAreas)}
 ${formatProgressSummary(envelope)}
+Rating snapshot: ${envelope.learner.ratingSnapshot ?? "Not rated yet"}
 ## Learner answer to evaluate
 ${envelope.evidence.latestLearnerMessage}
 
 ${formatPromptShownToLearner(envelope)}
+${formatDifficultyDirective(envelope)}
 ## Evidence allowed for calibration
 Most relevant prior failure: ${envelope.evidence.mostRelevantFailure ?? "None selected"}
 Strongest prior success: ${envelope.evidence.strongestPriorSuccess ?? "None selected"}
@@ -171,6 +175,16 @@ const formatPromptShownToLearner = (
 
   return `## Prompt shown to learner
 ${envelope.promptShownToLearner.helper ? `Helper: ${envelope.promptShownToLearner.helper}\n` : ""}${envelope.promptShownToLearner.prompt}
+
+`;
+};
+
+const formatDifficultyDirective = (
+  envelope: WorkspaceContextEnvelope,
+): string => {
+  if (!envelope.difficultyDirective) return "";
+
+  return `${envelope.difficultyDirective.promptBlock}
 
 `;
 };

@@ -1,4 +1,5 @@
 import type { DifficultyBand, ScenarioDirective } from "./decide";
+import type { RatingPredictionRecord } from "./apply-evaluation";
 import type { SupportLevel } from "./policy";
 
 /**
@@ -44,6 +45,31 @@ const INTENT_INSTRUCTIONS: Record<ScenarioDirective["intent"], string> = {
 export interface GeneratorCalibrationNote {
   readonly note: string;
 }
+
+const mean = (values: readonly number[]): number =>
+  values.reduce((sum, value) => sum + value, 0) / values.length;
+
+export const buildGeneratorCalibrationNote = (
+  predictions: readonly Pick<
+    RatingPredictionRecord,
+    "predictedScore" | "actualOutcome"
+  >[],
+): GeneratorCalibrationNote | undefined => {
+  const window = predictions.slice(-8);
+  if (window.length < 4) return undefined;
+
+  const predicted = mean(window.map((prediction) => prediction.predictedScore));
+  const actual = mean(window.map((prediction) => prediction.actualOutcome));
+  const gap = actual - predicted;
+  if (Math.abs(gap) <= 0.1) return undefined;
+
+  return {
+    note:
+      gap > 0
+        ? `Recent scenarios are being beaten more often than predicted (${Math.round(predicted * 100)}% predicted vs ${Math.round(actual * 100)}% actual). Increase concrete difficulty axes slightly while staying near the target rating.`
+        : `Recent scenarios are being beaten less often than predicted (${Math.round(predicted * 100)}% predicted vs ${Math.round(actual * 100)}% actual). Reduce concrete difficulty axes slightly while staying near the target rating.`,
+  };
+};
 
 /**
  * Render a directive into the instruction block appended to the scenario

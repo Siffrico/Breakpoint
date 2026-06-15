@@ -31,6 +31,8 @@ export const buildWorkspaceContextEnvelope = ({
   runtime,
   evaluationPlan,
   attemptTiming,
+  difficultyDirective,
+  ratingSnapshot,
 }: {
   plan: CurriculumPlan;
   node: CurriculumNode;
@@ -45,6 +47,8 @@ export const buildWorkspaceContextEnvelope = ({
   runtime?: WorkspaceTurnRuntime;
   evaluationPlan?: EvaluationPlan | null;
   attemptTiming?: AttemptTiming | null;
+  difficultyDirective?: { reason: string; promptBlock: string } | null;
+  ratingSnapshot?: string | null;
 }): WorkspaceContextEnvelope => {
   const selectedMemory = selectWorkspaceMemory({ memories, node, unit });
   const selectedEvidence = selectWorkspaceEvidence({
@@ -66,6 +70,7 @@ export const buildWorkspaceContextEnvelope = ({
       durableMemory: selectedMemory.durableMemory,
       recurringFailurePatterns: selectedMemory.recurringFailurePatterns,
       preferences: selectedMemory.preferences,
+      ratingSnapshot: ratingSnapshot ?? null,
       progressSummary: progressSummary ?? null,
     },
     curriculum: {
@@ -98,6 +103,7 @@ export const buildWorkspaceContextEnvelope = ({
     promptShownToLearner: introMessage ?? null,
     evaluationPlan: evaluationPlan ?? null,
     attemptTiming: attemptTiming ?? null,
+    difficultyDirective: difficultyDirective ?? null,
     outputContract: buildOutputContract(state, runtime),
   });
 };

@@ -1,0 +1,384 @@
+import type { db as databaseClient } from "@acme/db/client";
+import { and, asc, desc, eq } from "@acme/db";
+import {
+  TrainingJobProgress,
+  TrainingMisconception,
+  TrainingRatingPrediction,
+  TrainingScenarioAttempt,
+} from "@acme/db/schema";
+
+type Database = typeof databaseClient;
+
+type SupportLevel = "worked_example" | "guided" | "none";
+
+interface JobRatingState {
+  rating: number;
+  ratingDeviation: number;
+  volatility: number;
+  lastRatedAt: Date | null;
+}
+
+interface JobProgressState {
+  bandOrder: number;
+  supportLevel: SupportLevel;
+}
+
+interface MisconceptionState {
+  code: string;
+  status: "active" | "addressed" | "resolved";
+  occurrences: number;
+  lastSeenAt: Date;
+}
+
+interface AttemptRecord {
+  bandOrder: number;
+  offeredSupport: SupportLevel;
+  itemRating: number;
+  score: number;
+  outcome: number;
+  effectiveSupport: SupportLevel;
+  cleanPass: boolean;
+  pass: boolean;
+  hardFail: boolean;
+  occurredAt: Date;
+}
+
+interface RatingPredictionRecord {
+  ratingBefore: number;
+  ratingDeviationBefore: number;
+  ratingAfter: number;
+  ratingDeviationAfter: number;
+  itemRating: number;
+  predictedScore: number;
+  actualOutcome: number;
+  occurredAt: Date;
+}
+
+interface ScenarioDirective {
+  intent:
+    | "repair"
+    | "probe"
+    | "back_off"
+    | "promote"
+    | "fade_support"
+    | "challenge"
+    | "mastered";
+  bandOrder: number;
+  supportLevel: SupportLevel;
+  targetItemRating: number;
+  targetMisconceptionCode: string | null;
+  reason: string;
+  nextProgress: JobProgressState;
+}
+
+interface ApplyEvaluationResult {
+  ratingState: JobRatingState;
+  misconceptions: MisconceptionState[];
+  attempt: AttemptRecord;
+  prediction: RatingPredictionRecord;
+}
+
+const DEFAULT_PROGRESS: JobProgressState = {
+  bandOrder: 0,
+  supportLevel: "worked_example",
+};
+
+const RECENT_ATTEMPT_LIMIT = 20;
+
+const toAttemptRecord = (attempt: {
+  bandOrder: number;
+  offeredSupport: SupportLevel;
+  itemRating: number;
+  score: number;
+  outcome: number;
+  effectiveSupport: SupportLevel;
+  cleanPass: boolean;
+  pass: boolean;
+  hardFail: boolean;
+  occurredAt: string;
+}): AttemptRecord => ({
+  ...attempt,
+  occurredAt: new Date(attempt.occurredAt),
+});
+
+const serializeAttemptRecord = (attempt: AttemptRecord) => ({
+  ...attempt,
+  occurredAt: attempt.occurredAt.toISOString(),
+});
+
+const toRatingPredictionRecord = (
+  row: typeof TrainingRatingPrediction.$inferSelect,
+): RatingPredictionRecord => ({
+  ratingBefore: row.ratingBefore,
+  ratingDeviationBefore: row.ratingDeviationBefore,
+  ratingAfter: row.ratingAfter,
+  ratingDeviationAfter: row.ratingDeviationAfter,
+  itemRating: row.itemRating,
+  predictedScore: row.predictedScore,
+  actualOutcome: row.actualOutcome,
+  occurredAt: row.occurredAt,
+});
+
+export const trainingRatingRepository = {
+  loadJobProgress: async ({
+    db,
+    userId,
+    nodeId,
+    initialRatingState,
+  }: {
+    db: Database;
+    userId: string;
+    nodeId: string;
+    initialRatingState: JobRatingState;
+  }): Promise<{
+    ratingState: JobRatingState;
+    progress: JobProgressState;
+    misconceptions: MisconceptionState[];
+    recentAttempts: AttemptRecord[];
+    masteredAt: Date | null;
+  }> => {
+    const [progressRow, misconceptionRows] = await Promise.all([
+      db.query.TrainingJobProgress.findFirst({
+        where: and(
+          eq(TrainingJobProgress.userId, userId),
+          eq(TrainingJobProgress.nodeId, nodeId),
+        ),
+      }),
+      db.query.TrainingMisconception.findMany({
+        where: and(
+          eq(TrainingMisconception.userId, userId),
+          eq(TrainingMisconception.nodeId, nodeId),
+        ),
+        orderBy: [asc(TrainingMisconception.code)],
+      }),
+    ]);
+
+    return {
+      ratingState: progressRow
+        ? {
+            rating: progressRow.rating,
+            ratingDeviation: progressRow.ratingDeviation,
+            volatility: progressRow.volatility,
+            lastRatedAt: progressRow.lastRatedAt,
+          }
+        : initialRatingState,
+      progress: progressRow
+        ? {
+            bandOrder: progressRow.bandOrder,
+            supportLevel: progressRow.supportLevel as SupportLevel,
+          }
+        : DEFAULT_PROGRESS,
+      misconceptions: misconceptionRows.map((row) => ({
+        code: row.code,
+        status: row.status as MisconceptionState["status"],
+        occurrences: row.occurrences,
+        lastSeenAt: row.lastSeenAt,
+      })),
+      recentAttempts: (progressRow?.recentAttemptsJson ?? []).map(
+        toAttemptRecord,
+      ),
+      masteredAt: progressRow?.masteredAt ?? null,
+    };
+  },
+
+  listRecentPredictions: async ({
+    db,
+    userId,
+    nodeId,
+    limit = 8,
+  }: {
+    db: Database;
+    userId: string;
+    nodeId: string;
+    limit?: number;
+  }): Promise<RatingPredictionRecord[]> => {
+    const rows = await db.query.TrainingRatingPrediction.findMany({
+      where: and(
+        eq(TrainingRatingPrediction.userId, userId),
+        eq(TrainingRatingPrediction.nodeId, nodeId),
+      ),
+      orderBy: [desc(TrainingRatingPrediction.occurredAt)],
+      limit,
+    });
+
+    return rows.reverse().map(toRatingPredictionRecord);
+  },
+
+  openScenarioAttempt: async ({
+    db,
+    userId,
+    nodeId,
+    directive,
+    itemRating,
+  }: {
+    db: Database;
+    userId: string;
+    nodeId: string;
+    directive: ScenarioDirective;
+    itemRating: number;
+  }) => {
+    const [row] = await db
+      .insert(TrainingScenarioAttempt)
+      .values({
+        userId,
+        nodeId,
+        status: "open",
+        directiveJson: directive,
+        itemRating,
+        targetMisconceptionCode: directive.targetMisconceptionCode,
+        supportLevel: directive.supportLevel,
+      })
+      .returning();
+
+    return row ?? null;
+  },
+
+  getOpenScenario: async ({
+    db,
+    userId,
+    nodeId,
+  }: {
+    db: Database;
+    userId: string;
+    nodeId: string;
+  }) =>
+    (await db.query.TrainingScenarioAttempt.findFirst({
+      where: and(
+        eq(TrainingScenarioAttempt.userId, userId),
+        eq(TrainingScenarioAttempt.nodeId, nodeId),
+        eq(TrainingScenarioAttempt.status, "open"),
+      ),
+      orderBy: [desc(TrainingScenarioAttempt.createdAt)],
+    })) ?? null,
+
+  updateOpenScenarioItemRating: async ({
+    db,
+    userId,
+    nodeId,
+    itemRating,
+  }: {
+    db: Database;
+    userId: string;
+    nodeId: string;
+    itemRating: number;
+  }) => {
+    const openScenario = await trainingRatingRepository.getOpenScenario({
+      db,
+      userId,
+      nodeId,
+    });
+    if (!openScenario) return null;
+
+    const [row] = await db
+      .update(TrainingScenarioAttempt)
+      .set({ itemRating })
+      .where(eq(TrainingScenarioAttempt.id, openScenario.id))
+      .returning();
+
+    return row ?? null;
+  },
+
+  saveEvaluationResult: async ({
+    db,
+    userId,
+    nodeId,
+    scenarioAttemptId,
+    result,
+    nextProgress,
+    masteredAt,
+  }: {
+    db: Database;
+    userId: string;
+    nodeId: string;
+    scenarioAttemptId: string;
+    result: ApplyEvaluationResult;
+    nextProgress: JobProgressState;
+    masteredAt: Date | null;
+  }): Promise<void> => {
+    await db.transaction(async (tx) => {
+      const existing = await tx.query.TrainingJobProgress.findFirst({
+        where: and(
+          eq(TrainingJobProgress.userId, userId),
+          eq(TrainingJobProgress.nodeId, nodeId),
+        ),
+      });
+      const recentAttempts = [
+        ...((existing?.recentAttemptsJson ?? []).map(toAttemptRecord)),
+        result.attempt,
+      ]
+        .slice(-RECENT_ATTEMPT_LIMIT)
+        .map(serializeAttemptRecord);
+
+      await tx
+        .insert(TrainingJobProgress)
+        .values({
+          userId,
+          nodeId,
+          rating: result.ratingState.rating,
+          ratingDeviation: result.ratingState.ratingDeviation,
+          volatility: result.ratingState.volatility,
+          lastRatedAt: result.ratingState.lastRatedAt,
+          bandOrder: nextProgress.bandOrder,
+          supportLevel: nextProgress.supportLevel,
+          recentAttemptsJson: recentAttempts,
+          masteredAt,
+        })
+        .onConflictDoUpdate({
+          target: [TrainingJobProgress.userId, TrainingJobProgress.nodeId],
+          set: {
+            rating: result.ratingState.rating,
+            ratingDeviation: result.ratingState.ratingDeviation,
+            volatility: result.ratingState.volatility,
+            lastRatedAt: result.ratingState.lastRatedAt,
+            bandOrder: nextProgress.bandOrder,
+            supportLevel: nextProgress.supportLevel,
+            recentAttemptsJson: recentAttempts,
+            masteredAt,
+          },
+        });
+
+      for (const misconception of result.misconceptions) {
+        await tx
+          .insert(TrainingMisconception)
+          .values({
+            userId,
+            nodeId,
+            code: misconception.code,
+            status: misconception.status,
+            occurrences: misconception.occurrences,
+            lastSeenAt: misconception.lastSeenAt,
+          })
+          .onConflictDoUpdate({
+            target: [
+              TrainingMisconception.userId,
+              TrainingMisconception.nodeId,
+              TrainingMisconception.code,
+            ],
+            set: {
+              status: misconception.status,
+              occurrences: misconception.occurrences,
+              lastSeenAt: misconception.lastSeenAt,
+            },
+          });
+      }
+
+      await tx.insert(TrainingRatingPrediction).values({
+        userId,
+        nodeId,
+        ratingBefore: result.prediction.ratingBefore,
+        ratingDeviationBefore: result.prediction.ratingDeviationBefore,
+        ratingAfter: result.prediction.ratingAfter,
+        ratingDeviationAfter: result.prediction.ratingDeviationAfter,
+        itemRating: result.prediction.itemRating,
+        predictedScore: result.prediction.predictedScore,
+        actualOutcome: result.prediction.actualOutcome,
+        occurredAt: result.prediction.occurredAt,
+      });
+
+      await tx
+        .update(TrainingScenarioAttempt)
+        .set({ status: "evaluated", evaluatedAt: result.prediction.occurredAt })
+        .where(eq(TrainingScenarioAttempt.id, scenarioAttemptId));
+    });
+  },
+};

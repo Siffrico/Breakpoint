@@ -23,6 +23,9 @@ interface OnboardingMessageInsert {
   content: string;
   slot: string | null;
   unitId?: string | null;
+  metadata?: {
+    difficultyDirectiveReason?: string;
+  } | null;
 }
 
 const isUniqueViolation = (error: unknown) =>
@@ -149,6 +152,7 @@ export const trainingOnboardingRepository = {
     content,
     slot,
     unitId = null,
+    metadata = null,
   }: {
     db: Database;
     sessionId: string;
@@ -156,6 +160,9 @@ export const trainingOnboardingRepository = {
     content: string;
     slot: string | null;
     unitId?: string | null;
+    metadata?: {
+      difficultyDirectiveReason?: string;
+    } | null;
   }) => {
     const message = await insertMessageWithNextSequence({
       db,
@@ -163,10 +170,11 @@ export const trainingOnboardingRepository = {
         sessionId,
         role,
         content,
-        slot,
-        unitId,
-      },
-    });
+          slot,
+          unitId,
+          metadata,
+        },
+      });
 
     return message
       ? {
@@ -175,6 +183,7 @@ export const trainingOnboardingRepository = {
           sequence: message.sequence,
           slot: message.slot,
           unitId: message.unitId,
+          metadata: message.metadata,
         }
       : null;
   },
@@ -293,6 +302,7 @@ export const trainingOnboardingRepository = {
       sequence: message.sequence,
       slot: message.slot,
       unitId: message.unitId,
+      metadata: message.metadata,
     }));
   },
 

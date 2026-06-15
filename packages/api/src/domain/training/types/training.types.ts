@@ -256,6 +256,8 @@ export interface PhaseResponseMetadata {
   evaluationPlan?: EvaluationPlan;
   attemptTiming?: AttemptTiming;
   nextScenarioPrompt?: boolean;
+  difficultyDirectiveReason?: string;
+  estimatedItemRating?: number;
   assessmentStatus?: EducationUnitAssessmentStatus;
   gap?: FailureGap;
   ghostScenario?: GhostScenario;
