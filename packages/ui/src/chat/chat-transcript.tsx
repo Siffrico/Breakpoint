@@ -39,7 +39,7 @@ export function ChatTranscriptContent({
   return (
     <StickToBottom.Content
       className={cn(
-        "mx-auto flex w-[calc(100%-2rem)] max-w-[61.125rem] flex-col gap-8 pb-10 pt-10 sm:w-[calc(100%-3rem)]",
+        "mx-auto flex w-[calc(100%-2rem)] max-w-[48.9rem] flex-col gap-8 pb-10 pt-10 sm:w-[calc(100%-3rem)]",
         className,
       )}
       {...rest}

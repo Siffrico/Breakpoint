@@ -65,7 +65,7 @@ type WorkspaceChatMessage = UIMessage<WorkspaceChatMetadata, WorkspaceChatData>;
 
 const AUTO_SCROLL_BOTTOM_THRESHOLD = 160;
 const CHAT_COLUMN_CLASS =
-  "mx-auto w-[calc(100%-2rem)] max-w-[61.125rem] sm:w-[calc(100%-3rem)]";
+  "mx-auto w-[calc(100%-2rem)] max-w-[48.9rem] sm:w-[calc(100%-3rem)]";
 const PREVIEW_RESPONSE_DELAY_MS = 450;
 
 const isViewportNearBottom = () => {
@@ -783,7 +783,7 @@ export function EducationUnitWorkspace({
             {renderedMessages}
             <div ref={bottomRef} />
           </div>
-          <ChatComposerDock className="-mx-6 mt-auto sm:-mx-10">
+          <ChatComposerDock className="mt-auto">
             {inputZone}
           </ChatComposerDock>
         </div>
@@ -798,7 +798,7 @@ export function EducationUnitWorkspace({
         <div className="flex w-full flex-col pb-32">
           {renderedMessages}
           <div className="bg-background/95 fixed inset-x-0 bottom-0 z-20 backdrop-blur-sm">
-            <div className="mx-auto w-[calc(100%-2rem)] max-w-[61.125rem] py-4 sm:w-[calc(100%-3rem)]">
+            <div className="mx-auto w-[calc(100%-2rem)] max-w-[48.9rem] py-4 sm:w-[calc(100%-3rem)]">
               {inputZone}
             </div>
           </div>

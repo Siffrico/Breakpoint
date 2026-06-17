@@ -15,7 +15,6 @@ import {
   SidebarSimple,
   Storefront,
 } from "@phosphor-icons/react";
-import { useMutation } from "@tanstack/react-query";
 
 import type { RouterOutputs } from "@acme/api";
 import {
@@ -29,10 +28,8 @@ import {
   MenuSeparator,
   MenuTrigger,
 } from "@acme/ui/menu";
-import { toast } from "@acme/ui/toast";
 
 import { useLocalStorage } from "~/hooks/use-local-storage";
-import { useTRPC } from "~/trpc/react";
 
 type LearningProject =
   RouterOutputs["training"]["listLearningProjects"][number];
@@ -495,25 +492,16 @@ export function CurriculumSidebar({
   workspaceTheme?: WorkspaceTheme;
   onWorkspaceThemeChange?: (theme: WorkspaceTheme) => void;
 }) {
-  const trpc = useTRPC();
   const router = useRouter();
   const profileHref = preview
     ? "/ui/profile"
     : `/profile?session=${currentSessionId}`;
 
-  const startOnboarding = useMutation(
-    trpc.training.startOnboarding.mutationOptions({
-      onSuccess: (data) => {
-        router.push(`/workspace?session=${data.sessionId}`);
-        router.refresh();
-      },
-      onError: (error) => toast.error(error.message),
-    }),
-  );
-
   const handleNewProject = () => {
-    if (preview || startOnboarding.isPending) return;
-    startOnboarding.mutate();
+    if (preview) return;
+    // The onboarding shell starts the session itself on mount, so a new topic
+    // is just a clean route into the consultation.
+    router.push("/onboarding");
   };
 
   const [expanded, setExpanded] = useLocalStorage<Record<string, boolean>>(
@@ -586,7 +574,6 @@ export function CurriculumSidebar({
         <button
           type="button"
           onClick={handleNewProject}
-          disabled={startOnboarding.isPending}
           className="hover:bg-foreground/[0.04] flex w-full items-center gap-2.5 rounded-[6px] px-2 py-[7px] text-left transition-colors outline-none focus:outline-none focus-visible:outline-none disabled:opacity-50"
         >
           <Plus size={15} className="text-foreground/56 shrink-0" />

@@ -2,13 +2,21 @@
 
 /* eslint-disable react-hooks/refs -- AI transport callbacks need access to the latest session id ref at send time. */
 import type { UIMessage } from "ai";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import { ArrowClockwise, ArrowUp, Plus } from "@phosphor-icons/react";
 import { useMutation } from "@tanstack/react-query";
-import { DefaultChatTransport } from "ai";
+import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses } from "ai";
 
+import type { OnboardingChatUIMessage, ProjectBuildState } from "@acme/api/onboarding-chat";
 import type { RouterOutputs } from "@acme/api";
 import { Button } from "@acme/ui/button";
 import {
@@ -26,23 +34,16 @@ import { toast } from "@acme/ui/toast";
 import { previewOnboardingStates } from "~/features/training/lib/training-preview";
 import { useTRPC } from "~/trpc/react";
 import { AssistantRichText } from "./assistant-rich-text";
+import { CreateProjectConfirm } from "./onboarding/create-project-confirm";
+import { ProjectBuildCard } from "./onboarding/project-build-card";
 
 type OnboardingState = RouterOutputs["training"]["startOnboarding"];
 
-type CurriculumToolOutput =
-  | {
-      ok: true;
-      planId: string;
-      title: string;
-      summary: string;
-      unitCount: number;
-      nextUnitId: string | null;
-    }
-  | { ok: false; reason: string };
-
 const PREVIEW_RESPONSE_DELAY_MS = 450;
 
-const transcriptToMessages = (state: OnboardingState | null): UIMessage[] => {
+const transcriptToMessages = (
+  state: OnboardingState | null,
+): OnboardingChatUIMessage[] => {
   if (!state) return [];
   return state.transcript.map((message) => ({
     id: `seed-${state.sessionId}-${message.sequence}`,
@@ -63,7 +64,7 @@ const extractText = (message: UIMessage): string =>
 const makePreviewMessage = (
   role: "user" | "assistant",
   text: string,
-): UIMessage => ({
+): OnboardingChatUIMessage => ({
   id: `preview-${role}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   role,
   parts: [{ type: "text", text }],
@@ -110,16 +111,16 @@ export function OnboardingShell({
   const trpc = useTRPC();
   const router = useRouter();
   const startedRef = useRef(false);
-  const [previewMessages, setPreviewMessages] = useState<UIMessage[]>(() =>
-    transcriptToMessages(previewOnboardingStates[0] ?? null),
-  );
+  const [previewMessages, setPreviewMessages] = useState<
+    OnboardingChatUIMessage[]
+  >(() => transcriptToMessages(previewOnboardingStates[0] ?? null));
   const [previewIsStreaming, setPreviewIsStreaming] = useState(false);
   const previewTimeoutRef = useRef<number | null>(null);
 
   const [sessionId, setSessionId] = useState<string | null>(
     sessionIdProp ?? initialState?.sessionId ?? null,
   );
-  const [seedMessages] = useState<UIMessage[]>(() =>
+  const [seedMessages] = useState<OnboardingChatUIMessage[]>(() =>
     transcriptToMessages(initialState),
   );
 
@@ -163,7 +164,7 @@ export function OnboardingShell({
     [],
   );
 
-  const initialUiMessages = useMemo<UIMessage[]>(() => {
+  const initialUiMessages = useMemo<OnboardingChatUIMessage[]>(() => {
     if (seedMessages.length > 0) return seedMessages;
     if (sessionId == null) {
       return [
@@ -185,11 +186,14 @@ export function OnboardingShell({
     setMessages,
     stop,
     regenerate,
-  } = useChat({
+    addToolApprovalResponse,
+  } = useChat<OnboardingChatUIMessage>({
     transport,
     messages: initialUiMessages,
     // Batch UI updates during streaming (SDK-native render throttling).
     experimental_throttle: 50,
+    // Auto-resume the run the moment the learner approves "Create project".
+    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
     onError: (err) => toast.error(err.message),
   });
 
@@ -206,27 +210,22 @@ export function OnboardingShell({
 
   const sendStartRef = useRef<number | null>(null);
 
-  const curriculum = useMemo<CurriculumToolOutput | null>(() => {
-    for (const message of messages) {
-      if (message.role !== "assistant") continue;
-      for (const part of message.parts) {
-        if (
-          part.type === "tool-buildCurriculum" &&
-          part.state === "output-available"
-        ) {
-          return part.output as CurriculumToolOutput;
+  // Latest streamed build snapshot, if any — drives both the inline build card
+  // and the "project is ready" gating below.
+  const projectBuild = useMemo<ProjectBuildState | null>(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const message = messages[i];
+      if (message?.role !== "assistant") continue;
+      for (let j = message.parts.length - 1; j >= 0; j -= 1) {
+        const part = message.parts[j];
+        if (part?.type === "data-project-build") {
+          return part.data as ProjectBuildState;
         }
       }
     }
     return null;
   }, [messages]);
-  const hasReadyCurriculum = curriculum?.ok === true;
-
-  const openGeneratedWorkspace = useCallback(() => {
-    if (preview || !sessionId) return;
-    router.replace(`/workspace?session=${encodeURIComponent(sessionId)}`);
-    router.refresh();
-  }, [preview, router, sessionId]);
+  const projectReady = projectBuild?.phase === "complete";
 
   useEffect(() => {
     onRunningChange?.(isStreaming || startOnboarding.isPending);
@@ -251,9 +250,9 @@ export function OnboardingShell({
   // Refocus whenever the composer remounts: on session start and on the
   // hero → transcript switch after the first user turn.
   useEffect(() => {
-    if (!sessionId || hasReadyCurriculum) return;
+    if (!sessionId || projectReady) return;
     composerRef.current?.focus();
-  }, [hasReadyCurriculum, sessionId, userTurnCount]);
+  }, [projectReady, sessionId, userTurnCount]);
 
   const submitText = useCallback(
     (text: string) => {
@@ -279,14 +278,14 @@ export function OnboardingShell({
         return;
       }
 
-      if (!trimmed || !sessionId || isStreaming || hasReadyCurriculum) return;
+      if (!trimmed || !sessionId || isStreaming || projectReady) return;
 
       setAnswer("");
       sendStartRef.current = Date.now();
       void sendMessage({ text: trimmed });
     },
     [
-      hasReadyCurriculum,
+      projectReady,
       isStreaming,
       preview,
       previewIsStreaming,
@@ -332,7 +331,7 @@ export function OnboardingShell({
 
   // opencode-style new-session hero: wordmark + centered composer until the
   // first user turn lands, then the regular transcript + docked composer.
-  const showHero = userTurnCount === 0 && !hasReadyCurriculum;
+  const showHero = userTurnCount === 0 && !projectReady;
 
   const composer = (
     <ChatComposer
@@ -440,33 +439,85 @@ export function OnboardingShell({
         >
           {renderMessages.map((message, index) => {
             const text = extractText(message);
-            if (!text) return null;
             const isLast = index === renderMessages.length - 1;
             const showCaret =
               isLast && message.role === "assistant" && effectiveIsStreaming;
             return (
-              <ChatMessage
-                key={message.id}
-                from={message.role}
-                isStreaming={showCaret}
-              >
-                {message.role === "assistant" ? (
-                  // Live turns are smoothed server-side by smoothStream, so we
-                  // render them straight. Preview has no server, so it still
-                  // needs client-side pacing to feel like a real stream.
-                  preview && showCaret ? (
-                    <PacedAssistantText text={text} active={showCaret}>
-                      {(visibleText) => (
-                        <AssistantRichText content={visibleText} />
-                      )}
-                    </PacedAssistantText>
-                  ) : (
-                    <AssistantRichText content={text} />
-                  )
-                ) : (
-                  text
-                )}
-              </ChatMessage>
+              <Fragment key={message.id}>
+                {text ? (
+                  <ChatMessage from={message.role} isStreaming={showCaret}>
+                    {message.role === "assistant" ? (
+                      // Live turns are smoothed server-side by smoothStream, so
+                      // we render them straight. Preview has no server, so it
+                      // still needs client-side pacing to feel like a stream.
+                      preview && showCaret ? (
+                        <PacedAssistantText text={text} active={showCaret}>
+                          {(visibleText) => (
+                            <AssistantRichText content={visibleText} />
+                          )}
+                        </PacedAssistantText>
+                      ) : (
+                        <AssistantRichText content={text} />
+                      )
+                    ) : (
+                      text
+                    )}
+                  </ChatMessage>
+                ) : null}
+
+                {/* Onboarding add-on parts: the approval button and the live
+                    build card, rendered inline within the assistant turn. */}
+                {message.role === "assistant"
+                  ? message.parts.map((part, partIndex) => {
+                      if (part.type === "data-project-build") {
+                        const build = part.data as ProjectBuildState;
+                        return (
+                          <ProjectBuildCard
+                            key={`${message.id}-build-${partIndex}`}
+                            state={build}
+                            preview={preview}
+                            onStartLearning={() => {
+                              if (preview || !build.sessionId) return;
+                              router.replace(
+                                `/workspace?session=${encodeURIComponent(build.sessionId)}`,
+                              );
+                              router.refresh();
+                            }}
+                            onSeeOverview={() => {
+                              if (preview || !build.sessionId) return;
+                              router.push(
+                                `/overview?session=${encodeURIComponent(build.sessionId)}`,
+                              );
+                            }}
+                            onRetry={() => void regenerate()}
+                          />
+                        );
+                      }
+                      if ((part.type as string) === "tool-createProject") {
+                        return (
+                          <CreateProjectConfirm
+                            key={`${message.id}-confirm-${partIndex}`}
+                            part={part}
+                            busy={isStreaming}
+                            onApprove={(approvalId) =>
+                              void addToolApprovalResponse({
+                                id: approvalId,
+                                approved: true,
+                              })
+                            }
+                            onDeny={(approvalId) =>
+                              void addToolApprovalResponse({
+                                id: approvalId,
+                                approved: false,
+                              })
+                            }
+                          />
+                        );
+                      }
+                      return null;
+                    })
+                  : null}
+              </Fragment>
             );
           })}
 
@@ -483,18 +534,11 @@ export function OnboardingShell({
             />
           ) : null}
 
-          {curriculum?.ok ? (
-            <CurriculumReadyCard
-              curriculum={curriculum}
-              sessionId={sessionId}
-              onOpen={openGeneratedWorkspace}
-            />
-          ) : null}
         </ChatTranscriptContent>
 
         <ChatScrollToBottom />
 
-        {!hasReadyCurriculum ? (
+        {!projectReady ? (
           <ChatComposerDock>{composer}</ChatComposerDock>
         ) : null}
       </ChatTranscript>
@@ -520,36 +564,6 @@ function InlineErrorRow({
         <ArrowClockwise size={11} weight="bold" />
         Retry
       </button>
-    </div>
-  );
-}
-
-function CurriculumReadyCard({
-  curriculum,
-  sessionId,
-  onOpen,
-}: {
-  curriculum: Extract<CurriculumToolOutput, { ok: true }>;
-  sessionId: string | null;
-  onOpen: () => void;
-}) {
-  return (
-    <div className="border-border bg-card mt-2 w-full max-w-[68ch] rounded-2xl border px-5 py-4 backdrop-blur">
-      <div className="text-muted-foreground text-[11px] tracking-wide uppercase">
-        Curriculum ready
-      </div>
-      <div className="text-foreground mt-1 text-base font-medium">
-        {curriculum.title}
-      </div>
-      <div className="text-muted-foreground mt-1 text-[13px] leading-6">
-        {curriculum.unitCount} {curriculum.unitCount === 1 ? "unit" : "units"} ·
-        ready to start
-      </div>
-      <div className="mt-4">
-        <Button type="button" onClick={onOpen} disabled={!sessionId} size="sm">
-          Open my workspace →
-        </Button>
-      </div>
     </div>
   );
 }

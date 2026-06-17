@@ -142,7 +142,7 @@ export function ChatComposerDock({
         className,
       )}
     >
-      <div className="mx-auto w-[calc(100%-2rem)] max-w-[61.125rem] sm:w-[calc(100%-3rem)]">
+      <div className="mx-auto w-[calc(100%-2rem)] max-w-[48.9rem] sm:w-[calc(100%-3rem)]">
         {children}
       </div>
     </div>

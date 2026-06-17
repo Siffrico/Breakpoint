@@ -1,12 +1,5 @@
-import type {
-  CurriculumBlueprint,
-  CurriculumNodeBlueprint,
-  OnboardingTranscriptMessage,
-} from "../types/training.types";
+import type { CurriculumNodeBlueprint } from "../types/training.types";
 import { designCurriculum } from "../agents/curriculum-designer";
-import { normalizeLearningTrackName } from "../agents/onboarding-chat-agent";
-import { designProjectOverview } from "../agents/project-overview";
-import { createOnboardingPacket } from "./onboarding-flow";
 
 export const buildCurriculumNodes = (
   draft: Awaited<ReturnType<typeof designCurriculum>>["planDraft"],
@@ -136,51 +129,4 @@ export const buildCurriculumNodes = (
   });
 
   return nodes;
-};
-
-export const generateCurriculumBlueprint = async (
-  transcript: OnboardingTranscriptMessage[],
-): Promise<{
-  report: Awaited<ReturnType<typeof designCurriculum>>["identityReport"];
-  beforeAfter: Awaited<ReturnType<typeof designCurriculum>>["beforeAfter"];
-  blueprint: CurriculumBlueprint;
-}> => {
-  const packet = await createOnboardingPacket(transcript);
-  const [design, overviewResult] = await Promise.all([
-    designCurriculum({
-      packet,
-      transcript,
-    }),
-    designProjectOverview({
-      packet,
-      transcript,
-    }).then(
-      (value) => ({ status: "fulfilled" as const, value }),
-      (reason: unknown) => ({ status: "rejected" as const, reason }),
-    ),
-  ]);
-  const overview =
-    overviewResult.status === "fulfilled" ? overviewResult.value : null;
-
-  return {
-    report: design.identityReport,
-    beforeAfter: design.beforeAfter,
-    blueprint: {
-      title: normalizeLearningTrackName(design.planDraft.title),
-      summary: design.planDraft.summary,
-      targetIdentity: design.planDraft.targetIdentity,
-      overview: overview
-        ? {
-            ...overview,
-            generatedAt: new Date().toISOString(),
-          }
-        : null,
-      nodes: buildCurriculumNodes(
-        design.planDraft,
-        design.identityReport.targetIdentity,
-        design.identityReport.headline,
-      ),
-      beforeAfter: design.beforeAfter,
-    },
-  };
 };

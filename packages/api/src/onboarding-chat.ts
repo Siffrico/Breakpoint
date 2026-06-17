@@ -1,6 +1,8 @@
 import type { UIMessage } from "ai";
 import {
   convertToModelMessages,
+  createUIMessageStream,
+  createUIMessageStreamResponse,
   isTextUIPart,
   smoothStream,
   stepCountIs,
@@ -10,14 +12,12 @@ import {
 import type { db as databaseClient } from "@acme/db/client";
 
 import type {
-  BuildCurriculumInput,
-  NameLearningTrackInput,
-} from "./domain/training/agents/onboarding-chat-agent";
-import type { CurriculumPlan } from "./domain/training/types/training.types";
+  CreateProjectInput,
+  ProjectBuildState,
+} from "./domain/training/orchestration/build-project";
+import type { CreateProjectResult } from "./domain/training/agents/onboarding-chat-agent";
 import {
-  createBuildCurriculumTool,
-  createNameLearningTrackTool,
-  normalizeLearningTrackName,
+  createCreateProjectTool,
   ONBOARDING_CHAT_SYSTEM,
 } from "./domain/training/agents/onboarding-chat-agent";
 import {
@@ -26,15 +26,34 @@ import {
   getSearchToolsForSelectedProvider,
   withAiModelPreference,
 } from "./domain/training/engine/model-router";
-import { buildCurriculumNodes } from "./domain/training/orchestration/curriculum-flow";
+import {
+  buildProjectFromOnboarding,
+  getProjectBuildReadiness,
+} from "./domain/training/orchestration/build-project";
 import { trainingCurriculumRepository } from "./repositories/training-curriculum-repository";
 import { trainingOnboardingRepository } from "./repositories/training-onboarding-repository";
 
 type Database = typeof databaseClient;
 
-type BuildCurriculumOutcome =
-  | { success: true; plan: CurriculumPlan }
-  | { success: false; error: string };
+// Re-exported for the client so the build card can type the streamed data part
+// without importing this server module's runtime. (Type-only imports are erased.)
+export type {
+  ProjectBuildState,
+  ProjectBuildStep,
+  ProjectBuildStepState,
+  ProjectBuildStepStatus,
+  ProjectBuildPhase,
+} from "./domain/training/orchestration/build-project";
+export type { CreateProjectResult } from "./domain/training/agents/onboarding-chat-agent";
+
+/** Stable id of the single keyed progress data part the build streams through. */
+export const PROJECT_BUILD_DATA_ID = "project-build";
+
+interface ProjectBuildData extends Record<string, unknown> {
+  "project-build": ProjectBuildState;
+}
+
+export type OnboardingChatUIMessage = UIMessage<unknown, ProjectBuildData>;
 
 const extractText = (message: UIMessage): string =>
   message.parts
@@ -57,15 +76,10 @@ export const streamOnboardingChat = async ({
   modelName?: string | null;
 }): Promise<Response> =>
   withAiModelPreference(modelName, () =>
-    streamOnboardingChatWithModelPreference({
-      db,
-      sessionId,
-      userId,
-      messages,
-    }),
+    runOnboardingChat({ db, sessionId, userId, messages }),
   );
 
-const streamOnboardingChatWithModelPreference = async ({
+const runOnboardingChat = async ({
   db,
   sessionId,
   userId,
@@ -87,6 +101,8 @@ const streamOnboardingChatWithModelPreference = async ({
     return new Response("Forbidden.", { status: 403 });
   }
 
+  // Persist the learner's latest answer. On an approval-resumed turn the last
+  // message is the assistant's (carrying the approval response), so we skip it.
   const last = messages[messages.length - 1];
   if (last?.role === "user") {
     const text = extractText(last);
@@ -108,158 +124,122 @@ const streamOnboardingChatWithModelPreference = async ({
     });
   }
 
-  const persistedMessages = await trainingOnboardingRepository.listMessages({
+  const transcript = await trainingOnboardingRepository.listMessages({
     db,
     sessionId,
   });
-  const userAnswerCount = persistedMessages.filter(
-    (message) => message.role === "user",
-  ).length;
-  const MIN_USER_TURNS_BEFORE_BUILD = 7;
-  const shouldBuildCurriculum = userAnswerCount >= MIN_USER_TURNS_BEFORE_BUILD;
-  let savedLearningTrackName: string | null = null;
-
-  const nameLearningTrack = async ({
-    topic,
-  }: NameLearningTrackInput): Promise<
-    { ok: true; name: string } | { ok: false; reason: string }
-  > => {
-    if (!shouldBuildCurriculum) {
-      return {
-        ok: false,
-        reason: "The learner has not answered enough onboarding questions yet.",
-      };
-    }
-
-    const name = normalizeLearningTrackName(topic);
-    savedLearningTrackName = name;
-
-    await trainingCurriculumRepository.renameActivePlan({
-      db,
-      sessionId,
-      title: name,
-    });
-
-    return { ok: true, name };
-  };
-
-  const buildCurriculumFromDesigner = async (
-    input: BuildCurriculumInput,
-  ): Promise<BuildCurriculumOutcome> => {
-    const existingPlan = await trainingCurriculumRepository.getActivePlan({
-      db,
-      sessionId,
-    });
-    if (existingPlan) {
-      return { success: true, plan: existingPlan };
-    }
-    if (userAnswerCount < MIN_USER_TURNS_BEFORE_BUILD) {
-      return {
-        success: false,
-        error: "The learner has not answered enough onboarding questions yet.",
-      };
-    }
-    if (!savedLearningTrackName) {
-      return {
-        success: false,
-        error: "The learning track must be named before building curriculum.",
-      };
-    }
-
-    const createdProfile =
-      await trainingOnboardingRepository.createProfileVersion({
-        db,
-        sessionId,
-        userId: session.userId,
-        report: input.identityReport,
-        beforeAfter: input.beforeAfter,
-      });
-
-    if (!createdProfile) {
-      return { success: false, error: "Failed to build identity profile." };
-    }
-
-    const plan = await trainingCurriculumRepository.createPlan({
-      db,
-      onboardingSessionId: sessionId,
-      profileVersionId: createdProfile.version.id,
-      userId: session.userId,
-      blueprint: {
-        title: savedLearningTrackName,
-        summary: input.planDraft.summary,
-        targetIdentity: input.planDraft.targetIdentity,
-        overview: input.overview
-          ? {
-              ...input.overview,
-              generatedAt: new Date().toISOString(),
-            }
-          : null,
-        beforeAfter: input.beforeAfter,
-        nodes: buildCurriculumNodes(
-          input.planDraft,
-          input.identityReport.targetIdentity,
-          input.identityReport.headline,
-        ),
-      },
-    });
-
-    if (!plan) {
-      return { success: false, error: "Failed to create curriculum plan." };
-    }
-
-    await trainingOnboardingRepository.updateSession({
-      db,
-      sessionId,
-      status: "complete",
-    });
-
-    const createdPlan = await trainingCurriculumRepository.getActivePlan({
-      db,
-      sessionId,
-    });
-
-    return createdPlan
-      ? { success: true, plan: createdPlan }
-      : { success: false, error: "Curriculum plan was not found." };
-  };
-
-  const buildCurriculumTool = createBuildCurriculumTool({
-    buildCurriculum: buildCurriculumFromDesigner,
-  });
-  const nameLearningTrackTool = createNameLearningTrackTool({
-    nameLearningTrack,
-  });
-
+  const projectBuildReadiness = getProjectBuildReadiness(transcript);
   const modelMessages = await convertToModelMessages(messages);
-  const runtimeInstruction = shouldBuildCurriculum
-    ? `\n\nRuntime state: The learner has answered ${userAnswerCount} times. The tools nameLearningTrack and buildCurriculum are now available. Only call them once the learner has explicitly chosen one of the projects you suggested. If they have not chosen yet, keep consulting.`
-    : `\n\nRuntime state: Keep consulting. Do not call buildCurriculum until the learner has answered at least ${MIN_USER_TURNS_BEFORE_BUILD} times AND has explicitly chosen one of the projects you suggested.`;
-  const stream = streamText({
-    model,
-    system: `${ONBOARDING_CHAT_SYSTEM}${runtimeInstruction}`,
-    messages: modelMessages,
-    tools: {
-      ...getSearchToolsForSelectedProvider("onboarding"),
-      nameLearningTrack: nameLearningTrackTool,
-      buildCurriculum: buildCurriculumTool,
-    },
-    // SDK-native server-side smoothing: release whole words on a short cadence
-    // so the client renders a steady stream instead of provider-shaped bursts.
-    experimental_transform: smoothStream({ delayInMs: 15, chunking: "word" }),
-    prepareStep: () => ({ toolChoice: "auto" }),
-    stopWhen: stepCountIs(5),
-    onFinish: async ({ text }) => {
-      const trimmed = text.trim();
-      if (trimmed.length === 0) return;
-      await trainingOnboardingRepository.appendMessage({
-        db,
-        sessionId,
-        role: "assistant",
-        content: trimmed,
-        slot: "chat",
+
+  const stream = createUIMessageStream<OnboardingChatUIMessage>({
+    onError: () => "The onboarding chat hit an error.",
+    execute: ({ writer }) => {
+      // Runs the full project build, streaming each step to the build card and
+      // persisting atomically. Only invoked after the learner approves.
+      const buildProject = async (
+        input: CreateProjectInput,
+      ): Promise<CreateProjectResult> => {
+        const result = await buildProjectFromOnboarding({
+          sessionId,
+          userId: session.userId,
+          transcript,
+          input,
+          deps: {
+            getActivePlan: (id) =>
+              trainingCurriculumRepository.getActivePlan({ db, sessionId: id }),
+            persistProject: (payload) =>
+              db.transaction(async (tx) => {
+                const dbTx = tx as unknown as Database;
+                const profile =
+                  await trainingOnboardingRepository.createProfileVersion({
+                    db: dbTx,
+                    sessionId: payload.sessionId,
+                    userId: payload.userId,
+                    report: payload.report,
+                    beforeAfter: payload.beforeAfter,
+                  });
+                if (!profile) return null;
+
+                const plan = await trainingCurriculumRepository.createPlan({
+                  db: dbTx,
+                  onboardingSessionId: payload.sessionId,
+                  profileVersionId: profile.version.id,
+                  userId: payload.userId,
+                  blueprint: payload.blueprint,
+                });
+                if (!plan) return null;
+
+                await trainingOnboardingRepository.updateSession({
+                  db: dbTx,
+                  sessionId: payload.sessionId,
+                  status: "complete",
+                  completedAt: new Date(),
+                });
+
+                return trainingCurriculumRepository.getActivePlan({
+                  db: dbTx,
+                  sessionId: payload.sessionId,
+                });
+              }),
+          },
+          onProgress: (build) => {
+            writer.write({
+              type: "data-project-build",
+              id: PROJECT_BUILD_DATA_ID,
+              data: build,
+            });
+          },
+        });
+
+        return result.success
+          ? {
+              ok: true,
+              sessionId: result.data.sessionId,
+              planId: result.data.planId,
+              title: result.data.title,
+              moduleCount: result.data.moduleCount,
+              firstUnitId: result.data.firstUnitId,
+            }
+          : { ok: false, reason: result.error };
+      };
+
+      const result = streamText({
+        model,
+        system: `${ONBOARDING_CHAT_SYSTEM}
+
+Runtime state: ${
+          projectBuildReadiness.ready
+            ? "The server has enough learner signal to request project confirmation, but only call createProject if the learner has explicitly chosen one of your suggested projects."
+            : "Do not call createProject yet. Keep consulting with one short question; the server does not have enough concrete learner signal to create a project."
+        }`,
+        messages: modelMessages,
+        tools: {
+          ...getSearchToolsForSelectedProvider("onboarding"),
+          createProject: createCreateProjectTool({
+            buildProject,
+            getReadiness: () => projectBuildReadiness,
+          }),
+        },
+        // SDK-native server-side smoothing: release whole words on a short
+        // cadence so the client renders a steady stream.
+        experimental_transform: smoothStream({ delayInMs: 15, chunking: "word" }),
+        stopWhen: stepCountIs(5),
+        onFinish: async ({ text }) => {
+          const trimmed = text.trim();
+          if (trimmed.length === 0) return;
+          await trainingOnboardingRepository.appendMessage({
+            db,
+            sessionId,
+            role: "assistant",
+            content: trimmed,
+            slot: "chat",
+          });
+        },
       });
+
+      writer.merge(result.toUIMessageStream());
     },
   });
 
-  return stream.toUIMessageStreamResponse();
+  return createUIMessageStreamResponse({ stream });
 };
