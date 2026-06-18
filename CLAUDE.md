@@ -28,18 +28,18 @@ pnpm ui-add           # Add shadcn/ui components to packages/ui
 
 ## Architecture Overview
 
-This is a **T3 Turbo** monorepo with the following layers:
+This is a Breakpoint monorepo built on the T3 Turbo workspace structure, with the following layers:
 
 ### Apps
-- `apps/nextjs` — Next.js 15 web app (React Server Components + tRPC client)
-- `apps/expo` — React Native app (Expo SDK 54)
-- `apps/tanstack-start` — TanStack Start alternative web app
+- `apps/nextjs` — Primary Breakpoint Next.js 16 web app (React Server Components + tRPC client)
+- `apps/expo` — React Native starter surface (Expo SDK 54)
+- `apps/tanstack-start` — TanStack Start starter surface
 
 ### Packages
 - `packages/api` — tRPC v11 router. Contains `publicProcedure` and `protectedProcedure`. The root router (`src/root.ts`) merges all sub-routers.
 - `packages/auth` — Better Auth v1 configuration. Auth schema is auto-generated; run `pnpm auth:generate` after config changes.
-- `packages/db` — Drizzle ORM + Supabase/PostgreSQL. Schema lives in `src/schema.ts`. Edge-runtime compatible via Vercel Postgres driver.
-- `packages/ui` — Shared shadcn/ui component library with Tailwind CSS v4.
+- `packages/db` — Drizzle ORM + Supabase/PostgreSQL. Schema modules live under `src/schema/` and are re-exported by `src/schema.ts`.
+- `packages/ui` — Shared UI primitives with Tailwind CSS v4.
 - `packages/validators` — Shared Zod v4 schemas used across API and apps.
 
 ### Tooling
@@ -57,7 +57,7 @@ New features follow this pattern: add a router in `src/router/`, wire domain log
 
 ## Next.js App Structure
 
-- `apps/nextjs/src/app/domains/` — Domain-specific route groups
+- `apps/nextjs/src/app/` — App Router pages for onboarding, curriculum, workspace, training, profile, auth, and UI previews
 - `apps/nextjs/src/features/` — Feature-level UI components
 - `apps/nextjs/src/app/layout.tsx` — Root layout with tRPC + auth providers
 

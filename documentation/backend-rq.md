@@ -2,340 +2,174 @@
 
 ## Product Frame
 
-The backend has to support an identity-first adaptive training system, not a static lesson tree.
+The backend supports an identity-first adaptive training system. It is responsible for turning onboarding context into curriculum, running the training loop, preserving evidence, and helping the product recommend what the learner should do next.
 
-It must be able to:
+The current implementation is organized around three main domains:
 
-- capture and version identity models
-- generate curriculum architecture from that identity
-- generate or refine units for each progression stage
-- run scenarios and simulations
-- persist attempts and debriefs
-- isolate failures precisely
-- recalculate recommendations over time
+```text
+packages/api/src/domain
+├─ memory
+├─ profile
+└─ training
+```
 
-## Core Backend Responsibilities
+The backend should keep this shape: product workflows live in domain modules, persistence lives in repositories, and HTTP/API exposure stays in tRPC routers.
 
-### 1. Identity Modeling
+## Current Responsibilities
 
-The system needs a durable identity model per user.
+### 1. Onboarding and Identity Modeling
 
-Required capabilities:
+The system captures the learner's goal, context, target identity, current baseline, hard moments, behavior signals, confidence flags, and proof-of-progress expectations.
 
-- store onboarding interview transcript or structured summary
-- store target self model
-- store current self model
-- store desired traits as observable behaviors
-- store target contexts / domains / hard moments
-- version edits over time
+Important requirements:
 
-Important rule:
+- preserve onboarding session state
+- create durable identity profiles and profile versions
+- convert traits into observable behaviors where possible
+- keep uncertainty explicit instead of inventing missing facts
+- allow future profile edits to inform curriculum recalibration
 
-Traits must be resolved into trainable and testable behaviors, not only abstract adjectives.
+Relevant code:
 
-### 2. Curriculum Architecture Generation
+```text
+packages/api/src/domain/training/orchestration/onboarding-flow.ts
+packages/api/src/domain/training/agents/onboarding-chat-agent.ts
+packages/db/src/schema/training/onboarding.ts
+packages/db/src/schema/training/profile.ts
+```
 
-The system needs an AI-driven curriculum architecture generator.
+### 2. Curriculum Generation and Storage
 
-Inputs:
+The backend generates an active curriculum plan from the learner's identity model and persists ordered curriculum nodes. A curriculum node should explain what capability it builds, why it matters, and where it sits in the larger progression.
 
-- identity model
-- current state
-- prior failures
-- selected domain or track
+Important requirements:
 
-Outputs:
+- preserve plan, stage, and node structure
+- support unit and capstone-style nodes
+- store ordering and map positions for UI rendering
+- preserve completed evidence when curriculum evolves
+- keep rationale available to the learner and mentor layer
 
-- progression stages
-- dependency graph
-- units
-- simulation checkpoints every 5 units
-- rationale for ordering
+Relevant code:
 
-Important behavior:
+```text
+packages/api/src/domain/training/agents/curriculum-designer.ts
+packages/api/src/domain/training/orchestration/curriculum-flow.ts
+packages/api/src/repositories/training-curriculum-repository.ts
+packages/db/src/schema/training/curriculum.ts
+```
 
-- architecture can be regenerated when identity model changes
-- architecture should preserve completed evidence where possible
+### 3. Unit Training Loop
 
-### 3. Education Unit Builder
+Education units should be generated and evaluated as backend product logic, not as hardcoded frontend content. The backend should support setup, briefing, recall, practice, evaluation, debrief, and repair.
 
-We should treat unit creation as a backend capability, not hardcoded content only.
+Important requirements:
 
-Need an internal `education-unit-builder` agent/service that can create or refine:
+- generate unit setup and practice prompts from curriculum context
+- grade recall and practice responses
+- isolate failure causes precisely
+- store attempts, timing, outcomes, and debriefs
+- unlock progression based on evidence, not passive completion
 
-- concept explanation
-- worked example
-- retrieval items
-- scenario setup
-- evaluation expectations
+Relevant code:
 
-Inputs:
+```text
+packages/api/src/domain/training/orchestration/unit-flow.ts
+packages/api/src/domain/training/unit-builder
+packages/api/src/domain/training/evaluate-practice-response.ts
+packages/api/src/domain/training/isolate-failure.ts
+packages/db/src/schema/training/unit.ts
+packages/db/src/schema/training/recall.ts
+```
 
-- curriculum node
-- identity model
-- prior unit outcomes
-- mentor guidance
+### 4. Capstones and Integrated Performance
 
-Outputs:
+Breakpoint needs integrated checks that require the learner to combine multiple capabilities. These should feel like real performance tests, not quizzes with bigger labels.
 
-- personalized unit payload ready for UI
+Important requirements:
 
-### 4. Scenario and Simulation Orchestration
+- generate capstone scenarios from curriculum context
+- persist capstone messages and round state
+- evaluate build, debate, teachback, or other task-specific modes
+- complete curriculum nodes only when evidence supports it
+- keep failure data available for future recommendations
 
-The backend must support both:
+Relevant code:
 
-- unit-level scenario runs
-- multi-unit deep simulations
+```text
+packages/api/src/domain/training/capstone
+packages/api/src/domain/training/workflows/generate-capstone-workflow.ts
+packages/api/src/domain/training/workflows/submit-capstone-message-workflow.ts
+packages/db/src/schema/training/capstone.ts
+```
 
-Capabilities needed:
+### 5. Workspace AI and Recommendation
 
-- create scenario session
-- persist session state
-- support escalating turns
-- support pressure modifiers
-- support branch state if the scenario changes based on user choices
+The workspace is the learner's daily operating surface. Backend logic should synthesize curriculum state, recent attempts, profile context, and memory into useful next actions.
 
-### 5. Debrief and Failure Isolation
+Important requirements:
 
-This is core.
+- explain why the next action is recommended
+- distinguish weak evidence from strong evidence
+- surface repeated gaps without overclaiming
+- use memory where it improves personalization
+- avoid blocking core learning when noncritical AI or analytics calls fail
 
-The backend must generate structured debriefs, not only scores.
+Relevant code:
 
-Required outputs:
+```text
+packages/api/src/domain/training/workspace-ai
+packages/api/src/domain/training/context-engine
+packages/api/src/domain/memory
+packages/api/src/repositories/memory-repository.ts
+```
 
-- outcome summary
-- strengths
-- divergence points
-- target-self comparison
-- failure categories
-- linked concepts or traits that broke
-- recommended next action
+## API Surface
 
-Failure isolation must map back to:
+Current tRPC routers are organized by product concern:
 
-- concept node
-- behavioral trait
-- scenario decision point
+```text
+packages/api/src/router
+├─ auth.ts
+├─ memory.ts
+├─ profile.ts
+└─ training.ts
+```
 
-### 6. Mentor Recommendation Engine
+The training router should expose workflow-level operations, not raw database primitives. It currently covers onboarding, learning project creation, active plan retrieval, unit retrieval, workspace messages, capstone generation, and capstone submission.
 
-The mentor layer needs a service that reads:
+## Data Model
 
-- identity model
-- curriculum architecture
-- unit history
-- simulation history
-- repeated failure patterns
+The current schema uses Breakpoint-specific training tables under `packages/db/src/schema/training`:
 
-It should output:
+```text
+training
+├─ onboarding.ts
+├─ profile.ts
+├─ curriculum.ts
+├─ unit.ts
+├─ recall.ts
+├─ rating.ts
+└─ capstone.ts
+```
 
-- next best action
-- why it is next
-- whether curriculum should be recalibrated
-- evidence behind the recommendation
+New tables should be added only when they preserve product evidence or simplify clear domain workflows. Avoid tables that merely mirror a UI component.
 
-## Domain Model
+## Engineering Requirements
 
-Suggested core entities:
+- Keep business rules testable outside the UI.
+- Keep AI integrations behind explicit workflow or service boundaries.
+- Store prompts, rubrics, and scoring policies as versioned product logic where practical.
+- Return structured errors from domain workflows and convert them at the router boundary.
+- Prefer explicit TypeScript contracts and Zod schemas for cross-boundary inputs.
+- Ensure noncritical failures do not corrupt session, curriculum, or attempt state.
 
-- `user_identity_profile`
-- `identity_profile_version`
-- `identity_behavior`
-- `identity_context`
-- `curriculum_plan`
-- `curriculum_stage`
-- `curriculum_node`
-- `unit_content`
-- `retrieval_item`
-- `scenario_template`
-- `simulation_template`
-- `training_session`
-- `session_turn`
-- `attempt`
-- `debrief`
-- `failure_tag`
-- `mentor_recommendation`
+## Open Backend Gaps
 
-## Data Requirements
+The following areas should remain explicit product/engineering questions:
 
-### Identity Data
-
-Need to store:
-
-- target role / operator archetype
-- desired operating traits
-- observable behaviors
-- relevant environments
-- difficult situations to train for
-- current strengths
-- self-reported failures
-
-### Curriculum Data
-
-Need to store:
-
-- plan version
-- nodes and dependencies
-- node type
-- node status
-- simulation checkpoints
-- rationale
-
-### Attempt Data
-
-Need to store:
-
-- unit or simulation id
-- session transcript
-- submitted responses
-- scoring dimensions
-- debrief output
-- failure tags
-- recommended remediation
-
-## API / Service Requirements
-
-### Identity APIs
-
-Need endpoints or procedures for:
-
-- start onboarding interview
-- continue interview
-- finalize identity model
-- fetch latest identity model
-- update identity model from profile
-- fetch identity version history
-
-### Curriculum APIs
-
-Need endpoints or procedures for:
-
-- generate curriculum architecture
-- fetch active curriculum
-- fetch curriculum map
-- regenerate curriculum after profile change
-- fetch next recommended node
-
-### Unit APIs
-
-Need endpoints or procedures for:
-
-- fetch active unit
-- fetch unit content
-- submit retrieval answers
-- fetch retrieval result
-- start unit scenario
-- submit scenario turn or final response
-
-### Debrief APIs
-
-Need endpoints or procedures for:
-
-- fetch latest debrief
-- fetch ghost replay
-- fetch failure isolation details
-- fetch linked remediation targets
-
-### Mentor APIs
-
-Need endpoints or procedures for:
-
-- fetch current recommendation
-- fetch recurring gap patterns
-- explain why this is next
-
-## Evaluation Structure
-
-We should keep evaluation structured rather than one vague score.
-
-Likely dimensions:
-
-- correctness
-- reasoning quality
-- prioritization
-- communication
-- robustness
-- transfer
-- composure under pressure
-
-The exact dimensions can vary by domain, but the backend needs a common envelope for storing them.
-
-## Memory Requirements
-
-AI quality depends on memory and retrieval.
-
-Need reliable context assembly for:
-
-- identity profile
-- latest curriculum plan
-- recent unit outcomes
-- repeated failure patterns
-- current stage constraints
-
-This should be deterministic and inspectable, not hidden prompt soup.
-
-## Orchestration Requirements
-
-We will likely need separate backend capabilities for:
-
-- interview orchestration
-- curriculum generation
-- unit building
-- scenario runtime
-- debrief generation
-- mentor recommendation
-
-These can share infra, but should remain logically separate.
-
-## Auth and Access
-
-Need authenticated persistence for:
-
-- identity profiles
-- curriculum plans
-- attempts
-- debrief history
-- mentor state
-
-Anonymous mode can exist later, but V1 should assume signed-in persistence if we want real longitudinal adaptation.
-
-## Observability and Quality Control
-
-Need backend logging for:
-
-- generation failures
-- malformed AI outputs
-- session drop-offs
-- regeneration events
-- repeated low-confidence debriefs
-
-Need basic admin/debug visibility into:
-
-- current identity model
-- current curriculum version
-- generated unit payloads
-- debrief payloads
-- mentor recommendation rationale
-
-## V1 Backend Slice
-
-For V1, we need:
-
-- identity model persistence
-- one curriculum generator
-- one education-unit-builder path
-- unit content fetch
-- retrieval submission
-- scenario session + attempt persistence
-- debrief persistence
-- simulation every 5 units
-- mentor recommendation generation
-- profile-driven curriculum recalculation
-
-## Explicit Non-Requirements for V1
-
-- broad multi-domain marketplace infra
-- social/public profile systems
-- full autonomous agent swarm
-- perfect real-time world modeling
-- unlimited freeform memory without structure
+- how profile edits should version and recalculate active plans
+- what evidence should drive unit unlocks across different domains
+- how to compare learner progress across domains without flattening nuance
+- how memory should be selected, capped, and audited in AI context
+- when to regenerate curriculum versus repair the current node sequence
