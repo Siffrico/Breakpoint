@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { Lightbulb } from "@phosphor-icons/react";
+import { Lightbulb, SidebarSimple } from "@phosphor-icons/react";
 
 import type { RouterOutputs } from "@acme/api";
 import { Button } from "@acme/ui/button";
@@ -86,48 +86,10 @@ export function WorkspaceShell({
 }) {
   const router = useRouter();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  // Hover-peek for the collapsed sidebar. Driven purely by mouseenter/leave on
-  // an edge hot zone and the floating panel itself — no mousemove tracking —
-  // with a short close delay so crossing the gap between them never flickers.
-  const [sidebarPeek, setSidebarPeek] = useState(false);
-  const peekCloseTimerRef = useRef<number | null>(null);
-
-  const cancelPeekClose = () => {
-    if (peekCloseTimerRef.current != null) {
-      window.clearTimeout(peekCloseTimerRef.current);
-      peekCloseTimerRef.current = null;
-    }
-  };
-
-  const openSidebarPeek = () => {
-    cancelPeekClose();
-    setSidebarPeek(true);
-  };
-
-  const scheduleSidebarPeekClose = () => {
-    cancelPeekClose();
-    peekCloseTimerRef.current = window.setTimeout(() => {
-      peekCloseTimerRef.current = null;
-      setSidebarPeek(false);
-    }, 240);
-  };
 
   const toggleSidebar = () => {
-    cancelPeekClose();
-    setSidebarPeek(false);
     setSidebarCollapsed((prev) => !prev);
   };
-
-  useEffect(() => cancelPeekClose, []);
-
-  useEffect(() => {
-    if (!sidebarPeek) return;
-    const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") setSidebarPeek(false);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [sidebarPeek]);
   const [questionPanelOpen, setQuestionPanelOpen] = useState(false);
   const [questionPanelFocused, setQuestionPanelFocused] = useState(false);
   const [liveUnit, setLiveUnit] = useState(unit);
@@ -223,10 +185,8 @@ export function WorkspaceShell({
     lastModeRef.current = mode;
     if (prev === mode) return;
     if (mode === "onboarding") {
-      setSidebarPeek(false);
       setSidebarCollapsed(true);
     } else if (prev === "onboarding") {
-      setSidebarPeek(false);
       setSidebarCollapsed(false);
     }
   }, [mode]);
@@ -283,36 +243,14 @@ export function WorkspaceShell({
       className="bp-workspace-theme bg-background text-foreground flex h-dvh overflow-hidden"
       data-workspace-theme={workspaceTheme}
     >
-      {sidebarCollapsed ? (
-        <div
-          aria-hidden
-          onMouseEnter={openSidebarPeek}
-          onMouseLeave={scheduleSidebarPeekClose}
-          className="fixed inset-y-0 left-0 z-30 w-5"
-        />
-      ) : null}
-
       <div
+        inert={sidebarCollapsed ? true : undefined}
         className={[
-          "shrink-0 transition-[width] duration-200",
+          "shrink-0 overflow-hidden transition-[width] duration-200",
           sidebarCollapsed ? "w-0" : "bg-sidebar w-[232px]",
         ].join(" ")}
       >
-        <div
-          inert={sidebarCollapsed && !sidebarPeek ? true : undefined}
-          onMouseEnter={sidebarCollapsed ? openSidebarPeek : undefined}
-          onMouseLeave={sidebarCollapsed ? scheduleSidebarPeekClose : undefined}
-          className={
-            sidebarCollapsed
-              ? [
-                  "bg-sidebar border-foreground/[0.08] fixed top-2 bottom-2 left-2 z-40 w-[232px] overflow-hidden rounded-lg border shadow-[0_16px_48px_rgba(0,0,0,0.4)] transition-[transform,opacity] duration-200 ease-out will-change-transform",
-                  sidebarPeek
-                    ? "translate-x-0 opacity-100"
-                    : "pointer-events-none -translate-x-[248px] opacity-0",
-                ].join(" ")
-              : "h-full w-[232px]"
-          }
-        >
+        <div className="h-full w-[232px]">
           <CurriculumSidebar
             projects={projects}
             currentSessionId={sessionId}
@@ -331,6 +269,16 @@ export function WorkspaceShell({
       <div className="border-foreground/[0.08] flex min-w-0 flex-1 flex-col border-l">
         <header className="relative flex h-14 shrink-0 items-center justify-between px-4 sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
+            {sidebarCollapsed ? (
+              <button
+                type="button"
+                onClick={toggleSidebar}
+                aria-label="Open sidebar"
+                className="text-foreground/40 hover:text-foreground/80 hover:bg-foreground/[0.04] -ml-1.5 flex size-7 shrink-0 items-center justify-center rounded-[6px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
+              >
+                <SidebarSimple size={15} />
+              </button>
+            ) : null}
             {mode === "onboarding" ? (
               <>
                 <h1 className="font-display text-foreground/82 text-[14px] tracking-[-0.01em]">
