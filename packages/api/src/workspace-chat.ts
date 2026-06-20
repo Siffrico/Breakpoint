@@ -9,18 +9,12 @@ import {
 
 import type { db as databaseClient } from "@acme/db/client";
 
-import type {
-  CurriculumNode,
-  CurriculumPlan,
-  UnitContent,
-} from "./domain/training/types/training.types";
+import type { UnitContent } from "./domain/training/types/training.types";
 import type {
   AttemptTiming,
   WorkspaceAiEducationOutput,
   WorkspaceAiEvaluationOutput,
-  WorkspaceAiRecallOutput,
   WorkspaceAiState,
-  WorkspaceAiTurnResult,
 } from "./domain/training/workspace-ai/types";
 import { buildWorkspaceContextEnvelope } from "./domain/training/context-engine/build-context-envelope";
 import { renderWorkspaceStageContextPrompt } from "./domain/training/context-engine/render-context-prompt";
@@ -29,29 +23,22 @@ import {
   createSummarizer,
 } from "./domain/training/engine/compaction";
 import {
-  clampClaimedItemRating,
-  prepareScenarioDirective,
-  recordEvaluation,
-} from "./domain/training/orchestration/goldilocks";
-import {
   getAiModelForPurpose,
   getSearchToolsForSelectedProvider,
   requireAiModelForPurpose,
   withAiModelPreference,
 } from "./domain/training/engine/model-router";
 import {
-  buildWorkspaceIntroMessage,
-  ensureWorkspaceUnit,
-} from "./domain/training/workflows/get-ai-workspace-workflow";
+  clampClaimedItemRating,
+  prepareScenarioDirective,
+  recordEvaluation,
+} from "./domain/training/orchestration/goldilocks";
+import { buildWorkspaceIntroMessage } from "./domain/training/workflows/get-ai-workspace-workflow";
 import {
   hasFailedEvaluationAttempt,
   normalizeEvaluationPlan,
   selectLatestEvaluationPlan,
 } from "./domain/training/workspace-ai/evaluation-plan";
-import {
-  normalizeEducationStageTransition,
-  planWorkspaceTurn,
-} from "./domain/training/workspace-ai/orchestrator";
 import { getWorkspaceAiSystemPrompt } from "./domain/training/workspace-ai/runtime";
 import { selectWorkspaceTurnRuntime } from "./domain/training/workspace-ai/stage-runtime";
 import {
@@ -59,6 +46,15 @@ import {
   WorkspaceAiEvaluationOutputSchema,
   WorkspaceAiRecallOutputSchema,
 } from "./domain/training/workspace-ai/types";
+import {
+  getWorkspaceMessageSlot,
+  resolveWorkspaceTurn,
+} from "./domain/training/workspace-ai/workspace-turn";
+import {
+  saveEducationTurnResult,
+  saveNextScenarioPrompt,
+  saveRecallTurnResult,
+} from "./domain/training/workspace-ai/workspace-turn-persistence";
 import { memoryRepository } from "./repositories/memory-repository";
 import { trainingAttemptRepository } from "./repositories/training-attempt-repository";
 import { trainingCurriculumRepository } from "./repositories/training-curriculum-repository";
@@ -85,12 +81,107 @@ type WorkspaceChatUIMessage = UIMessage<unknown, WorkspaceStatusData>;
 
 const WORKSPACE_ASSISTANT_TEXT_PART_ID = "workspace-assistant";
 
+const createWorkspaceTurnRepositoryDeps = (db: Database) => ({
+  getActivePlan: (sessionId: string) =>
+    trainingCurriculumRepository.getActivePlan({ db, sessionId }),
+  listMessages: (sessionId: string, slot?: "education_unit" | "recall") =>
+    trainingOnboardingRepository.listWorkspaceMessages({
+      db,
+      sessionId,
+      slot,
+    }),
+  getWorkspaceSummary: (sessionId: string, slot: "education_unit" | "recall") =>
+    trainingOnboardingRepository.getWorkspaceSummary({
+      db,
+      sessionId,
+      slot,
+    }),
+  upsertWorkspaceSummary: (payload: {
+    sessionId: string;
+    slot: "education_unit" | "recall";
+    summary: string;
+    coveredThroughUnitId: string | null;
+    coveredThroughSequence: number | null;
+  }) =>
+    trainingOnboardingRepository.upsertWorkspaceSummary({
+      db,
+      ...payload,
+    }),
+  appendMessage: (payload: {
+    sessionId: string;
+    role: "assistant" | "user";
+    content: string;
+    slot: string | null;
+    unitId?: string | null;
+    metadata?: { difficultyDirectiveReason?: string } | null;
+  }) =>
+    trainingOnboardingRepository.appendWorkspaceMessage({
+      db,
+      ...payload,
+    }),
+  listPhaseResponsesBySession: (sessionId: string) =>
+    trainingCurriculumRepository.listPhaseResponsesBySession({
+      db,
+      sessionId,
+    }),
+  getPhaseResponses: (unitContentId: string, sessionId: string) =>
+    trainingCurriculumRepository.getPhaseResponses({
+      db,
+      unitContentId,
+      sessionId,
+    }),
+  getUnitByNodeId: (nodeId: string) =>
+    trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),
+  createUnitContent: (payload: {
+    nodeId: string;
+    title: string;
+    seedPrompt: string;
+    seedHint: string;
+    clusterArcFrame: string;
+    complexityBudget: UnitContent["complexityBudget"];
+    teachbackSetup: UnitContent["teachbackSetup"];
+    scenario: UnitContent["scenario"];
+  }) =>
+    trainingCurriculumRepository.createUnitContent({
+      db,
+      ...payload,
+    }),
+  savePhaseResponse: (
+    payload: Omit<
+      Parameters<typeof trainingCurriculumRepository.savePhaseResponse>[0],
+      "db"
+    >,
+  ) =>
+    trainingCurriculumRepository.savePhaseResponse({
+      db,
+      ...payload,
+    }),
+  saveAttempt: (
+    payload: Omit<
+      Parameters<typeof trainingAttemptRepository.saveAttempt>[0],
+      "db"
+    >,
+  ) =>
+    trainingAttemptRepository.saveAttempt({
+      db,
+      ...payload,
+    }),
+  completeNode: (nodeId: string) =>
+    trainingCurriculumRepository.completeNode({ db, nodeId }),
+  touchSession: (sessionId: string) =>
+    trainingOnboardingRepository.touchSession({ db, sessionId }),
+});
+
 const SCENARIO_EDUCATION_STAGES = new Set<string>([
   "diagnostic_scenario",
   "guided_application",
   "performance_evaluation",
   "transfer_scenario",
 ]);
+
+const isEvaluationOutput = (
+  output: WorkspaceAiEducationOutput | WorkspaceAiEvaluationOutput,
+): output is WorkspaceAiEvaluationOutput => "routingDecision" in output;
 
 const shouldPrepareDifficultyDirective = ({
   state,
@@ -107,487 +198,6 @@ const shouldPrepareDifficultyDirective = ({
   return state.educationStage
     ? SCENARIO_EDUCATION_STAGES.has(state.educationStage)
     : false;
-};
-
-const getDifficultyDirectiveMetadata = (reason?: string | null) =>
-  reason ? { difficultyDirectiveReason: reason } : null;
-
-const getNextReadyLearningNode = (nodes: CurriculumNode[]) =>
-  nodes.find(
-    (node) =>
-      (node.kind === "unit" || node.kind === "integration") &&
-      node.status === "ready",
-  ) ?? null;
-
-const findTurnNode = ({
-  nodes,
-  state,
-}: {
-  nodes: CurriculumNode[];
-  state: { activeUnitId: string | null; recallUnitId: string | null };
-}) =>
-  nodes.find(
-    (node) => node.id === (state.activeUnitId ?? state.recallUnitId),
-  ) ?? null;
-
-const getWorkspaceMessageSlot = (mode: "education_unit" | "recall") =>
-  mode === "recall" ? "recall" : "education_unit";
-
-const getCurrentTurn = async ({
-  db,
-  sessionId,
-}: {
-  db: Database;
-  sessionId: string;
-}) => {
-  const [plan, allResponses] = await Promise.all([
-    trainingCurriculumRepository.getActivePlan({ db, sessionId }),
-    trainingCurriculumRepository.listPhaseResponsesBySession({ db, sessionId }),
-  ]);
-
-  if (!plan) {
-    throw new Error("Curriculum is not ready yet.");
-  }
-
-  const readyUnitNode = getNextReadyLearningNode(plan.nodes);
-  const readyUnit = readyUnitNode
-    ? await ensureWorkspaceUnit({
-        node: readyUnitNode,
-        deps: {
-          getUnitByNodeId: (nodeId) =>
-            trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),
-          createUnitContent: (payload) =>
-            trainingCurriculumRepository.createUnitContent({
-              db,
-              ...payload,
-            }),
-        },
-      })
-    : null;
-  const readyUnitResponses = readyUnit
-    ? await trainingCurriculumRepository.getPhaseResponses({
-        db,
-        unitContentId: readyUnit.id,
-        sessionId,
-      })
-    : [];
-
-  const state = planWorkspaceTurn({
-    nodes: plan.nodes,
-    allResponses,
-    activeUnitResponses: readyUnitResponses,
-  });
-
-  if (!state) {
-    throw new Error("There is no runnable workspace turn.");
-  }
-
-  const node = findTurnNode({ nodes: plan.nodes, state });
-  const unit = await ensureWorkspaceUnit({
-    node,
-    deps: {
-      getUnitByNodeId: (nodeId) =>
-        trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),
-      createUnitContent: (payload) =>
-        trainingCurriculumRepository.createUnitContent({
-          db,
-          ...payload,
-        }),
-    },
-  });
-
-  if (!unit || !node) {
-    throw new Error("Workspace unit could not be prepared.");
-  }
-
-  const unitResponses =
-    unit.id === readyUnit?.id
-      ? readyUnitResponses
-      : await trainingCurriculumRepository.getPhaseResponses({
-          db,
-          unitContentId: unit.id,
-          sessionId,
-        });
-
-  return { plan, allResponses, state, node, unit, unitResponses };
-};
-
-const planNextWorkspaceTurn = async ({
-  db,
-  sessionId,
-  plan,
-}: {
-  db: Database;
-  sessionId: string;
-  plan: CurriculumPlan;
-}) => {
-  const allResponses =
-    await trainingCurriculumRepository.listPhaseResponsesBySession({
-      db,
-      sessionId,
-    });
-  const readyUnitNode = getNextReadyLearningNode(plan.nodes);
-  const readyUnit = readyUnitNode
-    ? await ensureWorkspaceUnit({
-        node: readyUnitNode,
-        deps: {
-          getUnitByNodeId: (nodeId) =>
-            trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),
-          createUnitContent: (payload) =>
-            trainingCurriculumRepository.createUnitContent({
-              db,
-              ...payload,
-            }),
-        },
-      })
-    : null;
-  const readyUnitResponses = readyUnit
-    ? await trainingCurriculumRepository.getPhaseResponses({
-        db,
-        unitContentId: readyUnit.id,
-        sessionId,
-      })
-    : [];
-
-  return planWorkspaceTurn({
-    nodes: plan.nodes,
-    allResponses,
-    activeUnitResponses: readyUnitResponses,
-  });
-};
-
-const saveRecallOutput = async ({
-  db,
-  sessionId,
-  userId,
-  message,
-  state,
-  unit,
-  plan,
-  output,
-  difficultyDirectiveReason,
-}: {
-  db: Database;
-  sessionId: string;
-  userId: string;
-  message: string;
-  state: WorkspaceAiState;
-  unit: UnitContent;
-  plan: CurriculumPlan;
-  output: WorkspaceAiRecallOutput;
-  difficultyDirectiveReason?: string | null;
-}): Promise<WorkspaceAiTurnResult> => {
-  const assistantMessage =
-    await trainingOnboardingRepository.appendWorkspaceMessage({
-      db,
-      sessionId,
-      role: "assistant",
-      content: output.assistantMessage,
-      slot: "recall",
-      unitId: unit.nodeId,
-      metadata: getDifficultyDirectiveMetadata(difficultyDirectiveReason),
-    });
-
-  if (!assistantMessage) {
-    throw new Error("AI response could not be saved.");
-  }
-
-  const recallResponses = await trainingCurriculumRepository.getPhaseResponses({
-    db,
-    unitContentId: unit.id,
-    sessionId,
-  });
-  await trainingCurriculumRepository.savePhaseResponse({
-    db,
-    unitContentId: unit.id,
-    sessionId,
-    userId,
-    phase: "ai_recall",
-    sequence: recallResponses.filter(
-      (response) => response.phase === "ai_recall",
-    ).length,
-    userResponse: message,
-    aiResponse: output.assistantMessage,
-    passed: output.recallComplete,
-    score: output.score,
-    metadata: {
-      recallUnitId: unit.nodeId,
-      promptKind: "recall",
-      modelPurpose: "recall",
-      difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
-      estimatedItemRating: output.estimatedItemRating ?? undefined,
-      feedback: output.assistantMessage,
-      evidenceAnchors: output.strengths,
-    },
-  });
-
-  await trainingOnboardingRepository.touchSession({ db, sessionId });
-
-  const nextState = await planNextWorkspaceTurn({ db, sessionId, plan });
-
-  return {
-    state: nextState ?? state,
-    messages: await trainingOnboardingRepository.listWorkspaceMessages({
-      db,
-      sessionId,
-      slot: "recall",
-    }),
-    assistantMessage,
-  };
-};
-
-const saveEducationOutput = async ({
-  db,
-  sessionId,
-  userId,
-  message,
-  state,
-  unit,
-  plan,
-  output,
-  attemptTiming,
-  evaluationPlan,
-  difficultyDirectiveReason,
-}: {
-  db: Database;
-  sessionId: string;
-  userId: string;
-  message: string;
-  state: WorkspaceAiState;
-  unit: UnitContent;
-  plan: CurriculumPlan;
-  output: WorkspaceAiEducationOutput | WorkspaceAiEvaluationOutput;
-  attemptTiming?: AttemptTiming | null;
-  evaluationPlan?: WorkspaceAiEvaluationOutput["evaluationPlan"] | null;
-  difficultyDirectiveReason?: string | null;
-}): Promise<WorkspaceAiTurnResult> => {
-  if (!state.educationStage) {
-    throw new Error("Education stage is missing.");
-  }
-
-  const educationResponses =
-    await trainingCurriculumRepository.getPhaseResponses({
-      db,
-      unitContentId: unit.id,
-      sessionId,
-    });
-  const priorEvaluationAttempts = educationResponses.filter(
-    (response) =>
-      response.phase === "ai_education" &&
-      response.metadata?.promptKind === "evaluate_feedback" &&
-      response.metadata.nextScenarioPrompt !== true,
-  ).length;
-  const evaluationComplete =
-    !evaluationPlan ||
-    priorEvaluationAttempts + 1 >= evaluationPlan.scenarioCount;
-  const stageComplete = output.stageComplete && evaluationComplete;
-  const nextStage = normalizeEducationStageTransition({
-    currentStage: state.educationStage,
-    requestedStage: output.nextStage,
-    stageComplete,
-    unitComplete: output.unitComplete && evaluationComplete,
-    allowRepairRoute:
-      "routingDecision" in output && output.routingDecision === "repair",
-  });
-
-  const assistantMessage =
-    await trainingOnboardingRepository.appendWorkspaceMessage({
-      db,
-      sessionId,
-      role: "assistant",
-      content: output.assistantMessage,
-      slot: "education_unit",
-      unitId: unit.nodeId,
-      metadata: getDifficultyDirectiveMetadata(difficultyDirectiveReason),
-    });
-
-  if (!assistantMessage) {
-    throw new Error("AI response could not be saved.");
-  }
-
-  await trainingCurriculumRepository.savePhaseResponse({
-    db,
-    unitContentId: unit.id,
-    sessionId,
-    userId,
-    phase: "ai_education",
-    sequence: educationResponses.filter(
-      (response) => response.phase === "ai_education",
-    ).length,
-    userResponse: message,
-    aiResponse: output.assistantMessage,
-    passed: nextStage === "completed",
-    score: output.score,
-    metadata: {
-      aiEducationStage: nextStage,
-      promptKind:
-        "routingDecision" in output ? "evaluate_feedback" : "education_unit",
-      modelPurpose: "routingDecision" in output ? "evaluation" : "education",
-      routingDecision:
-        "routingDecision" in output ? output.routingDecision : undefined,
-      evaluationSummary:
-        "evaluationSummary" in output ? output.evaluationSummary : undefined,
-      failedDimensions:
-        "failedDimensions" in output ? output.failedDimensions : undefined,
-      evaluationPlan:
-        "evaluationPlan" in output
-          ? (evaluationPlan ?? output.evaluationPlan)
-          : undefined,
-      attemptTiming: attemptTiming ?? undefined,
-      difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
-      estimatedItemRating: output.estimatedItemRating ?? undefined,
-      feedback: output.assistantMessage,
-      evidenceAnchors:
-        "evidenceCitations" in output
-          ? output.evidenceCitations
-          : output.strengths,
-    },
-  });
-
-  if (nextStage === "completed") {
-    await trainingAttemptRepository.saveAttempt({
-      db,
-      sessionId,
-      userId,
-      unitId: unit.id,
-      response: message,
-      debrief: {
-        seedResponse: "",
-        finalArticulation: message,
-        growthDimensions:
-          output.strengths.length > 0
-            ? output.strengths
-            : ["Completed the unit."],
-        score: output.score ?? 0,
-        readiness: "ready_for_next_unit",
-        strengths:
-          output.strengths.length > 0
-            ? output.strengths
-            : ["Completed the unit."],
-        improvements:
-          output.improvements.length > 0
-            ? output.improvements
-            : ["Continue applying this under realistic constraints."],
-        failureTags: output.improvements,
-        nextStep: "Continue to the next training unit.",
-      },
-      finalArticulation: message,
-      growthDimensions: output.strengths,
-    });
-    await trainingCurriculumRepository.completeNode({
-      db,
-      nodeId: unit.nodeId,
-    });
-  }
-
-  await trainingOnboardingRepository.touchSession({ db, sessionId });
-
-  const nextState = await planNextWorkspaceTurn({
-    db,
-    sessionId,
-    plan: {
-      ...plan,
-      nodes:
-        nextStage === "completed"
-          ? plan.nodes.map((node) =>
-              node.id === unit.nodeId ? { ...node, status: "completed" } : node,
-            )
-          : plan.nodes,
-    },
-  });
-
-  return {
-    state:
-      nextState ??
-      ({
-        ...state,
-        educationStage: nextStage,
-      } as WorkspaceAiTurnResult["state"]),
-    messages: await trainingOnboardingRepository.listWorkspaceMessages({
-      db,
-      sessionId,
-      slot: nextState
-        ? getWorkspaceMessageSlot(nextState.mode)
-        : "education_unit",
-    }),
-    assistantMessage,
-  };
-};
-
-const saveNextScenarioPrompt = async ({
-  db,
-  sessionId,
-  userId,
-  unit,
-  output,
-  evaluationPlan,
-  currentStage,
-  difficultyDirectiveReason,
-}: {
-  db: Database;
-  sessionId: string;
-  userId: string;
-  unit: UnitContent;
-  output: WorkspaceAiEducationOutput | WorkspaceAiEvaluationOutput;
-  evaluationPlan?: WorkspaceAiEvaluationOutput["evaluationPlan"] | null;
-  currentStage: WorkspaceAiState["educationStage"];
-  difficultyDirectiveReason?: string | null;
-}) => {
-  if (!currentStage) {
-    throw new Error("Education stage is missing.");
-  }
-
-  const assistantMessage =
-    await trainingOnboardingRepository.appendWorkspaceMessage({
-      db,
-      sessionId,
-      role: "assistant",
-      content: output.assistantMessage,
-      slot: "education_unit",
-      unitId: unit.nodeId,
-      metadata: getDifficultyDirectiveMetadata(difficultyDirectiveReason),
-    });
-
-  if (!assistantMessage) {
-    throw new Error("AI response could not be saved.");
-  }
-
-  const educationResponses =
-    await trainingCurriculumRepository.getPhaseResponses({
-      db,
-      unitContentId: unit.id,
-      sessionId,
-    });
-
-  await trainingCurriculumRepository.savePhaseResponse({
-    db,
-    unitContentId: unit.id,
-    sessionId,
-    userId,
-    phase: "ai_education",
-    sequence: educationResponses.filter(
-      (response) => response.phase === "ai_education",
-    ).length,
-    userResponse: "[next_scenario_requested]",
-    aiResponse: output.assistantMessage,
-    passed: null,
-    score: null,
-    metadata: {
-      aiEducationStage: currentStage,
-      promptKind: "evaluate_feedback",
-      modelPurpose: "evaluation",
-      nextScenarioPrompt: true,
-      evaluationPlan:
-        "evaluationPlan" in output
-          ? (evaluationPlan ?? output.evaluationPlan)
-          : undefined,
-      difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
-      estimatedItemRating: output.estimatedItemRating ?? undefined,
-      feedback: output.assistantMessage,
-    },
-  });
-
-  await trainingOnboardingRepository.touchSession({ db, sessionId });
 };
 
 export const streamWorkspaceChat = async ({
@@ -714,41 +324,30 @@ const streamWorkspaceChatWithModelPreference = async ({
         });
       };
 
+      const turnDeps = createWorkspaceTurnRepositoryDeps(db);
       const { plan, allResponses, state, node, unit, unitResponses } =
-        await getCurrentTurn({ db, sessionId });
+        await resolveWorkspaceTurn({ sessionId, deps: turnDeps });
       const slot = getWorkspaceMessageSlot(state.mode);
       if (action === "submit_answer") {
-        const userMessage =
-          await trainingOnboardingRepository.appendWorkspaceMessage({
-            db,
-            sessionId,
-            role: "user",
-            content: trimmedMessage,
-            slot,
-            unitId: unit.nodeId,
-          });
+        const userMessage = await turnDeps.appendMessage({
+          sessionId,
+          role: "user",
+          content: trimmedMessage,
+          slot,
+          unitId: unit.nodeId,
+        });
 
         if (!userMessage) {
           throw new Error("User message could not be saved.");
         }
       }
 
-      const messagesWithUser =
-        await trainingOnboardingRepository.listWorkspaceMessages({
-          db,
-          sessionId,
-          slot,
-        });
+      const messagesWithUser = await turnDeps.listMessages(sessionId, slot);
 
       // Compaction: keep the most recent units verbatim and fold older units
       // into an anchored rolling summary. The summarizer only runs when a new
       // unit has aged out (most turns reuse the stored summary, no LLM call).
-      const storedSummary =
-        await trainingOnboardingRepository.getWorkspaceSummary({
-          db,
-          sessionId,
-          slot,
-        });
+      const storedSummary = await turnDeps.getWorkspaceSummary(sessionId, slot);
       const summarizeModel = getAiModelForPurpose("recall");
       const compaction = summarizeModel
         ? await compactTranscript({
@@ -761,8 +360,7 @@ const streamWorkspaceChatWithModelPreference = async ({
           })
         : null;
       if (compaction?.summaryChanged && compaction.summary) {
-        await trainingOnboardingRepository.upsertWorkspaceSummary({
-          db,
+        await turnDeps.upsertWorkspaceSummary({
           sessionId,
           slot,
           summary: compaction.summary,
@@ -873,8 +471,7 @@ const streamWorkspaceChatWithModelPreference = async ({
         streamAssistantDelta(output.assistantMessage);
         endAssistantText();
         writeStatus("saving", "Saving feedback");
-        await saveRecallOutput({
-          db,
+        await saveRecallTurnResult({
           sessionId,
           userId,
           message: trimmedMessage,
@@ -884,6 +481,7 @@ const streamWorkspaceChatWithModelPreference = async ({
           output,
           difficultyDirectiveReason:
             difficultyDirectiveResult?.directive.reason ?? null,
+          deps: turnDeps,
         });
       } else {
         writeStatus(
@@ -896,17 +494,16 @@ const streamWorkspaceChatWithModelPreference = async ({
               ? "Evaluating your answer"
               : "Preparing feedback",
         );
-        const educationSchema =
-          runtime.promptKind === "evaluate_feedback"
-            ? WorkspaceAiEvaluationOutputSchema
-            : WorkspaceAiEducationOutputSchema;
         const result = streamText({
           model: requireAiModelForPurpose(
             runtime.modelPurpose,
             "AI workspace turns",
           ),
           output: Output.object({
-            schema: educationSchema,
+            schema:
+              runtime.promptKind === "evaluate_feedback"
+                ? WorkspaceAiEvaluationOutputSchema
+                : WorkspaceAiEducationOutputSchema,
             name: "workspace_education_turn",
           }),
           system: getWorkspaceAiSystemPrompt(runtime.promptKind),
@@ -923,16 +520,17 @@ const streamWorkspaceChatWithModelPreference = async ({
           );
         }
 
-        const output = (await result.output) as unknown as
-          | WorkspaceAiEducationOutput
-          | WorkspaceAiEvaluationOutput;
-        const evaluationPlan =
-          "evaluationPlan" in output
-            ? normalizeEvaluationPlan({
-                plan: output.evaluationPlan,
-                isRetryAfterFailure: hasFailedEvaluationAttempt(unitResponses),
-              })
-            : null;
+        const rawOutput = await result.output;
+        const output: WorkspaceAiEducationOutput | WorkspaceAiEvaluationOutput =
+          runtime.promptKind === "evaluate_feedback"
+            ? WorkspaceAiEvaluationOutputSchema.parse(rawOutput)
+            : WorkspaceAiEducationOutputSchema.parse(rawOutput);
+        const evaluationPlan = isEvaluationOutput(output)
+          ? normalizeEvaluationPlan({
+              plan: output.evaluationPlan,
+              isRetryAfterFailure: hasFailedEvaluationAttempt(unitResponses),
+            })
+          : null;
         if (difficultyDirectiveResult) {
           await trainingRatingRepository.updateOpenScenarioItemRating({
             db,
@@ -954,7 +552,6 @@ const streamWorkspaceChatWithModelPreference = async ({
         );
         if (action === "next_scenario") {
           await saveNextScenarioPrompt({
-            db,
             sessionId,
             userId,
             unit,
@@ -963,10 +560,16 @@ const streamWorkspaceChatWithModelPreference = async ({
             currentStage: state.educationStage,
             difficultyDirectiveReason:
               difficultyDirectiveResult?.directive.reason ?? null,
+            deps: turnDeps,
           });
         } else {
-          await saveEducationOutput({
-            db,
+          const priorEvaluationAttempts = unitResponses.filter(
+            (response) =>
+              response.phase === "ai_education" &&
+              response.metadata?.promptKind === "evaluate_feedback" &&
+              response.metadata.nextScenarioPrompt !== true,
+          ).length;
+          await saveEducationTurnResult({
             sessionId,
             userId,
             message: trimmedMessage,
@@ -976,10 +579,12 @@ const streamWorkspaceChatWithModelPreference = async ({
             output,
             attemptTiming,
             evaluationPlan,
+            priorEvaluationAttempts,
             difficultyDirectiveReason:
               difficultyDirectiveResult?.directive.reason ?? null,
+            deps: turnDeps,
           });
-          if ("routingDecision" in output) {
+          if (isEvaluationOutput(output)) {
             try {
               await recordEvaluation({
                 db,
