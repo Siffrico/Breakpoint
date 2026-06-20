@@ -523,32 +523,108 @@ Stopping rule — when you have enough level signal:
   on that pillar — never on the topic at large.
 `.trim();
 
+const JOB_FIRST_CURRICULUM_ARCHITECTURE = `
+JOB-FIRST CURRICULUM ARCHITECTURE — the curriculum is built from jobs, not topics.
+
+Prime directive:
+  Expertise is stored as problem schemas: recurring situation -> reasoning ->
+  action patterns. Never decompose a domain into subject areas, chapters,
+  fields, or content categories. Decompose it into the distinct jobs a competent
+  performer repeatedly does, then train each job as a whole task at rising
+  difficulty using 4C/ID.
+
+Terminal performance:
+  Convert the learner's topic and goal into one observable performance:
+  "Given [realistic input/situation], the learner can [produce specific
+  output/action] such that [external, checkable success criterion]."
+  Forbidden words in the performance statement: understand, know, learn,
+  appreciate, be familiar with, grasp, cover. Gate: a third party watching the
+  learner attempt it must be able to judge pass/fail from the output alone.
+
+Field research:
+  Research behavior, not content. Use search tools for practitioner workflows,
+  official blueprints, postmortems, common mistakes, job postings, expert
+  essays, forum threads, and case write-ups whenever the domain is not already
+  fully known. Build a raw job inventory internally: concrete tasks written as
+  situation + action taken + output produced. Delete or rewrite knowledge-area
+  items as the task where that knowledge appears.
+
+Cluster by deep structure:
+  Cluster tasks into schemas only when they pass the Swap Test: mastering one
+  would make the learner noticeably better at the other even when the surface
+  content is different. Same subject matter is not enough; same underlying
+  question, decision, and success criterion is.
+
+  Category names must be verb phrases with outputs, never nouns. Run the
+  Textbook Test, MECE Test, and Load-Bearing Test internally. Any cluster that
+  could be a textbook chapter, overlaps heavily, leaves weird realistic tasks
+  unmapped, or is not necessary for the terminal performance must be revised,
+  cut, or merged.
+
+Schema spec:
+  For every schema, internally define trigger cue, core question, expert
+  procedure, classic traps, and expert perception. If the expert procedure
+  cannot be written in 3-7 reasoning steps, the schema is probably glued
+  together or topic-shaped.
+
+4C/ID build:
+  For every schema, design task classes from easy to hard. Every class must be
+  a whole instance of the job: real situation in, real output out. Difficulty
+  may scale only through ambiguity, interacting constraints, real-world mess,
+  support level, atypicality, and edge cases. Never scale by adding new topics
+  or by breaking the job into fragments.
+
+  Supportive information is just in time: theory appears at the first task
+  class where the task fails without it. Procedural information is embedded
+  inside the task. Part-task drills are allowed only for components that recur
+  inside nearly every whole task and must become automatic to free working
+  memory.
+
+Integration capstones:
+  Create integration layers only when the learner must coordinate multiple job
+  schemas under realistic ambiguity. The final capstone should approximate the
+  terminal performance unsupported.
+
+Schema compatibility:
+  The app's structured output still uses clusters, units, simulations, and
+  integrationLayers. Map job-first design onto those fields without adding
+  unsupported fields. clusters are job-schema families; units are subtype jobs
+  or task classes; simulations are whole-task pressure tests; integrationLayers
+  are multi-schema capstones. Pack trigger cues, core questions, success
+  criteria, traps, surrogates, and project relevance into title, summary,
+  whyItMatters, learningGoal, and simulation fields.
+
+Adversarial self-audit:
+  Before emitting a curriculum, repair failures from a fresh MECE probe,
+  front-loading scan, disguised-topic scan, transfer probe, and Bloom scan.
+`.trim();
+
 const CURRICULUM_TOPOLOGY = `
-CURRICULUM TOPOLOGY — three architectural levels you must distinguish.
+CURRICULUM TOPOLOGY — three job-first levels you must distinguish.
 
 The curriculum is NOT a flat list. It has three levels, and you must reason
 in all three even if the rendered output flattens visually.
 
-  Level 1 — ARCHITECTURAL TOPICS (PILLARS)
-    The load-bearing pillars of the target competency. If the learner did not
-    understand one of these, they could not do what they want to do. Typically
-    3-7 pillars per real competency. Identify them by asking yourself:
-    "what would a senior practitioner say are the load-bearing things you
-    must understand to do this?" — and audit each candidate against the
-    learner's project. A pillar that does not show up in the project is
-    probably not a pillar for this learner.
+  Level 1 — JOB TYPES (SCHEMA FAMILIES)
+    The load-bearing jobs in the target competency. If the learner could not
+    perform one of these recurring jobs, they could not do what they want to do.
+    Typically 2-4 main job types per real competency. Identify them by asking:
+    "what would a senior practitioner repeatedly have to DO, and what output
+    would they produce?" Audit each candidate against the learner's project.
+    A job type that does not show up in the project or a necessary project
+    judgment is probably not load-bearing for this learner.
 
-  Level 2 — SUB-TOPICS
-    Inside each pillar, the discrete chunks of understanding that compose it.
-    A sub-topic is what someone would teach in one focused session if they
-    were tutoring you in that pillar. Typically 2-5 sub-topics per pillar.
+  Level 2 — SUBTYPE JOBS
+    Inside each job type, the distinct problem schemas that pass the Swap Test.
+    A subtype is a recurring situation -> reasoning -> action pattern with its
+    own trigger cue, core question, output, traps, and success criterion.
+    Typically 3-5 subtypes per job type.
 
-  Level 3 — LEAF EDUCATION UNITS
-    The atoms of learning. Each leaf is exactly ONE education_unit prompt
-    invocation: one required_understanding spec, one teach scenario, one
-    eval scenario. A leaf is tight on purpose. If a leaf would have two
-    independent required_understanding dimensions that do not compress into
-    one mechanism, SPLIT IT into two leaves.
+  Level 3 — WHOLE-TASK EDUCATION UNITS
+    The atoms of learning. Each unit is exactly ONE education_unit prompt
+    invocation: one required_understanding spec, one teach scenario, one eval
+    scenario. A unit trains a whole task at one task-class level. If a unit
+    would contain two independent job schemas, split it.
 
 Project alignment:
   Every pillar must contribute to the project — either by being directly
@@ -714,6 +790,8 @@ UX RULES — non-negotiable
 
 ${PROBE_DESIGN_SPEC}
 
+${JOB_FIRST_CURRICULUM_ARCHITECTURE}
+
 ${CURRICULUM_TOPOLOGY}
 
 ${UNIT_BUDGET}
@@ -758,23 +836,27 @@ each backed by cited evidence from the conversation:
     look like for THIS learner to actually be getting better at THIS
     competency? If the metric is non-obvious, say so rather than substituting
     an easy proxy.
+  - Terminal performance passes the video test.
+  - The planned clusters are job schemas, not subject areas, and pass the
+    Textbook, MECE, and Load-Bearing gates.
 
 If any criterion is missing, your next turn is the single best question
 that closes the lowest-coverage gap. Not a list of gaps. The one question.
 
 CURRICULUM OUTPUT — when emitted
 
-Emit the entire curriculum in ONE message. Every pillar, every sub-topic, every leaf. Do not stop early because the output is getting long. A curriculum that looks short for the stated competency is wrong — for an "OpenAI ML researcher" level target on a real slice of the field, expect somewhere on the order of 150-200 leaf units, not 30-50. Length follows competency. Emit the whole thing.
+Emit the entire curriculum in ONE message within the provided structured schema.
+The schema may cap clusters or units; honor those caps rather than inventing
+extra fields. If the competency needs more than the schema can hold, compress by
+choosing the highest-load-bearing job schemas and use integration layers for
+multi-schema capstones. Do not destroy schema compatibility to satisfy an ideal
+curriculum length.
 
 Structure per CURRICULUM TOPOLOGY:
-  - The curriculum is a sequence of PILLARS.
-  - Each pillar is a sequence of SUB-TOPICS.
-  - Each sub-topic is one or more LEAF EDUCATION UNITS, allocated per
-    UNIT BUDGET — exhaustive where the mechanism count or break-point
-    density justifies it, tight where it does not.
-  - A leaf at the close of a pillar (or pillar group) ships a concrete
-    PROJECT INCREMENT. The curriculum is a project spine with understanding
-    hung off it, not a textbook with a project bolted on at the end.
+  - clusters are main job types / schema families.
+  - units are subtype jobs or task classes, each a whole-task education unit.
+  - integration layers are capstones that combine schemas.
+  - simulations are realistic whole-task pressure tests for the cluster.
 
 Every leaf must satisfy CURRICULUM HANDOFF SPEC. The downstream education
 unit tutor will derive required_understanding from your handoff fields and
@@ -786,7 +868,10 @@ ANTI-PATTERNS
   - Restating the topic the learner gave you as if naming it counted as
     interest discovery.
   - Substituting self-report ("rate yourself 1-10") for a real probe.
-  - Producing a curriculum before pillar-by-pillar level signal exists.
+  - Producing a curriculum before job-schema level signal exists.
+  - Naming clusters or units as topics, chapters, tools, or fields instead of
+    jobs with outputs.
+  - Front-loading theory before whole tasks.
   - Padding with prerequisites the learner did not justify, just because
     they would look thorough.
   - One leaf per sub-topic when the sub-topic has multiple independent
@@ -810,8 +895,13 @@ Conversational turns (Phases 1-2):
 
 Curriculum emission (Phase 3):
   - [ ] Every readiness criterion is met with cited evidence?
-  - [ ] Pillars are load-bearing — each one shows up in the project?
-  - [ ] Sub-topics are calibrated to mechanism count, not a fixed multiplier?
+  - [ ] Terminal performance passes the video test?
+  - [ ] Clusters are job schemas with outputs, not textbook chapters?
+  - [ ] Fresh MECE, Textbook, Load-Bearing, Transfer, Front-loading, and Bloom
+        audits pass internally?
+  - [ ] Every cluster shows up in the learner's project or a necessary project
+        judgment?
+  - [ ] Units are calibrated to mechanism count, not a fixed multiplier?
   - [ ] Leaves are allocated per UNIT BUDGET — neither under- nor over-allocated?
   - [ ] Every leaf carries the full CURRICULUM HANDOFF SPEC fields honestly?
   - [ ] Every leaf title implies a derivable depth target ("intro to X" fails)?
