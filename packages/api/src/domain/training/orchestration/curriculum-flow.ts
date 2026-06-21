@@ -1,5 +1,5 @@
+import type { designCurriculum } from "../agents/curriculum-designer";
 import type { CurriculumNodeBlueprint } from "../types/training.types";
-import { designCurriculum } from "../agents/curriculum-designer";
 
 export const buildCurriculumNodes = (
   draft: Awaited<ReturnType<typeof designCurriculum>>["planDraft"],

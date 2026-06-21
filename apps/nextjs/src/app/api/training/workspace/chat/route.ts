@@ -12,8 +12,9 @@ import { auth } from "~/auth/server";
 export const runtime = "nodejs";
 
 interface WorkspaceChatRequestBody {
-  action?: "submit_answer" | "next_scenario";
+  action?: "submit_answer" | "next_scenario" | "adjust_difficulty";
   attemptTiming?: unknown;
+  manualDifficultySignal?: "too_easy" | "too_hard";
   message?: string;
   messages?: UIMessage[];
   model?: string;
@@ -79,15 +80,22 @@ export const POST = async (req: NextRequest) => {
 
   const { sessionId } = body;
   const action =
-    body.action === "next_scenario" ? "next_scenario" : "submit_answer";
+    body.action === "next_scenario" || body.action === "adjust_difficulty"
+      ? body.action
+      : "submit_answer";
   const submittedMessage =
     action === "next_scenario"
       ? "Next scenario"
-      : resolveSubmittedMessage(body);
+      : action === "adjust_difficulty"
+        ? `Difficulty adjustment: ${body.manualDifficultySignal ?? "unknown"}`
+        : resolveSubmittedMessage(body);
   if (
     !sessionId ||
     typeof sessionId !== "string" ||
-    (action === "submit_answer" && submittedMessage.length === 0)
+    (action === "submit_answer" && submittedMessage.length === 0) ||
+    (action === "adjust_difficulty" &&
+      body.manualDifficultySignal !== "too_easy" &&
+      body.manualDifficultySignal !== "too_hard")
   ) {
     return new Response("Invalid request body", { status: 400 });
   }
@@ -100,6 +108,7 @@ export const POST = async (req: NextRequest) => {
     userId: session.user.id,
     message: submittedMessage,
     action,
+    manualDifficultySignal: body.manualDifficultySignal ?? null,
     modelName: resolveModelPreference(req, body.model),
     attemptTiming: parsedTiming.success ? parsedTiming.data : null,
   });

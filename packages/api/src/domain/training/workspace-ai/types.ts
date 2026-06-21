@@ -1,5 +1,11 @@
 import { z } from "zod/v4";
 
+import {
+  EvaluationDimensionResultSchema,
+  ScenarioEvaluationContractSchema,
+  UnitMasteryContractSchema,
+} from "@acme/validators";
+
 export const WorkspaceAiPromptKindSchema = z.enum([
   "onboarding_curriculum",
   "education_unit",
@@ -72,6 +78,9 @@ export const WorkspaceAiStateSchema = z.object({
 
 export const WorkspaceAiEducationOutputSchema = z.object({
   assistantMessage: z.string().min(1),
+  unitMasteryContract: UnitMasteryContractSchema.nullable().optional(),
+  scenarioEvaluationContract:
+    ScenarioEvaluationContractSchema.nullable().optional(),
   estimatedItemRating: z.number().int().nullable().optional(),
   stageComplete: z.boolean(),
   nextStage: WorkspaceAiEducationStageSchema,
@@ -88,6 +97,7 @@ export const WorkspaceAiEvaluationOutputSchema =
     evaluationSummary: z.string().min(1),
     evidenceCitations: z.array(z.string().min(1)).min(1).max(6),
     failedDimensions: z.array(z.string().min(1)).max(4),
+    dimensionResults: z.array(EvaluationDimensionResultSchema).min(1).max(4),
   });
 
 export const WorkspaceAiRecallOutputSchema = z.object({

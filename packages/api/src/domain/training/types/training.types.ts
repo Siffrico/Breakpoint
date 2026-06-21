@@ -31,6 +31,7 @@ import type {
   EducationUnitResponseRecord,
   EducationUnitState,
   EducationUnitWorkedExample,
+  EvaluationDimensionResult,
   FailureGap,
   FailureIsolationResult,
   FinalizeForgeUnitResult,
@@ -55,6 +56,7 @@ import type {
   RecallProbe,
   RecallProbeStatus,
   RecallProbeType,
+  ScenarioEvaluationContract,
   SubmitEducationUnitStep,
   SubmitRecallProbe,
   TeachbackMessage,
@@ -62,6 +64,7 @@ import type {
   TeachbackSetup,
   TeachCapstoneScenario,
   UnitContent,
+  UnitMasteryContract,
   UnitRecallState,
   UnitRecallStatus,
 } from "@acme/validators";
@@ -100,6 +103,7 @@ export type {
   EducationUnitResponseRecord,
   EducationUnitState,
   EducationUnitWorkedExample,
+  EvaluationDimensionResult,
   DebateCapstoneScenario,
   FailureGap,
   FailureIsolationResult,
@@ -125,6 +129,7 @@ export type {
   RecallProbe,
   RecallProbeStatus,
   RecallProbeType,
+  ScenarioEvaluationContract,
   SubmitRecallProbe,
   SubmitEducationUnitStep,
   TeachbackMessage,
@@ -134,6 +139,7 @@ export type {
   UnitRecallState,
   UnitRecallStatus,
   UnitContent,
+  UnitMasteryContract,
 };
 
 export interface CurriculumNodeBlueprint {
@@ -253,9 +259,11 @@ export interface PhaseResponseMetadata {
   routingDecision?: "pass" | "retry" | "repair";
   evaluationSummary?: string;
   failedDimensions?: string[];
+  dimensionResults?: EvaluationDimensionResult[];
   evaluationPlan?: EvaluationPlan;
   attemptTiming?: AttemptTiming;
   nextScenarioPrompt?: boolean;
+  manualDifficultySignal?: "too_easy" | "too_hard";
   difficultyDirectiveReason?: string;
   estimatedItemRating?: number;
   assessmentStatus?: EducationUnitAssessmentStatus;

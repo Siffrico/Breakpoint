@@ -147,6 +147,61 @@ export const ForgeUnitScenarioSchema = z.object({
   focusAreas: z.array(z.string().min(1)).min(1),
 });
 
+export const ContractDimensionIdSchema = z
+  .string()
+  .min(2)
+  .max(80)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+
+export const UnitMasteryDimensionSchema = z.object({
+  id: ContractDimensionIdSchema,
+  name: z.string().min(1),
+  description: z.string().min(1),
+  passSignals: z.array(z.string().min(1)).min(1).max(6),
+  failSignals: z.array(z.string().min(1)).min(1).max(6),
+  surrogateTraps: z.array(z.string().min(1)).min(1).max(6),
+});
+
+export const UnitMasteryContractSchema = z.object({
+  version: z.literal(1),
+  dimensions: z.array(UnitMasteryDimensionSchema).min(1).max(4),
+});
+
+export const ScenarioEvaluationDimensionSchema = z.object({
+  dimensionId: ContractDimensionIdSchema,
+  promptRole: z.string().min(1),
+  expectedStrongMoves: z.array(z.string().min(1)).min(1).max(6),
+  acceptableVariants: z.array(z.string().min(1)).max(6),
+  commonWrongMoves: z.array(z.string().min(1)).min(1).max(6),
+  scoreBands: z.object({
+    strong: z.string().min(1),
+    partial: z.string().min(1),
+    weak: z.string().min(1),
+  }),
+});
+
+export const ScenarioEvaluationContractSchema = z.object({
+  version: z.literal(1),
+  scenarioStage: z.enum([
+    "diagnostic_scenario",
+    "guided_application",
+    "performance_evaluation",
+    "transfer_scenario",
+    "recall",
+  ]),
+  scenarioPromptSummary: z.string().min(1),
+  testedDimensions: z.array(ScenarioEvaluationDimensionSchema).min(1).max(4),
+  learnerVisibleCriteria: z.array(z.string().min(1)).min(1).max(5),
+  evaluatorNotes: z.array(z.string().min(1)).max(6),
+});
+
+export const EvaluationDimensionResultSchema = z.object({
+  dimensionId: ContractDimensionIdSchema,
+  score: z.number().int().min(0).max(100),
+  evidence: z.string().min(1),
+  missing: z.string().min(1).nullable(),
+});
+
 export const ForgeUnitContentSchema = z.object({
   id: z.string().min(1),
   nodeId: z.string().min(1),
@@ -163,6 +218,7 @@ export const ForgeUnitContentSchema = z.object({
   practicePrompts: z.array(PracticePromptSchema).length(3).nullable(),
   teachbackSetup: TeachbackSetupSchema,
   scenario: ForgeUnitScenarioSchema,
+  unitMasteryContract: UnitMasteryContractSchema.nullable(),
 });
 
 export const PreSeedUnitContentDraftSchema = ForgeUnitContentSchema.pick({
@@ -649,7 +705,7 @@ export const parseBuildContentSections = (
   };
 
   for (const line of lines) {
-    const marker = (/^\[([a-z_]+)\]$/.exec(line.trim()))?.[1];
+    const marker = /^\[([a-z_]+)\]$/.exec(line.trim())?.[1];
     if (marker && BUILD_CONTENT_MOVE_SET.has(marker)) {
       flush();
       currentMove = marker as BuildContentMove;
@@ -794,4 +850,11 @@ export type FinalizeForgeUnitResult = z.infer<
   typeof FinalizeForgeUnitResultSchema
 >;
 export type UnitContent = z.infer<typeof UnitContentSchema>;
+export type UnitMasteryContract = z.infer<typeof UnitMasteryContractSchema>;
+export type ScenarioEvaluationContract = z.infer<
+  typeof ScenarioEvaluationContractSchema
+>;
+export type EvaluationDimensionResult = z.infer<
+  typeof EvaluationDimensionResultSchema
+>;
 export type Debrief = z.infer<typeof DebriefSchema>;

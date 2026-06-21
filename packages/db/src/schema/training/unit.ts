@@ -5,6 +5,18 @@ import { user } from "../../auth-schema";
 import { TrainingCurriculumNode } from "./curriculum";
 import { TrainingOnboardingSession } from "./onboarding";
 
+export interface TrainingUnitMasteryContractJson {
+  version: 1;
+  dimensions: {
+    id: string;
+    name: string;
+    description: string;
+    passSignals: string[];
+    failSignals: string[];
+    surrogateTraps: string[];
+  }[];
+}
+
 export const TrainingUnitContent = pgTable(
   "becoming_unit_content",
   (t) => ({
@@ -35,6 +47,9 @@ export const TrainingUnitContent = pgTable(
       .notNull(),
     scenarioTitle: t.varchar({ length: 240 }).notNull(),
     scenarioFocusAreas: t.jsonb().$type<string[]>().notNull(),
+    unitMasteryContractJson: t
+      .jsonb()
+      .$type<TrainingUnitMasteryContractJson | null>(),
     createdAt: t
       .timestamp({ mode: "date", withTimezone: true })
       .defaultNow()
@@ -99,6 +114,12 @@ export const TrainingUnitPhaseResponse = pgTable(
       routingDecision?: "pass" | "retry" | "repair";
       evaluationSummary?: string;
       failedDimensions?: string[];
+      dimensionResults?: {
+        dimensionId: string;
+        score: number;
+        evidence: string;
+        missing: string | null;
+      }[];
       evaluationPlan?: {
         mode: "intuition_sprint" | "deep_reasoning" | "standard";
         scenarioCount: 1 | 2 | 3;
@@ -114,6 +135,7 @@ export const TrainingUnitPhaseResponse = pgTable(
         pausedSeconds?: number;
       };
       nextScenarioPrompt?: boolean;
+      manualDifficultySignal?: "too_easy" | "too_hard";
       difficultyDirectiveReason?: string;
       estimatedItemRating?: number;
       assessmentStatus?: "pass" | "retry_concept" | "retry_application";

@@ -6,6 +6,11 @@ import type { CurriculumNode } from "@acme/validators";
 import { sql } from "@acme/db";
 import { CapstoneSubmissionSchema } from "@acme/validators";
 
+import { createInitialRatingState } from "../domain/training/engine/rating";
+import {
+  prepareScenarioDirective,
+  recordEvaluation,
+} from "../domain/training/orchestration/goldilocks";
 import { createLearningProjectWorkflow } from "../domain/training/workflows/create-learning-project-workflow";
 import { generateCapstoneWorkflow } from "../domain/training/workflows/generate-capstone-workflow";
 import { getActivePlanWorkflow } from "../domain/training/workflows/get-active-plan-workflow";
@@ -22,6 +27,7 @@ import { trainingAttemptRepository } from "../repositories/training-attempt-repo
 import { trainingCapstoneRepository } from "../repositories/training-capstone-repository";
 import { trainingCurriculumRepository } from "../repositories/training-curriculum-repository";
 import { trainingOnboardingRepository } from "../repositories/training-onboarding-repository";
+import { trainingRatingRepository } from "../repositories/training-rating-repository";
 import { trainingRecallRepository } from "../repositories/training-recall-repository";
 import { protectedProcedure } from "../trpc";
 
@@ -602,6 +608,16 @@ export const trainingRouter = {
                 db: ctx.db,
                 ...payload,
               }),
+            updateUnitMasteryContract: (payload) =>
+              trainingCurriculumRepository.updateUnitMasteryContract({
+                db: ctx.db,
+                ...payload,
+              }),
+            updateOpenScenarioContract: (payload) =>
+              trainingRatingRepository.updateOpenScenarioContract({
+                db: ctx.db,
+                ...payload,
+              }),
             saveAttempt: (payload) =>
               trainingAttemptRepository.saveAttempt({
                 db: ctx.db,
@@ -620,6 +636,53 @@ export const trainingRouter = {
 
               return result.success ? result.data : [];
             },
+            prepareDifficultyDirective: ({ userId, nodeId, now }) =>
+              prepareScenarioDirective({
+                db: ctx.db,
+                userId,
+                nodeId,
+                now,
+              }),
+            applyManualDifficultyNudge: ({ userId, nodeId, signal, now }) =>
+              trainingRatingRepository.applyManualDifficultyNudge({
+                db: ctx.db,
+                userId,
+                nodeId,
+                signal,
+                initialRatingState: createInitialRatingState(),
+                now,
+              }),
+            getOpenScenario: ({ userId, nodeId }) =>
+              trainingRatingRepository.getOpenScenario({
+                db: ctx.db,
+                userId,
+                nodeId,
+              }),
+            updateOpenScenarioItemRating: ({ userId, nodeId, itemRating }) =>
+              trainingRatingRepository.updateOpenScenarioItemRating({
+                db: ctx.db,
+                userId,
+                nodeId,
+                itemRating,
+              }),
+            recordEvaluation: ({
+              userId,
+              nodeId,
+              score,
+              errorCodes,
+              wasOverTime,
+              occurredAt,
+            }) =>
+              recordEvaluation({
+                db: ctx.db,
+                userId,
+                nodeId,
+                score,
+                errorCodes,
+                sidechatAskCount: 0,
+                wasOverTime,
+                occurredAt,
+              }),
             touchSession: (sessionId) =>
               trainingOnboardingRepository.touchSession({
                 db: ctx.db,

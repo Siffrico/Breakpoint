@@ -1,4 +1,5 @@
 import type { db as databaseClient } from "@acme/db/client";
+import type { TrainingUnitMasteryContractJson } from "@acme/db/schema";
 import { and, asc, desc, eq, inArray } from "@acme/db";
 import {
   TrainingCurriculumNode,
@@ -75,6 +76,7 @@ const mapUnitContent = ({
     title: unit.scenarioTitle,
     focusAreas: unit.scenarioFocusAreas,
   },
+  unitMasteryContract: unit.unitMasteryContractJson,
 });
 
 export const trainingCurriculumRepository = {
@@ -347,7 +349,7 @@ export const trainingCurriculumRepository = {
   }: {
     db: Database;
     planIds: string[];
-  }): Promise<typeof TrainingCurriculumNode.$inferSelect[]> => {
+  }): Promise<(typeof TrainingCurriculumNode.$inferSelect)[]> => {
     if (planIds.length === 0) {
       return [];
     }
@@ -480,6 +482,7 @@ export const trainingCurriculumRepository = {
     complexityBudget,
     teachbackSetup,
     scenario,
+    unitMasteryContract = null,
   }: {
     db: Database;
     nodeId: string;
@@ -490,6 +493,7 @@ export const trainingCurriculumRepository = {
     complexityBudget: UnitContent["complexityBudget"];
     teachbackSetup: UnitContent["teachbackSetup"];
     scenario: UnitContent["scenario"];
+    unitMasteryContract?: UnitContent["unitMasteryContract"];
   }): Promise<UnitContent | null> => {
     const [unit] = await db
       .insert(TrainingUnitContent)
@@ -506,6 +510,7 @@ export const trainingCurriculumRepository = {
         teachbackSetup,
         scenarioTitle: scenario.title,
         scenarioFocusAreas: scenario.focusAreas,
+        unitMasteryContractJson: unitMasteryContract,
       })
       .onConflictDoUpdate({
         target: [TrainingUnitContent.nodeId],
@@ -518,6 +523,7 @@ export const trainingCurriculumRepository = {
           teachbackSetup,
           scenarioTitle: scenario.title,
           scenarioFocusAreas: scenario.focusAreas,
+          unitMasteryContractJson: unitMasteryContract,
         },
       })
       .returning();
@@ -546,6 +552,24 @@ export const trainingCurriculumRepository = {
       clusterBriefing: (parentNode?.briefing ??
         null) as UnitContent["clusterBriefing"],
     });
+  },
+
+  updateUnitMasteryContract: async ({
+    db,
+    unitContentId,
+    unitMasteryContract,
+  }: {
+    db: Database;
+    unitContentId: string;
+    unitMasteryContract: UnitContent["unitMasteryContract"];
+  }) => {
+    const [unit] = await db
+      .update(TrainingUnitContent)
+      .set({ unitMasteryContractJson: unitMasteryContract })
+      .where(eq(TrainingUnitContent.id, unitContentId))
+      .returning();
+
+    return unit ?? null;
   },
 
   saveNodeBriefing: async ({

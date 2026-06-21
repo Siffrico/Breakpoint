@@ -15,6 +15,7 @@ import type {
   WorkspaceAiTurnResult,
 } from "./types";
 import type { WorkspaceTurnDependencies } from "./workspace-turn";
+import { validateScenarioContractAgainstUnit } from "./evaluation-contracts";
 import { normalizeEducationStageTransition } from "./orchestrator";
 import {
   getWorkspaceMessageSlot,
@@ -47,6 +48,18 @@ export interface WorkspaceTurnPersistenceDependencies
     score?: number | null;
     metadata?: PhaseResponseRecord["metadata"];
   }) => Promise<PhaseResponseRecord | null>;
+  updateUnitMasteryContract: (input: {
+    unitContentId: string;
+    unitMasteryContract: UnitContent["unitMasteryContract"];
+  }) => Promise<unknown>;
+  updateOpenScenarioContract: (input: {
+    userId: string;
+    nodeId: string;
+    scenarioPrompt: string;
+    scenarioContract: NonNullable<
+      WorkspaceAiEducationOutput["scenarioEvaluationContract"]
+    >;
+  }) => Promise<unknown>;
   saveAttempt: (input: {
     sessionId: string;
     userId?: string | null;
@@ -92,6 +105,67 @@ const buildCompletionDebrief = ({
   nextStep: "Continue to the next training unit.",
 });
 
+const CONTRACTED_SCENARIO_STAGES = new Set([
+  "diagnostic_scenario",
+  "guided_application",
+  "performance_evaluation",
+  "transfer_scenario",
+]);
+
+const persistOutputContracts = async ({
+  userId,
+  unit,
+  currentStage,
+  output,
+  deps,
+}: {
+  userId: string;
+  unit: UnitContent;
+  currentStage: WorkspaceAiState["educationStage"];
+  output: WorkspaceAiEducationOutput | WorkspaceAiEvaluationOutput;
+  deps: WorkspaceTurnPersistenceDependencies;
+}) => {
+  const unitMasteryContract =
+    output.unitMasteryContract ?? unit.unitMasteryContract ?? null;
+
+  if (output.unitMasteryContract) {
+    await deps.updateUnitMasteryContract({
+      unitContentId: unit.id,
+      unitMasteryContract: output.unitMasteryContract,
+    });
+  }
+
+  if (!output.scenarioEvaluationContract) return;
+
+  if (!currentStage || !CONTRACTED_SCENARIO_STAGES.has(currentStage)) {
+    return;
+  }
+
+  if (!unitMasteryContract) {
+    throw new Error(
+      "Scenario evaluation contract cannot be persisted without a unit mastery contract.",
+    );
+  }
+
+  validateScenarioContractAgainstUnit({
+    unitContract: unitMasteryContract,
+    scenarioContract: output.scenarioEvaluationContract,
+  });
+
+  const updatedScenario = await deps.updateOpenScenarioContract({
+    userId,
+    nodeId: unit.nodeId,
+    scenarioPrompt: output.assistantMessage,
+    scenarioContract: output.scenarioEvaluationContract,
+  });
+
+  if (!updatedScenario) {
+    throw new Error(
+      "Scenario evaluation contract could not be attached to an open scenario.",
+    );
+  }
+};
+
 export const saveRecallTurnResult = async ({
   sessionId,
   userId,
@@ -101,6 +175,7 @@ export const saveRecallTurnResult = async ({
   plan,
   output,
   difficultyDirectiveReason,
+  manualDifficultySignal,
   deps,
 }: {
   sessionId: string;
@@ -111,6 +186,7 @@ export const saveRecallTurnResult = async ({
   plan: CurriculumPlan;
   output: WorkspaceAiRecallOutput;
   difficultyDirectiveReason?: string | null;
+  manualDifficultySignal?: "too_easy" | "too_hard" | null;
   deps: WorkspaceTurnPersistenceDependencies;
 }): Promise<WorkspaceAiTurnResult> => {
   const assistantMessage = await deps.appendMessage({
@@ -141,6 +217,7 @@ export const saveRecallTurnResult = async ({
       recallUnitId: unit.nodeId,
       promptKind: "recall",
       modelPurpose: "recall",
+      manualDifficultySignal: manualDifficultySignal ?? undefined,
       difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
       estimatedItemRating: output.estimatedItemRating ?? undefined,
       feedback: output.assistantMessage,
@@ -216,6 +293,14 @@ export const saveEducationTurnResult = async ({
     throw new Error("AI response could not be saved.");
   }
 
+  await persistOutputContracts({
+    userId,
+    unit,
+    currentStage: state.educationStage,
+    output,
+    deps,
+  });
+
   const educationResponses = await deps.getPhaseResponses(unit.id, sessionId);
   await deps.savePhaseResponse({
     unitContentId: unit.id,
@@ -238,6 +323,8 @@ export const saveEducationTurnResult = async ({
         "evaluationSummary" in output ? output.evaluationSummary : undefined,
       failedDimensions:
         "failedDimensions" in output ? output.failedDimensions : undefined,
+      dimensionResults:
+        "dimensionResults" in output ? output.dimensionResults : undefined,
       evaluationPlan:
         "evaluationPlan" in output
           ? (evaluationPlan ?? output.evaluationPlan)
@@ -300,6 +387,7 @@ export const saveNextScenarioPrompt = async ({
   evaluationPlan,
   currentStage,
   difficultyDirectiveReason,
+  manualDifficultySignal,
   deps,
 }: {
   sessionId: string;
@@ -309,6 +397,7 @@ export const saveNextScenarioPrompt = async ({
   evaluationPlan?: EvaluationPlan | null;
   currentStage: WorkspaceAiState["educationStage"];
   difficultyDirectiveReason?: string | null;
+  manualDifficultySignal?: "too_easy" | "too_hard" | null;
   deps: WorkspaceTurnPersistenceDependencies;
 }): Promise<void> => {
   if (!currentStage) {
@@ -328,6 +417,14 @@ export const saveNextScenarioPrompt = async ({
     throw new Error("AI response could not be saved.");
   }
 
+  await persistOutputContracts({
+    userId,
+    unit,
+    currentStage,
+    output,
+    deps,
+  });
+
   const educationResponses = await deps.getPhaseResponses(unit.id, sessionId);
   await deps.savePhaseResponse({
     unitContentId: unit.id,
@@ -335,7 +432,9 @@ export const saveNextScenarioPrompt = async ({
     userId,
     phase: "ai_education",
     sequence: countPhaseResponses(educationResponses, "ai_education"),
-    userResponse: "[next_scenario_requested]",
+    userResponse: manualDifficultySignal
+      ? `[difficulty_adjustment:${manualDifficultySignal}]`
+      : "[next_scenario_requested]",
     aiResponse: output.assistantMessage,
     passed: null,
     score: null,
@@ -344,6 +443,7 @@ export const saveNextScenarioPrompt = async ({
       promptKind: "evaluate_feedback",
       modelPurpose: "evaluation",
       nextScenarioPrompt: true,
+      manualDifficultySignal: manualDifficultySignal ?? undefined,
       evaluationPlan:
         "evaluationPlan" in output
           ? (evaluationPlan ?? output.evaluationPlan)

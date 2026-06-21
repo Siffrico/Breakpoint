@@ -27,6 +27,7 @@ export interface WorkspaceTurnDependencies {
     complexityBudget: UnitContent["complexityBudget"];
     teachbackSetup: UnitContent["teachbackSetup"];
     scenario: UnitContent["scenario"];
+    unitMasteryContract?: UnitContent["unitMasteryContract"];
   }) => Promise<UnitContent | null>;
 }
 

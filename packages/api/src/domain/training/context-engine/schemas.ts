@@ -1,5 +1,7 @@
 import { z } from "zod/v4";
 
+import { ScenarioEvaluationContractSchema } from "@acme/validators";
+
 import {
   AttemptTimingSchema,
   EvaluationPlanSchema,
@@ -61,6 +63,7 @@ export const WorkspaceContextEnvelopeSchema = z.object({
     .nullable(),
   evaluationPlan: EvaluationPlanSchema.nullable(),
   attemptTiming: AttemptTimingSchema.nullable(),
+  scenarioEvaluationContract: ScenarioEvaluationContractSchema.nullable(),
   difficultyDirective: z
     .object({
       reason: z.string().min(1),

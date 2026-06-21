@@ -38,6 +38,31 @@ export interface TrainingScenarioDirectiveJson {
   };
 }
 
+export interface TrainingScenarioEvaluationContractJson {
+  version: 1;
+  scenarioStage:
+    | "diagnostic_scenario"
+    | "guided_application"
+    | "performance_evaluation"
+    | "transfer_scenario"
+    | "recall";
+  scenarioPromptSummary: string;
+  testedDimensions: {
+    dimensionId: string;
+    promptRole: string;
+    expectedStrongMoves: string[];
+    acceptableVariants: string[];
+    commonWrongMoves: string[];
+    scoreBands: {
+      strong: string;
+      partial: string;
+      weak: string;
+    };
+  }[];
+  learnerVisibleCriteria: string[];
+  evaluatorNotes: string[];
+}
+
 export const TrainingJobProgress = pgTable(
   "becoming_training_job_progress",
   (t) => ({
@@ -146,6 +171,11 @@ export const TrainingScenarioAttempt = pgTable(
       .references(() => TrainingCurriculumNode.id, { onDelete: "cascade" }),
     status: t.varchar({ length: 32 }).notNull().default("open"),
     directiveJson: t.jsonb().$type<TrainingScenarioDirectiveJson>().notNull(),
+    scenarioPrompt: t.text(),
+    scenarioContractJson: t
+      .jsonb()
+      .$type<TrainingScenarioEvaluationContractJson | null>(),
+    contractVersion: t.integer(),
     itemRating: t.doublePrecision().notNull(),
     targetMisconceptionCode: t.varchar({ length: 160 }),
     supportLevel: t.varchar({ length: 32 }).notNull(),

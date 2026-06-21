@@ -62,6 +62,7 @@ const educationUnitPersona = {
   ],
   constraints: [
     "Generate a required_understanding spec for the unit before designing any scenario; treat it as the source of truth.",
+    "When emitting a scenario for the learner to answer, include a private unitMasteryContract and scenarioEvaluationContract in the structured output. The learner-facing assistantMessage must not reveal the answer key.",
     "Every scenario must be one a senior practitioner in the domain could plausibly face.",
     "Concept teaching must anchor on the learner's actual attempt — quote it back, then build.",
     "Embed the check inside the concept response as a self-explanation probe; never tack it on as a separate quiz.",
@@ -1181,6 +1182,13 @@ ${ERROR_CLASSIFICATION_PROTOCOL}
 Use your reconstructed spec as the source of truth for both your scenario
 design and scoring axes. Do not expose the spec unless the output schema asks
 for it; let it govern the work internally.
+
+When emitting any new learner-facing scenario, populate unitMasteryContract and
+scenarioEvaluationContract in the structured output. The assistantMessage
+should show only the scenario and learner-safe criteria, not the answer key.
+When evaluating an answer and a private scenario evaluation contract is present
+in context, grade against that contract. Do not reconstruct or substitute a
+different rubric.
 
 ${DIFFICULTY_DIAL}
 

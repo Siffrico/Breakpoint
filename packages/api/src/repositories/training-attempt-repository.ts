@@ -1,5 +1,6 @@
-import { and, asc, desc, eq, inArray } from "@acme/db";
 import type { db as databaseClient } from "@acme/db/client";
+import type { TrainingUnitMasteryContractJson } from "@acme/db/schema";
+import { and, asc, desc, eq, inArray } from "@acme/db";
 import {
   TrainingCurriculumNode,
   TrainingCurriculumPlan,
@@ -134,7 +135,9 @@ export const trainingAttemptRepository = {
 
     return unitIds
       .map((unitId) => latestByUnit.get(unitId))
-      .filter((attempt): attempt is NonNullable<typeof attempt> => attempt != null)
+      .filter(
+        (attempt): attempt is NonNullable<typeof attempt> => attempt != null,
+      )
       .map((attempt) => ({
         unitContentId: attempt.unitContentId,
         score: attempt.score,

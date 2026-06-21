@@ -3,6 +3,7 @@ import type {
   CurriculumNode,
   CurriculumPlan,
   PhaseResponseRecord,
+  ScenarioEvaluationContract,
   UnitContent,
 } from "../types/training.types";
 import type { WorkspaceTurnRuntime } from "../workspace-ai/stage-runtime";
@@ -31,6 +32,7 @@ export const buildWorkspaceContextEnvelope = ({
   runtime,
   evaluationPlan,
   attemptTiming,
+  scenarioEvaluationContract,
   difficultyDirective,
   ratingSnapshot,
 }: {
@@ -47,6 +49,7 @@ export const buildWorkspaceContextEnvelope = ({
   runtime?: WorkspaceTurnRuntime;
   evaluationPlan?: EvaluationPlan | null;
   attemptTiming?: AttemptTiming | null;
+  scenarioEvaluationContract?: ScenarioEvaluationContract | null;
   difficultyDirective?: { reason: string; promptBlock: string } | null;
   ratingSnapshot?: string | null;
 }): WorkspaceContextEnvelope => {
@@ -103,6 +106,7 @@ export const buildWorkspaceContextEnvelope = ({
     promptShownToLearner: introMessage ?? null,
     evaluationPlan: evaluationPlan ?? null,
     attemptTiming: attemptTiming ?? null,
+    scenarioEvaluationContract: scenarioEvaluationContract ?? null,
     difficultyDirective: difficultyDirective ?? null,
     outputContract: buildOutputContract(state, runtime),
   });

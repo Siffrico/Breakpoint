@@ -91,6 +91,8 @@ Mode defaults enforced by code:
 
 Active plan: ${formatEvaluationPlan(envelope)}
 Timing evidence for latest learner answer: ${formatAttemptTiming(envelope)}
+Private scenario evaluation contract:
+${formatScenarioEvaluationContract(envelope)}
 
 ## Unit target
 Title: ${envelope.unit.title}
@@ -120,6 +122,7 @@ Must do:
 ${formatList([
   ...envelope.outputContract.mustDo,
   "Score only evidence visible in the learner answer and allowed calibration evidence.",
+  "Grade against the private scenario evaluation contract when it is present; do not reconstruct alternate criteria.",
   "Do not infer improvement from the teacher's intent or warmth.",
   "If repair is needed, route to the narrowest prior stage that can fix the missing mechanism.",
 ])}
@@ -148,6 +151,15 @@ const formatAttemptTiming = (envelope: WorkspaceContextEnvelope): string => {
   if (!timing) return "No timing submitted for this turn.";
 
   return `elapsed=${timing.elapsedSeconds}s; limit=${timing.timeLimitSeconds}s; overrun=${timing.overrunSeconds}s; overTime=${timing.wasOverTime}; paused=${timing.pausedSeconds ?? 0}s`;
+};
+
+const formatScenarioEvaluationContract = (
+  envelope: WorkspaceContextEnvelope,
+): string => {
+  const contract = envelope.scenarioEvaluationContract;
+  if (!contract) return "None stored. Use the unit target conservatively.";
+
+  return JSON.stringify(contract, null, 2);
 };
 
 const formatPosition = (envelope: WorkspaceContextEnvelope): string => {

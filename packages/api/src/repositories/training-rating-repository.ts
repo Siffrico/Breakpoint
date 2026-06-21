@@ -1,4 +1,5 @@
 import type { db as databaseClient } from "@acme/db/client";
+import type { ScenarioEvaluationContract } from "@acme/validators";
 import { and, asc, desc, eq } from "@acme/db";
 import {
   TrainingJobProgress,
@@ -84,6 +85,7 @@ const DEFAULT_PROGRESS: JobProgressState = {
 };
 
 const RECENT_ATTEMPT_LIMIT = 20;
+const MANUAL_DIFFICULTY_NUDGE = 50;
 
 const toAttemptRecord = (attempt: {
   bandOrder: number;
@@ -278,6 +280,110 @@ export const trainingRatingRepository = {
     return row ?? null;
   },
 
+  updateOpenScenarioContract: async ({
+    db,
+    userId,
+    nodeId,
+    scenarioPrompt,
+    scenarioContract,
+  }: {
+    db: Database;
+    userId: string;
+    nodeId: string;
+    scenarioPrompt: string;
+    scenarioContract: ScenarioEvaluationContract;
+  }) => {
+    const openScenario = await trainingRatingRepository.getOpenScenario({
+      db,
+      userId,
+      nodeId,
+    });
+    if (!openScenario) return null;
+
+    const [row] = await db
+      .update(TrainingScenarioAttempt)
+      .set({
+        scenarioPrompt,
+        scenarioContractJson: scenarioContract,
+        contractVersion: scenarioContract.version,
+      })
+      .where(eq(TrainingScenarioAttempt.id, openScenario.id))
+      .returning();
+
+    return row ?? null;
+  },
+
+  applyManualDifficultyNudge: async ({
+    db,
+    userId,
+    nodeId,
+    signal,
+    initialRatingState,
+    now,
+  }: {
+    db: Database;
+    userId: string;
+    nodeId: string;
+    signal: "too_easy" | "too_hard";
+    initialRatingState: JobRatingState;
+    now: Date;
+  }): Promise<{
+    previousRating: number;
+    nextRating: number;
+    delta: number;
+  }> => {
+    const existing = await db.query.TrainingJobProgress.findFirst({
+      where: and(
+        eq(TrainingJobProgress.userId, userId),
+        eq(TrainingJobProgress.nodeId, nodeId),
+      ),
+    });
+    const delta =
+      signal === "too_easy"
+        ? MANUAL_DIFFICULTY_NUDGE
+        : -MANUAL_DIFFICULTY_NUDGE;
+    const previousRating = existing?.rating ?? initialRatingState.rating;
+    const nextRating = previousRating + delta;
+
+    await db.transaction(async (tx) => {
+      await tx
+        .update(TrainingScenarioAttempt)
+        .set({ status: "replaced", evaluatedAt: now })
+        .where(
+          and(
+            eq(TrainingScenarioAttempt.userId, userId),
+            eq(TrainingScenarioAttempt.nodeId, nodeId),
+            eq(TrainingScenarioAttempt.status, "open"),
+          ),
+        );
+
+      await tx
+        .insert(TrainingJobProgress)
+        .values({
+          userId,
+          nodeId,
+          rating: nextRating,
+          ratingDeviation:
+            existing?.ratingDeviation ?? initialRatingState.ratingDeviation,
+          volatility: existing?.volatility ?? initialRatingState.volatility,
+          lastRatedAt: now,
+          bandOrder: existing?.bandOrder ?? DEFAULT_PROGRESS.bandOrder,
+          supportLevel: existing?.supportLevel ?? DEFAULT_PROGRESS.supportLevel,
+          recentAttemptsJson: existing?.recentAttemptsJson ?? [],
+          masteredAt: existing?.masteredAt ?? null,
+        })
+        .onConflictDoUpdate({
+          target: [TrainingJobProgress.userId, TrainingJobProgress.nodeId],
+          set: {
+            rating: nextRating,
+            lastRatedAt: now,
+          },
+        });
+    });
+
+    return { previousRating, nextRating, delta };
+  },
+
   saveEvaluationResult: async ({
     db,
     userId,
@@ -303,7 +409,7 @@ export const trainingRatingRepository = {
         ),
       });
       const recentAttempts = [
-        ...((existing?.recentAttemptsJson ?? []).map(toAttemptRecord)),
+        ...(existing?.recentAttemptsJson ?? []).map(toAttemptRecord),
         result.attempt,
       ]
         .slice(-RECENT_ATTEMPT_LIMIT)

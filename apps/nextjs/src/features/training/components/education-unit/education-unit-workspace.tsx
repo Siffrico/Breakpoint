@@ -10,6 +10,7 @@ import {
   CaretDown,
   CaretRight,
   Plus,
+  SlidersHorizontal,
 } from "@phosphor-icons/react";
 import { DefaultChatTransport, isTextUIPart } from "ai";
 
@@ -20,6 +21,7 @@ import {
   PacedAssistantText,
   WorkspaceStatusLine,
 } from "@acme/ui/chat";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "@acme/ui/menu";
 import { toast } from "@acme/ui/toast";
 
 import { AssistantRichText } from "~/features/training/components/assistant-rich-text";
@@ -57,10 +59,11 @@ interface WorkspaceChatData extends Record<string, unknown> {
   "workspace-status": WorkspaceStatusData;
 }
 interface WorkspaceChatMetadata {
-  action?: "submit_answer" | "next_scenario";
+  action?: "submit_answer" | "next_scenario" | "adjust_difficulty";
   synthetic?: boolean;
   difficultyDirectiveReason?: string;
 }
+type ManualDifficultySignal = "too_easy" | "too_hard";
 type WorkspaceChatMessage = UIMessage<WorkspaceChatMetadata, WorkspaceChatData>;
 
 const AUTO_SCROLL_BOTTOM_THRESHOLD = 160;
@@ -122,12 +125,14 @@ function PromptTurn({
   difficultyDirectiveReason = null,
   streaming = false,
   statusLabel = null,
+  skeleton = false,
 }: {
   prompt: string;
   helper?: string | null;
   difficultyDirectiveReason?: string | null;
   streaming?: boolean;
   statusLabel?: string | null;
+  skeleton?: boolean;
 }) {
   return (
     <section className="py-3 font-sans">
@@ -145,7 +150,14 @@ function PromptTurn({
             <span className="truncate">{difficultyDirectiveReason}</span>
           </div>
         ) : null}
-        {prompt.trim() ? (
+        {skeleton ? (
+          <div className="space-y-3 py-1" aria-label="Regenerating scenario">
+            <div className="bg-foreground/[0.08] h-4 w-[62%] animate-pulse rounded-full" />
+            <div className="bg-foreground/[0.065] h-4 w-[91%] animate-pulse rounded-full" />
+            <div className="bg-foreground/[0.065] h-4 w-[84%] animate-pulse rounded-full" />
+            <div className="bg-foreground/[0.05] h-4 w-[48%] animate-pulse rounded-full" />
+          </div>
+        ) : prompt.trim() ? (
           streaming ? (
             <PacedAssistantText text={prompt} active={streaming}>
               {(visibleText) => (
@@ -170,6 +182,53 @@ function PromptTurn({
         ) : null}
       </div>
     </section>
+  );
+}
+
+function DifficultyControl({
+  disabled,
+  onSelect,
+}: {
+  disabled: boolean;
+  onSelect: (signal: ManualDifficultySignal) => void;
+}) {
+  return (
+    <Menu>
+      <MenuTrigger
+        openOnHover
+        delay={80}
+        closeDelay={300}
+        render={
+          <button
+            type="button"
+            disabled={disabled}
+            aria-label="Adjust scenario difficulty"
+            title={
+              disabled
+                ? "Available on active eval and recall scenarios"
+                : "Adjust scenario difficulty"
+            }
+            className="text-foreground/42 hover:text-foreground/82 hover:bg-foreground/[0.045] focus-visible:text-foreground flex h-7 shrink-0 items-center gap-1.5 rounded-[6px] px-2 text-[11px] leading-4 transition-colors outline-none disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent"
+          />
+        }
+      >
+        <SlidersHorizontal size={13} weight="bold" />
+        Difficulty
+      </MenuTrigger>
+      <MenuPopup
+        side="top"
+        align="start"
+        sideOffset={8}
+        className="bg-background text-foreground w-32"
+      >
+        <MenuItem closeOnClick onClick={() => onSelect("too_easy")}>
+          Too easy
+        </MenuItem>
+        <MenuItem closeOnClick onClick={() => onSelect("too_hard")}>
+          Too hard
+        </MenuItem>
+      </MenuPopup>
+    </Menu>
   );
 }
 
@@ -363,14 +422,17 @@ export function EducationUnitWorkspace({
   const [response, setResponse] = useState("");
   const [isExpanded, setIsExpanded] = useState(false);
   const [previewIsRunning, setPreviewIsRunning] = useState(false);
+  const [pendingAction, setPendingAction] = useState<
+    "submit_answer" | "next_scenario" | "adjust_difficulty" | null
+  >(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
   const previewTimeoutRef = useRef<number | null>(null);
   const shouldAutoFollowRef = useRef(true);
   const pendingSubmissionRef = useRef<string | null>(null);
-  const pendingErrorToastRef = useRef<"submit_answer" | "next_scenario" | null>(
-    null,
-  );
+  const pendingErrorToastRef = useRef<
+    "submit_answer" | "next_scenario" | "adjust_difficulty" | null
+  >(null);
   const errorHandledRef = useRef(false);
   const initialChatMessages = useMemo(
     () => transcriptToChatMessages(aiWorkspace, sessionId),
@@ -402,6 +464,7 @@ export function EducationUnitWorkspace({
     onFinish: () => {
       pendingSubmissionRef.current = null;
       pendingErrorToastRef.current = null;
+      setPendingAction(null);
       router.refresh();
     },
   });
@@ -482,6 +545,18 @@ export function EducationUnitWorkspace({
         : canRequestNextScenario
           ? "Continue to the next scenario."
           : "This unit is complete.";
+  const canAdjustDifficulty =
+    !preview &&
+    !effectiveIsRunning &&
+    !workspaceUnavailable &&
+    !missingTranscriptForResumedUnit &&
+    !canRequestNextScenario &&
+    Boolean(
+      aiWorkspace?.state?.mode === "recall" ||
+        (aiWorkspace?.state?.mode === "education_unit" &&
+          (aiWorkspace.state.educationStage === "performance_evaluation" ||
+            aiWorkspace.state.educationStage === "transfer_scenario")),
+    );
 
   useEffect(() => {
     onRunningChange?.(effectiveIsRunning);
@@ -499,11 +574,14 @@ export function EducationUnitWorkspace({
     }
     pendingSubmissionRef.current = null;
     pendingErrorToastRef.current = null;
+    setPendingAction(null);
     setMessages(initialChatMessages);
     toast.error(
       pendingAction === "next_scenario"
         ? "Next scenario could not be prepared."
-        : "AI feedback could not be prepared.",
+        : pendingAction === "adjust_difficulty"
+          ? "Difficulty could not be recalibrated."
+          : "AI feedback could not be prepared.",
     );
   }, [error, initialChatMessages, setMessages, status]);
 
@@ -543,6 +621,7 @@ export function EducationUnitWorkspace({
     clearError();
     pendingSubmissionRef.current = message;
     pendingErrorToastRef.current = "submit_answer";
+    setPendingAction("submit_answer");
     setResponse("");
     setIsExpanded(false);
 
@@ -566,6 +645,7 @@ export function EducationUnitWorkspace({
         errorHandledRef.current = true;
         pendingSubmissionRef.current = null;
         pendingErrorToastRef.current = null;
+        setPendingAction(null);
         setResponse(message);
         setMessages(initialChatMessages);
         toast.error("AI feedback could not be prepared.");
@@ -593,6 +673,7 @@ export function EducationUnitWorkspace({
     clearError();
     pendingSubmissionRef.current = null;
     pendingErrorToastRef.current = "next_scenario";
+    setPendingAction("next_scenario");
 
     try {
       await sendMessage(
@@ -612,8 +693,48 @@ export function EducationUnitWorkspace({
         errorHandledRef.current = true;
         pendingSubmissionRef.current = null;
         pendingErrorToastRef.current = null;
+        setPendingAction(null);
         setMessages(initialChatMessages);
         toast.error("Next scenario could not be prepared.");
+      }
+    }
+  };
+
+  const handleDifficultyAdjustment = async (signal: ManualDifficultySignal) => {
+    if (preview || effectiveIsRunning || !canAdjustDifficulty) {
+      return;
+    }
+
+    clearError();
+    pendingSubmissionRef.current = null;
+    pendingErrorToastRef.current = "adjust_difficulty";
+    setPendingAction("adjust_difficulty");
+
+    try {
+      await sendMessage(
+        {
+          text: signal === "too_hard" ? "Too hard" : "Too easy",
+          metadata: {
+            action: "adjust_difficulty",
+            synthetic: true,
+          },
+        },
+        {
+          body: {
+            action: "adjust_difficulty",
+            manualDifficultySignal: signal,
+            sessionId,
+          },
+        },
+      );
+    } catch {
+      if (!errorHandledRef.current) {
+        errorHandledRef.current = true;
+        pendingSubmissionRef.current = null;
+        pendingErrorToastRef.current = null;
+        setPendingAction(null);
+        setMessages(initialChatMessages);
+        toast.error("Difficulty could not be recalibrated.");
       }
     }
   };
@@ -627,6 +748,8 @@ export function EducationUnitWorkspace({
   const latestAssistantMessageId = [...chatMessages]
     .reverse()
     .find((message) => message.role === "assistant")?.id;
+  const isAdjustingDifficulty =
+    effectiveIsRunning && pendingAction === "adjust_difficulty";
   const nextScenarioControl =
     canRequestNextScenario && !effectiveIsRunning && !preview ? (
       <section key="next-scenario-control" className="py-1 font-sans">
@@ -687,6 +810,11 @@ export function EducationUnitWorkspace({
                       liveStatus && liveStatus.status !== "complete"
                         ? liveStatus.label
                         : null
+                    }
+                    skeleton={
+                      isLiveAssistant &&
+                      isAdjustingDifficulty &&
+                      !content.trim()
                     }
                   />
                 );
@@ -755,6 +883,12 @@ export function EducationUnitWorkspace({
             </button>
           }
         />
+        <div className="mt-1 flex justify-start">
+          <DifficultyControl
+            disabled={!canAdjustDifficulty}
+            onSelect={(signal) => void handleDifficultyAdjustment(signal)}
+          />
+        </div>
       </div>
     </div>
   );
@@ -783,9 +917,7 @@ export function EducationUnitWorkspace({
             {renderedMessages}
             <div ref={bottomRef} />
           </div>
-          <ChatComposerDock className="mt-auto">
-            {inputZone}
-          </ChatComposerDock>
+          <ChatComposerDock className="mt-auto">{inputZone}</ChatComposerDock>
         </div>
         {expandedOverlay}
       </>
