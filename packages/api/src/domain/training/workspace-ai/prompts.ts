@@ -1,7 +1,7 @@
 import type { PromptTemplate } from "../prompts/types";
 import {
   educationUnitPrompt,
-  evaluateFeedbackPrompt,
+  evaluationStagePrompt,
   onboardingCurriculumPrompt,
   recallPrompt,
 } from "../prompts/registry";
@@ -40,5 +40,5 @@ export const WORKSPACE_AI_EDUCATION_UNIT_PROMPT = formatMainPrompt(
 export const WORKSPACE_AI_RECALL_PROMPT = formatMainPrompt(recallPrompt);
 
 export const WORKSPACE_AI_EVALUATE_FEEDBACK_PROMPT = formatMainPrompt(
-  evaluateFeedbackPrompt,
+  evaluationStagePrompt,
 );

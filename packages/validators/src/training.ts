@@ -180,6 +180,43 @@ export const ScenarioEvaluationDimensionSchema = z.object({
   }),
 });
 
+export const ScenarioVerifierAuditSchema = z.object({
+  answerIntegrity: z.string().min(1),
+  wellPosed: z.string().min(1),
+  selfContained: z.string().min(1),
+  conceptRequired: z.string().min(1),
+  shortcutsClosed: z.string().min(1),
+  difficulty: z.string().min(1),
+  spark: z.string().min(1),
+});
+
+export const ScenarioVerifierSchema = z
+  .object({
+    type: z.enum(["fixed_answer", "checker", "judge_rubric"]),
+    answer: z.string().min(1).nullable(),
+    checkerSpec: z.string().min(1).nullable(),
+    intendedSolution: z.string().min(1),
+    shortcutFailures: z.array(z.string().min(1)).min(1).max(8),
+    rubricAudit: ScenarioVerifierAuditSchema,
+  })
+  .superRefine((verifier, ctx) => {
+    if (verifier.type === "fixed_answer" && !verifier.answer) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["answer"],
+        message: "fixed_answer verifier requires answer.",
+      });
+    }
+
+    if (verifier.type === "checker" && !verifier.checkerSpec) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["checkerSpec"],
+        message: "checker verifier requires checkerSpec.",
+      });
+    }
+  });
+
 export const ScenarioEvaluationContractSchema = z.object({
   version: z.literal(1),
   scenarioStage: z.enum([
@@ -193,6 +230,7 @@ export const ScenarioEvaluationContractSchema = z.object({
   testedDimensions: z.array(ScenarioEvaluationDimensionSchema).min(1).max(4),
   learnerVisibleCriteria: z.array(z.string().min(1)).min(1).max(5),
   evaluatorNotes: z.array(z.string().min(1)).max(6),
+  verifier: ScenarioVerifierSchema.optional(),
 });
 
 export const EvaluationDimensionResultSchema = z.object({
