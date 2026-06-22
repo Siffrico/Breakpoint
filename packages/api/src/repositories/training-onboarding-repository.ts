@@ -580,7 +580,12 @@ export const trainingOnboardingRepository = {
   }: {
     db: Database;
     sessionIds: string[];
-  }) => {
+  }): Promise<
+    {
+      profile: typeof TrainingIdentityProfile.$inferSelect;
+      version: typeof TrainingIdentityProfileVersion.$inferSelect;
+    }[]
+  > => {
     if (sessionIds.length === 0) {
       return [];
     }

@@ -331,7 +331,7 @@ export const trainingCurriculumRepository = {
   }: {
     db: Database;
     sessionIds: string[];
-  }) => {
+  }): Promise<(typeof TrainingCurriculumPlan.$inferSelect)[]> => {
     if (sessionIds.length === 0) {
       return [];
     }

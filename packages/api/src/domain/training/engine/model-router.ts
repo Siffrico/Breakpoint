@@ -2,13 +2,14 @@ import type { LanguageModel, ToolSet } from "ai";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createGoogleGenerativeAI, google } from "@ai-sdk/google";
 import { createOpenAI, openai } from "@ai-sdk/openai";
+import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 
 import type { AiModelPreference } from "@acme/validators";
 import { AiModelPreferenceSchema } from "@acme/validators";
 
 import type { ModelTier } from "../prompts/types";
 
-type AiProvider = "google" | "openai";
+type AiProvider = "google" | "openai" | "openrouter";
 
 export type AiModelPurpose =
   | "onboarding"
@@ -32,6 +33,11 @@ const GOOGLE_TIER_DEFAULTS: Record<ModelTier, string> = {
 const OPENAI_TIER_DEFAULTS: Record<ModelTier, string> = {
   critical: "gpt-4.1",
   standard: "gpt-4.1-mini",
+};
+
+const OPENROUTER_TIER_DEFAULTS: Record<ModelTier, string> = {
+  critical: "z-ai/glm-5.2",
+  standard: "z-ai/glm-5.2",
 };
 
 const OPENAI_PURPOSE_DEFAULTS: Partial<Record<AiModelPurpose, string>> = {
@@ -90,30 +96,36 @@ const getSelectedProvider = (purpose?: AiModelPurpose): AiProvider => {
     ...(purpose ? [getEnv(getPurposeProviderEnvName(purpose))] : []),
     ...PROVIDER_ENV.map((name) => getEnv(name)),
   ].find(Boolean);
-  if (configured === "openai" || configured === "google") {
+  if (
+    configured === "openai" ||
+    configured === "google" ||
+    configured === "openrouter"
+  ) {
     return configured;
   }
 
   return "google";
 };
 
+const PROVIDER_API_KEY_ENV: Record<AiProvider, string> = {
+  google: "GOOGLE_GENERATIVE_AI_API_KEY",
+  openai: "OPENAI_API_KEY",
+  openrouter: "OPENROUTER_API_KEY",
+};
+
 const getProviderApiKey = (provider: AiProvider): string | undefined =>
-  provider === "google"
-    ? getEnv("GOOGLE_GENERATIVE_AI_API_KEY")
-    : getEnv("OPENAI_API_KEY");
+  getEnv(PROVIDER_API_KEY_ENV[provider]);
 
 const getProviderMissingKeyMessage = (
   provider: AiProvider,
   context: string,
-): string =>
-  provider === "google"
-    ? `GOOGLE_GENERATIVE_AI_API_KEY is required for ${context}.`
-    : `OPENAI_API_KEY is required for ${context}.`;
+): string => `${PROVIDER_API_KEY_ENV[provider]} is required for ${context}.`;
 
-const getTierDefault = (provider: AiProvider, tier: ModelTier): string =>
-  provider === "google"
-    ? GOOGLE_TIER_DEFAULTS[tier]
-    : OPENAI_TIER_DEFAULTS[tier];
+const getTierDefault = (provider: AiProvider, tier: ModelTier): string => {
+  if (provider === "google") return GOOGLE_TIER_DEFAULTS[tier];
+  if (provider === "openrouter") return OPENROUTER_TIER_DEFAULTS[tier];
+  return OPENAI_TIER_DEFAULTS[tier];
+};
 
 const getPurposeEnvName = (purpose: AiModelPurpose): string =>
   `AI_MODEL_${purpose.replace(/[A-Z]/g, (letter) => `_${letter}`).toUpperCase()}`;
@@ -176,6 +188,10 @@ const createModel = ({
     return createGoogleGenerativeAI({ apiKey })(modelName);
   }
 
+  if (provider === "openrouter") {
+    return createOpenRouter({ apiKey })(modelName);
+  }
+
   return createOpenAI({ apiKey })(modelName);
 };
 
@@ -215,6 +231,12 @@ export const getSearchToolsForSelectedProvider = (
         searchContextSize: "high",
       }),
     } as unknown as ToolSet;
+  }
+
+  // OpenRouter does grounding via the `:online` model suffix / web plugin
+  // rather than an AI SDK tool, so there is no provider-native tool to attach.
+  if (provider === "openrouter") {
+    return {};
   }
 
   return {
