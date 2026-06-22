@@ -27,6 +27,7 @@ import { trainingAttemptRepository } from "../repositories/training-attempt-repo
 import { trainingCapstoneRepository } from "../repositories/training-capstone-repository";
 import { trainingCurriculumRepository } from "../repositories/training-curriculum-repository";
 import { trainingOnboardingRepository } from "../repositories/training-onboarding-repository";
+import { createTrainingRatingGoldilocksDeps } from "../repositories/training-rating-goldilocks-deps";
 import { trainingRatingRepository } from "../repositories/training-rating-repository";
 import { trainingRecallRepository } from "../repositories/training-recall-repository";
 import { protectedProcedure } from "../trpc";
@@ -38,6 +39,7 @@ const SessionIdSchema = z.object({
 const SubmitAiWorkspaceMessageSchema = z.object({
   sessionId: z.string().uuid(),
   message: z.string().min(1).max(8_000),
+  turnId: z.string().min(1).max(96).optional(),
   attemptTiming: z
     .object({
       elapsedSeconds: z.number().int(),
@@ -191,11 +193,12 @@ const createCapstoneSubmissionDeps = (
       db,
       ...payload,
     }),
-  completeNode: (nodeId: string) =>
-    trainingCurriculumRepository.completeNode({
+  completeNode: async (nodeId: string) => {
+    await trainingCurriculumRepository.completeNode({
       db,
       nodeId,
-    }),
+    });
+  },
 });
 
 const getErrorCode = (message: string) => {
@@ -553,6 +556,7 @@ export const trainingRouter = {
           sessionId: input.sessionId,
           userId: ctx.session.user.id,
           message: input.message,
+          turnId: input.turnId ?? null,
           attemptTiming: input.attemptTiming ?? null,
           deps: {
             getActivePlan: (sessionId) =>
@@ -581,6 +585,12 @@ export const trainingRouter = {
               trainingOnboardingRepository.appendWorkspaceMessage({
                 db: ctx.db,
                 ...payload,
+              }),
+            listMessagesByTurnId: (sessionId, turnId) =>
+              trainingOnboardingRepository.listWorkspaceMessagesByTurnId({
+                db: ctx.db,
+                sessionId,
+                turnId,
               }),
             listPhaseResponsesBySession: (sessionId) =>
               trainingCurriculumRepository.listPhaseResponsesBySession({
@@ -638,10 +648,10 @@ export const trainingRouter = {
             },
             prepareDifficultyDirective: ({ userId, nodeId, now }) =>
               prepareScenarioDirective({
-                db: ctx.db,
                 userId,
                 nodeId,
                 now,
+                deps: createTrainingRatingGoldilocksDeps(ctx.db),
               }),
             applyManualDifficultyNudge: ({ userId, nodeId, signal, now }) =>
               trainingRatingRepository.applyManualDifficultyNudge({
@@ -674,7 +684,6 @@ export const trainingRouter = {
               occurredAt,
             }) =>
               recordEvaluation({
-                db: ctx.db,
                 userId,
                 nodeId,
                 score,
@@ -682,6 +691,7 @@ export const trainingRouter = {
                 sidechatAskCount: 0,
                 wasOverTime,
                 occurredAt,
+                deps: createTrainingRatingGoldilocksDeps(ctx.db),
               }),
             touchSession: (sessionId) =>
               trainingOnboardingRepository.touchSession({

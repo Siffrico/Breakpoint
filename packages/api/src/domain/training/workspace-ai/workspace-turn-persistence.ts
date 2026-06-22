@@ -1,4 +1,5 @@
 import type {
+  CurriculumNode,
   CurriculumPlan,
   Debrief,
   PhaseResponseRecord,
@@ -15,6 +16,7 @@ import type {
   WorkspaceAiTurnResult,
 } from "./types";
 import type { WorkspaceTurnDependencies } from "./workspace-turn";
+import { ensureWorkspaceUnit } from "../workflows/get-ai-workspace-workflow";
 import { validateScenarioContractAgainstUnit } from "./evaluation-contracts";
 import { normalizeEducationStageTransition } from "./orchestrator";
 import {
@@ -30,8 +32,13 @@ export interface WorkspaceTurnPersistenceDependencies
     content: string;
     slot: string | null;
     unitId?: string | null;
+    turnId?: string | null;
     metadata?: WorkspaceAiMessage["metadata"];
   }) => Promise<WorkspaceAiMessage | null>;
+  listMessagesByTurnId?: (
+    sessionId: string,
+    turnId: string,
+  ) => Promise<WorkspaceAiMessage[]>;
   listMessages: (
     sessionId: string,
     slot?: "education_unit" | "recall",
@@ -70,7 +77,7 @@ export interface WorkspaceTurnPersistenceDependencies
     finalArticulation?: string | null;
     growthDimensions?: string[] | null;
   }) => Promise<unknown>;
-  completeNode: (nodeId: string) => Promise<unknown>;
+  completeNode: (nodeId: string) => Promise<CurriculumNode | null | unknown>;
   touchSession: (sessionId: string) => Promise<unknown>;
 }
 
@@ -81,6 +88,36 @@ const countPhaseResponses = (
   responses: PhaseResponseRecord[],
   phase: PhaseResponseRecord["phase"],
 ) => responses.filter((response) => response.phase === phase).length;
+
+const isPrewarmableWorkspaceNode = (
+  node: CurriculumNode | null | unknown,
+): node is CurriculumNode =>
+  Boolean(
+    node &&
+      typeof node === "object" &&
+      "kind" in node &&
+      "id" in node &&
+      (node.kind === "unit" || node.kind === "integration"),
+  );
+
+const queueNextWorkspaceUnitPrewarm = ({
+  node,
+  deps,
+}: {
+  node: CurriculumNode | null | unknown;
+  deps: WorkspaceTurnPersistenceDependencies;
+}) => {
+  if (!isPrewarmableWorkspaceNode(node)) {
+    return;
+  }
+
+  void ensureWorkspaceUnit({ node, deps }).catch((error) => {
+    console.error("Next workspace unit prewarm failed", {
+      nodeId: node.id,
+      error,
+    });
+  });
+};
 
 const buildCompletionDebrief = ({
   message,
@@ -176,6 +213,7 @@ export const saveRecallTurnResult = async ({
   output,
   difficultyDirectiveReason,
   manualDifficultySignal,
+  turnId,
   deps,
 }: {
   sessionId: string;
@@ -187,6 +225,7 @@ export const saveRecallTurnResult = async ({
   output: WorkspaceAiRecallOutput;
   difficultyDirectiveReason?: string | null;
   manualDifficultySignal?: "too_easy" | "too_hard" | null;
+  turnId?: string | null;
   deps: WorkspaceTurnPersistenceDependencies;
 }): Promise<WorkspaceAiTurnResult> => {
   const assistantMessage = await deps.appendMessage({
@@ -195,6 +234,7 @@ export const saveRecallTurnResult = async ({
     content: output.assistantMessage,
     slot: "recall",
     unitId: unit.nodeId,
+    turnId,
     metadata: getDifficultyDirectiveMetadata(difficultyDirectiveReason),
   });
 
@@ -248,6 +288,7 @@ export const saveEducationTurnResult = async ({
   evaluationPlan,
   priorEvaluationAttempts,
   difficultyDirectiveReason,
+  turnId,
   deps,
 }: {
   sessionId: string;
@@ -261,6 +302,7 @@ export const saveEducationTurnResult = async ({
   evaluationPlan?: EvaluationPlan | null;
   priorEvaluationAttempts: number;
   difficultyDirectiveReason?: string | null;
+  turnId?: string | null;
   deps: WorkspaceTurnPersistenceDependencies;
 }): Promise<WorkspaceAiTurnResult> => {
   if (!state.educationStage) {
@@ -286,6 +328,7 @@ export const saveEducationTurnResult = async ({
     content: output.assistantMessage,
     slot: "education_unit",
     unitId: unit.nodeId,
+    turnId,
     metadata: getDifficultyDirectiveMetadata(difficultyDirectiveReason),
   });
 
@@ -350,7 +393,8 @@ export const saveEducationTurnResult = async ({
       finalArticulation: message,
       growthDimensions: output.strengths,
     });
-    await deps.completeNode(unit.nodeId);
+    const nextReadyNode = await deps.completeNode(unit.nodeId);
+    queueNextWorkspaceUnitPrewarm({ node: nextReadyNode, deps });
   }
 
   await deps.touchSession(sessionId);
@@ -388,6 +432,7 @@ export const saveNextScenarioPrompt = async ({
   currentStage,
   difficultyDirectiveReason,
   manualDifficultySignal,
+  turnId,
   deps,
 }: {
   sessionId: string;
@@ -398,6 +443,7 @@ export const saveNextScenarioPrompt = async ({
   currentStage: WorkspaceAiState["educationStage"];
   difficultyDirectiveReason?: string | null;
   manualDifficultySignal?: "too_easy" | "too_hard" | null;
+  turnId?: string | null;
   deps: WorkspaceTurnPersistenceDependencies;
 }): Promise<void> => {
   if (!currentStage) {
@@ -410,6 +456,7 @@ export const saveNextScenarioPrompt = async ({
     content: output.assistantMessage,
     slot: "education_unit",
     unitId: unit.nodeId,
+    turnId,
     metadata: getDifficultyDirectiveMetadata(difficultyDirectiveReason),
   });
 

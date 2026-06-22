@@ -38,6 +38,7 @@ import { memoryRepository } from "./repositories/memory-repository";
 import { trainingAttemptRepository } from "./repositories/training-attempt-repository";
 import { trainingCurriculumRepository } from "./repositories/training-curriculum-repository";
 import { trainingOnboardingRepository } from "./repositories/training-onboarding-repository";
+import { createTrainingRatingGoldilocksDeps } from "./repositories/training-rating-goldilocks-deps";
 import { trainingRatingRepository } from "./repositories/training-rating-repository";
 
 type Database = typeof databaseClient;
@@ -92,11 +93,18 @@ const createWorkspaceTurnRepositoryDeps = (db: Database) => ({
     content: string;
     slot: string | null;
     unitId?: string | null;
+    turnId?: string | null;
     metadata?: { difficultyDirectiveReason?: string } | null;
   }) =>
     trainingOnboardingRepository.appendWorkspaceMessage({
       db,
       ...payload,
+    }),
+  listMessagesByTurnId: (sessionId: string, turnId: string) =>
+    trainingOnboardingRepository.listWorkspaceMessagesByTurnId({
+      db,
+      sessionId,
+      turnId,
     }),
   listPhaseResponsesBySession: (sessionId: string) =>
     trainingCurriculumRepository.listPhaseResponsesBySession({
@@ -188,10 +196,10 @@ const createWorkspaceTurnRepositoryDeps = (db: Database) => ({
     now: Date;
   }) =>
     prepareScenarioDirective({
-      db,
       userId,
       nodeId,
       now,
+      deps: createTrainingRatingGoldilocksDeps(db),
     }),
   applyManualDifficultyNudge: ({
     userId,
@@ -249,7 +257,6 @@ const createWorkspaceTurnRepositoryDeps = (db: Database) => ({
     occurredAt: Date;
   }) =>
     recordEvaluation({
-      db,
       userId,
       nodeId,
       score,
@@ -257,6 +264,7 @@ const createWorkspaceTurnRepositoryDeps = (db: Database) => ({
       sidechatAskCount: 0,
       wasOverTime,
       occurredAt,
+      deps: createTrainingRatingGoldilocksDeps(db),
     }),
 });
 
@@ -265,6 +273,7 @@ export const streamWorkspaceChat = async ({
   sessionId,
   userId,
   message,
+  turnId = null,
   modelName,
   attemptTiming,
   action = "submit_answer",
@@ -274,6 +283,7 @@ export const streamWorkspaceChat = async ({
   sessionId: string;
   userId: string;
   message: string;
+  turnId?: string | null;
   modelName?: string | null;
   attemptTiming?: AttemptTiming | null;
   action?: WorkspaceChatAction;
@@ -285,6 +295,7 @@ export const streamWorkspaceChat = async ({
       sessionId,
       userId,
       message,
+      turnId,
       attemptTiming,
       action,
       manualDifficultySignal,
@@ -296,6 +307,7 @@ const streamWorkspaceChatWithModelPreference = async ({
   sessionId,
   userId,
   message,
+  turnId,
   attemptTiming,
   action,
   manualDifficultySignal,
@@ -304,6 +316,7 @@ const streamWorkspaceChatWithModelPreference = async ({
   sessionId: string;
   userId: string;
   message: string;
+  turnId: string | null;
   attemptTiming?: AttemptTiming | null;
   action: WorkspaceChatAction;
   manualDifficultySignal: ManualDifficultySignal | null;
@@ -395,12 +408,22 @@ const streamWorkspaceChatWithModelPreference = async ({
       const prepared = await prepareWorkspaceTurnPrompt({
         sessionId,
         userId,
+        turnId,
         message,
         attemptTiming,
         action,
         manualDifficultySignal,
         deps: turnDeps,
       });
+
+      if (prepared.kind === "cached") {
+        streamAssistantDelta(prepared.assistantMessage.content);
+        endAssistantText();
+        writeStatus("complete", "Complete");
+        writer.write({ type: "finish", finishReason: "stop" });
+        return;
+      }
+
       const { runtime } = prepared;
 
       writeStatus(

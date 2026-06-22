@@ -19,6 +19,7 @@ interface WorkspaceChatRequestBody {
   messages?: UIMessage[];
   model?: string;
   sessionId?: string;
+  turnId?: string;
 }
 
 const AI_MODEL_COOKIE = "bp-ai-model";
@@ -108,6 +109,10 @@ export const POST = async (req: NextRequest) => {
     userId: session.user.id,
     message: submittedMessage,
     action,
+    turnId:
+      typeof body.turnId === "string" && body.turnId.length > 0
+        ? body.turnId.slice(0, 96)
+        : null,
     manualDifficultySignal: body.manualDifficultySignal ?? null,
     modelName: resolveModelPreference(req, body.model),
     attemptTiming: parsedTiming.success ? parsedTiming.data : null,

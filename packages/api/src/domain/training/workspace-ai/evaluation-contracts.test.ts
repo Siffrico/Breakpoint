@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { WorkspaceAiEvaluationOutputSchema } from "./types";
 import { validateEvaluationDimensionResults } from "./evaluation-contracts";
+import { WorkspaceAiEvaluationOutputSchema } from "./types";
 
-test("contract-aware evaluation output requires per-dimension results", () => {
+void test("contract-aware evaluation output requires per-dimension results", () => {
   const result = WorkspaceAiEvaluationOutputSchema.safeParse({
     assistantMessage: "Feedback",
     estimatedItemRating: 1200,
@@ -34,7 +34,7 @@ test("contract-aware evaluation output requires per-dimension results", () => {
   );
 });
 
-test("contract dimension validation rejects omitted tested dimensions", () => {
+void test("contract dimension validation rejects omitted tested dimensions", () => {
   assert.throws(
     () =>
       validateEvaluationDimensionResults({

@@ -58,6 +58,7 @@ export const WorkspaceAiMessageSchema = z.object({
   sequence: z.number().int().min(0),
   slot: z.string().nullable(),
   unitId: z.string().uuid().nullable(),
+  turnId: z.string().min(1).max(96).nullable().optional(),
   metadata: z
     .object({
       difficultyDirectiveReason: z.string().min(1).optional(),

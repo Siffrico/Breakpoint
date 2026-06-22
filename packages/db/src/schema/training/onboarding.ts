@@ -42,12 +42,11 @@ export const TrainingOnboardingMessage = pgTable(
     // pre-unit messages (onboarding/intro), which compaction treats as the
     // oldest bucket. See engine/compaction.
     unitId: t.uuid(),
+    turnId: t.varchar({ length: 96 }),
     content: t.text().notNull(),
-    metadata: t
-      .jsonb()
-      .$type<{
-        difficultyDirectiveReason?: string;
-      } | null>(),
+    metadata: t.jsonb().$type<{
+      difficultyDirectiveReason?: string;
+    } | null>(),
     sequence: t.integer().notNull(),
     createdAt: t
       .timestamp({ mode: "date", withTimezone: true })
@@ -59,6 +58,9 @@ export const TrainingOnboardingMessage = pgTable(
       table.sessionId,
       table.sequence,
     ),
+    uniqueIndex("becoming_onboarding_message_session_turn_role_idx")
+      .on(table.sessionId, table.turnId, table.role)
+      .where(sql`${table.turnId} is not null`),
   ],
 );
 

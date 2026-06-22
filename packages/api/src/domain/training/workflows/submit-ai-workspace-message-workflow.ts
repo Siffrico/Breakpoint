@@ -20,12 +20,14 @@ export const submitAiWorkspaceMessageWorkflow = async ({
   sessionId,
   userId,
   message,
+  turnId = null,
   attemptTiming,
   deps,
 }: {
   sessionId: string;
   userId: string;
   message: string;
+  turnId?: string | null;
   attemptTiming?: AttemptTiming | null;
   deps: WorkspaceTurnOrchestrationDependencies;
 }): Promise<Result<WorkspaceAiTurnResult>> => {
@@ -34,6 +36,7 @@ export const submitAiWorkspaceMessageWorkflow = async ({
     prepared = await prepareWorkspaceTurnPrompt({
       sessionId,
       userId,
+      turnId,
       message,
       attemptTiming,
       action: "submit_answer",
@@ -43,6 +46,22 @@ export const submitAiWorkspaceMessageWorkflow = async ({
     return err(
       error instanceof Error ? error.message : "Workspace turn failed.",
     );
+  }
+
+  if (prepared.kind === "cached") {
+    return ok({
+      state: {
+        mode: "education_unit",
+        promptKind: "education_unit",
+        educationStage: null,
+        activeUnitId: null,
+        activeUnitTitle: null,
+        recallUnitId: null,
+        recallUnitTitle: null,
+      },
+      messages: prepared.messages,
+      assistantMessage: prepared.assistantMessage,
+    });
   }
 
   try {

@@ -1,5 +1,4 @@
 import type { db as databaseClient } from "@acme/db/client";
-import type { TrainingUnitMasteryContractJson } from "@acme/db/schema";
 import { and, asc, desc, eq, inArray } from "@acme/db";
 import {
   TrainingCurriculumNode,
@@ -1011,7 +1010,7 @@ export const trainingCurriculumRepository = {
       nodeId,
     });
 
-    await trainingCurriculumRepository.advancePlanAfterCompletion({
+    return trainingCurriculumRepository.advancePlanAfterCompletion({
       db,
       nodeId,
     });

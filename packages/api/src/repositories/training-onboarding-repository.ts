@@ -23,6 +23,7 @@ interface OnboardingMessageInsert {
   content: string;
   slot: string | null;
   unitId?: string | null;
+  turnId?: string | null;
   metadata?: {
     difficultyDirectiveReason?: string;
   } | null;
@@ -51,6 +52,37 @@ const getNextMessageSequence = async ({
   return row?.sequence ?? 0;
 };
 
+const mapWorkspaceMessage = (
+  message: typeof TrainingOnboardingMessage.$inferSelect,
+) => ({
+  role: message.role as "assistant" | "user",
+  content: message.content,
+  sequence: message.sequence,
+  slot: message.slot,
+  unitId: message.unitId,
+  turnId: message.turnId,
+  metadata: message.metadata,
+});
+
+const getMessageByTurnRole = async ({
+  db,
+  sessionId,
+  turnId,
+  role,
+}: {
+  db: Database;
+  sessionId: string;
+  turnId: string;
+  role: "assistant" | "user";
+}) =>
+  (await db.query.TrainingOnboardingMessage.findFirst({
+    where: and(
+      eq(TrainingOnboardingMessage.sessionId, sessionId),
+      eq(TrainingOnboardingMessage.turnId, turnId),
+      eq(TrainingOnboardingMessage.role, role),
+    ),
+  })) ?? null;
+
 const insertMessageWithNextSequence = async ({
   db,
   input,
@@ -75,6 +107,18 @@ const insertMessageWithNextSequence = async ({
 
       return message ?? null;
     } catch (error) {
+      if (isUniqueViolation(error) && input.turnId) {
+        const existing = await getMessageByTurnRole({
+          db,
+          sessionId: input.sessionId,
+          turnId: input.turnId,
+          role: input.role,
+        });
+        if (existing) {
+          return existing;
+        }
+      }
+
       if (!isUniqueViolation(error) || attempt === 2) {
         throw error;
       }
@@ -152,6 +196,7 @@ export const trainingOnboardingRepository = {
     content,
     slot,
     unitId = null,
+    turnId = null,
     metadata = null,
   }: {
     db: Database;
@@ -160,32 +205,37 @@ export const trainingOnboardingRepository = {
     content: string;
     slot: string | null;
     unitId?: string | null;
+    turnId?: string | null;
     metadata?: {
       difficultyDirectiveReason?: string;
     } | null;
   }) => {
+    if (turnId) {
+      const existing = await getMessageByTurnRole({
+        db,
+        sessionId,
+        turnId,
+        role,
+      });
+      if (existing) {
+        return mapWorkspaceMessage(existing);
+      }
+    }
+
     const message = await insertMessageWithNextSequence({
       db,
       input: {
         sessionId,
         role,
         content,
-          slot,
-          unitId,
-          metadata,
-        },
-      });
+        slot,
+        unitId,
+        turnId,
+        metadata,
+      },
+    });
 
-    return message
-      ? {
-          role: message.role as "assistant" | "user",
-          content: message.content,
-          sequence: message.sequence,
-          slot: message.slot,
-          unitId: message.unitId,
-          metadata: message.metadata,
-        }
-      : null;
+    return message ? mapWorkspaceMessage(message) : null;
   },
 
   getSession: async ({ db, sessionId }: { db: Database; sessionId: string }) =>
@@ -302,8 +352,29 @@ export const trainingOnboardingRepository = {
       sequence: message.sequence,
       slot: message.slot,
       unitId: message.unitId,
+      turnId: message.turnId,
       metadata: message.metadata,
     }));
+  },
+
+  listWorkspaceMessagesByTurnId: async ({
+    db,
+    sessionId,
+    turnId,
+  }: {
+    db: Database;
+    sessionId: string;
+    turnId: string;
+  }) => {
+    const messages = await db.query.TrainingOnboardingMessage.findMany({
+      where: and(
+        eq(TrainingOnboardingMessage.sessionId, sessionId),
+        eq(TrainingOnboardingMessage.turnId, turnId),
+      ),
+      orderBy: asc(TrainingOnboardingMessage.sequence),
+    });
+
+    return messages.map(mapWorkspaceMessage);
   },
 
   getWorkspaceSummary: async ({

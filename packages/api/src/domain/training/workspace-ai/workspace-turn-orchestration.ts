@@ -8,6 +8,7 @@ import type {
   AttemptTiming,
   WorkspaceAiEducationOutput,
   WorkspaceAiEvaluationOutput,
+  WorkspaceAiMessage,
   WorkspaceAiRecallOutput,
   WorkspaceAiState,
   WorkspaceAiTurnResult,
@@ -121,10 +122,12 @@ export interface WorkspaceTurnOrchestrationDependencies
 }
 
 export interface PreparedWorkspaceTurn {
+  kind: "prepared";
   action: WorkspaceChatAction;
   manualDifficultySignal: ManualDifficultySignal | null;
   sessionId: string;
   userId: string;
+  turnId: string | null;
   message: string;
   attemptTiming?: AttemptTiming | null;
   turn: ResolvedWorkspaceTurn;
@@ -134,6 +137,16 @@ export interface PreparedWorkspaceTurn {
   difficultyDirectiveResult: DifficultyDirectiveResult | null;
   manualDifficultyNudge: ManualDifficultyNudgeResult | null;
 }
+
+export interface CachedWorkspaceTurn {
+  kind: "cached";
+  assistantMessage: WorkspaceAiMessage;
+  messages: WorkspaceAiMessage[];
+}
+
+export type PreparedWorkspaceTurnResult =
+  | PreparedWorkspaceTurn
+  | CachedWorkspaceTurn;
 
 export type WorkspaceTurnOutput =
   | WorkspaceAiRecallOutput
@@ -193,6 +206,7 @@ const buildActionPromptContext = ({
 export const prepareWorkspaceTurnPrompt = async ({
   sessionId,
   userId,
+  turnId = null,
   message,
   attemptTiming,
   action = "submit_answer",
@@ -201,15 +215,40 @@ export const prepareWorkspaceTurnPrompt = async ({
 }: {
   sessionId: string;
   userId: string;
+  turnId?: string | null;
   message: string;
   attemptTiming?: AttemptTiming | null;
   action?: WorkspaceChatAction;
   manualDifficultySignal?: ManualDifficultySignal | null;
   deps: WorkspaceTurnOrchestrationDependencies;
-}): Promise<PreparedWorkspaceTurn> => {
+}): Promise<PreparedWorkspaceTurnResult> => {
   const trimmedMessage = message.trim();
   if (action === "submit_answer" && trimmedMessage.length < 2) {
     throw new Error("Write a fuller message so the AI can respond usefully.");
+  }
+
+  if (turnId && deps.listMessagesByTurnId) {
+    const turnMessages = await deps.listMessagesByTurnId(sessionId, turnId);
+    const cachedAssistantMessage = turnMessages.find(
+      (workspaceMessage) => workspaceMessage.role === "assistant",
+    );
+    if (cachedAssistantMessage) {
+      const cachedSlot =
+        cachedAssistantMessage.slot === "recall" ? "recall" : "education_unit";
+
+      return {
+        kind: "cached",
+        assistantMessage: cachedAssistantMessage,
+        messages: await deps.listMessages(sessionId, cachedSlot),
+      };
+    }
+
+    if (
+      action === "submit_answer" &&
+      turnMessages.some((workspaceMessage) => workspaceMessage.role === "user")
+    ) {
+      throw new Error("This turn is already being processed.");
+    }
   }
 
   const turn = await resolveWorkspaceTurn({ sessionId, deps });
@@ -223,6 +262,7 @@ export const prepareWorkspaceTurnPrompt = async ({
       content: trimmedMessage,
       slot,
       unitId: unit.nodeId,
+      turnId,
     });
 
     if (!userMessage) {
@@ -356,10 +396,12 @@ export const prepareWorkspaceTurnPrompt = async ({
   });
 
   return {
+    kind: "prepared",
     action,
     manualDifficultySignal,
     sessionId,
     userId,
+    turnId,
     message: trimmedMessage,
     attemptTiming,
     turn,
@@ -435,10 +477,9 @@ const maybeRecordEvaluation = async ({
       userId: prepared.userId,
       nodeId: prepared.turn.unit.nodeId,
       score: output.score,
-      errorCodes:
-        output.dimensionResults?.map(
-          (dimensionResult) => dimensionResult.dimensionId,
-        ) ?? output.failedDimensions,
+      errorCodes: output.dimensionResults.map(
+        (dimensionResult) => dimensionResult.dimensionId,
+      ),
       wasOverTime: prepared.attemptTiming?.wasOverTime ?? false,
       occurredAt: new Date(),
     });
@@ -486,6 +527,7 @@ export const completeWorkspaceTurn = async ({
         difficultyDirectiveReason:
           prepared.difficultyDirectiveResult?.directive.reason ?? null,
         manualDifficultySignal: prepared.manualDifficultySignal,
+        turnId: prepared.turnId,
         deps,
       });
     }
@@ -501,6 +543,7 @@ export const completeWorkspaceTurn = async ({
       difficultyDirectiveReason:
         prepared.difficultyDirectiveResult?.directive.reason ?? null,
       deps,
+      turnId: prepared.turnId,
     });
   }
 
@@ -548,6 +591,7 @@ export const completeWorkspaceTurn = async ({
         prepared.difficultyDirectiveResult?.directive.reason ?? null,
       manualDifficultySignal:
         action === "adjust_difficulty" ? prepared.manualDifficultySignal : null,
+      turnId: prepared.turnId,
       deps,
     });
 
@@ -567,6 +611,7 @@ export const completeWorkspaceTurn = async ({
     priorEvaluationAttempts: getPriorEvaluationAttempts(unitResponses),
     difficultyDirectiveReason:
       prepared.difficultyDirectiveResult?.directive.reason ?? null,
+    turnId: prepared.turnId,
     deps,
   });
 

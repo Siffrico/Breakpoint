@@ -93,6 +93,11 @@ const makePreviewWorkspaceMessage = (
   parts: [{ type: "text", text }],
 });
 
+const createWorkspaceTurnId = () =>
+  typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `turn-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
 const buildPreviewWorkspaceReply = (answerText: string) => {
   const normalized = answerText.trim();
 
@@ -624,6 +629,7 @@ export function EducationUnitWorkspace({
     setPendingAction("submit_answer");
     setResponse("");
     setIsExpanded(false);
+    const turnId = createWorkspaceTurnId();
 
     try {
       await sendMessage(
@@ -636,6 +642,7 @@ export function EducationUnitWorkspace({
             action: "submit_answer",
             sessionId,
             message,
+            turnId,
             attemptTiming,
           },
         },
@@ -674,6 +681,7 @@ export function EducationUnitWorkspace({
     pendingSubmissionRef.current = null;
     pendingErrorToastRef.current = "next_scenario";
     setPendingAction("next_scenario");
+    const turnId = createWorkspaceTurnId();
 
     try {
       await sendMessage(
@@ -685,6 +693,7 @@ export function EducationUnitWorkspace({
           body: {
             action: "next_scenario",
             sessionId,
+            turnId,
           },
         },
       );
@@ -709,6 +718,7 @@ export function EducationUnitWorkspace({
     pendingSubmissionRef.current = null;
     pendingErrorToastRef.current = "adjust_difficulty";
     setPendingAction("adjust_difficulty");
+    const turnId = createWorkspaceTurnId();
 
     try {
       await sendMessage(
@@ -724,6 +734,7 @@ export function EducationUnitWorkspace({
             action: "adjust_difficulty",
             manualDifficultySignal: signal,
             sessionId,
+            turnId,
           },
         },
       );

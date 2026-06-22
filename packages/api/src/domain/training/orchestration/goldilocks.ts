@@ -1,7 +1,12 @@
-import type { db as databaseClient } from "@acme/db/client";
 import type {
+  ApplyEvaluationResult,
+  AttemptRecord,
   DifficultyBand,
   EvaluatedAttempt,
+  JobProgressState,
+  JobRatingState,
+  MisconceptionState,
+  RatingPredictionRecord,
   ScenarioDirective,
 } from "../engine/rating";
 import {
@@ -13,14 +18,63 @@ import {
   renderScenarioDirective,
   validateDifficultyBands,
 } from "../engine/rating";
-import { trainingRatingRepository } from "../../../repositories/training-rating-repository";
-
-type Database = typeof databaseClient;
 
 export interface GoldilocksDirectiveResult {
   directive: ScenarioDirective;
   promptBlock: string;
   ratingSnapshot: string;
+}
+
+interface GoldilocksJobProgress {
+  ratingState: JobRatingState;
+  progress: JobProgressState;
+  misconceptions: MisconceptionState[];
+  recentAttempts: AttemptRecord[];
+  masteredAt: Date | null;
+}
+
+interface GoldilocksOpenScenario {
+  id: string;
+  directiveJson: ScenarioDirective;
+  itemRating: number;
+}
+
+export interface PrepareScenarioDirectiveDependencies {
+  loadJobProgress: (input: {
+    userId: string;
+    nodeId: string;
+    initialRatingState: JobRatingState;
+  }) => Promise<GoldilocksJobProgress>;
+  listRecentPredictions: (input: {
+    userId: string;
+    nodeId: string;
+  }) => Promise<RatingPredictionRecord[]>;
+  openScenarioAttempt: (input: {
+    userId: string;
+    nodeId: string;
+    directive: ScenarioDirective;
+    itemRating: number;
+  }) => Promise<unknown>;
+}
+
+export interface RecordEvaluationDependencies {
+  getOpenScenario: (input: {
+    userId: string;
+    nodeId: string;
+  }) => Promise<GoldilocksOpenScenario | null>;
+  loadJobProgress: (input: {
+    userId: string;
+    nodeId: string;
+    initialRatingState: JobRatingState;
+  }) => Promise<GoldilocksJobProgress>;
+  saveEvaluationResult: (input: {
+    userId: string;
+    nodeId: string;
+    scenarioAttemptId: string;
+    result: ApplyEvaluationResult;
+    nextProgress: JobProgressState;
+    masteredAt: Date | null;
+  }) => Promise<void>;
 }
 
 export const deriveDefaultBands = (): readonly DifficultyBand[] => [
@@ -95,27 +149,26 @@ export const clampClaimedItemRating = ({
 };
 
 export const prepareScenarioDirective = async ({
-  db,
   userId,
   nodeId,
   now,
   bands,
+  deps,
 }: {
-  db: Database;
   userId: string;
   nodeId: string;
   now: Date;
   bands?: readonly DifficultyBand[] | null;
+  deps: PrepareScenarioDirectiveDependencies;
 }): Promise<GoldilocksDirectiveResult> => {
   const resolvedBands = resolveBands(bands);
   const [loaded, predictions] = await Promise.all([
-    trainingRatingRepository.loadJobProgress({
-      db,
+    deps.loadJobProgress({
       userId,
       nodeId,
       initialRatingState: createInitialRatingState(),
     }),
-    trainingRatingRepository.listRecentPredictions({ db, userId, nodeId }),
+    deps.listRecentPredictions({ userId, nodeId }),
   ]);
   const rating = decayRatingState(loaded.ratingState, now);
   const directive = decideNextScenario({
@@ -134,8 +187,7 @@ export const prepareScenarioDirective = async ({
 
   const calibration = buildGeneratorCalibrationNote(predictions);
   const promptBlock = renderScenarioDirective(directive, band, calibration);
-  await trainingRatingRepository.openScenarioAttempt({
-    db,
+  await deps.openScenarioAttempt({
     userId,
     nodeId,
     directive,
@@ -155,7 +207,6 @@ export const prepareScenarioDirective = async ({
 };
 
 export const recordEvaluation = async ({
-  db,
   userId,
   nodeId,
   score,
@@ -164,8 +215,8 @@ export const recordEvaluation = async ({
   wasOverTime = false,
   occurredAt,
   bands,
+  deps,
 }: {
-  db: Database;
   userId: string;
   nodeId: string;
   score: number | null | undefined;
@@ -174,18 +225,18 @@ export const recordEvaluation = async ({
   wasOverTime?: boolean;
   occurredAt: Date;
   bands?: readonly DifficultyBand[] | null;
+  deps: RecordEvaluationDependencies;
 }): Promise<{ recorded: boolean; reason?: string }> => {
   if (score == null) return { recorded: false, reason: "missing_score" };
 
-  const openScenario = await trainingRatingRepository.getOpenScenario({
-    db,
+  const openScenario = await deps.getOpenScenario({
     userId,
     nodeId,
   });
-  if (!openScenario) return { recorded: false, reason: "missing_open_scenario" };
+  if (!openScenario)
+    return { recorded: false, reason: "missing_open_scenario" };
 
-  const loaded = await trainingRatingRepository.loadJobProgress({
-    db,
+  const loaded = await deps.loadJobProgress({
     userId,
     nodeId,
     initialRatingState: createInitialRatingState(),
@@ -223,8 +274,7 @@ export const recordEvaluation = async ({
         ? occurredAt
         : null);
 
-    await trainingRatingRepository.saveEvaluationResult({
-      db,
+    await deps.saveEvaluationResult({
       userId,
       nodeId,
       scenarioAttemptId: openScenario.id,

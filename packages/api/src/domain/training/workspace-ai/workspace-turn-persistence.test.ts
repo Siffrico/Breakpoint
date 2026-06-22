@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type {
-  CurriculumPlan,
   PhaseResponseRecord,
   ScenarioEvaluationContract,
   UnitContent,
@@ -65,7 +64,11 @@ const unit = {
     openingMisconception: "The first visible symptom is the cause.",
     roundLadder: [
       { round: 1, objection: "Why?", objective: "Ground the diagnosis." },
-      { round: 2, objection: "What else?", objective: "Consider alternatives." },
+      {
+        round: 2,
+        objection: "What else?",
+        objective: "Consider alternatives.",
+      },
       { round: 3, objection: "Now what?", objective: "Pick the next probe." },
     ],
     passSignals: ["Uses evidence.", "Names uncertainty."],
@@ -78,42 +81,10 @@ const unit = {
   unitMasteryContract,
 } satisfies UnitContent;
 
-const plan = {
-  id: "plan-1",
-  title: "Plan",
-  summary: "Plan summary",
-  targetIdentity: "Expert operator",
-  overview: null,
-  beforeAfter: {
-    headline: "Before/after",
-    beforeSummary: "Before",
-    afterSummary: "After",
-    contrastPairs: [],
-    firstShift: "Diagnose first.",
-  },
-  nodes: [
-    {
-      id: "node-1",
-      parentNodeId: null,
-      kind: "unit",
-      title: "Diagnose workflow failure",
-      summary: "Diagnose before fixing.",
-      whyItMatters: "Wrong fixes waste attention.",
-      learningGoal: "Use evidence to isolate the cause.",
-      orderIndex: 0,
-      depth: 0,
-      positionColumn: 0,
-      positionRow: 0,
-      status: "ready",
-    },
-  ],
-  nextUnitId: "node-1",
-} satisfies CurriculumPlan;
-
 const makeDeps = (calls: string[]): WorkspaceTurnPersistenceDependencies => ({
-  appendMessage: async () => {
+  appendMessage: () => {
     calls.push("appendMessage");
-    return {
+    return Promise.resolve({
       id: "message-1",
       sessionId: "session-1",
       role: "assistant",
@@ -123,16 +94,16 @@ const makeDeps = (calls: string[]): WorkspaceTurnPersistenceDependencies => ({
       unitId: "node-1",
       metadata: null,
       createdAt: new Date(),
-    };
+    });
   },
-  listMessages: async () => [],
-  listPhaseResponsesBySession: async () => [],
-  getPhaseResponses: async () => [],
-  getUnitByNodeId: async () => unit,
-  createUnitContent: async () => unit,
-  savePhaseResponse: async () => {
+  listMessages: () => Promise.resolve([]),
+  listPhaseResponsesBySession: () => Promise.resolve([]),
+  getPhaseResponses: () => Promise.resolve([]),
+  getUnitByNodeId: () => Promise.resolve(unit),
+  createUnitContent: () => Promise.resolve(unit),
+  savePhaseResponse: () => {
     calls.push("savePhaseResponse");
-    return {
+    return Promise.resolve({
       id: "response-1",
       unitContentId: "unit-content-1",
       sessionId: "session-1",
@@ -145,24 +116,25 @@ const makeDeps = (calls: string[]): WorkspaceTurnPersistenceDependencies => ({
       score: null,
       metadata: null,
       createdAt: new Date(),
-    } satisfies PhaseResponseRecord;
+    } satisfies PhaseResponseRecord);
   },
-  updateUnitMasteryContract: async () => {
+  updateUnitMasteryContract: () => {
     calls.push("updateUnitMasteryContract");
-    return {};
+    return Promise.resolve({});
   },
-  updateOpenScenarioContract: async () => {
+  updateOpenScenarioContract: () => {
     calls.push("updateOpenScenarioContract");
-    return null;
+    return Promise.resolve(null);
   },
-  saveAttempt: async () => {},
-  completeNode: async () => {},
-  touchSession: async () => {
+  saveAttempt: () => Promise.resolve(),
+  completeNode: () => Promise.resolve(),
+  touchSession: () => {
     calls.push("touchSession");
+    return Promise.resolve();
   },
 });
 
-test("next-scenario persistence fails when the private contract cannot attach to an open scenario", async () => {
+void test("next-scenario persistence fails when the private contract cannot attach to an open scenario", async () => {
   const calls: string[] = [];
 
   await assert.rejects(
@@ -192,7 +164,11 @@ test("next-scenario persistence fails when the private contract cannot attach to
 
   assert.deepEqual(
     calls,
-    ["appendMessage", "updateUnitMasteryContract", "updateOpenScenarioContract"],
+    [
+      "appendMessage",
+      "updateUnitMasteryContract",
+      "updateOpenScenarioContract",
+    ],
     "the transcript/phase response should not advance after contract attachment fails",
   );
 });
