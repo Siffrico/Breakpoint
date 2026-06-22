@@ -64,6 +64,16 @@ export const TrainingCurriculumNode = pgTable(
         role: string;
       }[];
     }>(),
+    difficultyBands: t
+      .jsonb()
+      .$type<
+        {
+          order: number;
+          minRating: number;
+          maxRating: number;
+          label?: string;
+        }[]
+      >(),
     orderIndex: t.integer().notNull(),
     depth: t.integer().notNull(),
     positionColumn: t.integer().notNull(),

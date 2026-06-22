@@ -6,6 +6,7 @@ import type {
 import type { WorkspaceTurnOrchestrationDependencies } from "../workspace-ai/workspace-turn-orchestration";
 import { err, ok } from "../../../lib/result";
 import { runWorkspaceAiPrompt } from "../workspace-ai/runtime";
+import { planNextWorkspaceTurn } from "../workspace-ai/workspace-turn";
 import {
   completeWorkspaceTurn,
   prepareWorkspaceTurnPrompt,
@@ -49,16 +50,16 @@ export const submitAiWorkspaceMessageWorkflow = async ({
   }
 
   if (prepared.kind === "cached") {
+    const plan = await deps.getActivePlan(sessionId);
+    const state = plan
+      ? await planNextWorkspaceTurn({ sessionId, plan, deps })
+      : null;
+    if (!state) {
+      return err("Cached workspace turn could not be replayed.");
+    }
+
     return ok({
-      state: {
-        mode: "education_unit",
-        promptKind: "education_unit",
-        educationStage: null,
-        activeUnitId: null,
-        activeUnitTitle: null,
-        recallUnitId: null,
-        recallUnitTitle: null,
-      },
+      state,
       messages: prepared.messages,
       assistantMessage: prepared.assistantMessage,
     });

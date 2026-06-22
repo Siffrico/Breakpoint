@@ -63,6 +63,7 @@ const mapUnitContent = ({
   summary: node.summary,
   whyItMatters: node.whyItMatters,
   learningGoal: node.summary,
+  difficultyBands: node.difficultyBands as UnitContent["difficultyBands"],
   seedPrompt: unit.seedPrompt,
   seedHint: unit.seedHint ?? DEFAULT_SEED_HINT,
   clusterArcFrame: unit.clusterArcFrame,
@@ -134,6 +135,7 @@ export const trainingCurriculumRepository = {
           depth: node.depth,
           positionColumn: node.positionColumn,
           positionRow: node.positionRow,
+          difficultyBands: node.difficultyBands ?? null,
           parentNodeId: null,
         })),
       )
@@ -228,6 +230,7 @@ export const trainingCurriculumRepository = {
       positionColumn: node.positionColumn,
       positionRow: node.positionRow,
       status: node.status as CurriculumNode["status"],
+      difficultyBands: node.difficultyBands ?? null,
     }));
 
     const nextUnitNode = nodeRows.find(

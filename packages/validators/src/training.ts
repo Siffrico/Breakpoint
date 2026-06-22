@@ -70,6 +70,13 @@ export const CurriculumNodeStatusSchema = z.enum([
   "completed",
 ]);
 
+export const DifficultyBandSchema = z.object({
+  order: z.number().int().min(0),
+  minRating: z.number().int(),
+  maxRating: z.number().int(),
+  label: z.string().min(1).optional(),
+});
+
 export const CurriculumNodeSchema = z.object({
   id: z.string().min(1),
   parentNodeId: z.string().min(1).nullable(),
@@ -83,6 +90,7 @@ export const CurriculumNodeSchema = z.object({
   positionColumn: z.number().int().min(0),
   positionRow: z.number().int().min(0),
   status: CurriculumNodeStatusSchema,
+  difficultyBands: z.array(DifficultyBandSchema).nullable(),
 });
 
 export const ProjectOverviewSchema = z.object({
@@ -257,6 +265,7 @@ export const ForgeUnitContentSchema = z.object({
   teachbackSetup: TeachbackSetupSchema,
   scenario: ForgeUnitScenarioSchema,
   unitMasteryContract: UnitMasteryContractSchema.nullable(),
+  difficultyBands: z.array(DifficultyBandSchema).nullable(),
 });
 
 export const PreSeedUnitContentDraftSchema = ForgeUnitContentSchema.pick({
@@ -786,6 +795,7 @@ export type BeforeAfterContrast = z.infer<typeof BeforeAfterContrastSchema>;
 export type BeforeAfterProfile = z.infer<typeof BeforeAfterProfileSchema>;
 export type CurriculumNodeKind = z.infer<typeof CurriculumNodeKindSchema>;
 export type CurriculumNodeStatus = z.infer<typeof CurriculumNodeStatusSchema>;
+export type DifficultyBand = z.infer<typeof DifficultyBandSchema>;
 export type CurriculumNode = z.infer<typeof CurriculumNodeSchema>;
 export type ProjectOverview = z.infer<typeof ProjectOverviewSchema>;
 export type ProjectOverviewSummary = z.infer<

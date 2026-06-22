@@ -6,11 +6,6 @@ import type { CurriculumNode } from "@acme/validators";
 import { sql } from "@acme/db";
 import { CapstoneSubmissionSchema } from "@acme/validators";
 
-import { createInitialRatingState } from "../domain/training/engine/rating";
-import {
-  prepareScenarioDirective,
-  recordEvaluation,
-} from "../domain/training/orchestration/goldilocks";
 import { createLearningProjectWorkflow } from "../domain/training/workflows/create-learning-project-workflow";
 import { generateCapstoneWorkflow } from "../domain/training/workflows/generate-capstone-workflow";
 import { getActivePlanWorkflow } from "../domain/training/workflows/get-active-plan-workflow";
@@ -22,14 +17,12 @@ import { getUnitWorkflow } from "../domain/training/workflows/get-unit-workflow"
 import { startOnboardingWorkflow } from "../domain/training/workflows/start-onboarding-workflow";
 import { submitAiWorkspaceMessageWorkflow } from "../domain/training/workflows/submit-ai-workspace-message-workflow";
 import { submitCapstoneMessageWorkflow } from "../domain/training/workflows/submit-capstone-message-workflow";
-import { memoryRepository } from "../repositories/memory-repository";
 import { trainingAttemptRepository } from "../repositories/training-attempt-repository";
 import { trainingCapstoneRepository } from "../repositories/training-capstone-repository";
 import { trainingCurriculumRepository } from "../repositories/training-curriculum-repository";
 import { trainingOnboardingRepository } from "../repositories/training-onboarding-repository";
-import { createTrainingRatingGoldilocksDeps } from "../repositories/training-rating-goldilocks-deps";
-import { trainingRatingRepository } from "../repositories/training-rating-repository";
 import { trainingRecallRepository } from "../repositories/training-recall-repository";
+import { createWorkspaceTurnRepositoryDeps } from "../repositories/workspace-turn-repository-deps";
 import { protectedProcedure } from "../trpc";
 
 const SessionIdSchema = z.object({
@@ -558,147 +551,7 @@ export const trainingRouter = {
           message: input.message,
           turnId: input.turnId ?? null,
           attemptTiming: input.attemptTiming ?? null,
-          deps: {
-            getActivePlan: (sessionId) =>
-              trainingCurriculumRepository.getActivePlan({
-                db: ctx.db,
-                sessionId,
-              }),
-            listMessages: (sessionId, slot) =>
-              trainingOnboardingRepository.listWorkspaceMessages({
-                db: ctx.db,
-                sessionId,
-                slot,
-              }),
-            getWorkspaceSummary: (sessionId, slot) =>
-              trainingOnboardingRepository.getWorkspaceSummary({
-                db: ctx.db,
-                sessionId,
-                slot,
-              }),
-            upsertWorkspaceSummary: (payload) =>
-              trainingOnboardingRepository.upsertWorkspaceSummary({
-                db: ctx.db,
-                ...payload,
-              }),
-            appendMessage: (payload) =>
-              trainingOnboardingRepository.appendWorkspaceMessage({
-                db: ctx.db,
-                ...payload,
-              }),
-            listMessagesByTurnId: (sessionId, turnId) =>
-              trainingOnboardingRepository.listWorkspaceMessagesByTurnId({
-                db: ctx.db,
-                sessionId,
-                turnId,
-              }),
-            listPhaseResponsesBySession: (sessionId) =>
-              trainingCurriculumRepository.listPhaseResponsesBySession({
-                db: ctx.db,
-                sessionId,
-              }),
-            getPhaseResponses: (unitContentId, sessionId) =>
-              trainingCurriculumRepository.getPhaseResponses({
-                db: ctx.db,
-                unitContentId,
-                sessionId,
-              }),
-            getUnitByNodeId: (nodeId) =>
-              trainingCurriculumRepository.getUnitByNodeId({
-                db: ctx.db,
-                nodeId,
-              }),
-            createUnitContent: (payload) =>
-              trainingCurriculumRepository.createUnitContent({
-                db: ctx.db,
-                ...payload,
-              }),
-            savePhaseResponse: (payload) =>
-              trainingCurriculumRepository.savePhaseResponse({
-                db: ctx.db,
-                ...payload,
-              }),
-            updateUnitMasteryContract: (payload) =>
-              trainingCurriculumRepository.updateUnitMasteryContract({
-                db: ctx.db,
-                ...payload,
-              }),
-            updateOpenScenarioContract: (payload) =>
-              trainingRatingRepository.updateOpenScenarioContract({
-                db: ctx.db,
-                ...payload,
-              }),
-            saveAttempt: (payload) =>
-              trainingAttemptRepository.saveAttempt({
-                db: ctx.db,
-                ...payload,
-              }),
-            completeNode: (nodeId) =>
-              trainingCurriculumRepository.completeNode({
-                db: ctx.db,
-                nodeId,
-              }),
-            listMemories: async (userId) => {
-              const result = await memoryRepository.listByUserId({
-                db: ctx.db,
-                userId,
-              });
-
-              return result.success ? result.data : [];
-            },
-            prepareDifficultyDirective: ({ userId, nodeId, now }) =>
-              prepareScenarioDirective({
-                userId,
-                nodeId,
-                now,
-                deps: createTrainingRatingGoldilocksDeps(ctx.db),
-              }),
-            applyManualDifficultyNudge: ({ userId, nodeId, signal, now }) =>
-              trainingRatingRepository.applyManualDifficultyNudge({
-                db: ctx.db,
-                userId,
-                nodeId,
-                signal,
-                initialRatingState: createInitialRatingState(),
-                now,
-              }),
-            getOpenScenario: ({ userId, nodeId }) =>
-              trainingRatingRepository.getOpenScenario({
-                db: ctx.db,
-                userId,
-                nodeId,
-              }),
-            updateOpenScenarioItemRating: ({ userId, nodeId, itemRating }) =>
-              trainingRatingRepository.updateOpenScenarioItemRating({
-                db: ctx.db,
-                userId,
-                nodeId,
-                itemRating,
-              }),
-            recordEvaluation: ({
-              userId,
-              nodeId,
-              score,
-              errorCodes,
-              wasOverTime,
-              occurredAt,
-            }) =>
-              recordEvaluation({
-                userId,
-                nodeId,
-                score,
-                errorCodes,
-                sidechatAskCount: 0,
-                wasOverTime,
-                occurredAt,
-                deps: createTrainingRatingGoldilocksDeps(ctx.db),
-              }),
-            touchSession: (sessionId) =>
-              trainingOnboardingRepository.touchSession({
-                db: ctx.db,
-                sessionId,
-              }),
-          },
+          deps: createWorkspaceTurnRepositoryDeps(ctx.db),
         }),
       );
     }),

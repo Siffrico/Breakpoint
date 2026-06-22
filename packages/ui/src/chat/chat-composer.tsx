@@ -91,13 +91,11 @@ export function ChatComposer({
   return (
     <div
       style={{
-        backgroundColor: "#111111",
-        borderColor: "#2b2b2b",
         borderRadius: 8,
         boxShadow: "inset 0 1px 0 rgba(255,255,255,0.025)",
       }}
       className={cn(
-        "relative min-h-[96px] w-full overflow-hidden border transition-[border-color,box-shadow]",
+        "bg-background border-border relative min-h-[96px] w-full overflow-hidden border transition-[border-color,box-shadow]",
         className,
       )}
     >
@@ -110,14 +108,14 @@ export function ChatComposer({
         placeholder={placeholder}
         rows={1}
         style={{ paddingBottom: 56, scrollPaddingBottom: 56 }}
-        className="block w-full resize-none rounded-[8px] bg-transparent px-4 pt-4 text-[14px] leading-6 text-[#eeeeee] outline-none placeholder:text-[#9a9a9a]"
+        className="text-foreground placeholder:text-muted-foreground block w-full resize-none rounded-[8px] bg-transparent px-4 pt-4 text-[14px] leading-6 outline-none"
       />
 
       <div className="absolute inset-x-0 bottom-0 flex h-12 items-center justify-between gap-3 px-3">
         <div className="flex min-w-0 items-center gap-2 leading-none">
           {leftSlot}
           {hint ? (
-            <div className="truncate text-[11px] text-[#8a8a8a]">
+            <div className="text-muted-foreground truncate text-[11px]">
               {hint}
             </div>
           ) : null}

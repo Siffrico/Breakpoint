@@ -119,6 +119,7 @@ const buildRootNode = ({
   depth: 0,
   positionColumn: 0,
   positionRow: 0,
+  difficultyBands: null,
 });
 
 export const buildCurriculumBlueprintFromMarkdown = ({
@@ -152,6 +153,7 @@ export const buildCurriculumBlueprintFromMarkdown = ({
       depth: 1,
       positionColumn: index + 1,
       positionRow: 0,
+      difficultyBands: null,
     }),
   );
 

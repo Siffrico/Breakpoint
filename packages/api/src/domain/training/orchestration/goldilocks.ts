@@ -98,13 +98,27 @@ export const deriveDefaultBands = (): readonly DifficultyBand[] => [
   },
 ];
 
-const resolveBands = (bands?: readonly DifficultyBand[] | null) => {
+const resolveBands = ({
+  bands,
+  nodeId,
+}: {
+  bands?: readonly DifficultyBand[] | null;
+  nodeId: string;
+}) => {
+  if (!bands || bands.length === 0) {
+    console.error("Missing training difficulty bands; using defaults", {
+      nodeId,
+    });
+    return validateDifficultyBands(deriveDefaultBands());
+  }
+
   try {
-    return validateDifficultyBands(
-      bands && bands.length > 0 ? bands : deriveDefaultBands(),
-    );
+    return validateDifficultyBands(bands);
   } catch (error) {
-    console.error("Invalid training difficulty bands; using defaults", error);
+    console.error("Invalid training difficulty bands; using defaults", {
+      nodeId,
+      error,
+    });
     return validateDifficultyBands(deriveDefaultBands());
   }
 };
@@ -161,7 +175,7 @@ export const prepareScenarioDirective = async ({
   bands?: readonly DifficultyBand[] | null;
   deps: PrepareScenarioDirectiveDependencies;
 }): Promise<GoldilocksDirectiveResult> => {
-  const resolvedBands = resolveBands(bands);
+  const resolvedBands = resolveBands({ bands, nodeId });
   const [loaded, predictions] = await Promise.all([
     deps.loadJobProgress({
       userId,
@@ -226,15 +240,21 @@ export const recordEvaluation = async ({
   occurredAt: Date;
   bands?: readonly DifficultyBand[] | null;
   deps: RecordEvaluationDependencies;
-}): Promise<{ recorded: boolean; reason?: string }> => {
-  if (score == null) return { recorded: false, reason: "missing_score" };
+}): Promise<{ recorded: boolean; reason?: string; mastered: boolean }> => {
+  if (score == null) {
+    return { recorded: false, reason: "missing_score", mastered: false };
+  }
 
   const openScenario = await deps.getOpenScenario({
     userId,
     nodeId,
   });
   if (!openScenario)
-    return { recorded: false, reason: "missing_open_scenario" };
+    return {
+      recorded: false,
+      reason: "missing_open_scenario",
+      mastered: false,
+    };
 
   const loaded = await deps.loadJobProgress({
     userId,
@@ -260,7 +280,7 @@ export const recordEvaluation = async ({
       misconceptions: loaded.misconceptions,
       evaluation,
     });
-    const resolvedBands = resolveBands(bands);
+    const resolvedBands = resolveBands({ bands, nodeId });
     const nextDirective = decideNextScenario({
       rating: result.ratingState,
       progress: directive.nextProgress,
@@ -283,7 +303,7 @@ export const recordEvaluation = async ({
       masteredAt,
     });
 
-    return { recorded: true };
+    return { recorded: true, mastered: masteredAt != null };
   } catch (error) {
     if (error instanceof RangeError) {
       console.error("Skipping training rating update after bad eval contract", {
@@ -292,7 +312,11 @@ export const recordEvaluation = async ({
         scenarioAttemptId: openScenario.id,
         error,
       });
-      return { recorded: false, reason: "invalid_evaluation_contract" };
+      return {
+        recorded: false,
+        reason: "invalid_evaluation_contract",
+        mastered: false,
+      };
     }
     throw error;
   }

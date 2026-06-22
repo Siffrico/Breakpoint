@@ -46,6 +46,7 @@ export const TrainingOnboardingMessage = pgTable(
     content: t.text().notNull(),
     metadata: t.jsonb().$type<{
       difficultyDirectiveReason?: string;
+      hiddenFromTranscript?: boolean;
     } | null>(),
     sequence: t.integer().notNull(),
     createdAt: t

@@ -62,6 +62,7 @@ export const WorkspaceAiMessageSchema = z.object({
   metadata: z
     .object({
       difficultyDirectiveReason: z.string().min(1).optional(),
+      hiddenFromTranscript: z.boolean().optional(),
     })
     .nullable()
     .optional(),

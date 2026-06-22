@@ -19,6 +19,7 @@ import type {
   CurriculumPlan,
   DebateCapstoneScenario,
   Debrief,
+  DifficultyBand,
   EducationUnitActiveStage,
   EducationUnitAssessmentStatus,
   EducationUnitAttemptMode,
@@ -76,6 +77,7 @@ export type {
   CurriculumNodeKind,
   CurriculumNodeStatus,
   CurriculumPlan,
+  DifficultyBand,
   CapstoneAttempt,
   CapstoneEvaluation,
   CapstoneFormat,
@@ -154,6 +156,7 @@ export interface CurriculumNodeBlueprint {
   depth: number;
   positionColumn: number;
   positionRow: number;
+  difficultyBands: DifficultyBand[] | null;
 }
 
 export interface PostSeedGenerationResult {

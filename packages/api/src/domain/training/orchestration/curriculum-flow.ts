@@ -32,6 +32,7 @@ export const buildCurriculumNodes = (
       depth: 0,
       positionColumn: Math.floor(totalClusterWidth / 2),
       positionRow: 0,
+      difficultyBands: null,
     },
   ];
 
@@ -58,6 +59,7 @@ export const buildCurriculumNodes = (
       depth: 1,
       positionColumn: clusterCenter,
       positionRow: 1,
+      difficultyBands: null,
     });
 
     cluster.units.forEach((unit, unitIndex) => {
@@ -74,6 +76,7 @@ export const buildCurriculumNodes = (
         depth: 2,
         positionColumn: baseColumn + unitIndex,
         positionRow: 2,
+        difficultyBands: unit.difficultyBands,
       });
     });
 
@@ -90,6 +93,7 @@ export const buildCurriculumNodes = (
       depth: 3,
       positionColumn: clusterCenter,
       positionRow: 3,
+      difficultyBands: null,
     });
   });
 
@@ -109,6 +113,7 @@ export const buildCurriculumNodes = (
       depth: 1,
       positionColumn: integrationStartColumn + layerIndex,
       positionRow: 1,
+      difficultyBands: null,
     });
 
     layer.units.forEach((unit, slotIndex) => {
@@ -124,6 +129,7 @@ export const buildCurriculumNodes = (
         depth: 2,
         positionColumn: integrationStartColumn + layerIndex,
         positionRow: 2 + slotIndex,
+        difficultyBands: unit.difficultyBands,
       });
     });
   });

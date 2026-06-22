@@ -79,6 +79,11 @@ const unit = {
     focusAreas: ["diagnosis"],
   },
   unitMasteryContract,
+  difficultyBands: [
+    { order: 0, minRating: 900, maxRating: 1100, label: "Supported diagnosis" },
+    { order: 1, minRating: 1100, maxRating: 1300, label: "Messy diagnosis" },
+    { order: 2, minRating: 1300, maxRating: 1500, label: "Transfer diagnosis" },
+  ],
 } satisfies UnitContent;
 
 const makeDeps = (calls: string[]): WorkspaceTurnPersistenceDependencies => ({
@@ -127,7 +132,7 @@ const makeDeps = (calls: string[]): WorkspaceTurnPersistenceDependencies => ({
     return Promise.resolve(null);
   },
   saveAttempt: () => Promise.resolve(),
-  completeNode: () => Promise.resolve(),
+  completeNode: () => Promise.resolve(null),
   touchSession: () => {
     calls.push("touchSession");
     return Promise.resolve();

@@ -9,11 +9,7 @@ import {
 
 import type { db as databaseClient } from "@acme/db/client";
 
-import type { UnitContent } from "./domain/training/types/training.types";
-import type {
-  AttemptTiming,
-  WorkspaceAiEducationOutput,
-} from "./domain/training/workspace-ai/types";
+import type { AttemptTiming } from "./domain/training/workspace-ai/types";
 import type {
   ManualDifficultySignal,
   WorkspaceChatAction,
@@ -23,23 +19,14 @@ import {
   requireAiModelForPurpose,
   withAiModelPreference,
 } from "./domain/training/engine/model-router";
-import { createInitialRatingState } from "./domain/training/engine/rating";
-import {
-  prepareScenarioDirective,
-  recordEvaluation,
-} from "./domain/training/orchestration/goldilocks";
 import { getWorkspaceAiSystemPrompt } from "./domain/training/workspace-ai/runtime";
 import {
   completeWorkspaceTurn,
   parseWorkspaceTurnOutput,
   prepareWorkspaceTurnPrompt,
 } from "./domain/training/workspace-ai/workspace-turn-orchestration";
-import { memoryRepository } from "./repositories/memory-repository";
-import { trainingAttemptRepository } from "./repositories/training-attempt-repository";
-import { trainingCurriculumRepository } from "./repositories/training-curriculum-repository";
 import { trainingOnboardingRepository } from "./repositories/training-onboarding-repository";
-import { createTrainingRatingGoldilocksDeps } from "./repositories/training-rating-goldilocks-deps";
-import { trainingRatingRepository } from "./repositories/training-rating-repository";
+import { createWorkspaceTurnRepositoryDeps } from "./repositories/workspace-turn-repository-deps";
 
 type Database = typeof databaseClient;
 
@@ -60,213 +47,6 @@ interface WorkspaceStatusData extends Record<string, unknown> {
 type WorkspaceChatUIMessage = UIMessage<unknown, WorkspaceStatusData>;
 
 const WORKSPACE_ASSISTANT_TEXT_PART_ID = "workspace-assistant";
-
-const createWorkspaceTurnRepositoryDeps = (db: Database) => ({
-  getActivePlan: (sessionId: string) =>
-    trainingCurriculumRepository.getActivePlan({ db, sessionId }),
-  listMessages: (sessionId: string, slot?: "education_unit" | "recall") =>
-    trainingOnboardingRepository.listWorkspaceMessages({
-      db,
-      sessionId,
-      slot,
-    }),
-  getWorkspaceSummary: (sessionId: string, slot: "education_unit" | "recall") =>
-    trainingOnboardingRepository.getWorkspaceSummary({
-      db,
-      sessionId,
-      slot,
-    }),
-  upsertWorkspaceSummary: (payload: {
-    sessionId: string;
-    slot: "education_unit" | "recall";
-    summary: string;
-    coveredThroughUnitId: string | null;
-    coveredThroughSequence: number | null;
-  }) =>
-    trainingOnboardingRepository.upsertWorkspaceSummary({
-      db,
-      ...payload,
-    }),
-  appendMessage: (payload: {
-    sessionId: string;
-    role: "assistant" | "user";
-    content: string;
-    slot: string | null;
-    unitId?: string | null;
-    turnId?: string | null;
-    metadata?: { difficultyDirectiveReason?: string } | null;
-  }) =>
-    trainingOnboardingRepository.appendWorkspaceMessage({
-      db,
-      ...payload,
-    }),
-  listMessagesByTurnId: (sessionId: string, turnId: string) =>
-    trainingOnboardingRepository.listWorkspaceMessagesByTurnId({
-      db,
-      sessionId,
-      turnId,
-    }),
-  listPhaseResponsesBySession: (sessionId: string) =>
-    trainingCurriculumRepository.listPhaseResponsesBySession({
-      db,
-      sessionId,
-    }),
-  getPhaseResponses: (unitContentId: string, sessionId: string) =>
-    trainingCurriculumRepository.getPhaseResponses({
-      db,
-      unitContentId,
-      sessionId,
-    }),
-  getUnitByNodeId: (nodeId: string) =>
-    trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),
-  createUnitContent: (payload: {
-    nodeId: string;
-    title: string;
-    seedPrompt: string;
-    seedHint: string;
-    clusterArcFrame: string;
-    complexityBudget: UnitContent["complexityBudget"];
-    teachbackSetup: UnitContent["teachbackSetup"];
-    scenario: UnitContent["scenario"];
-    unitMasteryContract?: UnitContent["unitMasteryContract"];
-  }) =>
-    trainingCurriculumRepository.createUnitContent({
-      db,
-      ...payload,
-    }),
-  savePhaseResponse: (
-    payload: Omit<
-      Parameters<typeof trainingCurriculumRepository.savePhaseResponse>[0],
-      "db"
-    >,
-  ) =>
-    trainingCurriculumRepository.savePhaseResponse({
-      db,
-      ...payload,
-    }),
-  updateUnitMasteryContract: (payload: {
-    unitContentId: string;
-    unitMasteryContract: UnitContent["unitMasteryContract"];
-  }) =>
-    trainingCurriculumRepository.updateUnitMasteryContract({
-      db,
-      ...payload,
-    }),
-  updateOpenScenarioContract: (payload: {
-    userId: string;
-    nodeId: string;
-    scenarioPrompt: string;
-    scenarioContract: NonNullable<
-      WorkspaceAiEducationOutput["scenarioEvaluationContract"]
-    >;
-  }) =>
-    trainingRatingRepository.updateOpenScenarioContract({
-      db,
-      ...payload,
-    }),
-  saveAttempt: (
-    payload: Omit<
-      Parameters<typeof trainingAttemptRepository.saveAttempt>[0],
-      "db"
-    >,
-  ) =>
-    trainingAttemptRepository.saveAttempt({
-      db,
-      ...payload,
-    }),
-  completeNode: (nodeId: string) =>
-    trainingCurriculumRepository.completeNode({ db, nodeId }),
-  touchSession: (sessionId: string) =>
-    trainingOnboardingRepository.touchSession({ db, sessionId }),
-  listMemories: async (userId: string) => {
-    const result = await memoryRepository.listByUserId({
-      db,
-      userId,
-    });
-
-    return result.success ? result.data : [];
-  },
-  prepareDifficultyDirective: ({
-    userId,
-    nodeId,
-    now,
-  }: {
-    userId: string;
-    nodeId: string;
-    now: Date;
-  }) =>
-    prepareScenarioDirective({
-      userId,
-      nodeId,
-      now,
-      deps: createTrainingRatingGoldilocksDeps(db),
-    }),
-  applyManualDifficultyNudge: ({
-    userId,
-    nodeId,
-    signal,
-    now,
-  }: {
-    userId: string;
-    nodeId: string;
-    signal: ManualDifficultySignal;
-    now: Date;
-  }) =>
-    trainingRatingRepository.applyManualDifficultyNudge({
-      db,
-      userId,
-      nodeId,
-      signal,
-      initialRatingState: createInitialRatingState(),
-      now,
-    }),
-  getOpenScenario: ({ userId, nodeId }: { userId: string; nodeId: string }) =>
-    trainingRatingRepository.getOpenScenario({
-      db,
-      userId,
-      nodeId,
-    }),
-  updateOpenScenarioItemRating: ({
-    userId,
-    nodeId,
-    itemRating,
-  }: {
-    userId: string;
-    nodeId: string;
-    itemRating: number;
-  }) =>
-    trainingRatingRepository.updateOpenScenarioItemRating({
-      db,
-      userId,
-      nodeId,
-      itemRating,
-    }),
-  recordEvaluation: ({
-    userId,
-    nodeId,
-    score,
-    errorCodes,
-    wasOverTime,
-    occurredAt,
-  }: {
-    userId: string;
-    nodeId: string;
-    score: number | null | undefined;
-    errorCodes: readonly string[];
-    wasOverTime: boolean;
-    occurredAt: Date;
-  }) =>
-    recordEvaluation({
-      userId,
-      nodeId,
-      score,
-      errorCodes,
-      sidechatAskCount: 0,
-      wasOverTime,
-      occurredAt,
-      deps: createTrainingRatingGoldilocksDeps(db),
-    }),
-});
 
 export const streamWorkspaceChat = async ({
   db,

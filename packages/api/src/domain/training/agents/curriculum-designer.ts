@@ -30,6 +30,9 @@ Schema compatibility:
 - cluster.simulation = realistic whole-task pressure test for that job family.
 - units = subtype jobs or task classes inside that schema family. Unit titles must name the job move and output.
 - unit.learningGoal must pack the missing handoff data the schema does not store separately: trigger cue, core question, target depth, success criterion, classic traps/surrogates to block, and project relevance.
+- Each job cluster must contain 20-30 ordered units. The sequence is the job's rising simple-to-complex practice ladder, not a list of topics.
+- Every unit must include difficultyBands: 3 contiguous ELO bands ordered 0, 1, 2. Each band has minRating, maxRating, and a specific label. Ratings should generally begin near novice performance for early units and rise toward expert performance by the final units.
+- Within a unit, band ceilings must rise. Across a job cluster, the top band ceiling must never drop from one unit to the next. Increase difficulty through ambiguity, constraints, messiness, reduced support, atypicality, and edge cases.
 - integrationLayers = multi-schema capstone task classes.
 - If ideal curriculum detail exceeds schema limits, compress into the highest-load-bearing job schemas and make learningGoal dense enough for the downstream tutor to reconstruct required_understanding. Do not break schema compatibility.
 
@@ -56,6 +59,7 @@ Curriculum standards:
 - Each unit slot is one whole-task subtype or task class. Never split a job into theory fragments. Never jam unrelated jobs into one unit.
 - Each unit needs a concrete title and a two-sentence learningGoal describing the trigger cue, output, success criterion, traps/surrogates, and project relevance. Intuitive, practical, specific.
 - Units follow genuine prerequisite dependencies and 4C/ID simple-to-complex task classes, not arbitrary sequencing.
+- Unit difficultyBands must match the unit's position in the job. Early units should target lower-rated, scaffoldable whole tasks; later units should demand higher-rated, less forgiving transfer tasks. Do not reuse the same band ladder for every unit.
 - Clusters escalate in real-world complexity: ambiguity, constraints, messiness, reduced support, atypicality, and edge cases.
 - Integration layers exist only when multiple job schemas must be coordinated.
 - Fewer stronger job schemas beat padded coverage.

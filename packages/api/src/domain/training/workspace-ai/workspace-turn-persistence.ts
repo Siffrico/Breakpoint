@@ -16,7 +16,6 @@ import type {
   WorkspaceAiTurnResult,
 } from "./types";
 import type { WorkspaceTurnDependencies } from "./workspace-turn";
-import { ensureWorkspaceUnit } from "../workflows/get-ai-workspace-workflow";
 import { validateScenarioContractAgainstUnit } from "./evaluation-contracts";
 import { normalizeEducationStageTransition } from "./orchestrator";
 import {
@@ -26,6 +25,22 @@ import {
 
 export interface WorkspaceTurnPersistenceDependencies
   extends Omit<WorkspaceTurnDependencies, "getActivePlan"> {
+  claimWorkspaceTurn?: (input: {
+    sessionId: string;
+    content: string;
+    slot: string | null;
+    unitId?: string | null;
+    turnId: string;
+    hiddenFromTranscript?: boolean;
+  }) => Promise<
+    | { status: "claimed"; message: WorkspaceAiMessage }
+    | { status: "processing"; message: WorkspaceAiMessage }
+    | {
+        status: "completed";
+        userMessage: WorkspaceAiMessage | null;
+        assistantMessage: WorkspaceAiMessage;
+      }
+  >;
   appendMessage: (input: {
     sessionId: string;
     role: "assistant" | "user";
@@ -67,6 +82,15 @@ export interface WorkspaceTurnPersistenceDependencies
       WorkspaceAiEducationOutput["scenarioEvaluationContract"]
     >;
   }) => Promise<unknown>;
+  recordEvaluation?: (input: {
+    userId: string;
+    nodeId: string;
+    score: number | null | undefined;
+    errorCodes: readonly string[];
+    wasOverTime: boolean;
+    occurredAt: Date;
+    bands?: UnitContent["difficultyBands"];
+  }) => Promise<{ mastered: boolean }>;
   saveAttempt: (input: {
     sessionId: string;
     userId?: string | null;
@@ -77,9 +101,13 @@ export interface WorkspaceTurnPersistenceDependencies
     finalArticulation?: string | null;
     growthDimensions?: string[] | null;
   }) => Promise<unknown>;
-  completeNode: (nodeId: string) => Promise<CurriculumNode | null | unknown>;
+  completeNode: (nodeId: string) => Promise<CurriculumNode | null>;
   touchSession: (sessionId: string) => Promise<unknown>;
 }
+
+export type WorkspaceAiTurnPersistenceResult = WorkspaceAiTurnResult & {
+  nextReadyNode?: CurriculumNode | null;
+};
 
 const getDifficultyDirectiveMetadata = (reason?: string | null) =>
   reason ? { difficultyDirectiveReason: reason } : null;
@@ -88,36 +116,6 @@ const countPhaseResponses = (
   responses: PhaseResponseRecord[],
   phase: PhaseResponseRecord["phase"],
 ) => responses.filter((response) => response.phase === phase).length;
-
-const isPrewarmableWorkspaceNode = (
-  node: CurriculumNode | null | unknown,
-): node is CurriculumNode =>
-  Boolean(
-    node &&
-      typeof node === "object" &&
-      "kind" in node &&
-      "id" in node &&
-      (node.kind === "unit" || node.kind === "integration"),
-  );
-
-const queueNextWorkspaceUnitPrewarm = ({
-  node,
-  deps,
-}: {
-  node: CurriculumNode | null | unknown;
-  deps: WorkspaceTurnPersistenceDependencies;
-}) => {
-  if (!isPrewarmableWorkspaceNode(node)) {
-    return;
-  }
-
-  void ensureWorkspaceUnit({ node, deps }).catch((error) => {
-    console.error("Next workspace unit prewarm failed", {
-      nodeId: node.id,
-      error,
-    });
-  });
-};
 
 const buildCompletionDebrief = ({
   message,
@@ -141,6 +139,14 @@ const buildCompletionDebrief = ({
   failureTags: output.improvements,
   nextStep: "Continue to the next training unit.",
 });
+
+/**
+ * Score (0–100) at which a single education unit counts as complete. Unit
+ * completion is score-based; job (cluster) completion is ELO-based. The ELO
+ * mastery gate belongs at the job level, not here — gating a unit on mastery
+ * gives it no non-mastery exit and lets it loop forever.
+ */
+const UNIT_COMPLETION_SCORE = 90;
 
 const CONTRACTED_SCENARIO_STAGES = new Set([
   "diagnostic_scenario",
@@ -200,6 +206,50 @@ const persistOutputContracts = async ({
     throw new Error(
       "Scenario evaluation contract could not be attached to an open scenario.",
     );
+  }
+};
+
+/**
+ * Fold one scored attempt into the per-unit ELO rating. This keeps Goldilocks
+ * scenario difficulty calibrated and feeds the job-level mastery check — it no
+ * longer decides whether the unit is complete (that is score-based). Failures
+ * are swallowed: a missed rating update must not block the learner's turn.
+ */
+const recordAttemptRating = async ({
+  userId,
+  unit,
+  output,
+  attemptTiming,
+  deps,
+}: {
+  userId: string;
+  unit: UnitContent;
+  output: WorkspaceAiEducationOutput | WorkspaceAiEvaluationOutput;
+  attemptTiming?: AttemptTiming | null;
+  deps: WorkspaceTurnPersistenceDependencies;
+}): Promise<void> => {
+  if (!("dimensionResults" in output) || !deps.recordEvaluation) {
+    return;
+  }
+
+  try {
+    await deps.recordEvaluation({
+      userId,
+      nodeId: unit.nodeId,
+      score: output.score,
+      errorCodes: output.dimensionResults.map(
+        (dimensionResult) => dimensionResult.dimensionId,
+      ),
+      wasOverTime: attemptTiming?.wasOverTime ?? false,
+      occurredAt: new Date(),
+      bands: unit.difficultyBands,
+    });
+  } catch (error) {
+    console.error("Training rating evaluation recording failed", {
+      userId,
+      nodeId: unit.nodeId,
+      error,
+    });
   }
 };
 
@@ -304,7 +354,7 @@ export const saveEducationTurnResult = async ({
   difficultyDirectiveReason?: string | null;
   turnId?: string | null;
   deps: WorkspaceTurnPersistenceDependencies;
-}): Promise<WorkspaceAiTurnResult> => {
+}): Promise<WorkspaceAiTurnPersistenceResult> => {
   if (!state.educationStage) {
     throw new Error("Education stage is missing.");
   }
@@ -312,15 +362,6 @@ export const saveEducationTurnResult = async ({
   const evaluationComplete =
     !evaluationPlan ||
     priorEvaluationAttempts + 1 >= evaluationPlan.scenarioCount;
-  const stageComplete = output.stageComplete && evaluationComplete;
-  const nextStage = normalizeEducationStageTransition({
-    currentStage: state.educationStage,
-    requestedStage: output.nextStage,
-    stageComplete,
-    unitComplete: output.unitComplete && evaluationComplete,
-    allowRepairRoute:
-      "routingDecision" in output && output.routingDecision === "repair",
-  });
 
   const assistantMessage = await deps.appendMessage({
     sessionId,
@@ -342,6 +383,26 @@ export const saveEducationTurnResult = async ({
     currentStage: state.educationStage,
     output,
     deps,
+  });
+
+  // Keep the per-unit ELO rating current on every scored attempt — it drives
+  // Goldilocks difficulty and the job-level mastery check — but it no longer
+  // gates completion. The unit completes on score; the job completes on ELO.
+  await recordAttemptRating({ userId, unit, output, attemptTiming, deps });
+
+  const isScoredAttempt = "dimensionResults" in output;
+  const stageComplete = output.stageComplete && evaluationComplete;
+  const unitComplete =
+    isScoredAttempt &&
+    (output.score ?? 0) >= UNIT_COMPLETION_SCORE &&
+    evaluationComplete;
+  const nextStage = normalizeEducationStageTransition({
+    currentStage: state.educationStage,
+    requestedStage: output.nextStage,
+    stageComplete,
+    unitComplete,
+    allowRepairRoute:
+      "routingDecision" in output && output.routingDecision === "repair",
   });
 
   const educationResponses = await deps.getPhaseResponses(unit.id, sessionId);
@@ -383,7 +444,8 @@ export const saveEducationTurnResult = async ({
     },
   });
 
-  if (nextStage === "completed") {
+  let nextReadyNode: CurriculumNode | null = null;
+  if (unitComplete) {
     await deps.saveAttempt({
       sessionId,
       userId,
@@ -393,8 +455,7 @@ export const saveEducationTurnResult = async ({
       finalArticulation: message,
       growthDimensions: output.strengths,
     });
-    const nextReadyNode = await deps.completeNode(unit.nodeId);
-    queueNextWorkspaceUnitPrewarm({ node: nextReadyNode, deps });
+    nextReadyNode = await deps.completeNode(unit.nodeId);
   }
 
   await deps.touchSession(sessionId);
@@ -420,6 +481,7 @@ export const saveEducationTurnResult = async ({
       nextState ? getWorkspaceMessageSlot(nextState.mode) : "education_unit",
     ),
     assistantMessage,
+    nextReadyNode,
   };
 };
 
