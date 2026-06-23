@@ -3,6 +3,8 @@ import type {
   PhaseResponseRecord,
 } from "../types/training.types";
 import type { WorkspaceAiEducationStage, WorkspaceAiState } from "./types";
+import type { UnitRun, WorkflowDefinition } from "./workflow";
+import { getWorkflowStep } from "./workflow";
 
 const EDUCATION_STAGE_ORDER: WorkspaceAiEducationStage[] = [
   "diagnostic_scenario",
@@ -85,54 +87,119 @@ export const getCurrentEducationStage = (
   return "diagnostic_scenario";
 };
 
+export class IllegalUnitRunTransitionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "IllegalUnitRunTransitionError";
+  }
+}
+
 /**
- * Takes the current stage and the AI-requested next stage; produces the next
- * legal stage; fails closed by staying put when the requested transition skips
- * too far or goes backward unexpectedly.
+ * Takes the current run state, one graded turn outcome, and the unit workflow;
+ * produces the next run state; fails only when the outcome names a step that
+ * is not current or the workflow cannot advance that step.
  */
-export const normalizeEducationStageTransition = ({
-  currentStage,
-  requestedStage,
-  stageComplete,
-  unitComplete,
-  allowRepairRoute = false,
+export const advanceUnitRun = ({
+  run,
+  outcome,
+  workflow,
 }: {
-  currentStage: WorkspaceAiEducationStage;
-  requestedStage: WorkspaceAiEducationStage;
-  stageComplete: boolean;
-  unitComplete: boolean;
-  allowRepairRoute?: boolean;
-}): WorkspaceAiEducationStage => {
-  if (unitComplete) {
-    return "completed";
+  run: UnitRun;
+  outcome: {
+    stepId: WorkspaceAiEducationStage;
+    requestedStepId: WorkspaceAiEducationStage;
+    stepComplete: boolean;
+    mastered: boolean;
+    scenarioCompleted: boolean;
+    repairStepId?: WorkspaceAiEducationStage | null;
+  };
+  workflow: WorkflowDefinition;
+}): UnitRun => {
+  if (outcome.stepId !== run.currentStepId) {
+    throw new IllegalUnitRunTransitionError(
+      `Outcome step ${outcome.stepId} does not match current run step ${run.currentStepId}.`,
+    );
+  }
+
+  const currentStep = getWorkflowStep(workflow, run.currentStepId);
+  if (!currentStep) {
+    throw new IllegalUnitRunTransitionError(
+      `Workflow ${workflow.id} does not contain current step ${run.currentStepId}.`,
+    );
+  }
+
+  const nextScenarioCount = outcome.scenarioCompleted
+    ? run.stepScenarioCount + 1
+    : run.stepScenarioCount;
+
+  if (outcome.mastered) {
+    return {
+      ...run,
+      currentStepId: "completed",
+      stepScenarioCount: nextScenarioCount,
+    };
+  }
+
+  if (outcome.repairStepId) {
+    const repairStep = getWorkflowStep(workflow, outcome.repairStepId);
+    if (!repairStep || repairStep.kind === "terminal") {
+      throw new IllegalUnitRunTransitionError(
+        `Workflow ${workflow.id} cannot repair to step ${outcome.repairStepId}.`,
+      );
+    }
+
+    return {
+      ...run,
+      currentStepId: outcome.repairStepId,
+      stepScenarioCount: 0,
+    };
+  }
+
+  // A mastery_check step graduates only via ELO mastery (handled above).
+  // Step completion alone must never walk it to the terminal step — otherwise
+  // the run reaches "completed" while the learner is not actually mastered.
+  // Loop in place until the mastery gate trips.
+  if (currentStep.kind === "mastery_check") {
+    return {
+      ...run,
+      stepScenarioCount: nextScenarioCount,
+    };
+  }
+
+  if (!outcome.stepComplete) {
+    return {
+      ...run,
+      stepScenarioCount: nextScenarioCount,
+    };
+  }
+
+  if (!currentStep.next) {
+    throw new IllegalUnitRunTransitionError(
+      `Workflow ${workflow.id} step ${currentStep.stepId} has no next step.`,
+    );
+  }
+
+  const nextStep = getWorkflowStep(workflow, currentStep.next);
+  if (!nextStep) {
+    throw new IllegalUnitRunTransitionError(
+      `Workflow ${workflow.id} does not contain next step ${currentStep.next}.`,
+    );
   }
 
   if (
-    allowRepairRoute &&
-    (currentStage === "performance_evaluation" ||
-      currentStage === "transfer_scenario") &&
-    (requestedStage === "concept_instruction" ||
-      requestedStage === "guided_application")
+    outcome.requestedStepId !== run.currentStepId &&
+    outcome.requestedStepId !== currentStep.next
   ) {
-    return requestedStage;
+    throw new IllegalUnitRunTransitionError(
+      `Outcome requested step ${outcome.requestedStepId} is not legal from ${run.currentStepId}.`,
+    );
   }
 
-  if (!stageComplete) {
-    return currentStage;
-  }
-
-  const currentIndex = EDUCATION_STAGE_ORDER.indexOf(currentStage);
-  const requestedIndex = EDUCATION_STAGE_ORDER.indexOf(requestedStage);
-  const nextIndex = Math.min(
-    currentIndex + 1,
-    EDUCATION_STAGE_ORDER.length - 1,
-  );
-
-  if (requestedIndex === nextIndex) {
-    return requestedStage;
-  }
-
-  return EDUCATION_STAGE_ORDER[nextIndex] ?? "completed";
+  return {
+    ...run,
+    currentStepId: currentStep.next,
+    stepScenarioCount: 0,
+  };
 };
 
 /**
@@ -143,10 +210,12 @@ export const planWorkspaceTurn = ({
   nodes,
   allResponses,
   activeUnitResponses,
+  activeUnitRun,
 }: {
   nodes: RuntimeNode[];
   allResponses: PhaseResponseRecord[];
   activeUnitResponses: PhaseResponseRecord[];
+  activeUnitRun?: UnitRun | null;
 }): WorkspaceAiState | null => {
   const recallUnit = selectDueRecallUnit({
     nodes,
@@ -158,6 +227,7 @@ export const planWorkspaceTurn = ({
       mode: "recall",
       promptKind: "recall",
       educationStage: null,
+      workflowId: null,
       activeUnitId: null,
       activeUnitTitle: null,
       recallUnitId: recallUnit.id,
@@ -173,7 +243,10 @@ export const planWorkspaceTurn = ({
   return {
     mode: "education_unit",
     promptKind: "education_unit",
-    educationStage: getCurrentEducationStage(activeUnitResponses),
+    educationStage:
+      activeUnitRun?.currentStepId ??
+      getCurrentEducationStage(activeUnitResponses),
+    workflowId: activeUnitRun?.workflowId ?? null,
     activeUnitId: activeUnit.id,
     activeUnitTitle: activeUnit.title,
     recallUnitId: null,

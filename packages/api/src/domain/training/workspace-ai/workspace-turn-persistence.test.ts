@@ -104,6 +104,8 @@ const makeDeps = (calls: string[]): WorkspaceTurnPersistenceDependencies => ({
   listMessages: () => Promise.resolve([]),
   listPhaseResponsesBySession: () => Promise.resolve([]),
   getPhaseResponses: () => Promise.resolve([]),
+  getUnitRun: () => Promise.resolve(null),
+  upsertUnitRun: (run) => Promise.resolve(run),
   getUnitByNodeId: () => Promise.resolve(unit),
   createUnitContent: () => Promise.resolve(unit),
   savePhaseResponse: () => {

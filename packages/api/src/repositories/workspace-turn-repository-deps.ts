@@ -22,6 +22,7 @@ import { trainingCurriculumRepository } from "./training-curriculum-repository";
 import { trainingOnboardingRepository } from "./training-onboarding-repository";
 import { createTrainingRatingGoldilocksDeps } from "./training-rating-goldilocks-deps";
 import { trainingRatingRepository } from "./training-rating-repository";
+import { trainingUnitRunRepository } from "./training-unit-run-repository";
 
 type Database = typeof databaseClient;
 
@@ -73,6 +74,17 @@ export const createWorkspaceTurnRepositoryDeps = (
       db,
       unitContentId,
       sessionId,
+    }),
+  getUnitRun: (sessionId: string, unitContentId: string) =>
+    trainingUnitRunRepository.getUnitRun({
+      db,
+      sessionId,
+      unitContentId,
+    }),
+  upsertUnitRun: (run) =>
+    trainingUnitRunRepository.upsertUnitRun({
+      db,
+      run,
     }),
   getUnitByNodeId: (nodeId: string) =>
     trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),

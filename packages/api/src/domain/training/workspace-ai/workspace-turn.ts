@@ -5,8 +5,10 @@ import type {
   UnitContent,
 } from "../types/training.types";
 import type { WorkspaceAiState, WorkspaceAiTurnMode } from "./types";
+import type { UnitRun } from "./workflow";
 import { ensureWorkspaceUnit } from "../workflows/get-ai-workspace-workflow";
-import { planWorkspaceTurn } from "./orchestrator";
+import { getCurrentEducationStage, planWorkspaceTurn } from "./orchestrator";
+import { DIAGNOSTIC_FIRST_WORKFLOW } from "./workflow";
 
 export interface WorkspaceTurnDependencies {
   getActivePlan: (sessionId: string) => Promise<CurriculumPlan | null>;
@@ -17,6 +19,11 @@ export interface WorkspaceTurnDependencies {
     unitContentId: string,
     sessionId: string,
   ) => Promise<PhaseResponseRecord[]>;
+  getUnitRun: (
+    sessionId: string,
+    unitContentId: string,
+  ) => Promise<UnitRun | null>;
+  upsertUnitRun: (run: UnitRun) => Promise<UnitRun>;
   getUnitByNodeId: (nodeId: string) => Promise<UnitContent | null>;
   createUnitContent: (input: {
     nodeId: string;
@@ -63,6 +70,40 @@ export const findWorkspaceTurnNode = ({
   ) ?? null;
 
 /**
+ * Takes a session, unit, and audit history; produces the durable run
+ * projection; fails only when the projection write fails.
+ */
+export const resolveUnitRunProjection = async ({
+  sessionId,
+  userId,
+  unit,
+  unitResponses,
+  fallbackStepId,
+  deps,
+}: {
+  sessionId: string;
+  userId?: string | null;
+  unit: UnitContent;
+  unitResponses: PhaseResponseRecord[];
+  fallbackStepId?: WorkspaceAiState["educationStage"];
+  deps: Pick<WorkspaceTurnDependencies, "getUnitRun" | "upsertUnitRun">;
+}): Promise<UnitRun> => {
+  const existing = await deps.getUnitRun(sessionId, unit.id);
+  if (existing) {
+    return existing;
+  }
+
+  return deps.upsertUnitRun({
+    sessionId,
+    unitContentId: unit.id,
+    userId,
+    workflowId: DIAGNOSTIC_FIRST_WORKFLOW.id,
+    currentStepId: fallbackStepId ?? getCurrentEducationStage(unitResponses),
+    stepScenarioCount: 0,
+  });
+};
+
+/**
  * Takes a workspace session id and curriculum accessors, produces the runnable
  * turn with its unit and response history, and fails only when the curriculum
  * is missing, no turn is runnable, or the active unit cannot be prepared.
@@ -93,11 +134,20 @@ export const resolveWorkspaceTurn = async ({
   const readyUnitResponses = readyUnit
     ? await deps.getPhaseResponses(readyUnit.id, sessionId)
     : [];
+  const readyUnitRun = readyUnit
+    ? await resolveUnitRunProjection({
+        sessionId,
+        unit: readyUnit,
+        unitResponses: readyUnitResponses,
+        deps,
+      })
+    : null;
 
   const state = planWorkspaceTurn({
     nodes: plan.nodes,
     allResponses,
     activeUnitResponses: readyUnitResponses,
+    activeUnitRun: readyUnitRun,
   });
 
   if (!state) {
@@ -115,11 +165,29 @@ export const resolveWorkspaceTurn = async ({
     unit.id === readyUnit?.id
       ? readyUnitResponses
       : await deps.getPhaseResponses(unit.id, sessionId);
+  const unitRun =
+    unit.id === readyUnit?.id && readyUnitRun
+      ? readyUnitRun
+      : await resolveUnitRunProjection({
+          sessionId,
+          unit,
+          unitResponses,
+          deps,
+        });
+
+  const resolvedState =
+    state.mode === "education_unit"
+      ? {
+          ...state,
+          educationStage: unitRun.currentStepId,
+          workflowId: unitRun.workflowId,
+        }
+      : state;
 
   return {
     plan,
     allResponses,
-    state,
+    state: resolvedState,
     node,
     unit,
     unitResponses,
@@ -150,10 +218,19 @@ export const planNextWorkspaceTurn = async ({
   const readyUnitResponses = readyUnit
     ? await deps.getPhaseResponses(readyUnit.id, sessionId)
     : [];
+  const readyUnitRun = readyUnit
+    ? await resolveUnitRunProjection({
+        sessionId,
+        unit: readyUnit,
+        unitResponses: readyUnitResponses,
+        deps,
+      })
+    : null;
 
   return planWorkspaceTurn({
     nodes: plan.nodes,
     allResponses,
     activeUnitResponses: readyUnitResponses,
+    activeUnitRun: readyUnitRun,
   });
 };

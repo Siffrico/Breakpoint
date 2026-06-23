@@ -175,6 +175,39 @@ export const TrainingUnitPhaseResponse = pgTable(
   ],
 );
 
+export const TrainingUnitRun = pgTable(
+  "becoming_unit_run",
+  (t) => ({
+    id: t.uuid().notNull().primaryKey().defaultRandom(),
+    unitContentId: t
+      .uuid()
+      .notNull()
+      .references(() => TrainingUnitContent.id, { onDelete: "cascade" }),
+    sessionId: t
+      .uuid()
+      .notNull()
+      .references(() => TrainingOnboardingSession.id, { onDelete: "cascade" }),
+    userId: t.text().references(() => user.id, { onDelete: "set null" }),
+    workflowId: t.varchar({ length: 96 }).notNull(),
+    currentStepId: t.varchar({ length: 96 }).notNull(),
+    stepScenarioCount: t.integer().notNull().default(0),
+    createdAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .$onUpdateFn(() => sql`now()`),
+  }),
+  (table) => [
+    uniqueIndex("becoming_unit_run_session_unit_idx").on(
+      table.sessionId,
+      table.unitContentId,
+    ),
+    index("becoming_unit_run_session_idx").on(table.sessionId),
+  ],
+);
+
 export const TrainingUnitAttempt = pgTable("becoming_unit_attempt", (t) => ({
   id: t.uuid().notNull().primaryKey().defaultRandom(),
   unitContentId: t

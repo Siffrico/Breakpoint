@@ -12,6 +12,8 @@ import {
   WorkspaceAiEvaluationOutputSchema,
   WorkspaceAiRecallOutputSchema,
 } from "./types";
+import type { StepKind } from "./workflow";
+import { getWorkflowDefinition, getWorkflowStep } from "./workflow";
 
 export type WorkspaceContextMode = "teacher" | "evaluator" | "recall";
 
@@ -43,6 +45,57 @@ export type WorkspaceTurnRuntime =
 export type WorkspaceTurnOutput<TRuntime extends WorkspaceTurnRuntime> =
   z.infer<TRuntime["outputSchema"]>;
 
+const EDUCATION_RUNTIME_BY_STEP_KIND = {
+  scenario: {
+    promptKind: "education_unit",
+    modelPurpose: "education",
+    contextMode: "teacher",
+    contextMove: "diagnose",
+    outputSchema: WorkspaceAiEducationOutputSchema,
+  },
+  learn: {
+    promptKind: "education_unit",
+    modelPurpose: "education",
+    contextMode: "teacher",
+    contextMove: "teach",
+    outputSchema: WorkspaceAiEducationOutputSchema,
+  },
+  attempt: {
+    promptKind: "education_unit",
+    modelPurpose: "education",
+    contextMode: "teacher",
+    contextMove: "guide",
+    outputSchema: WorkspaceAiEducationOutputSchema,
+  },
+  feedback: {
+    promptKind: "evaluate_feedback",
+    modelPurpose: "evaluation",
+    contextMode: "evaluator",
+    contextMove: "evaluate",
+    outputSchema: WorkspaceAiEvaluationOutputSchema,
+  },
+  mastery_check: {
+    promptKind: "evaluate_feedback",
+    modelPurpose: "evaluation",
+    contextMode: "evaluator",
+    contextMove: "transfer",
+    outputSchema: WorkspaceAiEvaluationOutputSchema,
+  },
+  terminal: {
+    promptKind: "evaluate_feedback",
+    modelPurpose: "evaluation",
+    contextMode: "evaluator",
+    contextMove: "evaluate",
+    outputSchema: WorkspaceAiEvaluationOutputSchema,
+  },
+} satisfies Record<
+  StepKind,
+  Omit<
+    Extract<WorkspaceTurnRuntime, { mode: "education_unit" }>,
+    "mode" | "stage"
+  >
+>;
+
 export const selectWorkspaceTurnRuntime = (
   state: WorkspaceAiState,
 ): WorkspaceTurnRuntime => {
@@ -59,31 +112,13 @@ export const selectWorkspaceTurnRuntime = (
   }
 
   const stage = state.educationStage ?? "diagnostic_scenario";
-
-  if (stage === "performance_evaluation" || stage === "transfer_scenario") {
-    return {
-      mode: "education_unit",
-      stage,
-      promptKind: "evaluate_feedback",
-      modelPurpose: "evaluation",
-      contextMode: "evaluator",
-      contextMove: stage === "transfer_scenario" ? "transfer" : "evaluate",
-      outputSchema: WorkspaceAiEvaluationOutputSchema,
-    };
-  }
+  const workflow = getWorkflowDefinition(state.workflowId);
+  const stepKind = getWorkflowStep(workflow, stage)?.kind ?? "scenario";
+  const runtime = EDUCATION_RUNTIME_BY_STEP_KIND[stepKind];
 
   return {
     mode: "education_unit",
     stage,
-    promptKind: "education_unit",
-    modelPurpose: "education",
-    contextMode: "teacher",
-    contextMove:
-      stage === "concept_instruction"
-        ? "teach"
-        : stage === "guided_application"
-          ? "guide"
-          : "diagnose",
-    outputSchema: WorkspaceAiEducationOutputSchema,
+    ...runtime,
   };
 };

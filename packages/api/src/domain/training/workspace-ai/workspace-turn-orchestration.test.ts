@@ -29,6 +29,8 @@ void test("duplicate submit with an in-flight turn id is rejected before prepari
     appendMessage: () => fail("appendMessage"),
     listPhaseResponsesBySession: () => fail("listPhaseResponsesBySession"),
     getPhaseResponses: () => fail("getPhaseResponses"),
+    getUnitRun: () => fail("getUnitRun"),
+    upsertUnitRun: () => fail("upsertUnitRun"),
     getUnitByNodeId: () => fail("getUnitByNodeId"),
     createUnitContent: () => fail("createUnitContent"),
     savePhaseResponse: () => fail("savePhaseResponse"),

@@ -17,11 +17,13 @@ import type {
 } from "./types";
 import type { WorkspaceTurnDependencies } from "./workspace-turn";
 import { validateScenarioContractAgainstUnit } from "./evaluation-contracts";
-import { normalizeEducationStageTransition } from "./orchestrator";
+import { advanceUnitRun } from "./orchestrator";
 import {
   getWorkspaceMessageSlot,
   planNextWorkspaceTurn,
+  resolveUnitRunProjection,
 } from "./workspace-turn";
+import { getWorkflowDefinition } from "./workflow";
 
 export interface WorkspaceTurnPersistenceDependencies
   extends Omit<WorkspaceTurnDependencies, "getActivePlan"> {
@@ -140,14 +142,6 @@ const buildCompletionDebrief = ({
   nextStep: "Continue to the next training unit.",
 });
 
-/**
- * Score (0–100) at which a single education unit counts as complete. Unit
- * completion is score-based; job (cluster) completion is ELO-based. The ELO
- * mastery gate belongs at the job level, not here — gating a unit on mastery
- * gives it no non-mastery exit and lets it loop forever.
- */
-const UNIT_COMPLETION_SCORE = 90;
-
 const CONTRACTED_SCENARIO_STAGES = new Set([
   "diagnostic_scenario",
   "guided_application",
@@ -211,9 +205,9 @@ const persistOutputContracts = async ({
 
 /**
  * Fold one scored attempt into the per-unit ELO rating. This keeps Goldilocks
- * scenario difficulty calibrated and feeds the job-level mastery check — it no
- * longer decides whether the unit is complete (that is score-based). Failures
- * are swallowed: a missed rating update must not block the learner's turn.
+ * scenario difficulty calibrated and returns the single mastery verdict used
+ * for completion. Failures are swallowed: a missed rating update must not
+ * block the learner's turn, but it also cannot complete the unit.
  */
 const recordAttemptRating = async ({
   userId,
@@ -227,13 +221,13 @@ const recordAttemptRating = async ({
   output: WorkspaceAiEducationOutput | WorkspaceAiEvaluationOutput;
   attemptTiming?: AttemptTiming | null;
   deps: WorkspaceTurnPersistenceDependencies;
-}): Promise<void> => {
+}): Promise<{ mastered: boolean }> => {
   if (!("dimensionResults" in output) || !deps.recordEvaluation) {
-    return;
+    return { mastered: false };
   }
 
   try {
-    await deps.recordEvaluation({
+    const result = await deps.recordEvaluation({
       userId,
       nodeId: unit.nodeId,
       score: output.score,
@@ -244,13 +238,133 @@ const recordAttemptRating = async ({
       occurredAt: new Date(),
       bands: unit.difficultyBands,
     });
+    return { mastered: result.mastered };
   } catch (error) {
     console.error("Training rating evaluation recording failed", {
       userId,
       nodeId: unit.nodeId,
       error,
     });
+    return { mastered: false };
   }
+};
+
+const getRepairStepId = ({
+  output,
+}: {
+  output: WorkspaceAiEducationOutput | WorkspaceAiEvaluationOutput;
+}): WorkspaceAiState["educationStage"] =>
+  "routingDecision" in output && output.routingDecision === "repair"
+    ? output.nextStage
+    : null;
+
+const writeUnitRun = async ({
+  run,
+  deps,
+}: {
+  run: Parameters<WorkspaceTurnPersistenceDependencies["upsertUnitRun"]>[0];
+  deps: WorkspaceTurnPersistenceDependencies;
+}) => deps.upsertUnitRun(run);
+
+const appendPhaseEvent = async ({
+  sessionId,
+  userId,
+  message,
+  unit,
+  assistantMessage,
+  output,
+  nextStepId,
+  runtime,
+  attemptTiming,
+  evaluationPlan,
+  difficultyDirectiveReason,
+  deps,
+}: {
+  sessionId: string;
+  userId: string;
+  message: string;
+  unit: UnitContent;
+  assistantMessage: WorkspaceAiMessage;
+  output: WorkspaceAiEducationOutput | WorkspaceAiEvaluationOutput;
+  nextStepId: NonNullable<WorkspaceAiState["educationStage"]>;
+  runtime: {
+    promptKind: "education_unit" | "evaluate_feedback";
+    modelPurpose: "education" | "evaluation";
+  };
+  attemptTiming?: AttemptTiming | null;
+  evaluationPlan?: EvaluationPlan | null;
+  difficultyDirectiveReason?: string | null;
+  deps: WorkspaceTurnPersistenceDependencies;
+}) =>
+  deps.savePhaseResponse({
+    unitContentId: unit.id,
+    sessionId,
+    userId,
+    phase: "ai_education",
+    sequence: assistantMessage.sequence,
+    userResponse: message,
+    aiResponse: output.assistantMessage,
+    passed: nextStepId === "completed",
+    score: output.score,
+    metadata: {
+      aiEducationStage: nextStepId,
+      promptKind: runtime.promptKind,
+      modelPurpose: runtime.modelPurpose,
+      routingDecision:
+        "routingDecision" in output ? output.routingDecision : undefined,
+      evaluationSummary:
+        "evaluationSummary" in output ? output.evaluationSummary : undefined,
+      failedDimensions:
+        "failedDimensions" in output ? output.failedDimensions : undefined,
+      dimensionResults:
+        "dimensionResults" in output ? output.dimensionResults : undefined,
+      evaluationPlan:
+        "evaluationPlan" in output
+          ? (evaluationPlan ?? output.evaluationPlan)
+          : undefined,
+      attemptTiming: attemptTiming ?? undefined,
+      difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
+      estimatedItemRating: output.estimatedItemRating ?? undefined,
+      feedback: output.assistantMessage,
+      evidenceAnchors:
+        "evidenceCitations" in output
+          ? output.evidenceCitations
+          : output.strengths,
+    },
+  });
+
+const reactToUnitCompletion = async ({
+  sessionId,
+  userId,
+  message,
+  unit,
+  output,
+  mastered,
+  deps,
+}: {
+  sessionId: string;
+  userId: string;
+  message: string;
+  unit: UnitContent;
+  output: WorkspaceAiEducationOutput | WorkspaceAiEvaluationOutput;
+  mastered: boolean;
+  deps: WorkspaceTurnPersistenceDependencies;
+}): Promise<CurriculumNode | null> => {
+  if (!mastered) {
+    return null;
+  }
+
+  await deps.saveAttempt({
+    sessionId,
+    userId,
+    unitId: unit.id,
+    response: message,
+    debrief: buildCompletionDebrief({ message, output }),
+    finalArticulation: message,
+    growthDimensions: output.strengths,
+  });
+
+  return deps.completeNode(unit.nodeId);
 };
 
 export const saveRecallTurnResult = async ({
@@ -385,78 +499,68 @@ export const saveEducationTurnResult = async ({
     deps,
   });
 
-  // Keep the per-unit ELO rating current on every scored attempt — it drives
-  // Goldilocks difficulty and the job-level mastery check — but it no longer
-  // gates completion. The unit completes on score; the job completes on ELO.
-  await recordAttemptRating({ userId, unit, output, attemptTiming, deps });
-
-  const isScoredAttempt = "dimensionResults" in output;
-  const stageComplete = output.stageComplete && evaluationComplete;
-  const unitComplete =
-    isScoredAttempt &&
-    (output.score ?? 0) >= UNIT_COMPLETION_SCORE &&
-    evaluationComplete;
-  const nextStage = normalizeEducationStageTransition({
-    currentStage: state.educationStage,
-    requestedStage: output.nextStage,
-    stageComplete,
-    unitComplete,
-    allowRepairRoute:
-      "routingDecision" in output && output.routingDecision === "repair",
-  });
-
-  const educationResponses = await deps.getPhaseResponses(unit.id, sessionId);
-  await deps.savePhaseResponse({
-    unitContentId: unit.id,
+  const currentRun = await resolveUnitRunProjection({
     sessionId,
     userId,
-    phase: "ai_education",
-    sequence: countPhaseResponses(educationResponses, "ai_education"),
-    userResponse: message,
-    aiResponse: output.assistantMessage,
-    passed: nextStage === "completed",
-    score: output.score,
-    metadata: {
-      aiEducationStage: nextStage,
+    unit,
+    unitResponses: [],
+    fallbackStepId: state.educationStage,
+    deps,
+  });
+  const workflow = getWorkflowDefinition(currentRun.workflowId);
+
+  const isScoredAttempt = "dimensionResults" in output;
+  const ratingVerdict = await recordAttemptRating({
+    userId,
+    unit,
+    output,
+    attemptTiming,
+    deps,
+  });
+  const stageComplete = output.stageComplete && evaluationComplete;
+  const mastered =
+    isScoredAttempt && ratingVerdict.mastered && evaluationComplete;
+  const nextRun = advanceUnitRun({
+    run: currentRun,
+    outcome: {
+      stepId: state.educationStage,
+      requestedStepId: output.nextStage,
+      stepComplete: stageComplete,
+      mastered,
+      scenarioCompleted: isScoredAttempt && evaluationComplete,
+      repairStepId: getRepairStepId({ output }),
+    },
+    workflow,
+  });
+  await appendPhaseEvent({
+    sessionId,
+    userId,
+    message,
+    unit,
+    assistantMessage,
+    output,
+    nextStepId: nextRun.currentStepId,
+    runtime: {
       promptKind:
         "routingDecision" in output ? "evaluate_feedback" : "education_unit",
       modelPurpose: "routingDecision" in output ? "evaluation" : "education",
-      routingDecision:
-        "routingDecision" in output ? output.routingDecision : undefined,
-      evaluationSummary:
-        "evaluationSummary" in output ? output.evaluationSummary : undefined,
-      failedDimensions:
-        "failedDimensions" in output ? output.failedDimensions : undefined,
-      dimensionResults:
-        "dimensionResults" in output ? output.dimensionResults : undefined,
-      evaluationPlan:
-        "evaluationPlan" in output
-          ? (evaluationPlan ?? output.evaluationPlan)
-          : undefined,
-      attemptTiming: attemptTiming ?? undefined,
-      difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
-      estimatedItemRating: output.estimatedItemRating ?? undefined,
-      feedback: output.assistantMessage,
-      evidenceAnchors:
-        "evidenceCitations" in output
-          ? output.evidenceCitations
-          : output.strengths,
     },
+    attemptTiming,
+    evaluationPlan,
+    difficultyDirectiveReason,
+    deps,
   });
+  await writeUnitRun({ run: nextRun, deps });
 
-  let nextReadyNode: CurriculumNode | null = null;
-  if (unitComplete) {
-    await deps.saveAttempt({
-      sessionId,
-      userId,
-      unitId: unit.id,
-      response: message,
-      debrief: buildCompletionDebrief({ message, output }),
-      finalArticulation: message,
-      growthDimensions: output.strengths,
-    });
-    nextReadyNode = await deps.completeNode(unit.nodeId);
-  }
+  const nextReadyNode = await reactToUnitCompletion({
+    sessionId,
+    userId,
+    message,
+    unit,
+    output,
+    mastered,
+    deps,
+  });
 
   await deps.touchSession(sessionId);
 
@@ -465,7 +569,7 @@ export const saveEducationTurnResult = async ({
     plan: {
       ...plan,
       nodes:
-        nextStage === "completed"
+        nextRun.currentStepId === "completed"
           ? plan.nodes.map((node) =>
               node.id === unit.nodeId ? { ...node, status: "completed" } : node,
             )
@@ -475,7 +579,7 @@ export const saveEducationTurnResult = async ({
   });
 
   return {
-    state: nextState ?? { ...state, educationStage: nextStage },
+    state: nextState ?? { ...state, educationStage: nextRun.currentStepId },
     messages: await deps.listMessages(
       sessionId,
       nextState ? getWorkspaceMessageSlot(nextState.mode) : "education_unit",

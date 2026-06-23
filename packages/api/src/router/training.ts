@@ -22,6 +22,7 @@ import { trainingCapstoneRepository } from "../repositories/training-capstone-re
 import { trainingCurriculumRepository } from "../repositories/training-curriculum-repository";
 import { trainingOnboardingRepository } from "../repositories/training-onboarding-repository";
 import { trainingRecallRepository } from "../repositories/training-recall-repository";
+import { trainingUnitRunRepository } from "../repositories/training-unit-run-repository";
 import { createWorkspaceTurnRepositoryDeps } from "../repositories/workspace-turn-repository-deps";
 import { protectedProcedure } from "../trpc";
 
@@ -523,6 +524,17 @@ export const trainingRouter = {
                 db: ctx.db,
                 unitContentId,
                 sessionId,
+              }),
+            getUnitRun: (sessionId, unitContentId) =>
+              trainingUnitRunRepository.getUnitRun({
+                db: ctx.db,
+                sessionId,
+                unitContentId,
+              }),
+            upsertUnitRun: (run) =>
+              trainingUnitRunRepository.upsertUnitRun({
+                db: ctx.db,
+                run,
               }),
             getUnitByNodeId: (nodeId) =>
               trainingCurriculumRepository.getUnitByNodeId({

@@ -10,9 +10,11 @@ import type {
   WorkspaceAiMessage,
   WorkspaceAiState,
 } from "../workspace-ai/types";
+import type { UnitRun } from "../workspace-ai/workflow";
 import { err, ok } from "../../../lib/result";
 import { getEvaluationProgress } from "../workspace-ai/evaluation-plan";
 import { planWorkspaceTurn } from "../workspace-ai/orchestrator";
+import { resolveUnitRunProjection } from "../workspace-ai/workspace-turn";
 
 interface GetAiWorkspaceDependencies {
   getActivePlan: (sessionId: string) => Promise<CurriculumPlan | null>;
@@ -27,6 +29,11 @@ interface GetAiWorkspaceDependencies {
     unitContentId: string,
     sessionId: string,
   ) => Promise<PhaseResponseRecord[]>;
+  getUnitRun: (
+    sessionId: string,
+    unitContentId: string,
+  ) => Promise<UnitRun | null>;
+  upsertUnitRun: (run: UnitRun) => Promise<UnitRun>;
   getUnitByNodeId: (nodeId: string) => Promise<UnitContent | null>;
   createUnitContent: (input: {
     nodeId: string;
@@ -88,11 +95,20 @@ export const getAiWorkspaceWorkflow = async ({
   const activeUnitResponses = activeUnit
     ? await deps.getPhaseResponses(activeUnit.id, sessionId)
     : [];
+  const activeUnitRun = activeUnit
+    ? await resolveUnitRunProjection({
+        sessionId,
+        unit: activeUnit,
+        unitResponses: activeUnitResponses,
+        deps,
+      })
+    : null;
 
   const state = planWorkspaceTurn({
     nodes: plan.nodes,
     allResponses,
     activeUnitResponses,
+    activeUnitRun,
   });
 
   if (state?.activeUnitId && !activeUnit) {
