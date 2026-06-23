@@ -9,6 +9,14 @@ import type { CurriculumPlan } from "../types/training.types";
 import type { BuildProjectDeps, ProjectBuildState } from "./build-project";
 import { buildProjectFromOnboarding } from "./build-project";
 
+// The overview agent is invoked directly (not injected), so a failing-overview
+// test mocks the module. Tests that cache the overview checkpoint never reach it.
+vi.mock("../agents/project-overview", () => ({
+  designProjectOverview: vi.fn(() =>
+    Promise.reject(new Error("overview model failed")),
+  ),
+}));
+
 type ClaimRunResult = Awaited<ReturnType<BuildProjectDeps["claimRun"]>>;
 
 const input = {
@@ -235,6 +243,52 @@ describe("buildProjectFromOnboarding", () => {
     expect(result.success).toBe(true);
     expect(persistProject).toHaveBeenCalledOnce();
     expect(saveCheckpoint).not.toHaveBeenCalled();
+    expect(updateRun.mock.calls.at(-1)?.[0].payload.status).toBe("complete");
+  });
+
+  it("saves the curriculum with a null overview when the overview agent fails", async () => {
+    const claimedRun: ClaimRunResult = { status: "claimed" };
+    const updateRun = vi.fn<BuildProjectDeps["updateRun"]>(() =>
+      Promise.resolve(null),
+    );
+    let persistedOverview: unknown = "unset";
+    const persistProject = vi.fn<BuildProjectDeps["persistProject"]>((args) => {
+      persistedOverview = args.blueprint.overview;
+      return Promise.resolve(plan);
+    });
+    // Overview is intentionally absent → the (mocked, rejecting) agent runs;
+    // goals + curriculum are cached so no other AI is invoked.
+    const checkpoints: Record<string, unknown> = { goals: packet, curriculum };
+
+    const deps: BuildProjectDeps = {
+      getActivePlan: vi.fn<BuildProjectDeps["getActivePlan"]>(() =>
+        Promise.resolve(null),
+      ),
+      claimRun: vi.fn<BuildProjectDeps["claimRun"]>(() =>
+        Promise.resolve(claimedRun),
+      ),
+      updateRun,
+      getCheckpoint: vi.fn<BuildProjectDeps["getCheckpoint"]>(({ step }) =>
+        Promise.resolve(checkpoints[step] ?? null),
+      ),
+      saveCheckpoint: vi.fn<BuildProjectDeps["saveCheckpoint"]>(() =>
+        Promise.resolve(null),
+      ),
+      persistProject,
+    };
+
+    const result = await buildProjectFromOnboarding({
+      sessionId: "session-id",
+      userId: "user-id",
+      transcript,
+      input,
+      deps,
+      onProgress: vi.fn(),
+    });
+
+    expect(result.success).toBe(true);
+    expect(persistProject).toHaveBeenCalledOnce();
+    expect(persistedOverview).toBeNull();
     expect(updateRun.mock.calls.at(-1)?.[0].payload.status).toBe("complete");
   });
 });

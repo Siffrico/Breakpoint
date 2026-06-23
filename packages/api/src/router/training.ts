@@ -353,6 +353,20 @@ export const trainingRouter = {
       return state;
     }),
 
+  // Rehydrate the user's latest in-progress onboarding session so a reload or
+  // idle tab resumes the same transcript instead of minting a fresh session.
+  resumeOnboarding: protectedProcedure.query(async ({ ctx }) => {
+    const session = await trainingOnboardingRepository.getLatestResumableSession(
+      { db: ctx.db, userId: ctx.session.user.id },
+    );
+    if (!session) return null;
+
+    return trainingOnboardingRepository.getOnboardingState({
+      db: ctx.db,
+      sessionId: session.id,
+    });
+  }),
+
   resumeProjectBuild: protectedProcedure
     .input(SessionIdSchema)
     .mutation(async ({ ctx, input }) => {

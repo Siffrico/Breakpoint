@@ -8,6 +8,12 @@ import { AiModelPreferenceSchema } from "@acme/validators";
 import { auth } from "~/auth/server";
 
 export const runtime = "nodejs";
+// Caps a live project build. The stale-run reclaim window in
+// `claimProjectBuildRun` MUST exceed this value, so a run still "building" past
+// this ceiling is provably dead (the platform would have killed a live one).
+// NOTE: plan-dependent — set this to your deployment's real function ceiling
+// (Vercel Hobby caps below 300), then keep STALE_BUILD_RECLAIM_MS above it.
+export const maxDuration = 300;
 
 interface ChatRequestBody {
   id?: string;

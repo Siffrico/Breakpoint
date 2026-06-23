@@ -1,6 +1,6 @@
 import type { db as databaseClient } from "@acme/db/client";
 import type { BeforeAfterProfile } from "@acme/validators";
-import { and, asc, desc, eq, inArray, sql } from "@acme/db";
+import { and, asc, desc, eq, inArray, lt, ne, sql } from "@acme/db";
 import {
   TrainingIdentityProfile,
   TrainingIdentityProfileVersion,
@@ -35,6 +35,12 @@ interface OnboardingMessageInsert {
     hiddenFromTranscript?: boolean;
   } | null;
 }
+
+// A project-build run's `updatedAt` only advances at claim time and at terminal
+// states (never on step transitions), so it sits flat for the whole live build.
+// A run still "building" past this window is therefore dead, not slow. This MUST
+// stay greater than the chat route's `maxDuration` (300s) — see that route.
+const STALE_BUILD_RECLAIM_MS = 360_000; // 6 min > 300s route ceiling
 
 const isUniqueViolation = (error: unknown) =>
   typeof error === "object" &&
@@ -414,6 +420,31 @@ export const trainingOnboardingRepository = {
       ],
     }),
 
+  // Most-recent onboarding session the user can still continue. A "complete"
+  // session already produced a learning project (and redirects to /workspace),
+  // so it must never be resumed back into onboarding.
+  getLatestResumableSession: async ({
+    db,
+    userId,
+  }: {
+    db: Database;
+    userId: string;
+  }) => {
+    const [session] = await db.query.TrainingOnboardingSession.findMany({
+      where: and(
+        eq(TrainingOnboardingSession.userId, userId),
+        ne(TrainingOnboardingSession.status, "complete"),
+      ),
+      orderBy: [
+        desc(TrainingOnboardingSession.updatedAt),
+        desc(TrainingOnboardingSession.createdAt),
+      ],
+      limit: 1,
+    });
+
+    return session ?? null;
+  },
+
   deleteSessionByUser: async ({
     db,
     sessionId,
@@ -569,7 +600,26 @@ export const trainingOnboardingRepository = {
       ? existing.payload
       : null;
 
+    // A live build holds the claim; only reclaim one that is provably dead.
+    // The guarded UPDATE is race-free under READ COMMITTED: if two retries fire
+    // at once, the loser re-checks `updatedAt` against the winner's freshly
+    // bumped row, matches zero rows, and falls back to "processing".
     if (existingPayload?.status === "building") {
+      const staleBefore = new Date(Date.now() - STALE_BUILD_RECLAIM_MS);
+      const [reclaimed] = await db
+        .update(TrainingProjectBuildCheckpoint)
+        .set({ sourceKey, payload, updatedAt: new Date() })
+        .where(
+          and(
+            eq(TrainingProjectBuildCheckpoint.sessionId, sessionId),
+            eq(TrainingProjectBuildCheckpoint.step, "run"),
+            lt(TrainingProjectBuildCheckpoint.updatedAt, staleBefore),
+          ),
+        )
+        .returning();
+      if (reclaimed) {
+        return { status: "claimed" };
+      }
       return { status: "processing", state: existingPayload.state };
     }
 

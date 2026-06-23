@@ -472,17 +472,18 @@ export const buildProjectFromOnboarding = async ({
   state.moduleCount = state.modules.length;
   emit();
 
-  let overview: ProjectOverviewOutput;
+  // Overview is best-effort (see the contract at the top of this block): a
+  // failure must not sink a valid curriculum. We persist with overview = null
+  // (the blueprint default); it can be regenerated later.
   try {
-    overview = await overviewPromise;
+    const overview = await overviewPromise;
+    blueprint.overview = { ...overview, generatedAt: new Date().toISOString() };
   } catch (error) {
-    return fail(
-      error instanceof Error && error.message
-        ? error.message
-        : "I built the curriculum but couldn't write the overview. Want to try again?",
-    );
+    console.error("[build-project] overview failed; saving without it:", {
+      sessionId,
+      error,
+    });
   }
-  blueprint.overview = { ...overview, generatedAt: new Date().toISOString() };
 
   // 5 — save: one transaction. Profile + plan + session status, all or nothing.
   setStep("save", "active");
