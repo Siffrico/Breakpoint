@@ -9,15 +9,12 @@ import type {
 } from "@acme/validators";
 import {
   BeforeAfterProfileSchema,
-  DifficultyBandSchema,
   FailureGapSchema,
   GhostScenarioSchema,
   IdentityReportSchema,
   OnboardingQuestionSchema,
   ProjectOverviewSchema,
 } from "@acme/validators";
-
-import { validateDifficultyBands } from "../engine/rating";
 
 export const OnboardingPacketSchema = z.object({
   targetIdentity: z.string().min(1),
@@ -43,43 +40,22 @@ export const OnboardingDecisionSchema = z.object({
 const CurriculumUnitDraftSchema = z.object({
   title: z.string().min(1),
   learningGoal: z.string().min(1),
-  difficultyBands: z.array(DifficultyBandSchema).min(1),
 });
 
-const validateUnitBandRamp = (
-  units: readonly { difficultyBands: z.infer<typeof DifficultyBandSchema>[] }[],
-  ctx: z.core.$RefinementCtx,
-) => {
-  let previousTopCeiling: number | null = null;
-
-  units.forEach((unit, unitIndex) => {
-    let sortedBands: readonly z.infer<typeof DifficultyBandSchema>[];
-    try {
-      sortedBands = validateDifficultyBands(unit.difficultyBands);
-    } catch (error) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["units", unitIndex, "difficultyBands"],
-        message:
-          error instanceof Error
-            ? error.message
-            : "Invalid difficulty band ladder.",
-      });
-      return;
-    }
-
-    const topBand = sortedBands[sortedBands.length - 1];
-    if (!topBand) return;
-    if (previousTopCeiling != null && topBand.maxRating < previousTopCeiling) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["units", unitIndex, "difficultyBands"],
-        message: `unit ${unitIndex + 1} top band ceiling (${topBand.maxRating}) must be at least the previous unit ceiling (${previousTopCeiling})`,
-      });
-    }
-    previousTopCeiling = topBand.maxRating;
+/**
+ * A cluster's difficulty span. The designer emits only the start and peak
+ * top-band ceilings; the per-unit 3-band ladders are derived deterministically
+ * in code (`expandUnitBands`), so the LLM never hand-types — and never
+ * mis-ramps — the dozens of band numbers a cluster would otherwise require.
+ */
+const BandRampSchema = z
+  .object({
+    startRating: z.number().int(),
+    peakRating: z.number().int(),
+  })
+  .refine((ramp) => ramp.peakRating > ramp.startRating, {
+    message: "band ramp peakRating must be greater than startRating",
   });
-};
 
 export const CurriculumPlanDraftSchema = z.object({
   title: z.string().min(1),
@@ -91,13 +67,14 @@ export const CurriculumPlanDraftSchema = z.object({
         title: z.string().min(1),
         summary: z.string().min(1),
         whyItMatters: z.string().min(1),
-        units: z.array(CurriculumUnitDraftSchema).min(20).max(30),
+        units: z.array(CurriculumUnitDraftSchema).min(8).max(24),
+        bandRamp: BandRampSchema,
         simulation: z.object({
           title: z.string().min(1),
           summary: z.string().min(1),
           whyItMatters: z.string().min(1),
         }),
-      }).superRefine((cluster, ctx) => validateUnitBandRamp(cluster.units, ctx)),
+      }),
     )
     .min(1)
     .max(7),
@@ -108,8 +85,9 @@ export const CurriculumPlanDraftSchema = z.object({
         summary: z.string().min(1),
         whyItMatters: z.string().min(1),
         units: z.array(CurriculumUnitDraftSchema).min(1).max(4),
+        bandRamp: BandRampSchema,
         clusterSynthesis: z.array(z.string().min(1)).min(2),
-      }).superRefine((layer, ctx) => validateUnitBandRamp(layer.units, ctx)),
+      }),
     )
     .max(6),
 });

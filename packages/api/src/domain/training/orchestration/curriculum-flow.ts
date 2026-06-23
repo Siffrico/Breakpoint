@@ -1,6 +1,8 @@
 import type { designCurriculum } from "../agents/curriculum-designer";
 import type { CurriculumNodeBlueprint } from "../types/training.types";
 
+import { expandUnitBands } from "../engine/rating";
+
 export const buildCurriculumNodes = (
   draft: Awaited<ReturnType<typeof designCurriculum>>["planDraft"],
   targetIdentity: string,
@@ -76,7 +78,11 @@ export const buildCurriculumNodes = (
         depth: 2,
         positionColumn: baseColumn + unitIndex,
         positionRow: 2,
-        difficultyBands: unit.difficultyBands,
+        difficultyBands: expandUnitBands(
+          unitIndex,
+          cluster.units.length,
+          cluster.bandRamp,
+        ),
       });
     });
 
@@ -129,7 +135,11 @@ export const buildCurriculumNodes = (
         depth: 2,
         positionColumn: integrationStartColumn + layerIndex,
         positionRow: 2 + slotIndex,
-        difficultyBands: unit.difficultyBands,
+        difficultyBands: expandUnitBands(
+          slotIndex,
+          layer.units.length,
+          layer.bandRamp,
+        ),
       });
     });
   });

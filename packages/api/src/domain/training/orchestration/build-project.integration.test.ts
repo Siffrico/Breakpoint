@@ -63,21 +63,6 @@ const buildUnit = (index: number) => ({
   title: `Unit ${index + 1}`,
   learningGoal:
     "Given a concrete replicated-service failure, identify the causal mechanism and choose the next operational move.",
-  difficultyBands: [
-    { order: 0, minRating: 800 + index, maxRating: 1000 + index, label: "guided" },
-    {
-      order: 1,
-      minRating: 1001 + index,
-      maxRating: 1200 + index,
-      label: "applied",
-    },
-    {
-      order: 2,
-      minRating: 1201 + index,
-      maxRating: 1400 + index,
-      label: "transfer",
-    },
-  ],
 });
 
 const curriculum: CurriculumDesignerOutput = {
@@ -117,6 +102,7 @@ const curriculum: CurriculumDesignerOutput = {
         summary: "Trace reads, writes, lag, and acknowledgement boundaries.",
         whyItMatters: "Reliability claims fail here first.",
         units: Array.from({ length: 20 }, (_, index) => buildUnit(index)),
+        bandRamp: { startRating: 1000, peakRating: 1600 },
         simulation: {
           title: "Checkout under replica lag",
           summary: "Diagnose stale inventory during a live incident.",
