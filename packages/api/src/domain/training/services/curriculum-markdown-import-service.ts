@@ -5,6 +5,7 @@ import type {
 
 const MAX_IMPORTED_UNITS = 80;
 const MIN_SUMMARY_LENGTH = 18;
+const MIN_TITLE_LENGTH = 3;
 
 interface MarkdownSection {
   depth: number;
@@ -12,8 +13,36 @@ interface MarkdownSection {
   body: string;
 }
 
+const GENERIC_SECTION_TITLES = new Set([
+  "curriculum",
+  "course",
+  "course outline",
+  "learning path",
+  "outline",
+  "plan",
+  "roadmap",
+  "syllabus",
+]);
+
+const stripJsonFence = (value: string) =>
+  value
+    .trim()
+    .replace(/^```(?:json|markdown|md|txt)?\s*/i, "")
+    .replace(/\s*```$/i, "");
+
+const normalizePastedText = (value: string) =>
+  stripJsonFence(value)
+    .replace(/^\uFEFF/, "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/\u00A0/g, " ")
+    .replace(/[•‣◦▪▫●○]/g, "-")
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'");
+
 const cleanInlineMarkdown = (value: string) =>
   value
+    .replace(/\[([^\]]+)]\([^)]+\)/g, "$1")
+    .replace(/https?:\/\/\S+/g, " ")
     .replace(/[`*_~[\]()>#-]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -27,12 +56,30 @@ const toSentence = (value: string, fallback: string) => {
   return fallback;
 };
 
+const clampTitle = (value: string, fallback: string) => {
+  const cleaned = cleanInlineMarkdown(value)
+    .replace(
+      /^(?:module|unit|lesson|week|day|part|phase|step)\s+\d+\s*[:.-]?\s*/i,
+      "",
+    )
+    .trim();
+
+  if (cleaned.length >= MIN_TITLE_LENGTH) {
+    return cleaned.length > 96 ? `${cleaned.slice(0, 93).trim()}...` : cleaned;
+  }
+
+  return fallback;
+};
+
+const looksGenericSectionTitle = (value: string) =>
+  GENERIC_SECTION_TITLES.has(cleanInlineMarkdown(value).toLowerCase());
+
 const parseHeadingSections = (markdown: string): MarkdownSection[] => {
   const sections: MarkdownSection[] = [];
   let current: MarkdownSection | null = null;
 
   for (const rawLine of markdown.split(/\r?\n/)) {
-    const heading = /^(#{1,4})\s+(.+?)\s*$/.exec(rawLine);
+    const heading = /^(#{1,6})\s+(.+?)\s*$/.exec(rawLine.trim());
 
     if (heading) {
       if (current) {
@@ -59,30 +106,247 @@ const parseHeadingSections = (markdown: string): MarkdownSection[] => {
   return sections.filter((section) => section.title.length > 0);
 };
 
-const parseBulletSections = (markdown: string): MarkdownSection[] =>
-  markdown
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .map((line) => /^(?:[-*+]|\d+[.)])\s+(.+)$/.exec(line)?.[1] ?? "")
-    .map(cleanInlineMarkdown)
-    .filter((line) => line.length > 0)
-    .map((title) => ({
-      depth: 2,
-      title,
-      body: "",
-    }));
+const splitTitleAndBody = (value: string) => {
+  const normalized = value.trim();
+  const colonMatch = /^(.{3,120}?):\s+(.{12,})$/.exec(normalized);
+  if (colonMatch) {
+    return {
+      title: clampTitle(colonMatch[1] ?? "", normalized),
+      body: colonMatch[2] ?? "",
+    };
+  }
+
+  const dashMatch = /^(.{3,120}?)\s+[–—-]\s+(.{12,})$/.exec(normalized);
+  if (dashMatch) {
+    return {
+      title: clampTitle(dashMatch[1] ?? "", normalized),
+      body: dashMatch[2] ?? "",
+    };
+  }
+
+  return {
+    title: clampTitle(normalized, "Imported curriculum unit"),
+    body: "",
+  };
+};
+
+const parseListLine = (line: string) => {
+  const trimmed = line.trim();
+  return (
+    /^(?:[-*+]|\d{1,3}[.)]|[a-zA-Z][.)]|[ivxlcdmIVXLCDM]{1,8}[.)])\s+(.+)$/.exec(
+      trimmed,
+    )?.[1] ??
+    /^(?:(?:module|unit|lesson|week|day|part|phase|step)\s+\d{1,3}|(?:module|unit|lesson|week|day|part|phase|step)\s+[a-zA-Z])\s*[:.)-]\s+(.+)$/i.exec(
+      trimmed,
+    )?.[1] ??
+    null
+  );
+};
+
+const parseOutlineSections = (markdown: string): MarkdownSection[] => {
+  const sections: MarkdownSection[] = [];
+  let current: MarkdownSection | null = null;
+
+  for (const rawLine of markdown.split("\n")) {
+    const line = rawLine.trim();
+    if (!line) {
+      if (current?.body) {
+        current.body = `${current.body}\n`;
+      }
+      continue;
+    }
+
+    const parsedLine = parseListLine(line);
+    if (parsedLine) {
+      if (current) {
+        sections.push(current);
+      }
+
+      const { title, body } = splitTitleAndBody(parsedLine);
+      current = {
+        depth: Math.max(1, rawLine.search(/\S/) / 2 + 1),
+        title,
+        body,
+      };
+      continue;
+    }
+
+    const labeledLine =
+      /^(?:(?:module|unit|lesson|week|part|phase|step)\s*\d{0,3})\s*[:.-]\s+(.+)$/i.exec(
+        line,
+      )?.[1] ?? null;
+    if (labeledLine) {
+      if (current) {
+        sections.push(current);
+      }
+
+      const { title, body } = splitTitleAndBody(labeledLine);
+      current = {
+        depth: 2,
+        title,
+        body,
+      };
+      continue;
+    }
+
+    if (current) {
+      current.body = `${current.body}\n${line}`.trim();
+    }
+  }
+
+  if (current) {
+    sections.push(current);
+  }
+
+  return sections.filter((section) => section.title.length > 0);
+};
+
+const parseJsonSections = (markdown: string): MarkdownSection[] => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stripJsonFence(markdown));
+  } catch {
+    return [];
+  }
+
+  const sections: MarkdownSection[] = [];
+
+  const visit = (value: unknown, depth: number) => {
+    if (sections.length >= MAX_IMPORTED_UNITS || value == null) return;
+
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        visit(item, depth);
+      }
+      return;
+    }
+
+    if (typeof value === "string") {
+      const { title, body } = splitTitleAndBody(value);
+      sections.push({ depth, title, body });
+      return;
+    }
+
+    if (typeof value !== "object") return;
+
+    const record = value as Record<string, unknown>;
+    const titleValue =
+      record.title ??
+      record.name ??
+      record.unit ??
+      record.lesson ??
+      record.module ??
+      record.topic;
+    const bodyValue =
+      record.summary ??
+      record.description ??
+      record.learningGoal ??
+      record.goal ??
+      record.body ??
+      record.notes;
+    const hasChildCollection = [
+      "children",
+      "items",
+      "modules",
+      "units",
+      "lessons",
+      "topics",
+      "curriculum",
+    ].some((key) => Array.isArray(record[key]));
+
+    if (
+      typeof titleValue === "string" &&
+      !(depth === 1 && hasChildCollection)
+    ) {
+      sections.push({
+        depth,
+        title: clampTitle(titleValue, "Imported curriculum unit"),
+        body: typeof bodyValue === "string" ? bodyValue : "",
+      });
+    }
+
+    for (const key of [
+      "children",
+      "items",
+      "modules",
+      "units",
+      "lessons",
+      "topics",
+      "curriculum",
+    ]) {
+      visit(record[key], depth + 1);
+    }
+  };
+
+  visit(parsed, 1);
+  return sections.filter(
+    (section) =>
+      section.title.length > 0 && !looksGenericSectionTitle(section.title),
+  );
+};
+
+const parseParagraphSections = (markdown: string): MarkdownSection[] => {
+  const paragraphs = markdown
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter((paragraph) => paragraph.length > 0);
+
+  const source =
+    paragraphs.length > 1
+      ? paragraphs
+      : markdown
+          .split(/(?<=[.!?])\s+(?=[A-Z0-9])/)
+          .map((sentence) => sentence.trim())
+          .filter((sentence) => sentence.length > 0);
+
+  return source
+    .filter((paragraph) => cleanInlineMarkdown(paragraph).length > 0)
+    .slice(0, MAX_IMPORTED_UNITS)
+    .map((paragraph, index) => {
+      const firstLine = paragraph.split("\n")[0] ?? paragraph;
+      const { title, body } = splitTitleAndBody(firstLine);
+      return {
+        depth: 2,
+        title:
+          cleanInlineMarkdown(title).length >= MIN_TITLE_LENGTH
+            ? title
+            : `Imported unit ${index + 1}`,
+        body: body || paragraph,
+      };
+    });
+};
 
 const getImportedSections = (markdown: string) => {
-  const headingSections = parseHeadingSections(markdown);
-  const usableHeadingSections = headingSections.filter(
-    (section) => section.depth > 1,
+  const normalizedMarkdown = normalizePastedText(markdown);
+
+  const jsonSections = parseJsonSections(normalizedMarkdown);
+  if (jsonSections.length > 0) {
+    return jsonSections.slice(0, MAX_IMPORTED_UNITS);
+  }
+
+  const headingSections = parseHeadingSections(normalizedMarkdown);
+  const smallestHeadingDepth = Math.min(
+    ...headingSections.map((section) => section.depth),
   );
+  const usableHeadingSections = headingSections.filter((section, index) => {
+    if (headingSections.length === 1) return true;
+    if (section.depth > smallestHeadingDepth) return true;
+    return index > 0 && !looksGenericSectionTitle(section.title);
+  });
 
   if (usableHeadingSections.length > 0) {
     return usableHeadingSections.slice(0, MAX_IMPORTED_UNITS);
   }
 
-  return parseBulletSections(markdown).slice(0, MAX_IMPORTED_UNITS);
+  const outlineSections = parseOutlineSections(normalizedMarkdown);
+  if (outlineSections.length > 0) {
+    return outlineSections.slice(0, MAX_IMPORTED_UNITS);
+  }
+
+  return parseParagraphSections(normalizedMarkdown).slice(
+    0,
+    MAX_IMPORTED_UNITS,
+  );
 };
 
 const buildNodeSummary = (section: MarkdownSection) =>

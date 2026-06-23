@@ -1,4 +1,3 @@
-import { sql } from "drizzle-orm";
 import { index, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
 
 import { user } from "../../auth-schema";
@@ -56,7 +55,7 @@ export const TrainingUnitContent = pgTable(
       .notNull(),
     updatedAt: t
       .timestamp({ mode: "date", withTimezone: true })
-      .$onUpdateFn(() => sql`now()`),
+      .$onUpdateFn(() => new Date()),
   }),
   (table) => [uniqueIndex("becoming_unit_content_node_idx").on(table.nodeId)],
 );
@@ -197,7 +196,7 @@ export const TrainingUnitRun = pgTable(
       .notNull(),
     updatedAt: t
       .timestamp({ mode: "date", withTimezone: true })
-      .$onUpdateFn(() => sql`now()`),
+      .$onUpdateFn(() => new Date()),
   }),
   (table) => [
     uniqueIndex("becoming_unit_run_session_unit_idx").on(

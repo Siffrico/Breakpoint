@@ -1,4 +1,3 @@
-import { sql } from "drizzle-orm";
 import { pgTable, uniqueIndex } from "drizzle-orm/pg-core";
 
 import { user } from "../../auth-schema";
@@ -23,7 +22,7 @@ export const TrainingIdentityProfile = pgTable(
       .notNull(),
     updatedAt: t
       .timestamp({ mode: "date", withTimezone: true })
-      .$onUpdateFn(() => sql`now()`),
+      .$onUpdateFn(() => new Date()),
   }),
   (table) => [
     uniqueIndex("becoming_identity_profile_session_idx").on(

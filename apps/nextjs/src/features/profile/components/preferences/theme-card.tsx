@@ -3,14 +3,10 @@
 import { useState } from "react";
 
 import { cn } from "@acme/ui";
-import { useTheme  } from "@acme/ui/theme";
-import type {ThemeMode} from "@acme/ui/theme";
-import {
-  AI_MODEL_OPTIONS,
-  AiModelPreferenceSchema
-  
-} from "@acme/validators";
-import type {AiModelPreference} from "@acme/validators";
+import { useTheme } from "@acme/ui/theme";
+import type { ThemeMode } from "@acme/ui/theme";
+import { AI_MODEL_OPTIONS, AiModelPreferenceSchema } from "@acme/validators";
+import type { AiModelPreference } from "@acme/validators";
 
 import {
   SettingRow,
@@ -28,6 +24,10 @@ const AI_MODEL_COOKIE = "bp-ai-model";
 const DEFAULT_AI_MODEL: AiModelPreference = "gemini-3.1-flash-lite";
 
 const readModelPreference = (): AiModelPreference => {
+  if (typeof document === "undefined") {
+    return DEFAULT_AI_MODEL;
+  }
+
   const cookieValue = document.cookie
     .split("; ")
     .find((cookie) => cookie.startsWith(`${AI_MODEL_COOKIE}=`))
@@ -38,6 +38,8 @@ const readModelPreference = (): AiModelPreference => {
 };
 
 const writeModelPreference = (model: AiModelPreference) => {
+  if (typeof document === "undefined") return;
+
   document.cookie = `${AI_MODEL_COOKIE}=${model}; path=/; max-age=31536000; SameSite=Lax`;
 };
 

@@ -22,9 +22,12 @@ type Database = typeof databaseClient;
 
 const toIsoString = (value: Date | string | null | undefined) => {
   if (!value) return null;
-  return value instanceof Date
-    ? value.toISOString()
-    : new Date(value).toISOString();
+  const date =
+    value instanceof Date && typeof value.toISOString === "function"
+      ? value
+      : new Date(String(value));
+
+  return date.toISOString();
 };
 
 const DEFAULT_SEED_HINT =

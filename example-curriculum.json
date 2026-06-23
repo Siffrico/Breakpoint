@@ -1,0 +1,725 @@
+{
+  "identityReport": {
+    "targetIdentity": "A founding engineer who can design, ship, and operate a production payments backend",
+    "headline": "From someone who can wire up a Stripe SDK call to someone who can be trusted to own money movement that always reconciles",
+    "motivation": "You are the first engineer at a marketplace startup and payments just became your problem. You don't want to be the person who learns about idempotency by double-charging 4,000 customers at 2am.",
+    "currentBaseline": "You can call a payments API from a backend route, store the resulting charge id, and read the dashboard. You have never modeled a ledger, have only a fuzzy mental model of webhooks vs polling, and you treat 'the request timed out' as an unknowable event rather than a recoverable state.",
+    "hardMoments": [
+      "A processor call times out and you don't know whether the customer was charged, so you either retry blindly or do nothing — both can be wrong.",
+      "Finance asks why the dashboard total and your database total disagree by $312 and you have no way to answer.",
+      "A webhook arrives twice and your code runs the side effect twice.",
+      "You need to refund a partial amount and realize you never modeled what a refund even is in your data."
+    ],
+    "constraints": [
+      "About 6 focused hours per week.",
+      "Learn against a real sandbox (Stripe test mode) rather than toy problems.",
+      "No formal accounting background."
+    ],
+    "proofOfProgress": "A running payments service that survives an injected fault drill — duplicate webhooks, a timed-out capture, and a crash mid-charge — and still produces a balanced, reconciled ledger that matches the processor's settlement file to the cent.",
+    "behaviorSignals": [
+      "Reaches for the SDK happy-path example and stops thinking once it returns 200.",
+      "Describes failures as 'it broke' rather than naming the state the system was left in.",
+      "Treats the database row as the source of truth and the processor as a detail, rather than reconciling the two.",
+      "Adds retries without making the operation idempotent first."
+    ],
+    "confidenceFlags": [
+      "Unclear whether the learner has ever written a state machine explicitly; inferred 'no' from the transcript but not confirmed."
+    ]
+  },
+  "beforeAfter": {
+    "headline": "From 'the charge succeeded, ship it' to 'I can prove every cent is where it should be, even after a fault'",
+    "beforeSummary": "When the payments path breaks, you reason from the happy path outward and guess. A timeout becomes a coin flip, a mismatch becomes a shrug, and a duplicate event becomes a duplicate side effect because you never separated 'received the message' from 'applied the effect.'",
+    "afterSummary": "When the payments path breaks, you reason from invariants inward. You know which state every charge is in, you can replay events without re-applying effects, and you can answer 'are we balanced?' with a query instead of a guess — because the ledger, not the API response, is your source of truth.",
+    "contrastPairs": [
+      {
+        "before": "On a processor timeout, retries the charge to 'make sure it goes through.'",
+        "after": "On a processor timeout, treats the outcome as unknown, looks up the result by idempotency key, and reconciles before acting."
+      },
+      {
+        "before": "Stores a charge as a single mutable row that gets overwritten on refund.",
+        "after": "Records every money movement as a balanced, append-only double-entry posting that nets to zero."
+      },
+      {
+        "before": "Handles a webhook by running the side effect inline on every delivery.",
+        "after": "Handles a webhook by deduping on event id and making the effect safe to apply zero-or-more times."
+      },
+      {
+        "before": "Explains a balance mismatch as 'the data is weird.'",
+        "after": "Explains a balance mismatch by diffing the ledger against the settlement file and naming the missing transaction."
+      }
+    ],
+    "firstShift": "Stop treating the API's 200 response as the event. The event is the money moving; the response is just one possibly-lost notification about it. Internalize that and every other habit reorganizes around it."
+  },
+  "planDraft": {
+    "title": "Build and operate a production payments backend that always reconciles",
+    "summary": "A job-first path that trains the recurring work of a payments engineer: model money so it always balances, make every operation safe to retry under failure, and diagnose live payment incidents to a reconciled close. Difficulty scales through ambiguity, partial failure, concurrency, and adversarial settlement pressure — not through new topics.",
+    "targetIdentity": "A founding engineer who can design, ship, and operate a production payments backend",
+    "clusters": [
+      {
+        "title": "Model money movements so every balance reconciles",
+        "summary": "The recurring job of representing charges, refunds, fees, holds, payouts, and disputes as balanced, append-only ledger postings, then proving the ledger reconciles against an external settlement file. This is the source-of-truth job: if the model is wrong, every downstream operation inherits the error.",
+        "whyItMatters": "Almost every production payments incident is ultimately a reconciliation question — 'do our records and the processor's records agree, and if not, where's the missing money?' A learner who can't model money as double-entry will never be able to answer it, and will keep treating the mutable charge row as truth.",
+        "simulation": {
+          "title": "Reconcile a month of activity against a processor settlement file with seeded discrepancies",
+          "summary": "You are handed a CSV settlement file from the processor and your internal ledger for the same period. Three discrepancies are seeded: a fee posted in the wrong currency, a refund recorded twice, and a payout that settled but was never posted. Produce a reconciliation report that explains every cent of difference and the corrections that make them agree.",
+          "whyItMatters": "Reconciliation is the load-bearing whole task of money modeling. If the model can survive an adversarial settlement file with real discrepancies, it can survive production."
+        },
+        "units": [
+          {
+            "title": "Record a single charge as a balanced double-entry transaction",
+            "learningGoal": "Trigger: a customer is charged $20. Produce two postings (debit and credit) across the right accounts that net to zero, and show the resulting balances. Success: the transaction balances and the customer-payable and platform-cash accounts both move correctly; block the trap of storing a single signed amount on one row. This is the atomic unit the whole payments backend is built on.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 590, "maxRating": 770, "label": "Single-account / clean amounts" },
+              { "order": 1, "minRating": 770, "maxRating": 970, "label": "Realistic accounts / non-round amounts" },
+              { "order": 2, "minRating": 970, "maxRating": 1150, "label": "Adversarial / must defend why it balances" }
+            ]
+          },
+          {
+            "title": "Split a charge into multiple legs (amount, processing fee, tax) that still net to zero",
+            "learningGoal": "Trigger: a $20 charge carries a $0.88 processor fee and $1.65 tax owed to a third account. Produce a multi-leg transaction where every leg posts to a distinct account and the whole thing still nets to zero. Success: the sum of debits equals the sum of credits; block the trap of folding the fee into the gross amount and losing the platform's true revenue. Real charges are never single-leg, so this is where the model meets reality.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 620, "maxRating": 800, "label": "Two legs / given numbers" },
+              { "order": 1, "minRating": 800, "maxRating": 980, "label": "Three+ legs / you compute the fee" },
+              { "order": 2, "minRating": 980, "maxRating": 1180, "label": "Adversarial / fee and tax rules conflict" }
+            ]
+          },
+          {
+            "title": "Define account types and their normal balances (customer, platform cash, fees, tax payable)",
+            "learningGoal": "Trigger: you are designing the chart of accounts for the service. Produce a small set of account types each tagged asset/liability/revenue/expense with its normal (debit or credit) balance, and justify which side a customer's prepaid balance lives on. Success: a charge and a refund both post in the correct direction against these accounts; block the surrogate of inventing ad-hoc accounts per feature. The chart of accounts is the vocabulary every later unit speaks in.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 650, "maxRating": 830, "label": "Name the accounts / given the types" },
+              { "order": 1, "minRating": 830, "maxRating": 1010, "label": "Assign normal balances yourself" },
+              { "order": 2, "minRating": 1010, "maxRating": 1210, "label": "Adversarial / liability vs revenue edge cases" }
+            ]
+          },
+          {
+            "title": "Post a refund as a reversing entry without mutating the original charge",
+            "learningGoal": "Trigger: a fully-settled $20 charge must be refunded. Produce a new reversing transaction that returns the funds and leaves the original charge postings untouched. Success: querying the customer balance shows net zero and the original charge is still auditable; block the trap of UPDATE-ing the charge row to 'refunded' and destroying history. Append-only reversal is what makes the ledger auditable under dispute.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 690, "maxRating": 870, "label": "Full reversal / clean" },
+              { "order": 1, "minRating": 870, "maxRating": 1050, "label": "Refund after fees were taken" },
+              { "order": 2, "minRating": 1050, "maxRating": 1250, "label": "Adversarial / must preserve full audit trail" }
+            ]
+          },
+          {
+            "title": "Record a partial refund against a single charge and track remaining refundable amount",
+            "learningGoal": "Trigger: $7.50 of a $20 charge must be refunded, then later another $5. Produce postings for each partial refund and a derivation of the remaining refundable balance. Success: total refunded never exceeds captured and the remaining-refundable is computed from the ledger, not stored as a mutable counter; block the trap of a refunded boolean. Partial refunds are where naive 'status' models first collapse.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 730, "maxRating": 910, "label": "One partial refund" },
+              { "order": 1, "minRating": 910, "maxRating": 1090, "label": "Several partials over time" },
+              { "order": 2, "minRating": 1090, "maxRating": 1290, "label": "Adversarial / refund races toward the cap" }
+            ]
+          },
+          {
+            "title": "Attach currency to every leg and forbid mixed-currency postings in one transaction",
+            "learningGoal": "Trigger: a EUR charge and a USD fee are about to share one transaction. Produce a model where each posting carries an explicit currency and the system rejects any transaction whose legs don't share a currency (or routes through an explicit FX leg). Success: an attempted mixed-currency post is rejected at write time; block the surrogate of an untyped numeric amount. Silent currency mixing is a classic source of unreconcilable cents.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 760, "maxRating": 940, "label": "Single currency enforced" },
+              { "order": 1, "minRating": 940, "maxRating": 1120, "label": "Detect a mixed-currency attempt" },
+              { "order": 2, "minRating": 1120, "maxRating": 1320, "label": "Adversarial / near-miss rounding across currencies" }
+            ]
+          },
+          {
+            "title": "Derive available vs pending balance from the ledger instead of storing it",
+            "learningGoal": "Trigger: a UI needs to show a merchant their available and pending balance. Produce a query that computes both from posting state (settled vs not-yet-settled) rather than from a cached column. Success: the two numbers are reproducible from raw postings after any sequence of events; block the trap of a denormalized balance column that drifts. Derived balances are what let you trust the number during an incident.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 800, "maxRating": 980, "label": "Available balance only" },
+              { "order": 1, "minRating": 980, "maxRating": 1160, "label": "Available vs pending split" },
+              { "order": 2, "minRating": 1160, "maxRating": 1360, "label": "Adversarial / pending items in flux" }
+            ]
+          },
+          {
+            "title": "Model an authorization (hold) that reserves funds before capture",
+            "learningGoal": "Trigger: a $100 hotel hold is placed but not yet charged. Produce a model that reserves funds (reducing available balance) without recognizing revenue, distinct from a settled charge. Success: available balance drops by the hold while the charge account is untouched until capture; block the trap of treating an auth as a charge. Auth/capture is the backbone of marketplaces, deposits, and delayed fulfillment.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 840, "maxRating": 1020, "label": "Simple hold / no capture yet" },
+              { "order": 1, "minRating": 1020, "maxRating": 1200, "label": "Hold alongside other activity" },
+              { "order": 2, "minRating": 1200, "maxRating": 1400, "label": "Adversarial / overlapping holds on one balance" }
+            ]
+          },
+          {
+            "title": "Capture an authorization (full and partial) into a settled charge",
+            "learningGoal": "Trigger: a $100 hold is captured for $80. Produce the postings that convert the reserved hold into a settled charge for the captured amount and release the remaining $20. Success: revenue is recognized only for the captured amount and the released remainder returns to available; block the surrogate of capturing the full hold regardless of actual amount. Partial capture is where auth modeling proves itself.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 870, "maxRating": 1050, "label": "Full capture" },
+              { "order": 1, "minRating": 1050, "maxRating": 1230, "label": "Partial capture with release" },
+              { "order": 2, "minRating": 1230, "maxRating": 1430, "label": "Adversarial / capture after partial expiry" }
+            ]
+          },
+          {
+            "title": "Expire or void an uncaptured authorization and release the hold cleanly",
+            "learningGoal": "Trigger: a hold is never captured and reaches its expiry window. Produce the event and postings that release the reserved funds and close the auth without recognizing any revenue. Success: available balance returns to its pre-hold value and no revenue was ever booked; block the trap of leaving zombie holds that permanently depress available balance. Expiry handling is what keeps holds from silently corrupting balances over time.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 910, "maxRating": 1090, "label": "Explicit void" },
+              { "order": 1, "minRating": 1090, "maxRating": 1270, "label": "Timed expiry" },
+              { "order": 2, "minRating": 1270, "maxRating": 1470, "label": "Adversarial / expiry races a late capture" }
+            ]
+          },
+          {
+            "title": "Model a payout that moves platform balance to an external bank account",
+            "learningGoal": "Trigger: $5,000 of available balance is paid out to a connected bank account. Produce postings that move funds from internal available balance into an in-transit payout account, and a later posting when it settles. Success: balance leaves available immediately but isn't recognized as gone until settlement confirms; block the trap of zeroing the balance the instant the payout is requested. Payouts are where your ledger touches the outside banking world and timing matters.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 940, "maxRating": 1120, "label": "Single payout / settles immediately" },
+              { "order": 1, "minRating": 1120, "maxRating": 1300, "label": "In-transit then settled" },
+              { "order": 2, "minRating": 1300, "maxRating": 1500, "label": "Adversarial / payout fails and reverses" }
+            ]
+          },
+          {
+            "title": "Represent fees taken per-transaction vs invoiced monthly",
+            "learningGoal": "Trigger: some fees are netted from each charge, others billed in a monthly invoice. Produce a model that books per-transaction fees inline and accrues monthly fees into a payable that's settled later. Success: a month-end query shows both the netted fees and the accrued invoice owed; block the surrogate of treating all fees identically. Fee timing is a frequent reconciliation discrepancy source.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 980, "maxRating": 1160, "label": "Per-transaction fees only" },
+              { "order": 1, "minRating": 1160, "maxRating": 1340, "label": "Mixed inline + accrued" },
+              { "order": 2, "minRating": 1340, "maxRating": 1540, "label": "Adversarial / accrual spans a refund" }
+            ]
+          },
+          {
+            "title": "Model a chargeback/dispute as a ledger event that reserves disputed funds",
+            "learningGoal": "Trigger: a customer disputes a $40 charge. Produce postings that move the disputed amount into a reserved/contested account plus a dispute fee, without yet deciding the outcome. Success: the merchant's available balance reflects the held dispute and the original charge stays intact pending resolution; block the trap of immediately reversing the charge. Disputes are multi-stage events, not instant reversals.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1020, "maxRating": 1200, "label": "Single dispute opened" },
+              { "order": 1, "minRating": 1200, "maxRating": 1380, "label": "Dispute plus fee accounting" },
+              { "order": 2, "minRating": 1380, "maxRating": 1580, "label": "Adversarial / dispute on a partially-refunded charge" }
+            ]
+          },
+          {
+            "title": "Resolve a dispute: post the win (funds returned) or finalize the loss",
+            "learningGoal": "Trigger: a previously-opened dispute resolves in the merchant's favor (or against). Produce the postings that either return the reserved funds to available or finalize the loss and write off the amount, in both cases handling the non-refundable dispute fee. Success: balances are correct for either outcome and the dispute fee is never returned; block the surrogate of treating a won dispute as if nothing happened. Resolution is where the reserved-funds model pays off.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1050, "maxRating": 1230, "label": "Clear win or loss" },
+              { "order": 1, "minRating": 1230, "maxRating": 1410, "label": "Outcome plus fee handling" },
+              { "order": 2, "minRating": 1410, "maxRating": 1610, "label": "Adversarial / partial win" }
+            ]
+          },
+          {
+            "title": "Make ledger writes idempotent by keying transactions to a source event id",
+            "learningGoal": "Trigger: the same charge-succeeded event is processed twice. Produce a write path that keys each transaction to the originating event id so a replay is a no-op rather than a double posting. Success: replaying any event leaves balances unchanged; block the trap of inserting postings unconditionally. This is the bridge between the money model and the retry-safety cluster that follows.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1090, "maxRating": 1270, "label": "Detect an exact replay" },
+              { "order": 1, "minRating": 1270, "maxRating": 1450, "label": "Concurrent replay of same event" },
+              { "order": 2, "minRating": 1450, "maxRating": 1650, "label": "Adversarial / replay interleaved with new events" }
+            ]
+          },
+          {
+            "title": "Enforce immutability: append-only postings with corrections as new entries",
+            "learningGoal": "Trigger: a posting was entered with the wrong account and must be fixed. Produce a correction that reverses the bad posting and adds the right one as new entries, never editing or deleting the original. Success: the audit trail shows the mistake and its correction, and balances end correct; block the surrogate of UPDATE/DELETE on postings. Immutability is what lets you trust history during a dispute or audit.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1130, "maxRating": 1310, "label": "Single correcting entry" },
+              { "order": 1, "minRating": 1310, "maxRating": 1490, "label": "Correct an error buried in history" },
+              { "order": 2, "minRating": 1490, "maxRating": 1690, "label": "Adversarial / correct without changing a closed period" }
+            ]
+          },
+          {
+            "title": "Settle a cross-currency charge through explicit FX conversion legs",
+            "learningGoal": "Trigger: a EUR charge must settle into a USD payout balance at a given rate. Produce a transaction with explicit FX legs that converts currency through a conversion account, preserving both the source and target amounts and the rate used. Success: no currency is silently mixed and the rate is auditable; block the trap of converting with a floating rate at read time. FX is a top source of penny-level reconciliation drift.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1160, "maxRating": 1340, "label": "Single conversion / given rate" },
+              { "order": 1, "minRating": 1340, "maxRating": 1520, "label": "Rounding handled explicitly" },
+              { "order": 2, "minRating": 1520, "maxRating": 1720, "label": "Adversarial / rate moves between auth and capture" }
+            ]
+          },
+          {
+            "title": "Reconcile the internal ledger against a processor settlement file",
+            "learningGoal": "Trigger: the processor sends a daily settlement CSV of what it actually moved. Produce a reconciliation that matches each internal transaction to a settlement line and flags anything unmatched on either side. Success: every line is matched or explicitly listed as a discrepancy with an amount; block the surrogate of comparing only totals. Line-level reconciliation is the core skill the whole cluster builds toward.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1200, "maxRating": 1380, "label": "Clean file / 1:1 matches" },
+              { "order": 1, "minRating": 1380, "maxRating": 1560, "label": "Timing offsets and batching" },
+              { "order": 2, "minRating": 1560, "maxRating": 1760, "label": "Adversarial / seeded discrepancies to find" }
+            ]
+          },
+          {
+            "title": "Detect and quarantine an unbalanced transaction at write time",
+            "learningGoal": "Trigger: a buggy code path tries to commit a transaction whose legs don't net to zero. Produce a write-time invariant check that rejects or quarantines the unbalanced transaction before it corrupts balances, with enough context to debug it. Success: no unbalanced transaction can ever be committed and the rejection is observable; block the trap of trusting application code to always balance. The invariant guard is what keeps a single bug from poisoning the whole ledger.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1240, "maxRating": 1420, "label": "Reject an obviously unbalanced post" },
+              { "order": 1, "minRating": 1420, "maxRating": 1600, "label": "Catch a subtle off-by-a-cent" },
+              { "order": 2, "minRating": 1600, "maxRating": 1800, "label": "Adversarial / imbalance hidden across legs" }
+            ]
+          },
+          {
+            "title": "Produce a point-in-time trial balance across all accounts",
+            "learningGoal": "Trigger: finance asks for the full balance of every account as of a specific timestamp. Produce a trial balance that sums all postings up to that instant and proves total debits equal total credits across the whole system. Success: the trial balance balances to zero globally and is reproducible for any historical instant; block the surrogate of summing only 'active' accounts. A clean trial balance is the proof that the entire money model is internally consistent.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1290, "maxRating": 1470, "label": "Trial balance / current instant" },
+              { "order": 1, "minRating": 1470, "maxRating": 1650, "label": "As-of a past timestamp" },
+              { "order": 2, "minRating": 1650, "maxRating": 1850, "label": "Adversarial / must reconcile a closed period exactly" }
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Make every charge and refund operation safe to retry under failure",
+        "summary": "The recurring job of building payment operations that produce exactly the intended effect even when requests time out, duplicate, arrive out of order, or crash midway. This is the failure-tolerance job: idempotency keys, state machines, webhook handling, write-ahead persistence, and the outbox pattern, all proven under injected faults.",
+        "whyItMatters": "Payments live in a distributed system where 'I sent the request' and 'the effect happened' are different events connected by an unreliable network. An engineer who can't make operations idempotent will eventually double-charge, double-refund, or lose money to a crash — the exact failures that destroy trust in a payments product.",
+        "simulation": {
+          "title": "Survive a fault-injection drill: duplicate, reorder, time out, and crash a charge",
+          "summary": "Your charge-and-record flow is run through a harness that duplicates the create request, delivers the success webhook twice and out of order, times out one capture with an unknown outcome, and kills the process mid-write. Prove that after all faults the customer is charged exactly once and the ledger is balanced.",
+          "whyItMatters": "Exactly-once effect under adversarial faults is the whole point of the cluster. If the flow survives the drill, it survives production network weather."
+        },
+        "units": [
+          {
+            "title": "Model a charge as an explicit state machine with legal transitions",
+            "learningGoal": "Trigger: a charge moves created → pending → succeeded or failed, and refunds branch from succeeded. Produce an explicit state machine that names every state and rejects illegal transitions (e.g., refunding a failed charge). Success: an attempt to make an illegal transition is refused with a clear error; block the trap of inferring state from scattered booleans. Explicit state is the substrate every retry-safety unit relies on.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 740, "maxRating": 920, "label": "Happy-path transitions" },
+              { "order": 1, "minRating": 920, "maxRating": 1100, "label": "Reject illegal transitions" },
+              { "order": 2, "minRating": 1100, "maxRating": 1300, "label": "Adversarial / concurrent transition attempts" }
+            ]
+          },
+          {
+            "title": "Generate and persist an idempotency key for a create-charge request",
+            "learningGoal": "Trigger: a client initiates a charge and may retry it. Produce a scheme that attaches a client-supplied idempotency key, persists it with the request before any processor call, and scopes it correctly (per-account, per-operation). Success: the key is durable before the side effect and uniquely identifies the intent; block the surrogate of generating the key server-side after the work. The key is the anchor that makes the next several units possible.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 775, "maxRating": 955, "label": "Attach and store a key" },
+              { "order": 1, "minRating": 955, "maxRating": 1135, "label": "Scope keys correctly" },
+              { "order": 2, "minRating": 1135, "maxRating": 1335, "label": "Adversarial / key reuse across different intents" }
+            ]
+          },
+          {
+            "title": "Return the original result when an idempotency key is replayed",
+            "learningGoal": "Trigger: a client retries a create-charge with a key that already completed. Produce a handler that recognizes the completed key and returns the stored original response without doing the work again. Success: the second call returns the same charge id and causes no second charge; block the trap of treating the retry as a fresh request. This is the visible payoff of idempotency keys.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 810, "maxRating": 990, "label": "Replay of a completed key" },
+              { "order": 1, "minRating": 990, "maxRating": 1170, "label": "Replay with a different request body" },
+              { "order": 2, "minRating": 1170, "maxRating": 1370, "label": "Adversarial / key conflict detection" }
+            ]
+          },
+          {
+            "title": "Detect an in-flight duplicate request with the same idempotency key",
+            "learningGoal": "Trigger: two requests with the same key arrive concurrently before the first finishes. Produce a concurrency guard (lock or unique constraint) so only one performs the work and the other waits or returns the in-progress status. Success: under concurrent fire only one charge is created; block the surrogate of a check-then-act that races. In-flight duplication is the failure that naive idempotency checks miss.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 845, "maxRating": 1025, "label": "Two sequential duplicates" },
+              { "order": 1, "minRating": 1025, "maxRating": 1205, "label": "True concurrent duplicates" },
+              { "order": 2, "minRating": 1205, "maxRating": 1405, "label": "Adversarial / high-concurrency stampede" }
+            ]
+          },
+          {
+            "title": "Handle a processor timeout with an unknown outcome",
+            "learningGoal": "Trigger: the create-charge call times out and you genuinely don't know if the customer was charged. Produce a flow that records the attempt as outcome-unknown rather than success or failure, and refuses to blindly retry. Success: the system never double-charges and never silently drops a possible charge; block the trap of treating timeout as failure-and-retry. This is the single most important habit in the whole curriculum.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 880, "maxRating": 1060, "label": "Recognize the unknown state" },
+              { "order": 1, "minRating": 1060, "maxRating": 1240, "label": "Hold without retrying blindly" },
+              { "order": 2, "minRating": 1240, "maxRating": 1440, "label": "Adversarial / timeout plus a client retry" }
+            ]
+          },
+          {
+            "title": "Resolve an unknown outcome by querying the processor's authoritative status",
+            "learningGoal": "Trigger: you have an outcome-unknown charge from a timeout. Produce a reconciliation step that looks up the charge by idempotency key on the processor and settles your record to match its authoritative answer. Success: the local state converges to the processor's truth with no extra charge; block the surrogate of guessing from local hints. This closes the loop the previous unit opened.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 915, "maxRating": 1095, "label": "Single lookup resolves it" },
+              { "order": 1, "minRating": 1095, "maxRating": 1275, "label": "Lookup is itself flaky" },
+              { "order": 2, "minRating": 1275, "maxRating": 1475, "label": "Adversarial / processor still says pending" }
+            ]
+          },
+          {
+            "title": "Make webhook handlers idempotent against duplicate deliveries",
+            "learningGoal": "Trigger: the processor delivers the same charge.succeeded webhook twice (it guarantees at-least-once). Produce a handler that dedupes on the event id so the side effect (ledger post, email) runs once. Success: a duplicate delivery is a no-op; block the trap of running effects inline on every delivery. Webhook dedup is the most common real-world idempotency failure.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 950, "maxRating": 1130, "label": "Exact duplicate delivery" },
+              { "order": 1, "minRating": 1130, "maxRating": 1310, "label": "Duplicate with delay between deliveries" },
+              { "order": 2, "minRating": 1310, "maxRating": 1510, "label": "Adversarial / duplicate races the original effect" }
+            ]
+          },
+          {
+            "title": "Order out-of-order webhooks using event sequence or timestamps",
+            "learningGoal": "Trigger: a charge.updated webhook arrives before the charge.created it logically follows. Produce handling that orders events by the processor's sequence/timestamp and either buffers or reconciles so a later state isn't overwritten by a stale earlier one. Success: final state reflects the newest truth regardless of arrival order; block the surrogate of last-write-wins by arrival time. Out-of-order delivery silently corrupts state in naive handlers.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 985, "maxRating": 1165, "label": "Two events, known order" },
+              { "order": 1, "minRating": 1165, "maxRating": 1345, "label": "Reorder a small burst" },
+              { "order": 2, "minRating": 1345, "maxRating": 1545, "label": "Adversarial / reorder plus duplication together" }
+            ]
+          },
+          {
+            "title": "Verify webhook signatures and reject forged or replayed events",
+            "learningGoal": "Trigger: an unauthenticated POST hits your webhook endpoint claiming a charge succeeded. Produce signature verification (HMAC with the signing secret and a timestamp tolerance) that rejects forged and stale-replayed events. Success: a request with a bad or expired signature is rejected before any effect; block the trap of trusting the payload. An unverified webhook endpoint is a way to mint free money.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1020, "maxRating": 1200, "label": "Reject a missing signature" },
+              { "order": 1, "minRating": 1200, "maxRating": 1380, "label": "Enforce timestamp tolerance" },
+              { "order": 2, "minRating": 1380, "maxRating": 1565, "label": "Adversarial / replayed valid signature" }
+            ]
+          },
+          {
+            "title": "Retry failed processor calls with exponential backoff and jitter",
+            "learningGoal": "Trigger: a processor call fails with a retryable 5xx. Produce a retry policy with exponential backoff plus jitter that distinguishes retryable from non-retryable errors and caps attempts. Success: retries don't stampede and never retry a non-idempotent non-retryable error; block the surrogate of a tight fixed-interval retry loop. Backoff is only safe once the operation is already idempotent — which is why it comes after dedup.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1055, "maxRating": 1235, "label": "Backoff on a retryable error" },
+              { "order": 1, "minRating": 1235, "maxRating": 1415, "label": "Classify retryable vs not" },
+              { "order": 2, "minRating": 1415, "maxRating": 1600, "label": "Adversarial / thundering herd on recovery" }
+            ]
+          },
+          {
+            "title": "Apply a retry budget and circuit breaker to a degrading processor",
+            "learningGoal": "Trigger: the processor starts failing a large fraction of calls. Produce a circuit breaker that trips after a failure threshold, sheds load, and probes for recovery, plus a global retry budget. Success: a degrading processor doesn't get hammered into total collapse and the system fails fast instead; block the trap of retrying every request through a dying dependency. The breaker protects both you and the processor during an incident.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1090, "maxRating": 1270, "label": "Trip on a failure threshold" },
+              { "order": 1, "minRating": 1270, "maxRating": 1450, "label": "Half-open recovery probing" },
+              { "order": 2, "minRating": 1450, "maxRating": 1640, "label": "Adversarial / flapping dependency" }
+            ]
+          },
+          {
+            "title": "Make refunds idempotent and safe against double-refund",
+            "learningGoal": "Trigger: a refund request is retried after a timeout. Produce a refund path keyed by its own idempotency key so a replay returns the original refund instead of issuing a second one. Success: retried refunds never move money twice; block the surrogate of reusing the charge's key for the refund. Double-refund is the mirror image of double-charge and just as damaging.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1125, "maxRating": 1305, "label": "Replay of a completed refund" },
+              { "order": 1, "minRating": 1305, "maxRating": 1485, "label": "Refund retried after timeout" },
+              { "order": 2, "minRating": 1485, "maxRating": 1680, "label": "Adversarial / concurrent refund attempts" }
+            ]
+          },
+          {
+            "title": "Guard against refunding more than was captured",
+            "learningGoal": "Trigger: two partial refunds together would exceed the captured amount. Produce a refundable-amount check derived from the ledger that rejects any refund pushing total refunded past captured, even under concurrency. Success: over-refund is impossible regardless of request interleaving; block the trap of checking a cached remaining-amount that races. This connects the money model's derived balances to retry safety.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1160, "maxRating": 1340, "label": "Single over-refund rejected" },
+              { "order": 1, "minRating": 1340, "maxRating": 1520, "label": "Sequential partials near the cap" },
+              { "order": 2, "minRating": 1520, "maxRating": 1715, "label": "Adversarial / concurrent refunds race the cap" }
+            ]
+          },
+          {
+            "title": "Sequence capture-then-refund without race conditions",
+            "learningGoal": "Trigger: a refund request arrives while a capture is still in flight. Produce ordering (state-machine guards or locking) so a refund can't be applied to funds that aren't yet captured and a capture can't clobber a refund. Success: any interleaving of capture and refund ends in a correct, balanced state; block the surrogate of assuming operations are serialized by the client. Operation ordering is where the state machine earns its keep.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1195, "maxRating": 1375, "label": "Capture fully before refund" },
+              { "order": 1, "minRating": 1375, "maxRating": 1555, "label": "Refund arrives during capture" },
+              { "order": 2, "minRating": 1555, "maxRating": 1755, "label": "Adversarial / capture, refund, and expiry interleave" }
+            ]
+          },
+          {
+            "title": "Persist the request before calling the processor (write-ahead)",
+            "learningGoal": "Trigger: the process could crash at any instant during a charge. Produce a write-ahead step that durably records the intent and idempotency key before the processor call, so a crash leaves a recoverable record. Success: after a crash there is always a durable record of every initiated charge; block the trap of calling the processor first and persisting after. Write-ahead is the precondition for crash recovery.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1230, "maxRating": 1410, "label": "Persist intent before the call" },
+              { "order": 1, "minRating": 1410, "maxRating": 1590, "label": "Record enough to recover" },
+              { "order": 2, "minRating": 1590, "maxRating": 1790, "label": "Adversarial / crash between persist and call" }
+            ]
+          },
+          {
+            "title": "Recover in-flight charges after a crash from the write-ahead record",
+            "learningGoal": "Trigger: the service restarts with charges left in an in-flight state. Produce a recovery routine that scans write-ahead records, queries the processor by key for each, and settles them to their true outcome. Success: no in-flight charge is left orphaned after restart; block the surrogate of assuming a clean restart. Crash recovery is what makes the system trustworthy across deploys and outages.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1265, "maxRating": 1445, "label": "Recover one in-flight charge" },
+              { "order": 1, "minRating": 1445, "maxRating": 1625, "label": "Recover a backlog on restart" },
+              { "order": 2, "minRating": 1625, "maxRating": 1825, "label": "Adversarial / crash during recovery itself" }
+            ]
+          },
+          {
+            "title": "Handle partial failure where the charge succeeded but the ledger write failed",
+            "learningGoal": "Trigger: the processor charged the customer but your ledger transaction failed to commit. Produce handling that detects the split-brain (money moved externally, not recorded internally) and reconciles by retrying the ledger write idempotently. Success: external success is always eventually reflected internally with no double-post; block the trap of rolling back the customer's real charge. This is the partial-failure case that naive transactions can't cover.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1300, "maxRating": 1480, "label": "Detect the split-brain" },
+              { "order": 1, "minRating": 1480, "maxRating": 1660, "label": "Reconcile the missing ledger write" },
+              { "order": 2, "minRating": 1660, "maxRating": 1855, "label": "Adversarial / split-brain plus a duplicate" }
+            ]
+          },
+          {
+            "title": "Use the outbox pattern to publish events transactionally with the ledger write",
+            "learningGoal": "Trigger: you must update the ledger and publish a payment event without a distributed transaction. Produce an outbox where the event is written in the same DB transaction as the ledger change and a relay publishes it afterward at-least-once. Success: an event is never published without its ledger change and vice versa; block the surrogate of publishing inline after commit. The outbox removes the dual-write inconsistency at the heart of many payment bugs.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1335, "maxRating": 1515, "label": "Write event in the same transaction" },
+              { "order": 1, "minRating": 1515, "maxRating": 1695, "label": "Relay publishes reliably" },
+              { "order": 2, "minRating": 1695, "maxRating": 1890, "label": "Adversarial / relay crashes mid-publish" }
+            ]
+          },
+          {
+            "title": "Dedupe downstream consumers of payment events",
+            "learningGoal": "Trigger: an at-least-once event stream delivers a payment event twice to a consumer that emails the customer. Produce consumer-side dedup (processed-event table or idempotent effect) so the email sends once. Success: redelivery causes no duplicate side effect downstream; block the trap of assuming exactly-once delivery from the broker. Dedup must live at every consumer, not just the producer.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1370, "maxRating": 1550, "label": "Dedup a redelivered event" },
+              { "order": 1, "minRating": 1550, "maxRating": 1730, "label": "Dedup across consumer restarts" },
+              { "order": 2, "minRating": 1730, "maxRating": 1925, "label": "Adversarial / redelivery plus reorder at the consumer" }
+            ]
+          },
+          {
+            "title": "Prove exactly-once effect under injected duplication, reordering, and crash",
+            "learningGoal": "Trigger: the full charge-and-record flow is run through a fault harness combining duplicate requests, duplicated and reordered webhooks, a timeout, and a mid-write crash. Produce evidence (logs, ledger query) that the customer is charged exactly once and the ledger balances after all faults. Success: a third party can read the output and confirm exactly-once; block the surrogate of testing each fault in isolation. This is the capstone whole task of the cluster.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1405, "maxRating": 1585, "label": "One fault at a time" },
+              { "order": 1, "minRating": 1585, "maxRating": 1765, "label": "Two faults combined" },
+              { "order": 2, "minRating": 1765, "maxRating": 1960, "label": "Adversarial / all faults at once" }
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Diagnose live payment failures and drive them to a reconciled close",
+        "summary": "The recurring job of production payments operations: read a failing payment from trace to processor, classify and localize the fault, choose the recovery action, and drive the system back to a balanced, reconciled state — then build the guardrail that catches it earlier next time. This is where the money model and the retry-safety machinery meet real incidents.",
+        "whyItMatters": "Designing a correct system is only half the job; the other half is operating it when reality diverges from the design. An engineer who can build a payments backend but freezes during a live mismatch or stuck-pending incident can't be trusted to own it. Diagnosis under time pressure is the difference between an engineer and the engineer finance trusts.",
+        "simulation": {
+          "title": "Run a live payment incident from alert to reconciled, documented close",
+          "summary": "An alert fires: decline rate spiked and the ledger no longer matches the processor for the last hour. You get logs, dashboards, and a settlement extract. Triage the cause, contain it without making the ledger worse, drive recovery to a balanced state, and produce a postmortem with one new guardrail.",
+          "whyItMatters": "This is the terminal performance for an operator: a third party can watch the incident handling and judge whether the system was returned to a correct, reconciled state and whether the fix prevents recurrence."
+        },
+        "units": [
+          {
+            "title": "Trace a single failed payment from request to processor response",
+            "learningGoal": "Trigger: one customer reports a failed payment. Produce a complete trace tying the request, idempotency key, state transitions, and processor response together into a single timeline. Success: you can state exactly where and why it failed from the trace alone; block the surrogate of guessing from the error message. Tracing is the foundational diagnostic move every later unit assumes.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 890, "maxRating": 1070, "label": "Single clean trace" },
+              { "order": 1, "minRating": 1070, "maxRating": 1250, "label": "Trace spread across services" },
+              { "order": 2, "minRating": 1250, "maxRating": 1450, "label": "Adversarial / partial logs, missing spans" }
+            ]
+          },
+          {
+            "title": "Classify a decline as hard, soft, fraud, or configuration",
+            "learningGoal": "Trigger: a charge declines with a processor decline code. Produce a classification (hard decline, soft/retryable, fraud-block, or your own misconfiguration) that determines whether retrying could ever help. Success: the class correctly predicts whether a retry is futile; block the trap of retrying a hard decline. Misclassifying declines wastes retries and annoys issuers.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 925, "maxRating": 1105, "label": "Obvious decline codes" },
+              { "order": 1, "minRating": 1105, "maxRating": 1285, "label": "Ambiguous codes" },
+              { "order": 2, "minRating": 1285, "maxRating": 1485, "label": "Adversarial / code misreported by processor" }
+            ]
+          },
+          {
+            "title": "Decide retry vs abandon based on the decline classification",
+            "learningGoal": "Trigger: a soft decline could be retried later (insufficient funds may clear). Produce a recovery decision and schedule (retry window, max attempts, dunning) appropriate to the decline class. Success: retries target only recoverable declines on a sane schedule; block the surrogate of retrying everything immediately. The decision turns classification into action without harming the customer relationship.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 960, "maxRating": 1140, "label": "Single retry decision" },
+              { "order": 1, "minRating": 1140, "maxRating": 1320, "label": "Schedule a dunning sequence" },
+              { "order": 2, "minRating": 1320, "maxRating": 1520, "label": "Adversarial / mixed declines in a batch" }
+            ]
+          },
+          {
+            "title": "Diagnose a charge stuck in pending that never resolved",
+            "learningGoal": "Trigger: a charge has sat in pending for hours with no terminal webhook. Produce a diagnosis distinguishing a lost webhook, a processor still genuinely pending, and a stuck internal state machine. Success: you identify which of the three it is and the evidence; block the trap of assuming it failed and abandoning it. Stuck-pending is one of the most common real payment tickets.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 995, "maxRating": 1175, "label": "One obvious cause" },
+              { "order": 1, "minRating": 1175, "maxRating": 1355, "label": "Two plausible causes to separate" },
+              { "order": 2, "minRating": 1355, "maxRating": 1565, "label": "Adversarial / processor and webhook both implicated" }
+            ]
+          },
+          {
+            "title": "Investigate a balance mismatch between ledger and processor",
+            "learningGoal": "Trigger: your available balance and the processor's reported balance disagree by a specific amount. Produce an investigation that diffs the two ledgers and localizes the discrepancy to specific transactions. Success: you name the exact transactions accounting for the difference; block the surrogate of blaming 'timing' without proof. This is the bread-and-butter reconciliation incident.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1030, "maxRating": 1210, "label": "Single missing transaction" },
+              { "order": 1, "minRating": 1210, "maxRating": 1390, "label": "Several offsetting differences" },
+              { "order": 2, "minRating": 1390, "maxRating": 1605, "label": "Adversarial / discrepancy hidden by FX rounding" }
+            ]
+          },
+          {
+            "title": "Trace a duplicate-charge complaint to its root request",
+            "learningGoal": "Trigger: a customer was charged twice. Produce an investigation that finds whether it was a client double-submit, a missing idempotency key, or a webhook double-effect, and identifies the exact two charges. Success: you name the root cause and the duplicate charge to refund; block the trap of refunding without finding the cause. Finding root cause prevents the duplicate from recurring at scale.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1065, "maxRating": 1245, "label": "Clear double-submit" },
+              { "order": 1, "minRating": 1245, "maxRating": 1425, "label": "Idempotency gap to localize" },
+              { "order": 2, "minRating": 1425, "maxRating": 1645, "label": "Adversarial / duplicate caused by webhook reorder" }
+            ]
+          },
+          {
+            "title": "Diagnose a missing webhook: delivery failure vs handler bug",
+            "learningGoal": "Trigger: an effect that should follow a webhook never happened. Produce a diagnosis separating 'the processor never delivered it' from 'we received it and the handler errored.' Success: you determine which side failed using delivery logs and handler traces; block the surrogate of blindly re-requesting. Knowing the side determines whether you replay or fix code.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1100, "maxRating": 1280, "label": "Clear delivery vs handler split" },
+              { "order": 1, "minRating": 1280, "maxRating": 1460, "label": "Handler silently swallowed it" },
+              { "order": 2, "minRating": 1460, "maxRating": 1685, "label": "Adversarial / intermittent across many events" }
+            ]
+          },
+          {
+            "title": "Replay a missed webhook safely from the processor",
+            "learningGoal": "Trigger: a webhook was genuinely missed and the effect must be applied now. Produce a safe replay that re-fetches the event from the processor and runs it through the idempotent handler. Success: the missed effect is applied exactly once with no double-effect on events that did land; block the trap of replaying a range that re-triggers already-processed events. Safe replay depends on the dedup built in the retry cluster.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1135, "maxRating": 1315, "label": "Replay one missed event" },
+              { "order": 1, "minRating": 1315, "maxRating": 1495, "label": "Replay a window of mixed events" },
+              { "order": 2, "minRating": 1495, "maxRating": 1725, "label": "Adversarial / replay during live traffic" }
+            ]
+          },
+          {
+            "title": "Investigate a refund that never reached the customer",
+            "learningGoal": "Trigger: a customer says a refund you issued never arrived. Produce an investigation tracing the refund through your state, the processor, and settlement timing. Success: you determine whether it failed, is in transit, or never issued, with evidence; block the surrogate of re-issuing and risking a double-refund. Refund tickets are emotionally charged and demand certainty.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1170, "maxRating": 1350, "label": "Refund clearly in transit" },
+              { "order": 1, "minRating": 1350, "maxRating": 1530, "label": "Refund failed silently" },
+              { "order": 2, "minRating": 1530, "maxRating": 1765, "label": "Adversarial / refund issued but to a closed card" }
+            ]
+          },
+          {
+            "title": "Diagnose an elevated decline rate: issuer, BIN, or your config",
+            "learningGoal": "Trigger: overall decline rate jumped in the last hour. Produce an analysis that segments declines by issuer, BIN range, and your own recent config/deploy changes to localize the cause. Success: you attribute the spike to a specific segment or change; block the trap of assuming it's the processor. Localizing a rate change is the difference between a five-minute rollback and a day of guessing.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1205, "maxRating": 1385, "label": "Spike isolated to one issuer" },
+              { "order": 1, "minRating": 1385, "maxRating": 1565, "label": "Spike correlates with a deploy" },
+              { "order": 2, "minRating": 1565, "maxRating": 1805, "label": "Adversarial / two causes overlapping" }
+            ]
+          },
+          {
+            "title": "Read latency and error dashboards to localize a processor degradation",
+            "learningGoal": "Trigger: payments feel slow and some are failing. Produce a localization from dashboards distinguishing your own latency, network, and the processor degrading. Success: you point to the degrading layer with metric evidence; block the surrogate of blaming the most visible symptom. Localizing the layer decides whether you fail over, scale, or wait.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1240, "maxRating": 1420, "label": "Clear processor degradation" },
+              { "order": 1, "minRating": 1420, "maxRating": 1600, "label": "Your own resource contention" },
+              { "order": 2, "minRating": 1600, "maxRating": 1845, "label": "Adversarial / cascading latency across layers" }
+            ]
+          },
+          {
+            "title": "Decide and execute failover to a backup processor under degradation",
+            "learningGoal": "Trigger: the primary processor is degraded past your threshold. Produce a failover decision and execution that routes new charges to a backup while keeping idempotency and ledger consistency intact across processors. Success: traffic shifts without duplicate charges or lost reconciliation; block the trap of failing over without per-processor idempotency. Failover is high-stakes because it touches money mid-incident.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1275, "maxRating": 1455, "label": "Clean failover decision" },
+              { "order": 1, "minRating": 1455, "maxRating": 1635, "label": "Failover with in-flight charges" },
+              { "order": 2, "minRating": 1635, "maxRating": 1885, "label": "Adversarial / primary recovers mid-failover" }
+            ]
+          },
+          {
+            "title": "Roll back a bad deploy that corrupted payment state",
+            "learningGoal": "Trigger: a deploy introduced a bug writing wrong postings. Produce a rollback plan that stops the bleeding, identifies the window of corrupted transactions, and queues them for correction. Success: new corruption stops and the damaged window is bounded and listed; block the surrogate of rolling back code while leaving bad data. Code rollback without data correction leaves the ledger broken.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1310, "maxRating": 1490, "label": "Bounded corruption window" },
+              { "order": 1, "minRating": 1490, "maxRating": 1670, "label": "Corruption mixed with valid writes" },
+              { "order": 2, "minRating": 1670, "maxRating": 1925, "label": "Adversarial / corruption already settled out" }
+            ]
+          },
+          {
+            "title": "Reconcile a settlement-day discrepancy and find the missing cents",
+            "learningGoal": "Trigger: settlement day, your ledger and the processor file disagree by an odd amount. Produce a reconciliation that finds the exact transactions and the root mechanism (fee timing, FX rounding, a dropped refund). Success: every cent of difference is explained and corrected; block the trap of plugging the difference with an adjustment entry you don't understand. Unexplained adjustments are how ledgers rot.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1345, "maxRating": 1525, "label": "Single clear discrepancy" },
+              { "order": 1, "minRating": 1525, "maxRating": 1705, "label": "Several small offsetting ones" },
+              { "order": 2, "minRating": 1705, "maxRating": 1965, "label": "Adversarial / discrepancy from a prior closed day" }
+            ]
+          },
+          {
+            "title": "Quarantine and replay a batch of poisoned payment events",
+            "learningGoal": "Trigger: a malformed batch of events broke the consumer and some are stuck in a dead-letter queue. Produce a process that quarantines the poison, fixes or filters it, and replays the good events idempotently. Success: valid events are applied exactly once and truly bad ones are isolated with a record; block the surrogate of blindly re-running the whole batch. Batch poison handling protects the rest of the pipeline.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1380, "maxRating": 1560, "label": "Quarantine one bad event" },
+              { "order": 1, "minRating": 1560, "maxRating": 1740, "label": "Separate good from bad in a batch" },
+              { "order": 2, "minRating": 1740, "maxRating": 2005, "label": "Adversarial / poison interleaved with valid events" }
+            ]
+          },
+          {
+            "title": "Degrade gracefully during a partial outage: queue and replay",
+            "learningGoal": "Trigger: a dependency is down but you must keep accepting payments. Produce a degradation strategy that durably queues intents, returns honest pending states, and replays once the dependency recovers. Success: no payment is lost or duplicated and customers get truthful status during the outage; block the trap of hard-failing every request. Graceful degradation preserves trust during the inevitable outage.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1415, "maxRating": 1595, "label": "Queue during a short outage" },
+              { "order": 1, "minRating": 1595, "maxRating": 1775, "label": "Replay backlog on recovery" },
+              { "order": 2, "minRating": 1775, "maxRating": 2045, "label": "Adversarial / outage recovers mid-replay" }
+            ]
+          },
+          {
+            "title": "Communicate impact and blast radius during a live payment incident",
+            "learningGoal": "Trigger: a payment incident is ongoing and stakeholders need to know what's affected. Produce an impact statement naming the blast radius (which customers, what amount, what window) and the current containment status, updated as facts change. Success: a non-engineer can act on your statement and it never overstates certainty; block the surrogate of silence until resolved. Clear incident comms is part of operating money, not a soft skill add-on.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1450, "maxRating": 1630, "label": "Known, bounded impact" },
+              { "order": 1, "minRating": 1630, "maxRating": 1810, "label": "Impact still being scoped" },
+              { "order": 2, "minRating": 1810, "maxRating": 2085, "label": "Adversarial / impact estimate keeps changing" }
+            ]
+          },
+          {
+            "title": "Reverse an erroneous mass-charge safely",
+            "learningGoal": "Trigger: a bug charged thousands of customers incorrectly and must be reversed. Produce a controlled mass-reversal that refunds idempotently, throttles to avoid processor limits, and reconciles the ledger after. Success: every erroneous charge is reversed exactly once and the ledger balances at the end; block the trap of a single unthrottled bulk refund loop. Mass reversal is the highest-stakes recovery action a payments engineer performs.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1470, "maxRating": 1650, "label": "Small clean reversal set" },
+              { "order": 1, "minRating": 1650, "maxRating": 1830, "label": "Throttled large reversal" },
+              { "order": 2, "minRating": 1830, "maxRating": 2110, "label": "Adversarial / some erroneous charges already refunded" }
+            ]
+          },
+          {
+            "title": "Write a postmortem that names the load-bearing failure and the fix",
+            "learningGoal": "Trigger: an incident is resolved and must be documented. Produce a postmortem with the timeline, the single load-bearing root cause, the recovery actions, and concrete prevention items. Success: a reader could prevent recurrence from your document alone and the root cause is mechanism, not blame; block the surrogate of a vague 'we'll be more careful.' A real postmortem turns one incident into permanent system improvement.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1480, "maxRating": 1660, "label": "Single clear root cause" },
+              { "order": 1, "minRating": 1660, "maxRating": 1840, "label": "Multiple contributing factors" },
+              { "order": 2, "minRating": 1840, "maxRating": 2135, "label": "Adversarial / root cause is a missing invariant" }
+            ]
+          },
+          {
+            "title": "Build the alert or guardrail that would have caught the incident earlier",
+            "learningGoal": "Trigger: the postmortem identified a gap that let the incident grow. Produce a concrete guardrail — a balance-invariant alert, a reconciliation check, or a circuit threshold — that would have fired before real damage. Success: the guardrail demonstrably trips on a replay of the incident conditions; block the surrogate of a vague 'add monitoring.' Turning incidents into guardrails is how a payments system gets safer over time.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1490, "maxRating": 1670, "label": "Simple threshold alert" },
+              { "order": 1, "minRating": 1670, "maxRating": 1850, "label": "Invariant-based guardrail" },
+              { "order": 2, "minRating": 1850, "maxRating": 2160, "label": "Adversarial / guardrail must not false-fire on normal load" }
+            ]
+          }
+        ]
+      }
+    ],
+    "integrationLayers": [
+      {
+        "title": "Run an end-to-end payment incident from alert to reconciled, prevented close",
+        "summary": "A multi-schema capstone that forces the learner to coordinate all three job families under one realistic, ambiguous incident: a balance-mismatch alert whose root cause spans money modeling, retry safety, and live diagnosis. The learner must triage, contain without worsening the ledger, recover to a balanced state, and ship a guardrail.",
+        "whyItMatters": "Real incidents never respect cluster boundaries — a stuck-pending charge is simultaneously a state-machine problem, a webhook problem, and a reconciliation problem. This layer proves the learner can hold all three schemas at once under time pressure, which is the actual terminal performance of the identity.",
+        "clusterSynthesis": [
+          "Model money movements so every balance reconciles",
+          "Make every charge and refund operation safe to retry under failure",
+          "Diagnose live payment failures and drive them to a reconciled close"
+        ],
+        "units": [
+          {
+            "title": "Triage the live alert and form the leading hypothesis without acting yet",
+            "learningGoal": "Trigger: a balance-mismatch alert fires with partial information. Produce a ranked hypothesis set spanning all three clusters (bad postings, a retry/idempotency gap, a missed webhook) and the cheapest evidence that would discriminate between them. Success: your top hypothesis is justified by evidence and you have not yet touched money; block the trap of acting on the first guess. Disciplined triage prevents an incident from getting worse during diagnosis.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1490, "maxRating": 1690, "label": "Few clear hypotheses" },
+              { "order": 1, "minRating": 1690, "maxRating": 1870, "label": "Ambiguous, overlapping causes" },
+              { "order": 2, "minRating": 1870, "maxRating": 2050, "label": "Adversarial / misleading initial signal" }
+            ]
+          },
+          {
+            "title": "Contain the incident without making the ledger worse",
+            "learningGoal": "Trigger: the cause is partly understood and still active. Produce containment (pause a flow, trip a breaker, quarantine events) that stops new damage while preserving the ability to reconcile what already happened. Success: new corruption stops and nothing you do creates an unbalanced transaction; block the surrogate of mass-reversing before the cause is known. Containment is the highest-judgment moment of the incident.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1560, "maxRating": 1760, "label": "Clear, isolated containment" },
+              { "order": 1, "minRating": 1760, "maxRating": 1940, "label": "Containment with live traffic" },
+              { "order": 2, "minRating": 1940, "maxRating": 2120, "label": "Adversarial / containment risks new imbalance" }
+            ]
+          },
+          {
+            "title": "Drive recovery to a fully reconciled, balanced ledger state",
+            "learningGoal": "Trigger: damage is contained and must now be repaired. Produce the recovery: idempotent replays, corrective postings, and a reconciliation against the settlement file that ends balanced to the cent. Success: a trial balance is zero and the ledger matches the processor exactly; block the trap of stopping at 'looks fixed.' Recovery is judged only by a clean reconciliation, not by the absence of new alerts.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1630, "maxRating": 1830, "label": "Straightforward corrective replay" },
+              { "order": 1, "minRating": 1830, "maxRating": 2010, "label": "Corrections plus FX/fee reconciliation" },
+              { "order": 2, "minRating": 2010, "maxRating": 2190, "label": "Adversarial / recovery must not disturb a closed period" }
+            ]
+          },
+          {
+            "title": "Close the incident with a postmortem and a guardrail that provably catches it",
+            "learningGoal": "Trigger: the ledger is reconciled and the incident is over. Produce a postmortem naming the load-bearing root cause across clusters plus a guardrail (an invariant alert or reconciliation check) that demonstrably trips on a replay of the conditions. Success: a reader can prevent recurrence and the guardrail fires on the replayed scenario without false-firing on normal load; block the surrogate of a generic action item. The close is what converts one hard night into a permanently safer system.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1700, "maxRating": 1900, "label": "Single root cause and guardrail" },
+              { "order": 1, "minRating": 1900, "maxRating": 2080, "label": "Cross-cluster root cause" },
+              { "order": 2, "minRating": 2080, "maxRating": 2260, "label": "Adversarial / guardrail must hold under production load" }
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Design, ship, and reconcile a new payment method on the existing ledger",
+        "summary": "A multi-schema capstone where the learner extends the live system with a new payment method (e.g., ACH bank debit with delayed settlement and reversibility) by mapping it onto the existing chart of accounts, implementing idempotent capture and refund, and proving its settlement reconciles end-to-end.",
+        "whyItMatters": "Founding payments engineers don't just operate one method — they add new ones as the business grows, and each addition can quietly break reconciliation if it isn't mapped onto the existing model and made retry-safe. This layer proves the learner can extend the system without regressing its core invariant: everything still reconciles.",
+        "clusterSynthesis": [
+          "Model money movements so every balance reconciles",
+          "Make every charge and refund operation safe to retry under failure",
+          "Diagnose live payment failures and drive them to a reconciled close"
+        ],
+        "units": [
+          {
+            "title": "Map the new method's money movements onto the existing account model",
+            "learningGoal": "Trigger: ACH settles days after authorization and can be reversed (returned) later. Produce a mapping of its lifecycle onto the existing chart of accounts using in-transit and reversible-funds accounts, without inventing parallel structures. Success: an ACH debit, its settlement, and a return all post as balanced transactions against existing account types; block the surrogate of bolting on method-specific balance columns. Reusing the model is what keeps reconciliation universal.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1520, "maxRating": 1720, "label": "Map the happy-path lifecycle" },
+              { "order": 1, "minRating": 1720, "maxRating": 1900, "label": "Include delayed settlement" },
+              { "order": 2, "minRating": 1900, "maxRating": 2080, "label": "Adversarial / late return after a payout" }
+            ]
+          },
+          {
+            "title": "Implement idempotent capture and refund for the new method",
+            "learningGoal": "Trigger: ACH operations are slow and prone to retried requests and duplicate webhooks. Produce idempotent capture and refund paths for the new method reusing the keying, state machine, and dedup machinery already built. Success: retried captures/refunds and duplicated ACH webhooks produce exactly-once effects; block the trap of writing a fresh non-idempotent path because the method is new. New methods must inherit the retry-safety discipline, not bypass it.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1610, "maxRating": 1810, "label": "Idempotent capture path" },
+              { "order": 1, "minRating": 1810, "maxRating": 1990, "label": "Idempotent refund plus returns" },
+              { "order": 2, "minRating": 1990, "maxRating": 2170, "label": "Adversarial / duplicate plus reordered ACH webhooks" }
+            ]
+          },
+          {
+            "title": "Reconcile the new method's settlement file end-to-end",
+            "learningGoal": "Trigger: the new method's first settlement file arrives with its own timing and return semantics. Produce a reconciliation proving every internal ACH transaction matches a settlement line and that returns are correctly reflected, ending balanced alongside the existing card flow. Success: a combined trial balance across both methods is zero and matches both settlement files; block the surrogate of reconciling the new method in isolation. Proving combined reconciliation is the real bar for shipping a new method.",
+            "difficultyBands": [
+              { "order": 0, "minRating": 1700, "maxRating": 1900, "label": "Reconcile the new method alone" },
+              { "order": 1, "minRating": 1900, "maxRating": 2080, "label": "Reconcile alongside existing card flow" },
+              { "order": 2, "minRating": 2080, "maxRating": 2260, "label": "Adversarial / returns and FX across both methods" }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

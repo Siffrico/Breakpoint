@@ -1,4 +1,3 @@
-import { sql } from "drizzle-orm";
 import { index, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
 
 import { user } from "../auth-schema";
@@ -40,7 +39,7 @@ export const Memory = pgTable(
       .notNull(),
     updatedAt: t
       .timestamp({ mode: "date", withTimezone: true })
-      .$onUpdateFn(() => sql`now()`),
+      .$onUpdateFn(() => new Date()),
   }),
   (table) => [
     index("memory_user_created_idx").on(table.userId, table.createdAt),

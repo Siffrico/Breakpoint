@@ -1,9 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FileText, Trash } from "@phosphor-icons/react";
+import {
+  ClipboardText,
+  FileText,
+  ListChecks,
+  Trash,
+  UploadSimple,
+} from "@phosphor-icons/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import type { RouterOutputs } from "@acme/api";
@@ -34,11 +40,35 @@ const formatUpdatedAt = (updatedAt: Date) =>
 const LAST_SESSION_COOKIE = "bp-last-learning-session";
 const MAX_MARKDOWN_CHARS = 120_000;
 
+const CURRICULUM_EXAMPLE = `Module 1: Core idea - What the learner must understand and use.
+Module 2: Applied project move - How this becomes proof in the project.
+Module 3: Failure diagnosis - How to catch and repair weak reasoning.`;
+
 const readCookie = (name: string) =>
   document.cookie
     .split("; ")
     .find((cookie) => cookie.startsWith(`${name}=`))
     ?.slice(name.length + 1);
+
+const estimateImportedUnitCount = (value: string) => {
+  const text = value.trim();
+  if (!text) return 0;
+
+  const lines = text.split(/\r?\n/);
+  const headingCount = lines.filter((line) =>
+    /^#{1,6}\s+\S+/.test(line.trim()),
+  ).length;
+  const listCount = lines.filter((line) =>
+    /^(?:[-*+•]|\d{1,3}[.)]|[a-zA-Z][.)]|(?:module|unit|lesson|week|part|phase|step)\s+\w+\s*[:.)-])/i.test(
+      line.trim(),
+    ),
+  ).length;
+
+  if (headingCount > 1) return headingCount - 1;
+  if (headingCount === 1) return 1;
+  if (listCount > 0) return listCount;
+  return Math.max(1, text.split(/\n{2,}/).filter(Boolean).length);
+};
 
 export function ProjectsTab({
   initialProjects,
@@ -52,6 +82,7 @@ export function ProjectsTab({
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const currentSessionId = searchParams.get("session");
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [projects, setProjects] = useState(initialProjects);
   const [projectTitle, setProjectTitle] = useState("");
   const [targetIdentity, setTargetIdentity] = useState("");
@@ -60,6 +91,11 @@ export function ProjectsTab({
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(
     null,
   );
+  const curriculumUnitEstimate = useMemo(
+    () => estimateImportedUnitCount(curriculumMarkdown),
+    [curriculumMarkdown],
+  );
+  const curriculumCharacters = curriculumMarkdown.trim().length;
 
   const createProject = useMutation(
     trpc.training.createLearningProject.mutationOptions({
@@ -197,29 +233,105 @@ export function ProjectsTab({
             />
           </SettingField>
           <SettingField
-            label="Markdown curriculum"
-            description="Optional. Paste headings or bullets, or upload a .md file."
+            label="Curriculum"
+            description="Optional. Paste the curriculum you already have. Breakpoint will turn rough text into ordered training units."
           >
             <div className="space-y-3">
+              <div className="border-border bg-background/45 divide-border divide-y border">
+                <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <ClipboardText
+                      className="text-foreground/64 mt-0.5 shrink-0"
+                      size={17}
+                    />
+                    <div className="min-w-0">
+                      <div className="text-foreground text-[13px] font-medium">
+                        Paste curriculum here
+                      </div>
+                      <div className="text-foreground/50 mt-0.5 text-[12px] leading-5">
+                        Works with headings, bullets, numbered modules, plain
+                        paragraphs, and JSON exports.
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={
+                        preview || createProject.isPending || isReadingFile
+                      }
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <UploadSimple size={14} />
+                      Upload file
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={
+                        preview ||
+                        createProject.isPending ||
+                        isReadingFile ||
+                        curriculumMarkdown.trim().length > 0
+                      }
+                      onClick={() => setCurriculumMarkdown(CURRICULUM_EXAMPLE)}
+                    >
+                      Use example
+                    </Button>
+                  </div>
+                </div>
+                <div className="px-4 py-3">
+                  <Textarea
+                    value={curriculumMarkdown}
+                    disabled={
+                      preview || createProject.isPending || isReadingFile
+                    }
+                    maxLength={MAX_MARKDOWN_CHARS}
+                    className="[&_textarea]:min-h-[220px] [&_textarea]:font-mono [&_textarea]:text-[13px] [&_textarea]:leading-6"
+                    placeholder={`Paste any curriculum outline here.
+
+Example:
+Module 1: Core idea - What the learner must understand and use.
+2) Applied project move: How this becomes proof in the project.
+## Failure diagnosis
+How to catch and repair weak reasoning.`}
+                    onChange={(event) =>
+                      setCurriculumMarkdown(event.target.value)
+                    }
+                  />
+                </div>
+                <div className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="text-foreground/56 flex items-center gap-2 text-[12px]">
+                    <ListChecks size={14} />
+                    {curriculumCharacters > 0
+                      ? `${curriculumUnitEstimate.toLocaleString()} estimated ${curriculumUnitEstimate === 1 ? "unit" : "units"} from ${curriculumCharacters.toLocaleString()} characters`
+                      : "Paste text to import a curriculum now, or skip this and generate one later."}
+                  </div>
+                  <div className="text-foreground/44 flex flex-wrap gap-x-3 gap-y-1 text-[11px]">
+                    <span>Markdown</span>
+                    <span>Numbered outline</span>
+                    <span>Plain text</span>
+                    <span>JSON</span>
+                  </div>
+                </div>
+              </div>
               <Input
+                ref={fileInputRef}
                 nativeInput
                 type="file"
-                accept=".md,.markdown,text/markdown,text/plain"
+                accept=".md,.markdown,.txt,application/json,text/markdown,text/plain"
                 disabled={preview || createProject.isPending || isReadingFile}
+                className="hidden"
+                tabIndex={-1}
                 onChange={handleMarkdownFile}
-              />
-              <Textarea
-                value={curriculumMarkdown}
-                disabled={preview || createProject.isPending || isReadingFile}
-                maxLength={MAX_MARKDOWN_CHARS}
-                placeholder={`# Curriculum\n\n## Unit 1: Core idea\nWhat the learner must understand and use.\n\n## Unit 2: Applied project move\nHow this becomes proof in the project.`}
-                onChange={(event) => setCurriculumMarkdown(event.target.value)}
               />
               <div className="text-foreground/45 flex items-center gap-2 text-[12px]">
                 <FileText size={14} />
-                {curriculumMarkdown.trim()
-                  ? `${curriculumMarkdown.trim().length.toLocaleString()} characters ready to import`
-                  : "Markdown headings become Becoming curriculum units."}
+                Imported curriculum is optional. The parser accepts rough paste
+                formats, not just clean Markdown.
               </div>
             </div>
           </SettingField>

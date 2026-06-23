@@ -1,4 +1,3 @@
-import { sql } from "drizzle-orm";
 import { index, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
 
 import { user } from "../../auth-schema";
@@ -63,7 +62,7 @@ export const TrainingCapstoneAttempt = pgTable(
       .notNull(),
     updatedAt: t
       .timestamp({ mode: "date", withTimezone: true })
-      .$onUpdateFn(() => sql`now()`),
+      .$onUpdateFn(() => new Date()),
   }),
   (table) => [
     uniqueIndex("becoming_capstone_attempt_simulation_session_idx").on(

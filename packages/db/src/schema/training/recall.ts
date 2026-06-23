@@ -1,4 +1,3 @@
-import { sql } from "drizzle-orm";
 import { index, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
 
 import { user } from "../../auth-schema";
@@ -30,7 +29,7 @@ export const TrainingRecallGate = pgTable(
       .notNull(),
     updatedAt: t
       .timestamp({ mode: "date", withTimezone: true })
-      .$onUpdateFn(() => sql`now()`),
+      .$onUpdateFn(() => new Date()),
   }),
   (table) => [
     uniqueIndex("becoming_recall_gate_plan_trigger_idx").on(
@@ -69,7 +68,7 @@ export const TrainingRecallProbe = pgTable(
       .notNull(),
     updatedAt: t
       .timestamp({ mode: "date", withTimezone: true })
-      .$onUpdateFn(() => sql`now()`),
+      .$onUpdateFn(() => new Date()),
   }),
   (table) => [
     uniqueIndex("becoming_recall_probe_gate_order_idx").on(
@@ -104,7 +103,7 @@ export const TrainingUnitRecallState = pgTable(
       .notNull(),
     updatedAt: t
       .timestamp({ mode: "date", withTimezone: true })
-      .$onUpdateFn(() => sql`now()`),
+      .$onUpdateFn(() => new Date()),
   }),
   (table) => [
     uniqueIndex("becoming_unit_recall_state_unit_plan_idx").on(

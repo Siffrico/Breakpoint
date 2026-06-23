@@ -2,10 +2,9 @@
 
 import { Suspense } from "react";
 
+import type { ProfileTabKey } from "./profile-tabs";
 import { useLocalStorage } from "~/hooks/use-local-storage";
-
-import { ProfileSidebar  } from "./profile-tabs";
-import type {ProfileTabKey} from "./profile-tabs";
+import { ProfileSidebar } from "./profile-tabs";
 
 type WorkspaceTheme = "light" | "dark" | "warm";
 
@@ -28,7 +27,7 @@ export function ProfileShell({
       className="bp-workspace-theme bg-background text-foreground flex h-dvh overflow-hidden"
       data-workspace-theme={workspaceTheme}
     >
-      <aside className="border-sidebar-border bg-sidebar flex w-[220px] shrink-0 flex-col border-r">
+      <aside className="border-sidebar-border bg-sidebar hidden w-[220px] shrink-0 flex-col border-r md:flex">
         <Suspense fallback={null}>
           <ProfileSidebar basePath={basePath} activeTab={activeTab} />
         </Suspense>

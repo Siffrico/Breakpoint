@@ -17,7 +17,7 @@ export const TrainingOnboardingSession = pgTable(
       .notNull(),
     updatedAt: t
       .timestamp({ mode: "date", withTimezone: true })
-      .$onUpdateFn(() => sql`now()`),
+      .$onUpdateFn(() => new Date()),
   }),
   (table) => [
     index("becoming_onboarding_session_user_updated_idx").on(
@@ -84,7 +84,7 @@ export const TrainingProjectBuildCheckpoint = pgTable(
       .timestamp({ mode: "date", withTimezone: true })
       .defaultNow()
       .notNull()
-      .$onUpdateFn(() => sql`now()`),
+      .$onUpdateFn(() => new Date()),
   }),
   (table) => [
     uniqueIndex("becoming_project_build_checkpoint_session_step_idx").on(
@@ -157,7 +157,7 @@ export const TrainingWorkspaceTurn = pgTable(
       .notNull(),
     updatedAt: t
       .timestamp({ mode: "date", withTimezone: true })
-      .$onUpdateFn(() => sql`now()`),
+      .$onUpdateFn(() => new Date()),
   }),
   (table) => [
     uniqueIndex("becoming_workspace_turn_session_turn_idx").on(
