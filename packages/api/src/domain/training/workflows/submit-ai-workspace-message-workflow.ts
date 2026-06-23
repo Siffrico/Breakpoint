@@ -87,6 +87,13 @@ export const submitAiWorkspaceMessageWorkflow = async ({
 
     return ok(result);
   } catch (error) {
+    if (turnId && deps.markWorkspaceTurnFailed) {
+      await deps.markWorkspaceTurnFailed({
+        sessionId,
+        turnId,
+        reason: error instanceof Error ? error.message : "unknown error",
+      });
+    }
     return err(
       error instanceof Error ? error.message : "Workspace turn failed.",
     );

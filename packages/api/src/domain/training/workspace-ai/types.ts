@@ -53,6 +53,7 @@ export const AttemptTimingSchema = z.object({
 });
 
 export const WorkspaceAiMessageSchema = z.object({
+  id: z.string().uuid().optional(),
   role: z.enum(["assistant", "user"]),
   content: z.string().min(1),
   sequence: z.number().int().min(0),

@@ -38,6 +38,8 @@ void test("duplicate submit with an in-flight turn id is rejected before prepari
     updateOpenScenarioContract: () => fail("updateOpenScenarioContract"),
     saveAttempt: () => fail("saveAttempt"),
     completeNode: () => fail("completeNode"),
+    commitEducationTurn: () => fail("commitEducationTurn"),
+    commitNextScenarioPrompt: () => fail("commitNextScenarioPrompt"),
     touchSession: () => fail("touchSession"),
     listMemories: () => fail("listMemories"),
   } satisfies WorkspaceTurnOrchestrationDependencies;

@@ -24,22 +24,22 @@ import {
   resolveUnitRunProjection,
 } from "./workspace-turn";
 import { getWorkflowDefinition } from "./workflow";
+import type { UnitRun } from "./workflow";
 
 export interface WorkspaceTurnPersistenceDependencies
   extends Omit<WorkspaceTurnDependencies, "getActivePlan"> {
   claimWorkspaceTurn?: (input: {
     sessionId: string;
+    action: "submit_answer" | "next_scenario" | "adjust_difficulty";
     content: string;
     slot: string | null;
     unitId?: string | null;
     turnId: string;
-    hiddenFromTranscript?: boolean;
   }) => Promise<
-    | { status: "claimed"; message: WorkspaceAiMessage }
-    | { status: "processing"; message: WorkspaceAiMessage }
+    | { status: "claimed" }
+    | { status: "processing" }
     | {
         status: "completed";
-        userMessage: WorkspaceAiMessage | null;
         assistantMessage: WorkspaceAiMessage;
       }
   >;
@@ -104,12 +104,96 @@ export interface WorkspaceTurnPersistenceDependencies
     growthDimensions?: string[] | null;
   }) => Promise<unknown>;
   completeNode: (nodeId: string) => Promise<CurriculumNode | null>;
+  commitEducationTurn: (
+    input: WorkspaceEducationTurnCommit,
+  ) => Promise<{
+    assistantMessage: WorkspaceAiMessage;
+    nextReadyNode: CurriculumNode | null;
+  }>;
+  commitNextScenarioPrompt: (
+    input: WorkspaceNextScenarioCommit,
+  ) => Promise<{ assistantMessage: WorkspaceAiMessage }>;
+  markWorkspaceTurnFailed?: (input: {
+    sessionId: string;
+    turnId: string;
+    reason: string;
+  }) => Promise<void>;
   touchSession: (sessionId: string) => Promise<unknown>;
 }
 
 export type WorkspaceAiTurnPersistenceResult = WorkspaceAiTurnResult & {
   nextReadyNode?: CurriculumNode | null;
 };
+
+export interface WorkspaceOutputContractCommit {
+  unitContentId: string;
+  unitMasteryContract?: UnitContent["unitMasteryContract"];
+  openScenarioContract?: {
+    userId: string;
+    nodeId: string;
+    scenarioPrompt: string;
+    scenarioContract: NonNullable<
+      WorkspaceAiEducationOutput["scenarioEvaluationContract"]
+    >;
+  };
+}
+
+export interface WorkspaceAssistantMessageCommit {
+  sessionId: string;
+  role: "assistant";
+  content: string;
+  slot: "education_unit";
+  unitId: string;
+  turnId?: string | null;
+  metadata?: WorkspaceAiMessage["metadata"];
+}
+
+export interface WorkspaceUserMessageCommit {
+  sessionId: string;
+  role: "user";
+  content: string;
+  slot: "education_unit";
+  unitId: string;
+  turnId?: string | null;
+  metadata?: WorkspaceAiMessage["metadata"];
+}
+
+export interface WorkspacePhaseResponseCommit {
+  unitContentId: string;
+  sessionId: string;
+  userId?: string | null;
+  phase: PhaseResponseRecord["phase"];
+  sequence?: number;
+  userResponse: string;
+  aiResponse?: string | null;
+  passed?: boolean | null;
+  score?: number | null;
+  metadata?: PhaseResponseRecord["metadata"];
+}
+
+export interface WorkspaceEducationTurnCommit {
+  turnId?: string | null;
+  userMessage: WorkspaceUserMessageCommit | null;
+  assistantMessage: WorkspaceAssistantMessageCommit;
+  contracts: WorkspaceOutputContractCommit | null;
+  phaseResponse: WorkspacePhaseResponseCommit;
+  nextRun: UnitRun;
+  completion:
+    | {
+        nodeId: string;
+        attempt: Parameters<WorkspaceTurnPersistenceDependencies["saveAttempt"]>[0];
+      }
+    | null;
+  touchSessionId: string;
+}
+
+export interface WorkspaceNextScenarioCommit {
+  turnId?: string | null;
+  assistantMessage: WorkspaceAssistantMessageCommit;
+  contracts: WorkspaceOutputContractCommit | null;
+  phaseResponse: WorkspacePhaseResponseCommit;
+  touchSessionId: string;
+}
 
 const getDifficultyDirectiveMetadata = (reason?: string | null) =>
   reason ? { difficultyDirectiveReason: reason } : null;
@@ -149,33 +233,33 @@ const CONTRACTED_SCENARIO_STAGES = new Set([
   "transfer_scenario",
 ]);
 
-const persistOutputContracts = async ({
+const buildOutputContractCommit = ({
   userId,
   unit,
   currentStage,
   output,
-  deps,
 }: {
   userId: string;
   unit: UnitContent;
   currentStage: WorkspaceAiState["educationStage"];
   output: WorkspaceAiEducationOutput | WorkspaceAiEvaluationOutput;
-  deps: WorkspaceTurnPersistenceDependencies;
-}) => {
+}): WorkspaceOutputContractCommit | null => {
   const unitMasteryContract =
     output.unitMasteryContract ?? unit.unitMasteryContract ?? null;
 
-  if (output.unitMasteryContract) {
-    await deps.updateUnitMasteryContract({
-      unitContentId: unit.id,
-      unitMasteryContract: output.unitMasteryContract,
-    });
+  if (!output.unitMasteryContract && !output.scenarioEvaluationContract) {
+    return null;
   }
 
-  if (!output.scenarioEvaluationContract) return;
+  const commit: WorkspaceOutputContractCommit = {
+    unitContentId: unit.id,
+    unitMasteryContract: output.unitMasteryContract,
+  };
+
+  if (!output.scenarioEvaluationContract) return commit;
 
   if (!currentStage || !CONTRACTED_SCENARIO_STAGES.has(currentStage)) {
-    return;
+    return commit;
   }
 
   if (!unitMasteryContract) {
@@ -189,18 +273,14 @@ const persistOutputContracts = async ({
     scenarioContract: output.scenarioEvaluationContract,
   });
 
-  const updatedScenario = await deps.updateOpenScenarioContract({
+  commit.openScenarioContract = {
     userId,
     nodeId: unit.nodeId,
     scenarioPrompt: output.assistantMessage,
     scenarioContract: output.scenarioEvaluationContract,
-  });
+  };
 
-  if (!updatedScenario) {
-    throw new Error(
-      "Scenario evaluation contract could not be attached to an open scenario.",
-    );
-  }
+  return commit;
 };
 
 /**
@@ -258,33 +338,22 @@ const getRepairStepId = ({
     ? output.nextStage
     : null;
 
-const writeUnitRun = async ({
-  run,
-  deps,
-}: {
-  run: Parameters<WorkspaceTurnPersistenceDependencies["upsertUnitRun"]>[0];
-  deps: WorkspaceTurnPersistenceDependencies;
-}) => deps.upsertUnitRun(run);
-
-const appendPhaseEvent = async ({
+const buildPhaseEvent = ({
   sessionId,
   userId,
   message,
   unit,
-  assistantMessage,
   output,
   nextStepId,
   runtime,
   attemptTiming,
   evaluationPlan,
   difficultyDirectiveReason,
-  deps,
 }: {
   sessionId: string;
   userId: string;
   message: string;
   unit: UnitContent;
-  assistantMessage: WorkspaceAiMessage;
   output: WorkspaceAiEducationOutput | WorkspaceAiEvaluationOutput;
   nextStepId: NonNullable<WorkspaceAiState["educationStage"]>;
   runtime: {
@@ -294,14 +363,11 @@ const appendPhaseEvent = async ({
   attemptTiming?: AttemptTiming | null;
   evaluationPlan?: EvaluationPlan | null;
   difficultyDirectiveReason?: string | null;
-  deps: WorkspaceTurnPersistenceDependencies;
-}) =>
-  deps.savePhaseResponse({
+}): WorkspacePhaseResponseCommit => ({
     unitContentId: unit.id,
     sessionId,
     userId,
     phase: "ai_education",
-    sequence: assistantMessage.sequence,
     userResponse: message,
     aiResponse: output.assistantMessage,
     passed: nextStepId === "completed",
@@ -333,14 +399,13 @@ const appendPhaseEvent = async ({
     },
   });
 
-const reactToUnitCompletion = async ({
+const buildCompletionCommit = ({
   sessionId,
   userId,
   message,
   unit,
   output,
   mastered,
-  deps,
 }: {
   sessionId: string;
   userId: string;
@@ -348,23 +413,23 @@ const reactToUnitCompletion = async ({
   unit: UnitContent;
   output: WorkspaceAiEducationOutput | WorkspaceAiEvaluationOutput;
   mastered: boolean;
-  deps: WorkspaceTurnPersistenceDependencies;
-}): Promise<CurriculumNode | null> => {
+}): WorkspaceEducationTurnCommit["completion"] => {
   if (!mastered) {
     return null;
   }
 
-  await deps.saveAttempt({
-    sessionId,
-    userId,
-    unitId: unit.id,
-    response: message,
-    debrief: buildCompletionDebrief({ message, output }),
-    finalArticulation: message,
-    growthDimensions: output.strengths,
-  });
-
-  return deps.completeNode(unit.nodeId);
+  return {
+    nodeId: unit.nodeId,
+    attempt: {
+      sessionId,
+      userId,
+      unitId: unit.id,
+      response: message,
+      debrief: buildCompletionDebrief({ message, output }),
+      finalArticulation: message,
+      growthDimensions: output.strengths,
+    },
+  };
 };
 
 export const saveRecallTurnResult = async ({
@@ -477,26 +542,11 @@ export const saveEducationTurnResult = async ({
     !evaluationPlan ||
     priorEvaluationAttempts + 1 >= evaluationPlan.scenarioCount;
 
-  const assistantMessage = await deps.appendMessage({
-    sessionId,
-    role: "assistant",
-    content: output.assistantMessage,
-    slot: "education_unit",
-    unitId: unit.nodeId,
-    turnId,
-    metadata: getDifficultyDirectiveMetadata(difficultyDirectiveReason),
-  });
-
-  if (!assistantMessage) {
-    throw new Error("AI response could not be saved.");
-  }
-
-  await persistOutputContracts({
+  const contracts = buildOutputContractCommit({
     userId,
     unit,
     currentStage: state.educationStage,
     output,
-    deps,
   });
 
   const currentRun = await resolveUnitRunProjection({
@@ -532,12 +582,11 @@ export const saveEducationTurnResult = async ({
     },
     workflow,
   });
-  await appendPhaseEvent({
+  const phaseResponse = buildPhaseEvent({
     sessionId,
     userId,
     message,
     unit,
-    assistantMessage,
     output,
     nextStepId: nextRun.currentStepId,
     runtime: {
@@ -548,21 +597,40 @@ export const saveEducationTurnResult = async ({
     attemptTiming,
     evaluationPlan,
     difficultyDirectiveReason,
-    deps,
   });
-  await writeUnitRun({ run: nextRun, deps });
-
-  const nextReadyNode = await reactToUnitCompletion({
+  const completion = buildCompletionCommit({
     sessionId,
     userId,
     message,
     unit,
     output,
     mastered,
-    deps,
   });
-
-  await deps.touchSession(sessionId);
+  const { assistantMessage, nextReadyNode } = await deps.commitEducationTurn({
+    turnId,
+    userMessage: {
+      sessionId,
+      role: "user",
+      content: message,
+      slot: "education_unit",
+      unitId: unit.nodeId,
+      turnId,
+    },
+    assistantMessage: {
+      sessionId,
+      role: "assistant",
+      content: output.assistantMessage,
+      slot: "education_unit",
+      unitId: unit.nodeId,
+      turnId,
+      metadata: getDifficultyDirectiveMetadata(difficultyDirectiveReason),
+    },
+    contracts,
+    phaseResponse,
+    nextRun,
+    completion,
+    touchSessionId: sessionId,
+  });
 
   const nextState = await planNextWorkspaceTurn({
     sessionId,
@@ -616,30 +684,27 @@ export const saveNextScenarioPrompt = async ({
     throw new Error("Education stage is missing.");
   }
 
-  const assistantMessage = await deps.appendMessage({
-    sessionId,
-    role: "assistant",
-    content: output.assistantMessage,
-    slot: "education_unit",
-    unitId: unit.nodeId,
-    turnId,
-    metadata: getDifficultyDirectiveMetadata(difficultyDirectiveReason),
-  });
-
-  if (!assistantMessage) {
-    throw new Error("AI response could not be saved.");
-  }
-
-  await persistOutputContracts({
+  const contracts = buildOutputContractCommit({
     userId,
     unit,
     currentStage,
     output,
-    deps,
   });
 
   const educationResponses = await deps.getPhaseResponses(unit.id, sessionId);
-  await deps.savePhaseResponse({
+  await deps.commitNextScenarioPrompt({
+    turnId,
+    assistantMessage: {
+      sessionId,
+      role: "assistant",
+      content: output.assistantMessage,
+      slot: "education_unit",
+      unitId: unit.nodeId,
+      turnId,
+      metadata: getDifficultyDirectiveMetadata(difficultyDirectiveReason),
+    },
+    contracts,
+    phaseResponse: {
     unitContentId: unit.id,
     sessionId,
     userId,
@@ -665,7 +730,7 @@ export const saveNextScenarioPrompt = async ({
       estimatedItemRating: output.estimatedItemRating ?? undefined,
       feedback: output.assistantMessage,
     },
+    },
+    touchSessionId: sessionId,
   });
-
-  await deps.touchSession(sessionId);
 };

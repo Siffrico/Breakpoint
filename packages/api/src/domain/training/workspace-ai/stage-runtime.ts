@@ -113,7 +113,11 @@ export const selectWorkspaceTurnRuntime = (
 
   const stage = state.educationStage ?? "diagnostic_scenario";
   const workflow = getWorkflowDefinition(state.workflowId);
-  const stepKind = getWorkflowStep(workflow, stage)?.kind ?? "scenario";
+  const step = getWorkflowStep(workflow, stage);
+  if (!step) {
+    throw new Error(`Workflow ${workflow.id} does not contain step ${stage}.`);
+  }
+  const stepKind = step.kind;
   const runtime = EDUCATION_RUNTIME_BY_STEP_KIND[stepKind];
 
   return {

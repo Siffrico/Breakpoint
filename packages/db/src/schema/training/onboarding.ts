@@ -99,3 +99,44 @@ export const TrainingWorkspaceSummary = pgTable(
     ),
   ],
 );
+
+export const TrainingWorkspaceTurn = pgTable(
+  "becoming_workspace_turn",
+  (t) => ({
+    id: t.uuid().notNull().primaryKey().defaultRandom(),
+    sessionId: t
+      .uuid()
+      .notNull()
+      .references(() => TrainingOnboardingSession.id, { onDelete: "cascade" }),
+    turnId: t.varchar({ length: 96 }).notNull(),
+    action: t.varchar({ length: 32 }).notNull(),
+    slot: t.varchar({ length: 32 }),
+    unitId: t.uuid(),
+    inputContent: t.text().notNull(),
+    status: t.varchar({ length: 24 }).notNull().default("processing"),
+    userMessageId: t.uuid().references(() => TrainingOnboardingMessage.id, {
+      onDelete: "set null",
+    }),
+    assistantMessageId: t.uuid().references(() => TrainingOnboardingMessage.id, {
+      onDelete: "set null",
+    }),
+    failureReason: t.text(),
+    createdAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .$onUpdateFn(() => sql`now()`),
+  }),
+  (table) => [
+    uniqueIndex("becoming_workspace_turn_session_turn_idx").on(
+      table.sessionId,
+      table.turnId,
+    ),
+    index("becoming_workspace_turn_session_status_idx").on(
+      table.sessionId,
+      table.status,
+    ),
+  ],
+);

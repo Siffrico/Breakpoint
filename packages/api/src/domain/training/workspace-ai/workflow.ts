@@ -103,12 +103,21 @@ const WORKFLOWS = new Map(
 );
 
 /**
- * Takes a workflow id; produces the matching workflow definition; fails only
- * by returning the diagnostic-first workflow for unknown ids.
+ * Takes a workflow id; produces the matching workflow definition; fails closed
+ * when persisted workflow state is missing or unknown.
  */
-export const getWorkflowDefinition = (workflowId?: string | null) =>
-  (workflowId ? WORKFLOWS.get(workflowId) : null) ??
-  DIAGNOSTIC_FIRST_WORKFLOW;
+export const getWorkflowDefinition = (workflowId?: string | null) => {
+  if (!workflowId) {
+    throw new Error("Unit run workflow id is missing.");
+  }
+
+  const workflow = WORKFLOWS.get(workflowId);
+  if (!workflow) {
+    throw new Error(`Unknown unit run workflow id: ${workflowId}`);
+  }
+
+  return workflow;
+};
 
 /**
  * Takes a workflow and step id; produces the step definition; fails only by

@@ -1,11 +1,20 @@
 import type { db as databaseClient } from "@acme/db/client";
+import { and, eq } from "@acme/db";
+import { TrainingWorkspaceTurn } from "@acme/db/schema";
 
 import type {
   CurriculumNode,
   DifficultyBand,
   UnitContent,
 } from "../domain/training/types/training.types";
-import type { WorkspaceAiEducationOutput } from "../domain/training/workspace-ai/types";
+import type {
+  WorkspaceAiEducationOutput,
+  WorkspaceAiMessage,
+} from "../domain/training/workspace-ai/types";
+import type {
+  WorkspaceEducationTurnCommit,
+  WorkspaceNextScenarioCommit,
+} from "../domain/training/workspace-ai/workspace-turn-persistence";
 import type {
   ManualDifficultySignal,
   WorkspaceTurnOrchestrationDependencies,
@@ -25,6 +34,223 @@ import { trainingRatingRepository } from "./training-rating-repository";
 import { trainingUnitRunRepository } from "./training-unit-run-repository";
 
 type Database = typeof databaseClient;
+
+const toCurriculumNode = (
+  node: Awaited<
+    ReturnType<typeof trainingCurriculumRepository.completeNode>
+  >,
+): CurriculumNode | null =>
+  node
+    ? ({
+        id: node.id,
+        parentNodeId: node.parentNodeId,
+        kind: node.kind as CurriculumNode["kind"],
+        title: node.title,
+        summary: node.summary,
+        whyItMatters: node.whyItMatters,
+        learningGoal: node.summary,
+        orderIndex: node.orderIndex,
+        depth: node.depth,
+        positionColumn: node.positionColumn,
+        positionRow: node.positionRow,
+        status: node.status as CurriculumNode["status"],
+        difficultyBands: node.difficultyBands ?? null,
+      } satisfies CurriculumNode)
+    : null;
+
+const markWorkspaceTurnCompleted = async ({
+  db,
+  sessionId,
+  turnId,
+  assistantMessage,
+  userMessage,
+}: {
+  db: Database;
+  sessionId: string;
+  turnId?: string | null;
+  assistantMessage: WorkspaceAiMessage;
+  userMessage?: WorkspaceAiMessage | null;
+}) => {
+  if (!turnId || !assistantMessage.id) return;
+
+  await db
+    .update(TrainingWorkspaceTurn)
+    .set({
+      status: "completed",
+      assistantMessageId: assistantMessage.id,
+      userMessageId: userMessage?.id ?? null,
+      failureReason: null,
+    })
+    .where(
+      and(
+        eq(TrainingWorkspaceTurn.sessionId, sessionId),
+        eq(TrainingWorkspaceTurn.turnId, turnId),
+      ),
+    );
+};
+
+const markWorkspaceTurnFailed = async ({
+  db,
+  sessionId,
+  turnId,
+  reason,
+}: {
+  db: Database;
+  sessionId: string;
+  turnId: string;
+  reason: string;
+}) => {
+  await db
+    .update(TrainingWorkspaceTurn)
+    .set({
+      status: "failed",
+      failureReason: reason.slice(0, 2_000),
+    })
+    .where(
+      and(
+        eq(TrainingWorkspaceTurn.sessionId, sessionId),
+        eq(TrainingWorkspaceTurn.turnId, turnId),
+        eq(TrainingWorkspaceTurn.status, "processing"),
+      ),
+    );
+};
+
+const applyContracts = async ({
+  db,
+  contracts,
+}: {
+  db: Database;
+  contracts: WorkspaceEducationTurnCommit["contracts"];
+}) => {
+  if (!contracts) return;
+
+  if (contracts.unitMasteryContract) {
+    await trainingCurriculumRepository.updateUnitMasteryContract({
+      db,
+      unitContentId: contracts.unitContentId,
+      unitMasteryContract: contracts.unitMasteryContract,
+    });
+  }
+
+  if (contracts.openScenarioContract) {
+    const updated = await trainingRatingRepository.updateOpenScenarioContract({
+      db,
+      ...contracts.openScenarioContract,
+    });
+    if (!updated) {
+      throw new Error(
+        "Scenario evaluation contract could not be attached to an open scenario.",
+      );
+    }
+  }
+};
+
+const commitNextScenarioPrompt = async ({
+  db,
+  input,
+}: {
+  db: Database;
+  input: WorkspaceNextScenarioCommit;
+}): Promise<{ assistantMessage: WorkspaceAiMessage }> =>
+  db.transaction(async (tx) => {
+    const txDb = tx as unknown as Database;
+    await applyContracts({ db: txDb, contracts: input.contracts });
+
+    const assistantMessage =
+      await trainingOnboardingRepository.appendWorkspaceMessage({
+        db: txDb,
+        ...input.assistantMessage,
+      });
+    if (!assistantMessage) {
+      throw new Error("AI response could not be saved.");
+    }
+
+    await trainingCurriculumRepository.savePhaseResponse({
+      db: txDb,
+      ...input.phaseResponse,
+      sequence: input.phaseResponse.sequence ?? assistantMessage.sequence,
+    });
+    await trainingOnboardingRepository.touchSession({
+      db: txDb,
+      sessionId: input.touchSessionId,
+    });
+    await markWorkspaceTurnCompleted({
+      db: txDb,
+      sessionId: input.assistantMessage.sessionId,
+      turnId: input.turnId,
+      assistantMessage,
+    });
+
+    return { assistantMessage };
+  });
+
+const commitEducationTurn = async ({
+  db,
+  input,
+}: {
+  db: Database;
+  input: WorkspaceEducationTurnCommit;
+}): Promise<{
+  assistantMessage: WorkspaceAiMessage;
+  nextReadyNode: CurriculumNode | null;
+}> =>
+  db.transaction(async (tx) => {
+    const txDb = tx as unknown as Database;
+    await applyContracts({ db: txDb, contracts: input.contracts });
+
+    const userMessage = input.userMessage
+      ? await trainingOnboardingRepository.appendWorkspaceMessage({
+          db: txDb,
+          ...input.userMessage,
+        })
+      : null;
+    const assistantMessage =
+      await trainingOnboardingRepository.appendWorkspaceMessage({
+        db: txDb,
+        ...input.assistantMessage,
+      });
+    if (!assistantMessage) {
+      throw new Error("AI response could not be saved.");
+    }
+
+    await trainingCurriculumRepository.savePhaseResponse({
+      db: txDb,
+      ...input.phaseResponse,
+      sequence: input.phaseResponse.sequence ?? assistantMessage.sequence,
+    });
+    await trainingUnitRunRepository.upsertUnitRun({
+      db: txDb,
+      run: input.nextRun,
+    });
+
+    let nextReadyNode: CurriculumNode | null = null;
+    if (input.completion) {
+      await trainingAttemptRepository.saveAttempt({
+        db: txDb,
+        ...input.completion.attempt,
+      });
+      nextReadyNode = toCurriculumNode(
+        await trainingCurriculumRepository.completeNode({
+          db: txDb,
+          nodeId: input.completion.nodeId,
+        }),
+      );
+    }
+
+    await trainingOnboardingRepository.touchSession({
+      db: txDb,
+      sessionId: input.touchSessionId,
+    });
+    await markWorkspaceTurnCompleted({
+      db: txDb,
+      sessionId: input.assistantMessage.sessionId,
+      turnId: input.turnId,
+      assistantMessage,
+      userMessage,
+    });
+
+    return { assistantMessage, nextReadyNode };
+  });
 
 export const createWorkspaceTurnRepositoryDeps = (
   db: Database,
@@ -132,24 +358,11 @@ export const createWorkspaceTurnRepositoryDeps = (
     }),
   completeNode: async (nodeId: string) => {
     const node = await trainingCurriculumRepository.completeNode({ db, nodeId });
-    return node
-      ? ({
-          id: node.id,
-          parentNodeId: node.parentNodeId,
-          kind: node.kind as CurriculumNode["kind"],
-          title: node.title,
-          summary: node.summary,
-          whyItMatters: node.whyItMatters,
-          learningGoal: node.summary,
-          orderIndex: node.orderIndex,
-          depth: node.depth,
-          positionColumn: node.positionColumn,
-          positionRow: node.positionRow,
-          status: node.status as CurriculumNode["status"],
-          difficultyBands: node.difficultyBands ?? null,
-        } satisfies CurriculumNode)
-      : null;
+    return toCurriculumNode(node);
   },
+  commitEducationTurn: (input) => commitEducationTurn({ db, input }),
+  commitNextScenarioPrompt: (input) => commitNextScenarioPrompt({ db, input }),
+  markWorkspaceTurnFailed: (input) => markWorkspaceTurnFailed({ db, ...input }),
   prewarmWorkspaceUnit: (node: CurriculumNode) =>
     ensureWorkspaceUnit({ node, deps: createWorkspaceTurnRepositoryDeps(db) }),
   touchSession: (sessionId: string) =>

@@ -6,6 +6,7 @@ import {
   TrainingIdentityProfileVersion,
   TrainingOnboardingMessage,
   TrainingOnboardingSession,
+  TrainingWorkspaceTurn,
   TrainingWorkspaceSummary,
 } from "@acme/db/schema";
 
@@ -56,6 +57,7 @@ const getNextMessageSequence = async ({
 const mapWorkspaceMessage = (
   message: typeof TrainingOnboardingMessage.$inferSelect,
 ) => ({
+  id: message.id,
   role: message.role as "assistant" | "user",
   content: message.content,
   sequence: message.sequence,
@@ -66,6 +68,11 @@ const mapWorkspaceMessage = (
 });
 
 type WorkspaceMessage = ReturnType<typeof mapWorkspaceMessage>;
+
+type WorkspaceTurnAction =
+  | "submit_answer"
+  | "next_scenario"
+  | "adjust_difficulty";
 
 const getMessageByTurnRole = async ({
   db,
@@ -84,6 +91,17 @@ const getMessageByTurnRole = async ({
       eq(TrainingOnboardingMessage.turnId, turnId),
       eq(TrainingOnboardingMessage.role, role),
     ),
+  })) ?? null;
+
+const getMessageById = async ({
+  db,
+  messageId,
+}: {
+  db: Database;
+  messageId: string;
+}) =>
+  (await db.query.TrainingOnboardingMessage.findFirst({
+    where: eq(TrainingOnboardingMessage.id, messageId),
   })) ?? null;
 
 const insertMessageWithNextSequence = async ({
@@ -129,58 +147,6 @@ const insertMessageWithNextSequence = async ({
   }
 
   return null;
-};
-
-const insertMessageClaimWithNextSequence = async ({
-  db,
-  input,
-}: {
-  db: Database;
-  input: OnboardingMessageInsert;
-}): Promise<
-  | { inserted: true; message: typeof TrainingOnboardingMessage.$inferSelect }
-  | { inserted: false; message: typeof TrainingOnboardingMessage.$inferSelect }
-> => {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const sequence = await getNextMessageSequence({
-      db,
-      sessionId: input.sessionId,
-    });
-
-    try {
-      const [message] = await db
-        .insert(TrainingOnboardingMessage)
-        .values({
-          ...input,
-          sequence,
-        })
-        .returning();
-
-      if (!message) {
-        throw new Error("Workspace turn claim could not be saved.");
-      }
-
-      return { inserted: true, message };
-    } catch (error) {
-      if (isUniqueViolation(error) && input.turnId) {
-        const existing = await getMessageByTurnRole({
-          db,
-          sessionId: input.sessionId,
-          turnId: input.turnId,
-          role: input.role,
-        });
-        if (existing) {
-          return { inserted: false, message: existing };
-        }
-      }
-
-      if (!isUniqueViolation(error) || attempt === 2) {
-        throw error;
-      }
-    }
-  }
-
-  throw new Error("Workspace turn claim could not be saved.");
 };
 
 const isTranscriptVisibleMessage = (message: WorkspaceMessage) =>
@@ -300,78 +266,106 @@ export const trainingOnboardingRepository = {
   claimWorkspaceTurn: async ({
     db,
     sessionId,
+    action,
     content,
     slot,
     unitId = null,
     turnId,
-    hiddenFromTranscript = false,
   }: {
     db: Database;
     sessionId: string;
+    action: WorkspaceTurnAction;
     content: string;
     slot: string | null;
     unitId?: string | null;
     turnId: string;
-    hiddenFromTranscript?: boolean;
   }): Promise<
-    | { status: "claimed"; message: WorkspaceMessage }
-    | { status: "processing"; message: WorkspaceMessage }
+    | { status: "claimed" }
+    | { status: "processing" }
     | {
         status: "completed";
-        userMessage: WorkspaceMessage | null;
         assistantMessage: WorkspaceMessage;
       }
   > => {
-    const existingAssistant = await getMessageByTurnRole({
-      db,
-      sessionId,
-      turnId,
-      role: "assistant",
+    const existingTurn = await db.query.TrainingWorkspaceTurn.findFirst({
+      where: and(
+        eq(TrainingWorkspaceTurn.sessionId, sessionId),
+        eq(TrainingWorkspaceTurn.turnId, turnId),
+      ),
     });
-    if (existingAssistant) {
-      return {
-        status: "completed",
-        userMessage: null,
-        assistantMessage: mapWorkspaceMessage(existingAssistant),
-      };
+
+    if (existingTurn?.status === "completed") {
+      const assistant = existingTurn.assistantMessageId
+        ? await getMessageById({
+            db,
+            messageId: existingTurn.assistantMessageId,
+          })
+        : null;
+      if (assistant) {
+        return {
+          status: "completed",
+          assistantMessage: mapWorkspaceMessage(assistant),
+        };
+      }
     }
 
-    const claim = await insertMessageClaimWithNextSequence({
-      db,
-      input: {
+    if (existingTurn?.status === "processing") {
+      return { status: "processing" };
+    }
+
+    if (existingTurn?.status === "failed") {
+      await db
+        .update(TrainingWorkspaceTurn)
+        .set({
+          action,
+          slot,
+          unitId,
+          inputContent: content,
+          status: "processing",
+          failureReason: null,
+        })
+        .where(eq(TrainingWorkspaceTurn.id, existingTurn.id));
+      return { status: "claimed" };
+    }
+
+    try {
+      await db.insert(TrainingWorkspaceTurn).values({
         sessionId,
-        role: "user",
-        content,
+        turnId,
+        action,
         slot,
         unitId,
-        turnId,
-        metadata: hiddenFromTranscript ? { hiddenFromTranscript: true } : null,
-      },
-    });
+        inputContent: content,
+        status: "processing",
+      });
+      return { status: "claimed" };
+    } catch (error) {
+      if (!isUniqueViolation(error)) {
+        throw error;
+      }
 
-    if (claim.inserted) {
-      return { status: "claimed", message: mapWorkspaceMessage(claim.message) };
+      const racedTurn = await db.query.TrainingWorkspaceTurn.findFirst({
+        where: and(
+          eq(TrainingWorkspaceTurn.sessionId, sessionId),
+          eq(TrainingWorkspaceTurn.turnId, turnId),
+        ),
+      });
+
+      if (racedTurn?.status === "completed" && racedTurn.assistantMessageId) {
+        const assistant = await getMessageById({
+          db,
+          messageId: racedTurn.assistantMessageId,
+        });
+        if (assistant) {
+          return {
+            status: "completed",
+            assistantMessage: mapWorkspaceMessage(assistant),
+          };
+        }
+      }
+
+      return { status: "processing" };
     }
-
-    const messages = await db.query.TrainingOnboardingMessage.findMany({
-      where: and(
-        eq(TrainingOnboardingMessage.sessionId, sessionId),
-        eq(TrainingOnboardingMessage.turnId, turnId),
-      ),
-      orderBy: asc(TrainingOnboardingMessage.sequence),
-    });
-    const assistantMessage = messages.find(
-      (message) => message.role === "assistant",
-    );
-    if (assistantMessage) {
-      return {
-        status: "completed",
-        userMessage: mapWorkspaceMessage(claim.message),
-        assistantMessage: mapWorkspaceMessage(assistantMessage),
-      };
-    }
-
-    return { status: "processing", message: mapWorkspaceMessage(claim.message) };
   },
 
   getSession: async ({ db, sessionId }: { db: Database; sessionId: string }) =>

@@ -185,91 +185,113 @@ const streamWorkspaceChatWithModelPreference = async ({
       };
 
       const turnDeps = createWorkspaceTurnRepositoryDeps(db);
-      const prepared = await prepareWorkspaceTurnPrompt({
-        sessionId,
-        userId,
-        turnId,
-        message,
-        attemptTiming,
-        action,
-        manualDifficultySignal,
-        deps: turnDeps,
-      });
+      const markTurnFailed = async (error: unknown) => {
+        if (!turnId || !turnDeps.markWorkspaceTurnFailed) return;
+        if (
+          error instanceof Error &&
+          /already being processed/i.test(error.message)
+        ) {
+          return;
+        }
+        await turnDeps.markWorkspaceTurnFailed({
+          sessionId,
+          turnId,
+          reason: error instanceof Error ? error.message : "unknown error",
+        });
+      };
 
-      if (prepared.kind === "cached") {
-        streamAssistantDelta(prepared.assistantMessage.content);
+      try {
+        const prepared = await prepareWorkspaceTurnPrompt({
+          sessionId,
+          userId,
+          turnId,
+          message,
+          attemptTiming,
+          action,
+          manualDifficultySignal,
+          deps: turnDeps,
+        });
+
+        if (prepared.kind === "cached") {
+          streamAssistantDelta(prepared.assistantMessage.content);
+          endAssistantText();
+          writeStatus("complete", "Complete");
+          writer.write({ type: "finish", finishReason: "stop" });
+          return;
+        }
+
+        const { runtime } = prepared;
+
+        writeStatus(
+          runtime.promptKind === "evaluate_feedback"
+            ? "evaluating"
+            : "thinking",
+          prepared.turn.state.mode === "recall"
+            ? action === "adjust_difficulty"
+              ? "Rebuilding recall"
+              : "Checking recall"
+            : action === "next_scenario"
+              ? "Preparing next scenario"
+              : action === "adjust_difficulty"
+                ? "Recalibrating difficulty"
+                : runtime.promptKind === "evaluate_feedback"
+                  ? "Evaluating your answer"
+                  : "Preparing feedback",
+        );
+        const result = streamText({
+          model: requireAiModelForPurpose(
+            runtime.modelPurpose,
+            "AI workspace turns",
+          ),
+          output: Output.object({
+            schema: runtime.outputSchema as never,
+            name:
+              prepared.turn.state.mode === "recall"
+                ? "workspace_recall_turn"
+                : "workspace_education_turn",
+          }),
+          system: getWorkspaceAiSystemPrompt(runtime.promptKind),
+          prompt: prepared.promptContext,
+          tools: getSearchToolsForSelectedProvider(runtime.modelPurpose),
+          stopWhen: stepCountIs(4),
+        });
+
+        for await (const partial of result.partialOutputStream) {
+          const partialOutput = partial as { assistantMessage?: unknown };
+          streamAssistantDelta(
+            typeof partialOutput.assistantMessage === "string"
+              ? partialOutput.assistantMessage
+              : "",
+          );
+        }
+
+        const rawOutput = await result.output;
+        const output = parseWorkspaceTurnOutput({
+          runtime,
+          rawOutput,
+        });
+        streamAssistantDelta(output.assistantMessage);
         endAssistantText();
+        writeStatus(
+          "saving",
+          action === "next_scenario"
+            ? "Saving next scenario"
+            : action === "adjust_difficulty"
+              ? "Saving recalibrated scenario"
+              : "Saving feedback",
+        );
+        await completeWorkspaceTurn({
+          prepared,
+          rawOutput: output,
+          deps: turnDeps,
+        });
+
         writeStatus("complete", "Complete");
         writer.write({ type: "finish", finishReason: "stop" });
-        return;
+      } catch (error) {
+        await markTurnFailed(error);
+        throw error;
       }
-
-      const { runtime } = prepared;
-
-      writeStatus(
-        runtime.promptKind === "evaluate_feedback" ? "evaluating" : "thinking",
-        prepared.turn.state.mode === "recall"
-          ? action === "adjust_difficulty"
-            ? "Rebuilding recall"
-            : "Checking recall"
-          : action === "next_scenario"
-            ? "Preparing next scenario"
-            : action === "adjust_difficulty"
-              ? "Recalibrating difficulty"
-              : runtime.promptKind === "evaluate_feedback"
-                ? "Evaluating your answer"
-                : "Preparing feedback",
-      );
-      const result = streamText({
-        model: requireAiModelForPurpose(
-          runtime.modelPurpose,
-          "AI workspace turns",
-        ),
-        output: Output.object({
-          schema: runtime.outputSchema as never,
-          name:
-            prepared.turn.state.mode === "recall"
-              ? "workspace_recall_turn"
-              : "workspace_education_turn",
-        }),
-        system: getWorkspaceAiSystemPrompt(runtime.promptKind),
-        prompt: prepared.promptContext,
-        tools: getSearchToolsForSelectedProvider(runtime.modelPurpose),
-        stopWhen: stepCountIs(4),
-      });
-
-      for await (const partial of result.partialOutputStream) {
-        const partialOutput = partial as { assistantMessage?: unknown };
-        streamAssistantDelta(
-          typeof partialOutput.assistantMessage === "string"
-            ? partialOutput.assistantMessage
-            : "",
-        );
-      }
-
-      const rawOutput = await result.output;
-      const output = parseWorkspaceTurnOutput({
-        runtime,
-        rawOutput,
-      });
-      streamAssistantDelta(output.assistantMessage);
-      endAssistantText();
-      writeStatus(
-        "saving",
-        action === "next_scenario"
-          ? "Saving next scenario"
-          : action === "adjust_difficulty"
-            ? "Saving recalibrated scenario"
-            : "Saving feedback",
-      );
-      await completeWorkspaceTurn({
-        prepared,
-        rawOutput: output,
-        deps: turnDeps,
-      });
-
-      writeStatus("complete", "Complete");
-      writer.write({ type: "finish", finishReason: "stop" });
     },
   });
 

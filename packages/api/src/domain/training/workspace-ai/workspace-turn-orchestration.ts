@@ -279,10 +279,12 @@ export const prepareWorkspaceTurnPrompt = async ({
   const turn = await resolveWorkspaceTurn({ sessionId, deps });
   const { plan, allResponses, state, node, unit, unitResponses } = turn;
   const slot = getWorkspaceMessageSlot(state.mode);
+  let claimedDurableTurn = false;
 
   if (turnId && deps.claimWorkspaceTurn) {
     const claim = await deps.claimWorkspaceTurn({
       sessionId,
+      action,
       content: getTurnClaimContent({
         action,
         manualDifficultySignal,
@@ -291,7 +293,6 @@ export const prepareWorkspaceTurnPrompt = async ({
       slot,
       unitId: unit.nodeId,
       turnId,
-      hiddenFromTranscript: action !== "submit_answer",
     });
 
     if (claim.status === "completed") {
@@ -308,6 +309,7 @@ export const prepareWorkspaceTurnPrompt = async ({
     if (claim.status === "processing") {
       throw new Error("This turn is already being processed.");
     }
+    claimedDurableTurn = true;
   } else if (action === "submit_answer") {
     const userMessage = await deps.appendMessage({
       sessionId,
@@ -323,7 +325,24 @@ export const prepareWorkspaceTurnPrompt = async ({
     }
   }
 
-  const messagesWithUser = await deps.listMessages(sessionId, slot);
+  const persistedMessages = await deps.listMessages(sessionId, slot);
+  const messagesWithUser =
+    claimedDurableTurn && action === "submit_answer"
+      ? [
+          ...persistedMessages,
+          {
+            role: "user" as const,
+            content: trimmedMessage,
+            sequence:
+              Math.max(-1, ...persistedMessages.map((item) => item.sequence)) +
+              1,
+            slot,
+            unitId: unit.nodeId,
+            turnId,
+            metadata: null,
+          },
+        ]
+      : persistedMessages;
   const storedSummary = await deps.getWorkspaceSummary(sessionId, slot);
   const summarizeModel = getAiModelForPurpose("recall");
   const compaction = summarizeModel

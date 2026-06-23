@@ -10,6 +10,14 @@ import { AiModelPreferenceSchema } from "@acme/validators";
 import type { ModelTier } from "../prompts/types";
 
 type AiProvider = "google" | "openai" | "openrouter";
+type CodeDefaultAiStack = "openai-gpt-5.5" | "openrouter-glm-5.2";
+
+const CODE_DEFAULT_AI_STACK: CodeDefaultAiStack = "openrouter-glm-5.2";
+
+const CODE_DEFAULT_PROVIDER: Record<CodeDefaultAiStack, AiProvider> = {
+  "openai-gpt-5.5": "openai",
+  "openrouter-glm-5.2": "openrouter",
+};
 
 export type AiModelPurpose =
   | "onboarding"
@@ -31,8 +39,8 @@ const GOOGLE_TIER_DEFAULTS: Record<ModelTier, string> = {
 };
 
 const OPENAI_TIER_DEFAULTS: Record<ModelTier, string> = {
-  critical: "gpt-4.1",
-  standard: "gpt-4.1-mini",
+  critical: "gpt-5.5",
+  standard: "gpt-5.5-mini",
 };
 
 const OPENROUTER_TIER_DEFAULTS: Record<ModelTier, string> = {
@@ -41,9 +49,9 @@ const OPENROUTER_TIER_DEFAULTS: Record<ModelTier, string> = {
 };
 
 const OPENAI_PURPOSE_DEFAULTS: Partial<Record<AiModelPurpose, string>> = {
-  onboarding: "gpt-5.4",
-  curriculum: "gpt-5.4",
-  evaluation: "gpt-5.4-mini",
+  onboarding: "gpt-5.5",
+  curriculum: "gpt-5.5",
+  evaluation: "gpt-5.5-mini",
 };
 
 const PURPOSE_TIER: Record<AiModelPurpose, ModelTier> = {
@@ -104,7 +112,7 @@ const getSelectedProvider = (purpose?: AiModelPurpose): AiProvider => {
     return configured;
   }
 
-  return "google";
+  return CODE_DEFAULT_PROVIDER[CODE_DEFAULT_AI_STACK];
 };
 
 const PROVIDER_API_KEY_ENV: Record<AiProvider, string> = {

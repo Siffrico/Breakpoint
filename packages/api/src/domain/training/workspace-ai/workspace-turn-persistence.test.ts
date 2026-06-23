@@ -103,7 +103,10 @@ const makeDeps = (calls: string[]): WorkspaceTurnPersistenceDependencies => ({
   },
   listMessages: () => Promise.resolve([]),
   listPhaseResponsesBySession: () => Promise.resolve([]),
-  getPhaseResponses: () => Promise.resolve([]),
+  getPhaseResponses: () => {
+    calls.push("getPhaseResponses");
+    return Promise.resolve([]);
+  },
   getUnitRun: () => Promise.resolve(null),
   upsertUnitRun: (run) => Promise.resolve(run),
   getUnitByNodeId: () => Promise.resolve(unit),
@@ -135,6 +138,29 @@ const makeDeps = (calls: string[]): WorkspaceTurnPersistenceDependencies => ({
   },
   saveAttempt: () => Promise.resolve(),
   completeNode: () => Promise.resolve(null),
+  commitEducationTurn: () => {
+    calls.push("commitEducationTurn");
+    return Promise.resolve({
+      assistantMessage: {
+        id: "00000000-0000-0000-0000-000000000101",
+        role: "assistant",
+        content: "Saved",
+        sequence: 1,
+        slot: "education_unit",
+        unitId: "node-1",
+        metadata: null,
+      },
+      nextReadyNode: null,
+    });
+  },
+  commitNextScenarioPrompt: (input) => {
+    calls.push("commitNextScenarioPrompt");
+    assert.equal(
+      input.contracts?.openScenarioContract?.scenarioPrompt,
+      "Replacement scenario",
+    );
+    throw new Error("Scenario evaluation contract could not be attached to an open scenario.");
+  },
   touchSession: () => {
     calls.push("touchSession");
     return Promise.resolve();
@@ -171,11 +197,7 @@ void test("next-scenario persistence fails when the private contract cannot atta
 
   assert.deepEqual(
     calls,
-    [
-      "appendMessage",
-      "updateUnitMasteryContract",
-      "updateOpenScenarioContract",
-    ],
-    "the transcript/phase response should not advance after contract attachment fails",
+    ["getPhaseResponses", "commitNextScenarioPrompt"],
+    "scenario replacement should be handed to the atomic commit boundary",
   );
 });
