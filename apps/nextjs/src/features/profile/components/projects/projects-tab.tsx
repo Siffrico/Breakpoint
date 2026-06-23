@@ -114,7 +114,6 @@ export function ProjectsTab({
           readCookie(LAST_SESSION_COOKIE) === sessionId
         ) {
           document.cookie = `${LAST_SESSION_COOKIE}=; path=/; max-age=0; SameSite=Lax`;
-          router.replace("/workspace");
           router.refresh();
         }
       },

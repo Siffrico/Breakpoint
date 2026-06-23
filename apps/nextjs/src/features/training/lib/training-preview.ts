@@ -312,6 +312,7 @@ export const previewPlanState: PlanState = {
       positionColumn: 0,
       positionRow: 1,
       status: "completed",
+      difficultyBands: null,
     },
     {
       id: "node-cluster-1",
@@ -327,6 +328,7 @@ export const previewPlanState: PlanState = {
       positionColumn: 1,
       positionRow: 0,
       status: "completed",
+      difficultyBands: null,
     },
     {
       id: "00000000-0000-4000-8000-000000000101",
@@ -342,6 +344,7 @@ export const previewPlanState: PlanState = {
       positionColumn: 2,
       positionRow: 0,
       status: "ready",
+      difficultyBands: null,
     },
     {
       id: "node-sim-1",
@@ -357,6 +360,7 @@ export const previewPlanState: PlanState = {
       positionColumn: 3,
       positionRow: 0,
       status: "planned",
+      difficultyBands: null,
     },
     {
       id: "node-cluster-2",
@@ -372,6 +376,7 @@ export const previewPlanState: PlanState = {
       positionColumn: 1,
       positionRow: 2,
       status: "planned",
+      difficultyBands: null,
     },
     {
       id: "node-unit-2",
@@ -387,6 +392,7 @@ export const previewPlanState: PlanState = {
       positionColumn: 2,
       positionRow: 2,
       status: "planned",
+      difficultyBands: null,
     },
   ],
 };

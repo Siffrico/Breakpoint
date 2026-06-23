@@ -20,6 +20,13 @@ import type {
 
 type Database = typeof databaseClient;
 
+const toIsoString = (value: Date | string | null | undefined) => {
+  if (!value) return null;
+  return value instanceof Date
+    ? value.toISOString()
+    : new Date(value).toISOString();
+};
+
 const DEFAULT_SEED_HINT =
   "Start with your best guess. Name the distinction, mechanism, or real example you think matters most, even if you're not fully sure yet.";
 
@@ -297,8 +304,7 @@ export const trainingCurriculumRepository = {
         ? {
             title: planState.plan.overview.title,
             summary: planState.plan.overview.summary,
-            generatedAt:
-              planState.plan.overviewGeneratedAt?.toISOString() ?? null,
+            generatedAt: toIsoString(planState.plan.overviewGeneratedAt),
           }
         : null,
       beforeAfter: planState.beforeAfter,
@@ -324,7 +330,7 @@ export const trainingCurriculumRepository = {
 
     return {
       ...plan.overview,
-      generatedAt: plan.overviewGeneratedAt?.toISOString() ?? null,
+      generatedAt: toIsoString(plan.overviewGeneratedAt),
     };
   },
 

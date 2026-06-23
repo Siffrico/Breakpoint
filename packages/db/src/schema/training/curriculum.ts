@@ -39,7 +39,9 @@ export const TrainingCurriculumPlan = pgTable(
       .$onUpdateFn(() => sql`now()`),
   }),
   (table) => [
-    index("becoming_curriculum_plan_session_idx").on(table.onboardingSessionId),
+    uniqueIndex("becoming_curriculum_plan_session_idx").on(
+      table.onboardingSessionId,
+    ),
   ],
 );
 

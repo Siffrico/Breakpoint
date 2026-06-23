@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 
 import { ScenarioEvaluationContractSchema } from "@acme/validators";
 
-import { renderWorkspaceStageContextPrompt } from "../context-engine/render-context-prompt";
 import type { WorkspaceContextEnvelope } from "../context-engine/schemas";
 import type { WorkspaceTurnRuntime } from "./stage-runtime";
+import { renderWorkspaceStageContextPrompt } from "../context-engine/render-context-prompt";
 import { validateEvaluationDimensionResults } from "./evaluation-contracts";
 import { WorkspaceAiEvaluationOutputSchema } from "./types";
 
@@ -115,7 +115,8 @@ void test("scenario verifier accepts private answer and intended solution", () =
     evaluatorNotes: ["Private rubric."],
     verifier: {
       type: "fixed_answer",
-      answer: "The batch job is retrying stale records because the checkpoint is written after the side effect.",
+      answer:
+        "The batch job is retrying stale records because the checkpoint is written after the side effect.",
       checkerSpec: null,
       intendedSolution:
         "Notice that duplicate side effects happen only after worker restarts, then identify checkpoint ordering as the causal mechanism.",

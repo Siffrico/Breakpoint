@@ -6,10 +6,15 @@ import {
   TrainingIdentityProfileVersion,
   TrainingOnboardingMessage,
   TrainingOnboardingSession,
+  TrainingProjectBuildCheckpoint,
   TrainingWorkspaceTurn,
   TrainingWorkspaceSummary,
 } from "@acme/db/schema";
 
+import type {
+  CreateProjectInput,
+  ProjectBuildState,
+} from "../domain/training/orchestration/build-project";
 import type {
   IdentityReport,
   OnboardingQuestion,
@@ -68,6 +73,15 @@ const mapWorkspaceMessage = (
 });
 
 type WorkspaceMessage = ReturnType<typeof mapWorkspaceMessage>;
+
+type ProjectBuildCheckpointStep = "run" | "goals" | "curriculum" | "overview";
+
+interface ProjectBuildRunPayload {
+  status: "building" | "complete" | "error";
+  input: CreateProjectInput;
+  state: ProjectBuildState;
+  error?: string;
+}
 
 type WorkspaceTurnAction =
   | "submit_answer"
@@ -151,6 +165,18 @@ const insertMessageWithNextSequence = async ({
 
 const isTranscriptVisibleMessage = (message: WorkspaceMessage) =>
   message.metadata?.hiddenFromTranscript !== true;
+
+const isProjectBuildRunPayload = (
+  payload: unknown,
+): payload is ProjectBuildRunPayload =>
+  typeof payload === "object" &&
+  payload !== null &&
+  "status" in payload &&
+  (payload.status === "building" ||
+    payload.status === "complete" ||
+    payload.status === "error") &&
+  "input" in payload &&
+  "state" in payload;
 
 export const trainingOnboardingRepository = {
   createSession: async ({
@@ -459,6 +485,179 @@ export const trainingOnboardingRepository = {
       }));
   },
 
+  getProjectBuildCheckpoint: async ({
+    db,
+    sessionId,
+    step,
+    sourceKey,
+  }: {
+    db: Database;
+    sessionId: string;
+    step: ProjectBuildCheckpointStep;
+    sourceKey: string;
+  }) => {
+    const checkpoint = await db.query.TrainingProjectBuildCheckpoint.findFirst({
+      where: and(
+        eq(TrainingProjectBuildCheckpoint.sessionId, sessionId),
+        eq(TrainingProjectBuildCheckpoint.step, step),
+        eq(TrainingProjectBuildCheckpoint.sourceKey, sourceKey),
+      ),
+    });
+
+    return checkpoint?.payload ?? null;
+  },
+
+  getProjectBuildRun: async ({
+    db,
+    sessionId,
+  }: {
+    db: Database;
+    sessionId: string;
+  }) => {
+    const checkpoint = await db.query.TrainingProjectBuildCheckpoint.findFirst({
+      where: and(
+        eq(TrainingProjectBuildCheckpoint.sessionId, sessionId),
+        eq(TrainingProjectBuildCheckpoint.step, "run"),
+      ),
+    });
+
+    return isProjectBuildRunPayload(checkpoint?.payload)
+      ? checkpoint.payload
+      : null;
+  },
+
+  claimProjectBuildRun: async ({
+    db,
+    sessionId,
+    sourceKey,
+    payload,
+  }: {
+    db: Database;
+    sessionId: string;
+    sourceKey: string;
+    payload: ProjectBuildRunPayload;
+  }): Promise<
+    | { status: "claimed" }
+    | { status: "processing"; state: ProjectBuildState }
+  > => {
+    try {
+      const [checkpoint] = await db
+        .insert(TrainingProjectBuildCheckpoint)
+        .values({
+          sessionId,
+          step: "run",
+          sourceKey,
+          payload,
+        })
+        .returning();
+
+      void checkpoint;
+      return { status: "claimed" };
+    } catch (error) {
+      if (!isUniqueViolation(error)) {
+        throw error;
+      }
+    }
+
+    const existing = await db.query.TrainingProjectBuildCheckpoint.findFirst({
+      where: and(
+        eq(TrainingProjectBuildCheckpoint.sessionId, sessionId),
+        eq(TrainingProjectBuildCheckpoint.step, "run"),
+      ),
+    });
+    const existingPayload = isProjectBuildRunPayload(existing?.payload)
+      ? existing.payload
+      : null;
+
+    if (existingPayload?.status === "building") {
+      return { status: "processing", state: existingPayload.state };
+    }
+
+    const [checkpoint] = await db
+      .update(TrainingProjectBuildCheckpoint)
+      .set({
+        sourceKey,
+        payload,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(TrainingProjectBuildCheckpoint.sessionId, sessionId),
+          eq(TrainingProjectBuildCheckpoint.step, "run"),
+        ),
+      )
+      .returning();
+
+    void checkpoint;
+    return { status: "claimed" };
+  },
+
+  updateProjectBuildRun: async ({
+    db,
+    sessionId,
+    sourceKey,
+    payload,
+  }: {
+    db: Database;
+    sessionId: string;
+    sourceKey: string;
+    payload: ProjectBuildRunPayload;
+  }) => {
+    const [checkpoint] = await db
+      .update(TrainingProjectBuildCheckpoint)
+      .set({
+        sourceKey,
+        payload,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(TrainingProjectBuildCheckpoint.sessionId, sessionId),
+          eq(TrainingProjectBuildCheckpoint.step, "run"),
+        ),
+      )
+      .returning();
+
+    return checkpoint ?? null;
+  },
+
+  upsertProjectBuildCheckpoint: async ({
+    db,
+    sessionId,
+    step,
+    sourceKey,
+    payload,
+  }: {
+    db: Database;
+    sessionId: string;
+    step: ProjectBuildCheckpointStep;
+    sourceKey: string;
+    payload: unknown;
+  }) => {
+    const [checkpoint] = await db
+      .insert(TrainingProjectBuildCheckpoint)
+      .values({
+        sessionId,
+        step,
+        sourceKey,
+        payload,
+      })
+      .onConflictDoUpdate({
+        target: [
+          TrainingProjectBuildCheckpoint.sessionId,
+          TrainingProjectBuildCheckpoint.step,
+        ],
+        set: {
+          sourceKey,
+          payload,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+
+    return checkpoint ?? null;
+  },
+
   listWorkspaceMessages: async ({
     db,
     sessionId,
@@ -575,9 +774,10 @@ export const trainingOnboardingRepository = {
     db: Database;
     sessionId: string;
   }): Promise<OnboardingSessionState | null> => {
-    const [session, transcript] = await Promise.all([
+    const [session, transcript, projectBuildRun] = await Promise.all([
       trainingOnboardingRepository.getSession({ db, sessionId }),
       trainingOnboardingRepository.listMessages({ db, sessionId }),
+      trainingOnboardingRepository.getProjectBuildRun({ db, sessionId }),
     ]);
 
     if (!session) {
@@ -613,6 +813,7 @@ export const trainingOnboardingRepository = {
             : "intro",
       transcript,
       activeQuestion,
+      projectBuild: projectBuildRun?.state ?? null,
     };
   },
 

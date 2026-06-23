@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 
-import {
-  advanceUnitRun,
-  IllegalUnitRunTransitionError,
-} from "./orchestrator";
+import { advanceUnitRun, IllegalUnitRunTransitionError } from "./orchestrator";
 import { DIAGNOSTIC_FIRST_WORKFLOW } from "./workflow";
 
 const baseRun = {

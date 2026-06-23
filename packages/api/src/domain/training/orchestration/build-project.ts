@@ -1,5 +1,15 @@
 import type { Result } from "../../../lib/result";
 import type {
+  CurriculumDesignerOutput,
+  OnboardingPacket,
+  ProjectOverviewOutput,
+} from "../agents/contracts";
+import {
+  CurriculumDesignerOutputSchema,
+  OnboardingPacketSchema,
+  ProjectOverviewOutputSchema,
+} from "../agents/contracts";
+import type {
   BeforeAfterProfile,
   CurriculumBlueprint,
   CurriculumPlan,
@@ -91,6 +101,9 @@ export type ProjectBuildReadiness =
   | { ready: true }
   | { ready: false; reason: string };
 
+type ProjectBuildCheckpointStep = "goals" | "curriculum" | "overview";
+type ProjectBuildRunStatus = "building" | "complete" | "error";
+
 /**
  * Backstop for premature tool calls. This intentionally avoids a rigid turn
  * count: a compressed but high-signal consultation can proceed, while short
@@ -135,6 +148,40 @@ export const getProjectBuildReadiness = (
 export interface BuildProjectDeps {
   /** Idempotency + final read. Returns the active plan for the session if any. */
   getActivePlan: (sessionId: string) => Promise<CurriculumPlan | null>;
+  claimRun: (input: {
+    sessionId: string;
+    sourceKey: string;
+    payload: {
+      status: ProjectBuildRunStatus;
+      input: CreateProjectInput;
+      state: ProjectBuildState;
+      error?: string;
+    };
+  }) => Promise<
+    | { status: "claimed" }
+    | { status: "processing"; state: ProjectBuildState }
+  >;
+  updateRun: (input: {
+    sessionId: string;
+    sourceKey: string;
+    payload: {
+      status: ProjectBuildRunStatus;
+      input: CreateProjectInput;
+      state: ProjectBuildState;
+      error?: string;
+    };
+  }) => Promise<unknown>;
+  getCheckpoint: (input: {
+    sessionId: string;
+    step: ProjectBuildCheckpointStep;
+    sourceKey: string;
+  }) => Promise<unknown>;
+  saveCheckpoint: (input: {
+    sessionId: string;
+    step: ProjectBuildCheckpointStep;
+    sourceKey: string;
+    payload: unknown;
+  }) => Promise<unknown>;
   /**
    * Atomically writes the profile version, the plan (+nodes +overview), and
    * flips the session to complete. Returns the freshly-read plan, or null on
@@ -158,6 +205,37 @@ const moduleTitles = (blueprint: CurriculumBlueprint): string[] =>
   blueprint.nodes
     .filter((node) => node.kind === "unit" || node.kind === "integration")
     .map((node) => node.title);
+
+const getProjectBuildSourceKey = (input: CreateProjectInput) =>
+  JSON.stringify({
+    projectName: normalizeLearningTrackName(input.projectName),
+    targetIdentity: input.targetIdentity.trim(),
+    summary: input.summary.trim(),
+  });
+
+const saveCheckpoint = async ({
+  deps,
+  sessionId,
+  step,
+  sourceKey,
+  payload,
+}: {
+  deps: BuildProjectDeps;
+  sessionId: string;
+  step: ProjectBuildCheckpointStep;
+  sourceKey: string;
+  payload: unknown;
+}) => {
+  try {
+    await deps.saveCheckpoint({ sessionId, step, sourceKey, payload });
+  } catch (error) {
+    console.error("[build-project] failed to save checkpoint:", {
+      sessionId,
+      step,
+      error,
+    });
+  }
+};
 
 /**
  * Runs the full project build as an ordered checklist, emitting a fresh
@@ -193,6 +271,7 @@ export const buildProjectFromOnboarding = async ({
   }>
 > => {
   const projectName = normalizeLearningTrackName(input.projectName);
+  const sourceKey = getProjectBuildSourceKey(input);
   const steps = initialSteps();
   const state: ProjectBuildState = {
     phase: "building",
@@ -200,6 +279,7 @@ export const buildProjectFromOnboarding = async ({
     steps,
     modules: [],
     moduleCount: 0,
+    sessionId,
   };
 
   const setStep = (id: ProjectBuildStep, status: ProjectBuildStepStatus) => {
@@ -207,10 +287,26 @@ export const buildProjectFromOnboarding = async ({
     if (step) step.status = status;
   };
   const emit = () => onProgress({ ...state, steps: steps.map((s) => ({ ...s })) });
-  const fail = (message: string): Result<never> => {
+  const buildRunPayload = (
+    status: ProjectBuildRunStatus,
+    error?: string,
+  ) => ({
+    status,
+    input,
+    state: { ...state, steps: steps.map((s) => ({ ...s })) },
+    error,
+  });
+  const updateRun = (status: ProjectBuildRunStatus, error?: string) =>
+    deps.updateRun({
+      sessionId,
+      sourceKey,
+      payload: buildRunPayload(status, error),
+    });
+  const fail = async (message: string): Promise<Result<never>> => {
     state.phase = "error";
     state.error = message;
     emit();
+    await updateRun("error", message);
     return err(message);
   };
 
@@ -242,6 +338,16 @@ export const buildProjectFromOnboarding = async ({
     });
   }
 
+  const claim = await deps.claimRun({
+    sessionId,
+    sourceKey,
+    payload: buildRunPayload("building"),
+  });
+  if (claim.status === "processing") {
+    onProgress(claim.state);
+    return err("Project build is already running.");
+  }
+
   // 1 — name (instant, deterministic)
   setStep("name", "active");
   emit();
@@ -251,9 +357,27 @@ export const buildProjectFromOnboarding = async ({
   // 2 — goals: the onboarding packet agent reads the full transcript.
   setStep("goals", "active");
   emit();
-  let packet: Awaited<ReturnType<typeof createOnboardingPacket>>;
+  const cachedPacket = OnboardingPacketSchema.safeParse(
+    await deps.getCheckpoint({
+      sessionId,
+      step: "goals",
+      sourceKey,
+    }),
+  );
+  let packet: OnboardingPacket;
   try {
-    packet = await createOnboardingPacket(transcript);
+    if (cachedPacket.success) {
+      packet = cachedPacket.data;
+    } else {
+      packet = await createOnboardingPacket(transcript);
+      await saveCheckpoint({
+        deps,
+        sessionId,
+        step: "goals",
+        sourceKey,
+        payload: packet,
+      });
+    }
   } catch (error) {
     return fail(
       error instanceof Error && error.message
@@ -271,24 +395,58 @@ export const buildProjectFromOnboarding = async ({
   setStep("overview", "active");
   emit();
 
-  const overviewPromise = designProjectOverview({ packet, transcript }).then(
-    (value) => {
-      setStep("overview", "done");
-      emit();
-      return value;
-    },
-    (reason: unknown) => {
-      // Tolerated: mark done and continue without an overview.
-      setStep("overview", "done");
-      emit();
-      console.error("[build-project] overview generation failed:", reason);
-      return null;
-    },
-  );
+  const [cachedDesign, cachedOverview] = await Promise.all([
+    deps.getCheckpoint({ sessionId, step: "curriculum", sourceKey }).then(
+      (payload) => CurriculumDesignerOutputSchema.safeParse(payload),
+    ),
+    deps.getCheckpoint({ sessionId, step: "overview", sourceKey }).then(
+      (payload) => ProjectOverviewOutputSchema.safeParse(payload),
+    ),
+  ]);
 
-  let design: Awaited<ReturnType<typeof designCurriculum>>;
+  const overviewPromise: Promise<ProjectOverviewOutput> =
+    cachedOverview.success
+      ? Promise.resolve(cachedOverview.data).then((value) => {
+          setStep("overview", "done");
+          emit();
+          return value;
+        })
+      : designProjectOverview({ packet, transcript }).then(
+          async (value) => {
+            await saveCheckpoint({
+              deps,
+              sessionId,
+              step: "overview",
+              sourceKey,
+              payload: value,
+            });
+            setStep("overview", "done");
+            emit();
+            return value;
+          },
+          (reason: unknown) => {
+            setStep("overview", "done");
+            emit();
+            throw reason;
+          },
+        );
+
+  let design: CurriculumDesignerOutput;
   try {
-    design = await designCurriculum({ packet, transcript });
+    if (cachedDesign.success) {
+      design = cachedDesign.data;
+      setStep("curriculum", "done");
+      emit();
+    } else {
+      design = await designCurriculum({ packet, transcript });
+      await saveCheckpoint({
+        deps,
+        sessionId,
+        step: "curriculum",
+        sourceKey,
+        payload: design,
+      });
+    }
   } catch (error) {
     return fail(
       error instanceof Error && error.message
@@ -314,10 +472,17 @@ export const buildProjectFromOnboarding = async ({
   state.moduleCount = state.modules.length;
   emit();
 
-  const overview = await overviewPromise;
-  blueprint.overview = overview
-    ? { ...overview, generatedAt: new Date().toISOString() }
-    : null;
+  let overview: ProjectOverviewOutput;
+  try {
+    overview = await overviewPromise;
+  } catch (error) {
+    return fail(
+      error instanceof Error && error.message
+        ? error.message
+        : "I built the curriculum but couldn't write the overview. Want to try again?",
+    );
+  }
+  blueprint.overview = { ...overview, generatedAt: new Date().toISOString() };
 
   // 5 — save: one transaction. Profile + plan + session status, all or nothing.
   setStep("save", "active");
@@ -332,6 +497,31 @@ export const buildProjectFromOnboarding = async ({
       blueprint,
     });
   } catch (error) {
+    const savedPlan = await deps.getActivePlan(sessionId);
+    if (savedPlan) {
+      for (const step of steps) step.status = "done";
+      state.phase = "complete";
+      state.projectName = savedPlan.title || projectName;
+      state.modules = savedPlan.nodes
+        .filter((node) => node.kind === "unit" || node.kind === "integration")
+        .map((node) => node.title);
+      state.moduleCount = countModules(savedPlan);
+      state.sessionId = sessionId;
+      state.planId = savedPlan.id;
+      state.firstUnitId = savedPlan.nextUnitId;
+      state.targetIdentity = savedPlan.targetIdentity;
+      emit();
+      await updateRun("complete");
+      return ok({
+        sessionId,
+        planId: savedPlan.id,
+        title: savedPlan.title || projectName,
+        moduleCount: state.moduleCount,
+        firstUnitId: savedPlan.nextUnitId,
+        targetIdentity: savedPlan.targetIdentity,
+      });
+    }
+
     return fail(
       error instanceof Error && error.message
         ? error.message
@@ -351,6 +541,7 @@ export const buildProjectFromOnboarding = async ({
   state.firstUnitId = plan.nextUnitId;
   state.targetIdentity = plan.targetIdentity;
   emit();
+  await updateRun("complete");
 
   return ok({
     sessionId,

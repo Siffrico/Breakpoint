@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 
 import type {
   PhaseResponseRecord,
@@ -159,7 +159,9 @@ const makeDeps = (calls: string[]): WorkspaceTurnPersistenceDependencies => ({
       input.contracts?.openScenarioContract?.scenarioPrompt,
       "Replacement scenario",
     );
-    throw new Error("Scenario evaluation contract could not be attached to an open scenario.");
+    throw new Error(
+      "Scenario evaluation contract could not be attached to an open scenario.",
+    );
   },
   touchSession: () => {
     calls.push("touchSession");

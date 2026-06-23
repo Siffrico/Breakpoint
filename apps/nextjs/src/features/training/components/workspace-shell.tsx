@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Lightbulb, SidebarSimple } from "@phosphor-icons/react";
 
@@ -201,6 +202,13 @@ export function WorkspaceShell({
     router.push("/");
   };
 
+  const manualSetupHref =
+    mode === "onboarding"
+      ? preview
+        ? "/ui/profile/projects"
+        : `/profile/projects?session=${encodeURIComponent(sessionId)}`
+      : null;
+
   const shellTitle =
     mode === "onboarding"
       ? (onboardingState?.activeQuestion?.prompt ??
@@ -313,16 +321,26 @@ export function WorkspaceShell({
             </div>
           ) : null}
 
-          {mode === "onboarding" ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={handleExitOnboarding}
-              className="text-foreground/52 hover:text-foreground hover:bg-foreground/[0.04] h-7 rounded-none px-2 text-[12px] before:rounded-none"
-            >
-              Exit
-            </Button>
+          {mode === "onboarding" && manualSetupHref ? (
+            <div className="flex shrink-0 items-center gap-1.5">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={handleExitOnboarding}
+                className="text-foreground/52 hover:text-foreground hover:bg-foreground/[0.04] h-7 rounded-none px-2 text-[12px] before:rounded-none"
+              >
+                Exit
+              </Button>
+              <Button
+                render={<Link href={manualSetupHref} />}
+                variant="outline"
+                size="sm"
+                className="border-foreground/12 bg-background text-foreground/72 hover:border-foreground/22 hover:bg-foreground/[0.04] hover:text-foreground h-7 rounded-none px-2.5 text-[12px] before:rounded-none"
+              >
+                Do manually
+              </Button>
+            </div>
           ) : mode === "unit" && liveUnit ? (
             <div className="flex items-center gap-2">
               <Button

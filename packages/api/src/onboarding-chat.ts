@@ -147,6 +147,26 @@ const runOnboardingChat = async ({
           deps: {
             getActivePlan: (id) =>
               trainingCurriculumRepository.getActivePlan({ db, sessionId: id }),
+            claimRun: (payload) =>
+              trainingOnboardingRepository.claimProjectBuildRun({
+                db,
+                ...payload,
+              }),
+            updateRun: (payload) =>
+              trainingOnboardingRepository.updateProjectBuildRun({
+                db,
+                ...payload,
+              }),
+            getCheckpoint: (payload) =>
+              trainingOnboardingRepository.getProjectBuildCheckpoint({
+                db,
+                ...payload,
+              }),
+            saveCheckpoint: (payload) =>
+              trainingOnboardingRepository.upsertProjectBuildCheckpoint({
+                db,
+                ...payload,
+              }),
             persistProject: (payload) =>
               db.transaction(async (tx) => {
                 const dbTx = tx as unknown as Database;

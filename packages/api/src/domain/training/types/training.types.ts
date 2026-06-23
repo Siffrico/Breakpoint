@@ -70,6 +70,7 @@ import type {
   UnitRecallStatus,
 } from "@acme/validators";
 
+import type { ProjectBuildState } from "../orchestration/build-project";
 import type { AttemptTiming, EvaluationPlan } from "../workspace-ai/types";
 
 export type {
@@ -187,6 +188,7 @@ export interface OnboardingSessionState {
   phase: "intro" | "questioning" | "ready_for_generation";
   transcript: OnboardingTranscriptMessage[];
   activeQuestion: OnboardingQuestion | null;
+  projectBuild?: ProjectBuildState | null;
 }
 
 export interface HomeState {

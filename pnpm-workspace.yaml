@@ -4,8 +4,8 @@ packages:
   - tooling/*
 
 allowBuilds:
-  '@prisma/client': false
-  '@prisma/engines': false
+  "@prisma/client": false
+  "@prisma/engines": false
   better-sqlite3: false
   bufferutil: false
   core-js-pure: false
@@ -32,6 +32,7 @@ catalog:
   prettier: ^3.6.2
   tailwindcss: ^4.1.16
   typescript: ^5.9.3
+  vitest: ^4.1.9
   zod: ^4.1.12
   vite: 7.1.12
 

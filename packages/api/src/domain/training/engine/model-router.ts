@@ -1,5 +1,4 @@
 import type { LanguageModel, ToolSet } from "ai";
-import { AsyncLocalStorage } from "node:async_hooks";
 import { createGoogleGenerativeAI, google } from "@ai-sdk/google";
 import { createOpenAI, openai } from "@ai-sdk/openai";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
@@ -19,6 +18,20 @@ const CODE_DEFAULT_PROVIDER: Record<CodeDefaultAiStack, AiProvider> = {
   "openrouter-glm-5.2": "openrouter",
 };
 
+const CODE_DEFAULT_TIER_MODELS: Record<
+  CodeDefaultAiStack,
+  Record<ModelTier, string>
+> = {
+  "openai-gpt-5.5": {
+    critical: "gpt-5.5",
+    standard: "gpt-5.5-mini",
+  },
+  "openrouter-glm-5.2": {
+    critical: "z-ai/glm-5.2",
+    standard: "z-ai/glm-5.2",
+  },
+};
+
 export type AiModelPurpose =
   | "onboarding"
   | "curriculum"
@@ -32,27 +45,6 @@ export type AiModelPurpose =
   | "capstone"
   | "projectOverview"
   | "default";
-
-const GOOGLE_TIER_DEFAULTS: Record<ModelTier, string> = {
-  critical: "gemini-3.1-flash-lite",
-  standard: "gemini-3.1-flash-lite",
-};
-
-const OPENAI_TIER_DEFAULTS: Record<ModelTier, string> = {
-  critical: "gpt-5.5",
-  standard: "gpt-5.5-mini",
-};
-
-const OPENROUTER_TIER_DEFAULTS: Record<ModelTier, string> = {
-  critical: "z-ai/glm-5.2",
-  standard: "z-ai/glm-5.2",
-};
-
-const OPENAI_PURPOSE_DEFAULTS: Partial<Record<AiModelPurpose, string>> = {
-  onboarding: "gpt-5.5",
-  curriculum: "gpt-5.5",
-  evaluation: "gpt-5.5-mini",
-};
 
 const PURPOSE_TIER: Record<AiModelPurpose, ModelTier> = {
   onboarding: "critical",
@@ -69,22 +61,6 @@ const PURPOSE_TIER: Record<AiModelPurpose, ModelTier> = {
   default: "standard",
 };
 
-const LEGACY_OPENAI_PURPOSE_ENV: Partial<Record<AiModelPurpose, string>> = {
-  onboarding: "OPENAI_MODEL_ONBOARDING",
-  curriculum: "OPENAI_MODEL_CURRICULUM",
-  buildContent: "OPENAI_MODEL_BUILD_CONTENT",
-  failure: "OPENAI_MODEL_FAILURE",
-  ghost: "OPENAI_MODEL_GHOST",
-  education: "OPENAI_MODEL_EDUCATION",
-  recall: "OPENAI_MODEL_RECALL",
-  evaluation: "OPENAI_MODEL_EVALUATION",
-  tutor: "OPENAI_MODEL_TUTOR",
-  projectOverview: "OPENAI_MODEL_PROJECT_OVERVIEW",
-};
-
-const PROVIDER_ENV = ["AI_PROVIDER", "AI_MODEL_PROVIDER"] as const;
-const modelPreferenceStorage = new AsyncLocalStorage<AiModelPreference>();
-
 const getEnv = (name: string): string | undefined => {
   const value = process.env[name]?.trim();
   if (!value) return undefined;
@@ -96,24 +72,8 @@ const isEnabled = (name: string): boolean => {
   return value === "1" || value === "true" || value === "yes";
 };
 
-const getPurposeProviderEnvName = (purpose: AiModelPurpose): string =>
-  `AI_PROVIDER_${purpose.replace(/[A-Z]/g, (letter) => `_${letter}`).toUpperCase()}`;
-
-const getSelectedProvider = (purpose?: AiModelPurpose): AiProvider => {
-  const configured = [
-    ...(purpose ? [getEnv(getPurposeProviderEnvName(purpose))] : []),
-    ...PROVIDER_ENV.map((name) => getEnv(name)),
-  ].find(Boolean);
-  if (
-    configured === "openai" ||
-    configured === "google" ||
-    configured === "openrouter"
-  ) {
-    return configured;
-  }
-
-  return CODE_DEFAULT_PROVIDER[CODE_DEFAULT_AI_STACK];
-};
+const getSelectedProvider = (): AiProvider =>
+  CODE_DEFAULT_PROVIDER[CODE_DEFAULT_AI_STACK];
 
 const PROVIDER_API_KEY_ENV: Record<AiProvider, string> = {
   google: "GOOGLE_GENERATIVE_AI_API_KEY",
@@ -129,58 +89,13 @@ const getProviderMissingKeyMessage = (
   context: string,
 ): string => `${PROVIDER_API_KEY_ENV[provider]} is required for ${context}.`;
 
-const getTierDefault = (provider: AiProvider, tier: ModelTier): string => {
-  if (provider === "google") return GOOGLE_TIER_DEFAULTS[tier];
-  if (provider === "openrouter") return OPENROUTER_TIER_DEFAULTS[tier];
-  return OPENAI_TIER_DEFAULTS[tier];
-};
-
-const getPurposeEnvName = (purpose: AiModelPurpose): string =>
-  `AI_MODEL_${purpose.replace(/[A-Z]/g, (letter) => `_${letter}`).toUpperCase()}`;
-
-const getTierEnvName = (tier: ModelTier): string =>
-  tier === "critical" ? "AI_MODEL_CRITICAL" : "AI_MODEL_STANDARD";
-
 const resolveModelName = ({
-  provider,
-  purpose,
   tier,
-  modelName,
 }: {
-  provider: AiProvider;
-  purpose?: AiModelPurpose;
   tier: ModelTier;
   modelName?: string;
 }): string => {
-  if (modelName?.trim()) return modelName.trim();
-
-  const preferredModel = modelPreferenceStorage.getStore();
-  if (provider === "google" && preferredModel) {
-    return preferredModel;
-  }
-
-  const purposeModel = purpose
-    ? (getEnv(getPurposeEnvName(purpose)) ??
-      (provider === "openai"
-        ? getEnv(LEGACY_OPENAI_PURPOSE_ENV[purpose] ?? "")
-        : undefined))
-    : undefined;
-
-  return (
-    purposeModel ??
-    (provider === "openai"
-      ? OPENAI_PURPOSE_DEFAULTS[purpose ?? "default"]
-      : undefined) ??
-    getEnv(getTierEnvName(tier)) ??
-    (provider === "openai"
-      ? tier === "critical"
-        ? getEnv("OPENAI_MODEL_CRITICAL")
-        : getEnv("OPENAI_MODEL_STANDARD")
-      : undefined) ??
-    getEnv("AI_MODEL") ??
-    (provider === "openai" ? getEnv("OPENAI_MODEL") : undefined) ??
-    getTierDefault(provider, tier)
-  );
+  return CODE_DEFAULT_TIER_MODELS[CODE_DEFAULT_AI_STACK][tier];
 };
 
 const createModel = ({
@@ -213,25 +128,20 @@ export const parseAiModelPreference = (
 };
 
 export const withAiModelPreference = async <T>(
-  modelName: string | null | undefined,
+  _modelName: string | null | undefined,
   callback: () => Promise<T>,
 ): Promise<T> => {
-  const preferredModel = parseAiModelPreference(modelName);
-  if (!preferredModel) {
-    return callback();
-  }
-
-  return modelPreferenceStorage.run(preferredModel, callback);
+  return callback();
 };
 
 export const getSearchToolsForSelectedProvider = (
-  purpose?: AiModelPurpose,
+  _purpose?: AiModelPurpose,
 ): ToolSet => {
   if (!isEnabled("AI_ENABLE_SEARCH_TOOLS")) {
     return {};
   }
 
-  const provider = getSelectedProvider(purpose);
+  const provider = getSelectedProvider();
 
   if (provider === "openai") {
     return {
@@ -260,7 +170,7 @@ export const getAiModelForTier = (tier: ModelTier): LanguageModel | null => {
   return createModel({
     provider,
     apiKey,
-    modelName: resolveModelName({ provider, tier }),
+    modelName: resolveModelName({ tier }),
   });
 };
 
@@ -268,7 +178,7 @@ export const getAiModelForPurpose = (
   purpose: AiModelPurpose,
   modelName?: string,
 ): LanguageModel | null => {
-  const provider = getSelectedProvider(purpose);
+  const provider = getSelectedProvider();
   const apiKey = getProviderApiKey(provider);
   if (!apiKey) return null;
 
@@ -276,7 +186,7 @@ export const getAiModelForPurpose = (
   return createModel({
     provider,
     apiKey,
-    modelName: resolveModelName({ provider, purpose, tier, modelName }),
+    modelName: resolveModelName({ tier, modelName }),
   });
 };
 
@@ -285,7 +195,7 @@ export const requireAiModelForPurpose = (
   context: string,
   modelName?: string,
 ): LanguageModel => {
-  const provider = getSelectedProvider(purpose);
+  const provider = getSelectedProvider();
   const model = getAiModelForPurpose(purpose, modelName);
   if (!model) {
     throw new Error(getProviderMissingKeyMessage(provider, context));

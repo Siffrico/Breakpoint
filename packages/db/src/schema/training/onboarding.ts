@@ -65,6 +65,36 @@ export const TrainingOnboardingMessage = pgTable(
   ],
 );
 
+export const TrainingProjectBuildCheckpoint = pgTable(
+  "becoming_project_build_checkpoint",
+  (t) => ({
+    id: t.uuid().notNull().primaryKey().defaultRandom(),
+    sessionId: t
+      .uuid()
+      .notNull()
+      .references(() => TrainingOnboardingSession.id, { onDelete: "cascade" }),
+    step: t.varchar({ length: 32 }).notNull(),
+    sourceKey: t.text().notNull(),
+    payload: t.jsonb().notNull(),
+    createdAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull()
+      .$onUpdateFn(() => sql`now()`),
+  }),
+  (table) => [
+    uniqueIndex("becoming_project_build_checkpoint_session_step_idx").on(
+      table.sessionId,
+      table.step,
+    ),
+    index("becoming_project_build_checkpoint_session_idx").on(table.sessionId),
+  ],
+);
+
 /**
  * Rolling "progress" summary for a long-lived project chat, keyed per
  * (session, slot) because the workspace feeds the model a slot-filtered

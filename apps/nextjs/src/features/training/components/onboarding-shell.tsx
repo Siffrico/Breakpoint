@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import { ArrowClockwise, ArrowUp, Plus } from "@phosphor-icons/react";
@@ -45,11 +46,21 @@ const transcriptToMessages = (
   state: OnboardingState | null,
 ): OnboardingChatUIMessage[] => {
   if (!state) return [];
-  return state.transcript.map((message) => ({
+  const messages: OnboardingChatUIMessage[] = state.transcript.map((message) => ({
     id: `seed-${state.sessionId}-${message.sequence}`,
     role: message.role,
     parts: [{ type: "text" as const, text: message.content }],
   }));
+
+  if (state.projectBuild) {
+    messages.push({
+      id: `seed-${state.sessionId}-project-build`,
+      role: "assistant",
+      parts: [{ type: "data-project-build", data: state.projectBuild }],
+    });
+  }
+
+  return messages;
 };
 
 const extractText = (message: UIMessage): string =>
@@ -128,6 +139,17 @@ export function OnboardingShell({
     trpc.training.startOnboarding.mutationOptions({
       onSuccess: (data) => {
         setSessionId(data.sessionId);
+      },
+      onError: (error) => toast.error(error.message),
+    }),
+  );
+  const resumeProjectBuild = useMutation(
+    trpc.training.resumeProjectBuild.mutationOptions({
+      onSuccess: (data) => {
+        router.replace(
+          `/workspace?session=${encodeURIComponent(data.sessionId)}`,
+        );
+        router.refresh();
       },
       onError: (error) => toast.error(error.message),
     }),
@@ -332,6 +354,24 @@ export function OnboardingShell({
   // opencode-style new-session hero: wordmark + centered composer until the
   // first user turn lands, then the regular transcript + docked composer.
   const showHero = userTurnCount === 0 && !projectReady;
+  const manualSetupHref = preview
+    ? "/ui/profile/projects"
+    : sessionId
+      ? `/profile/projects?session=${encodeURIComponent(sessionId)}`
+      : "/profile/projects";
+
+  const manualSetupAction = !embedded ? (
+    <div className="absolute top-4 right-4 z-10">
+      <Button
+        render={<Link href={manualSetupHref} />}
+        variant="outline"
+        size="sm"
+        className="border-foreground/12 bg-background/88 text-foreground/72 hover:border-foreground/22 hover:bg-foreground/[0.04] hover:text-foreground h-7 rounded-none px-2.5 text-[12px] shadow-sm backdrop-blur before:rounded-none"
+      >
+        Do manually
+      </Button>
+    </div>
+  ) : null;
 
   const composer = (
     <ChatComposer
@@ -346,7 +386,7 @@ export function OnboardingShell({
           : showHero
             ? "Who do you want to become?"
             : effectiveIsStreaming
-              ? "Draft a reply while she's still thinking…"
+              ? "Draft a reply while your onboarder is typing…"
               : "Ask anything, / for commands, @ for context…"
       }
       leftSlot={
@@ -396,6 +436,7 @@ export function OnboardingShell({
           embedded ? "h-full" : "h-dvh",
         ].join(" ")}
       >
+        {manualSetupAction}
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-4 pb-[8vh]">
           <div className="animate-in fade-in slide-in-from-bottom-2 w-full max-w-[720px] duration-700">
             {/* Full-bleed SVG wordmark, same technique as opencode's
@@ -432,6 +473,7 @@ export function OnboardingShell({
         embedded ? "h-full" : "h-dvh",
       ].join(" ")}
     >
+      {manualSetupAction}
       <ChatTranscript className="bg-background">
         <ChatTranscriptContent
           aria-live="polite"
@@ -489,7 +531,15 @@ export function OnboardingShell({
                                 `/overview?session=${encodeURIComponent(build.sessionId)}`,
                               );
                             }}
-                            onRetry={() => void regenerate()}
+                            onRetry={() => {
+                              if (build.phase === "error" && build.sessionId) {
+                                resumeProjectBuild.mutate({
+                                  sessionId: build.sessionId,
+                                });
+                                return;
+                              }
+                              void regenerate();
+                            }}
                           />
                         );
                       }
