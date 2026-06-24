@@ -17,6 +17,7 @@ import type {
   UnitContent,
   UpdateUnitContentInput,
 } from "../domain/training/types/training.types";
+import { insertBlueprintNodes } from "./training-curriculum-node-writer";
 
 type Database = typeof databaseClient;
 
@@ -131,46 +132,7 @@ export const trainingCurriculumRepository = {
       return null;
     }
 
-    const insertedNodes = await db
-      .insert(TrainingCurriculumNode)
-      .values(
-        blueprint.nodes.map((node) => ({
-          planId: plan.id,
-          kind: node.kind,
-          status: node.status,
-          title: node.title,
-          summary: node.summary,
-          whyItMatters: node.whyItMatters,
-          orderIndex: node.orderIndex,
-          depth: node.depth,
-          positionColumn: node.positionColumn,
-          positionRow: node.positionRow,
-          difficultyBands: node.difficultyBands ?? null,
-          parentNodeId: null,
-        })),
-      )
-      .returning();
-
-    const nodesByOrder = new Map(
-      insertedNodes.map((node) => [node.orderIndex, node]),
-    );
-
-    for (const blueprintNode of blueprint.nodes) {
-      if (blueprintNode.parentOrderIndex == null) {
-        continue;
-      }
-
-      const insertedNode = nodesByOrder.get(blueprintNode.orderIndex);
-      const parentNode = nodesByOrder.get(blueprintNode.parentOrderIndex);
-      if (!insertedNode || !parentNode) {
-        continue;
-      }
-
-      await db
-        .update(TrainingCurriculumNode)
-        .set({ parentNodeId: parentNode.id })
-        .where(eq(TrainingCurriculumNode.id, insertedNode.id));
-    }
+    await insertBlueprintNodes({ db, planId: plan.id, blueprint });
 
     return plan;
   },
@@ -209,7 +171,9 @@ export const trainingCurriculumRepository = {
       where: eq(TrainingCurriculumPlan.onboardingSessionId, sessionId),
     });
 
-    if (!plan) {
+    // A "generating" shell has no profile version linked yet — it is not a
+    // loadable active plan, so the orchestrator's idempotency check sees null.
+    if (!plan?.profileVersionId) {
       return null;
     }
 

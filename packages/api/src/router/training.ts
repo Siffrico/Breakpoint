@@ -7,7 +7,6 @@ import { sql } from "@acme/db";
 import { CapstoneSubmissionSchema } from "@acme/validators";
 
 import { createLearningProjectWorkflow } from "../domain/training/workflows/create-learning-project-workflow";
-import { buildProjectFromOnboarding } from "../domain/training/orchestration/build-project";
 import { generateCapstoneWorkflow } from "../domain/training/workflows/generate-capstone-workflow";
 import { getActivePlanWorkflow } from "../domain/training/workflows/get-active-plan-workflow";
 import { getAiWorkspaceWorkflow } from "../domain/training/workflows/get-ai-workspace-workflow";
@@ -356,9 +355,11 @@ export const trainingRouter = {
   // Rehydrate the user's latest in-progress onboarding session so a reload or
   // idle tab resumes the same transcript instead of minting a fresh session.
   resumeOnboarding: protectedProcedure.query(async ({ ctx }) => {
-    const session = await trainingOnboardingRepository.getLatestResumableSession(
-      { db: ctx.db, userId: ctx.session.user.id },
-    );
+    const session =
+      await trainingOnboardingRepository.getLatestResumableSession({
+        db: ctx.db,
+        userId: ctx.session.user.id,
+      });
     if (!session) return null;
 
     return trainingOnboardingRepository.getOnboardingState({
@@ -366,102 +367,6 @@ export const trainingRouter = {
       sessionId: session.id,
     });
   }),
-
-  resumeProjectBuild: protectedProcedure
-    .input(SessionIdSchema)
-    .mutation(async ({ ctx, input }) => {
-      const session = await requireSessionOwner({
-        ctx,
-        sessionId: input.sessionId,
-      });
-      const run = await trainingOnboardingRepository.getProjectBuildRun({
-        db: ctx.db,
-        sessionId: input.sessionId,
-      });
-
-      if (!run) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "No project build is available to resume.",
-        });
-      }
-
-      const transcript = await trainingOnboardingRepository.listMessages({
-        db: ctx.db,
-        sessionId: input.sessionId,
-      });
-
-      return throwOnFailure(
-        await buildProjectFromOnboarding({
-          sessionId: input.sessionId,
-          userId: session.userId,
-          transcript,
-          input: run.input,
-          deps: {
-            getActivePlan: (sessionId) =>
-              trainingCurriculumRepository.getActivePlan({
-                db: ctx.db,
-                sessionId,
-              }),
-            claimRun: (payload) =>
-              trainingOnboardingRepository.claimProjectBuildRun({
-                db: ctx.db,
-                ...payload,
-              }),
-            updateRun: (payload) =>
-              trainingOnboardingRepository.updateProjectBuildRun({
-                db: ctx.db,
-                ...payload,
-              }),
-            getCheckpoint: (payload) =>
-              trainingOnboardingRepository.getProjectBuildCheckpoint({
-                db: ctx.db,
-                ...payload,
-              }),
-            saveCheckpoint: (payload) =>
-              trainingOnboardingRepository.upsertProjectBuildCheckpoint({
-                db: ctx.db,
-                ...payload,
-              }),
-            persistProject: (payload) =>
-              ctx.db.transaction(async (tx) => {
-                const db = tx as unknown as Database;
-                const profile =
-                  await trainingOnboardingRepository.createProfileVersion({
-                    db,
-                    sessionId: payload.sessionId,
-                    userId: payload.userId,
-                    report: payload.report,
-                    beforeAfter: payload.beforeAfter,
-                  });
-                if (!profile) return null;
-
-                const plan = await trainingCurriculumRepository.createPlan({
-                  db,
-                  onboardingSessionId: payload.sessionId,
-                  profileVersionId: profile.version.id,
-                  userId: payload.userId,
-                  blueprint: payload.blueprint,
-                });
-                if (!plan) return null;
-
-                await trainingOnboardingRepository.updateSession({
-                  db,
-                  sessionId: payload.sessionId,
-                  status: "complete",
-                  completedAt: new Date(),
-                });
-
-                return trainingCurriculumRepository.getActivePlan({
-                  db,
-                  sessionId: payload.sessionId,
-                });
-              }),
-          },
-          onProgress: () => undefined,
-        }),
-      );
-    }),
 
   listLearningProjects: protectedProcedure.query(async ({ ctx }) => {
     const sessions = await trainingOnboardingRepository.listSessionsByUser({
@@ -535,12 +440,15 @@ export const trainingRouter = {
         title: plan?.title ?? profile?.targetIdentity ?? "New learning track",
         headline:
           profile?.headline ?? plan?.summary ?? "Interview in progress.",
-        status: plan
-          ? "active"
-          : session.status === "ready_for_generation" ||
-              session.status === "complete"
-            ? "building"
-            : "onboarding",
+        status:
+          plan?.status === "active"
+            ? "active"
+            : plan // a "generating" shell exists but isn't finished yet
+              ? "building"
+              : session.status === "ready_for_generation" ||
+                  session.status === "complete"
+                ? "building"
+                : "onboarding",
         lessonPreview,
         updatedAt: session.updatedAt ?? session.createdAt,
       };

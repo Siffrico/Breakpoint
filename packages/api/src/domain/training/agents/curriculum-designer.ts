@@ -1,8 +1,12 @@
-import type { OnboardingPacket, OnboardingTranscript } from "./contracts";
-
-import { CurriculumDesignerOutputSchema } from "./contracts";
-import { runAgent } from "../orchestration/agent-runtime";
+import type { ArtifactResumeOptions } from "../orchestration/agent-runtime";
+import type {
+  CurriculumDesignerOutput,
+  OnboardingPacket,
+  OnboardingTranscript,
+} from "./contracts";
+import { runResilientAgent } from "../orchestration/agent-runtime";
 import { PROJECT_FIT_CONSULTANT_SYSTEM } from "../prompts/personas/project-fit-consultant";
+import { CurriculumDesignerOutputSchema } from "./contracts";
 
 const CURRICULUM_DESIGNER_TRANSLATOR = `Translator mode:
 - You are not chatting with the learner now. The consultation has already happened.
@@ -83,16 +87,20 @@ ${CURRICULUM_DESIGNER_TRANSLATOR}`;
 export const designCurriculum = async ({
   packet,
   transcript,
+  options,
 }: {
   packet: OnboardingPacket;
   transcript: OnboardingTranscript;
+  options?: ArtifactResumeOptions<CurriculumDesignerOutput>;
 }) =>
-  runAgent({
+  runResilientAgent({
     agent: "curriculumDesigner",
     system: CURRICULUM_DESIGNER_SYSTEM,
     schema: CurriculumDesignerOutputSchema,
     errorMessage: "Failed to generate the curriculum architecture.",
     reasoning: true,
+    onPartial: options?.onPartial,
+    seedPartial: options?.seedPartial,
     prompt: `Design the learner's identity report, before/after, and curriculum skeleton for the project they chose in the consultation.
 
 Packet:

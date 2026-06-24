@@ -1,7 +1,8 @@
+import type { ArtifactResumeOptions } from "../orchestration/agent-runtime";
 import type { OnboardingTranscriptMessage } from "../types/training.types";
-import { OnboardingPacketSchema  } from "./contracts";
-import type {OnboardingPacket} from "./contracts";
-import { runAgent } from "../orchestration/agent-runtime";
+import type { OnboardingPacket } from "./contracts";
+import { runResilientAgent } from "../orchestration/agent-runtime";
+import { OnboardingPacketSchema } from "./contracts";
 
 const ONBOARDING_PACKET_SYSTEM = `You are Breakpoint's onboarding synthesis agent.
 
@@ -18,12 +19,15 @@ Rules:
 
 export const buildOnboardingPacket = async (
   transcript: OnboardingTranscriptMessage[],
+  options?: ArtifactResumeOptions<OnboardingPacket>,
 ): Promise<OnboardingPacket> =>
-  runAgent({
+  runResilientAgent({
     agent: "onboarding",
     system: ONBOARDING_PACKET_SYSTEM,
     schema: OnboardingPacketSchema,
     errorMessage: "Failed to build the onboarding handoff packet.",
+    onPartial: options?.onPartial,
+    seedPartial: options?.seedPartial,
     prompt: `Build the onboarding packet from this transcript.
 
 Required fields:

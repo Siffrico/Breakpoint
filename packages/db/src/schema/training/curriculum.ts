@@ -13,12 +13,17 @@ export const TrainingCurriculumPlan = pgTable(
       .uuid()
       .notNull()
       .references(() => TrainingOnboardingSession.id, { onDelete: "cascade" }),
+    // Nullable on purpose: the plan shell is created the instant the learner
+    // approves (status "generating"), before the curriculum agent has produced
+    // the identity report the profile version is derived from. It is linked once
+    // the curriculum artifact persists. See domain/training/orchestration.
     profileVersionId: t
       .uuid()
-      .notNull()
       .references(() => TrainingIdentityProfileVersion.id, {
         onDelete: "cascade",
       }),
+    // "generating" while the build fills the shell, "active" once the curriculum
+    // (the required artifact) has landed. Free-form varchar — no enum migration.
     status: t.varchar({ length: 32 }).notNull().default("active"),
     title: t.varchar({ length: 240 }).notNull(),
     summary: t.text().notNull(),
@@ -65,16 +70,14 @@ export const TrainingCurriculumNode = pgTable(
         role: string;
       }[];
     }>(),
-    difficultyBands: t
-      .jsonb()
-      .$type<
-        {
-          order: number;
-          minRating: number;
-          maxRating: number;
-          label?: string;
-        }[]
-      >(),
+    difficultyBands: t.jsonb().$type<
+      {
+        order: number;
+        minRating: number;
+        maxRating: number;
+        label?: string;
+      }[]
+    >(),
     orderIndex: t.integer().notNull(),
     depth: t.integer().notNull(),
     positionColumn: t.integer().notNull(),

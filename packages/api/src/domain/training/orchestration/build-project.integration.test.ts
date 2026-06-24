@@ -1,6 +1,10 @@
+/*
+ * Integration test: exercises the real repositories + Postgres on purpose, so it
+ * intentionally opts out of the domain "persistence-agnostic" import rule.
+ */
+/* eslint-disable no-restricted-imports */
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-
 import { describe, expect, it } from "vitest";
 
 import { eq } from "@acme/db";
@@ -11,11 +15,12 @@ import type {
   OnboardingPacket,
   ProjectOverviewOutput,
 } from "../agents/contracts";
-import { CurriculumDesignerOutputSchema } from "../agents/contracts";
 import type { CreateProjectInput } from "./build-project";
-import { buildProjectFromOnboarding } from "./build-project";
+import { buildProjectCheckpointRepository } from "../../../repositories/build-project-checkpoint-repository";
+import { createBuildProjectDeps } from "../../../repositories/build-project-repository-deps";
 import { trainingCurriculumRepository } from "../../../repositories/training-curriculum-repository";
 import { trainingOnboardingRepository } from "../../../repositories/training-onboarding-repository";
+import { buildProjectFromOnboarding } from "./build-project";
 
 const loadPostgresUrlFromDotenv = () => {
   if (process.env.POSTGRES_URL) return;
@@ -23,7 +28,7 @@ const loadPostgresUrlFromDotenv = () => {
   const envPath = resolve(process.cwd(), "../../.env");
   if (!existsSync(envPath)) return;
 
-  const match = readFileSync(envPath, "utf8").match(/^POSTGRES_URL=(.+)$/m);
+  const match = /^POSTGRES_URL=(.+)$/m.exec(readFileSync(envPath, "utf8"));
   if (match?.[1]) {
     process.env.POSTGRES_URL = match[1].trim().replace(/^"|"$/g, "");
   }
@@ -138,120 +143,44 @@ describe("buildProjectFromOnboarding repository integration", () => {
           expect(session).not.toBeNull();
           if (!session) throw new Error("Expected test session.");
 
-          for (const [step, payload] of [
-            ["goals", packet],
-            ["curriculum", curriculum],
-            ["overview", overview],
-          ] as const) {
-            await trainingOnboardingRepository.upsertProjectBuildCheckpoint({
-              db: testDb,
-              sessionId: session.id,
-              step,
-              sourceKey,
-              payload,
-            });
-          }
+          // Seed the artifact registry so the real persistence runs without any
+          // AI: goals is cached "complete"; curriculum + overview are
+          // "generated_pending_save" so the build re-persists them (save_only)
+          // into a freshly-created shell — exercising profile, plan, nodes, and
+          // overview writes end to end in Postgres.
+          await buildProjectCheckpointRepository.upsertArtifact({
+            db: testDb,
+            sessionId: session.id,
+            step: "goals",
+            sourceKey,
+            payload: packet,
+            status: "complete",
+          });
+          await buildProjectCheckpointRepository.upsertArtifact({
+            db: testDb,
+            sessionId: session.id,
+            step: "curriculum",
+            sourceKey,
+            payload: curriculum,
+            status: "generated_pending_save",
+            failureKind: "save",
+          });
+          await buildProjectCheckpointRepository.upsertArtifact({
+            db: testDb,
+            sessionId: session.id,
+            step: "overview",
+            sourceKey,
+            payload: overview,
+            status: "generated_pending_save",
+            failureKind: "save",
+          });
 
           const result = await buildProjectFromOnboarding({
             sessionId: session.id,
             userId: null,
             input,
             transcript: [],
-            deps: {
-              getActivePlan: (sessionId) =>
-                trainingCurriculumRepository.getActivePlan({
-                  db: testDb,
-                  sessionId,
-                }),
-              claimRun: (payload) =>
-                trainingOnboardingRepository.claimProjectBuildRun({
-                  db: testDb,
-                  ...payload,
-                }),
-              updateRun: (payload) =>
-                trainingOnboardingRepository.updateProjectBuildRun({
-                  db: testDb,
-                  ...payload,
-                }),
-              getCheckpoint: async (payload) => {
-                const checkpoint =
-                  await trainingOnboardingRepository.getProjectBuildCheckpoint({
-                    db: testDb,
-                    ...payload,
-                  });
-                expect(
-                  checkpoint,
-                  `Expected cached checkpoint for step ${payload.step} and sourceKey ${payload.sourceKey}`,
-                ).not.toBeNull();
-                if (payload.step === "curriculum") {
-                  const parsed =
-                    CurriculumDesignerOutputSchema.safeParse(checkpoint);
-                  if (!parsed.success) {
-                    throw new Error(
-                      `Cached curriculum fixture failed schema validation: ${JSON.stringify(
-                        parsed.error.issues,
-                      )}`,
-                    );
-                  }
-                }
-                return checkpoint;
-              },
-              saveCheckpoint: (payload) =>
-                trainingOnboardingRepository.upsertProjectBuildCheckpoint({
-                  db: testDb,
-                  ...payload,
-                }),
-              persistProject: async (payload) => {
-                try {
-                  if (
-                    !payload.blueprint.nodes.some((node) => node.difficultyBands)
-                  ) {
-                    throw new Error(
-                      `Expected generated blueprint to contain difficultyBands. First nodes: ${JSON.stringify(
-                        payload.blueprint.nodes.slice(0, 6),
-                      )}`,
-                    );
-                  }
-
-                  const profile =
-                    await trainingOnboardingRepository.createProfileVersion({
-                      db: testDb,
-                      sessionId: payload.sessionId,
-                      userId: payload.userId,
-                      report: payload.report,
-                      beforeAfter: payload.beforeAfter,
-                    });
-                  if (!profile) return null;
-
-                  const plan = await trainingCurriculumRepository.createPlan({
-                    db: testDb,
-                    onboardingSessionId: payload.sessionId,
-                    profileVersionId: profile.version.id,
-                    userId: payload.userId,
-                    blueprint: payload.blueprint,
-                  });
-                  if (!plan) return null;
-
-                  await trainingOnboardingRepository.updateSession({
-                    db: testDb,
-                    sessionId: payload.sessionId,
-                    status: "complete",
-                    completedAt: new Date(),
-                  });
-
-                  return trainingCurriculumRepository.getActivePlan({
-                    db: testDb,
-                    sessionId: payload.sessionId,
-                  });
-                } catch (error) {
-                  throw new Error(
-                    error instanceof Error
-                      ? (error.stack ?? error.message)
-                      : String(error),
-                  );
-                }
-              },
-            },
+            deps: createBuildProjectDeps(testDb),
             onProgress: () => undefined,
           });
 
@@ -261,7 +190,7 @@ describe("buildProjectFromOnboarding repository integration", () => {
           expect(result.data.moduleCount).toBe(20);
           expect(result.data.firstUnitId).toEqual(expect.any(String));
 
-          const run = await trainingOnboardingRepository.getProjectBuildRun({
+          const run = await buildProjectCheckpointRepository.getRun({
             db: testDb,
             sessionId: session.id,
           });

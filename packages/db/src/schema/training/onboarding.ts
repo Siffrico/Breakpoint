@@ -76,6 +76,15 @@ export const TrainingProjectBuildCheckpoint = pgTable(
     step: t.varchar({ length: 32 }).notNull(),
     sourceKey: t.text().notNull(),
     payload: t.jsonb().notNull(),
+    // Artifact registry lifecycle for the goals/curriculum/overview steps. The
+    // "run" step ignores these (it carries the claim/run blob in `payload`).
+    //   status: pending | generating | complete | generated_pending_save | failed
+    //   failureKind: timeout | provider | schema | partial | save | null
+    // The orchestrator reads (status, failureKind) to choose a retry policy
+    // (restart / repair / continue / save_only) without re-running finished work.
+    status: t.varchar({ length: 32 }).notNull().default("pending"),
+    attempts: t.integer().notNull().default(0),
+    failureKind: t.varchar({ length: 32 }),
     createdAt: t
       .timestamp({ mode: "date", withTimezone: true })
       .defaultNow()
@@ -147,9 +156,11 @@ export const TrainingWorkspaceTurn = pgTable(
     userMessageId: t.uuid().references(() => TrainingOnboardingMessage.id, {
       onDelete: "set null",
     }),
-    assistantMessageId: t.uuid().references(() => TrainingOnboardingMessage.id, {
-      onDelete: "set null",
-    }),
+    assistantMessageId: t
+      .uuid()
+      .references(() => TrainingOnboardingMessage.id, {
+        onDelete: "set null",
+      }),
     failureReason: t.text(),
     createdAt: t
       .timestamp({ mode: "date", withTimezone: true })

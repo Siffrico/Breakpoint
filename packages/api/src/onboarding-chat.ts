@@ -11,11 +11,11 @@ import {
 
 import type { db as databaseClient } from "@acme/db/client";
 
+import type { CreateProjectResult } from "./domain/training/agents/onboarding-chat-agent";
 import type {
   CreateProjectInput,
   ProjectBuildState,
 } from "./domain/training/orchestration/build-project";
-import type { CreateProjectResult } from "./domain/training/agents/onboarding-chat-agent";
 import {
   createCreateProjectTool,
   ONBOARDING_CHAT_SYSTEM,
@@ -30,7 +30,8 @@ import {
   buildProjectFromOnboarding,
   getProjectBuildReadiness,
 } from "./domain/training/orchestration/build-project";
-import { trainingCurriculumRepository } from "./repositories/training-curriculum-repository";
+import { buildProjectCheckpointRepository } from "./repositories/build-project-checkpoint-repository";
+import { createBuildProjectDeps } from "./repositories/build-project-repository-deps";
 import { trainingOnboardingRepository } from "./repositories/training-onboarding-repository";
 
 type Database = typeof databaseClient;
@@ -78,6 +79,74 @@ export const streamOnboardingChat = async ({
   withAiModelPreference(modelName, () =>
     runOnboardingChat({ db, sessionId, userId, messages }),
   );
+
+/**
+ * Resumes a previously-started project build over the *same* streamed channel
+ * the live build uses, re-emitting the keyed `data-project-build` part so the
+ * build card reconciles in place. No LLM turn runs — this only replays the
+ * deterministic build (the checkpoint registry short-circuits already-built
+ * artifacts), so a retry or an overview-gap regen ticks step-by-step on the
+ * card instead of going silent behind a tRPC mutation.
+ */
+export const streamProjectBuildResume = async ({
+  db,
+  sessionId,
+  userId,
+  modelName,
+}: {
+  db: Database;
+  sessionId: string;
+  userId: string;
+  modelName?: string | null;
+}): Promise<Response> => {
+  const session = await trainingOnboardingRepository.getSession({
+    db,
+    sessionId,
+  });
+  if (!session) {
+    return new Response("Onboarding session not found.", { status: 404 });
+  }
+  if (session.userId !== userId) {
+    return new Response("Forbidden.", { status: 403 });
+  }
+
+  const run = await buildProjectCheckpointRepository.getRun({ db, sessionId });
+  if (!run) {
+    return new Response("No project build is available to resume.", {
+      status: 404,
+    });
+  }
+
+  const transcript = await trainingOnboardingRepository.listMessages({
+    db,
+    sessionId,
+  });
+
+  // Honor the learner's model preference for the agents the build runs.
+  return withAiModelPreference(modelName, () => {
+    const stream = createUIMessageStream<OnboardingChatUIMessage>({
+      onError: () => "The project build hit an error.",
+      execute: async ({ writer }) => {
+        await buildProjectFromOnboarding({
+          sessionId,
+          userId: session.userId,
+          transcript,
+          input: run.input,
+          deps: createBuildProjectDeps(db),
+          onProgress: (build) => {
+            writer.write({
+              type: "data-project-build",
+              id: PROJECT_BUILD_DATA_ID,
+              data: build,
+            });
+          },
+        });
+      },
+    });
+
+    return Promise.resolve(createUIMessageStreamResponse({ stream }));
+  });
+};
 
 const runOnboardingChat = async ({
   db,
@@ -144,64 +213,7 @@ const runOnboardingChat = async ({
           userId: session.userId,
           transcript,
           input,
-          deps: {
-            getActivePlan: (id) =>
-              trainingCurriculumRepository.getActivePlan({ db, sessionId: id }),
-            claimRun: (payload) =>
-              trainingOnboardingRepository.claimProjectBuildRun({
-                db,
-                ...payload,
-              }),
-            updateRun: (payload) =>
-              trainingOnboardingRepository.updateProjectBuildRun({
-                db,
-                ...payload,
-              }),
-            getCheckpoint: (payload) =>
-              trainingOnboardingRepository.getProjectBuildCheckpoint({
-                db,
-                ...payload,
-              }),
-            saveCheckpoint: (payload) =>
-              trainingOnboardingRepository.upsertProjectBuildCheckpoint({
-                db,
-                ...payload,
-              }),
-            persistProject: (payload) =>
-              db.transaction(async (tx) => {
-                const dbTx = tx as unknown as Database;
-                const profile =
-                  await trainingOnboardingRepository.createProfileVersion({
-                    db: dbTx,
-                    sessionId: payload.sessionId,
-                    userId: payload.userId,
-                    report: payload.report,
-                    beforeAfter: payload.beforeAfter,
-                  });
-                if (!profile) return null;
-
-                const plan = await trainingCurriculumRepository.createPlan({
-                  db: dbTx,
-                  onboardingSessionId: payload.sessionId,
-                  profileVersionId: profile.version.id,
-                  userId: payload.userId,
-                  blueprint: payload.blueprint,
-                });
-                if (!plan) return null;
-
-                await trainingOnboardingRepository.updateSession({
-                  db: dbTx,
-                  sessionId: payload.sessionId,
-                  status: "complete",
-                  completedAt: new Date(),
-                });
-
-                return trainingCurriculumRepository.getActivePlan({
-                  db: dbTx,
-                  sessionId: payload.sessionId,
-                });
-              }),
-          },
+          deps: createBuildProjectDeps(db),
           onProgress: (build) => {
             writer.write({
               type: "data-project-build",
@@ -242,7 +254,10 @@ Runtime state: ${
         },
         // SDK-native server-side smoothing: release whole words on a short
         // cadence so the client renders a steady stream.
-        experimental_transform: smoothStream({ delayInMs: 15, chunking: "word" }),
+        experimental_transform: smoothStream({
+          delayInMs: 15,
+          chunking: "word",
+        }),
         stopWhen: stepCountIs(5),
         onFinish: async ({ text }) => {
           const trimmed = text.trim();

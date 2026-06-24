@@ -1,26 +1,22 @@
 import type { db as databaseClient } from "@acme/db/client";
 import type { BeforeAfterProfile } from "@acme/validators";
-import { and, asc, desc, eq, inArray, lt, ne, sql } from "@acme/db";
+import { and, asc, desc, eq, inArray, ne, sql } from "@acme/db";
 import {
   TrainingIdentityProfile,
   TrainingIdentityProfileVersion,
   TrainingOnboardingMessage,
   TrainingOnboardingSession,
-  TrainingProjectBuildCheckpoint,
-  TrainingWorkspaceTurn,
   TrainingWorkspaceSummary,
+  TrainingWorkspaceTurn,
 } from "@acme/db/schema";
 
-import type {
-  CreateProjectInput,
-  ProjectBuildState,
-} from "../domain/training/orchestration/build-project";
 import type {
   IdentityReport,
   OnboardingQuestion,
   OnboardingSessionState,
   OnboardingTranscriptMessage,
 } from "../domain/training/types/training.types";
+import { buildProjectCheckpointRepository } from "./build-project-checkpoint-repository";
 
 type Database = typeof databaseClient;
 interface OnboardingMessageInsert {
@@ -35,12 +31,6 @@ interface OnboardingMessageInsert {
     hiddenFromTranscript?: boolean;
   } | null;
 }
-
-// A project-build run's `updatedAt` only advances at claim time and at terminal
-// states (never on step transitions), so it sits flat for the whole live build.
-// A run still "building" past this window is therefore dead, not slow. This MUST
-// stay greater than the chat route's `maxDuration` (300s) — see that route.
-const STALE_BUILD_RECLAIM_MS = 360_000; // 6 min > 300s route ceiling
 
 const isUniqueViolation = (error: unknown) =>
   typeof error === "object" &&
@@ -79,15 +69,6 @@ const mapWorkspaceMessage = (
 });
 
 type WorkspaceMessage = ReturnType<typeof mapWorkspaceMessage>;
-
-type ProjectBuildCheckpointStep = "run" | "goals" | "curriculum" | "overview";
-
-interface ProjectBuildRunPayload {
-  status: "building" | "complete" | "error";
-  input: CreateProjectInput;
-  state: ProjectBuildState;
-  error?: string;
-}
 
 type WorkspaceTurnAction =
   | "submit_answer"
@@ -171,18 +152,6 @@ const insertMessageWithNextSequence = async ({
 
 const isTranscriptVisibleMessage = (message: WorkspaceMessage) =>
   message.metadata?.hiddenFromTranscript !== true;
-
-const isProjectBuildRunPayload = (
-  payload: unknown,
-): payload is ProjectBuildRunPayload =>
-  typeof payload === "object" &&
-  payload !== null &&
-  "status" in payload &&
-  (payload.status === "building" ||
-    payload.status === "complete" ||
-    payload.status === "error") &&
-  "input" in payload &&
-  "state" in payload;
 
 export const trainingOnboardingRepository = {
   createSession: async ({
@@ -516,198 +485,6 @@ export const trainingOnboardingRepository = {
       }));
   },
 
-  getProjectBuildCheckpoint: async ({
-    db,
-    sessionId,
-    step,
-    sourceKey,
-  }: {
-    db: Database;
-    sessionId: string;
-    step: ProjectBuildCheckpointStep;
-    sourceKey: string;
-  }) => {
-    const checkpoint = await db.query.TrainingProjectBuildCheckpoint.findFirst({
-      where: and(
-        eq(TrainingProjectBuildCheckpoint.sessionId, sessionId),
-        eq(TrainingProjectBuildCheckpoint.step, step),
-        eq(TrainingProjectBuildCheckpoint.sourceKey, sourceKey),
-      ),
-    });
-
-    return checkpoint?.payload ?? null;
-  },
-
-  getProjectBuildRun: async ({
-    db,
-    sessionId,
-  }: {
-    db: Database;
-    sessionId: string;
-  }) => {
-    const checkpoint = await db.query.TrainingProjectBuildCheckpoint.findFirst({
-      where: and(
-        eq(TrainingProjectBuildCheckpoint.sessionId, sessionId),
-        eq(TrainingProjectBuildCheckpoint.step, "run"),
-      ),
-    });
-
-    return isProjectBuildRunPayload(checkpoint?.payload)
-      ? checkpoint.payload
-      : null;
-  },
-
-  claimProjectBuildRun: async ({
-    db,
-    sessionId,
-    sourceKey,
-    payload,
-  }: {
-    db: Database;
-    sessionId: string;
-    sourceKey: string;
-    payload: ProjectBuildRunPayload;
-  }): Promise<
-    | { status: "claimed" }
-    | { status: "processing"; state: ProjectBuildState }
-  > => {
-    try {
-      const [checkpoint] = await db
-        .insert(TrainingProjectBuildCheckpoint)
-        .values({
-          sessionId,
-          step: "run",
-          sourceKey,
-          payload,
-        })
-        .returning();
-
-      void checkpoint;
-      return { status: "claimed" };
-    } catch (error) {
-      if (!isUniqueViolation(error)) {
-        throw error;
-      }
-    }
-
-    const existing = await db.query.TrainingProjectBuildCheckpoint.findFirst({
-      where: and(
-        eq(TrainingProjectBuildCheckpoint.sessionId, sessionId),
-        eq(TrainingProjectBuildCheckpoint.step, "run"),
-      ),
-    });
-    const existingPayload = isProjectBuildRunPayload(existing?.payload)
-      ? existing.payload
-      : null;
-
-    // A live build holds the claim; only reclaim one that is provably dead.
-    // The guarded UPDATE is race-free under READ COMMITTED: if two retries fire
-    // at once, the loser re-checks `updatedAt` against the winner's freshly
-    // bumped row, matches zero rows, and falls back to "processing".
-    if (existingPayload?.status === "building") {
-      const staleBefore = new Date(Date.now() - STALE_BUILD_RECLAIM_MS);
-      const [reclaimed] = await db
-        .update(TrainingProjectBuildCheckpoint)
-        .set({ sourceKey, payload, updatedAt: new Date() })
-        .where(
-          and(
-            eq(TrainingProjectBuildCheckpoint.sessionId, sessionId),
-            eq(TrainingProjectBuildCheckpoint.step, "run"),
-            lt(TrainingProjectBuildCheckpoint.updatedAt, staleBefore),
-          ),
-        )
-        .returning();
-      if (reclaimed) {
-        return { status: "claimed" };
-      }
-      return { status: "processing", state: existingPayload.state };
-    }
-
-    const [checkpoint] = await db
-      .update(TrainingProjectBuildCheckpoint)
-      .set({
-        sourceKey,
-        payload,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(TrainingProjectBuildCheckpoint.sessionId, sessionId),
-          eq(TrainingProjectBuildCheckpoint.step, "run"),
-        ),
-      )
-      .returning();
-
-    void checkpoint;
-    return { status: "claimed" };
-  },
-
-  updateProjectBuildRun: async ({
-    db,
-    sessionId,
-    sourceKey,
-    payload,
-  }: {
-    db: Database;
-    sessionId: string;
-    sourceKey: string;
-    payload: ProjectBuildRunPayload;
-  }) => {
-    const [checkpoint] = await db
-      .update(TrainingProjectBuildCheckpoint)
-      .set({
-        sourceKey,
-        payload,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(TrainingProjectBuildCheckpoint.sessionId, sessionId),
-          eq(TrainingProjectBuildCheckpoint.step, "run"),
-        ),
-      )
-      .returning();
-
-    return checkpoint ?? null;
-  },
-
-  upsertProjectBuildCheckpoint: async ({
-    db,
-    sessionId,
-    step,
-    sourceKey,
-    payload,
-  }: {
-    db: Database;
-    sessionId: string;
-    step: ProjectBuildCheckpointStep;
-    sourceKey: string;
-    payload: unknown;
-  }) => {
-    const [checkpoint] = await db
-      .insert(TrainingProjectBuildCheckpoint)
-      .values({
-        sessionId,
-        step,
-        sourceKey,
-        payload,
-      })
-      .onConflictDoUpdate({
-        target: [
-          TrainingProjectBuildCheckpoint.sessionId,
-          TrainingProjectBuildCheckpoint.step,
-        ],
-        set: {
-          sourceKey,
-          payload,
-          updatedAt: new Date(),
-        },
-      })
-      .returning();
-
-    return checkpoint ?? null;
-  },
-
   listWorkspaceMessages: async ({
     db,
     sessionId,
@@ -827,7 +604,7 @@ export const trainingOnboardingRepository = {
     const [session, transcript, projectBuildRun] = await Promise.all([
       trainingOnboardingRepository.getSession({ db, sessionId }),
       trainingOnboardingRepository.listMessages({ db, sessionId }),
-      trainingOnboardingRepository.getProjectBuildRun({ db, sessionId }),
+      buildProjectCheckpointRepository.getRun({ db, sessionId }),
     ]);
 
     if (!session) {

@@ -4,11 +4,6 @@ import type {
   OnboardingPacket,
   ProjectOverviewOutput,
 } from "../agents/contracts";
-import {
-  CurriculumDesignerOutputSchema,
-  OnboardingPacketSchema,
-  ProjectOverviewOutputSchema,
-} from "../agents/contracts";
 import type {
   BeforeAfterProfile,
   CurriculumBlueprint,
@@ -16,12 +11,19 @@ import type {
   IdentityReport,
   OnboardingTranscriptMessage,
 } from "../types/training.types";
+import type { ArtifactFailureKind } from "./agent-runtime";
 import { err, ok } from "../../../lib/result";
+import {
+  CurriculumDesignerOutputSchema,
+  OnboardingPacketSchema,
+  ProjectOverviewOutputSchema,
+} from "../agents/contracts";
 import { designCurriculum } from "../agents/curriculum-designer";
 import { normalizeLearningTrackName } from "../agents/onboarding-chat-agent";
 import { designProjectOverview } from "../agents/project-overview";
-import { createOnboardingPacket } from "./onboarding-flow";
+import { isArtifactBuildError } from "./agent-runtime";
 import { buildCurriculumNodes } from "./curriculum-flow";
+import { createOnboardingPacket } from "./onboarding-flow";
 
 /**
  * The project build is presented to the learner as a checklist. Each step is
@@ -30,11 +32,11 @@ import { buildCurriculumNodes } from "./curriculum-flow";
  * The order here is the order the card renders.
  */
 export type ProjectBuildStep =
-  | "name" // resolve the saved project/sidebar name (no AI, instant)
+  | "name" // create the durable plan shell + resolve the saved name (instant)
   | "goals" // onboarding packet agent — distil the transcript
-  | "curriculum" // curriculum designer agent — identity report + skeleton
-  | "overview" // project overview agent — the readable field map
-  | "save"; // deterministic persistence (profile + plan + session)
+  | "curriculum" // curriculum designer agent — identity report + skeleton + persist
+  | "overview" // project overview agent — the readable field map (best-effort)
+  | "save"; // finalize: flip the plan active + complete the session
 
 export type ProjectBuildStepStatus = "pending" | "active" | "done";
 
@@ -45,6 +47,9 @@ export interface ProjectBuildStepState {
 }
 
 export type ProjectBuildPhase = "building" | "complete" | "error";
+
+/** A required-but-missing artifact the learner can regenerate after the build. */
+export type ProjectBuildGap = "overview";
 
 /**
  * The full snapshot streamed to the client on every transition. It is emitted
@@ -59,11 +64,14 @@ export interface ProjectBuildState {
   /** Unit titles, revealed once the curriculum agent returns. */
   modules: string[];
   moduleCount: number;
-  // Populated only when `phase === "complete"` — the handoff card needs these.
+  // Populated as soon as the shell exists (before AI runs), so the library and
+  // workspace can show a real "building" project immediately.
   sessionId?: string;
   planId?: string;
   firstUnitId?: string | null;
   targetIdentity?: string;
+  /** Optional artifacts that failed; build is complete but with these gaps. */
+  gaps?: ProjectBuildGap[];
   // Populated only when `phase === "error"`.
   error?: string;
 }
@@ -101,8 +109,30 @@ export type ProjectBuildReadiness =
   | { ready: true }
   | { ready: false; reason: string };
 
-type ProjectBuildCheckpointStep = "goals" | "curriculum" | "overview";
 type ProjectBuildRunStatus = "building" | "complete" | "error";
+
+/** The AI-generated artifacts that get their own registry lifecycle row. */
+export type ProjectBuildArtifactStep = "goals" | "curriculum" | "overview";
+
+/**
+ * Per-artifact lifecycle. `generated_pending_save` means the AI output is in
+ * the checkpoint payload but persistence failed — the orchestrator re-saves it
+ * for zero tokens. `failed` carries a `failureKind` that selects the policy.
+ */
+export type ProjectBuildArtifactStatus =
+  | "pending"
+  | "generating"
+  | "complete"
+  | "generated_pending_save"
+  | "failed";
+
+export interface ProjectBuildArtifactRecord {
+  step: ProjectBuildArtifactStep;
+  status: ProjectBuildArtifactStatus;
+  attempts: number;
+  failureKind: ArtifactFailureKind | null;
+  payload: unknown;
+}
 
 /**
  * Backstop for premature tool calls. This intentionally avoids a rigid turn
@@ -144,9 +174,15 @@ export const getProjectBuildReadiness = (
   };
 };
 
-/** Injected so persistence stays transactional and the orchestrator stays testable. */
+/** Injected so persistence stays per-artifact + transactional and the orchestrator stays testable. */
 export interface BuildProjectDeps {
-  /** Idempotency + final read. Returns the active plan for the session if any. */
+  /** Raw plan row for idempotency: tells us status + whether a shell exists. */
+  getPlanRow: (sessionId: string) => Promise<{
+    id: string;
+    status: string;
+    profileVersionId: string | null;
+  } | null>;
+  /** Full read for the final/complete snapshot. */
   getActivePlan: (sessionId: string) => Promise<CurriculumPlan | null>;
   claimRun: (input: {
     sessionId: string;
@@ -158,8 +194,7 @@ export interface BuildProjectDeps {
       error?: string;
     };
   }) => Promise<
-    | { status: "claimed" }
-    | { status: "processing"; state: ProjectBuildState }
+    { status: "claimed" } | { status: "processing"; state: ProjectBuildState }
   >;
   updateRun: (input: {
     sessionId: string;
@@ -171,28 +206,50 @@ export interface BuildProjectDeps {
       error?: string;
     };
   }) => Promise<unknown>;
-  getCheckpoint: (input: {
+  /** Read the artifact registry for resume decisions. */
+  getArtifacts: (input: {
     sessionId: string;
-    step: ProjectBuildCheckpointStep;
     sourceKey: string;
-  }) => Promise<unknown>;
-  saveCheckpoint: (input: {
+  }) => Promise<ProjectBuildArtifactRecord[]>;
+  /** Upsert one artifact's registry row (status + last-good/partial payload). */
+  saveArtifact: (input: {
     sessionId: string;
-    step: ProjectBuildCheckpointStep;
+    step: ProjectBuildArtifactStep;
     sourceKey: string;
     payload: unknown;
+    status: ProjectBuildArtifactStatus;
+    failureKind?: ArtifactFailureKind | null;
+    attempts?: number;
   }) => Promise<unknown>;
-  /**
-   * Atomically writes the profile version, the plan (+nodes +overview), and
-   * flips the session to complete. Returns the freshly-read plan, or null on
-   * any failure (the transaction is rolled back by the caller).
-   */
-  persistProject: (input: {
+  /** Create (or return) the durable "generating" plan shell. Returns its id. */
+  ensureShell: (input: {
     sessionId: string;
     userId: string | null;
+    title: string;
+    summary: string;
+    targetIdentity: string;
+  }) => Promise<{ id: string }>;
+  /**
+   * One small transaction: upsert the profile version, link it to the plan, and
+   * replace the plan's nodes. Throws on failure (a `"save"` failure kind).
+   */
+  persistCurriculum: (input: {
+    sessionId: string;
+    userId: string | null;
+    planId: string;
     report: IdentityReport;
     beforeAfter: BeforeAfterProfile;
     blueprint: CurriculumBlueprint;
+  }) => Promise<void>;
+  /** Write the overview onto the plan, independently of node creation. */
+  persistOverview: (input: {
+    sessionId: string;
+    overview: { title: string; summary: string; body: string };
+  }) => Promise<void>;
+  /** Flip the plan active + complete the session. Returns the freshly-read plan. */
+  finalize: (input: {
+    sessionId: string;
+    planId: string;
   }) => Promise<CurriculumPlan | null>;
 }
 
@@ -213,38 +270,45 @@ const getProjectBuildSourceKey = (input: CreateProjectInput) =>
     summary: input.summary.trim(),
   });
 
-const saveCheckpoint = async ({
-  deps,
-  sessionId,
-  step,
-  sourceKey,
-  payload,
-}: {
-  deps: BuildProjectDeps;
-  sessionId: string;
-  step: ProjectBuildCheckpointStep;
-  sourceKey: string;
-  payload: unknown;
-}) => {
-  try {
-    await deps.saveCheckpoint({ sessionId, step, sourceKey, payload });
-  } catch (error) {
-    console.error("[build-project] failed to save checkpoint:", {
-      sessionId,
-      step,
-      error,
-    });
-  }
+const messageFrom = (error: unknown, fallback: string): string =>
+  error instanceof Error && error.message ? error.message : fallback;
+
+const failureKindOf = (error: unknown): ArtifactFailureKind =>
+  isArtifactBuildError(error) ? error.failureKind : "provider";
+
+/** The last captured partial from an ArtifactBuildError, if any. */
+const partialOf = (error: unknown): unknown =>
+  isArtifactBuildError(error) ? error.partial : undefined;
+
+/**
+ * The cross-attempt action for an artifact, derived from its registry row.
+ * (Within a single attempt, restart/repair/continue are handled by the
+ * resilient agent runner; this is the resume-time decision.)
+ */
+type ArtifactAction = "skip" | "save_only" | "generate";
+
+const decide = (record?: ProjectBuildArtifactRecord): ArtifactAction => {
+  if (!record || record.status === "pending") return "generate";
+  if (record.status === "complete") return "skip";
+  if (record.status === "generated_pending_save") return "save_only";
+  return "generate"; // generating (crashed) or failed
 };
+
+/** Seed a continuation from a mid-stream crash or a truncated failure. */
+const seedFor = (record?: ProjectBuildArtifactRecord): unknown =>
+  record && (record.status === "generating" || record.failureKind === "partial")
+    ? record.payload
+    : undefined;
 
 /**
  * Runs the full project build as an ordered checklist, emitting a fresh
- * {@link ProjectBuildState} after every transition via `onProgress`. AI
- * generation (the slow part) runs *outside* any DB transaction; persistence is
- * a single short transaction owned by `deps.persistProject`.
+ * {@link ProjectBuildState} after every transition via `onProgress`. The plan
+ * shell is created up front; each AI artifact is persisted into it the moment it
+ * lands, with its own registry lifecycle so a resume continues from the last
+ * good artifact instead of regenerating everything.
  *
- * Never throws — all failures resolve to `err(...)` and a final
- * `phase: "error"` snapshot, so the card can show a reason and a retry.
+ * Never throws — all failures resolve to `err(...)` and a final `phase: "error"`
+ * snapshot, so the card can show a reason and a retry.
  */
 export const buildProjectFromOnboarding = async ({
   sessionId,
@@ -268,6 +332,7 @@ export const buildProjectFromOnboarding = async ({
     moduleCount: number;
     firstUnitId: string | null;
     targetIdentity: string;
+    gaps?: ProjectBuildGap[];
   }>
 > => {
   const projectName = normalizeLearningTrackName(input.projectName);
@@ -286,11 +351,9 @@ export const buildProjectFromOnboarding = async ({
     const step = steps.find((candidate) => candidate.id === id);
     if (step) step.status = status;
   };
-  const emit = () => onProgress({ ...state, steps: steps.map((s) => ({ ...s })) });
-  const buildRunPayload = (
-    status: ProjectBuildRunStatus,
-    error?: string,
-  ) => ({
+  const emit = () =>
+    onProgress({ ...state, steps: steps.map((s) => ({ ...s })) });
+  const buildRunPayload = (status: ProjectBuildRunStatus, error?: string) => ({
     status,
     input,
     state: { ...state, steps: steps.map((s) => ({ ...s })) },
@@ -310,32 +373,97 @@ export const buildProjectFromOnboarding = async ({
     return err(message);
   };
 
+  // The most recent in-flight "generating" partial write per step. A terminal
+  // write (complete / failed / generated_pending_save) awaits this first, so a
+  // late mid-stream flush can never commit *after* it and reset the row to
+  // "generating" — which a resume would read as unfinished and regenerate from
+  // scratch, the exact wasted work the checkpoint exists to prevent.
+  const partialTail = new Map<ProjectBuildArtifactStep, Promise<unknown>>();
+
+  // Persist an artifact's registry row (status + last-good/partial payload).
+  const recordArtifact = async (
+    step: ProjectBuildArtifactStep,
+    status: ProjectBuildArtifactStatus,
+    payload: unknown,
+    failureKind: ArtifactFailureKind | null,
+    attempts?: number,
+  ) => {
+    if (status !== "generating") {
+      // Order barrier: let the last partial commit before stamping a terminal
+      // status. The chain below never rejects, so this can't break never-throws.
+      await (partialTail.get(step) ?? Promise.resolve());
+    }
+    return deps.saveArtifact({
+      sessionId,
+      step,
+      sourceKey,
+      payload,
+      status,
+      failureKind,
+      attempts,
+    });
+  };
+  // Throttled, fire-and-forget mid-stream partial sink so a crash mid-generation
+  // is resumable (the runner already throttles its callback to ~4s). Writes are
+  // chained per step so they commit in dispatch order and stay behind the
+  // terminal barrier above.
+  const partialSink =
+    (step: ProjectBuildArtifactStep) => (partial: unknown) => {
+      const next = (partialTail.get(step) ?? Promise.resolve())
+        .then(() =>
+          deps.saveArtifact({
+            sessionId,
+            step,
+            sourceKey,
+            payload: partial,
+            status: "generating",
+            failureKind: null,
+          }),
+        )
+        .catch(() => undefined);
+      partialTail.set(step, next);
+    };
+
   emit();
 
-  // Idempotency: if a plan already exists (double-approval, retry, reconnect),
-  // surface it as complete instead of generating a second curriculum.
-  const existingPlan = await deps.getActivePlan(sessionId);
-  if (existingPlan) {
-    for (const step of steps) step.status = "done";
-    state.phase = "complete";
-    state.projectName = existingPlan.title || projectName;
-    state.modules = existingPlan.nodes
-      .filter((node) => node.kind === "unit" || node.kind === "integration")
-      .map((node) => node.title);
-    state.moduleCount = countModules(existingPlan);
-    state.sessionId = sessionId;
-    state.planId = existingPlan.id;
-    state.firstUnitId = existingPlan.nextUnitId;
-    state.targetIdentity = existingPlan.targetIdentity;
-    emit();
-    return ok({
-      sessionId,
-      planId: existingPlan.id,
-      title: existingPlan.title || projectName,
-      moduleCount: state.moduleCount,
-      firstUnitId: existingPlan.nextUnitId,
-      targetIdentity: existingPlan.targetIdentity,
-    });
+  const artifacts = await deps.getArtifacts({ sessionId, sourceKey });
+  const artifactMap = new Map(artifacts.map((record) => [record.step, record]));
+  const goalsRecord = artifactMap.get("goals");
+  const curriculumRecord = artifactMap.get("curriculum");
+  const overviewRecord = artifactMap.get("overview");
+
+  // Idempotency: a fully-built plan (status "active") with no unfinished artifact
+  // short-circuits to complete instead of regenerating. A "generating" shell, or
+  // an active plan that still has a failed/unsaved artifact (e.g. an overview gap
+  // the learner asked to regenerate), falls through so the registry can finish it.
+  const hasUnfinishedArtifact = artifacts.some(
+    (record) =>
+      record.status === "failed" || record.status === "generated_pending_save",
+  );
+  const planRow = await deps.getPlanRow(sessionId);
+  if (planRow?.status === "active" && !hasUnfinishedArtifact) {
+    const existingPlan = await deps.getActivePlan(sessionId);
+    if (existingPlan) {
+      for (const step of steps) step.status = "done";
+      state.phase = "complete";
+      state.projectName = existingPlan.title || projectName;
+      state.modules = existingPlan.nodes
+        .filter((node) => node.kind === "unit" || node.kind === "integration")
+        .map((node) => node.title);
+      state.moduleCount = countModules(existingPlan);
+      state.planId = existingPlan.id;
+      state.firstUnitId = existingPlan.nextUnitId;
+      state.targetIdentity = existingPlan.targetIdentity;
+      emit();
+      return ok({
+        sessionId,
+        planId: existingPlan.id,
+        title: existingPlan.title || projectName,
+        moduleCount: state.moduleCount,
+        firstUnitId: existingPlan.nextUnitId,
+        targetIdentity: existingPlan.targetIdentity,
+      });
+    }
   }
 
   const claim = await deps.claimRun({
@@ -348,199 +476,364 @@ export const buildProjectFromOnboarding = async ({
     return err("Project build is already running.");
   }
 
-  // 1 — name (instant, deterministic)
+  // 1 — name + shell: create the durable project home before any AI runs.
   setStep("name", "active");
   emit();
+  let planId: string;
+  try {
+    const shell = await deps.ensureShell({
+      sessionId,
+      userId,
+      title: projectName,
+      summary: input.summary.trim(),
+      targetIdentity: input.targetIdentity.trim(),
+    });
+    planId = shell.id;
+  } catch (error) {
+    return fail(
+      messageFrom(error, "I couldn't create your project. Want to try again?"),
+    );
+  }
+  state.planId = planId;
   setStep("name", "done");
   emit();
+
+  // The packet is only needed by artifacts that will actually call their agent.
+  // A `save_only` artifact with a *valid* cached payload re-persists without the
+  // packet (zero tokens); only an unusable cache forces a fresh generation.
+  const curriculumWillGenerate =
+    decide(curriculumRecord) === "generate" ||
+    (decide(curriculumRecord) === "save_only" &&
+      !CurriculumDesignerOutputSchema.safeParse(curriculumRecord?.payload)
+        .success);
+  const overviewWillGenerate =
+    decide(overviewRecord) === "generate" ||
+    (decide(overviewRecord) === "save_only" &&
+      !ProjectOverviewOutputSchema.safeParse(overviewRecord?.payload).success);
+  const needPacket = curriculumWillGenerate || overviewWillGenerate;
 
   // 2 — goals: the onboarding packet agent reads the full transcript.
   setStep("goals", "active");
   emit();
-  const cachedPacket = OnboardingPacketSchema.safeParse(
-    await deps.getCheckpoint({
-      sessionId,
-      step: "goals",
-      sourceKey,
-    }),
-  );
-  let packet: OnboardingPacket;
-  try {
-    if (cachedPacket.success) {
-      packet = cachedPacket.data;
-    } else {
-      packet = await createOnboardingPacket(transcript);
-      await saveCheckpoint({
-        deps,
-        sessionId,
-        step: "goals",
-        sourceKey,
-        payload: packet,
-      });
+  let packet: OnboardingPacket | undefined;
+  if (needPacket) {
+    if (decide(goalsRecord) === "skip") {
+      const cached = OnboardingPacketSchema.safeParse(goalsRecord?.payload);
+      if (cached.success) packet = cached.data;
     }
-  } catch (error) {
-    return fail(
-      error instanceof Error && error.message
-        ? error.message
-        : "I couldn't read enough from our conversation yet.",
-    );
+    if (!packet) {
+      const attempts = (goalsRecord?.attempts ?? 0) + 1;
+      try {
+        packet = await createOnboardingPacket(transcript, {
+          onPartial: partialSink("goals"),
+          seedPartial: seedFor(goalsRecord) as
+            | Partial<OnboardingPacket>
+            | undefined,
+        });
+        await recordArtifact("goals", "complete", packet, null, attempts);
+      } catch (error) {
+        await recordArtifact(
+          "goals",
+          "failed",
+          partialOf(error) ?? goalsRecord?.payload ?? null,
+          failureKindOf(error),
+          attempts,
+        );
+        return fail(
+          messageFrom(
+            error,
+            "I couldn't read enough from our conversation yet.",
+          ),
+        );
+      }
+    }
   }
   setStep("goals", "done");
   emit();
 
-  // 3 + 4 — curriculum and overview agents run in parallel, both fed the same
-  // packet + transcript. Each ticks its own step the moment it resolves. The
-  // overview is best-effort: a failure there must not sink a valid curriculum.
-  setStep("curriculum", "active");
-  setStep("overview", "active");
-  emit();
-
-  const [cachedDesign, cachedOverview] = await Promise.all([
-    deps.getCheckpoint({ sessionId, step: "curriculum", sourceKey }).then(
-      (payload) => CurriculumDesignerOutputSchema.safeParse(payload),
-    ),
-    deps.getCheckpoint({ sessionId, step: "overview", sourceKey }).then(
-      (payload) => ProjectOverviewOutputSchema.safeParse(payload),
-    ),
-  ]);
-
-  const overviewPromise: Promise<ProjectOverviewOutput> =
-    cachedOverview.success
-      ? Promise.resolve(cachedOverview.data).then((value) => {
-          setStep("overview", "done");
-          emit();
-          return value;
-        })
-      : designProjectOverview({ packet, transcript }).then(
-          async (value) => {
-            await saveCheckpoint({
-              deps,
-              sessionId,
-              step: "overview",
-              sourceKey,
-              payload: value,
-            });
-            setStep("overview", "done");
-            emit();
-            return value;
-          },
-          (reason: unknown) => {
-            setStep("overview", "done");
-            emit();
-            throw reason;
-          },
-        );
-
-  let design: CurriculumDesignerOutput;
-  try {
-    if (cachedDesign.success) {
-      design = cachedDesign.data;
-      setStep("curriculum", "done");
-      emit();
-    } else {
-      design = await designCurriculum({ packet, transcript });
-      await saveCheckpoint({
-        deps,
-        sessionId,
-        step: "curriculum",
-        sourceKey,
-        payload: design,
-      });
-    }
-  } catch (error) {
-    return fail(
-      error instanceof Error && error.message
-        ? error.message
-        : "I couldn't design the curriculum. Want to try again?",
-    );
-  }
-  setStep("curriculum", "done");
-
-  const blueprint: CurriculumBlueprint = {
+  const buildBlueprint = (
+    design: CurriculumDesignerOutput,
+  ): CurriculumBlueprint => ({
     title: projectName,
     summary: design.planDraft.summary,
     targetIdentity: design.identityReport.targetIdentity,
-    overview: null,
+    overview: null, // persisted separately via persistOverview
     beforeAfter: design.beforeAfter,
     nodes: buildCurriculumNodes(
       design.planDraft,
       design.identityReport.targetIdentity,
       design.identityReport.headline,
     ),
-  };
-  state.modules = moduleTitles(blueprint);
-  state.moduleCount = state.modules.length;
-  emit();
+  });
 
-  // Overview is best-effort (see the contract at the top of this block): a
-  // failure must not sink a valid curriculum. We persist with overview = null
-  // (the blueprint default); it can be regenerated later.
-  try {
-    const overview = await overviewPromise;
-    blueprint.overview = { ...overview, generatedAt: new Date().toISOString() };
-  } catch (error) {
-    console.error("[build-project] overview failed; saving without it:", {
-      sessionId,
-      error,
-    });
-  }
-
-  // 5 — save: one transaction. Profile + plan + session status, all or nothing.
-  setStep("save", "active");
-  emit();
-  let plan: CurriculumPlan | null;
-  try {
-    plan = await deps.persistProject({
+  const persistDesign = async (design: CurriculumDesignerOutput) => {
+    const blueprint = buildBlueprint(design);
+    state.modules = moduleTitles(blueprint);
+    state.moduleCount = state.modules.length;
+    emit();
+    await deps.persistCurriculum({
       sessionId,
       userId,
+      planId,
       report: design.identityReport,
       beforeAfter: design.beforeAfter,
       blueprint,
     });
-  } catch (error) {
-    const savedPlan = await deps.getActivePlan(sessionId);
-    if (savedPlan) {
-      for (const step of steps) step.status = "done";
-      state.phase = "complete";
-      state.projectName = savedPlan.title || projectName;
-      state.modules = savedPlan.nodes
-        .filter((node) => node.kind === "unit" || node.kind === "integration")
-        .map((node) => node.title);
-      state.moduleCount = countModules(savedPlan);
-      state.sessionId = sessionId;
-      state.planId = savedPlan.id;
-      state.firstUnitId = savedPlan.nextUnitId;
-      state.targetIdentity = savedPlan.targetIdentity;
+  };
+
+  // 3 — curriculum (REQUIRED): design + persist profile/nodes into the shell.
+  const runCurriculum = async (): Promise<Result<true>> => {
+    setStep("curriculum", "active");
+    emit();
+    const action = decide(curriculumRecord);
+    const attemptsBase = curriculumRecord?.attempts ?? 0;
+
+    if (action === "skip") {
+      setStep("curriculum", "done");
       emit();
-      await updateRun("complete");
-      return ok({
-        sessionId,
-        planId: savedPlan.id,
-        title: savedPlan.title || projectName,
-        moduleCount: state.moduleCount,
-        firstUnitId: savedPlan.nextUnitId,
-        targetIdentity: savedPlan.targetIdentity,
-      });
+      return ok(true);
     }
 
-    return fail(
-      error instanceof Error && error.message
-        ? error.message
-        : "I built the curriculum but couldn't save it. Want to try again?",
-    );
+    if (action === "save_only") {
+      const cached = CurriculumDesignerOutputSchema.safeParse(
+        curriculumRecord?.payload,
+      );
+      if (cached.success) {
+        try {
+          await persistDesign(cached.data);
+          await recordArtifact(
+            "curriculum",
+            "complete",
+            cached.data,
+            null,
+            attemptsBase,
+          );
+          setStep("curriculum", "done");
+          emit();
+          return ok(true);
+        } catch (error) {
+          await recordArtifact(
+            "curriculum",
+            "generated_pending_save",
+            cached.data,
+            "save",
+            attemptsBase,
+          );
+          return err(
+            messageFrom(
+              error,
+              "I built the curriculum but couldn't save it. Want to try again?",
+            ),
+          );
+        }
+      }
+      // Cached payload is unusable — fall through to a fresh generation.
+    }
+
+    if (!packet) {
+      return err(
+        "I couldn't read your goals well enough to design the curriculum.",
+      );
+    }
+    const attempts = attemptsBase + 1;
+    let design: CurriculumDesignerOutput;
+    try {
+      design = await designCurriculum({
+        packet,
+        transcript,
+        options: {
+          onPartial: partialSink("curriculum"),
+          seedPartial: seedFor(curriculumRecord) as
+            | Partial<CurriculumDesignerOutput>
+            | undefined,
+        },
+      });
+    } catch (error) {
+      await recordArtifact(
+        "curriculum",
+        "failed",
+        partialOf(error) ?? curriculumRecord?.payload ?? null,
+        failureKindOf(error),
+        attempts,
+      );
+      return err(
+        messageFrom(
+          error,
+          "I couldn't design the curriculum. Want to try again?",
+        ),
+      );
+    }
+
+    try {
+      await persistDesign(design);
+      await recordArtifact("curriculum", "complete", design, null, attempts);
+      setStep("curriculum", "done");
+      emit();
+      return ok(true);
+    } catch (error) {
+      // AI succeeded but the write failed — keep the output for a zero-token re-save.
+      await recordArtifact(
+        "curriculum",
+        "generated_pending_save",
+        design,
+        "save",
+        attempts,
+      );
+      return err(
+        messageFrom(
+          error,
+          "I built the curriculum but couldn't save it. Want to try again?",
+        ),
+      );
+    }
+  };
+
+  // 4 — overview (OPTIONAL/best-effort): a failure becomes a "gap", never sinks the build.
+  const runOverview = async (): Promise<boolean> => {
+    setStep("overview", "active");
+    emit();
+    const action = decide(overviewRecord);
+    const attemptsBase = overviewRecord?.attempts ?? 0;
+
+    if (action === "skip") {
+      setStep("overview", "done");
+      emit();
+      return true;
+    }
+
+    if (action === "save_only") {
+      const cached = ProjectOverviewOutputSchema.safeParse(
+        overviewRecord?.payload,
+      );
+      if (cached.success) {
+        try {
+          await deps.persistOverview({ sessionId, overview: cached.data });
+          await recordArtifact(
+            "overview",
+            "complete",
+            cached.data,
+            null,
+            attemptsBase,
+          );
+          setStep("overview", "done");
+          emit();
+          return true;
+        } catch {
+          await recordArtifact(
+            "overview",
+            "generated_pending_save",
+            cached.data,
+            "save",
+            attemptsBase,
+          );
+          setStep("overview", "done");
+          emit();
+          return false;
+        }
+      }
+    }
+
+    if (!packet) {
+      setStep("overview", "done");
+      emit();
+      return false;
+    }
+    const attempts = attemptsBase + 1;
+    let overview: ProjectOverviewOutput;
+    try {
+      overview = await designProjectOverview({
+        packet,
+        transcript,
+        options: {
+          onPartial: partialSink("overview"),
+          seedPartial: seedFor(overviewRecord) as
+            | Partial<ProjectOverviewOutput>
+            | undefined,
+        },
+      });
+    } catch (error) {
+      await recordArtifact(
+        "overview",
+        "failed",
+        partialOf(error) ?? overviewRecord?.payload ?? null,
+        failureKindOf(error),
+        attempts,
+      );
+      console.error("[build-project] overview failed; completing with a gap:", {
+        sessionId,
+        error,
+      });
+      setStep("overview", "done");
+      emit();
+      return false;
+    }
+
+    try {
+      await deps.persistOverview({ sessionId, overview });
+      await recordArtifact("overview", "complete", overview, null, attempts);
+      setStep("overview", "done");
+      emit();
+      return true;
+    } catch {
+      await recordArtifact(
+        "overview",
+        "generated_pending_save",
+        overview,
+        "save",
+        attempts,
+      );
+      setStep("overview", "done");
+      emit();
+      return false;
+    }
+  };
+
+  const [curriculumResult, overviewOk] = await Promise.all([
+    runCurriculum(),
+    runOverview(),
+  ]);
+
+  if (!curriculumResult.success) {
+    return fail(curriculumResult.error);
+  }
+
+  // 5 — save/finalize: flip the plan active + complete the session.
+  setStep("save", "active");
+  emit();
+  let plan: CurriculumPlan | null;
+  try {
+    plan = await deps.finalize({ sessionId, planId });
+  } catch {
+    // finalize failed: only trust an *already-active* plan (a prior attempt may
+    // have flipped it). getActivePlan returns a profile-linked shell even while
+    // its status is still "generating", so gate on the live status — otherwise a
+    // failed finalize reports success on a half-built plan that never goes
+    // active. On a still-generating shell we fail and let a resume re-run finalize.
+    plan = await deps
+      .getPlanRow(sessionId)
+      .then((row) =>
+        row?.status === "active" ? deps.getActivePlan(sessionId) : null,
+      )
+      .catch(() => null);
   }
   if (!plan) {
-    return fail("I built the curriculum but couldn't save it. Want to try again?");
+    return fail(
+      "I built the curriculum but couldn't save it. Want to try again?",
+    );
   }
   setStep("save", "done");
 
+  const gaps: ProjectBuildGap[] = overviewOk ? [] : ["overview"];
   state.phase = "complete";
   state.projectName = plan.title || projectName;
   state.moduleCount = countModules(plan);
-  state.sessionId = sessionId;
+  state.modules = plan.nodes
+    .filter((node) => node.kind === "unit" || node.kind === "integration")
+    .map((node) => node.title);
   state.planId = plan.id;
   state.firstUnitId = plan.nextUnitId;
   state.targetIdentity = plan.targetIdentity;
+  state.gaps = gaps.length > 0 ? gaps : undefined;
   emit();
   await updateRun("complete");
 
@@ -551,5 +844,6 @@ export const buildProjectFromOnboarding = async ({
     moduleCount: state.moduleCount,
     firstUnitId: plan.nextUnitId,
     targetIdentity: plan.targetIdentity,
+    gaps: gaps.length > 0 ? gaps : undefined,
   });
 };

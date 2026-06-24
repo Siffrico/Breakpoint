@@ -1,10 +1,13 @@
-import { NoObjectGeneratedError, Output, stepCountIs, streamText } from "ai";
-
-import type { OnboardingPacket, OnboardingTranscript } from "./contracts";
-import {
-  getSearchToolsForSelectedProvider,
-  requireAiModelForPurpose,
-} from "../engine/model-router";
+import type {
+  ArtifactResumeOptions,
+  ContinuationConfig,
+} from "../orchestration/agent-runtime";
+import type {
+  OnboardingPacket,
+  OnboardingTranscript,
+  ProjectOverviewOutput,
+} from "./contracts";
+import { runResilientAgent } from "../orchestration/agent-runtime";
 import { ProjectOverviewOutputSchema } from "./contracts";
 
 const PROJECT_OVERVIEW_SYSTEM = `You are Breakpoint's project-overview architect.
@@ -42,16 +45,39 @@ Search policy:
 - Search before grounding the overview in external facts, field norms, tools, projects, or examples you have not verified.
 - Do not guess when a quick search would remove uncertainty.`;
 
-const MAX_EMPTY_RESPONSE_RETRIES = 2;
-const MAX_CONTINUATION_ATTEMPTS = 2;
+/**
+ * The overview is the one build artifact with a long-form, append-able field
+ * (the markdown `body`), so it supplies a continuation config: on a truncated
+ * generation the runner seeds the captured partial and asks the model to finish
+ * it, then merges the two bodies. Structured agents (packet, curriculum) have no
+ * such config and fall back to a restart. See {@link runResilientAgent}.
+ */
+const OVERVIEW_CONTINUATION: ContinuationConfig<ProjectOverviewOutput> = {
+  buildPrompt: (basePrompt, partial) =>
+    buildContinuationPrompt({
+      basePrompt,
+      partialTitle: partial.title,
+      partialSummary: partial.summary,
+      partialBody: (partial.body ?? "").trim(),
+    }),
+  merge: (partial, output) => {
+    const partialBody = partial.body ?? "";
+    if (partialBody.length > output.body.length) {
+      return { ...output, body: mergeOverviewBodies(partialBody, output.body) };
+    }
+    return output;
+  },
+};
 
 export const designProjectOverview = async ({
   packet,
   transcript,
+  options,
 }: {
   packet: OnboardingPacket;
   transcript: OnboardingTranscript;
-}) => {
+  options?: ArtifactResumeOptions<ProjectOverviewOutput>;
+}): Promise<ProjectOverviewOutput> => {
   const basePrompt = `Create the learner's project overview.
 
 This overview is generated once when the project is created, in parallel with the curriculum designer. Use the same onboarding context the curriculum designer receives, but do not output a curriculum. Output the mental map that makes the curriculum easier to keep up with.
@@ -82,112 +108,16 @@ ${formatOnboardingPacket(packet)}
 Transcript:
 ${formatOnboardingTranscript(transcript)}`;
 
-  let partial: { title?: string; summary?: string; body?: string } = {};
-  let emptyResponseRetries = 0;
-  let continuationAttempts = 0;
-  let prompt = basePrompt;
-
-  while (true) {
-    try {
-      const output = await runProjectOverviewPrompt({
-        prompt,
-        onPartial: (nextPartial) => {
-          partial = {
-            title:
-              typeof nextPartial.title === "string"
-                ? nextPartial.title
-                : partial.title,
-            summary:
-              typeof nextPartial.summary === "string"
-                ? nextPartial.summary
-                : partial.summary,
-            body:
-              typeof nextPartial.body === "string"
-                ? nextPartial.body
-                : partial.body,
-          };
-        },
-      });
-
-      if (partial.body && partial.body.length > output.body.length) {
-        return {
-          ...output,
-          body: mergeOverviewBodies(partial.body, output.body),
-        };
-      }
-
-      return output;
-    } catch (error) {
-      const generatedText = NoObjectGeneratedError.isInstance(error)
-        ? error.text
-        : null;
-      const partialBody = partial.body?.trim() ?? "";
-      const hasPartialResponse =
-        partialBody.length > 0 || Boolean(generatedText?.trim());
-
-      if (
-        !hasPartialResponse &&
-        emptyResponseRetries < MAX_EMPTY_RESPONSE_RETRIES
-      ) {
-        emptyResponseRetries += 1;
-        continue;
-      }
-
-      if (
-        partialBody.length > 0 &&
-        continuationAttempts < MAX_CONTINUATION_ATTEMPTS
-      ) {
-        continuationAttempts += 1;
-        prompt = buildContinuationPrompt({
-          basePrompt,
-          partialTitle: partial.title,
-          partialSummary: partial.summary,
-          partialBody,
-        });
-        continue;
-      }
-
-      throw new Error(
-        error instanceof Error && error.message
-          ? `Failed to generate the project overview. ${error.message}`
-          : "Failed to generate the project overview.",
-      );
-    }
-  }
-};
-
-const runProjectOverviewPrompt = async ({
-  prompt,
-  onPartial,
-}: {
-  prompt: string;
-  onPartial: (partial: {
-    title?: unknown;
-    summary?: unknown;
-    body?: unknown;
-  }) => void;
-}) => {
-  const model = requireAiModelForPurpose(
-    "projectOverview",
-    "AI-generated training workflows",
-  );
-  const result = streamText({
-    model,
-    output: Output.object({
-      schema: ProjectOverviewOutputSchema,
-      name: "projectOverview_output",
-    }),
+  return runResilientAgent({
+    agent: "projectOverview",
     system: PROJECT_OVERVIEW_SYSTEM,
-    prompt,
-    tools: getSearchToolsForSelectedProvider("projectOverview"),
-    stopWhen: stepCountIs(4),
+    schema: ProjectOverviewOutputSchema,
+    errorMessage: "Failed to generate the project overview.",
+    prompt: basePrompt,
+    continuation: OVERVIEW_CONTINUATION,
+    onPartial: options?.onPartial,
+    seedPartial: options?.seedPartial,
   });
-
-  for await (const partial of result.partialOutputStream) {
-    onPartial(partial);
-  }
-
-  return result.output;
 };
 
 const buildContinuationPrompt = ({

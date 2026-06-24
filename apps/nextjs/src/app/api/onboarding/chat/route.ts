@@ -1,7 +1,10 @@
 import type { NextRequest } from "next/server";
 import type { UIMessage } from "ai";
 
-import { streamOnboardingChat } from "@acme/api/onboarding-chat";
+import {
+  streamOnboardingChat,
+  streamProjectBuildResume,
+} from "@acme/api/onboarding-chat";
 import { db } from "@acme/db/client";
 import { AiModelPreferenceSchema } from "@acme/validators";
 
@@ -20,6 +23,8 @@ interface ChatRequestBody {
   model?: string;
   messages?: UIMessage[];
   sessionId?: string;
+  /** When true, replay the project build into the card instead of a chat turn. */
+  resumeBuild?: boolean;
 }
 
 const AI_MODEL_COOKIE = "bp-ai-model";
@@ -47,7 +52,22 @@ export const POST = async (req: NextRequest) => {
   }
 
   const { sessionId, messages } = body;
-  if (!sessionId || typeof sessionId !== "string" || !Array.isArray(messages)) {
+  if (!sessionId || typeof sessionId !== "string") {
+    return new Response("Invalid request body", { status: 400 });
+  }
+
+  // Resume replays the deterministic build into the existing build card; it
+  // needs only the session, not the chat transcript the model turn requires.
+  if (body.resumeBuild) {
+    return streamProjectBuildResume({
+      db,
+      sessionId,
+      userId,
+      modelName: resolveModelPreference(req, body.model),
+    });
+  }
+
+  if (!Array.isArray(messages)) {
     return new Response("Invalid request body", { status: 400 });
   }
 

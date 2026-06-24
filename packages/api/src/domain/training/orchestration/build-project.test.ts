@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
   CurriculumDesignerOutput,
@@ -6,24 +6,50 @@ import type {
   ProjectOverviewOutput,
 } from "../agents/contracts";
 import type { CurriculumPlan } from "../types/training.types";
-import type { BuildProjectDeps, ProjectBuildState } from "./build-project";
+import type {
+  BuildProjectDeps,
+  ProjectBuildArtifactRecord,
+  ProjectBuildState,
+} from "./build-project";
+import { designCurriculum } from "../agents/curriculum-designer";
+import { designProjectOverview } from "../agents/project-overview";
+import { ArtifactBuildError } from "./agent-runtime";
 import { buildProjectFromOnboarding } from "./build-project";
+import { createOnboardingPacket } from "./onboarding-flow";
 
-// The overview agent is invoked directly (not injected), so a failing-overview
-// test mocks the module. Tests that cache the overview checkpoint never reach it.
+// The build artifacts' agents are imported directly (not injected), so we mock
+// the three entry points and drive each test's behaviour through them.
+vi.mock("./onboarding-flow", () => ({ createOnboardingPacket: vi.fn() }));
+vi.mock("../agents/curriculum-designer", () => ({ designCurriculum: vi.fn() }));
 vi.mock("../agents/project-overview", () => ({
-  designProjectOverview: vi.fn(() =>
-    Promise.reject(new Error("overview model failed")),
-  ),
+  designProjectOverview: vi.fn(),
 }));
 
-type ClaimRunResult = Awaited<ReturnType<BuildProjectDeps["claimRun"]>>;
+const mockPacket = vi.mocked(createOnboardingPacket);
+const mockCurriculum = vi.mocked(designCurriculum);
+const mockOverview = vi.mocked(designProjectOverview);
+
+const UNEXPECTED = (name: string) => () =>
+  Promise.reject(new Error(`unexpected agent call: ${name}`));
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  // Default: any agent call is a test failure unless explicitly allowed.
+  mockPacket.mockImplementation(UNEXPECTED("packet"));
+  mockCurriculum.mockImplementation(UNEXPECTED("curriculum"));
+  mockOverview.mockImplementation(UNEXPECTED("overview"));
+});
 
 const input = {
   projectName: "distributed systems",
   targetIdentity: "backend engineer",
   summary: "Build reliable replicated services.",
 };
+const sourceKey = JSON.stringify({
+  projectName: "distributed-systems",
+  targetIdentity: input.targetIdentity,
+  summary: input.summary,
+});
 
 const transcript = [
   {
@@ -148,9 +174,108 @@ const plan: CurriculumPlan = {
   nextUnitId: "unit-id",
 };
 
+/**
+ * In-memory deps with an artifact registry + plan-status store, so a single
+ * test can simulate a resume across two build calls.
+ */
+const makeDeps = (
+  opts: {
+    artifacts?: ProjectBuildArtifactRecord[];
+    artifactsSourceKey?: string;
+    planStatus?: string | null;
+    claim?: Awaited<ReturnType<BuildProjectDeps["claimRun"]>>;
+    persistCurriculum?: BuildProjectDeps["persistCurriculum"];
+    persistOverview?: BuildProjectDeps["persistOverview"];
+  } = {},
+) => {
+  const store = new Map<
+    string,
+    ProjectBuildArtifactRecord & { sourceKey: string }
+  >();
+  const seedSourceKey = opts.artifactsSourceKey ?? sourceKey;
+  for (const record of opts.artifacts ?? []) {
+    store.set(record.step, { ...record, sourceKey: seedSourceKey });
+  }
+  const planState: { exists: boolean; status: string | null } = {
+    exists: opts.planStatus != null,
+    status: opts.planStatus ?? null,
+  };
+  const updateRunCalls: { status: string }[] = [];
+  const saveArtifact = vi.fn<BuildProjectDeps["saveArtifact"]>((payload) => {
+    store.set(payload.step, {
+      step: payload.step,
+      sourceKey: payload.sourceKey,
+      status: payload.status,
+      attempts: payload.attempts ?? store.get(payload.step)?.attempts ?? 0,
+      failureKind: payload.failureKind ?? null,
+      payload: payload.payload,
+    });
+    return Promise.resolve(null);
+  });
+
+  const deps: BuildProjectDeps = {
+    getPlanRow: vi.fn<BuildProjectDeps["getPlanRow"]>(() =>
+      Promise.resolve(
+        planState.exists
+          ? {
+              id: "plan-id",
+              status: planState.status ?? "generating",
+              profileVersionId: null,
+            }
+          : null,
+      ),
+    ),
+    getActivePlan: vi.fn<BuildProjectDeps["getActivePlan"]>(() =>
+      Promise.resolve(planState.status === "active" ? plan : null),
+    ),
+    claimRun: vi.fn<BuildProjectDeps["claimRun"]>(() =>
+      Promise.resolve(opts.claim ?? { status: "claimed" }),
+    ),
+    updateRun: vi.fn<BuildProjectDeps["updateRun"]>((payload) => {
+      updateRunCalls.push({ status: payload.payload.status });
+      return Promise.resolve(null);
+    }),
+    getArtifacts: vi.fn<BuildProjectDeps["getArtifacts"]>((payload) =>
+      Promise.resolve(
+        [...store.values()]
+          .filter((record) => record.sourceKey === payload.sourceKey)
+          .map(({ sourceKey: _sourceKey, ...record }) => record),
+      ),
+    ),
+    saveArtifact,
+    ensureShell: vi.fn<BuildProjectDeps["ensureShell"]>(() => {
+      planState.exists = true;
+      planState.status ??= "generating";
+      return Promise.resolve({ id: "plan-id" });
+    }),
+    persistCurriculum:
+      opts.persistCurriculum ??
+      vi.fn<BuildProjectDeps["persistCurriculum"]>(() => Promise.resolve()),
+    persistOverview:
+      opts.persistOverview ??
+      vi.fn<BuildProjectDeps["persistOverview"]>(() => Promise.resolve()),
+    finalize: vi.fn<BuildProjectDeps["finalize"]>(() => {
+      planState.status = "active";
+      return Promise.resolve(plan);
+    }),
+  };
+
+  return { deps, store, updateRunCalls };
+};
+
+const run = (deps: BuildProjectDeps, onProgress = vi.fn()) =>
+  buildProjectFromOnboarding({
+    sessionId: "session-id",
+    userId: "user-id",
+    transcript,
+    input,
+    deps,
+    onProgress,
+  });
+
 describe("buildProjectFromOnboarding", () => {
-  it("does not generate or save while a build is already running", async () => {
-    const processingRun: ClaimRunResult = {
+  it("does not generate or persist while a build is already running", async () => {
+    const processing: Awaited<ReturnType<BuildProjectDeps["claimRun"]>> = {
       status: "processing",
       state: {
         phase: "building",
@@ -161,134 +286,317 @@ describe("buildProjectFromOnboarding", () => {
         sessionId: "session-id",
       } satisfies ProjectBuildState,
     };
-    const getCheckpoint = vi.fn<BuildProjectDeps["getCheckpoint"]>(() => {
-      throw new Error("should not read checkpoints");
-    });
-    const persistProject = vi.fn<BuildProjectDeps["persistProject"]>(() => {
-      throw new Error("should not save");
-    });
+    const { deps } = makeDeps({ claim: processing });
 
-    const deps: BuildProjectDeps = {
-      getActivePlan: vi.fn<BuildProjectDeps["getActivePlan"]>(() =>
-        Promise.resolve(null),
-      ),
-      claimRun: vi.fn<BuildProjectDeps["claimRun"]>(() =>
-        Promise.resolve(processingRun),
-      ),
-      updateRun: vi.fn<BuildProjectDeps["updateRun"]>(() =>
-        Promise.resolve(null),
-      ),
-      getCheckpoint,
-      saveCheckpoint: vi.fn<BuildProjectDeps["saveCheckpoint"]>(() =>
-        Promise.resolve(null),
-      ),
-      persistProject,
-    };
-
-    const result = await buildProjectFromOnboarding({
-      sessionId: "session-id",
-      userId: "user-id",
-      transcript,
-      input,
-      deps,
-      onProgress: vi.fn(),
-    });
+    const result = await run(deps);
 
     expect(result.success).toBe(false);
-    expect(getCheckpoint).not.toHaveBeenCalled();
-    expect(persistProject).not.toHaveBeenCalled();
+    expect(deps.ensureShell).not.toHaveBeenCalled();
+    expect(mockPacket).not.toHaveBeenCalled();
+    expect(mockCurriculum).not.toHaveBeenCalled();
   });
 
-  it("resumes from cached generated artifacts and persists without rerunning AI", async () => {
-    const claimedRun: ClaimRunResult = { status: "claimed" };
-    const updateRun = vi.fn<BuildProjectDeps["updateRun"]>(() =>
-      Promise.resolve(null),
+  it("creates the plan shell and emits planId before any AI runs", async () => {
+    mockPacket.mockResolvedValue(packet);
+    mockCurriculum.mockResolvedValue(curriculum);
+    mockOverview.mockResolvedValue(overview);
+    const onProgress = vi.fn<(state: ProjectBuildState) => void>();
+    const { deps } = makeDeps();
+
+    const result = await run(deps, onProgress);
+
+    expect(result.success).toBe(true);
+    expect(deps.ensureShell).toHaveBeenCalledOnce();
+    // A snapshot carries the planId while goals/curriculum are still pending,
+    // i.e. the shell exists before the agents finish.
+    const earlyShellEmit = onProgress.mock.calls.find(
+      ([state]) =>
+        state.planId === "plan-id" &&
+        state.steps.find((s) => s.id === "goals")?.status !== "done",
     );
-    const saveCheckpoint = vi.fn<BuildProjectDeps["saveCheckpoint"]>(() => {
-      throw new Error("should not rewrite cached artifacts");
+    expect(earlyShellEmit).toBeDefined();
+  });
+
+  it("completes a fresh build end to end with no gaps", async () => {
+    mockPacket.mockResolvedValue(packet);
+    mockCurriculum.mockResolvedValue(curriculum);
+    mockOverview.mockResolvedValue(overview);
+    const { deps, updateRunCalls } = makeDeps();
+
+    const result = await run(deps);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.planId).toBe("plan-id");
+      expect(result.data.gaps).toBeUndefined();
+    }
+    expect(deps.persistCurriculum).toHaveBeenCalledOnce();
+    expect(deps.persistOverview).toHaveBeenCalledOnce();
+    expect(deps.finalize).toHaveBeenCalledOnce();
+    expect(updateRunCalls.at(-1)?.status).toBe("complete");
+  });
+
+  it("re-saves a generated_pending_save curriculum with zero agent calls", async () => {
+    const persistCurriculum = vi.fn<BuildProjectDeps["persistCurriculum"]>(() =>
+      Promise.resolve(),
+    );
+    const { deps, store } = makeDeps({
+      planStatus: "generating",
+      persistCurriculum,
+      artifacts: [
+        {
+          step: "goals",
+          status: "complete",
+          attempts: 1,
+          failureKind: null,
+          payload: packet,
+        },
+        {
+          step: "curriculum",
+          status: "generated_pending_save",
+          attempts: 1,
+          failureKind: "save",
+          payload: curriculum,
+        },
+        {
+          step: "overview",
+          status: "complete",
+          attempts: 1,
+          failureKind: null,
+          payload: overview,
+        },
+      ],
     });
-    const persistProject = vi.fn<BuildProjectDeps["persistProject"]>(() =>
+
+    const result = await run(deps);
+
+    expect(result.success).toBe(true);
+    // The whole point of save_only: no model is invoked.
+    expect(mockPacket).not.toHaveBeenCalled();
+    expect(mockCurriculum).not.toHaveBeenCalled();
+    expect(mockOverview).not.toHaveBeenCalled();
+    expect(persistCurriculum).toHaveBeenCalledOnce();
+    expect(store.get("curriculum")?.status).toBe("complete");
+  });
+
+  it("completes with an overview gap when the overview agent fails", async () => {
+    mockPacket.mockResolvedValue(packet);
+    mockCurriculum.mockResolvedValue(curriculum);
+    mockOverview.mockRejectedValue(
+      new ArtifactBuildError("overview model failed", "provider"),
+    );
+    const { deps, store } = makeDeps();
+
+    const result = await run(deps);
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.gaps).toEqual(["overview"]);
+    }
+    expect(deps.persistCurriculum).toHaveBeenCalledOnce();
+    expect(deps.persistOverview).not.toHaveBeenCalled();
+    expect(store.get("overview")?.status).toBe("failed");
+    expect(store.get("overview")?.failureKind).toBe("provider");
+  });
+
+  it("fails resumably on curriculum error, keeping the shell + packet checkpoint", async () => {
+    mockPacket.mockResolvedValue(packet);
+    mockCurriculum.mockRejectedValue(
+      new ArtifactBuildError("curriculum schema invalid", "schema"),
+    );
+    const { deps, store, updateRunCalls } = makeDeps();
+
+    const result = await run(deps);
+
+    expect(result.success).toBe(false);
+    expect(deps.ensureShell).toHaveBeenCalledOnce();
+    expect(deps.persistCurriculum).not.toHaveBeenCalled();
+    expect(store.get("goals")?.status).toBe("complete");
+    expect(store.get("curriculum")?.status).toBe("failed");
+    expect(store.get("curriculum")?.failureKind).toBe("schema");
+    expect(updateRunCalls.at(-1)?.status).toBe("error");
+  });
+
+  it("short-circuits to complete for a fully-built active plan", async () => {
+    const { deps } = makeDeps({ planStatus: "active" });
+
+    const result = await run(deps);
+
+    expect(result.success).toBe(true);
+    expect(deps.ensureShell).not.toHaveBeenCalled();
+    expect(mockCurriculum).not.toHaveBeenCalled();
+    expect(deps.finalize).not.toHaveBeenCalled();
+  });
+
+  it("regenerates only the overview when an active plan still has a gap", async () => {
+    mockOverview.mockResolvedValue(overview);
+    const { deps, store } = makeDeps({
+      planStatus: "active",
+      artifacts: [
+        {
+          step: "goals",
+          status: "complete",
+          attempts: 1,
+          failureKind: null,
+          payload: packet,
+        },
+        {
+          step: "curriculum",
+          status: "complete",
+          attempts: 1,
+          failureKind: null,
+          payload: curriculum,
+        },
+        {
+          step: "overview",
+          status: "failed",
+          attempts: 1,
+          failureKind: "provider",
+          payload: null,
+        },
+      ],
+    });
+
+    const result = await run(deps);
+
+    expect(result.success).toBe(true);
+    // Curriculum is complete → skipped (no model, no re-persist); only overview runs.
+    expect(mockPacket).not.toHaveBeenCalled();
+    expect(mockCurriculum).not.toHaveBeenCalled();
+    expect(mockOverview).toHaveBeenCalledOnce();
+    expect(deps.persistOverview).toHaveBeenCalledOnce();
+    expect(store.get("overview")?.status).toBe("complete");
+  });
+
+  it("does not report success when finalize fails on a still-generating plan", async () => {
+    mockPacket.mockResolvedValue(packet);
+    mockCurriculum.mockResolvedValue(curriculum);
+    mockOverview.mockResolvedValue(overview);
+    const { deps, updateRunCalls } = makeDeps();
+    deps.finalize = vi.fn(() =>
+      Promise.reject(new Error("finalize failed")),
+    ) as BuildProjectDeps["finalize"];
+    // Mirror the real getActivePlan, which returns a profile-linked plan even
+    // while its status is still "generating"…
+    deps.getActivePlan = vi.fn(() =>
       Promise.resolve(plan),
-    );
-    const checkpoints: Record<string, unknown> = {
-      goals: packet,
-      curriculum,
-      overview,
-    };
-
-    const deps: BuildProjectDeps = {
-      getActivePlan: vi.fn<BuildProjectDeps["getActivePlan"]>(() =>
-        Promise.resolve(null),
-      ),
-      claimRun: vi.fn<BuildProjectDeps["claimRun"]>(() =>
-        Promise.resolve(claimedRun),
-      ),
-      updateRun,
-      getCheckpoint: vi.fn<BuildProjectDeps["getCheckpoint"]>(({ step }) => {
-        return Promise.resolve(checkpoints[step] ?? null);
+    ) as BuildProjectDeps["getActivePlan"];
+    // …while the live plan row shows finalize never flipped it active.
+    deps.getPlanRow = vi.fn(() =>
+      Promise.resolve({
+        id: "plan-id",
+        status: "generating",
+        profileVersionId: "pv-1",
       }),
-      saveCheckpoint,
-      persistProject,
-    };
+    ) as BuildProjectDeps["getPlanRow"];
 
-    const result = await buildProjectFromOnboarding({
-      sessionId: "session-id",
-      userId: "user-id",
-      transcript,
-      input,
-      deps,
-      onProgress: vi.fn(),
-    });
+    const result = await run(deps);
 
-    expect(result.success).toBe(true);
-    expect(persistProject).toHaveBeenCalledOnce();
-    expect(saveCheckpoint).not.toHaveBeenCalled();
-    expect(updateRun.mock.calls.at(-1)?.[0].payload.status).toBe("complete");
+    expect(result.success).toBe(false);
+    expect(updateRunCalls.at(-1)?.status).toBe("error");
   });
 
-  it("saves the curriculum with a null overview when the overview agent fails", async () => {
-    const claimedRun: ClaimRunResult = { status: "claimed" };
-    const updateRun = vi.fn<BuildProjectDeps["updateRun"]>(() =>
-      Promise.resolve(null),
-    );
-    let persistedOverview: unknown = "unset";
-    const persistProject = vi.fn<BuildProjectDeps["persistProject"]>((args) => {
-      persistedOverview = args.blueprint.overview;
-      return Promise.resolve(plan);
-    });
-    // Overview is intentionally absent → the (mocked, rejecting) agent runs;
-    // goals + curriculum are cached so no other AI is invoked.
-    const checkpoints: Record<string, unknown> = { goals: packet, curriculum };
+  it("completes when finalize throws but the plan is already active", async () => {
+    mockPacket.mockResolvedValue(packet);
+    mockCurriculum.mockResolvedValue(curriculum);
+    mockOverview.mockResolvedValue(overview);
+    const { deps, updateRunCalls } = makeDeps();
+    deps.finalize = vi.fn(() =>
+      Promise.reject(new Error("finalize read failed")),
+    ) as BuildProjectDeps["finalize"];
+    deps.getActivePlan = vi.fn(() =>
+      Promise.resolve(plan),
+    ) as BuildProjectDeps["getActivePlan"];
+    // Generating during the early idempotency check (so the build runs), then
+    // active by the time the catch re-reads it (a prior attempt flipped it).
+    deps.getPlanRow = vi
+      .fn()
+      .mockResolvedValueOnce({
+        id: "plan-id",
+        status: "generating",
+        profileVersionId: null,
+      })
+      .mockResolvedValue({
+        id: "plan-id",
+        status: "active",
+        profileVersionId: "pv-1",
+      }) as BuildProjectDeps["getPlanRow"];
 
-    const deps: BuildProjectDeps = {
-      getActivePlan: vi.fn<BuildProjectDeps["getActivePlan"]>(() =>
-        Promise.resolve(null),
-      ),
-      claimRun: vi.fn<BuildProjectDeps["claimRun"]>(() =>
-        Promise.resolve(claimedRun),
-      ),
-      updateRun,
-      getCheckpoint: vi.fn<BuildProjectDeps["getCheckpoint"]>(({ step }) =>
-        Promise.resolve(checkpoints[step] ?? null),
-      ),
-      saveCheckpoint: vi.fn<BuildProjectDeps["saveCheckpoint"]>(() =>
-        Promise.resolve(null),
-      ),
-      persistProject,
-    };
-
-    const result = await buildProjectFromOnboarding({
-      sessionId: "session-id",
-      userId: "user-id",
-      transcript,
-      input,
-      deps,
-      onProgress: vi.fn(),
-    });
+    const result = await run(deps);
 
     expect(result.success).toBe(true);
-    expect(persistProject).toHaveBeenCalledOnce();
-    expect(persistedOverview).toBeNull();
-    expect(updateRun.mock.calls.at(-1)?.[0].payload.status).toBe("complete");
+    expect(updateRunCalls.at(-1)?.status).toBe("complete");
+  });
+
+  it("flushes an in-flight partial before stamping the terminal status", async () => {
+    mockPacket.mockResolvedValue(packet);
+    mockOverview.mockResolvedValue(overview);
+    // The curriculum agent emits one mid-stream partial, then resolves.
+    mockCurriculum.mockImplementation(({ options }) => {
+      options?.onPartial?.({});
+      return Promise.resolve(curriculum);
+    });
+
+    const { deps, store } = makeDeps();
+    const baseSave = deps.saveArtifact;
+    // Gate the "generating" partial write so it is still in flight when the
+    // terminal "complete" write wants to run — modelling an out-of-order commit.
+    let releaseGenerating!: () => void;
+    const gate = new Promise<void>((resolve) => (releaseGenerating = resolve));
+    deps.saveArtifact = vi.fn((payload) =>
+      payload.step === "curriculum" && payload.status === "generating"
+        ? gate.then(() => baseSave(payload))
+        : baseSave(payload),
+    ) as BuildProjectDeps["saveArtifact"];
+
+    const runPromise = run(deps);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // The terminal write is blocked behind the unresolved partial.
+    expect(store.get("curriculum")?.status).not.toBe("complete");
+
+    releaseGenerating();
+    const result = await runPromise;
+
+    expect(result.success).toBe(true);
+    expect(store.get("curriculum")?.status).toBe("complete");
+  });
+
+  it("does not reuse artifacts from a different source key", async () => {
+    mockPacket.mockResolvedValue(packet);
+    mockCurriculum.mockResolvedValue(curriculum);
+    mockOverview.mockResolvedValue(overview);
+    const { deps } = makeDeps({
+      artifactsSourceKey: "stale-source-key",
+      artifacts: [
+        {
+          step: "goals",
+          status: "complete",
+          attempts: 1,
+          failureKind: null,
+          payload: packet,
+        },
+        {
+          step: "curriculum",
+          status: "complete",
+          attempts: 1,
+          failureKind: null,
+          payload: curriculum,
+        },
+        {
+          step: "overview",
+          status: "complete",
+          attempts: 1,
+          failureKind: null,
+          payload: overview,
+        },
+      ],
+    });
+
+    const result = await run(deps);
+
+    expect(result.success).toBe(true);
+    expect(mockPacket).toHaveBeenCalledOnce();
+    expect(mockCurriculum).toHaveBeenCalledOnce();
+    expect(mockOverview).toHaveBeenCalledOnce();
   });
 });

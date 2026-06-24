@@ -6,6 +6,7 @@ import {
   CheckCircle,
   Circle,
   CircleNotch,
+  Warning,
 } from "@phosphor-icons/react";
 
 import type {
@@ -49,15 +50,18 @@ export function ProjectBuildCard({
   onStartLearning,
   onSeeOverview,
   onRetry,
+  onRegenerateOverview,
 }: {
   state: ProjectBuildState;
   preview?: boolean;
   onStartLearning: () => void;
   onSeeOverview: () => void;
   onRetry?: () => void;
+  onRegenerateOverview?: () => void;
 }) {
   if (state.phase === "complete") {
     const moduleLabel = state.moduleCount === 1 ? "module" : "modules";
+    const overviewMissing = state.gaps?.includes("overview") ?? false;
     return (
       <div className="border-border bg-card animate-in fade-in zoom-in-95 mt-2 w-full max-w-[68ch] rounded-2xl border px-5 py-5 duration-500">
         <div className="text-muted-foreground flex items-center gap-1.5 text-[11px] tracking-wide uppercase">
@@ -77,6 +81,29 @@ export function ProjectBuildCard({
             </>
           ) : null}
         </div>
+        {overviewMissing ? (
+          <div className="border-border/60 bg-muted/40 text-muted-foreground mt-4 flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-[13px]">
+            <span className="flex items-center gap-2 leading-6">
+              <Warning
+                size={14}
+                weight="fill"
+                className="text-foreground/50 shrink-0"
+              />
+              Overview unavailable — the rest of your project is ready.
+            </span>
+            {onRegenerateOverview ? (
+              <button
+                type="button"
+                onClick={onRegenerateOverview}
+                disabled={preview}
+                className="hover:bg-foreground/5 inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium disabled:opacity-50"
+              >
+                <ArrowClockwise size={11} weight="bold" />
+                Regenerate
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <Button
             type="button"
@@ -91,7 +118,7 @@ export function ProjectBuildCard({
             type="button"
             variant="ghost"
             size="sm"
-            disabled={preview || !state.sessionId}
+            disabled={preview || !state.sessionId || overviewMissing}
             onClick={onSeeOverview}
           >
             See overview

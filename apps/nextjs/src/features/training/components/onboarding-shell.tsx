@@ -15,10 +15,16 @@ import { useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import { ArrowClockwise, ArrowUp, Plus } from "@phosphor-icons/react";
 import { useMutation } from "@tanstack/react-query";
-import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses } from "ai";
+import {
+  DefaultChatTransport,
+  lastAssistantMessageIsCompleteWithApprovalResponses,
+} from "ai";
 
-import type { OnboardingChatUIMessage, ProjectBuildState } from "@acme/api/onboarding-chat";
 import type { RouterOutputs } from "@acme/api";
+import type {
+  OnboardingChatUIMessage,
+  ProjectBuildState,
+} from "@acme/api/onboarding-chat";
 import { Button } from "@acme/ui/button";
 import {
   ChatComposer,
@@ -46,11 +52,13 @@ const transcriptToMessages = (
   state: OnboardingState | null,
 ): OnboardingChatUIMessage[] => {
   if (!state) return [];
-  const messages: OnboardingChatUIMessage[] = state.transcript.map((message) => ({
-    id: `seed-${state.sessionId}-${message.sequence}`,
-    role: message.role,
-    parts: [{ type: "text" as const, text: message.content }],
-  }));
+  const messages: OnboardingChatUIMessage[] = state.transcript.map(
+    (message) => ({
+      id: `seed-${state.sessionId}-${message.sequence}`,
+      role: message.role,
+      parts: [{ type: "text" as const, text: message.content }],
+    }),
+  );
 
   if (state.projectBuild) {
     messages.push({
@@ -143,18 +151,6 @@ export function OnboardingShell({
       onError: (error) => toast.error(error.message),
     }),
   );
-  const resumeProjectBuild = useMutation(
-    trpc.training.resumeProjectBuild.mutationOptions({
-      onSuccess: (data) => {
-        router.replace(
-          `/workspace?session=${encodeURIComponent(data.sessionId)}`,
-        );
-        router.refresh();
-      },
-      onError: (error) => toast.error(error.message),
-    }),
-  );
-
   useEffect(() => {
     if (preview || sessionId || startedRef.current) return;
     startedRef.current = true;
@@ -445,7 +441,7 @@ export function OnboardingShell({
             <svg
               aria-hidden
               viewBox="0 0 720 150"
-              className="fill-foreground/[0.08] mb-10 h-auto w-full select-none [mask-image:linear-gradient(to_bottom,black_30%,rgba(0,0,0,0.4)_100%)]"
+              className="fill-foreground/[0.08] mb-10 h-auto w-full [mask-image:linear-gradient(to_bottom,black_30%,rgba(0,0,0,0.4)_100%)] select-none"
             >
               <text
                 x="360"
@@ -532,13 +528,22 @@ export function OnboardingShell({
                               );
                             }}
                             onRetry={() => {
+                              // A failed build resumes over the same stream so
+                              // the card ticks step-by-step in place; a build
+                              // that never started re-runs the model turn.
                               if (build.phase === "error" && build.sessionId) {
-                                resumeProjectBuild.mutate({
-                                  sessionId: build.sessionId,
+                                void regenerate({
+                                  body: { resumeBuild: true },
                                 });
                                 return;
                               }
                               void regenerate();
+                            }}
+                            onRegenerateOverview={() => {
+                              if (!build.sessionId) return;
+                              // Stream the overview regen into the existing card
+                              // — stay on the page, no redirect.
+                              void regenerate({ body: { resumeBuild: true } });
                             }}
                           />
                         );
@@ -583,14 +588,11 @@ export function OnboardingShell({
               onRetry={() => void regenerate()}
             />
           ) : null}
-
         </ChatTranscriptContent>
 
         <ChatScrollToBottom />
 
-        {!projectReady ? (
-          <ChatComposerDock>{composer}</ChatComposerDock>
-        ) : null}
+        {!projectReady ? <ChatComposerDock>{composer}</ChatComposerDock> : null}
       </ChatTranscript>
     </main>
   );
