@@ -933,7 +933,7 @@ export function EducationUnitWorkspace({
             {renderedMessages}
             <div ref={bottomRef} />
           </div>
-          <ChatComposerDock className="mt-auto pb-1">{inputZone}</ChatComposerDock>
+          <ChatComposerDock className="mt-auto pb-0">{inputZone}</ChatComposerDock>
         </div>
         {expandedOverlay}
       </>

@@ -277,13 +277,16 @@ export function WorkspaceShell({
       }
     : null;
 
-  // Mirrors t3code's outline+xs Button line-for-line (base + outline + xs),
-  // with pixel radii since our global --radius is 0 (so `rounded-md` → 0).
-  // Custom <button> so our Button base/variant (primary-flip hover, etc.)
-  // doesn't override these. Hardcoded white alphas match t3code's dark tokens
-  // (--input white/8%, bg-input/32 fill, bg-input/64 hover, white/6% bevel).
+  // Mirrors t3code's outline+xs Button line-for-line (base + outline + xs).
+  // Pixel radii because our global --radius is 0 (so `rounded-md` → 0); 8px/7px
+  // matches t3code's xs at its --radius:0.625rem (--radius-md = 8px, before = 7px).
+  // Custom <button> so our Button's `outline` variant (primary-flip hover)
+  // doesn't override these. Colors use t3code's exact semantic tokens
+  // (border-input / bg-popover+dark:bg-input/32 / hover bg-accent+dark:bg-input/64
+  // / black|white bevel) so the edges flip light↔dark identically to t3code,
+  // instead of hardcoding the dark-only white alphas.
   const headerActionClass =
-    "relative inline-flex h-7 shrink-0 cursor-pointer items-center justify-center gap-1 whitespace-nowrap rounded-[6px] border border-white/[0.08] bg-white/[0.025] px-3 text-sm font-medium text-foreground shadow-xs/5 outline-none transition-shadow before:pointer-events-none before:absolute before:inset-0 before:rounded-[5px] before:shadow-[0_-1px_--theme(--color-white/6%)] hover:bg-white/[0.05] focus-visible:ring-2 focus-visible:ring-foreground/20 disabled:pointer-events-none disabled:opacity-64 disabled:shadow-none [&_svg]:pointer-events-none [&_svg]:-mx-0.5 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:opacity-80 [&_svg]:text-muted-foreground";
+    "relative inline-flex h-7 shrink-0 cursor-pointer items-center justify-center gap-1 whitespace-nowrap rounded-[8px] border border-input bg-popover not-dark:bg-clip-padding px-3 text-sm font-medium text-foreground shadow-xs/5 outline-none transition-shadow before:pointer-events-none before:absolute before:inset-0 before:rounded-[7px] not-disabled:not-active:before:shadow-[0_1px_--theme(--color-black/4%)] dark:bg-input/32 dark:not-disabled:before:shadow-[0_-1px_--theme(--color-white/2%)] dark:not-disabled:not-active:before:shadow-[0_-1px_--theme(--color-white/6%)] hover:bg-accent/50 dark:hover:bg-input/64 focus-visible:ring-2 focus-visible:ring-foreground/20 disabled:pointer-events-none disabled:opacity-64 disabled:shadow-none active:shadow-none [&_svg]:pointer-events-none [&_svg]:-mx-0.5 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg:not([class*='opacity-'])]:opacity-80 [&_svg:not([class*='text-'])]:text-muted-foreground";
 
   return (
     <div
