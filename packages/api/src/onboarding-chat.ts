@@ -39,11 +39,13 @@ type Database = typeof databaseClient;
 // Re-exported for the client so the build card can type the streamed data part
 // without importing this server module's runtime. (Type-only imports are erased.)
 export type {
+  ProjectBuildArtifactStep,
+  ProjectBuildPhase,
   ProjectBuildState,
   ProjectBuildStep,
+  ProjectBuildStepDetail,
   ProjectBuildStepState,
   ProjectBuildStepStatus,
-  ProjectBuildPhase,
 } from "./domain/training/orchestration/build-project";
 export type { CreateProjectResult } from "./domain/training/agents/onboarding-chat-agent";
 

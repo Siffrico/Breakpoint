@@ -12,6 +12,7 @@ import type {
   OnboardingTranscriptMessage,
 } from "../types/training.types";
 import type { ArtifactFailureKind } from "./agent-runtime";
+import type { ProjectBuildArtifactPreviewInput } from "./project-build-preview";
 import { err, ok } from "../../../lib/result";
 import {
   CurriculumDesignerOutputSchema,
@@ -24,6 +25,10 @@ import { designProjectOverview } from "../agents/project-overview";
 import { isArtifactBuildError } from "./agent-runtime";
 import { buildCurriculumNodes } from "./curriculum-flow";
 import { createOnboardingPacket } from "./onboarding-flow";
+import {
+  getProjectBuildStepDetail,
+  previewProjectBuildArtifact,
+} from "./project-build-preview";
 
 /**
  * The project build is presented to the learner as a checklist. Each step is
@@ -44,12 +49,22 @@ export interface ProjectBuildStepState {
   id: ProjectBuildStep;
   label: string;
   status: ProjectBuildStepStatus;
+  detail?: ProjectBuildStepDetail;
+}
+
+export interface ProjectBuildStepDetail {
+  title: string;
+  body: string;
+  generated?: boolean;
 }
 
 export type ProjectBuildPhase = "building" | "complete" | "error";
 
 /** A required-but-missing artifact the learner can regenerate after the build. */
 export type ProjectBuildGap = "overview";
+
+/** The AI-generated artifacts that get their own registry lifecycle row. */
+export type ProjectBuildArtifactStep = "goals" | "curriculum" | "overview";
 
 /**
  * The full snapshot streamed to the client on every transition. It is emitted
@@ -93,7 +108,12 @@ const STEP_ORDER: ProjectBuildStep[] = [
 ];
 
 const initialSteps = (): ProjectBuildStepState[] =>
-  STEP_ORDER.map((id) => ({ id, label: STEP_LABELS[id], status: "pending" }));
+  STEP_ORDER.map((id) => ({
+    id,
+    label: STEP_LABELS[id],
+    status: "pending",
+    detail: getProjectBuildStepDetail(id),
+  }));
 
 /** Small input the consultant proposes; everything else is derived server-side. */
 export interface CreateProjectInput {
@@ -110,9 +130,6 @@ export type ProjectBuildReadiness =
   | { ready: false; reason: string };
 
 type ProjectBuildRunStatus = "building" | "complete" | "error";
-
-/** The AI-generated artifacts that get their own registry lifecycle row. */
-export type ProjectBuildArtifactStep = "goals" | "curriculum" | "overview";
 
 /**
  * Per-artifact lifecycle. `generated_pending_save` means the AI output is in
@@ -347,16 +364,30 @@ export const buildProjectFromOnboarding = async ({
     sessionId,
   };
 
+  const snapshotSteps = () =>
+    steps.map((step) => ({
+      ...step,
+      detail: step.detail ? { ...step.detail } : undefined,
+    }));
+
   const setStep = (id: ProjectBuildStep, status: ProjectBuildStepStatus) => {
     const step = steps.find((candidate) => candidate.id === id);
     if (step) step.status = status;
   };
   const emit = () =>
-    onProgress({ ...state, steps: steps.map((s) => ({ ...s })) });
+    onProgress({
+      ...state,
+      steps: snapshotSteps(),
+    });
+  const setArtifactDetail = (input: ProjectBuildArtifactPreviewInput) => {
+    const step = steps.find((candidate) => candidate.id === input.step);
+    if (step) step.detail = previewProjectBuildArtifact(input);
+    emit();
+  };
   const buildRunPayload = (status: ProjectBuildRunStatus, error?: string) => ({
     status,
     input,
-    state: { ...state, steps: steps.map((s) => ({ ...s })) },
+    state: { ...state, steps: snapshotSteps() },
     error,
   });
   const updateRun = (status: ProjectBuildRunStatus, error?: string) =>
@@ -407,7 +438,7 @@ export const buildProjectFromOnboarding = async ({
   // is resumable (the runner already throttles its callback to ~4s). Writes are
   // chained per step so they commit in dispatch order and stay behind the
   // terminal barrier above.
-  const partialSink =
+  const persistPartial =
     (step: ProjectBuildArtifactStep) => (partial: unknown) => {
       const next = (partialTail.get(step) ?? Promise.resolve())
         .then(() =>
@@ -423,6 +454,20 @@ export const buildProjectFromOnboarding = async ({
         .catch(() => undefined);
       partialTail.set(step, next);
     };
+  const goalsPartialSink = (partial: Partial<OnboardingPacket>) => {
+    setArtifactDetail({ step: "goals", payload: partial });
+    persistPartial("goals")(partial);
+  };
+  const curriculumPartialSink = (
+    partial: Partial<CurriculumDesignerOutput>,
+  ) => {
+    setArtifactDetail({ step: "curriculum", payload: partial });
+    persistPartial("curriculum")(partial);
+  };
+  const overviewPartialSink = (partial: Partial<ProjectOverviewOutput>) => {
+    setArtifactDetail({ step: "overview", payload: partial });
+    persistPartial("overview")(partial);
+  };
 
   emit();
 
@@ -519,17 +564,21 @@ export const buildProjectFromOnboarding = async ({
   if (needPacket) {
     if (decide(goalsRecord) === "skip") {
       const cached = OnboardingPacketSchema.safeParse(goalsRecord?.payload);
-      if (cached.success) packet = cached.data;
+      if (cached.success) {
+        packet = cached.data;
+        setArtifactDetail({ step: "goals", payload: cached.data });
+      }
     }
     if (!packet) {
       const attempts = (goalsRecord?.attempts ?? 0) + 1;
       try {
         packet = await createOnboardingPacket(transcript, {
-          onPartial: partialSink("goals"),
+          onPartial: goalsPartialSink,
           seedPartial: seedFor(goalsRecord) as
             | Partial<OnboardingPacket>
             | undefined,
         });
+        setArtifactDetail({ step: "goals", payload: packet });
         await recordArtifact("goals", "complete", packet, null, attempts);
       } catch (error) {
         await recordArtifact(
@@ -600,6 +649,7 @@ export const buildProjectFromOnboarding = async ({
       );
       if (cached.success) {
         try {
+          setArtifactDetail({ step: "curriculum", payload: cached.data });
           await persistDesign(cached.data);
           await recordArtifact(
             "curriculum",
@@ -642,12 +692,13 @@ export const buildProjectFromOnboarding = async ({
         packet,
         transcript,
         options: {
-          onPartial: partialSink("curriculum"),
+          onPartial: curriculumPartialSink,
           seedPartial: seedFor(curriculumRecord) as
             | Partial<CurriculumDesignerOutput>
             | undefined,
         },
       });
+      setArtifactDetail({ step: "curriculum", payload: design });
     } catch (error) {
       await recordArtifact(
         "curriculum",
@@ -707,6 +758,7 @@ export const buildProjectFromOnboarding = async ({
       );
       if (cached.success) {
         try {
+          setArtifactDetail({ step: "overview", payload: cached.data });
           await deps.persistOverview({ sessionId, overview: cached.data });
           await recordArtifact(
             "overview",
@@ -745,12 +797,13 @@ export const buildProjectFromOnboarding = async ({
         packet,
         transcript,
         options: {
-          onPartial: partialSink("overview"),
+          onPartial: overviewPartialSink,
           seedPartial: seedFor(overviewRecord) as
             | Partial<ProjectOverviewOutput>
             | undefined,
         },
       });
+      setArtifactDetail({ step: "overview", payload: overview });
     } catch (error) {
       await recordArtifact(
         "overview",
