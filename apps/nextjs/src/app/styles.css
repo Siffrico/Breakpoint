@@ -263,6 +263,13 @@
 
 /* Workspace — opencode-style cool darks scoped to the training shell. */
 .bp-workspace-theme {
+  /* Flat toolbar-button material (Ask / Next Unit). Flips via data-workspace-theme,
+     NOT Tailwind's `.dark`, so it stays correct in the light workspace too.
+     Dark: faint white fill + soft 1px border, no shadow. */
+  --bp-toolbar-surface: rgba(255, 255, 255, 0.035);
+  --bp-toolbar-surface-hover: rgba(255, 255, 255, 0.065);
+  --bp-toolbar-border: rgba(255, 255, 255, 0.11);
+  --bp-toolbar-shadow: none;
   /* MAIN — the page's base color (t3code dark main: neutral-950 95% + white 5%). */
   --background: #161616;
   --foreground: #eeeeee;
@@ -311,6 +318,12 @@
 }
 
 .bp-workspace-theme[data-workspace-theme="light"] {
+  /* Light: near-white surface + tiny shadow so it reads as a native toolbar
+     control, not a floating card or a bare outline. */
+  --bp-toolbar-surface: rgba(255, 255, 255, 0.9);
+  --bp-toolbar-surface-hover: rgba(0, 0, 0, 0.04);
+  --bp-toolbar-border: rgba(0, 0, 0, 0.1);
+  --bp-toolbar-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
   /* MAIN — the page's base color (off-white: a touch less bright than pure white). */
   --background: #fafafa;
   --foreground: #1f1d18;

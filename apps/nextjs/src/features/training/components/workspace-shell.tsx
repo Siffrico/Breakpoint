@@ -277,14 +277,14 @@ export function WorkspaceShell({
       }
     : null;
 
-  // Flat Mac-toolbar control (not a web CTA): no shadow, no bevel highlight —
-  // just a crisp 1px `border-border` and a button surface (`bg-popover`) only
-  // slightly raised from the header. Theme-aware tokens so light/dark match.
-  // 9px radius (squarer than a pill), icons thinned + dimmed so they read as
-  // secondary to the label. Custom <button> so our Button's `outline` variant
-  // (primary-flip hover) doesn't override these. Same h-7 size as before.
+  // Flat Mac/T3 toolbar control: a real filled *material* (subtle surface +
+  // soft border + theme-specific shadow), not a transparent bordered box.
+  // Surface/border/shadow come from --bp-toolbar-* vars (styles.css) that flip
+  // with data-workspace-theme. 9px radius, icons brighter (foreground/70 @ 85%)
+  // so they don't read as ghosted. Custom <button> so our Button's `outline`
+  // variant (primary-flip hover) doesn't override these. Same h-7 size.
   const headerActionClass =
-    "relative inline-flex h-7 shrink-0 cursor-pointer items-center justify-center gap-1 whitespace-nowrap rounded-[9px] border border-border bg-popover not-dark:bg-clip-padding px-3 text-sm font-medium text-foreground outline-none transition-colors hover:bg-accent/50 dark:hover:bg-input/64 focus-visible:ring-2 focus-visible:ring-foreground/20 disabled:pointer-events-none disabled:opacity-64 [&_svg]:pointer-events-none [&_svg]:-mx-0.5 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg:not([class*='opacity-'])]:opacity-75 [&_svg:not([class*='text-'])]:text-muted-foreground";
+    "relative inline-flex h-7 shrink-0 cursor-pointer items-center justify-center gap-1 whitespace-nowrap rounded-[9px] border border-[var(--bp-toolbar-border)] bg-[var(--bp-toolbar-surface)] bg-clip-padding px-3 text-sm font-medium text-foreground shadow-[var(--bp-toolbar-shadow)] outline-none transition-colors hover:bg-[var(--bp-toolbar-surface-hover)] focus-visible:ring-2 focus-visible:ring-foreground/20 disabled:pointer-events-none disabled:opacity-64 [&_svg]:pointer-events-none [&_svg]:-mx-0.5 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg:not([class*='opacity-'])]:opacity-85 [&_svg:not([class*='text-'])]:text-foreground/70";
 
   return (
     <div
@@ -414,7 +414,7 @@ export function WorkspaceShell({
                 className={headerActionClass}
               >
                 {advanceCompletedUnit.isPending ? "Advancing..." : "Next Unit"}
-                <ArrowRight weight="regular" />
+                <ArrowRight weight="regular" className="-ml-1" />
               </button>
             </div>
           ) : null}
