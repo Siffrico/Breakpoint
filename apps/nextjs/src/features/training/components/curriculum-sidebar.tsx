@@ -47,6 +47,27 @@ const WORKSPACE_THEME_OPTIONS: {
   { label: "Warm", value: "warm" },
 ];
 
+const WORKSPACE_MAIN_COLORS: Record<
+  WorkspaceTheme,
+  Pick<CSSProperties, "backgroundColor" | "borderColor" | "color">
+> = {
+  dark: {
+    backgroundColor: "#161616",
+    borderColor: "color-mix(in oklab, #eeeeee 10%, transparent)",
+    color: "#eeeeee",
+  },
+  light: {
+    backgroundColor: "#fafafa",
+    borderColor: "color-mix(in oklab, #1f1d18 12%, transparent)",
+    color: "#1f1d18",
+  },
+  warm: {
+    backgroundColor: "#161616",
+    borderColor: "color-mix(in oklab, #eeeeee 10%, transparent)",
+    color: "#eeeeee",
+  },
+};
+
 const SIDEBAR_FADE_STYLE = {
   WebkitMaskImage:
     "linear-gradient(90deg, rgba(0,0,0,1) 0%, rgba(0,0,0,1) calc(100% - 18px), rgba(0,0,0,0) 100%)",
@@ -234,10 +255,13 @@ function SettingsQuickMenu({
         side="top"
         align="center"
         sideOffset={8}
-        className="w-40 bg-background text-foreground"
+        style={WORKSPACE_MAIN_COLORS[workspaceTheme]}
+        className="w-40 shadow-lg"
       >
         <MenuGroup>
-          <MenuGroupLabel>Workspace theme</MenuGroupLabel>
+          <MenuGroupLabel className="text-current opacity-60">
+            Workspace theme
+          </MenuGroupLabel>
           <MenuRadioGroup
             value={workspaceTheme}
             onValueChange={(value) =>
@@ -248,16 +272,19 @@ function SettingsQuickMenu({
               <MenuRadioItem
                 key={option.value}
                 value={option.value}
-                className="data-checked:bg-primary/12 data-checked:text-primary data-highlighted:data-checked:bg-primary/16 data-highlighted:data-checked:text-primary"
+                className="text-current data-checked:bg-[color-mix(in_oklab,currentColor_12%,transparent)] data-highlighted:bg-[color-mix(in_oklab,currentColor_8%,transparent)] data-highlighted:text-current data-highlighted:data-checked:bg-[color-mix(in_oklab,currentColor_16%,transparent)]"
               >
                 {option.label}
               </MenuRadioItem>
             ))}
           </MenuRadioGroup>
         </MenuGroup>
-        <MenuSeparator />
+        <MenuSeparator className="bg-[color-mix(in_oklab,currentColor_12%,transparent)]" />
         <MenuGroup>
-          <MenuItem render={<Link href={profileHref} />}>
+          <MenuItem
+            render={<Link href={profileHref} />}
+            className="text-current data-highlighted:bg-[color-mix(in_oklab,currentColor_8%,transparent)] data-highlighted:text-current"
+          >
             <Gear size={14} aria-hidden="true" />
             All settings
           </MenuItem>

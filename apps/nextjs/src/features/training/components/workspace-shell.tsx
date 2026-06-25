@@ -277,16 +277,14 @@ export function WorkspaceShell({
       }
     : null;
 
-  // Mirrors t3code's outline+xs Button line-for-line (base + outline + xs).
-  // Pixel radii because our global --radius is 0 (so `rounded-md` → 0); 8px/7px
-  // matches t3code's xs at its --radius:0.625rem (--radius-md = 8px, before = 7px).
-  // Custom <button> so our Button's `outline` variant (primary-flip hover)
-  // doesn't override these. Colors use t3code's exact semantic tokens
-  // (border-input / bg-popover+dark:bg-input/32 / hover bg-accent+dark:bg-input/64
-  // / black|white bevel) so the edges flip light↔dark identically to t3code,
-  // instead of hardcoding the dark-only white alphas.
+  // Flat Mac-toolbar control (not a web CTA): no shadow, no bevel highlight —
+  // just a crisp 1px `border-border` and a button surface (`bg-popover`) only
+  // slightly raised from the header. Theme-aware tokens so light/dark match.
+  // 9px radius (squarer than a pill), icons thinned + dimmed so they read as
+  // secondary to the label. Custom <button> so our Button's `outline` variant
+  // (primary-flip hover) doesn't override these. Same h-7 size as before.
   const headerActionClass =
-    "relative inline-flex h-7 shrink-0 cursor-pointer items-center justify-center gap-1 whitespace-nowrap rounded-[8px] border border-input bg-popover not-dark:bg-clip-padding px-3 text-sm font-medium text-foreground shadow-xs/5 outline-none transition-shadow before:pointer-events-none before:absolute before:inset-0 before:rounded-[7px] not-disabled:not-active:before:shadow-[0_1px_--theme(--color-black/4%)] dark:bg-input/32 dark:not-disabled:before:shadow-[0_-1px_--theme(--color-white/2%)] dark:not-disabled:not-active:before:shadow-[0_-1px_--theme(--color-white/6%)] hover:bg-accent/50 dark:hover:bg-input/64 focus-visible:ring-2 focus-visible:ring-foreground/20 disabled:pointer-events-none disabled:opacity-64 disabled:shadow-none active:shadow-none [&_svg]:pointer-events-none [&_svg]:-mx-0.5 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg:not([class*='opacity-'])]:opacity-80 [&_svg:not([class*='text-'])]:text-muted-foreground";
+    "relative inline-flex h-7 shrink-0 cursor-pointer items-center justify-center gap-1 whitespace-nowrap rounded-[9px] border border-border bg-popover not-dark:bg-clip-padding px-3 text-sm font-medium text-foreground outline-none transition-colors hover:bg-accent/50 dark:hover:bg-input/64 focus-visible:ring-2 focus-visible:ring-foreground/20 disabled:pointer-events-none disabled:opacity-64 [&_svg]:pointer-events-none [&_svg]:-mx-0.5 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg:not([class*='opacity-'])]:opacity-75 [&_svg:not([class*='text-'])]:text-muted-foreground";
 
   return (
     <div
@@ -394,7 +392,7 @@ export function WorkspaceShell({
                 }
                 className={headerActionClass}
               >
-                <Lightbulb weight="fill" />
+                <Lightbulb weight="regular" />
                 Ask
               </button>
               <button
@@ -416,7 +414,7 @@ export function WorkspaceShell({
                 className={headerActionClass}
               >
                 {advanceCompletedUnit.isPending ? "Advancing..." : "Next Unit"}
-                <ArrowRight weight="bold" />
+                <ArrowRight weight="regular" />
               </button>
             </div>
           ) : null}
