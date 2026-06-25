@@ -44,6 +44,7 @@ export interface ResolvedWorkspaceTurn {
   state: WorkspaceAiState;
   node: CurriculumNode;
   unit: UnitContent;
+  unitRun: UnitRun;
   unitResponses: PhaseResponseRecord[];
 }
 
@@ -57,6 +58,66 @@ export const getNextReadyLearningNode = (nodes: CurriculumNode[]) =>
       (node.kind === "unit" || node.kind === "integration") &&
       node.status === "ready",
   ) ?? null;
+
+const isLearningUnit = <T extends Pick<CurriculumNode, "kind">>(
+  node: T | null,
+): node is T => node?.kind === "unit" || node?.kind === "integration";
+
+export type UnitAdvanceGate =
+  | { status: "locked" }
+  | { status: "enabled"; unitId: string; nextTitle: string | null };
+
+export const isUnitAwaitingAdvance = ({
+  node,
+  run,
+}: {
+  node: Pick<CurriculumNode, "kind" | "status"> | null;
+  run: UnitRun | null;
+}) =>
+  isLearningUnit(node) &&
+  node.status === "ready" &&
+  run?.currentStepId === "completed";
+
+export const assertUnitCanAdvance = ({
+  node,
+  run,
+}: {
+  node: Pick<CurriculumNode, "kind" | "status"> | null;
+  run: UnitRun | null;
+}) => {
+  if (!node || !isLearningUnit(node)) {
+    throw new Error("Unit not found.");
+  }
+  if (node.status === "completed") {
+    return;
+  }
+  if (node.status !== "ready") {
+    throw new Error("Unit is not active.");
+  }
+  if (run?.currentStepId !== "completed") {
+    throw new Error("Unit is not complete yet.");
+  }
+};
+
+export const getUnitAdvanceGate = ({
+  node,
+  run,
+  nextNode,
+}: {
+  node: CurriculumNode | null;
+  run: UnitRun | null;
+  nextNode: CurriculumNode | null;
+}): UnitAdvanceGate => {
+  if (!node || !isUnitAwaitingAdvance({ node, run })) {
+    return { status: "locked" };
+  }
+
+  return {
+    status: "enabled",
+    unitId: node.id,
+    nextTitle: nextNode?.title ?? null,
+  };
+};
 
 export const findWorkspaceTurnNode = ({
   nodes,
@@ -190,6 +251,7 @@ export const resolveWorkspaceTurn = async ({
     state: resolvedState,
     node,
     unit,
+    unitRun,
     unitResponses,
   };
 };

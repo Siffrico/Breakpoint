@@ -15,16 +15,16 @@ import type {
   WorkspaceAiState,
   WorkspaceAiTurnResult,
 } from "./types";
+import type { UnitRun } from "./workflow";
 import type { WorkspaceTurnDependencies } from "./workspace-turn";
 import { validateScenarioContractAgainstUnit } from "./evaluation-contracts";
 import { advanceUnitRun } from "./orchestrator";
+import { getWorkflowDefinition } from "./workflow";
 import {
   getWorkspaceMessageSlot,
   planNextWorkspaceTurn,
   resolveUnitRunProjection,
 } from "./workspace-turn";
-import { getWorkflowDefinition } from "./workflow";
-import type { UnitRun } from "./workflow";
 
 export interface WorkspaceTurnPersistenceDependencies
   extends Omit<WorkspaceTurnDependencies, "getActivePlan"> {
@@ -104,9 +104,7 @@ export interface WorkspaceTurnPersistenceDependencies
     growthDimensions?: string[] | null;
   }) => Promise<unknown>;
   completeNode: (nodeId: string) => Promise<CurriculumNode | null>;
-  commitEducationTurn: (
-    input: WorkspaceEducationTurnCommit,
-  ) => Promise<{
+  commitEducationTurn: (input: WorkspaceEducationTurnCommit) => Promise<{
     assistantMessage: WorkspaceAiMessage;
     nextReadyNode: CurriculumNode | null;
   }>;
@@ -178,12 +176,10 @@ export interface WorkspaceEducationTurnCommit {
   contracts: WorkspaceOutputContractCommit | null;
   phaseResponse: WorkspacePhaseResponseCommit;
   nextRun: UnitRun;
-  completion:
-    | {
-        nodeId: string;
-        attempt: Parameters<WorkspaceTurnPersistenceDependencies["saveAttempt"]>[0];
-      }
-    | null;
+  completion: {
+    nodeId: string;
+    attempt: Parameters<WorkspaceTurnPersistenceDependencies["saveAttempt"]>[0];
+  } | null;
   touchSessionId: string;
 }
 
@@ -364,40 +360,40 @@ const buildPhaseEvent = ({
   evaluationPlan?: EvaluationPlan | null;
   difficultyDirectiveReason?: string | null;
 }): WorkspacePhaseResponseCommit => ({
-    unitContentId: unit.id,
-    sessionId,
-    userId,
-    phase: "ai_education",
-    userResponse: message,
-    aiResponse: output.assistantMessage,
-    passed: nextStepId === "completed",
-    score: output.score,
-    metadata: {
-      aiEducationStage: nextStepId,
-      promptKind: runtime.promptKind,
-      modelPurpose: runtime.modelPurpose,
-      routingDecision:
-        "routingDecision" in output ? output.routingDecision : undefined,
-      evaluationSummary:
-        "evaluationSummary" in output ? output.evaluationSummary : undefined,
-      failedDimensions:
-        "failedDimensions" in output ? output.failedDimensions : undefined,
-      dimensionResults:
-        "dimensionResults" in output ? output.dimensionResults : undefined,
-      evaluationPlan:
-        "evaluationPlan" in output
-          ? (evaluationPlan ?? output.evaluationPlan)
-          : undefined,
-      attemptTiming: attemptTiming ?? undefined,
-      difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
-      estimatedItemRating: output.estimatedItemRating ?? undefined,
-      feedback: output.assistantMessage,
-      evidenceAnchors:
-        "evidenceCitations" in output
-          ? output.evidenceCitations
-          : output.strengths,
-    },
-  });
+  unitContentId: unit.id,
+  sessionId,
+  userId,
+  phase: "ai_education",
+  userResponse: message,
+  aiResponse: output.assistantMessage,
+  passed: nextStepId === "completed",
+  score: output.score,
+  metadata: {
+    aiEducationStage: nextStepId,
+    promptKind: runtime.promptKind,
+    modelPurpose: runtime.modelPurpose,
+    routingDecision:
+      "routingDecision" in output ? output.routingDecision : undefined,
+    evaluationSummary:
+      "evaluationSummary" in output ? output.evaluationSummary : undefined,
+    failedDimensions:
+      "failedDimensions" in output ? output.failedDimensions : undefined,
+    dimensionResults:
+      "dimensionResults" in output ? output.dimensionResults : undefined,
+    evaluationPlan:
+      "evaluationPlan" in output
+        ? (evaluationPlan ?? output.evaluationPlan)
+        : undefined,
+    attemptTiming: attemptTiming ?? undefined,
+    difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
+    estimatedItemRating: output.estimatedItemRating ?? undefined,
+    feedback: output.assistantMessage,
+    evidenceAnchors:
+      "evidenceCitations" in output
+        ? output.evidenceCitations
+        : output.strengths,
+  },
+});
 
 const buildCompletionCommit = ({
   sessionId,
@@ -634,15 +630,7 @@ export const saveEducationTurnResult = async ({
 
   const nextState = await planNextWorkspaceTurn({
     sessionId,
-    plan: {
-      ...plan,
-      nodes:
-        nextRun.currentStepId === "completed"
-          ? plan.nodes.map((node) =>
-              node.id === unit.nodeId ? { ...node, status: "completed" } : node,
-            )
-          : plan.nodes,
-    },
+    plan,
     deps,
   });
 
@@ -705,31 +693,31 @@ export const saveNextScenarioPrompt = async ({
     },
     contracts,
     phaseResponse: {
-    unitContentId: unit.id,
-    sessionId,
-    userId,
-    phase: "ai_education",
-    sequence: countPhaseResponses(educationResponses, "ai_education"),
-    userResponse: manualDifficultySignal
-      ? `[difficulty_adjustment:${manualDifficultySignal}]`
-      : "[next_scenario_requested]",
-    aiResponse: output.assistantMessage,
-    passed: null,
-    score: null,
-    metadata: {
-      aiEducationStage: currentStage,
-      promptKind: "evaluate_feedback",
-      modelPurpose: "evaluation",
-      nextScenarioPrompt: true,
-      manualDifficultySignal: manualDifficultySignal ?? undefined,
-      evaluationPlan:
-        "evaluationPlan" in output
-          ? (evaluationPlan ?? output.evaluationPlan)
-          : undefined,
-      difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
-      estimatedItemRating: output.estimatedItemRating ?? undefined,
-      feedback: output.assistantMessage,
-    },
+      unitContentId: unit.id,
+      sessionId,
+      userId,
+      phase: "ai_education",
+      sequence: countPhaseResponses(educationResponses, "ai_education"),
+      userResponse: manualDifficultySignal
+        ? `[difficulty_adjustment:${manualDifficultySignal}]`
+        : "[next_scenario_requested]",
+      aiResponse: output.assistantMessage,
+      passed: null,
+      score: null,
+      metadata: {
+        aiEducationStage: currentStage,
+        promptKind: "evaluate_feedback",
+        modelPurpose: "evaluation",
+        nextScenarioPrompt: true,
+        manualDifficultySignal: manualDifficultySignal ?? undefined,
+        evaluationPlan:
+          "evaluationPlan" in output
+            ? (evaluationPlan ?? output.evaluationPlan)
+            : undefined,
+        difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
+        estimatedItemRating: output.estimatedItemRating ?? undefined,
+        feedback: output.assistantMessage,
+      },
     },
     touchSessionId: sessionId,
   });

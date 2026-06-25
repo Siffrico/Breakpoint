@@ -38,6 +38,7 @@ import {
 import { selectWorkspaceTurnRuntime } from "./stage-runtime";
 import {
   getWorkspaceMessageSlot,
+  isUnitAwaitingAdvance,
   resolveWorkspaceTurn,
 } from "./workspace-turn";
 import {
@@ -277,9 +278,14 @@ export const prepareWorkspaceTurnPrompt = async ({
   }
 
   const turn = await resolveWorkspaceTurn({ sessionId, deps });
-  const { plan, allResponses, state, node, unit, unitResponses } = turn;
+  const { plan, allResponses, state, node, unit, unitRun, unitResponses } =
+    turn;
   const slot = getWorkspaceMessageSlot(state.mode);
   let claimedDurableTurn = false;
+
+  if (isUnitAwaitingAdvance({ node, run: unitRun })) {
+    throw new Error("This unit is complete. Press Next Unit to continue.");
+  }
 
   if (turnId && deps.claimWorkspaceTurn) {
     const claim = await deps.claimWorkspaceTurn({

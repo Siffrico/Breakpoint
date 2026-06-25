@@ -529,6 +529,7 @@ export function EducationUnitWorkspace({
 
   const introMessage = getIntroMessage(aiWorkspace);
   const fallbackTurn = getFallbackTurn(unit);
+  const awaitingUnitAdvance = aiWorkspace?.unitAdvanceGate.status === "enabled";
   const workspaceUnavailable = !preview && aiWorkspace == null;
   const missingTranscriptForResumedUnit =
     !preview &&
@@ -539,6 +540,7 @@ export function EducationUnitWorkspace({
   const canCompose =
     !workspaceUnavailable &&
     !missingTranscriptForResumedUnit &&
+    !awaitingUnitAdvance &&
     !canRequestNextScenario &&
     fallbackTurn.canCompose;
   const composerPlaceholder = canCompose
@@ -547,14 +549,17 @@ export function EducationUnitWorkspace({
       ? "Refresh the workspace before continuing."
       : missingTranscriptForResumedUnit
         ? "Refresh to resume this unit safely."
-        : canRequestNextScenario
-          ? "Continue to the next scenario."
-          : "This unit is complete.";
+        : awaitingUnitAdvance
+          ? "Press Next Unit to continue."
+          : canRequestNextScenario
+            ? "Continue to the next scenario."
+            : "This unit is complete.";
   const canAdjustDifficulty =
     !preview &&
     !effectiveIsRunning &&
     !workspaceUnavailable &&
     !missingTranscriptForResumedUnit &&
+    !awaitingUnitAdvance &&
     !canRequestNextScenario &&
     Boolean(
       aiWorkspace?.state?.mode === "recall" ||
@@ -928,7 +933,7 @@ export function EducationUnitWorkspace({
             {renderedMessages}
             <div ref={bottomRef} />
           </div>
-          <ChatComposerDock className="mt-auto">{inputZone}</ChatComposerDock>
+          <ChatComposerDock className="mt-auto pb-1">{inputZone}</ChatComposerDock>
         </div>
         {expandedOverlay}
       </>

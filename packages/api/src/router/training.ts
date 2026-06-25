@@ -6,6 +6,7 @@ import type { CurriculumNode } from "@acme/validators";
 import { sql } from "@acme/db";
 import { CapstoneSubmissionSchema } from "@acme/validators";
 
+import { advanceCompletedUnitWorkflow } from "../domain/training/workflows/advance-completed-unit-workflow";
 import { createLearningProjectWorkflow } from "../domain/training/workflows/create-learning-project-workflow";
 import { generateCapstoneWorkflow } from "../domain/training/workflows/generate-capstone-workflow";
 import { getActivePlanWorkflow } from "../domain/training/workflows/get-active-plan-workflow";
@@ -206,7 +207,10 @@ const getErrorCode = (message: string) => {
     message.includes("before") ||
     message.includes("Pass") ||
     message.includes("limit") ||
-    message.includes("unlock")
+    message.includes("unlock") ||
+    message.includes("unit is complete") ||
+    message.includes("complete yet") ||
+    message.includes("not active")
   ) {
     return "BAD_REQUEST" as const;
   }
@@ -582,6 +586,20 @@ export const trainingRouter = {
           message: input.message,
           turnId: input.turnId ?? null,
           attemptTiming: input.attemptTiming ?? null,
+          deps: createWorkspaceTurnRepositoryDeps(ctx.db),
+        }),
+      );
+    }),
+
+  advanceCompletedUnit: protectedProcedure
+    .input(NodeSessionSchema)
+    .mutation(async ({ ctx, input }) => {
+      await requireSessionOwner({ ctx, sessionId: input.sessionId });
+
+      return throwOnFailure(
+        await advanceCompletedUnitWorkflow({
+          sessionId: input.sessionId,
+          nodeId: input.nodeId,
           deps: createWorkspaceTurnRepositoryDeps(ctx.db),
         }),
       );

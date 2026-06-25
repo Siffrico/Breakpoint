@@ -4,12 +4,15 @@ import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Lightbulb, SidebarSimple } from "@phosphor-icons/react";
+import { ArrowRight, Lightbulb, SidebarSimple } from "@phosphor-icons/react";
+import { useMutation } from "@tanstack/react-query";
 
 import type { RouterOutputs } from "@acme/api";
 import { Button } from "@acme/ui/button";
+import { toast } from "@acme/ui/toast";
 
 import { useLocalStorage } from "~/hooks/use-local-storage";
+import { useTRPC } from "~/trpc/react";
 import { AssistantRichText } from "./assistant-rich-text";
 
 const CapstoneWorkspace = dynamic(() =>
@@ -86,6 +89,7 @@ export function WorkspaceShell({
   userName?: string;
 }) {
   const router = useRouter();
+  const trpc = useTRPC();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const toggleSidebar = () => {
@@ -133,6 +137,17 @@ export function WorkspaceShell({
       : null;
   const canRequestNextScenario =
     aiWorkspace?.evaluationProgress?.canRequestNextScenario ?? false;
+  const unitAdvanceGate = aiWorkspace?.unitAdvanceGate ?? { status: "locked" };
+  const canAdvanceUnit =
+    mode === "unit" && unitAdvanceGate.status === "enabled";
+  const advanceCompletedUnit = useMutation(
+    trpc.training.advanceCompletedUnit.mutationOptions({
+      onSuccess: () => {
+        router.refresh();
+      },
+      onError: (error) => toast.error(error.message),
+    }),
+  );
   const timerIsActive = activeEvaluationPlan != null && !canRequestNextScenario;
   const runningEvaluationPlan = timerIsActive ? activeEvaluationPlan : null;
   const timerKey = timerIsActive
@@ -228,6 +243,22 @@ export function WorkspaceShell({
     setQuestionPanelOpen(true);
     setQuestionPanelFocused((prev) => !prev);
   };
+
+  const handleAdvanceCompletedUnit = () => {
+    if (
+      !canAdvanceUnit ||
+      preview ||
+      isSessionRunning ||
+      advanceCompletedUnit.isPending
+    ) {
+      return;
+    }
+
+    advanceCompletedUnit.mutate({
+      sessionId,
+      nodeId: unitAdvanceGate.unitId,
+    });
+  };
   const elapsedSeconds =
     timerStartedAt == null ? 0 : Math.floor((timerNow - timerStartedAt) / 1000);
   const remainingSeconds = runningEvaluationPlan
@@ -245,6 +276,14 @@ export function WorkspaceShell({
         pausedSeconds: 0,
       }
     : null;
+
+  // Mirrors t3code's outline+xs Button line-for-line (base + outline + xs),
+  // with pixel radii since our global --radius is 0 (so `rounded-md` → 0).
+  // Custom <button> so our Button base/variant (primary-flip hover, etc.)
+  // doesn't override these. Hardcoded white alphas match t3code's dark tokens
+  // (--input white/8%, bg-input/32 fill, bg-input/64 hover, white/6% bevel).
+  const headerActionClass =
+    "relative inline-flex h-7 shrink-0 cursor-pointer items-center justify-center gap-1 whitespace-nowrap rounded-[6px] border border-white/[0.08] bg-white/[0.025] px-3 text-sm font-medium text-foreground shadow-xs/5 outline-none transition-shadow before:pointer-events-none before:absolute before:inset-0 before:rounded-[5px] before:shadow-[0_-1px_--theme(--color-white/6%)] hover:bg-white/[0.05] focus-visible:ring-2 focus-visible:ring-foreground/20 disabled:pointer-events-none disabled:opacity-64 disabled:shadow-none [&_svg]:pointer-events-none [&_svg]:-mx-0.5 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:opacity-80 [&_svg]:text-muted-foreground";
 
   return (
     <div
@@ -275,7 +314,7 @@ export function WorkspaceShell({
       </div>
 
       <div className="border-foreground/[0.08] flex min-w-0 flex-1 flex-col border-l">
-        <header className="relative flex h-14 shrink-0 items-center justify-between px-4 sm:px-6">
+        <header className="border-foreground/[0.08] relative flex h-14 shrink-0 items-center justify-between border-b px-4 sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
             {sidebarCollapsed ? (
               <button
@@ -343,20 +382,39 @@ export function WorkspaceShell({
             </div>
           ) : mode === "unit" && liveUnit ? (
             <div className="flex items-center gap-2">
-              <Button
+              <button
                 type="button"
-                variant="default"
-                size="sm"
                 onClick={() =>
                   setQuestionPanelOpen((prev) =>
                     questionPanelFocused ? true : !prev,
                   )
                 }
-                className="border-primary bg-primary text-primary-foreground hover:bg-primary/90 rounded-none px-3 text-[12px] before:rounded-none"
+                className={headerActionClass}
               >
-                <Lightbulb size={15} weight="fill" />
+                <Lightbulb weight="fill" />
                 Ask
-              </Button>
+              </button>
+              <button
+                type="button"
+                disabled={
+                  preview ||
+                  isSessionRunning ||
+                  !canAdvanceUnit ||
+                  advanceCompletedUnit.isPending
+                }
+                onClick={handleAdvanceCompletedUnit}
+                title={
+                  canAdvanceUnit
+                    ? unitAdvanceGate.nextTitle
+                      ? `Continue to ${unitAdvanceGate.nextTitle}`
+                      : "Continue"
+                    : "Complete this unit to unlock"
+                }
+                className={headerActionClass}
+              >
+                {advanceCompletedUnit.isPending ? "Advancing..." : "Next Unit"}
+                <ArrowRight weight="bold" />
+              </button>
             </div>
           ) : null}
         </header>

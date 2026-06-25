@@ -14,7 +14,10 @@ import type { UnitRun } from "../workspace-ai/workflow";
 import { err, ok } from "../../../lib/result";
 import { getEvaluationProgress } from "../workspace-ai/evaluation-plan";
 import { planWorkspaceTurn } from "../workspace-ai/orchestrator";
-import { resolveUnitRunProjection } from "../workspace-ai/workspace-turn";
+import {
+  getUnitAdvanceGate,
+  resolveUnitRunProjection,
+} from "../workspace-ai/workspace-turn";
 
 interface GetAiWorkspaceDependencies {
   getActivePlan: (sessionId: string) => Promise<CurriculumPlan | null>;
@@ -62,6 +65,7 @@ export interface AiWorkspaceView {
     scenarioCount: number;
     canRequestNextScenario: boolean;
   } | null;
+  unitAdvanceGate: ReturnType<typeof getUnitAdvanceGate>;
 }
 
 /**
@@ -129,6 +133,14 @@ export const getAiWorkspaceWorkflow = async ({
     ? await deps.listMessages(sessionId, getWorkspaceMessageSlot(state.mode))
     : messages;
   const evaluationProgress = getEvaluationProgress(activeUnitResponses);
+  const nextLearningNode =
+    activeUnitNode == null
+      ? null
+      : (plan.nodes.find(
+          (node) =>
+            (node.kind === "unit" || node.kind === "integration") &&
+            node.orderIndex > activeUnitNode.orderIndex,
+        ) ?? null);
 
   return ok({
     plan,
@@ -144,6 +156,11 @@ export const getAiWorkspaceWorkflow = async ({
             canRequestNextScenario: evaluationProgress.canRequestNextScenario,
           }
         : null,
+    unitAdvanceGate: getUnitAdvanceGate({
+      node: activeUnitNode,
+      run: activeUnitRun,
+      nextNode: nextLearningNode,
+    }),
     introMessage: buildWorkspaceIntroMessage({
       plan,
       state,

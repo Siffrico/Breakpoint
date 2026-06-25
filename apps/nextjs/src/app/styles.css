@@ -272,7 +272,7 @@
   --secondary: #151515;
   --secondary-foreground: color-mix(
     in oklab,
-    var(--foreground) 78%,
+    var(--foreground) 83%,
     transparent
   );
   --muted: #151515;
@@ -298,7 +298,7 @@
   --secondary: #151515;
   --secondary-foreground: color-mix(
     in oklab,
-    var(--foreground) 78%,
+    var(--foreground) 83%,
     transparent
   );
   --muted: #151515;
@@ -324,7 +324,7 @@
   --secondary: #eeece5;
   --secondary-foreground: color-mix(
     in oklab,
-    var(--foreground) 78%,
+    var(--foreground) 83%,
     transparent
   );
   --muted: #eeece5;

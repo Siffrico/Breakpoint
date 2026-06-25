@@ -1,8 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 
+import type { CurriculumNode } from "../types/training.types";
+import type { UnitRun } from "./workflow";
 import { advanceUnitRun, IllegalUnitRunTransitionError } from "./orchestrator";
 import { DIAGNOSTIC_FIRST_WORKFLOW } from "./workflow";
+import {
+  assertUnitCanAdvance,
+  getUnitAdvanceGate,
+  isUnitAwaitingAdvance,
+} from "./workspace-turn";
 
 const baseRun = {
   sessionId: "session-1",
@@ -88,5 +95,59 @@ void test("advanceUnitRun rejects stale outcomes for a different current step", 
         workflow: DIAGNOSTIC_FIRST_WORKFLOW,
       }),
     IllegalUnitRunTransitionError,
+  );
+});
+
+const readyNode = {
+  id: "node-1",
+  parentNodeId: null,
+  kind: "unit",
+  title: "Current unit",
+  summary: "Summary",
+  whyItMatters: "Why it matters",
+  learningGoal: "Goal",
+  orderIndex: 1,
+  depth: 1,
+  positionColumn: 0,
+  positionRow: 1,
+  status: "ready",
+  difficultyBands: null,
+} satisfies CurriculumNode;
+
+void test("unit advance gate is enabled only after run completion while node remains ready", () => {
+  const completedRun = {
+    ...baseRun,
+    currentStepId: "completed",
+  } satisfies UnitRun;
+
+  assert.equal(
+    isUnitAwaitingAdvance({ node: readyNode, run: completedRun }),
+    true,
+  );
+  assert.deepEqual(
+    getUnitAdvanceGate({
+      node: readyNode,
+      run: completedRun,
+      nextNode: { ...readyNode, id: "node-2", title: "Next unit" },
+    }),
+    {
+      status: "enabled",
+      unitId: "node-1",
+      nextTitle: "Next unit",
+    },
+  );
+});
+
+void test("unit advance assertion rejects incomplete runs and accepts idempotent completed nodes", () => {
+  assert.throws(
+    () => assertUnitCanAdvance({ node: readyNode, run: baseRun }),
+    /not complete yet/,
+  );
+
+  assert.doesNotThrow(() =>
+    assertUnitCanAdvance({
+      node: { ...readyNode, status: "completed" },
+      run: baseRun,
+    }),
   );
 });

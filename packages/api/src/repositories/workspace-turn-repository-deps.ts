@@ -12,13 +12,13 @@ import type {
   WorkspaceAiMessage,
 } from "../domain/training/workspace-ai/types";
 import type {
-  WorkspaceEducationTurnCommit,
-  WorkspaceNextScenarioCommit,
-} from "../domain/training/workspace-ai/workspace-turn-persistence";
-import type {
   ManualDifficultySignal,
   WorkspaceTurnOrchestrationDependencies,
 } from "../domain/training/workspace-ai/workspace-turn-orchestration";
+import type {
+  WorkspaceEducationTurnCommit,
+  WorkspaceNextScenarioCommit,
+} from "../domain/training/workspace-ai/workspace-turn-persistence";
 import { createInitialRatingState } from "../domain/training/engine/rating";
 import {
   prepareScenarioDirective,
@@ -36,9 +36,7 @@ import { trainingUnitRunRepository } from "./training-unit-run-repository";
 type Database = typeof databaseClient;
 
 const toCurriculumNode = (
-  node: Awaited<
-    ReturnType<typeof trainingCurriculumRepository.completeNode>
-  >,
+  node: Awaited<ReturnType<typeof trainingCurriculumRepository.completeNode>>,
 ): CurriculumNode | null =>
   node
     ? ({
@@ -229,12 +227,6 @@ const commitEducationTurn = async ({
         db: txDb,
         ...input.completion.attempt,
       });
-      nextReadyNode = toCurriculumNode(
-        await trainingCurriculumRepository.completeNode({
-          db: txDb,
-          nodeId: input.completion.nodeId,
-        }),
-      );
     }
 
     await trainingOnboardingRepository.touchSession({
@@ -357,7 +349,10 @@ export const createWorkspaceTurnRepositoryDeps = (
       ...payload,
     }),
   completeNode: async (nodeId: string) => {
-    const node = await trainingCurriculumRepository.completeNode({ db, nodeId });
+    const node = await trainingCurriculumRepository.completeNode({
+      db,
+      nodeId,
+    });
     return toCurriculumNode(node);
   },
   commitEducationTurn: (input) => commitEducationTurn({ db, input }),
