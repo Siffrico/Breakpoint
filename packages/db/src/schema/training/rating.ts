@@ -40,12 +40,7 @@ export interface TrainingScenarioDirectiveJson {
 
 export interface TrainingScenarioEvaluationContractJson {
   version: 1;
-  scenarioStage:
-    | "diagnostic_scenario"
-    | "guided_application"
-    | "performance_evaluation"
-    | "transfer_scenario"
-    | "recall";
+  scenarioStage: "Diagnose" | "Solve" | "Review" | "Test" | "Check" | "recall";
   scenarioPromptSummary: string;
   testedDimensions: {
     dimensionId: string;

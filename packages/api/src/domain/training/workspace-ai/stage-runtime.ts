@@ -7,13 +7,13 @@ import type {
   WorkspaceAiPromptKind,
   WorkspaceAiState,
 } from "./types";
+import type { StepCard } from "./workflow";
 import {
   WorkspaceAiEducationOutputSchema,
   WorkspaceAiEvaluationOutputSchema,
   WorkspaceAiRecallOutputSchema,
 } from "./types";
-import type { StepKind } from "./workflow";
-import { getWorkflowDefinition, getWorkflowStep } from "./workflow";
+import { getStepCard as getRulebookStepCard } from "./workflow";
 
 export type WorkspaceContextMode = "teacher" | "evaluator" | "recall";
 
@@ -31,6 +31,8 @@ export type WorkspaceTurnRuntime =
       outputSchema:
         | typeof WorkspaceAiEducationOutputSchema
         | typeof WorkspaceAiEvaluationOutputSchema;
+      instruction: string;
+      verdictField: StepCard["verdictField"];
     }
   | {
       mode: "recall";
@@ -45,60 +47,17 @@ export type WorkspaceTurnRuntime =
 export type WorkspaceTurnOutput<TRuntime extends WorkspaceTurnRuntime> =
   z.infer<TRuntime["outputSchema"]>;
 
-const EDUCATION_RUNTIME_BY_STEP_KIND = {
-  scenario: {
-    promptKind: "education_unit",
-    modelPurpose: "education",
-    contextMode: "teacher",
-    contextMove: "diagnose",
-    outputSchema: WorkspaceAiEducationOutputSchema,
-  },
-  learn: {
-    promptKind: "education_unit",
-    modelPurpose: "education",
-    contextMode: "teacher",
-    contextMove: "teach",
-    outputSchema: WorkspaceAiEducationOutputSchema,
-  },
-  attempt: {
-    promptKind: "education_unit",
-    modelPurpose: "education",
-    contextMode: "teacher",
-    contextMove: "guide",
-    outputSchema: WorkspaceAiEducationOutputSchema,
-  },
-  feedback: {
-    promptKind: "evaluate_feedback",
-    modelPurpose: "evaluation",
-    contextMode: "evaluator",
-    contextMove: "evaluate",
-    outputSchema: WorkspaceAiEvaluationOutputSchema,
-  },
-  mastery_check: {
-    promptKind: "evaluate_feedback",
-    modelPurpose: "evaluation",
-    contextMode: "evaluator",
-    contextMove: "transfer",
-    outputSchema: WorkspaceAiEvaluationOutputSchema,
-  },
-  terminal: {
-    promptKind: "evaluate_feedback",
-    modelPurpose: "evaluation",
-    contextMode: "evaluator",
-    contextMove: "evaluate",
-    outputSchema: WorkspaceAiEvaluationOutputSchema,
-  },
-} satisfies Record<
-  StepKind,
-  Omit<
-    Extract<WorkspaceTurnRuntime, { mode: "education_unit" }>,
-    "mode" | "stage"
-  >
->;
+const getOutputSchemaForPromptKind = (
+  promptKind: Extract<
+    WorkspaceAiPromptKind,
+    "education_unit" | "evaluate_feedback"
+  >,
+) =>
+  promptKind === "evaluate_feedback"
+    ? WorkspaceAiEvaluationOutputSchema
+    : WorkspaceAiEducationOutputSchema;
 
-export const selectWorkspaceTurnRuntime = (
-  state: WorkspaceAiState,
-): WorkspaceTurnRuntime => {
+export const getStepCard = (state: WorkspaceAiState): WorkspaceTurnRuntime => {
   if (state.mode === "recall") {
     return {
       mode: "recall",
@@ -111,18 +70,18 @@ export const selectWorkspaceTurnRuntime = (
     };
   }
 
-  const stage = state.educationStage ?? "diagnostic_scenario";
-  const workflow = getWorkflowDefinition(state.workflowId);
-  const step = getWorkflowStep(workflow, stage);
-  if (!step) {
-    throw new Error(`Workflow ${workflow.id} does not contain step ${stage}.`);
-  }
-  const stepKind = step.kind;
-  const runtime = EDUCATION_RUNTIME_BY_STEP_KIND[stepKind];
+  const stage = state.educationStage ?? "Diagnose";
+  const card = getRulebookStepCard(stage);
 
   return {
     mode: "education_unit",
     stage,
-    ...runtime,
+    promptKind: card.promptKind,
+    modelPurpose: card.modelPurpose,
+    contextMode: card.ai === "evaluation" ? "evaluator" : "teacher",
+    contextMove: card.contextMove,
+    outputSchema: getOutputSchemaForPromptKind(card.promptKind),
+    instruction: card.instruction,
+    verdictField: card.verdictField,
   };
 };

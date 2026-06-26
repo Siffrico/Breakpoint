@@ -25,7 +25,7 @@ const unitMasteryContract = {
 
 const scenarioEvaluationContract = {
   version: 1,
-  scenarioStage: "performance_evaluation",
+  scenarioStage: "Review",
   scenarioPromptSummary: "Diagnose the failing workflow.",
   testedDimensions: [
     {
@@ -184,14 +184,14 @@ void test("next-scenario persistence fails when the private contract cannot atta
           scenarioEvaluationContract,
           estimatedItemRating: 1200,
           stageComplete: false,
-          nextStage: "performance_evaluation",
+          reviewQuality: "retry",
           unitComplete: false,
           score: null,
           strengths: [],
           improvements: [],
         },
         evaluationPlan: null,
-        currentStage: "performance_evaluation",
+        currentStage: "Review",
         deps: makeDeps(calls),
       }),
     /open scenario|scenario contract/i,

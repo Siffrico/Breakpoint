@@ -8,7 +8,7 @@ import type { WorkspaceAiState, WorkspaceAiTurnMode } from "./types";
 import type { UnitRun } from "./workflow";
 import { ensureWorkspaceUnit } from "../workflows/get-ai-workspace-workflow";
 import { getCurrentEducationStage, planWorkspaceTurn } from "./orchestrator";
-import { DIAGNOSTIC_FIRST_WORKFLOW } from "./workflow";
+import { VERDICT_RULEBOOK_WORKFLOW_ID } from "./workflow";
 
 export interface WorkspaceTurnDependencies {
   getActivePlan: (sessionId: string) => Promise<CurriculumPlan | null>;
@@ -158,7 +158,7 @@ export const resolveUnitRunProjection = async ({
     sessionId,
     unitContentId: unit.id,
     userId,
-    workflowId: DIAGNOSTIC_FIRST_WORKFLOW.id,
+    workflowId: VERDICT_RULEBOOK_WORKFLOW_ID,
     currentStepId: fallbackStepId ?? getCurrentEducationStage(unitResponses),
     stepScenarioCount: 0,
   });

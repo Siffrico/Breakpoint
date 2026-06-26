@@ -135,15 +135,19 @@ const selectMove = (state: WorkspaceAiState): WorkspaceContextMove => {
   if (state.mode === "recall") return "recall";
 
   switch (state.educationStage) {
-    case "diagnostic_scenario":
+    case "Diagnose":
       return "diagnose";
-    case "concept_instruction":
+    case "BreakDown":
+    case "TeachGap":
+    case "NameIdea":
       return "teach";
-    case "guided_application":
+    case "Grill":
+    case "Solve":
       return "guide";
-    case "performance_evaluation":
+    case "Review":
+    case "Check":
       return "evaluate";
-    case "transfer_scenario":
+    case "Test":
       return "transfer";
     case "completed":
     case null:

@@ -24,7 +24,7 @@ void test("contract-aware evaluation output requires per-dimension results", () 
     assistantMessage: "Feedback",
     estimatedItemRating: 1200,
     stageComplete: false,
-    nextStage: "performance_evaluation",
+    reviewQuality: "retry",
     unitComplete: false,
     score: 60,
     strengths: ["Names one relevant move."],
@@ -36,7 +36,6 @@ void test("contract-aware evaluation output requires per-dimension results", () 
       feedbackMode: "full_after_each",
       reason: "Single scenario.",
     },
-    routingDecision: "retry",
     evaluationSummary: "Partial answer.",
     evidenceCitations: ["The learner named one move."],
     failedDimensions: ["diagnose-cause"],
@@ -55,7 +54,7 @@ void test("contract dimension validation rejects omitted tested dimensions", () 
       validateEvaluationDimensionResults({
         scenarioContract: {
           version: 1,
-          scenarioStage: "performance_evaluation",
+          scenarioStage: "Review",
           scenarioPromptSummary: "Diagnose the failing workflow.",
           testedDimensions: [
             {
@@ -95,7 +94,7 @@ void test("contract dimension validation rejects omitted tested dimensions", () 
 void test("scenario verifier accepts private answer and intended solution", () => {
   const result = ScenarioEvaluationContractSchema.safeParse({
     version: 1,
-    scenarioStage: "performance_evaluation",
+    scenarioStage: "Review",
     scenarioPromptSummary: "Diagnose the failing workflow.",
     testedDimensions: [
       {
@@ -134,7 +133,7 @@ void test("scenario verifier accepts private answer and intended solution", () =
 void test("scenario verifier rejects checker contracts without a checker spec", () => {
   const result = ScenarioEvaluationContractSchema.safeParse({
     version: 1,
-    scenarioStage: "performance_evaluation",
+    scenarioStage: "Review",
     scenarioPromptSummary: "Choose a valid migration plan.",
     testedDimensions: [
       {
@@ -169,7 +168,7 @@ void test("scenario verifier rejects checker contracts without a checker spec", 
 void test("evaluator context renders private verifier contract", () => {
   const scenarioEvaluationContract = ScenarioEvaluationContractSchema.parse({
     version: 1,
-    scenarioStage: "performance_evaluation",
+    scenarioStage: "Review",
     scenarioPromptSummary: "Diagnose the failing workflow.",
     testedDimensions: [
       {
@@ -223,7 +222,7 @@ void test("evaluator context renders private verifier contract", () => {
     },
     state: {
       mode: "education_unit",
-      educationStage: "performance_evaluation",
+      educationStage: "Review",
       retryCount: 0,
     },
     evidence: {
@@ -247,12 +246,14 @@ void test("evaluator context renders private verifier contract", () => {
   } satisfies WorkspaceContextEnvelope;
   const runtime = {
     mode: "education_unit",
-    stage: "performance_evaluation",
+    stage: "Review",
     promptKind: "evaluate_feedback",
     modelPurpose: "evaluation",
     contextMode: "evaluator",
     contextMove: "evaluate",
     outputSchema: WorkspaceAiEvaluationOutputSchema,
+    instruction: "Evaluate the learner's attempt.",
+    verdictField: "reviewQuality",
   } satisfies WorkspaceTurnRuntime;
 
   const prompt = renderWorkspaceStageContextPrompt({ envelope, runtime });

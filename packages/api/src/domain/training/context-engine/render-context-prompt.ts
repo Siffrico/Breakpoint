@@ -3,6 +3,7 @@ import type { WorkspaceContextEnvelope } from "./schemas";
 
 export const renderWorkspaceContextPrompt = (
   envelope: WorkspaceContextEnvelope,
+  runtime?: WorkspaceTurnRuntime,
 ): string => `Workspace context envelope
 
 ## Learner
@@ -32,6 +33,7 @@ Focus areas: ${formatInline(envelope.unit.focusAreas)}
 Mode: ${envelope.state.mode}
 Education stage: ${envelope.state.educationStage ?? "none"}
 Retry count in this unit: ${envelope.state.retryCount}
+${formatStepInstruction(runtime)}
 
 ## Evidence
 Latest learner message: ${envelope.evidence.latestLearnerMessage}
@@ -63,7 +65,7 @@ export const renderWorkspaceStageContextPrompt = ({
     return renderEvaluatorContextPrompt(envelope, runtime);
   }
 
-  return renderWorkspaceContextPrompt(envelope);
+  return renderWorkspaceContextPrompt(envelope, runtime);
 };
 
 const renderEvaluatorContextPrompt = (
@@ -76,6 +78,7 @@ Prompt kind: ${runtime.promptKind}
 Model purpose: ${runtime.modelPurpose}
 Education stage: ${envelope.state.educationStage ?? "none"}
 Move: ${envelope.outputContract.move}
+${formatStepInstruction(runtime)}
 
 ## Evaluation plan policy
 Pick the mode from the topic's actual mastery signal, not generic difficulty.
@@ -135,6 +138,11 @@ ${formatList([
 
 const formatList = (items: string[]): string =>
   items.length > 0 ? items.map((item) => `- ${item}`).join("\n") : "- None";
+
+const formatStepInstruction = (runtime?: WorkspaceTurnRuntime): string =>
+  runtime?.mode === "education_unit"
+    ? `Step instruction: ${runtime.instruction}\nVerdict field to return: ${runtime.verdictField}`
+    : "";
 
 const formatInline = (items: string[]): string =>
   items.length > 0 ? items.join("; ") : "None";

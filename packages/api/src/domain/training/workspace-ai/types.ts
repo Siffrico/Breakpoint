@@ -14,11 +14,15 @@ export const WorkspaceAiPromptKindSchema = z.enum([
 ]);
 
 export const WorkspaceAiEducationStageSchema = z.enum([
-  "diagnostic_scenario",
-  "concept_instruction",
-  "guided_application",
-  "performance_evaluation",
-  "transfer_scenario",
+  "Diagnose",
+  "BreakDown",
+  "Grill",
+  "Solve",
+  "Review",
+  "TeachGap",
+  "NameIdea",
+  "Test",
+  "Check",
   "completed",
 ]);
 
@@ -87,7 +91,12 @@ export const WorkspaceAiEducationOutputSchema = z.object({
     ScenarioEvaluationContractSchema.nullable().optional(),
   estimatedItemRating: z.number().int().nullable().optional(),
   stageComplete: z.boolean(),
-  nextStage: WorkspaceAiEducationStageSchema,
+  diagnosisQuality: z.enum(["enough", "thin"]).optional(),
+  breakdownQuality: z.enum(["good", "flawed"]).optional(),
+  grillQuality: z.enum(["answered", "needs_retry"]).optional(),
+  solveQuality: z.enum(["attempted", "stuck"]).optional(),
+  gapQuality: z.enum(["patched", "unclear"]).optional(),
+  namingQuality: z.enum(["named", "unclear"]).optional(),
   unitComplete: z.boolean(),
   score: z.number().int().min(0).max(100).nullable(),
   strengths: z.array(z.string().min(1)).max(4),
@@ -97,7 +106,9 @@ export const WorkspaceAiEducationOutputSchema = z.object({
 export const WorkspaceAiEvaluationOutputSchema =
   WorkspaceAiEducationOutputSchema.extend({
     evaluationPlan: EvaluationPlanSchema,
-    routingDecision: z.enum(["pass", "retry", "repair"]),
+    reviewQuality: z.enum(["pass", "retry", "repair"]).optional(),
+    testQuality: z.enum(["ready", "stuck"]).optional(),
+    checkQuality: z.enum(["pass", "retry", "repair"]).optional(),
     evaluationSummary: z.string().min(1),
     evidenceCitations: z.array(z.string().min(1)).min(1).max(6),
     failedDimensions: z.array(z.string().min(1)).max(4),

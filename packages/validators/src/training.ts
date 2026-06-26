@@ -228,10 +228,11 @@ export const ScenarioVerifierSchema = z
 export const ScenarioEvaluationContractSchema = z.object({
   version: z.literal(1),
   scenarioStage: z.enum([
-    "diagnostic_scenario",
-    "guided_application",
-    "performance_evaluation",
-    "transfer_scenario",
+    "Diagnose",
+    "Solve",
+    "Review",
+    "Test",
+    "Check",
     "recall",
   ]),
   scenarioPromptSummary: z.string().min(1),

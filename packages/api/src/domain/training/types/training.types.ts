@@ -248,11 +248,15 @@ export interface PhaseResponseMetadata {
   signals?: EducationUnitAttemptSignals;
   stateSnapshot?: EducationUnitState;
   aiEducationStage?:
-    | "diagnostic_scenario"
-    | "concept_instruction"
-    | "guided_application"
-    | "performance_evaluation"
-    | "transfer_scenario"
+    | "Diagnose"
+    | "BreakDown"
+    | "Grill"
+    | "Solve"
+    | "Review"
+    | "TeachGap"
+    | "NameIdea"
+    | "Test"
+    | "Check"
     | "completed";
   recallUnitId?: string;
   promptKind?:
@@ -261,7 +265,7 @@ export interface PhaseResponseMetadata {
     | "recall"
     | "evaluate_feedback";
   modelPurpose?: string;
-  routingDecision?: "pass" | "retry" | "repair";
+  verdict?: string;
   evaluationSummary?: string;
   failedDimensions?: string[];
   dimensionResults?: EvaluationDimensionResult[];

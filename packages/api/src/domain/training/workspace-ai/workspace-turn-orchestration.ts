@@ -35,10 +35,13 @@ import {
   normalizeEvaluationPlan,
   selectLatestEvaluationPlan,
 } from "./evaluation-plan";
-import { selectWorkspaceTurnRuntime } from "./stage-runtime";
+import { runWorkspaceAiPrompt } from "./runtime";
+import { getStepCard } from "./stage-runtime";
+import { decideNextStep, readVerdict, shouldSkipStep } from "./workflow";
 import {
   getWorkspaceMessageSlot,
   isUnitAwaitingAdvance,
+  planNextWorkspaceTurn,
   resolveWorkspaceTurn,
 } from "./workspace-turn";
 import {
@@ -160,15 +163,16 @@ export type WorkspaceTurnOutput =
   | WorkspaceAiEvaluationOutput;
 
 const SCENARIO_EDUCATION_STAGES = new Set<string>([
-  "diagnostic_scenario",
-  "guided_application",
-  "performance_evaluation",
-  "transfer_scenario",
+  "Diagnose",
+  "Solve",
+  "Review",
+  "Test",
+  "Check",
 ]);
 
 export const isEvaluationOutput = (
   output: WorkspaceAiEducationOutput | WorkspaceAiEvaluationOutput,
-): output is WorkspaceAiEvaluationOutput => "routingDecision" in output;
+): output is WorkspaceAiEvaluationOutput => "dimensionResults" in output;
 
 const shouldPrepareDifficultyDirective = ({
   state,
@@ -380,7 +384,7 @@ export const prepareWorkspaceTurnPrompt = async ({
     )
       ? buildWorkspaceIntroMessage({ plan, state })
       : null;
-  const runtime = selectWorkspaceTurnRuntime(state);
+  const runtime = getStepCard(state);
 
   if (
     action === "adjust_difficulty" &&
@@ -435,7 +439,7 @@ export const prepareWorkspaceTurnPrompt = async ({
       ? (openScenario?.scenarioContractJson ??
         buildLegacyScenarioEvaluationContract({
           unit,
-          stage: state.educationStage ?? "performance_evaluation",
+          stage: state.educationStage ?? "Review",
           scenarioPrompt:
             openScenario?.scenarioPrompt ??
             verbatimMessages
@@ -540,13 +544,17 @@ const maybeUpdateOpenScenarioItemRating = async ({
   });
 };
 
-export const completeWorkspaceTurn = async ({
+export const saveStepResult = async ({
   prepared,
   rawOutput,
+  nextStepId,
+  verdict,
   deps,
 }: {
   prepared: PreparedWorkspaceTurn;
   rawOutput: unknown;
+  nextStepId?: WorkspaceAiState["educationStage"];
+  verdict?: ReturnType<typeof readVerdict>;
   deps: WorkspaceTurnOrchestrationDependencies;
 }): Promise<WorkspaceAiTurnResult | null> => {
   const output = parseWorkspaceTurnOutput({
@@ -646,6 +654,20 @@ export const completeWorkspaceTurn = async ({
     return null;
   }
 
+  const stepVerdict =
+    verdict ??
+    readVerdict({
+      stepId: state.educationStage,
+      aiOutput: educationOutput,
+    });
+  const decidedNextStep =
+    nextStepId ??
+    decideNextStep({
+      currentStepId: state.educationStage,
+      verdict: stepVerdict,
+      retryCount: getPriorEvaluationAttempts(unitResponses),
+    });
+
   const result = await saveEducationTurnResult({
     sessionId: prepared.sessionId,
     userId: prepared.userId,
@@ -657,6 +679,8 @@ export const completeWorkspaceTurn = async ({
     attemptTiming: prepared.attemptTiming,
     evaluationPlan,
     priorEvaluationAttempts: getPriorEvaluationAttempts(unitResponses),
+    verdict: stepVerdict,
+    nextStepId: decidedNextStep,
     difficultyDirectiveReason:
       prepared.difficultyDirectiveResult?.directive.reason ?? null,
     turnId: prepared.turnId,
@@ -672,6 +696,119 @@ export const completeWorkspaceTurn = async ({
         error,
       });
     }
+  }
+
+  return result;
+};
+
+export const completeWorkspaceTurn = saveStepResult;
+
+export const runOneStep = async ({
+  sessionId,
+  userId,
+  turnId = null,
+  message,
+  attemptTiming,
+  action = "submit_answer",
+  manualDifficultySignal = null,
+  deps,
+}: {
+  sessionId: string;
+  userId: string;
+  turnId?: string | null;
+  message: string;
+  attemptTiming?: AttemptTiming | null;
+  action?: WorkspaceChatAction;
+  manualDifficultySignal?: ManualDifficultySignal | null;
+  deps: WorkspaceTurnOrchestrationDependencies;
+}): Promise<WorkspaceAiTurnResult> => {
+  const prepared = await prepareWorkspaceTurnPrompt({
+    sessionId,
+    userId,
+    turnId,
+    message,
+    attemptTiming,
+    action,
+    manualDifficultySignal,
+    deps,
+  });
+
+  if (prepared.kind === "cached") {
+    const plan = await deps.getActivePlan(sessionId);
+    const state = plan
+      ? await planNextWorkspaceTurn({ sessionId, plan, deps })
+      : null;
+    if (!state) {
+      throw new Error("Cached workspace turn could not be replayed.");
+    }
+
+    return {
+      state,
+      messages: prepared.messages,
+      assistantMessage: prepared.assistantMessage,
+    };
+  }
+
+  if (prepared.turn.state.mode === "education_unit") {
+    if (!prepared.turn.state.educationStage) {
+      throw new Error("Education stage is missing.");
+    }
+
+    shouldSkipStep({
+      stepId: prepared.turn.state.educationStage,
+      learner: { userId },
+    });
+  }
+
+  const output = await runWorkspaceAiPrompt({
+    kind: prepared.runtime.promptKind,
+    schema: prepared.runtime.outputSchema,
+    errorMessage:
+      prepared.turn.state.mode === "recall"
+        ? "Failed to run recall."
+        : "Failed to run education unit.",
+    context: prepared.promptContext,
+  });
+
+  const parsedOutput = parseWorkspaceTurnOutput({
+    runtime: prepared.runtime,
+    rawOutput: output,
+  });
+  const nextStep =
+    prepared.turn.state.mode === "education_unit" &&
+    prepared.turn.state.educationStage
+      ? (() => {
+          const educationOutput = parsedOutput as
+            | WorkspaceAiEducationOutput
+            | WorkspaceAiEvaluationOutput;
+          const verdict = readVerdict({
+            stepId: prepared.turn.state.educationStage,
+            aiOutput: educationOutput,
+          });
+
+          return {
+            verdict,
+            nextStepId: decideNextStep({
+              currentStepId: prepared.turn.state.educationStage,
+              verdict,
+              retryCount: getPriorEvaluationAttempts(
+                prepared.turn.unitResponses,
+              ),
+            }),
+          };
+        })()
+      : null;
+
+  const result = await saveStepResult({
+    prepared,
+    rawOutput: parsedOutput,
+    verdict: nextStep?.verdict,
+    nextStepId: nextStep?.nextStepId,
+    deps,
+  });
+
+  if (!result) {
+    throw new Error("Workspace turn did not produce a persisted result.");
   }
 
   return result;

@@ -102,8 +102,8 @@ export const hasFailedEvaluationAttempt = (
       response.metadata?.promptKind === "evaluate_feedback" &&
       response.metadata.nextScenarioPrompt !== true &&
       (response.passed === false ||
-        response.metadata.routingDecision === "retry" ||
-        response.metadata.routingDecision === "repair" ||
+        response.metadata.verdict === "retry" ||
+        response.metadata.verdict === "repair" ||
         (response.score != null && response.score < 80)),
   );
 

@@ -9,17 +9,17 @@ import type {
   AttemptTiming,
   EvaluationPlan,
   WorkspaceAiEducationOutput,
+  WorkspaceAiEducationStage,
   WorkspaceAiEvaluationOutput,
   WorkspaceAiMessage,
   WorkspaceAiRecallOutput,
   WorkspaceAiState,
   WorkspaceAiTurnResult,
 } from "./types";
-import type { UnitRun } from "./workflow";
+import type { UnitRun, WorkspaceStepVerdict } from "./workflow";
 import type { WorkspaceTurnDependencies } from "./workspace-turn";
 import { validateScenarioContractAgainstUnit } from "./evaluation-contracts";
 import { advanceUnitRun } from "./orchestrator";
-import { getWorkflowDefinition } from "./workflow";
 import {
   getWorkspaceMessageSlot,
   planNextWorkspaceTurn,
@@ -223,10 +223,11 @@ const buildCompletionDebrief = ({
 });
 
 const CONTRACTED_SCENARIO_STAGES = new Set([
-  "diagnostic_scenario",
-  "guided_application",
-  "performance_evaluation",
-  "transfer_scenario",
+  "Diagnose",
+  "Solve",
+  "Review",
+  "Test",
+  "Check",
 ]);
 
 const buildOutputContractCommit = ({
@@ -325,15 +326,6 @@ const recordAttemptRating = async ({
   }
 };
 
-const getRepairStepId = ({
-  output,
-}: {
-  output: WorkspaceAiEducationOutput | WorkspaceAiEvaluationOutput;
-}): WorkspaceAiState["educationStage"] =>
-  "routingDecision" in output && output.routingDecision === "repair"
-    ? output.nextStage
-    : null;
-
 const buildPhaseEvent = ({
   sessionId,
   userId,
@@ -342,6 +334,7 @@ const buildPhaseEvent = ({
   output,
   nextStepId,
   runtime,
+  verdict,
   attemptTiming,
   evaluationPlan,
   difficultyDirectiveReason,
@@ -356,6 +349,7 @@ const buildPhaseEvent = ({
     promptKind: "education_unit" | "evaluate_feedback";
     modelPurpose: "education" | "evaluation";
   };
+  verdict: WorkspaceStepVerdict;
   attemptTiming?: AttemptTiming | null;
   evaluationPlan?: EvaluationPlan | null;
   difficultyDirectiveReason?: string | null;
@@ -372,8 +366,7 @@ const buildPhaseEvent = ({
     aiEducationStage: nextStepId,
     promptKind: runtime.promptKind,
     modelPurpose: runtime.modelPurpose,
-    routingDecision:
-      "routingDecision" in output ? output.routingDecision : undefined,
+    verdict,
     evaluationSummary:
       "evaluationSummary" in output ? output.evaluationSummary : undefined,
     failedDimensions:
@@ -512,6 +505,8 @@ export const saveEducationTurnResult = async ({
   attemptTiming,
   evaluationPlan,
   priorEvaluationAttempts,
+  verdict,
+  nextStepId,
   difficultyDirectiveReason,
   turnId,
   deps,
@@ -526,6 +521,8 @@ export const saveEducationTurnResult = async ({
   attemptTiming?: AttemptTiming | null;
   evaluationPlan?: EvaluationPlan | null;
   priorEvaluationAttempts: number;
+  verdict: WorkspaceStepVerdict;
+  nextStepId: WorkspaceAiEducationStage;
   difficultyDirectiveReason?: string | null;
   turnId?: string | null;
   deps: WorkspaceTurnPersistenceDependencies;
@@ -553,7 +550,6 @@ export const saveEducationTurnResult = async ({
     fallbackStepId: state.educationStage,
     deps,
   });
-  const workflow = getWorkflowDefinition(currentRun.workflowId);
 
   const isScoredAttempt = "dimensionResults" in output;
   const ratingVerdict = await recordAttemptRating({
@@ -563,20 +559,19 @@ export const saveEducationTurnResult = async ({
     attemptTiming,
     deps,
   });
-  const stageComplete = output.stageComplete && evaluationComplete;
   const mastered =
-    isScoredAttempt && ratingVerdict.mastered && evaluationComplete;
+    nextStepId === "completed" ||
+    (isScoredAttempt && ratingVerdict.mastered && evaluationComplete);
   const nextRun = advanceUnitRun({
     run: currentRun,
     outcome: {
       stepId: state.educationStage,
-      requestedStepId: output.nextStage,
-      stepComplete: stageComplete,
+      verdict,
+      nextStepId,
       mastered,
       scenarioCompleted: isScoredAttempt && evaluationComplete,
-      repairStepId: getRepairStepId({ output }),
+      retryCount: priorEvaluationAttempts,
     },
-    workflow,
   });
   const phaseResponse = buildPhaseEvent({
     sessionId,
@@ -587,9 +582,10 @@ export const saveEducationTurnResult = async ({
     nextStepId: nextRun.currentStepId,
     runtime: {
       promptKind:
-        "routingDecision" in output ? "evaluate_feedback" : "education_unit",
-      modelPurpose: "routingDecision" in output ? "evaluation" : "education",
+        "dimensionResults" in output ? "evaluate_feedback" : "education_unit",
+      modelPurpose: "dimensionResults" in output ? "evaluation" : "education",
     },
+    verdict,
     attemptTiming,
     evaluationPlan,
     difficultyDirectiveReason,

@@ -3,8 +3,8 @@ import { and, eq } from "@acme/db";
 import { TrainingUnitRun } from "@acme/db/schema";
 
 import type { UnitRun } from "../domain/training/workspace-ai/workflow";
-import { getWorkflowDefinition } from "../domain/training/workspace-ai/workflow";
 import { WorkspaceAiEducationStageSchema } from "../domain/training/workspace-ai/types";
+import { VERDICT_RULEBOOK_WORKFLOW_ID } from "../domain/training/workspace-ai/workflow";
 
 type Database = typeof databaseClient;
 
@@ -12,10 +12,22 @@ const mapUnitRun = (row: typeof TrainingUnitRun.$inferSelect): UnitRun => ({
   sessionId: row.sessionId,
   unitContentId: row.unitContentId,
   userId: row.userId,
-  workflowId: row.workflowId,
-  currentStepId: WorkspaceAiEducationStageSchema.parse(row.currentStepId),
+  workflowId: VERDICT_RULEBOOK_WORKFLOW_ID,
+  currentStepId: parsePersistedStepId(row.currentStepId),
   stepScenarioCount: row.stepScenarioCount,
 });
+
+const LEGACY_STEP_ID_MAP: Record<string, UnitRun["currentStepId"]> = {
+  diagnostic_scenario: "Diagnose",
+  concept_instruction: "BreakDown",
+  guided_application: "Solve",
+  performance_evaluation: "Review",
+  transfer_scenario: "Test",
+  completed: "completed",
+};
+
+const parsePersistedStepId = (stepId: string): UnitRun["currentStepId"] =>
+  WorkspaceAiEducationStageSchema.parse(LEGACY_STEP_ID_MAP[stepId] ?? stepId);
 
 export const trainingUnitRunRepository = {
   getUnitRun: async ({
@@ -44,14 +56,13 @@ export const trainingUnitRunRepository = {
     db: Database;
     run: UnitRun;
   }): Promise<UnitRun> => {
-    const workflow = getWorkflowDefinition(run.workflowId);
     const [row] = await db
       .insert(TrainingUnitRun)
       .values({
         sessionId: run.sessionId,
         unitContentId: run.unitContentId,
         userId: run.userId ?? null,
-        workflowId: workflow.id,
+        workflowId: VERDICT_RULEBOOK_WORKFLOW_ID,
         currentStepId: run.currentStepId,
         stepScenarioCount: run.stepScenarioCount,
       })
@@ -59,7 +70,7 @@ export const trainingUnitRunRepository = {
         target: [TrainingUnitRun.sessionId, TrainingUnitRun.unitContentId],
         set: {
           userId: run.userId ?? null,
-          workflowId: workflow.id,
+          workflowId: VERDICT_RULEBOOK_WORKFLOW_ID,
           currentStepId: run.currentStepId,
           stepScenarioCount: run.stepScenarioCount,
         },
