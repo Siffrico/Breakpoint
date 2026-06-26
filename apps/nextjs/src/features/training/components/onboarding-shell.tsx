@@ -425,37 +425,97 @@ export function OnboardingShell({
   );
 
   if (showHero) {
+    // Hero composer: a command-console card (taller, wider, with a bottom
+    // control row) rather than the slim docked composer. The model and
+    // difficulty pills are presentational for now — they mirror the workspace
+    // chrome so the empty state reads as a console, not a bare input.
+    const heroComposer = (
+      <ChatComposer
+        value={answer}
+        onValueChange={setAnswer}
+        onSubmit={handlePrimaryAction}
+        disabled={sendDisabled && !effectiveIsStreaming && !hasError}
+        textareaRef={composerRef}
+        className="min-h-[128px] rounded-xl border-white/[0.105] bg-[#141414]"
+        style={{
+          borderRadius: 12,
+          boxShadow:
+            "inset 0 1px 0 rgba(255,255,255,0.035), 0 18px 40px rgba(0,0,0,0.38), 0 3px 8px rgba(0,0,0,0.35)",
+        }}
+        placeholder={!sessionReady ? "Starting…" : "i want the skills of:"}
+        leftSlot={
+          <div className="flex items-center gap-2.5 text-[13px] font-medium text-[#8f8f8f]">
+            <button
+              type="button"
+              aria-label="Add context"
+              className="flex size-7 items-center justify-center rounded-md text-[#9a9a9a] transition-colors outline-none hover:bg-white/[0.045] hover:text-[#cfcfcf]"
+            >
+              <Plus size={16} />
+            </button>
+          </div>
+        }
+        rightSlot={
+          <Button
+            type="button"
+            onClick={handlePrimaryAction}
+            disabled={sendDisabled}
+            variant="ghost"
+            size="sm"
+            className="size-8 rounded-none border border-white/[0.08] bg-[linear-gradient(180deg,#2a2a2a_0%,#1d1d1d_100%)] p-0 text-[#cfcfcf] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_4px_10px_rgba(0,0,0,0.45)] before:rounded-none hover:bg-[linear-gradient(180deg,#303030_0%,#222222_100%)] disabled:border-white/[0.04] disabled:bg-[linear-gradient(180deg,#242424_0%,#1b1b1b_100%)] disabled:text-[#6a6a6a] disabled:shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_3px_8px_rgba(0,0,0,0.32)]"
+            aria-label={
+              effectiveIsStreaming
+                ? "Stop generating"
+                : hasError
+                  ? "Retry last turn"
+                  : "Send answer"
+            }
+          >
+            {effectiveIsStreaming ? (
+              <span aria-hidden="true" className="size-2.5 bg-current" />
+            ) : hasError ? (
+              <ArrowClockwise size={14} weight="bold" />
+            ) : (
+              <ArrowUp size={14} weight="bold" />
+            )}
+          </Button>
+        }
+      />
+    );
+
     return (
       <main
         className={[
-          "bp-workspace-theme bg-background text-foreground relative flex min-h-0 flex-1 flex-col",
+          "bp-workspace-theme text-foreground relative flex min-h-0 flex-1 flex-col bg-[#111111]",
           embedded ? "h-full" : "h-dvh",
         ].join(" ")}
       >
         {manualSetupAction}
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-4 pb-[8vh]">
-          <div className="animate-in fade-in slide-in-from-bottom-2 w-full max-w-[720px] duration-700">
-            {/* Full-bleed SVG wordmark, same technique as opencode's
-                WordmarkV2: w-full + h-auto so it always spans the composer
-                column, with a soft vertical fade baked in via mask. */}
+        {/* Centered logo+composer unit, nudged above the optical center so the
+            stack reads as one block (opencode-style empty state). */}
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6">
+          <div className="animate-in fade-in slide-in-from-bottom-2 w-full max-w-[960px] -translate-y-[6%] duration-700">
+            {/* Full-bleed SVG wordmark: subtle background texture, tight
+                geometric tracking, with a soft vertical fade baked in. */}
             <svg
               aria-hidden
-              viewBox="0 0 720 150"
-              className="fill-foreground/[0.08] mb-10 h-auto w-full [mask-image:linear-gradient(to_bottom,black_30%,rgba(0,0,0,0.4)_100%)] select-none"
+              viewBox="0 0 960 150"
+              className="fill-foreground/[0.07] mb-14 h-auto w-full [mask-image:linear-gradient(to_bottom,black_30%,rgba(0,0,0,0.4)_100%)] select-none"
             >
               <text
-                x="360"
+                x="480"
                 y="118"
                 textAnchor="middle"
-                textLength="712"
+                textLength="940"
                 lengthAdjust="spacingAndGlyphs"
-                fontSize="148"
-                className="font-display font-semibold lowercase"
+                fontSize="128"
+                letterSpacing="-8"
+                className="font-display font-black lowercase"
               >
                 breakpoint
               </text>
             </svg>
-            {composer}
+
+            {heroComposer}
           </div>
         </div>
       </main>

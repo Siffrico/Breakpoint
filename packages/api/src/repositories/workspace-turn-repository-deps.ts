@@ -221,7 +221,7 @@ const commitEducationTurn = async ({
       run: input.nextRun,
     });
 
-    let nextReadyNode: CurriculumNode | null = null;
+    const nextReadyNode: CurriculumNode | null = null;
     if (input.completion) {
       await trainingAttemptRepository.saveAttempt({
         db: txDb,

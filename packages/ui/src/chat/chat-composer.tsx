@@ -1,6 +1,12 @@
 "use client";
 
-import type { ChangeEvent, KeyboardEvent, ReactNode, RefObject } from "react";
+import type {
+  ChangeEvent,
+  CSSProperties,
+  KeyboardEvent,
+  ReactNode,
+  RefObject,
+} from "react";
 import { useEffect, useLayoutEffect, useRef } from "react";
 
 import { cn } from "@acme/ui";
@@ -39,6 +45,7 @@ export function ChatComposer({
   disabled = false,
   textareaRef,
   className,
+  style,
   leftSlot,
   rightSlot,
   hint,
@@ -52,6 +59,7 @@ export function ChatComposer({
   disabled?: boolean;
   textareaRef?: RefObject<HTMLTextAreaElement | null>;
   className?: string;
+  style?: CSSProperties;
   leftSlot?: ReactNode;
   rightSlot?: ReactNode;
   hint?: ReactNode;
@@ -93,6 +101,7 @@ export function ChatComposer({
       style={{
         borderRadius: 8,
         boxShadow: "inset 0 1px 0 rgba(255,255,255,0.025)",
+        ...style,
       }}
       className={cn(
         "bg-background border-border relative min-h-[96px] w-full overflow-hidden border transition-[border-color,box-shadow]",

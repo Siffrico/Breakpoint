@@ -18,7 +18,6 @@ import type { RouterOutputs } from "@acme/api";
 import {
   ChatComposer,
   ChatComposerDock,
-  PacedAssistantText,
   WorkspaceStatusLine,
 } from "@acme/ui/chat";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "@acme/ui/menu";
@@ -70,6 +69,7 @@ const AUTO_SCROLL_BOTTOM_THRESHOLD = 160;
 const CHAT_COLUMN_CLASS =
   "mx-auto w-[calc(100%-2rem)] max-w-[48.9rem] sm:w-[calc(100%-3rem)]";
 const PREVIEW_RESPONSE_DELAY_MS = 450;
+const EVALUATION_EDUCATION_STAGES = new Set(["Review", "Test", "Check"]);
 
 const isViewportNearBottom = () => {
   if (typeof window === "undefined") return true;
@@ -128,14 +128,12 @@ function PromptTurn({
   prompt,
   helper,
   difficultyDirectiveReason = null,
-  streaming = false,
   statusLabel = null,
   skeleton = false,
 }: {
   prompt: string;
   helper?: string | null;
   difficultyDirectiveReason?: string | null;
-  streaming?: boolean;
   statusLabel?: string | null;
   skeleton?: boolean;
 }) {
@@ -163,21 +161,12 @@ function PromptTurn({
             <div className="bg-foreground/[0.05] h-4 w-[48%] animate-pulse rounded-full" />
           </div>
         ) : prompt.trim() ? (
-          streaming ? (
-            <PacedAssistantText text={prompt} active={streaming}>
-              {(visibleText) => (
-                <AssistantRichText
-                  content={visibleText}
-                  className="text-foreground/94 text-[15px] leading-7 [&_h2]:mt-0 [&_h2]:!mb-3 [&_h2]:text-[18px] [&_h2]:font-semibold [&_li]:my-1 [&_li]:leading-7 [&_ol]:!my-3 [&_ol]:list-decimal [&_ol]:pl-7 [&_p]:!my-3 [&_strong]:font-semibold [&_ul]:!my-3 [&_ul]:list-disc [&_ul]:pl-7 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
-                />
-              )}
-            </PacedAssistantText>
-          ) : (
-            <AssistantRichText
-              content={prompt}
-              className="text-foreground/94 text-[15px] leading-7 [&_h2]:mt-0 [&_h2]:!mb-3 [&_h2]:text-[18px] [&_h2]:font-semibold [&_li]:my-1 [&_li]:leading-7 [&_ol]:!my-3 [&_ol]:list-decimal [&_ol]:pl-7 [&_p]:!my-3 [&_strong]:font-semibold [&_ul]:!my-3 [&_ul]:list-disc [&_ul]:pl-7 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
-            />
-          )
+          // Live turns are smoothed server-side by smoothStream, so render the
+          // streamed text straight — no client-side pacing needed.
+          <AssistantRichText
+            content={prompt}
+            className="text-foreground/94 text-[15px] leading-7 [&_h2]:mt-0 [&_h2]:!mb-3 [&_h2]:text-[18px] [&_h2]:font-semibold [&_li]:my-1 [&_li]:leading-7 [&_ol]:!my-3 [&_ol]:list-decimal [&_ol]:pl-7 [&_p]:!my-3 [&_strong]:font-semibold [&_ul]:!my-3 [&_ul]:list-disc [&_ul]:pl-7 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
+          />
         ) : null}
         {helper ? (
           <AssistantRichText
@@ -463,7 +452,7 @@ export function EducationUnitWorkspace({
     messages: initialChatMessages,
     transport: chatTransport,
     // Batch UI updates during streaming (SDK-native render throttling). The
-    // word-level reveal itself is handled client-side by PacedAssistantText
+    // word-level reveal itself is handled server-side by smoothStream
     // because this route streams structured output, not a plain text stream.
     experimental_throttle: 50,
     onFinish: () => {
@@ -564,8 +553,8 @@ export function EducationUnitWorkspace({
     Boolean(
       aiWorkspace?.state?.mode === "recall" ||
         (aiWorkspace?.state?.mode === "education_unit" &&
-          (aiWorkspace.state.educationStage === "performance_evaluation" ||
-            aiWorkspace.state.educationStage === "transfer_scenario")),
+          aiWorkspace.state.educationStage != null &&
+          EVALUATION_EDUCATION_STAGES.has(aiWorkspace.state.educationStage)),
     );
 
   useEffect(() => {
@@ -821,7 +810,6 @@ export function EducationUnitWorkspace({
                     difficultyDirectiveReason={
                       message.metadata?.difficultyDirectiveReason ?? null
                     }
-                    streaming={isLiveAssistant}
                     statusLabel={
                       liveStatus && liveStatus.status !== "complete"
                         ? liveStatus.label

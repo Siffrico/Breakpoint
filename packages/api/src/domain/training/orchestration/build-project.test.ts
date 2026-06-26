@@ -543,11 +543,11 @@ describe("buildProjectFromOnboarding", () => {
     // terminal "complete" write wants to run — modelling an out-of-order commit.
     let releaseGenerating!: () => void;
     const gate = new Promise<void>((resolve) => (releaseGenerating = resolve));
-    deps.saveArtifact = vi.fn((payload) =>
+    deps.saveArtifact = vi.fn<BuildProjectDeps["saveArtifact"]>((payload) =>
       payload.step === "curriculum" && payload.status === "generating"
         ? gate.then(() => baseSave(payload))
         : baseSave(payload),
-    ) as BuildProjectDeps["saveArtifact"];
+    );
 
     const runPromise = run(deps);
     await new Promise((resolve) => setTimeout(resolve, 0));

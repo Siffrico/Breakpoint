@@ -1,6 +1,6 @@
 import type { ModelMessage, StreamTextResult } from "ai";
 import type { z } from "zod/v4";
-import { generateObject, streamText } from "ai";
+import { generateObject, smoothStream, streamText } from "ai";
 
 import type { TutorContext } from "./schemas";
 import { requireAiModelForPurpose } from "../engine/model-router";
@@ -24,6 +24,7 @@ export const streamTutorTurn = ({
       },
       ...messages,
     ],
+    experimental_transform: smoothStream({ delayInMs: 15, chunking: "word" }),
   });
 
 export const generateTutorObject = async <TSchema extends z.ZodTypeAny>({

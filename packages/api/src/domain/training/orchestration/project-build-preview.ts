@@ -44,7 +44,7 @@ const DEFAULT_STEP_DETAILS: Record<ProjectBuildStep, ProjectBuildStepDetail> = {
 const text = (value: unknown): string | null =>
   typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 
-const compact = (values: Array<string | null | undefined>): string[] =>
+const compact = (values: (string | null | undefined)[]): string[] =>
   values.filter((value): value is string => Boolean(value));
 
 const line = (label: string, value: unknown): string | null => {
@@ -94,9 +94,9 @@ const previewCurriculum = (
   payload: ProjectBuildArtifactPayload["curriculum"],
 ): ProjectBuildStepDetail => {
   const plan = payload.planDraft;
-  const clusters = plan?.clusters?.map((cluster) => cluster.title) ?? [];
+  const clusters = plan?.clusters.map((cluster) => cluster.title) ?? [];
   const integrations =
-    plan?.integrationLayers?.map((layer) => layer.title) ?? [];
+    plan?.integrationLayers.map((layer) => layer.title) ?? [];
 
   return detailFrom(
     "Curriculum draft",

@@ -3,6 +3,7 @@ import {
   APICallError,
   NoObjectGeneratedError,
   Output,
+  smoothStream,
   stepCountIs,
   streamText,
 } from "ai";
@@ -273,6 +274,9 @@ export const runResilientAgent = async <TSchema extends z.ZodTypeAny>({
         system,
         prompt: activePrompt,
         tools: getSearchToolsForSelectedProvider(purpose),
+        // Pace the structured-output text deltas so onPartial flushes feel like
+        // a steady stream rather than chunky bursts.
+        experimental_transform: smoothStream({ delayInMs: 15, chunking: "word" }),
         stopWhen: stepCountIs(4),
         ...(reasoning ? { providerOptions: REASONING_PROVIDER_OPTIONS } : {}),
       });

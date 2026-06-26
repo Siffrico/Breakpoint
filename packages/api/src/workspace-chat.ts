@@ -3,6 +3,7 @@ import {
   createUIMessageStream,
   createUIMessageStreamResponse,
   Output,
+  smoothStream,
   stepCountIs,
   streamText,
 } from "ai";
@@ -68,7 +69,7 @@ export const streamWorkspaceChat = async ({
   attemptTiming?: AttemptTiming | null;
   action?: WorkspaceChatAction;
   manualDifficultySignal?: ManualDifficultySignal | null;
-}) =>
+}): Promise<Response> =>
   withAiModelPreference(modelName, () =>
     streamWorkspaceChatWithModelPreference({
       db,
@@ -253,6 +254,13 @@ const streamWorkspaceChatWithModelPreference = async ({
           system: getWorkspaceAiSystemPrompt(runtime.promptKind),
           prompt: prepared.promptContext,
           tools: getSearchToolsForSelectedProvider(runtime.modelPurpose),
+          // SDK-native server-side smoothing: pace the underlying text deltas
+          // (the structured-output JSON) on word boundaries so partialOutputStream
+          // grows in steady increments. Removes the need for client-side pacing.
+          experimental_transform: smoothStream({
+            delayInMs: 15,
+            chunking: "word",
+          }),
           stopWhen: stepCountIs(4),
         });
 

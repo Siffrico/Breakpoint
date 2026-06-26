@@ -45,6 +45,7 @@ type LearningProject =
 
 const LAST_SESSION_COOKIE = "bp-last-learning-session";
 const EMPTY_PROJECTS: LearningProject[] = [];
+const EVALUATION_EDUCATION_STAGES = new Set(["Review", "Test", "Check"]);
 
 type WorkspaceMode = "onboarding" | "unit" | "capstone" | "idle";
 type WorkspaceTheme = "light" | "dark" | "warm";
@@ -130,9 +131,8 @@ export function WorkspaceShell({
     aiWorkspace?.state?.mode === "education_unit" ? aiWorkspace.state : null;
   const activeEvaluationPlan: EvaluationPlan | null =
     mode === "unit" &&
-    activeEducationState &&
-    (activeEducationState.educationStage === "performance_evaluation" ||
-      activeEducationState.educationStage === "transfer_scenario")
+    activeEducationState?.educationStage != null &&
+    EVALUATION_EDUCATION_STAGES.has(activeEducationState.educationStage)
       ? (aiWorkspace?.evaluationPlan ?? null)
       : null;
   const canRequestNextScenario =
