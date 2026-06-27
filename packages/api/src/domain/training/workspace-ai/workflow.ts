@@ -1,13 +1,11 @@
 import type { WorkspaceContextMove } from "../context-engine/schemas";
-import type { AiModelPurpose } from "../engine/model-router";
 import type {
   WorkspaceAiEducationOutput,
   WorkspaceAiEducationStage,
   WorkspaceAiEvaluationOutput,
-  WorkspaceAiPromptKind,
 } from "./types";
 
-export type StepAi = "scenario" | "teaching" | "evaluation";
+export type StepRuntimeKind = "education" | "evaluation";
 
 export type WorkspaceStepVerdict =
   | "enough"
@@ -28,12 +26,7 @@ export type WorkspaceStepVerdict =
 
 export interface StepCard {
   stepId: WorkspaceAiEducationStage;
-  ai: StepAi;
-  promptKind: Extract<
-    WorkspaceAiPromptKind,
-    "education_unit" | "evaluate_feedback"
-  >;
-  modelPurpose: Extract<AiModelPurpose, "education" | "evaluation">;
+  runtimeKind: StepRuntimeKind;
   contextMove: Exclude<WorkspaceContextMove, "recall">;
   instruction: string;
   verdictField:
@@ -58,18 +51,12 @@ export interface UnitRun {
   stepScenarioCount: number;
 }
 
-export interface LearnerSkipRecord {
-  userId?: string | null;
-}
-
 export const VERDICT_RULEBOOK_WORKFLOW_ID = "verdict-rulebook-v1";
 
 export const stepCards = {
   Diagnose: {
     stepId: "Diagnose",
-    ai: "scenario",
-    promptKind: "education_unit",
-    modelPurpose: "education",
+    runtimeKind: "education",
     contextMove: "diagnose",
     instruction:
       "Run the diagnostic scenario step. Surface the learner's current mental model with the smallest realistic prompt that exposes judgment. Return diagnosisQuality: enough when there is enough evidence to teach from, otherwise thin.",
@@ -78,9 +65,7 @@ export const stepCards = {
   },
   BreakDown: {
     stepId: "BreakDown",
-    ai: "scenario",
-    promptKind: "education_unit",
-    modelPurpose: "education",
+    runtimeKind: "education",
     contextMove: "diagnose",
     instruction:
       "Break Down is a learner action. Do not teach and do not solve. Ask the learner to break the problem down in their own words — the goal, the rules, what matters, and what they are assuming. Read their breakdown and return breakdownQuality: good when their framing is usable enough to solve from, otherwise flawed.",
@@ -89,9 +74,7 @@ export const stepCards = {
   },
   Grill: {
     stepId: "Grill",
-    ai: "scenario",
-    promptKind: "education_unit",
-    modelPurpose: "education",
+    runtimeKind: "education",
     contextMove: "diagnose",
     instruction:
       "Grill is only reached when the learner's breakdown was flawed. Do not teach the answer and do not solve. Ask 2-3 pointed questions aimed at the exact spot their framing breaks, so the learner spots their own mistake. Return grillQuality: answered when they have repaired their framing enough to solve, otherwise needs_retry.",
@@ -100,9 +83,7 @@ export const stepCards = {
   },
   Solve: {
     stepId: "Solve",
-    ai: "scenario",
-    promptKind: "education_unit",
-    modelPurpose: "education",
+    runtimeKind: "education",
     contextMove: "guide",
     instruction:
       "Give the learner a realistic application problem that requires the mechanism, then respond to their attempt without grading as final mastery. Return solveQuality: attempted when there is a real attempt to evaluate next, otherwise stuck.",
@@ -111,9 +92,7 @@ export const stepCards = {
   },
   Review: {
     stepId: "Review",
-    ai: "evaluation",
-    promptKind: "evaluate_feedback",
-    modelPurpose: "evaluation",
+    runtimeKind: "evaluation",
     contextMove: "evaluate",
     instruction:
       "Evaluate the learner's solved attempt against the private contract and visible evidence only. Return reviewQuality: pass, retry, or repair.",
@@ -122,9 +101,7 @@ export const stepCards = {
   },
   TeachGap: {
     stepId: "TeachGap",
-    ai: "teaching",
-    promptKind: "education_unit",
-    modelPurpose: "education",
+    runtimeKind: "education",
     contextMove: "teach",
     instruction:
       "Repair the narrowest missing mechanism exposed by the last failed step. Return gapQuality: patched when the repair is specific enough to re-test, otherwise unclear.",
@@ -133,9 +110,7 @@ export const stepCards = {
   },
   NameIdea: {
     stepId: "NameIdea",
-    ai: "teaching",
-    promptKind: "education_unit",
-    modelPurpose: "education",
+    runtimeKind: "education",
     contextMove: "teach",
     instruction:
       "Have the learner name the transferable idea in their own words and contrast it with the tempting surrogate. Return namingQuality: named when the name preserves the mechanism, otherwise unclear.",
@@ -144,9 +119,7 @@ export const stepCards = {
   },
   Test: {
     stepId: "Test",
-    ai: "scenario",
-    promptKind: "evaluate_feedback",
-    modelPurpose: "evaluation",
+    runtimeKind: "education",
     contextMove: "transfer",
     instruction:
       "Create or run the transfer test in a changed practical context. Return testQuality: ready when there is a testable attempt for final checking, otherwise stuck.",
@@ -155,9 +128,7 @@ export const stepCards = {
   },
   Check: {
     stepId: "Check",
-    ai: "evaluation",
-    promptKind: "evaluate_feedback",
-    modelPurpose: "evaluation",
+    runtimeKind: "evaluation",
     contextMove: "evaluate",
     instruction:
       "Check final transfer under the unit mastery standard. Return checkQuality: pass, retry, or repair.",
@@ -268,23 +239,21 @@ export const decideNextStep = ({
   return nextStep;
 };
 
-/**
- * Takes a step and known learner record; returns true when the step is not
- * needed. The default rulebook keeps all steps active until product evidence
- * supports a skip rule.
- */
-export const shouldSkipStep = ({
-  learner,
+export const passesMasteryGate = ({
+  stepId,
+  verdict,
+  ratingMastered,
+  evaluationComplete,
 }: {
   stepId: WorkspaceAiEducationStage;
-  learner: LearnerSkipRecord | null | undefined;
-}): boolean => {
-  if (!learner) {
-    throw new Error("Learner record is missing.");
-  }
-
-  return false;
-};
+  verdict: WorkspaceStepVerdict;
+  ratingMastered: boolean;
+  evaluationComplete: boolean;
+}): boolean =>
+  stepId === "Check" &&
+  verdict === "pass" &&
+  ratingMastered &&
+  evaluationComplete;
 
 /**
  * Takes raw AI output and extracts just the verdict word for the current step;

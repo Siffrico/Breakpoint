@@ -6,10 +6,16 @@ import type {
 import type { ProjectBuildStep, ProjectBuildStepDetail } from "./build-project";
 
 export interface ProjectBuildArtifactPayload {
-  goals: Partial<OnboardingPacket>;
-  curriculum: Partial<CurriculumDesignerOutput>;
-  overview: Partial<ProjectOverviewOutput>;
+  goals: DeepPartial<OnboardingPacket>;
+  curriculum: DeepPartial<CurriculumDesignerOutput>;
+  overview: DeepPartial<ProjectOverviewOutput>;
 }
+
+type DeepPartial<T> = T extends readonly (infer TItem)[]
+  ? (DeepPartial<TItem> | null | undefined)[]
+  : T extends object
+    ? { [TKey in keyof T]?: DeepPartial<T[TKey]> }
+    : T;
 
 export type ProjectBuildArtifactPreviewInput =
   | { step: "goals"; payload: ProjectBuildArtifactPayload["goals"] }
@@ -60,6 +66,17 @@ const listLine = (label: string, values: unknown): string | null => {
   return items.length > 0 ? `${label}: ${items.join("; ")}` : null;
 };
 
+const titledItems = (values: unknown): string[] => {
+  if (!Array.isArray(values)) return [];
+
+  return values
+    .map((value: unknown) => {
+      if (!value || typeof value !== "object") return null;
+      return text((value as Record<string, unknown>).title);
+    })
+    .filter((value): value is string => Boolean(value));
+};
+
 const truncate = (value: string, maxLength = 900): string =>
   value.length > maxLength
     ? `${value.slice(0, maxLength).trimEnd()}...`
@@ -94,9 +111,8 @@ const previewCurriculum = (
   payload: ProjectBuildArtifactPayload["curriculum"],
 ): ProjectBuildStepDetail => {
   const plan = payload.planDraft;
-  const clusters = plan?.clusters.map((cluster) => cluster.title) ?? [];
-  const integrations =
-    plan?.integrationLayers.map((layer) => layer.title) ?? [];
+  const clusters = titledItems(plan?.clusters);
+  const integrations = titledItems(plan?.integrationLayers);
 
   return detailFrom(
     "Curriculum draft",

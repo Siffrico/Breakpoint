@@ -26,7 +26,6 @@ void test("advanceUnitRun advances by verdict rule", () => {
     outcome: {
       stepId: "Diagnose",
       verdict: "enough",
-      nextStepId: "BreakDown",
       mastered: false,
       scenarioCompleted: false,
       retryCount: 0,
@@ -47,7 +46,6 @@ void test("advanceUnitRun sends mastery outcomes to the terminal step", () => {
     outcome: {
       stepId: "Check",
       verdict: "pass",
-      nextStepId: "completed",
       mastered: true,
       scenarioCompleted: true,
       retryCount: 0,
@@ -56,6 +54,43 @@ void test("advanceUnitRun sends mastery outcomes to the terminal step", () => {
 
   assert.equal(nextRun.currentStepId, "completed");
   assert.equal(nextRun.stepScenarioCount, 2);
+});
+
+void test("advanceUnitRun sends a passing final check back to transfer when the rating gate is not met", () => {
+  const nextRun = advanceUnitRun({
+    run: {
+      ...baseRun,
+      currentStepId: "Check",
+      stepScenarioCount: 1,
+    },
+    outcome: {
+      stepId: "Check",
+      verdict: "pass",
+      mastered: false,
+      scenarioCompleted: true,
+      retryCount: 0,
+    },
+  });
+
+  assert.equal(nextRun.currentStepId, "Test");
+  assert.equal(nextRun.stepScenarioCount, 0);
+});
+
+void test("advanceUnitRun rejects mastery before the final check", () => {
+  assert.throws(
+    () =>
+      advanceUnitRun({
+        run: { ...baseRun, currentStepId: "Review" },
+        outcome: {
+          stepId: "Review",
+          verdict: "pass",
+          mastered: true,
+          scenarioCompleted: true,
+          retryCount: 0,
+        },
+      }),
+    /only a passing final check/i,
+  );
 });
 
 void test("advanceUnitRun allows repair verdict routes", () => {
@@ -68,7 +103,6 @@ void test("advanceUnitRun allows repair verdict routes", () => {
     outcome: {
       stepId: "Review",
       verdict: "repair",
-      nextStepId: "TeachGap",
       mastered: false,
       scenarioCompleted: true,
       retryCount: 0,
@@ -87,7 +121,6 @@ void test("advanceUnitRun rejects stale outcomes for a different current step", 
         outcome: {
           stepId: "Solve",
           verdict: "attempted",
-          nextStepId: "Review",
           mastered: false,
           scenarioCompleted: false,
           retryCount: 0,

@@ -47,15 +47,20 @@ export type WorkspaceTurnRuntime =
 export type WorkspaceTurnOutput<TRuntime extends WorkspaceTurnRuntime> =
   z.infer<TRuntime["outputSchema"]>;
 
-const getOutputSchemaForPromptKind = (
-  promptKind: Extract<
-    WorkspaceAiPromptKind,
-    "education_unit" | "evaluate_feedback"
-  >,
-) =>
-  promptKind === "evaluate_feedback"
-    ? WorkspaceAiEvaluationOutputSchema
-    : WorkspaceAiEducationOutputSchema;
+const RUNTIME_BY_KIND = {
+  education: {
+    promptKind: "education_unit",
+    modelPurpose: "education",
+    contextMode: "teacher",
+    outputSchema: WorkspaceAiEducationOutputSchema,
+  },
+  evaluation: {
+    promptKind: "evaluate_feedback",
+    modelPurpose: "evaluation",
+    contextMode: "evaluator",
+    outputSchema: WorkspaceAiEvaluationOutputSchema,
+  },
+} as const;
 
 export const getStepCard = (state: WorkspaceAiState): WorkspaceTurnRuntime => {
   if (state.mode === "recall") {
@@ -72,15 +77,13 @@ export const getStepCard = (state: WorkspaceAiState): WorkspaceTurnRuntime => {
 
   const stage = state.educationStage ?? "Diagnose";
   const card = getRulebookStepCard(stage);
+  const runtime = RUNTIME_BY_KIND[card.runtimeKind];
 
   return {
     mode: "education_unit",
     stage,
-    promptKind: card.promptKind,
-    modelPurpose: card.modelPurpose,
-    contextMode: card.ai === "evaluation" ? "evaluator" : "teacher",
+    ...runtime,
     contextMove: card.contextMove,
-    outputSchema: getOutputSchemaForPromptKind(card.promptKind),
     instruction: card.instruction,
     verdictField: card.verdictField,
   };

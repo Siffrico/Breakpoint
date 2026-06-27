@@ -9,7 +9,6 @@ import type {
   AttemptTiming,
   EvaluationPlan,
   WorkspaceAiEducationOutput,
-  WorkspaceAiEducationStage,
   WorkspaceAiEvaluationOutput,
   WorkspaceAiMessage,
   WorkspaceAiRecallOutput,
@@ -20,6 +19,7 @@ import type { UnitRun, WorkspaceStepVerdict } from "./workflow";
 import type { WorkspaceTurnDependencies } from "./workspace-turn";
 import { validateScenarioContractAgainstUnit } from "./evaluation-contracts";
 import { advanceUnitRun } from "./orchestrator";
+import { passesMasteryGate } from "./workflow";
 import {
   getWorkspaceMessageSlot,
   planNextWorkspaceTurn,
@@ -506,7 +506,6 @@ export const saveEducationTurnResult = async ({
   evaluationPlan,
   priorEvaluationAttempts,
   verdict,
-  nextStepId,
   difficultyDirectiveReason,
   turnId,
   deps,
@@ -522,7 +521,6 @@ export const saveEducationTurnResult = async ({
   evaluationPlan?: EvaluationPlan | null;
   priorEvaluationAttempts: number;
   verdict: WorkspaceStepVerdict;
-  nextStepId: WorkspaceAiEducationStage;
   difficultyDirectiveReason?: string | null;
   turnId?: string | null;
   deps: WorkspaceTurnPersistenceDependencies;
@@ -559,15 +557,17 @@ export const saveEducationTurnResult = async ({
     attemptTiming,
     deps,
   });
-  const mastered =
-    nextStepId === "completed" ||
-    (isScoredAttempt && ratingVerdict.mastered && evaluationComplete);
+  const mastered = passesMasteryGate({
+    stepId: state.educationStage,
+    verdict,
+    ratingMastered: isScoredAttempt && ratingVerdict.mastered,
+    evaluationComplete,
+  });
   const nextRun = advanceUnitRun({
     run: currentRun,
     outcome: {
       stepId: state.educationStage,
       verdict,
-      nextStepId,
       mastered,
       scenarioCompleted: isScoredAttempt && evaluationComplete,
       retryCount: priorEvaluationAttempts,

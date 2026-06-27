@@ -17,17 +17,8 @@ const mapUnitRun = (row: typeof TrainingUnitRun.$inferSelect): UnitRun => ({
   stepScenarioCount: row.stepScenarioCount,
 });
 
-const LEGACY_STEP_ID_MAP: Record<string, UnitRun["currentStepId"]> = {
-  diagnostic_scenario: "Diagnose",
-  concept_instruction: "BreakDown",
-  guided_application: "Solve",
-  performance_evaluation: "Review",
-  transfer_scenario: "Test",
-  completed: "completed",
-};
-
 const parsePersistedStepId = (stepId: string): UnitRun["currentStepId"] =>
-  WorkspaceAiEducationStageSchema.parse(LEGACY_STEP_ID_MAP[stepId] ?? stepId);
+  WorkspaceAiEducationStageSchema.parse(stepId);
 
 export const trainingUnitRunRepository = {
   getUnitRun: async ({

@@ -1,3 +1,5 @@
+import { ScenarioEvaluationContractSchema } from "@acme/validators";
+
 import type { Memory } from "../../memory/types";
 import type {
   CurriculumNode,
@@ -37,7 +39,7 @@ import {
 } from "./evaluation-plan";
 import { runWorkspaceAiPrompt } from "./runtime";
 import { getStepCard } from "./stage-runtime";
-import { decideNextStep, readVerdict, shouldSkipStep } from "./workflow";
+import { readVerdict } from "./workflow";
 import {
   getWorkspaceMessageSlot,
   isUnitAwaitingAdvance,
@@ -436,19 +438,23 @@ export const prepareWorkspaceTurnPrompt = async ({
       : null;
   const scenarioEvaluationContract =
     runtime.contextMode === "evaluator"
-      ? (openScenario?.scenarioContractJson ??
-        buildLegacyScenarioEvaluationContract({
-          unit,
-          stage: state.educationStage ?? "Review",
-          scenarioPrompt:
-            openScenario?.scenarioPrompt ??
-            verbatimMessages
-              .slice()
-              .reverse()
-              .find((workspaceMessage) => workspaceMessage.role === "assistant")
-              ?.content ??
-            unit.seedPrompt,
-        }))
+      ? openScenario?.scenarioContractJson
+        ? ScenarioEvaluationContractSchema.parse(
+            openScenario.scenarioContractJson,
+          )
+        : buildLegacyScenarioEvaluationContract({
+            unit,
+            stage: state.educationStage ?? "Review",
+            scenarioPrompt:
+              openScenario?.scenarioPrompt ??
+              verbatimMessages
+                .slice()
+                .reverse()
+                .find(
+                  (workspaceMessage) => workspaceMessage.role === "assistant",
+                )?.content ??
+              unit.seedPrompt,
+          })
       : null;
   const contextEnvelope = buildWorkspaceContextEnvelope({
     plan,
@@ -547,14 +553,10 @@ const maybeUpdateOpenScenarioItemRating = async ({
 export const saveStepResult = async ({
   prepared,
   rawOutput,
-  nextStepId,
-  verdict,
   deps,
 }: {
   prepared: PreparedWorkspaceTurn;
   rawOutput: unknown;
-  nextStepId?: WorkspaceAiState["educationStage"];
-  verdict?: ReturnType<typeof readVerdict>;
   deps: WorkspaceTurnOrchestrationDependencies;
 }): Promise<WorkspaceAiTurnResult | null> => {
   const output = parseWorkspaceTurnOutput({
@@ -654,19 +656,10 @@ export const saveStepResult = async ({
     return null;
   }
 
-  const stepVerdict =
-    verdict ??
-    readVerdict({
-      stepId: state.educationStage,
-      aiOutput: educationOutput,
-    });
-  const decidedNextStep =
-    nextStepId ??
-    decideNextStep({
-      currentStepId: state.educationStage,
-      verdict: stepVerdict,
-      retryCount: getPriorEvaluationAttempts(unitResponses),
-    });
+  const stepVerdict = readVerdict({
+    stepId: state.educationStage,
+    aiOutput: educationOutput,
+  });
 
   const result = await saveEducationTurnResult({
     sessionId: prepared.sessionId,
@@ -680,7 +673,6 @@ export const saveStepResult = async ({
     evaluationPlan,
     priorEvaluationAttempts: getPriorEvaluationAttempts(unitResponses),
     verdict: stepVerdict,
-    nextStepId: decidedNextStep,
     difficultyDirectiveReason:
       prepared.difficultyDirectiveResult?.directive.reason ?? null,
     turnId: prepared.turnId,
@@ -749,17 +741,6 @@ export const runOneStep = async ({
     };
   }
 
-  if (prepared.turn.state.mode === "education_unit") {
-    if (!prepared.turn.state.educationStage) {
-      throw new Error("Education stage is missing.");
-    }
-
-    shouldSkipStep({
-      stepId: prepared.turn.state.educationStage,
-      learner: { userId },
-    });
-  }
-
   const output = await runWorkspaceAiPrompt({
     kind: prepared.runtime.promptKind,
     schema: prepared.runtime.outputSchema,
@@ -770,40 +751,9 @@ export const runOneStep = async ({
     context: prepared.promptContext,
   });
 
-  const parsedOutput = parseWorkspaceTurnOutput({
-    runtime: prepared.runtime,
-    rawOutput: output,
-  });
-  const nextStep =
-    prepared.turn.state.mode === "education_unit" &&
-    prepared.turn.state.educationStage
-      ? (() => {
-          const educationOutput = parsedOutput as
-            | WorkspaceAiEducationOutput
-            | WorkspaceAiEvaluationOutput;
-          const verdict = readVerdict({
-            stepId: prepared.turn.state.educationStage,
-            aiOutput: educationOutput,
-          });
-
-          return {
-            verdict,
-            nextStepId: decideNextStep({
-              currentStepId: prepared.turn.state.educationStage,
-              verdict,
-              retryCount: getPriorEvaluationAttempts(
-                prepared.turn.unitResponses,
-              ),
-            }),
-          };
-        })()
-      : null;
-
   const result = await saveStepResult({
     prepared,
-    rawOutput: parsedOutput,
-    verdict: nextStep?.verdict,
-    nextStepId: nextStep?.nextStepId,
+    rawOutput: output,
     deps,
   });
 

@@ -5,6 +5,7 @@ import {
   Inter,
   Playwrite_GB_J_Guides,
   Sora,
+  Source_Serif_4,
 } from "next/font/google";
 
 import { cn } from "@acme/ui";
@@ -59,6 +60,12 @@ const inter = Inter({
   subsets: ["latin"],
   variable: "--font-ai",
 });
+// Editorial body serif for the marketing site — a free transitional face
+// (Tiempos/Lyon family) to match Cognition's serif copy.
+const sourceSerif = Source_Serif_4({
+  subsets: ["latin"],
+  variable: "--font-serif",
+});
 // Wordmark face for the marketing site — distinct from the product UI fonts.
 // Playwrite GB J Guides ships a single weight (400) with no italic, and is
 // only available as a variable font — declare both explicitly.
@@ -79,6 +86,7 @@ export default function RootLayout(props: { children: React.ReactNode }) {
           sora.variable,
           geistMono.variable,
           inter.variable,
+          sourceSerif.variable,
           playwrite.variable,
         )}
       >

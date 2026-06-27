@@ -4,6 +4,7 @@ import {
   EvaluationDimensionResultSchema,
   ScenarioEvaluationContractSchema,
   UnitMasteryContractSchema,
+  WorkspaceEducationStageSchema,
 } from "@acme/validators";
 
 export const WorkspaceAiPromptKindSchema = z.enum([
@@ -13,18 +14,7 @@ export const WorkspaceAiPromptKindSchema = z.enum([
   "evaluate_feedback",
 ]);
 
-export const WorkspaceAiEducationStageSchema = z.enum([
-  "Diagnose",
-  "BreakDown",
-  "Grill",
-  "Solve",
-  "Review",
-  "TeachGap",
-  "NameIdea",
-  "Test",
-  "Check",
-  "completed",
-]);
+export const WorkspaceAiEducationStageSchema = WorkspaceEducationStageSchema;
 
 export const WorkspaceAiTurnModeSchema = z.enum(["education_unit", "recall"]);
 
@@ -97,6 +87,7 @@ export const WorkspaceAiEducationOutputSchema = z.object({
   solveQuality: z.enum(["attempted", "stuck"]).optional(),
   gapQuality: z.enum(["patched", "unclear"]).optional(),
   namingQuality: z.enum(["named", "unclear"]).optional(),
+  testQuality: z.enum(["ready", "stuck"]).optional(),
   unitComplete: z.boolean(),
   score: z.number().int().min(0).max(100).nullable(),
   strengths: z.array(z.string().min(1)).max(4),
@@ -107,7 +98,6 @@ export const WorkspaceAiEvaluationOutputSchema =
   WorkspaceAiEducationOutputSchema.extend({
     evaluationPlan: EvaluationPlanSchema,
     reviewQuality: z.enum(["pass", "retry", "repair"]).optional(),
-    testQuality: z.enum(["ready", "stuck"]).optional(),
     checkQuality: z.enum(["pass", "retry", "repair"]).optional(),
     evaluationSummary: z.string().min(1),
     evidenceCitations: z.array(z.string().min(1)).min(1).max(6),

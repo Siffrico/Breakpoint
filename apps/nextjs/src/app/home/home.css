@@ -1,0 +1,421 @@
+/* ============================================================================
+ * Breakpoint marketing — Cognition layout on opencode's Cursor-light system.
+ *
+ * Palette: sst/opencode `cursor` theme, light mode (exact tokens) —
+ *   background #FFFFFF · panel #F5F5F5 · element #E0E0E0 · text #212121 ·
+ *   muted #757575 · border #BDBDBD · accent #007ACC.
+ * Type: Inter grotesque headings/nav (Söhne-feel) · Source Serif 4 body
+ *   (Tiempos-feel) · Geist Mono section indices (terminal-precise, the
+ *   opencode touch people love). Small, calm scale — "zoomed out".
+ * Construction: 17.5% · 65% · 17.5% page columns ·
+ *   gray logo panel · 4px radii · one blue accent only. Scoped to .oc-home.
+ * ==========================================================================*/
+
+.oc-home {
+  color-scheme: light;
+
+  --bg: #fafafa;
+  --panel: #f5f5f5;
+  --element: #e0e0e0;
+  --text: #212121;
+  --muted: #757575;
+  --border: #e0e0e0;
+  --border-strong: #bdbdbd;
+  --accent: #007acc;
+
+  --sans: var(--font-ai), "Helvetica Neue", Arial, system-ui, sans-serif;
+  --serif: var(--font-serif), Georgia, "Times New Roman", serif;
+  --mono:
+    var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* page thirds — 17.5% · 65% · 17.5% */
+  --oc-col-left: 17.5%;
+  --oc-col-mid: 65%;
+  --oc-col-right: 17.5%;
+
+  position: relative;
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: var(--oc-col-left) var(--oc-col-mid) var(--oc-col-right);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* full-height layout dividers — frame the headline + subtext column */
+.oc-home__vline {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(0, 0, 0, 0.07);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.oc-home__vline--sidebar {
+  left: var(--oc-col-left);
+}
+
+.oc-home__vline--text {
+  left: calc(var(--oc-col-left) + var(--oc-col-mid));
+}
+
+/* ---- Sidebar: quiet index ---------------------------------------------- */
+
+.oc-home__rail {
+  position: relative;
+  grid-column: 1;
+  background: var(--bg);
+}
+
+.oc-home__rail-inner {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  padding-left: 64px;
+  padding-top: 120px;
+}
+
+.oc-home__mark {
+  width: 19px;
+  height: 19px;
+  color: var(--text);
+  margin-bottom: 30px;
+}
+
+.oc-home__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  /* nudge the nav buttons right ~5% */
+  transform: translateX(14px);
+}
+
+.oc-home__nav a {
+  position: relative;
+  width: fit-content;
+  /* compact UI face — matches the workspace "Ask" button (Geist) */
+  font-family: var(--font-body), system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.3;
+  font-weight: 500;
+  letter-spacing: -0.006em;
+  color: var(--muted);
+  text-decoration: none;
+  transition: color 0.14s ease;
+}
+.oc-home__nav a:hover {
+  color: var(--text);
+}
+/* active link — opencode's greyish-black text token, not blue */
+.oc-home__nav a[data-active="true"] {
+  color: var(--text);
+}
+.oc-home__nav a[data-active="true"]::before {
+  content: "";
+  position: absolute;
+  left: -16px;
+  top: 3px;
+  width: 2px;
+  height: 14px;
+  background: var(--text);
+}
+
+/* filled gradient CTA — same gray→dark ramp as the headline, white label,
+   aligned to the nav column (matching translateX + Geist face) */
+.oc-home__cta {
+  margin-top: 18px;
+  /* align left edge + sit a touch closer to the nav links above */
+  transform: translateX(14px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 16px;
+  width: fit-content;
+  border: 1px solid #050505;
+  border-radius: 4px;
+  background: linear-gradient(
+    to bottom,
+    #6f6f6f 0%,
+    #3a3a3a 38%,
+    #161616 78%,
+    #070707 100%
+  );
+  font-family: var(--font-body), system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1;
+  font-weight: 500;
+  letter-spacing: -0.006em;
+  color: #ffffff;
+  text-decoration: none;
+  transition: filter 0.14s ease;
+}
+.oc-home__cta:hover {
+  filter: brightness(1.18);
+}
+
+.oc-home__rail-foot {
+  position: absolute;
+  left: 64px;
+  bottom: 40px;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1;
+  color: var(--muted);
+  letter-spacing: 0;
+}
+
+/* ---- Main column ------------------------------------------------------- */
+
+.oc-home__content {
+  position: relative;
+  grid-column: 2;
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--bg);
+}
+
+/* ---- Construction marks: one quiet blueprint system ------------------- */
+
+.oc-home__geometry {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* one faint vertical layout axis near the right edge */
+.oc-home__hero-guide {
+  position: absolute;
+  top: 90px;
+  bottom: 90px;
+  right: 330px;
+  width: 1px;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    rgba(0, 0, 0, 0.065),
+    transparent
+  );
+}
+
+/* a single large construction mark, cropped off the top-right —
+   felt, not read: same 1px stroke at one low opacity */
+.oc-home__geometry-mark {
+  position: absolute;
+  top: 56px;
+  right: -36px;
+  width: 320px;
+  height: 320px;
+}
+.oc-home__geometry-mark * {
+  fill: none;
+  stroke: rgba(0, 0, 0, 0.075);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+/* dot matrix that belongs to the headline — aligned to the copy block,
+   faded at every edge so it reads as atmosphere, not a pasted rectangle */
+.oc-home__dot-field {
+  position: absolute;
+  left: 0;
+  bottom: -160px;
+  width: 100%;
+  height: 110px;
+  background-image: radial-gradient(rgba(0, 0, 0, 0.14) 1px, transparent 1px);
+  background-size: 9px 9px;
+  opacity: 0.25;
+  -webkit-mask-image:
+    linear-gradient(to right, transparent, #000 18%, #000 72%, transparent),
+    linear-gradient(to bottom, transparent, #000 20%, #000 70%, transparent);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(to right, transparent, #000 18%, #000 72%, transparent),
+    linear-gradient(to bottom, transparent, #000 20%, #000 70%, transparent);
+  mask-composite: intersect;
+}
+
+.oc-home__section {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 720px);
+  column-gap: 0;
+}
+
+/* ---- Hero: small editorial heading, breathing room --------------------- */
+
+.oc-home__hero {
+  padding-top: 186px;
+  padding-bottom: 0;
+}
+
+.oc-home__hero-content {
+  position: relative;
+  transform: translateX(93px);
+}
+
+.oc-home__title {
+  max-width: 612px;
+  margin: 0;
+  font-family: var(--sans);
+  font-size: 36px;
+  line-height: 1.08;
+  letter-spacing: -0.022em;
+  font-weight: 600;
+  /* per-glyph gray→dark vertical fade (opencode hero technique) —
+     gradient tiled to one line-height so each letter on every line fades
+     light-top → dark-bottom, instead of stretching across the whole block */
+  color: var(--text);
+  background: linear-gradient(
+    to bottom,
+    #6f6f6f 0%,
+    #3a3a3a 38%,
+    #161616 78%,
+    #070707 100%
+  );
+  background-size: 100% 1.08em;
+  background-repeat: repeat-y;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.oc-home__copy {
+  max-width: 578px;
+  margin-top: 28px;
+  font-family: var(--serif);
+  font-size: 17px;
+  line-height: 1.5;
+  letter-spacing: -0.003em;
+  color: #2c2c2c;
+}
+.oc-home__copy p {
+  margin: 0;
+}
+.oc-home__copy p + p {
+  margin-top: 22px;
+}
+
+/* thin underlined emphasis — never bold */
+.oc-home__copy strong,
+.oc-home__copy a {
+  color: var(--text);
+  font-weight: 400;
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  text-decoration-color: rgba(0, 0, 0, 0.4);
+}
+.oc-home__copy a:hover {
+  text-decoration-color: var(--text);
+}
+
+.oc-home__cubes {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  max-width: 920px;
+  margin-top: 48px;
+  /* keep the last column clear of the middle column's overflow:hidden edge */
+  padding-right: 64px;
+  box-sizing: border-box;
+  position: relative;
+}
+/* 12 wide × 3 tall, square cells (matches the 12/3 wrapper ratio) */
+.oc-home__cubes .default-animation {
+  width: 100%;
+  aspect-ratio: 12 / 3;
+}
+/* soft gray ramp applied per box — each cube face fades top-light → bottom-dark
+   on its own. Masking the leaf face (not the .cube) preserves the 3D tilt. */
+.oc-home__cubes .cube-face {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.7) 0%,
+    rgba(0, 0, 0, 1) 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.7) 0%,
+    rgba(0, 0, 0, 1) 100%
+  );
+}
+
+/* ---- Responsive -------------------------------------------------------- */
+
+@media (max-width: 1000px) {
+  .oc-home {
+    grid-template-columns: 1fr;
+  }
+  .oc-home__rail {
+    grid-column: 1;
+  }
+  .oc-home__content {
+    grid-column: 1;
+  }
+  .oc-home__vline {
+    display: none;
+  }
+  .oc-home__rail {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .oc-home__rail-inner {
+    position: static;
+    height: auto;
+    padding: 36px 28px;
+  }
+  .oc-home__rail-foot {
+    position: static;
+    margin-top: 28px;
+    left: auto;
+    bottom: auto;
+  }
+  .oc-home__section {
+    grid-template-columns: 1fr;
+    padding-inline: 28px;
+  }
+  .oc-home__geometry-left-guides,
+  .oc-home__geometry-down-guides,
+  .oc-home__geometry-rings {
+    width: 100%;
+    left: 0;
+  }
+  .oc-home__dot-field {
+    top: 600px;
+    left: 20px;
+    width: calc(100% - 40px);
+  }
+  .oc-home__hero {
+    padding-top: 56px;
+  }
+  .oc-home__hero-content {
+    transform: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .oc-home__geometry-left-guides,
+  .oc-home__geometry-down-guides,
+  .oc-home__geometry-rings {
+    width: 100%;
+    left: 0;
+  }
+  .oc-home__geometry-guides {
+    opacity: 0.025;
+  }
+  .oc-home__dot-field {
+    top: 720px;
+  }
+  .oc-home__title {
+    font-size: 32px;
+  }
+}

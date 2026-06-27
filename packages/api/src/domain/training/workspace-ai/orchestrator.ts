@@ -4,29 +4,8 @@ import type {
 } from "../types/training.types";
 import type { WorkspaceAiEducationStage, WorkspaceAiState } from "./types";
 import type { UnitRun, WorkspaceStepVerdict } from "./workflow";
+import { WorkspaceAiEducationStageSchema } from "./types";
 import { decideNextStep } from "./workflow";
-
-const EDUCATION_STAGE_ORDER: WorkspaceAiEducationStage[] = [
-  "Diagnose",
-  "BreakDown",
-  "Grill",
-  "Solve",
-  "Review",
-  "TeachGap",
-  "NameIdea",
-  "Test",
-  "Check",
-  "completed",
-];
-
-const LEGACY_STAGE_MAP: Record<string, WorkspaceAiEducationStage> = {
-  diagnostic_scenario: "Diagnose",
-  concept_instruction: "BreakDown",
-  guided_application: "Solve",
-  performance_evaluation: "Review",
-  transfer_scenario: "Test",
-  completed: "completed",
-};
 
 const RECALL_INTERVAL_COMPLETIONS = 3;
 
@@ -93,18 +72,8 @@ export const getCurrentEducationStage = (
     .find((response) => response.metadata?.aiEducationStage)
     ?.metadata?.aiEducationStage;
 
-  const normalizedLatestState = latestState
-    ? (LEGACY_STAGE_MAP[latestState] ?? latestState)
-    : null;
-
-  if (
-    normalizedLatestState &&
-    EDUCATION_STAGE_ORDER.includes(normalizedLatestState)
-  ) {
-    return normalizedLatestState;
-  }
-
-  return "Diagnose";
+  const parsedState = WorkspaceAiEducationStageSchema.safeParse(latestState);
+  return parsedState.success ? parsedState.data : "Diagnose";
 };
 
 export class IllegalUnitRunTransitionError extends Error {
@@ -127,7 +96,6 @@ export const advanceUnitRun = ({
   outcome: {
     stepId: WorkspaceAiEducationStage;
     verdict: WorkspaceStepVerdict;
-    nextStepId: WorkspaceAiEducationStage;
     mastered: boolean;
     scenarioCompleted: boolean;
     retryCount: number;
@@ -144,6 +112,12 @@ export const advanceUnitRun = ({
     : run.stepScenarioCount;
 
   if (outcome.mastered) {
+    if (run.currentStepId !== "Check" || outcome.verdict !== "pass") {
+      throw new IllegalUnitRunTransitionError(
+        "Only a passing final check can complete a unit run.",
+      );
+    }
+
     return {
       ...run,
       currentStepId: "completed",
@@ -156,17 +130,15 @@ export const advanceUnitRun = ({
     verdict: outcome.verdict,
     retryCount: outcome.retryCount,
   });
-  if (rulebookNextStep !== outcome.nextStepId) {
-    throw new IllegalUnitRunTransitionError(
-      `Outcome next step ${outcome.nextStepId} is not legal from ${run.currentStepId} with verdict ${outcome.verdict}.`,
-    );
-  }
+  // A model pass only nominates completion; without rating mastery, test
+  // transfer again instead of persisting a false terminal state.
+  const nextStepId =
+    rulebookNextStep === "completed" ? "Test" : rulebookNextStep;
 
   return {
     ...run,
-    currentStepId: outcome.nextStepId,
-    stepScenarioCount:
-      outcome.nextStepId === run.currentStepId ? nextScenarioCount : 0,
+    currentStepId: nextStepId,
+    stepScenarioCount: nextStepId === run.currentStepId ? nextScenarioCount : 0,
   };
 };
 

@@ -29,6 +29,7 @@
     "@trpc/tanstack-react-query": "catalog:",
     "ai": "^6.0.134",
     "better-auth": "catalog:",
+    "gsap": "^3.15.0",
     "katex": "^0.16.45",
     "next": "^16.0.9",
     "react": "catalog:react19",

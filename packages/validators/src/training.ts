@@ -175,6 +175,42 @@ export const UnitMasteryContractSchema = z.object({
   dimensions: z.array(UnitMasteryDimensionSchema).min(1).max(4),
 });
 
+export const WORKSPACE_EDUCATION_STAGE_IDS = [
+  "Diagnose",
+  "BreakDown",
+  "Grill",
+  "Solve",
+  "Review",
+  "TeachGap",
+  "NameIdea",
+  "Test",
+  "Check",
+  "completed",
+] as const;
+
+const LEGACY_WORKSPACE_EDUCATION_STAGE_IDS: Record<string, string> = {
+  diagnostic_scenario: "Diagnose",
+  concept_instruction: "BreakDown",
+  guided_application: "Solve",
+  performance_evaluation: "Review",
+  transfer_scenario: "Test",
+};
+
+export const normalizeWorkspaceEducationStage = (value: unknown): unknown =>
+  typeof value === "string"
+    ? (LEGACY_WORKSPACE_EDUCATION_STAGE_IDS[value] ?? value)
+    : value;
+
+export const WorkspaceEducationStageSchema = z.preprocess(
+  normalizeWorkspaceEducationStage,
+  z.enum(WORKSPACE_EDUCATION_STAGE_IDS),
+);
+
+const WorkspaceScenarioStageSchema = z.preprocess(
+  normalizeWorkspaceEducationStage,
+  z.enum(["Diagnose", "Solve", "Review", "Test", "Check", "recall"]),
+);
+
 export const ScenarioEvaluationDimensionSchema = z.object({
   dimensionId: ContractDimensionIdSchema,
   promptRole: z.string().min(1),
@@ -227,14 +263,7 @@ export const ScenarioVerifierSchema = z
 
 export const ScenarioEvaluationContractSchema = z.object({
   version: z.literal(1),
-  scenarioStage: z.enum([
-    "Diagnose",
-    "Solve",
-    "Review",
-    "Test",
-    "Check",
-    "recall",
-  ]),
+  scenarioStage: WorkspaceScenarioStageSchema,
   scenarioPromptSummary: z.string().min(1),
   testedDimensions: z.array(ScenarioEvaluationDimensionSchema).min(1).max(4),
   learnerVisibleCriteria: z.array(z.string().min(1)).min(1).max(5),
