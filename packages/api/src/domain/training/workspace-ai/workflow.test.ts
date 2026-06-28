@@ -9,7 +9,7 @@ import {
 
 import { getStepCard } from "./stage-runtime";
 import { WorkspaceAiEducationOutputSchema } from "./types";
-import { passesMasteryGate } from "./workflow";
+import { passesUnitCompletionGate } from "./workflow";
 
 const educationState = {
   mode: "education_unit",
@@ -64,31 +64,36 @@ void test("legacy workspace stages normalize at the shared validation boundary",
   assert.doesNotThrow(() => z.toJSONSchema(ScenarioEvaluationContractSchema));
 });
 
-void test("mastery requires a passing, complete final check and rating verdict", () => {
+void test("a unit completes on a passing, complete final check alone", () => {
   assert.equal(
-    passesMasteryGate({
+    passesUnitCompletionGate({
       stepId: "Check",
       verdict: "pass",
-      ratingMastered: true,
       evaluationComplete: true,
     }),
     true,
   );
   assert.equal(
-    passesMasteryGate({
+    passesUnitCompletionGate({
       stepId: "Review",
       verdict: "pass",
-      ratingMastered: true,
       evaluationComplete: true,
     }),
     false,
   );
   assert.equal(
-    passesMasteryGate({
+    passesUnitCompletionGate({
+      stepId: "Check",
+      verdict: "retry",
+      evaluationComplete: true,
+    }),
+    false,
+  );
+  assert.equal(
+    passesUnitCompletionGate({
       stepId: "Check",
       verdict: "pass",
-      ratingMastered: false,
-      evaluationComplete: true,
+      evaluationComplete: false,
     }),
     false,
   );

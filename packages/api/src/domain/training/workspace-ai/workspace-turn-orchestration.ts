@@ -29,6 +29,7 @@ import { renderWorkspaceStageContextPrompt } from "../context-engine/render-cont
 import { compactTranscript, createSummarizer } from "../engine/compaction";
 import { getAiModelForPurpose } from "../engine/model-router";
 import { clampClaimedItemRating } from "../orchestration/goldilocks";
+import { resolveRatingScope } from "../orchestration/rating-scope";
 import { buildWorkspaceIntroMessage } from "../workflows/get-ai-workspace-workflow";
 import {
   buildLegacyScenarioEvaluationContract,
@@ -293,6 +294,7 @@ export const prepareWorkspaceTurnPrompt = async ({
   const turn = await resolveWorkspaceTurn({ sessionId, deps });
   const { plan, allResponses, state, node, unit, unitRun, unitResponses } =
     turn;
+  const ratingScope = resolveRatingScope({ unit, planNodes: plan.nodes });
   const slot = getWorkspaceMessageSlot(state.mode);
   let claimedDurableTurn = false;
 
@@ -424,7 +426,7 @@ export const prepareWorkspaceTurnPrompt = async ({
     deps.applyManualDifficultyNudge
       ? await deps.applyManualDifficultyNudge({
           userId,
-          nodeId: unit.nodeId,
+          nodeId: ratingScope.nodeId,
           signal: manualDifficultySignal,
           now,
         })
@@ -434,9 +436,9 @@ export const prepareWorkspaceTurnPrompt = async ({
     shouldUseDifficultyDirective
       ? deps.prepareDifficultyDirective?.({
           userId,
-          nodeId: unit.nodeId,
+          nodeId: ratingScope.nodeId,
           now,
-          bands: unit.difficultyBands,
+          bands: ratingScope.bands,
         })
       : Promise.resolve(null),
   ]);
@@ -444,7 +446,7 @@ export const prepareWorkspaceTurnPrompt = async ({
     runtime.contextMode === "evaluator" && deps.getOpenScenario
       ? await deps.getOpenScenario({
           userId,
-          nodeId: unit.nodeId,
+          nodeId: ratingScope.nodeId,
         })
       : null;
   const serverAttemptTiming =
@@ -547,10 +549,12 @@ const getPriorEvaluationAttempts = (unitResponses: PhaseResponseRecord[]) =>
 const maybeUpdateOpenScenarioItemRating = async ({
   prepared,
   output,
+  ratingNodeId,
   deps,
 }: {
   prepared: PreparedWorkspaceTurn;
   output: WorkspaceTurnOutput;
+  ratingNodeId: string;
   deps: WorkspaceTurnOrchestrationDependencies;
 }) => {
   if (
@@ -562,7 +566,7 @@ const maybeUpdateOpenScenarioItemRating = async ({
 
   await deps.updateOpenScenarioItemRating({
     userId: prepared.userId,
-    nodeId: prepared.turn.unit.nodeId,
+    nodeId: ratingNodeId,
     itemRating: clampClaimedItemRating({
       claimed: output.estimatedItemRating,
       target: prepared.difficultyDirectiveResult.directive.targetItemRating,
@@ -585,9 +589,15 @@ export const saveStepResult = async ({
   });
   const { action, turn } = prepared;
   const { state, unit, plan, unitResponses } = turn;
+  const ratingScope = resolveRatingScope({ unit, planNodes: plan.nodes });
 
   if (state.mode === "recall") {
-    await maybeUpdateOpenScenarioItemRating({ prepared, output, deps });
+    await maybeUpdateOpenScenarioItemRating({
+      prepared,
+      output,
+      ratingNodeId: ratingScope.nodeId,
+      deps,
+    });
 
     if (action === "adjust_difficulty") {
       return saveRecallTurnResult({
@@ -656,6 +666,7 @@ export const saveStepResult = async ({
   await maybeUpdateOpenScenarioItemRating({
     prepared,
     output: educationOutput,
+    ratingNodeId: ratingScope.nodeId,
     deps,
   });
 
@@ -671,6 +682,7 @@ export const saveStepResult = async ({
         prepared.difficultyDirectiveResult?.directive.reason ?? null,
       manualDifficultySignal:
         action === "adjust_difficulty" ? prepared.manualDifficultySignal : null,
+      ratingNodeId: ratingScope.nodeId,
       turnId: prepared.turnId,
       turnLeaseId: prepared.turnLeaseId,
       deps,
@@ -698,6 +710,8 @@ export const saveStepResult = async ({
     verdict: stepVerdict,
     difficultyDirectiveReason:
       prepared.difficultyDirectiveResult?.directive.reason ?? null,
+    ratingNodeId: ratingScope.nodeId,
+    ratingBands: ratingScope.bands,
     turnId: prepared.turnId,
     turnLeaseId: prepared.turnLeaseId,
     deps,

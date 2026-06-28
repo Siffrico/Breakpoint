@@ -239,21 +239,22 @@ export const decideNextStep = ({
   return nextStep;
 };
 
-export const passesMasteryGate = ({
+/**
+ * A unit is finished when its final check passes — nothing more. The skill
+ * rating no longer gates this: the rating belongs to the whole skill cluster and
+ * keeps accruing across units in the background, so it cannot decide when any one
+ * unit is done.
+ */
+export const passesUnitCompletionGate = ({
   stepId,
   verdict,
-  ratingMastered,
   evaluationComplete,
 }: {
   stepId: WorkspaceAiEducationStage;
   verdict: WorkspaceStepVerdict;
-  ratingMastered: boolean;
   evaluationComplete: boolean;
 }): boolean =>
-  stepId === "Check" &&
-  verdict === "pass" &&
-  ratingMastered &&
-  evaluationComplete;
+  stepId === "Check" && verdict === "pass" && evaluationComplete;
 
 /**
  * Takes raw AI output and extracts just the verdict word for the current step;

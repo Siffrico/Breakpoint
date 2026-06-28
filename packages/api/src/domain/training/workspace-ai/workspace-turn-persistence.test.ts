@@ -196,6 +196,7 @@ void test("next-scenario persistence fails when the private contract cannot atta
         },
         evaluationPlan: null,
         currentStage: "Review",
+        ratingNodeId: unit.nodeId,
         deps: makeDeps(calls),
       }),
     /open scenario|scenario contract/i,

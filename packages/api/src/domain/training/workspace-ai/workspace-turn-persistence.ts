@@ -2,6 +2,7 @@ import type {
   CurriculumNode,
   CurriculumPlan,
   Debrief,
+  DifficultyBand,
   PhaseResponseRecord,
   UnitContent,
 } from "../types/training.types";
@@ -19,7 +20,7 @@ import type { UnitRun, WorkspaceStepVerdict } from "./workflow";
 import type { WorkspaceTurnDependencies } from "./workspace-turn";
 import { validateScenarioContractAgainstUnit } from "./evaluation-contracts";
 import { advanceUnitRun } from "./orchestrator";
-import { passesMasteryGate } from "./workflow";
+import { passesUnitCompletionGate } from "./workflow";
 import {
   getWorkspaceMessageSlot,
   planNextWorkspaceTurn,
@@ -92,7 +93,7 @@ export interface WorkspaceTurnPersistenceDependencies
     errorCodes: readonly string[];
     wasOverTime: boolean;
     occurredAt: Date;
-    bands?: UnitContent["difficultyBands"];
+    bands?: readonly DifficultyBand[] | null;
   }) => Promise<{ mastered: boolean }>;
   saveAttempt: (input: {
     sessionId: string;
@@ -252,11 +253,13 @@ const buildOutputContractCommit = ({
   unit,
   currentStage,
   output,
+  ratingNodeId,
 }: {
   userId: string;
   unit: UnitContent;
   currentStage: WorkspaceAiState["educationStage"];
   output: WorkspaceAiEducationOutput | WorkspaceAiEvaluationOutput;
+  ratingNodeId: string;
 }): WorkspaceOutputContractCommit | null => {
   const unitMasteryContract =
     output.unitMasteryContract ?? unit.unitMasteryContract ?? null;
@@ -289,7 +292,7 @@ const buildOutputContractCommit = ({
 
   commit.openScenarioContract = {
     userId,
-    nodeId: unit.nodeId,
+    nodeId: ratingNodeId,
     scenarioPrompt: output.assistantMessage,
     scenarioContract: output.scenarioEvaluationContract,
   };
@@ -305,15 +308,17 @@ const buildOutputContractCommit = ({
  */
 const recordAttemptRating = async ({
   userId,
-  unit,
   output,
   attemptTiming,
+  ratingNodeId,
+  ratingBands,
   deps,
 }: {
   userId: string;
-  unit: UnitContent;
   output: WorkspaceAiEducationOutput | WorkspaceAiEvaluationOutput;
   attemptTiming?: AttemptTiming | null;
+  ratingNodeId: string;
+  ratingBands?: readonly DifficultyBand[] | null;
   deps: WorkspaceTurnPersistenceDependencies;
 }): Promise<{ mastered: boolean }> => {
   if (!("dimensionResults" in output) || !deps.recordEvaluation) {
@@ -323,20 +328,20 @@ const recordAttemptRating = async ({
   try {
     const result = await deps.recordEvaluation({
       userId,
-      nodeId: unit.nodeId,
+      nodeId: ratingNodeId,
       score: output.score,
       errorCodes: output.dimensionResults.map(
         (dimensionResult) => dimensionResult.dimensionId,
       ),
       wasOverTime: attemptTiming?.wasOverTime ?? false,
       occurredAt: new Date(),
-      bands: unit.difficultyBands,
+      bands: ratingBands,
     });
     return { mastered: result.mastered };
   } catch (error) {
     console.error("Training rating evaluation recording failed", {
       userId,
-      nodeId: unit.nodeId,
+      nodeId: ratingNodeId,
       error,
     });
     return { mastered: false };
@@ -524,6 +529,8 @@ export const saveEducationTurnResult = async ({
   priorEvaluationAttempts,
   verdict,
   difficultyDirectiveReason,
+  ratingNodeId,
+  ratingBands,
   turnId,
   turnLeaseId,
   deps,
@@ -540,6 +547,8 @@ export const saveEducationTurnResult = async ({
   priorEvaluationAttempts: number;
   verdict: WorkspaceStepVerdict;
   difficultyDirectiveReason?: string | null;
+  ratingNodeId: string;
+  ratingBands?: readonly DifficultyBand[] | null;
   turnId?: string | null;
   turnLeaseId?: string | null;
   deps: WorkspaceTurnPersistenceDependencies;
@@ -557,6 +566,7 @@ export const saveEducationTurnResult = async ({
     unit,
     currentStage: state.educationStage,
     output,
+    ratingNodeId,
   });
 
   const currentRun = await resolveUnitRunProjection({
@@ -569,17 +579,20 @@ export const saveEducationTurnResult = async ({
   });
 
   const isScoredAttempt = "dimensionResults" in output;
-  const ratingVerdict = await recordAttemptRating({
+  // Fold the score into the skill rating for its own sake; the rating no longer
+  // gates completion (a unit is done when its final check passes), so we ignore
+  // the returned verdict here and let the rating accrue at the cluster level.
+  await recordAttemptRating({
     userId,
-    unit,
     output,
     attemptTiming,
+    ratingNodeId,
+    ratingBands,
     deps,
   });
-  const mastered = passesMasteryGate({
+  const mastered = passesUnitCompletionGate({
     stepId: state.educationStage,
     verdict,
-    ratingMastered: isScoredAttempt && ratingVerdict.mastered,
     evaluationComplete,
   });
   const nextRun = advanceUnitRun({
@@ -670,6 +683,7 @@ export const saveNextScenarioPrompt = async ({
   currentStage,
   difficultyDirectiveReason,
   manualDifficultySignal,
+  ratingNodeId,
   turnId,
   turnLeaseId,
   deps,
@@ -682,6 +696,7 @@ export const saveNextScenarioPrompt = async ({
   currentStage: WorkspaceAiState["educationStage"];
   difficultyDirectiveReason?: string | null;
   manualDifficultySignal?: "too_easy" | "too_hard" | null;
+  ratingNodeId: string;
   turnId?: string | null;
   turnLeaseId?: string | null;
   deps: WorkspaceTurnPersistenceDependencies;
@@ -695,6 +710,7 @@ export const saveNextScenarioPrompt = async ({
     unit,
     currentStage,
     output,
+    ratingNodeId,
   });
 
   const educationResponses = await deps.getPhaseResponses(unit.id, sessionId);
