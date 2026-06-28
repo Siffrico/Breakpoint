@@ -132,8 +132,8 @@ const makeDeps = (calls: string[]): WorkspaceTurnPersistenceDependencies => ({
     calls.push("updateUnitMasteryContract");
     return Promise.resolve({});
   },
-  updateOpenScenarioContract: () => {
-    calls.push("updateOpenScenarioContract");
+  updateScenarioContract: () => {
+    calls.push("updateScenarioContract");
     return Promise.resolve(null);
   },
   saveAttempt: () => Promise.resolve(),
@@ -159,10 +159,10 @@ const makeDeps = (calls: string[]): WorkspaceTurnPersistenceDependencies => ({
   },
   commitNextScenarioPrompt: (input) => {
     calls.push("commitNextScenarioPrompt");
-    assert.equal(
-      input.contracts?.openScenarioContract?.scenarioPrompt,
-      "Replacement scenario",
-    );
+    const contract = input.contracts?.openScenarioContract;
+    assert.ok(contract);
+    assert.equal(contract.scenarioPrompt, "Replacement scenario");
+    assert.equal(contract.scenarioAttemptId, "scenario-1");
     throw new Error(
       "Scenario evaluation contract could not be attached to an open scenario.",
     );
@@ -196,7 +196,7 @@ void test("next-scenario persistence fails when the private contract cannot atta
         },
         evaluationPlan: null,
         currentStage: "Review",
-        ratingNodeId: unit.nodeId,
+        scenarioAttemptId: "scenario-1",
         deps: makeDeps(calls),
       }),
     /open scenario|scenario contract/i,

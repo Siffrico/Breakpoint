@@ -20,6 +20,7 @@ import {
 } from "../engine/rating";
 
 export interface GoldilocksDirectiveResult {
+  scenarioAttemptId: string;
   directive: ScenarioDirective;
   promptBlock: string;
   ratingSnapshot: string;
@@ -54,11 +55,12 @@ export interface PrepareScenarioDirectiveDependencies {
     nodeId: string;
     directive: ScenarioDirective;
     itemRating: number;
-  }) => Promise<unknown>;
+  }) => Promise<{ id: string }>;
 }
 
 export interface RecordEvaluationDependencies {
-  getOpenScenario: (input: {
+  getScenarioAttempt: (input: {
+    scenarioAttemptId: string;
     userId: string;
     nodeId: string;
   }) => Promise<GoldilocksOpenScenario | null>;
@@ -201,7 +203,7 @@ export const prepareScenarioDirective = async ({
 
   const calibration = buildGeneratorCalibrationNote(predictions);
   const promptBlock = renderScenarioDirective(directive, band, calibration);
-  await deps.openScenarioAttempt({
+  const scenarioAttempt = await deps.openScenarioAttempt({
     userId,
     nodeId,
     directive,
@@ -209,6 +211,7 @@ export const prepareScenarioDirective = async ({
   });
 
   return {
+    scenarioAttemptId: scenarioAttempt.id,
     directive,
     promptBlock,
     ratingSnapshot: buildRatingSnapshot({
@@ -221,6 +224,7 @@ export const prepareScenarioDirective = async ({
 };
 
 export const recordEvaluation = async ({
+  scenarioAttemptId,
   userId,
   nodeId,
   score,
@@ -231,93 +235,71 @@ export const recordEvaluation = async ({
   bands,
   deps,
 }: {
+  scenarioAttemptId: string;
   userId: string;
   nodeId: string;
-  score: number | null | undefined;
+  score: number;
   errorCodes: readonly string[];
   sidechatAskCount?: number;
   wasOverTime?: boolean;
   occurredAt: Date;
   bands?: readonly DifficultyBand[] | null;
   deps: RecordEvaluationDependencies;
-}): Promise<{ recorded: boolean; reason?: string; mastered: boolean }> => {
-  if (score == null) {
-    return { recorded: false, reason: "missing_score", mastered: false };
-  }
-
-  const openScenario = await deps.getOpenScenario({
+}): Promise<void> => {
+  const scenario = await deps.getScenarioAttempt({
+    scenarioAttemptId,
     userId,
     nodeId,
   });
-  if (!openScenario)
-    return {
-      recorded: false,
-      reason: "missing_open_scenario",
-      mastered: false,
-    };
+  if (!scenario) {
+    throw new Error(
+      `Open scenario attempt ${scenarioAttemptId} was not found for rating node ${nodeId}.`,
+    );
+  }
 
   const loaded = await deps.loadJobProgress({
     userId,
     nodeId,
     initialRatingState: createInitialRatingState(),
   });
-  const directive = openScenario.directiveJson;
+  const directive = scenario.directiveJson;
   const evaluation: EvaluatedAttempt = {
     bandOrder: directive.bandOrder,
     score,
     offeredSupport: directive.supportLevel,
     sidechatAskCount,
     wasOverTime,
-    itemRating: openScenario.itemRating,
+    itemRating: scenario.itemRating,
     occurredAt,
     errorCodes: [...new Set(errorCodes.filter(Boolean))],
     targetedMisconceptionCode: directive.targetMisconceptionCode,
   };
 
-  try {
-    const result = applyEvaluation({
-      ratingState: loaded.ratingState,
-      misconceptions: loaded.misconceptions,
-      evaluation,
-    });
-    const resolvedBands = resolveBands({ bands, nodeId });
-    const nextDirective = decideNextScenario({
-      rating: result.ratingState,
-      progress: directive.nextProgress,
-      bands: resolvedBands,
-      misconceptions: result.misconceptions,
-      recentAttempts: [...loaded.recentAttempts, result.attempt],
-    });
-    const masteredAt =
-      loaded.masteredAt ??
-      (nextDirective.intent === "mastered" || directive.intent === "mastered"
-        ? occurredAt
-        : null);
+  const result = applyEvaluation({
+    ratingState: loaded.ratingState,
+    misconceptions: loaded.misconceptions,
+    evaluation,
+  });
+  const resolvedBands = resolveBands({ bands, nodeId });
+  const nextDirective = decideNextScenario({
+    rating: result.ratingState,
+    progress: directive.nextProgress,
+    bands: resolvedBands,
+    misconceptions: result.misconceptions,
+    recentAttempts: [...loaded.recentAttempts, result.attempt],
+  });
+  const masteredAt =
+    loaded.masteredAt ??
+    (nextDirective.intent === "mastered" || directive.intent === "mastered"
+      ? occurredAt
+      : null);
 
-    await deps.saveEvaluationResult({
-      userId,
-      nodeId,
-      scenarioAttemptId: openScenario.id,
-      result,
-      nextProgress: nextDirective.nextProgress,
-      masteredAt,
-    });
-
-    return { recorded: true, mastered: masteredAt != null };
-  } catch (error) {
-    if (error instanceof RangeError) {
-      console.error("Skipping training rating update after bad eval contract", {
-        userId,
-        nodeId,
-        scenarioAttemptId: openScenario.id,
-        error,
-      });
-      return {
-        recorded: false,
-        reason: "invalid_evaluation_contract",
-        mastered: false,
-      };
-    }
-    throw error;
-  }
+  await deps.saveEvaluationResult({
+    userId,
+    nodeId,
+    scenarioAttemptId,
+    result,
+    nextProgress: nextDirective.nextProgress,
+    masteredAt,
+  });
 };

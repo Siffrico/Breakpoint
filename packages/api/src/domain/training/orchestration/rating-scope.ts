@@ -24,11 +24,20 @@ export interface RatingScope {
   bands: readonly DifficultyBand[] | null;
 }
 
+export class CurriculumInvariantError extends Error {
+  readonly code = "CURRICULUM_INVARIANT_VIOLATION";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "CurriculumInvariantError";
+  }
+}
+
 /**
  * Walk a unit up to its nearest `skill_cluster` ancestor and return that node as
- * the rating scope. Falls back to the unit's own node when no cluster ancestor
- * exists (a root-level unit, integration, or simulation), which preserves the
- * pre-cluster behaviour rather than dropping the rating on the floor.
+ * the rating scope. The active curriculum graph is a required invariant: rating
+ * against a guessed fallback node would silently split one skill's history into
+ * multiple buckets.
  *
  * Pure and side-effect free: it reads only the plan nodes already in memory, so
  * it adds no round-trips and is safe to call on every rating touch.
@@ -41,30 +50,41 @@ export const resolveRatingScope = ({
   planNodes: readonly CurriculumNode[];
 }): RatingScope => {
   const nodesById = new Map(planNodes.map((node) => [node.id, node]));
-  const unitNode = nodesById.get(unit.nodeId) ?? null;
+  const unitNode = nodesById.get(unit.nodeId);
+  if (!unitNode) {
+    throw new CurriculumInvariantError(
+      `Unit node ${unit.nodeId} is missing from the active curriculum plan.`,
+    );
+  }
 
-  let cursor: CurriculumNode | null = unitNode?.parentNodeId
-    ? (nodesById.get(unitNode.parentNodeId) ?? null)
-    : null;
-  const seen = new Set<string>();
+  let cursor: CurriculumNode = unitNode;
+  const seen = new Set<string>([unitNode.id]);
 
-  while (cursor && cursor.kind !== "skill_cluster") {
-    if (seen.has(cursor.id)) {
-      cursor = null;
-      break;
+  while (cursor.kind !== "skill_cluster") {
+    if (!cursor.parentNodeId) {
+      throw new CurriculumInvariantError(
+        `Node ${cursor.id} has no skill_cluster ancestor.`,
+      );
     }
-    seen.add(cursor.id);
-    cursor = cursor.parentNodeId
-      ? (nodesById.get(cursor.parentNodeId) ?? null)
-      : null;
+
+    const parent = nodesById.get(cursor.parentNodeId);
+    if (!parent) {
+      throw new CurriculumInvariantError(
+        `Node ${cursor.id} references missing parent ${cursor.parentNodeId}.`,
+      );
+    }
+    if (seen.has(parent.id)) {
+      throw new CurriculumInvariantError(
+        `Curriculum cycle detected at node ${parent.id}.`,
+      );
+    }
+
+    seen.add(parent.id);
+    cursor = parent;
   }
 
-  if (cursor?.kind === "skill_cluster") {
-    return {
-      nodeId: cursor.id,
-      bands: cursor.difficultyBands ?? unit.difficultyBands ?? null,
-    };
-  }
-
-  return { nodeId: unit.nodeId, bands: unit.difficultyBands ?? null };
+  return {
+    nodeId: cursor.id,
+    bands: cursor.difficultyBands ?? unit.difficultyBands ?? null,
+  };
 };

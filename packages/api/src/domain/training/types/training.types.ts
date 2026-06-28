@@ -271,6 +271,7 @@ export interface PhaseResponseMetadata {
   dimensionResults?: EvaluationDimensionResult[];
   evaluationPlan?: EvaluationPlan;
   attemptTiming?: AttemptTiming;
+  scenarioAttemptId?: string;
   nextScenarioPrompt?: boolean;
   manualDifficultySignal?: "too_easy" | "too_hard";
   difficultyDirectiveReason?: string;

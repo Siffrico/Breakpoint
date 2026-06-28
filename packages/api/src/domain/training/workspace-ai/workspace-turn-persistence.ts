@@ -78,23 +78,13 @@ export interface WorkspaceTurnPersistenceDependencies
     unitContentId: string;
     unitMasteryContract: UnitContent["unitMasteryContract"];
   }) => Promise<unknown>;
-  updateOpenScenarioContract: (input: {
-    userId: string;
-    nodeId: string;
+  updateScenarioContract: (input: {
+    scenarioAttemptId: string;
     scenarioPrompt: string;
     scenarioContract: NonNullable<
       WorkspaceAiEducationOutput["scenarioEvaluationContract"]
     >;
   }) => Promise<unknown>;
-  recordEvaluation?: (input: {
-    userId: string;
-    nodeId: string;
-    score: number | null | undefined;
-    errorCodes: readonly string[];
-    wasOverTime: boolean;
-    occurredAt: Date;
-    bands?: readonly DifficultyBand[] | null;
-  }) => Promise<{ mastered: boolean }>;
   saveAttempt: (input: {
     sessionId: string;
     userId?: string | null;
@@ -133,8 +123,7 @@ export interface WorkspaceOutputContractCommit {
   unitContentId: string;
   unitMasteryContract?: UnitContent["unitMasteryContract"];
   openScenarioContract?: {
-    userId: string;
-    nodeId: string;
+    scenarioAttemptId: string;
     scenarioPrompt: string;
     scenarioContract: NonNullable<
       WorkspaceAiEducationOutput["scenarioEvaluationContract"]
@@ -182,12 +171,24 @@ export interface WorkspaceEducationTurnCommit {
   assistantMessage: WorkspaceAssistantMessageCommit;
   contracts: WorkspaceOutputContractCommit | null;
   phaseResponse: WorkspacePhaseResponseCommit;
+  ratingEvaluation: WorkspaceRatingEvaluationCommit | null;
   nextRun: UnitRun;
   completion: {
     nodeId: string;
     attempt: Parameters<WorkspaceTurnPersistenceDependencies["saveAttempt"]>[0];
   } | null;
   touchSessionId: string;
+}
+
+export interface WorkspaceRatingEvaluationCommit {
+  scenarioAttemptId: string;
+  userId: string;
+  nodeId: string;
+  score: number;
+  errorCodes: readonly string[];
+  wasOverTime: boolean;
+  occurredAt: Date;
+  bands: readonly DifficultyBand[] | null;
 }
 
 export interface WorkspaceRecallTurnCommit {
@@ -249,17 +250,15 @@ const CONTRACTED_SCENARIO_STAGES = new Set([
 ]);
 
 const buildOutputContractCommit = ({
-  userId,
   unit,
   currentStage,
   output,
-  ratingNodeId,
+  scenarioAttemptId,
 }: {
-  userId: string;
   unit: UnitContent;
   currentStage: WorkspaceAiState["educationStage"];
   output: WorkspaceAiEducationOutput | WorkspaceAiEvaluationOutput;
-  ratingNodeId: string;
+  scenarioAttemptId: string | null;
 }): WorkspaceOutputContractCommit | null => {
   const unitMasteryContract =
     output.unitMasteryContract ?? unit.unitMasteryContract ?? null;
@@ -290,9 +289,12 @@ const buildOutputContractCommit = ({
     scenarioContract: output.scenarioEvaluationContract,
   });
 
+  if (!scenarioAttemptId) {
+    throw new Error("Scenario evaluation contract has no scenario attempt.");
+  }
+
   commit.openScenarioContract = {
-    userId,
-    nodeId: ratingNodeId,
+    scenarioAttemptId,
     scenarioPrompt: output.assistantMessage,
     scenarioContract: output.scenarioEvaluationContract,
   };
@@ -300,52 +302,40 @@ const buildOutputContractCommit = ({
   return commit;
 };
 
-/**
- * Fold one scored attempt into the per-unit ELO rating. This keeps Goldilocks
- * scenario difficulty calibrated and returns the single mastery verdict used
- * for completion. Failures are swallowed: a missed rating update must not
- * block the learner's turn, but it also cannot complete the unit.
- */
-const recordAttemptRating = async ({
+const buildRatingEvaluationCommit = ({
   userId,
   output,
   attemptTiming,
   ratingNodeId,
   ratingBands,
-  deps,
+  scenarioAttemptId,
 }: {
   userId: string;
   output: WorkspaceAiEducationOutput | WorkspaceAiEvaluationOutput;
   attemptTiming?: AttemptTiming | null;
   ratingNodeId: string;
   ratingBands?: readonly DifficultyBand[] | null;
-  deps: WorkspaceTurnPersistenceDependencies;
-}): Promise<{ mastered: boolean }> => {
-  if (!("dimensionResults" in output) || !deps.recordEvaluation) {
-    return { mastered: false };
+  scenarioAttemptId: string | null;
+}): WorkspaceRatingEvaluationCommit | null => {
+  if (!("dimensionResults" in output) || output.score == null) {
+    return null;
+  }
+  if (!scenarioAttemptId) {
+    throw new Error("Scored evaluation has no scenario attempt.");
   }
 
-  try {
-    const result = await deps.recordEvaluation({
-      userId,
-      nodeId: ratingNodeId,
-      score: output.score,
-      errorCodes: output.dimensionResults.map(
-        (dimensionResult) => dimensionResult.dimensionId,
-      ),
-      wasOverTime: attemptTiming?.wasOverTime ?? false,
-      occurredAt: new Date(),
-      bands: ratingBands,
-    });
-    return { mastered: result.mastered };
-  } catch (error) {
-    console.error("Training rating evaluation recording failed", {
-      userId,
-      nodeId: ratingNodeId,
-      error,
-    });
-    return { mastered: false };
-  }
+  return {
+    scenarioAttemptId,
+    userId,
+    nodeId: ratingNodeId,
+    score: output.score,
+    errorCodes: output.dimensionResults.map(
+      (dimensionResult) => dimensionResult.dimensionId,
+    ),
+    wasOverTime: attemptTiming?.wasOverTime ?? false,
+    occurredAt: new Date(),
+    bands: ratingBands ?? null,
+  };
 };
 
 const buildPhaseEvent = ({
@@ -360,6 +350,7 @@ const buildPhaseEvent = ({
   attemptTiming,
   evaluationPlan,
   difficultyDirectiveReason,
+  scenarioAttemptId,
 }: {
   sessionId: string;
   userId: string;
@@ -375,6 +366,7 @@ const buildPhaseEvent = ({
   attemptTiming?: AttemptTiming | null;
   evaluationPlan?: EvaluationPlan | null;
   difficultyDirectiveReason?: string | null;
+  scenarioAttemptId?: string | null;
 }): WorkspacePhaseResponseCommit => ({
   unitContentId: unit.id,
   sessionId,
@@ -400,6 +392,7 @@ const buildPhaseEvent = ({
         ? (evaluationPlan ?? output.evaluationPlan)
         : undefined,
     attemptTiming: attemptTiming ?? undefined,
+    scenarioAttemptId: scenarioAttemptId ?? undefined,
     difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
     estimatedItemRating: output.estimatedItemRating ?? undefined,
     feedback: output.assistantMessage,
@@ -531,6 +524,7 @@ export const saveEducationTurnResult = async ({
   difficultyDirectiveReason,
   ratingNodeId,
   ratingBands,
+  scenarioAttemptId,
   turnId,
   turnLeaseId,
   deps,
@@ -549,6 +543,7 @@ export const saveEducationTurnResult = async ({
   difficultyDirectiveReason?: string | null;
   ratingNodeId: string;
   ratingBands?: readonly DifficultyBand[] | null;
+  scenarioAttemptId: string | null;
   turnId?: string | null;
   turnLeaseId?: string | null;
   deps: WorkspaceTurnPersistenceDependencies;
@@ -562,11 +557,10 @@ export const saveEducationTurnResult = async ({
     priorEvaluationAttempts + 1 >= evaluationPlan.scenarioCount;
 
   const contracts = buildOutputContractCommit({
-    userId,
     unit,
     currentStage: state.educationStage,
     output,
-    ratingNodeId,
+    scenarioAttemptId,
   });
 
   const currentRun = await resolveUnitRunProjection({
@@ -579,16 +573,13 @@ export const saveEducationTurnResult = async ({
   });
 
   const isScoredAttempt = "dimensionResults" in output;
-  // Fold the score into the skill rating for its own sake; the rating no longer
-  // gates completion (a unit is done when its final check passes), so we ignore
-  // the returned verdict here and let the rating accrue at the cluster level.
-  await recordAttemptRating({
+  const ratingEvaluation = buildRatingEvaluationCommit({
     userId,
     output,
     attemptTiming,
     ratingNodeId,
     ratingBands,
-    deps,
+    scenarioAttemptId,
   });
   const mastered = passesUnitCompletionGate({
     stepId: state.educationStage,
@@ -621,6 +612,7 @@ export const saveEducationTurnResult = async ({
     attemptTiming,
     evaluationPlan,
     difficultyDirectiveReason,
+    scenarioAttemptId,
   });
   const completion = buildCompletionCommit({
     sessionId,
@@ -652,6 +644,7 @@ export const saveEducationTurnResult = async ({
     },
     contracts,
     phaseResponse,
+    ratingEvaluation,
     nextRun,
     completion,
     touchSessionId: sessionId,
@@ -683,7 +676,7 @@ export const saveNextScenarioPrompt = async ({
   currentStage,
   difficultyDirectiveReason,
   manualDifficultySignal,
-  ratingNodeId,
+  scenarioAttemptId,
   turnId,
   turnLeaseId,
   deps,
@@ -696,7 +689,7 @@ export const saveNextScenarioPrompt = async ({
   currentStage: WorkspaceAiState["educationStage"];
   difficultyDirectiveReason?: string | null;
   manualDifficultySignal?: "too_easy" | "too_hard" | null;
-  ratingNodeId: string;
+  scenarioAttemptId: string | null;
   turnId?: string | null;
   turnLeaseId?: string | null;
   deps: WorkspaceTurnPersistenceDependencies;
@@ -706,11 +699,10 @@ export const saveNextScenarioPrompt = async ({
   }
 
   const contracts = buildOutputContractCommit({
-    userId,
     unit,
     currentStage,
     output,
-    ratingNodeId,
+    scenarioAttemptId,
   });
 
   const educationResponses = await deps.getPhaseResponses(unit.id, sessionId);
@@ -744,6 +736,7 @@ export const saveNextScenarioPrompt = async ({
         promptKind: "evaluate_feedback",
         modelPurpose: "evaluation",
         nextScenarioPrompt: true,
+        scenarioAttemptId: scenarioAttemptId ?? undefined,
         manualDifficultySignal: manualDifficultySignal ?? undefined,
         evaluationPlan:
           "evaluationPlan" in output

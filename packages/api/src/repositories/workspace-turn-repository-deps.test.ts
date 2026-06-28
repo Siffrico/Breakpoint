@@ -35,6 +35,7 @@ describe("workspace turn lease fencing", () => {
         phase: "ai_education",
         userResponse: "Answer",
       },
+      ratingEvaluation: null,
       nextRun: {
         sessionId: "00000000-0000-0000-0000-000000000001",
         unitContentId: "00000000-0000-0000-0000-000000000003",

@@ -32,9 +32,10 @@ export const createTrainingRatingGoldilocksDeps = (
       directive,
       itemRating,
     }),
-  getOpenScenario: ({ userId, nodeId }) =>
-    trainingRatingRepository.getOpenScenario({
+  getScenarioAttempt: ({ scenarioAttemptId, userId, nodeId }) =>
+    trainingRatingRepository.getOpenScenarioById({
       db,
+      scenarioAttemptId,
       userId,
       nodeId,
     }),

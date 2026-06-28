@@ -137,6 +137,7 @@ export const TrainingUnitPhaseResponse = pgTable(
         wasOverTime: boolean;
         pausedSeconds?: number;
       };
+      scenarioAttemptId?: string;
       nextScenarioPrompt?: boolean;
       manualDifficultySignal?: "too_easy" | "too_hard";
       difficultyDirectiveReason?: string;

@@ -1,11 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 
-import type {
-  CurriculumNode,
-  DifficultyBand,
-} from "../types/training.types";
-import { resolveRatingScope } from "./rating-scope";
+import type { CurriculumNode, DifficultyBand } from "../types/training.types";
+import { CurriculumInvariantError, resolveRatingScope } from "./rating-scope";
 
 const band = (order: number): DifficultyBand => ({
   order,
@@ -86,19 +83,20 @@ void test("falls back to the unit's bands when the cluster has none", () => {
   assert.deepEqual(scope.bands, [band(1)]);
 });
 
-void test("falls back to the unit itself when no cluster ancestor exists", () => {
+void test("rejects a unit without a skill cluster", () => {
   const planNodes = [
     node({ id: "root", kind: "root" }),
     node({ id: "unit-a", kind: "unit", parentNodeId: "root" }),
   ];
 
-  const scope = resolveRatingScope({
-    unit: unit("unit-a", [band(0)]),
-    planNodes,
-  });
-
-  assert.equal(scope.nodeId, "unit-a");
-  assert.deepEqual(scope.bands, [band(0)]);
+  assert.throws(
+    () =>
+      resolveRatingScope({
+        unit: unit("unit-a", [band(0)]),
+        planNodes,
+      }),
+    CurriculumInvariantError,
+  );
 });
 
 void test("walks through an intermediate ancestor to reach the cluster", () => {
@@ -113,12 +111,26 @@ void test("walks through an intermediate ancestor to reach the cluster", () => {
   assert.equal(scope.nodeId, "cluster");
 });
 
-void test("survives a missing unit node without throwing", () => {
-  const scope = resolveRatingScope({
-    unit: unit("ghost", [band(0)]),
-    planNodes: [node({ id: "cluster", kind: "skill_cluster" })],
-  });
+void test("rejects a missing unit node", () => {
+  assert.throws(
+    () =>
+      resolveRatingScope({
+        unit: unit("ghost", [band(0)]),
+        planNodes: [node({ id: "cluster", kind: "skill_cluster" })],
+      }),
+    CurriculumInvariantError,
+  );
+});
 
-  assert.equal(scope.nodeId, "ghost");
-  assert.deepEqual(scope.bands, [band(0)]);
+void test("rejects a broken parent reference", () => {
+  assert.throws(
+    () =>
+      resolveRatingScope({
+        unit: unit("unit-a"),
+        planNodes: [
+          node({ id: "unit-a", kind: "unit", parentNodeId: "missing" }),
+        ],
+      }),
+    CurriculumInvariantError,
+  );
 });

@@ -182,7 +182,7 @@ const applyContracts = async ({
   }
 
   if (contracts.openScenarioContract) {
-    const updated = await trainingRatingRepository.updateOpenScenarioContract({
+    const updated = await trainingRatingRepository.updateScenarioContract({
       db,
       ...contracts.openScenarioContract,
     });
@@ -259,6 +259,13 @@ const commitEducationTurn = async ({
       leaseId: input.turnLeaseId,
     });
     await applyContracts({ db: txDb, contracts: input.contracts });
+    if (input.ratingEvaluation) {
+      await recordEvaluation({
+        ...input.ratingEvaluation,
+        sidechatAskCount: 0,
+        deps: createTrainingRatingGoldilocksDeps(txDb),
+      });
+    }
 
     const userMessage = input.userMessage
       ? await trainingOnboardingRepository.appendWorkspaceMessage({
@@ -441,15 +448,14 @@ export const createWorkspaceTurnRepositoryDeps = (
       db,
       ...payload,
     }),
-  updateOpenScenarioContract: (payload: {
-    userId: string;
-    nodeId: string;
+  updateScenarioContract: (payload: {
+    scenarioAttemptId: string;
     scenarioPrompt: string;
     scenarioContract: NonNullable<
       WorkspaceAiEducationOutput["scenarioEvaluationContract"]
     >;
   }) =>
-    trainingRatingRepository.updateOpenScenarioContract({
+    trainingRatingRepository.updateScenarioContract({
       db,
       ...payload,
     }),
@@ -518,37 +524,17 @@ export const createWorkspaceTurnRepositoryDeps = (
       initialRatingState: createInitialRatingState(),
       now,
     }),
-  getOpenScenario: ({ userId, nodeId }) =>
-    trainingRatingRepository.getOpenScenario({
+  getScenarioAttempt: ({ scenarioAttemptId, userId, nodeId }) =>
+    trainingRatingRepository.getOpenScenarioById({
       db,
+      scenarioAttemptId,
       userId,
       nodeId,
     }),
-  updateOpenScenarioItemRating: ({ userId, nodeId, itemRating }) =>
-    trainingRatingRepository.updateOpenScenarioItemRating({
+  updateScenarioItemRating: ({ scenarioAttemptId, itemRating }) =>
+    trainingRatingRepository.updateScenarioItemRating({
       db,
-      userId,
-      nodeId,
+      scenarioAttemptId,
       itemRating,
-    }),
-  recordEvaluation: ({
-    userId,
-    nodeId,
-    score,
-    errorCodes,
-    wasOverTime,
-    occurredAt,
-    bands,
-  }) =>
-    recordEvaluation({
-      userId,
-      nodeId,
-      score,
-      errorCodes,
-      sidechatAskCount: 0,
-      wasOverTime,
-      occurredAt,
-      bands,
-      deps: createTrainingRatingGoldilocksDeps(db),
     }),
 });

@@ -35,7 +35,7 @@ void test("duplicate submit with an in-flight turn id is rejected before prepari
     createUnitContent: () => fail("createUnitContent"),
     savePhaseResponse: () => fail("savePhaseResponse"),
     updateUnitMasteryContract: () => fail("updateUnitMasteryContract"),
-    updateOpenScenarioContract: () => fail("updateOpenScenarioContract"),
+    updateScenarioContract: () => fail("updateScenarioContract"),
     saveAttempt: () => fail("saveAttempt"),
     completeNode: () => fail("completeNode"),
     commitEducationTurn: () => fail("commitEducationTurn"),

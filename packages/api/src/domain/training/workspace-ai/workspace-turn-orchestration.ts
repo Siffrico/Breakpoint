@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { ScenarioEvaluationContractSchema } from "@acme/validators";
 
 import type { Memory } from "../../memory/types";
+import type { RatingScope } from "../orchestration/rating-scope";
 import type {
   CurriculumNode,
   DifficultyBand,
@@ -29,7 +30,10 @@ import { renderWorkspaceStageContextPrompt } from "../context-engine/render-cont
 import { compactTranscript, createSummarizer } from "../engine/compaction";
 import { getAiModelForPurpose } from "../engine/model-router";
 import { clampClaimedItemRating } from "../orchestration/goldilocks";
-import { resolveRatingScope } from "../orchestration/rating-scope";
+import {
+  CurriculumInvariantError,
+  resolveRatingScope,
+} from "../orchestration/rating-scope";
 import { buildWorkspaceIntroMessage } from "../workflows/get-ai-workspace-workflow";
 import {
   buildLegacyScenarioEvaluationContract,
@@ -64,6 +68,7 @@ export type WorkspaceChatAction =
 export type ManualDifficultySignal = "too_easy" | "too_hard";
 
 interface DifficultyDirectiveResult {
+  scenarioAttemptId: string;
   directive: {
     reason: string;
     targetItemRating: number;
@@ -79,6 +84,7 @@ interface ManualDifficultyNudgeResult {
 }
 
 interface OpenScenarioResult {
+  id: string;
   scenarioPrompt?: string | null;
   scenarioContractJson?: ScenarioEvaluationContract | null;
   itemRating?: number | null;
@@ -116,24 +122,15 @@ export interface WorkspaceTurnOrchestrationDependencies
     signal: ManualDifficultySignal;
     now: Date;
   }) => Promise<ManualDifficultyNudgeResult>;
-  getOpenScenario?: (input: {
+  getScenarioAttempt?: (input: {
+    scenarioAttemptId: string;
     userId: string;
     nodeId: string;
   }) => Promise<OpenScenarioResult | null>;
-  updateOpenScenarioItemRating?: (input: {
-    userId: string;
-    nodeId: string;
+  updateScenarioItemRating?: (input: {
+    scenarioAttemptId: string;
     itemRating: number;
   }) => Promise<unknown>;
-  recordEvaluation?: (input: {
-    userId: string;
-    nodeId: string;
-    score: number | null | undefined;
-    errorCodes: readonly string[];
-    wasOverTime: boolean;
-    occurredAt: Date;
-    bands?: readonly DifficultyBand[] | null;
-  }) => Promise<{ mastered: boolean }>;
   prewarmWorkspaceUnit?: (node: CurriculumNode) => Promise<unknown>;
 }
 
@@ -148,6 +145,8 @@ export interface PreparedWorkspaceTurn {
   message: string;
   attemptTiming?: AttemptTiming | null;
   turn: ResolvedWorkspaceTurn;
+  ratingScope: RatingScope;
+  scenarioAttemptId: string | null;
   runtime: WorkspaceTurnRuntime;
   promptContext: string;
   scenarioEvaluationContract: ScenarioEvaluationContract | null;
@@ -442,13 +441,31 @@ export const prepareWorkspaceTurnPrompt = async ({
         })
       : Promise.resolve(null),
   ]);
+  const persistedScenarioAttemptId = [...unitResponses]
+    .reverse()
+    .find((response) => response.metadata?.scenarioAttemptId)
+    ?.metadata?.scenarioAttemptId;
+  const scenarioAttemptId =
+    difficultyDirectiveResult?.scenarioAttemptId ??
+    persistedScenarioAttemptId ??
+    null;
   const openScenario =
-    runtime.contextMode === "evaluator" && deps.getOpenScenario
-      ? await deps.getOpenScenario({
+    runtime.contextMode === "evaluator" &&
+    scenarioAttemptId &&
+    deps.getScenarioAttempt
+      ? await deps.getScenarioAttempt({
+          scenarioAttemptId,
           userId,
           nodeId: ratingScope.nodeId,
         })
       : null;
+  if (runtime.contextMode === "evaluator" && !openScenario) {
+    throw new CurriculumInvariantError(
+      scenarioAttemptId
+        ? `Open scenario attempt ${scenarioAttemptId} is missing.`
+        : `No scenario attempt is attached to unit ${unit.nodeId}.`,
+    );
+  }
   const serverAttemptTiming =
     runtime.contextMode === "evaluator" && activeEvaluationPlan
       ? deriveServerAttemptTiming({
@@ -516,6 +533,8 @@ export const prepareWorkspaceTurnPrompt = async ({
     message: trimmedMessage,
     attemptTiming: serverAttemptTiming,
     turn,
+    ratingScope,
+    scenarioAttemptId,
     runtime,
     promptContext: buildActionPromptContext({
       context,
@@ -549,24 +568,22 @@ const getPriorEvaluationAttempts = (unitResponses: PhaseResponseRecord[]) =>
 const maybeUpdateOpenScenarioItemRating = async ({
   prepared,
   output,
-  ratingNodeId,
   deps,
 }: {
   prepared: PreparedWorkspaceTurn;
   output: WorkspaceTurnOutput;
-  ratingNodeId: string;
   deps: WorkspaceTurnOrchestrationDependencies;
 }) => {
   if (
     !prepared.difficultyDirectiveResult ||
-    !deps.updateOpenScenarioItemRating
+    !prepared.scenarioAttemptId ||
+    !deps.updateScenarioItemRating
   ) {
     return;
   }
 
-  await deps.updateOpenScenarioItemRating({
-    userId: prepared.userId,
-    nodeId: ratingNodeId,
+  await deps.updateScenarioItemRating({
+    scenarioAttemptId: prepared.scenarioAttemptId,
     itemRating: clampClaimedItemRating({
       claimed: output.estimatedItemRating,
       target: prepared.difficultyDirectiveResult.directive.targetItemRating,
@@ -589,13 +606,12 @@ export const saveStepResult = async ({
   });
   const { action, turn } = prepared;
   const { state, unit, plan, unitResponses } = turn;
-  const ratingScope = resolveRatingScope({ unit, planNodes: plan.nodes });
+  const { ratingScope, scenarioAttemptId } = prepared;
 
   if (state.mode === "recall") {
     await maybeUpdateOpenScenarioItemRating({
       prepared,
       output,
-      ratingNodeId: ratingScope.nodeId,
       deps,
     });
 
@@ -666,7 +682,6 @@ export const saveStepResult = async ({
   await maybeUpdateOpenScenarioItemRating({
     prepared,
     output: educationOutput,
-    ratingNodeId: ratingScope.nodeId,
     deps,
   });
 
@@ -682,7 +697,7 @@ export const saveStepResult = async ({
         prepared.difficultyDirectiveResult?.directive.reason ?? null,
       manualDifficultySignal:
         action === "adjust_difficulty" ? prepared.manualDifficultySignal : null,
-      ratingNodeId: ratingScope.nodeId,
+      scenarioAttemptId,
       turnId: prepared.turnId,
       turnLeaseId: prepared.turnLeaseId,
       deps,
@@ -712,6 +727,7 @@ export const saveStepResult = async ({
       prepared.difficultyDirectiveResult?.directive.reason ?? null,
     ratingNodeId: ratingScope.nodeId,
     ratingBands: ratingScope.bands,
+    scenarioAttemptId,
     turnId: prepared.turnId,
     turnLeaseId: prepared.turnLeaseId,
     deps,
