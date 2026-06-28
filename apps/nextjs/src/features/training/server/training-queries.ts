@@ -63,15 +63,4 @@ export const getEducationUnit = async ({
   return caller.training.unit({ nodeId, sessionId });
 };
 
-export const getCapstone = async ({
-  nodeId,
-  sessionId,
-}: {
-  nodeId: string;
-  sessionId: string;
-}) => {
-  const caller = await createCaller();
-  return caller.training.getCapstone({ nodeId, sessionId });
-};
-
 export const getUnit = getEducationUnit;

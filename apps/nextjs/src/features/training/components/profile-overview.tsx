@@ -16,9 +16,6 @@ export function ProfileOverview({
   preview?: boolean;
 }) {
   const backHref = preview ? "/ui/workspace" : `/workspace?session=${sessionId}`;
-  const transformationHref = preview
-    ? "/ui/transformation"
-    : `/transformation?session=${sessionId}`;
 
   return (
     <main className="min-h-dvh bg-background text-foreground">
@@ -32,14 +29,6 @@ export function ProfileOverview({
               className="h-8 rounded-none border-border bg-transparent px-3 text-xs text-muted-foreground hover:bg-white/5 hover:text-foreground"
             >
               &larr; Back to workspace
-            </Button>
-            <Button
-              render={<Link href={transformationHref} />}
-              variant="outline"
-              size="sm"
-              className="h-8 rounded-none border-border bg-transparent px-3 text-xs text-muted-foreground hover:bg-white/5 hover:text-foreground"
-            >
-              Before / after
             </Button>
           </div>
         </section>

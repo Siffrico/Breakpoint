@@ -22,7 +22,6 @@ export default function UiPreviewWorkspacePage() {
         workspace={previewWorkspaceState}
         plan={previewPlanState}
         unit={previewEducationUnit}
-        capstone={null}
         onboardingState={null}
         projects={previewLearningProjects}
         sessionId={previewSessionId}

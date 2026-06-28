@@ -13,7 +13,6 @@ import { WorkspaceShell } from "~/features/training/components/workspace-shell";
 import {
   getActivePlan,
   getAiWorkspace,
-  getCapstone,
   getEducationUnit,
   getOnboardingState,
   getWorkspaceState,
@@ -66,7 +65,6 @@ export default async function WorkspacePage(props: {
           workspace={null}
           plan={null}
           unit={null}
-          capstone={null}
           onboardingState={onboardingState}
           projects={projects}
           sessionId={resolvedSessionId}
@@ -89,20 +87,13 @@ export default async function WorkspacePage(props: {
     ? (plan.nodes.find((node) => node.id === activeNodeId) ?? null)
     : null;
 
-  const [unit, capstone] = await Promise.all([
+  const unit =
     activeNode && activeNode.kind !== "simulation"
-      ? getEducationUnit({
+      ? await getEducationUnit({
           nodeId: activeNode.id,
           sessionId: resolvedSessionId,
         }).catch(() => null)
-      : Promise.resolve(null),
-    activeNode?.kind === "simulation"
-      ? getCapstone({
-          nodeId: activeNode.id,
-          sessionId: resolvedSessionId,
-        }).catch(() => null)
-      : Promise.resolve(null),
-  ]);
+      : null;
 
   return (
     <TRPCReactProvider>
@@ -110,7 +101,6 @@ export default async function WorkspacePage(props: {
         workspace={workspace}
         plan={plan}
         unit={unit}
-        capstone={capstone}
         onboardingState={null}
         aiWorkspace={aiWorkspace}
         projects={projects}

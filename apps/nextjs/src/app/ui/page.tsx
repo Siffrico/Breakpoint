@@ -34,11 +34,6 @@ const previews = [
     description: "Memory entry, file upload, and ChatGPT import flow.",
   },
   {
-    href: "/ui/transformation",
-    label: "Transformation",
-    description: "Before/after reveal used during onboarding.",
-  },
-  {
     href: "/ui/train",
     label: "Unit 1 — Your First Training Loop",
     description:

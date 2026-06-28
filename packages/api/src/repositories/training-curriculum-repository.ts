@@ -12,11 +12,21 @@ import type {
   BeforeAfterProfile,
   CurriculumBlueprint,
   CurriculumNode,
+  CurriculumNodeKind,
+  CurriculumNodeStatus,
   CurriculumPlan,
   PhaseResponseRecord,
   UnitContent,
   UpdateUnitContentInput,
 } from "../domain/training/types/training.types";
+import type {
+  ProgressionNode,
+  StatusChange,
+} from "../domain/training/engine/plan-progression";
+import {
+  planAdvancement,
+  planCompletion,
+} from "../domain/training/engine/plan-progression";
 import { insertBlueprintNodes } from "./training-curriculum-node-writer";
 
 type Database = typeof databaseClient;
@@ -89,6 +99,49 @@ const mapUnitContent = ({
   },
   unitMasteryContract: unit.unitMasteryContractJson,
 });
+
+type CurriculumNodeRow = typeof TrainingCurriculumNode.$inferSelect;
+
+/**
+ * Load a node and every node in its plan (ordered), the working set the pure
+ * progression engine reasons over. Returns null when the node does not exist.
+ */
+const loadPlanNodes = async (
+  db: Database,
+  nodeId: string,
+): Promise<{ target: CurriculumNodeRow; planNodes: CurriculumNodeRow[] } | null> => {
+  const target = await db.query.TrainingCurriculumNode.findFirst({
+    where: eq(TrainingCurriculumNode.id, nodeId),
+  });
+  if (!target) {
+    return null;
+  }
+
+  const planNodes = await db.query.TrainingCurriculumNode.findMany({
+    where: eq(TrainingCurriculumNode.planId, target.planId),
+    orderBy: asc(TrainingCurriculumNode.orderIndex),
+  });
+
+  return { target, planNodes };
+};
+
+const toProgressionNodes = (rows: CurriculumNodeRow[]): ProgressionNode[] =>
+  rows.map((row) => ({
+    id: row.id,
+    parentNodeId: row.parentNodeId,
+    kind: row.kind as CurriculumNodeKind,
+    status: row.status as CurriculumNodeStatus,
+    orderIndex: row.orderIndex,
+  }));
+
+const applyStatusChanges = async (db: Database, changes: StatusChange[]) => {
+  for (const change of changes) {
+    await db
+      .update(TrainingCurriculumNode)
+      .set({ status: change.status })
+      .where(eq(TrainingCurriculumNode.id, change.nodeId));
+  }
+};
 
 export const trainingCurriculumRepository = {
   createPlan: async ({
@@ -822,49 +875,15 @@ export const trainingCurriculumRepository = {
     db: Database;
     nodeId: string;
   }) => {
-    await db
-      .update(TrainingCurriculumNode)
-      .set({ status: "completed" })
-      .where(eq(TrainingCurriculumNode.id, nodeId));
-
-    const completedNode = await db.query.TrainingCurriculumNode.findFirst({
-      where: eq(TrainingCurriculumNode.id, nodeId),
-    });
-
-    if (!completedNode) {
+    const loaded = await loadPlanNodes(db, nodeId);
+    if (!loaded) {
       return;
     }
 
-    const syncParentStatus = async (parentNodeId: string | null) => {
-      if (!parentNodeId) {
-        return;
-      }
-
-      const parentChildren = await db.query.TrainingCurriculumNode.findMany({
-        where: eq(TrainingCurriculumNode.parentNodeId, parentNodeId),
-        orderBy: asc(TrainingCurriculumNode.orderIndex),
-      });
-      if (parentChildren.length === 0) {
-        return;
-      }
-
-      const parentStatus = parentChildren.every(
-        (node) => node.status === "completed",
-      )
-        ? "completed"
-        : parentChildren.some(
-              (node) => node.status === "ready" || node.status === "completed",
-            )
-          ? "ready"
-          : "planned";
-
-      await db
-        .update(TrainingCurriculumNode)
-        .set({ status: parentStatus })
-        .where(eq(TrainingCurriculumNode.id, parentNodeId));
-    };
-
-    await syncParentStatus(completedNode.parentNodeId);
+    await applyStatusChanges(
+      db,
+      planCompletion(toProgressionNodes(loaded.planNodes), nodeId),
+    );
   },
 
   advancePlanAfterCompletion: async ({
@@ -873,111 +892,21 @@ export const trainingCurriculumRepository = {
   }: {
     db: Database;
     nodeId: string;
-  }) => {
-    const completedNode = await db.query.TrainingCurriculumNode.findFirst({
-      where: eq(TrainingCurriculumNode.id, nodeId),
-    });
-
-    if (!completedNode) {
+  }): Promise<CurriculumNodeRow | null> => {
+    const loaded = await loadPlanNodes(db, nodeId);
+    if (!loaded) {
       return null;
     }
 
-    const nextNode = await db.query.TrainingCurriculumNode.findMany({
-      where: eq(TrainingCurriculumNode.planId, completedNode.planId),
-      orderBy: asc(TrainingCurriculumNode.orderIndex),
-    });
-
-    const syncParentStatus = async (parentNodeId: string | null) => {
-      if (!parentNodeId) {
-        return;
-      }
-
-      const parentChildren = await db.query.TrainingCurriculumNode.findMany({
-        where: eq(TrainingCurriculumNode.parentNodeId, parentNodeId),
-        orderBy: asc(TrainingCurriculumNode.orderIndex),
-      });
-      if (parentChildren.length === 0) {
-        return;
-      }
-
-      const parentStatus = parentChildren.every(
-        (node) => node.status === "completed",
-      )
-        ? "completed"
-        : parentChildren.some(
-              (node) => node.status === "ready" || node.status === "completed",
-            )
-          ? "ready"
-          : "planned";
-
-      await db
-        .update(TrainingCurriculumNode)
-        .set({ status: parentStatus })
-        .where(eq(TrainingCurriculumNode.id, parentNodeId));
-    };
-
-    if (completedNode.kind === "unit" && completedNode.parentNodeId) {
-      const siblingUnits = nextNode.filter(
-        (node) =>
-          node.parentNodeId === completedNode.parentNodeId &&
-          node.kind === "unit",
-      );
-      const clusterFinished =
-        siblingUnits.length > 0 &&
-        siblingUnits.every((node) => node.status === "completed");
-
-      if (clusterFinished) {
-        const clusterSimulation = nextNode.find(
-          (node) =>
-            node.parentNodeId === completedNode.parentNodeId &&
-            node.kind === "simulation" &&
-            node.status === "planned",
-        );
-
-        if (clusterSimulation) {
-          await db
-            .update(TrainingCurriculumNode)
-            .set({ status: "ready" })
-            .where(eq(TrainingCurriculumNode.id, clusterSimulation.id));
-          await syncParentStatus(clusterSimulation.parentNodeId);
-          return clusterSimulation;
-        }
-      }
-    }
-
-    const nextPlannedUnit = nextNode.find(
-      (node) => node.kind === "unit" && node.status === "planned",
+    const { advancedNodeId, changes } = planAdvancement(
+      toProgressionNodes(loaded.planNodes),
+      nodeId,
     );
-    if (nextPlannedUnit) {
-      await db
-        .update(TrainingCurriculumNode)
-        .set({ status: "ready" })
-        .where(eq(TrainingCurriculumNode.id, nextPlannedUnit.id));
-      await syncParentStatus(nextPlannedUnit.parentNodeId);
-      return nextPlannedUnit;
-    }
+    await applyStatusChanges(db, changes);
 
-    const regularUnits = nextNode.filter((node) => node.kind === "unit");
-    const allRegularUnitsComplete =
-      regularUnits.length > 0 &&
-      regularUnits.every((node) => node.status === "completed");
-    if (!allRegularUnitsComplete) {
-      return null;
-    }
-
-    const nextIntegration = nextNode.find(
-      (node) => node.kind === "integration" && node.status === "planned",
-    );
-    if (nextIntegration) {
-      await db
-        .update(TrainingCurriculumNode)
-        .set({ status: "ready" })
-        .where(eq(TrainingCurriculumNode.id, nextIntegration.id));
-      await syncParentStatus(nextIntegration.parentNodeId);
-      return nextIntegration;
-    }
-
-    return null;
+    return advancedNodeId
+      ? (loaded.planNodes.find((node) => node.id === advancedNodeId) ?? null)
+      : null;
   },
 
   completeNode: async ({ db, nodeId }: { db: Database; nodeId: string }) => {

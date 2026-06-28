@@ -15,9 +15,6 @@ import { useLocalStorage } from "~/hooks/use-local-storage";
 import { useTRPC } from "~/trpc/react";
 import { AssistantRichText } from "./assistant-rich-text";
 
-const CapstoneWorkspace = dynamic(() =>
-  import("./capstone/capstone-workspace").then((mod) => mod.CapstoneWorkspace),
-);
 const CurriculumSidebar = dynamic(() =>
   import("./curriculum-sidebar").then((mod) => mod.CurriculumSidebar),
 );
@@ -36,7 +33,6 @@ const UnitQuestionPanel = dynamic(() =>
 type WorkspaceState = RouterOutputs["training"]["home"];
 type PlanState = RouterOutputs["training"]["activePlan"];
 type EducationUnit = RouterOutputs["training"]["unit"];
-type CapstoneState = RouterOutputs["training"]["getCapstone"];
 type OnboardingState = RouterOutputs["training"]["onboardingState"];
 type AiWorkspace = RouterOutputs["training"]["aiWorkspace"];
 type EvaluationPlan = NonNullable<AiWorkspace["evaluationPlan"]>;
@@ -47,7 +43,7 @@ const LAST_SESSION_COOKIE = "bp-last-learning-session";
 const EMPTY_PROJECTS: LearningProject[] = [];
 const EVALUATION_EDUCATION_STAGES = new Set(["Review", "Test", "Check"]);
 
-type WorkspaceMode = "onboarding" | "unit" | "capstone" | "idle";
+type WorkspaceMode = "onboarding" | "unit" | "idle";
 type WorkspaceTheme = "light" | "dark" | "warm";
 interface EvaluationTimerSnapshot {
   elapsedSeconds: number;
@@ -70,7 +66,6 @@ export function WorkspaceShell({
   workspace,
   plan: _plan,
   unit,
-  capstone,
   onboardingState,
   aiWorkspace,
   projects = EMPTY_PROJECTS,
@@ -81,7 +76,6 @@ export function WorkspaceShell({
   workspace: WorkspaceState | null;
   plan: PlanState | null;
   unit: EducationUnit | null;
-  capstone: CapstoneState | null;
   onboardingState: OnboardingState | null;
   aiWorkspace?: AiWorkspace | null;
   projects?: LearningProject[];
@@ -120,9 +114,7 @@ export function WorkspaceShell({
     ? "onboarding"
     : liveUnit
       ? "unit"
-      : capstone
-        ? "capstone"
-        : "idle";
+      : "idle";
   const latestAssistantSequence =
     aiWorkspace?.messages
       .filter((message) => message.role === "assistant")
@@ -228,11 +220,9 @@ export function WorkspaceShell({
     mode === "onboarding"
       ? (onboardingState?.activeQuestion?.prompt ??
         "Start a new learning track")
-      : mode === "capstone"
-        ? (capstone?.capstone.scenario.title ?? "Cluster capstone")
-        : (liveUnit?.title ??
-          workspace?.nextUnitTitle ??
-          "Preparing your next unit");
+      : (liveUnit?.title ??
+        workspace?.nextUnitTitle ??
+        "Preparing your next unit");
 
   const closeQuestionPanel = () => {
     setQuestionPanelFocused(false);
@@ -462,15 +452,6 @@ export function WorkspaceShell({
                         canRequestNextScenario={canRequestNextScenario}
                         attemptTiming={timerSnapshot}
                         onStateChange={setLiveUnit}
-                        onRunningChange={setIsSessionRunning}
-                      />
-                    ) : null}
-
-                    {mode === "capstone" && capstone ? (
-                      <CapstoneWorkspace
-                        state={capstone}
-                        sessionId={sessionId}
-                        embedded
                         onRunningChange={setIsSessionRunning}
                       />
                     ) : null}
