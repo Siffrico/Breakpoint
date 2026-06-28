@@ -1,0 +1,976 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Breakpoint — Complete Application Map</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #07090d;
+        --panel: #0d1118;
+        --panel-2: #111722;
+        --line: #263244;
+        --line-soft: #1a2432;
+        --text: #edf4ff;
+        --muted: #92a2b8;
+        --blue: #78b7ff;
+        --cyan: #70e1df;
+        --amber: #ffc96b;
+        --green: #82e6a6;
+        --rose: #ff8fa8;
+      }
+
+      * { box-sizing: border-box; }
+      html { scroll-behavior: smooth; }
+      body {
+        margin: 0;
+        background:
+          radial-gradient(circle at 12% -10%, rgba(61, 123, 190, 0.22), transparent 28rem),
+          radial-gradient(circle at 90% 2%, rgba(46, 150, 142, 0.12), transparent 24rem),
+          var(--bg);
+        color: var(--text);
+        font: 14px/1.5 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      code, .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+      a { color: inherit; }
+      .shell { width: min(1600px, calc(100% - 32px)); margin: 0 auto; }
+      header { padding: 72px 0 36px; border-bottom: 1px solid var(--line-soft); }
+      .eyebrow { color: var(--cyan); font: 700 11px/1.2 "SFMono-Regular", monospace; letter-spacing: .18em; text-transform: uppercase; }
+      h1 { margin: 14px 0 14px; max-width: 980px; font-size: clamp(36px, 6vw, 78px); line-height: .98; letter-spacing: -.055em; }
+      .lede { max-width: 850px; margin: 0; color: var(--muted); font-size: 17px; line-height: 1.75; }
+      .stats { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-top: 30px; }
+      .stat { padding: 16px; border: 1px solid var(--line); background: rgba(13,17,24,.84); }
+      .stat strong { display: block; font-size: 25px; letter-spacing: -.04em; }
+      .stat span { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; }
+      .topnav { position: sticky; top: 0; z-index: 20; display: flex; gap: 7px; overflow-x: auto; padding: 12px 0; background: rgba(7,9,13,.88); border-bottom: 1px solid var(--line-soft); backdrop-filter: blur(18px); }
+      .topnav a { flex: 0 0 auto; padding: 8px 12px; color: var(--muted); border: 1px solid transparent; text-decoration: none; font: 650 12px/1 monospace; }
+      .topnav a:hover { color: var(--text); border-color: var(--line); background: var(--panel); }
+      main { padding: 34px 0 100px; }
+      section { scroll-margin-top: 68px; margin-top: 58px; }
+      .section-head { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 20px; align-items: start; margin-bottom: 18px; }
+      .section-no { color: var(--blue); font: 700 12px/1 monospace; letter-spacing: .15em; }
+      h2 { margin: 0; font-size: 30px; letter-spacing: -.035em; }
+      .section-head p { max-width: 900px; margin: 8px 0 0; color: var(--muted); }
+      .diagram-card { position: relative; overflow: hidden; border: 1px solid var(--line); background: linear-gradient(180deg, rgba(17,23,34,.96), rgba(10,14,20,.96)); }
+      .diagram-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--line-soft); background: rgba(7,9,13,.54); }
+      .diagram-title { font: 700 12px/1.2 monospace; letter-spacing: .08em; text-transform: uppercase; }
+      .controls { display: flex; gap: 6px; }
+      .controls button { width: 30px; height: 28px; color: var(--muted); border: 1px solid var(--line); background: var(--panel); cursor: pointer; }
+      .controls button:hover { color: var(--text); border-color: #45617f; }
+      .diagram-viewport { min-height: 300px; overflow: auto; padding: 26px; }
+      .diagram-viewport .mermaid { width: max-content; min-width: 100%; transform-origin: top left; transition: transform .12s ease; }
+      .diagram-viewport .mermaid:not([data-processed="true"]) { min-height: 280px; overflow: hidden; color: transparent; font-size: 0; }
+      .diagram-viewport .mermaid:not([data-processed="true"])::after { content: "Rendering diagram…"; display: grid; min-height: 280px; place-items: center; color: var(--muted); font: 650 12px/1 monospace; letter-spacing: .08em; text-transform: uppercase; }
+      .diagram-viewport svg { max-width: none !important; height: auto; }
+      .note-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 10px; }
+      .note { padding: 15px 16px; border: 1px solid var(--line-soft); background: rgba(13,17,24,.78); color: var(--muted); }
+      .note strong { display: block; margin-bottom: 5px; color: var(--text); }
+      .warning { border-left: 3px solid var(--amber); }
+      .tabbar { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; }
+      .tabbar button { padding: 9px 13px; color: var(--muted); border: 1px solid var(--line); background: var(--panel); cursor: pointer; font: 650 12px/1 monospace; }
+      .tabbar button[aria-selected="true"] { color: #08101a; border-color: var(--blue); background: var(--blue); }
+      [data-tab-panel][hidden] { display: none; }
+      .inventory { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+      .inventory article { padding: 18px; border: 1px solid var(--line); background: var(--panel); }
+      .inventory h3 { margin: 0 0 10px; font-size: 15px; }
+      .inventory ul { margin: 0; padding-left: 20px; color: var(--muted); }
+      .inventory code { color: var(--cyan); font-size: 12px; }
+      footer { padding: 28px 0 50px; color: var(--muted); border-top: 1px solid var(--line-soft); font-size: 12px; }
+      .mermaid .edgeLabel { background-color: #111722 !important; color: #dce9fb !important; }
+      @media (max-width: 980px) {
+        .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .note-grid, .inventory { grid-template-columns: 1fr; }
+      }
+      @media (max-width: 620px) {
+        .shell { width: min(100% - 20px, 1600px); }
+        header { padding-top: 46px; }
+        .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .section-head { grid-template-columns: 1fr; gap: 7px; }
+        .diagram-viewport { padding: 14px; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="shell">
+        <div class="eyebrow">Repository-derived architecture · 2026-06-28</div>
+        <h1>Breakpoint application map</h1>
+        <p class="lede">A code-level atlas of the monorepo: runtime boundaries, Next.js routes, shared-package dependencies, adaptive training orchestration, and the complete 29-table PostgreSQL model. Solid arrows represent direct runtime calls or foreign keys; dotted arrows are build-time or optional-provider paths.</p>
+        <div class="stats" aria-label="Repository statistics">
+          <div class="stat"><strong>3</strong><span>client apps</span></div>
+          <div class="stat"><strong>5</strong><span>shared packages</span></div>
+          <div class="stat"><strong>30</strong><span>Next pages</span></div>
+          <div class="stat"><strong>5</strong><span>tRPC routers</span></div>
+          <div class="stat"><strong>29</strong><span>database tables</span></div>
+          <div class="stat"><strong>218</strong><span>API TS files</span></div>
+        </div>
+      </div>
+    </header>
+
+    <div class="shell">
+      <nav class="topnav" aria-label="Diagram sections">
+        <a href="#system">01 System</a><a href="#packages">02 Packages</a><a href="#routes">03 Next routes</a><a href="#training">04 Training flow</a><a href="#database">05 Database</a><a href="#inventory">06 Inventory</a>
+      </nav>
+
+      <main>
+        <section id="system">
+          <div class="section-head"><div class="section-no">01 / 06</div><div><h2>Runtime system topology</h2><p>Where code executes, which boundaries own authentication and transport, and how server-side workflows reach PostgreSQL and model providers.</p></div></div>
+          <div class="diagram-card">
+            <div class="diagram-bar"><span class="diagram-title">Containers and request paths</span><div class="controls"><button data-zoom="out" title="Zoom out">−</button><button data-zoom="reset" title="Reset zoom">1</button><button data-zoom="in" title="Zoom in">+</button></div></div>
+            <div class="diagram-viewport"><pre class="mermaid">
+flowchart LR
+  classDef client fill:#132235,stroke:#78b7ff,color:#edf4ff
+  classDef server fill:#13251f,stroke:#82e6a6,color:#edf4ff
+  classDef shared fill:#211b31,stroke:#b79cff,color:#edf4ff
+  classDef data fill:#2a2115,stroke:#ffc96b,color:#edf4ff
+  classDef external fill:#2a1720,stroke:#ff8fa8,color:#edf4ff
+
+  learner([Learner]):::client
+  subgraph Clients["Client applications"]
+    nextClient["Next.js 16 + React 19\nServer and Client Components"]:::client
+    expo["Expo 54 / React Native\nExpo Router + SecureStore"]:::client
+    tanstack["TanStack Start\nVite + Nitro + React Router"]:::client
+  end
+  subgraph NextRuntime["apps/nextjs — Node runtime"]
+    pages["App Router pages\nSSR, redirects, server queries"]:::server
+    trpcRoute["/api/trpc/[trpc]\nfetchRequestHandler"]:::server
+    authRoute["/api/auth/[...all]\nBetter Auth handler"]:::server
+    onboardingRoute["/api/onboarding/chat\nstreamOnboardingChat / resume build"]:::server
+    workspaceRoute["/api/training/workspace/chat\nstreamWorkspaceChat"]:::server
+  end
+  subgraph Shared["Shared workspace packages"]
+    api["@acme/api\ntRPC routers + workflows + repositories\ntraining engine + AI orchestration"]:::shared
+    auth["@acme/auth\nBetter Auth server configuration"]:::shared
+    db["@acme/db\nDrizzle schema + postgres client"]:::shared
+    validators["@acme/validators\nZod boundary contracts"]:::shared
+    ui["@acme/ui\nBase UI primitives + chat UI"]:::shared
+  end
+  postgres[("PostgreSQL\n29 Drizzle tables")]:::data
+  cookie[("HTTP-only auth cookie\n+ bp-last-learning-session\n+ bp-ai-model")]:::data
+  ai["AI provider router\nOpenRouter default: z-ai/glm-5.2\nOpenAI / Google supported"]:::external
+  search["Optional provider search tools\nAI_ENABLE_SEARCH_TOOLS"]:::external
+
+  learner --> nextClient
+  learner --> expo
+  learner --> tanstack
+  nextClient --> pages
+  nextClient --> trpcRoute
+  nextClient --> authRoute
+  nextClient --> onboardingRoute
+  nextClient --> workspaceRoute
+  expo -->|tRPC + Better Auth Expo| api
+  tanstack -->|/api/trpc.$ + /api/auth.$| api
+  pages -->|server caller| api
+  trpcRoute --> api
+  onboardingRoute --> api
+  workspaceRoute --> api
+  authRoute --> auth
+  api --> auth
+  api --> db
+  api --> validators
+  nextClient --> ui
+  expo -. dev dependency .-> api
+  tanstack --> ui
+  auth --> db
+  db --> postgres
+  auth --> cookie
+  api --> ai
+  ai -. enabled .-> search
+            </pre></div>
+          </div>
+          <div class="note-grid"><div class="note"><strong>Primary production surface</strong><code>apps/nextjs</code> is the complete learner-facing app and owns streaming chat route handlers.</div><div class="note"><strong>Transport split</strong>Reads and ordinary mutations use tRPC; token-streaming onboarding and workspace turns use dedicated HTTP routes.</div><div class="note warning"><strong>Current model behavior</strong>The model-preference cookie is parsed, but <code>withAiModelPreference</code> currently ignores the requested name; the code default is OpenRouter GLM-5.2.</div></div>
+        </section>
+
+        <section id="packages">
+          <div class="section-head"><div class="section-no">02 / 06</div><div><h2>Monorepo package graph</h2><p>Workspace dependency direction from each deployable app through domain packages and shared toolchain configuration.</p></div></div>
+          <div class="diagram-card"><div class="diagram-bar"><span class="diagram-title">pnpm workspace dependencies</span><div class="controls"><button data-zoom="out">−</button><button data-zoom="reset">1</button><button data-zoom="in">+</button></div></div><div class="diagram-viewport"><pre class="mermaid">
+flowchart TB
+  classDef app fill:#132235,stroke:#78b7ff,color:#edf4ff
+  classDef pkg fill:#211b31,stroke:#b79cff,color:#edf4ff
+  classDef tool fill:#182027,stroke:#71849b,color:#dce9fb
+
+  root["Root workspace\nTurbo 2.5 + pnpm catalogs"]:::tool
+  next["@acme/nextjs\nNext 16 + AI SDK + tRPC"]:::app
+  expo["@acme/expo\nExpo 54 + Expo Router"]:::app
+  tan["@acme/tanstack-start\nTanStack Start + Nitro"]:::app
+  api["@acme/api\nDomain + application + repository layers"]:::pkg
+  auth["@acme/auth\nBetter Auth"]:::pkg
+  db["@acme/db\nDrizzle ORM + postgres.js"]:::pkg
+  val["@acme/validators\nZod contracts"]:::pkg
+  ui["@acme/ui\nBase UI + chat primitives"]:::pkg
+  eslint["@acme/eslint-config"]:::tool
+  prettier["@acme/prettier-config"]:::tool
+  tailwind["@acme/tailwind-config"]:::tool
+  tsconfig["@acme/tsconfig"]:::tool
+  github["@acme/github\ncomposite action"]:::tool
+
+  root --> next & expo & tan & api & auth & db & val & ui
+  next --> api & auth & db & val & ui
+  expo -. dev type dependency .-> api
+  tan --> api & auth & db & ui
+  api --> auth & db & val
+  auth --> db
+  next -. configuration .-> eslint & prettier & tailwind & tsconfig
+  expo -. configuration .-> eslint & prettier & tailwind & tsconfig
+  tan -. configuration .-> eslint & prettier & tailwind & tsconfig
+  api -. configuration .-> eslint & prettier & tsconfig
+  auth -. configuration .-> eslint & prettier & tsconfig
+  db -. configuration .-> eslint & prettier & tsconfig
+  val -. configuration .-> eslint & prettier & tsconfig
+  ui -. configuration .-> eslint & prettier & tsconfig
+  eslint --> tsconfig
+  eslint --> prettier
+  tailwind --> eslint & prettier & tsconfig
+  prettier --> tsconfig
+  github -. CI bootstrap .-> root
+          </pre></div></div>
+        </section>
+
+        <section id="routes">
+          <div class="section-head"><div class="section-no">03 / 06</div><div><h2>Next.js route and feature map</h2><p>Every active application route grouped by purpose. Preview-only routes are isolated because they use local fixtures and bypass the production database path.</p></div></div>
+          <div class="diagram-card"><div class="diagram-bar"><span class="diagram-title">App Router surface</span><div class="controls"><button data-zoom="out">−</button><button data-zoom="reset">1</button><button data-zoom="in">+</button></div></div><div class="diagram-viewport"><pre class="mermaid">
+flowchart LR
+  classDef route fill:#132235,stroke:#78b7ff,color:#edf4ff
+  classDef feature fill:#13251f,stroke:#82e6a6,color:#edf4ff
+  classDef api fill:#2a2115,stroke:#ffc96b,color:#edf4ff
+  classDef preview fill:#1b1e25,stroke:#71849b,color:#c0cbd9
+
+  app["apps/nextjs/src/app"]:::route
+  subgraph Public["Public / entry"]
+    landing["/\nSiteLanding"]:::route
+    home["/home\nE.S.D.E. marketing page"]:::route
+    authPage["/auth\nAuthFlow; redirects signed-in user"]:::route
+  end
+  subgraph Learning["Authenticated learning"]
+    onboarding["/onboarding\nresumeOnboarding + OnboardingShell"]:::route
+    workspace["/workspace?session=...\nWorkspaceShell + plan/unit hydration"]:::route
+    curriculum["/curriculum?session=...\nCurriculumReveal"]:::route
+    overview["/overview?session=...\ngenerated overview body"]:::route
+    courses["/courses\nCoursesPage"]:::route
+    plan["/plan → /curriculum"]:::route
+    train["/train/[unitId] → /workspace"]:::route
+    typo["/currcicm\nlegacy saved-plan tree"]:::route
+  end
+  subgraph Profile["Authenticated profile"]
+    profile["/profile → /profile/general"]:::route
+    general["/profile/general\nidentity + account + billing"]:::route
+    projects["/profile/projects\nproject library / deletion"]:::route
+    prefs["/profile/preferences\ntheme preference"]:::route
+    custom["/profile/customization\nmanual/file/ChatGPT memory"]:::route
+  end
+  subgraph Handlers["HTTP route handlers"]
+    trpc["POST /api/trpc/[trpc]\n5 routers"]:::api
+    better["GET/POST /api/auth/[...all]\nBetter Auth"]:::api
+    onchat["POST /api/onboarding/chat\nchat + resumable project build"]:::api
+    wschat["POST /api/training/workspace/chat\nanswer / next / difficulty"]:::api
+  end
+  subgraph Preview["Local fixture preview hub — /ui"]
+    uiIndex["/ui"]:::preview
+    uiOn["/ui/onboarding"]:::preview
+    uiWork["/ui/workspace"]:::preview
+    uiCurr["/ui/curriculum"]:::preview
+    uiOverview["/ui/overview"]:::preview
+    uiCourses["/ui/courses"]:::preview
+    uiTrain["/ui/train"]:::preview
+    uiProfile["/ui/profile/{general,projects,preferences,customization}"]:::preview
+    uiRedirects["/ui/home → workspace\n/ui/plan → curriculum"]:::preview
+  end
+  marketingFeature["features/marketing"]:::feature
+  authFeature["features/auth"]:::feature
+  trainingFeature["features/training\ncomponents + server queries + fixtures"]:::feature
+  profileFeature["features/profile"]:::feature
+  coursesFeature["features/courses"]:::feature
+
+  app --> landing & home & authPage & onboarding & workspace & curriculum & overview & courses & plan & train & typo & profile
+  landing --> marketingFeature
+  authPage --> authFeature
+  onboarding & workspace & curriculum & overview & train & typo --> trainingFeature
+  general & projects & prefs & custom --> profileFeature
+  courses --> coursesFeature
+  onboarding --> trpc & onchat & better
+  workspace --> trpc & wschat & better
+  curriculum & overview & courses & general & projects & custom --> trpc
+  profile --> general
+  uiIndex --> uiOn & uiWork & uiCurr & uiOverview & uiCourses & uiTrain & uiProfile & uiRedirects
+  uiOn & uiWork & uiCurr & uiOverview & uiTrain --> trainingFeature
+          </pre></div></div>
+        </section>
+
+        <section id="training">
+          <div class="section-head"><div class="section-no">04 / 06</div><div><h2>Adaptive training lifecycle</h2><p>The complete learner path, followed by the actual verdict-driven education-unit state machine. The learner supplies judgment; the system carries setup, orchestration, generation, persistence, and evaluation.</p></div></div>
+          <div class="tabbar" role="tablist"><button aria-selected="true" data-tab="lifecycle">Project lifecycle</button><button aria-selected="false" data-tab="unit-machine">Unit state machine</button><button aria-selected="false" data-tab="request-sequence">Workspace request sequence</button></div>
+          <div data-tab-panel="lifecycle">
+            <div class="diagram-card"><div class="diagram-bar"><span class="diagram-title">Goal → curriculum → practice → proof</span><div class="controls"><button data-zoom="out">−</button><button data-zoom="reset">1</button><button data-zoom="in">+</button></div></div><div class="diagram-viewport"><pre class="mermaid">
+flowchart TB
+  classDef learner fill:#132235,stroke:#78b7ff,color:#edf4ff
+  classDef system fill:#211b31,stroke:#b79cff,color:#edf4ff
+  classDef store fill:#2a2115,stroke:#ffc96b,color:#edf4ff
+  classDef gate fill:#13251f,stroke:#82e6a6,color:#edf4ff
+
+  goal(["Learner states goal and target identity"]):::learner
+  consult["Onboarding interview\nstreamOnboardingChat"]:::system
+  readiness{"Enough concrete learner signal?\n≥4 messages, or length thresholds\n+ ≥2 assistant turns"}:::gate
+  confirm["Learner confirms\nproject name / identity / summary"]:::learner
+  shell["Create durable session + generating plan shell"]:::store
+  goals["Goals agent\ntranscript → OnboardingPacket"]:::system
+  design["Curriculum designer\nidentity report + before/after + plan draft"]:::system
+  persist["Transaction\nprofile/version + plan + node tree"]:::store
+  overview["Overview agent\noptional best-effort artifact"]:::system
+  active["Finalize plan active\ncomplete onboarding session"]:::store
+  unitEnsure["Ensure next unit content\nunit-builder: Seed → Build → Prove"]:::system
+  practice["Workspace education loop\nrealistic judgment under pressure"]:::learner
+  evaluate["Private mastery contract\nstructured evidence evaluation"]:::system
+  rating["Glicko-style skill-cluster update\nmisconceptions + support level + band"]:::store
+  pass{"Final Check passes?"}:::gate
+  repair["Teach narrow gap / retry\npossibly generate repair + ghost transfer"]:::system
+  advance["Complete node\nroll up parent statuses\nunlock next ready node"]:::store
+  recall{"Recall due?"}:::gate
+  probes["Generate and grade recall probes\nrepair failed recall"]:::system
+  simulation{"Simulation node reached?"}:::gate
+  capstone["Capstone: build, debate, or teach\nround messages + evaluator score"]:::learner
+  complete(["Plan completion / demonstrated transfer"]):::learner
+  checkpoint[("ProjectBuildCheckpoint\nper-artifact status, attempts, partial payload")]:::store
+
+  goal --> consult --> readiness
+  readiness -->|no| consult
+  readiness -->|yes| confirm --> shell --> goals --> design --> persist --> overview --> active
+  goals & design & overview -. partial/terminal writes .-> checkpoint
+  checkpoint -. resume policy:\nskip / generate / repair / save-only .-> goals
+  active --> unitEnsure --> practice --> evaluate --> rating --> pass
+  pass -->|no| repair --> practice
+  pass -->|yes| advance --> recall
+  recall -->|yes| probes --> unitEnsure
+  recall -->|no| simulation
+  simulation -->|no| unitEnsure
+  simulation -->|yes| capstone --> complete
+            </pre></div></div>
+          </div>
+          <div data-tab-panel="unit-machine" hidden>
+            <div class="diagram-card"><div class="diagram-bar"><span class="diagram-title">verdict-rulebook-v1</span><div class="controls"><button data-zoom="out">−</button><button data-zoom="reset">1</button><button data-zoom="in">+</button></div></div><div class="diagram-viewport"><pre class="mermaid">
+stateDiagram-v2
+  [*] --> Diagnose
+  Diagnose --> BreakDown: enough
+  Diagnose --> Diagnose: thin
+  BreakDown --> Solve: good
+  BreakDown --> Grill: flawed
+  Grill --> Solve: answered
+  Grill --> Grill: needs_retry
+  Solve --> Review: attempted
+  Solve --> TeachGap: stuck
+  Review --> NameIdea: pass
+  Review --> Solve: retry before limit
+  Review --> TeachGap: repair or retry limit
+  TeachGap --> NameIdea: patched
+  TeachGap --> TeachGap: unclear
+  NameIdea --> Test: named
+  NameIdea --> NameIdea: unclear
+  Test --> Check: ready
+  Test --> TeachGap: stuck
+  Check --> completed: pass + evaluationComplete
+  Check --> Test: retry before limit
+  Check --> TeachGap: repair or retry limit
+  completed --> [*]
+
+  note right of Diagnose
+    Education runtime
+    Exposes current mental model
+  end note
+  note right of Review
+    Evaluation runtime
+    Uses private scenario contract
+  end note
+  note right of Check
+    Rating does not gate unit completion.
+    Only final transfer check does.
+  end note
+            </pre></div></div>
+          </div>
+          <div data-tab-panel="request-sequence" hidden>
+            <div class="diagram-card"><div class="diagram-bar"><span class="diagram-title">One streamed workspace turn</span><div class="controls"><button data-zoom="out">−</button><button data-zoom="reset">1</button><button data-zoom="in">+</button></div></div><div class="diagram-viewport"><pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor L as Learner
+  participant UI as Education unit UI
+  participant R as Next workspace chat route
+  participant A as API streamWorkspaceChat
+  participant T as Workspace turn orchestration
+  participant C as Context and compaction engine
+  participant M as AI model router
+  participant P as Repositories and PostgreSQL
+
+  L->>UI: submit answer / next scenario / difficulty signal
+  UI->>R: sessionId, turnId, message, timing, action
+  R->>R: Better Auth session + Zod timing parse
+  R->>A: authenticated stream request
+  A->>P: claim idempotent workspace turn lease
+  P-->>A: claimed or existing result
+  A->>T: resolve current unit/run/stage
+  T->>P: load plan, content, responses, rating, memories
+  T->>C: select evidence + compact transcript by unit
+  C-->>T: bounded context envelope + progress summary
+  T->>M: structured prompt by purpose and stage
+  M-->>T: streamed education/evaluation output
+  T->>T: read verdict and decide next step
+  T->>P: transactionally persist messages, response, run step
+  opt Evaluation stage
+    T->>P: update scenario, rating prediction, progress, misconceptions
+  end
+  opt Final Check passes
+    T->>P: complete unit node and unlock progression
+  end
+  P-->>A: committed turn projection
+  A-->>UI: data stream parts + assistant text
+  UI-->>L: updated chat, stage, timer, scenario controls
+            </pre></div></div>
+          </div>
+        </section>
+
+        <section id="database">
+          <div class="section-head"><div class="section-no">05 / 06</div><div><h2>PostgreSQL data model</h2><p>All 29 Drizzle tables are included across three focused ERDs. PK/FK/UK labels follow declared constraints. “Soft reference” fields are UUID identifiers intentionally stored without a database foreign-key constraint.</p></div></div>
+          <div class="tabbar" role="tablist"><button aria-selected="true" data-tab="db-identity">Identity and project core</button><button aria-selected="false" data-tab="db-unit">Units, workspace, rating</button><button aria-selected="false" data-tab="db-proof">Recall and capstone</button></div>
+          <div data-tab-panel="db-identity">
+            <div class="diagram-card"><div class="diagram-bar"><span class="diagram-title">Auth, memory, onboarding, identity, curriculum</span><div class="controls"><button data-zoom="out">−</button><button data-zoom="reset">1</button><button data-zoom="in">+</button></div></div><div class="diagram-viewport"><pre class="mermaid">
+erDiagram
+  USER ||--o{ SESSION : has
+  USER ||--o{ ACCOUNT : links
+  USER ||--o{ MEMORY_IMPORT : owns
+  USER ||--o{ MEMORY : owns
+  MEMORY_IMPORT o|--o{ MEMORY : groups
+  USER o|--o{ ONBOARDING_SESSION : owns
+  ONBOARDING_SESSION ||--o{ ONBOARDING_MESSAGE : contains
+  ONBOARDING_SESSION ||--o{ BUILD_CHECKPOINT : checkpoints
+  ONBOARDING_SESSION ||--o| IDENTITY_PROFILE : produces
+  IDENTITY_PROFILE ||--o{ IDENTITY_PROFILE_VERSION : versions
+  ONBOARDING_SESSION ||--o| CURRICULUM_PLAN : creates
+  IDENTITY_PROFILE_VERSION o|--o{ CURRICULUM_PLAN : snapshots
+  CURRICULUM_PLAN ||--o{ CURRICULUM_NODE : contains
+  CURRICULUM_NODE o|--o{ CURRICULUM_NODE : parent_soft_ref
+
+  USER {
+    text id PK
+    text name
+    text email UK
+    boolean email_verified
+    text image
+    timestamp created_at
+    timestamp updated_at
+  }
+  SESSION {
+    text id PK
+    timestamp expires_at
+    text token UK
+    text user_id FK
+    timestamp created_at
+    timestamp updated_at
+    text ip_address
+    text user_agent
+  }
+  ACCOUNT {
+    text id PK
+    text account_id
+    text provider_id
+    text user_id FK
+    text access_token
+    text refresh_token
+    text id_token
+    timestamp access_token_expires_at
+    timestamp refresh_token_expires_at
+    text scope
+    text password
+    timestamp created_at
+    timestamp updated_at
+  }
+  VERIFICATION {
+    text id PK
+    text identifier
+    text value
+    timestamp expires_at
+    timestamp created_at
+    timestamp updated_at
+  }
+  POST {
+    uuid id PK
+    varchar title
+    text content
+    timestamp created_at
+    timestamptz updated_at
+  }
+  MEMORY_IMPORT {
+    uuid id PK
+    text user_id FK
+    varchar source
+    text raw_payload
+    integer entry_count
+    timestamptz created_at
+  }
+  MEMORY {
+    uuid id PK
+    text user_id FK
+    text content
+    varchar source
+    uuid import_id FK
+    varchar content_hash UK
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  ONBOARDING_SESSION {
+    uuid id PK
+    text user_id FK
+    varchar status
+    integer question_count
+    timestamptz completed_at
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  ONBOARDING_MESSAGE {
+    uuid id PK
+    uuid session_id FK
+    varchar role
+    varchar slot
+    uuid unit_id "soft ref"
+    varchar turn_id
+    text content
+    jsonb metadata
+    integer sequence UK
+    timestamptz created_at
+  }
+  BUILD_CHECKPOINT {
+    uuid id PK
+    uuid session_id FK
+    varchar step UK
+    text source_key
+    jsonb payload
+    varchar status
+    integer attempts
+    varchar failure_kind
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  IDENTITY_PROFILE {
+    uuid id PK
+    text user_id FK
+    uuid onboarding_session_id FK,UK
+    varchar status
+    uuid current_version_id "soft ref"
+    varchar target_identity
+    text headline
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  IDENTITY_PROFILE_VERSION {
+    uuid id PK
+    uuid profile_id FK
+    varchar target_identity
+    text headline
+    text motivation
+    text current_baseline
+    text proof_of_progress
+    jsonb hard_moments
+    jsonb constraints
+    jsonb behavior_signals
+    jsonb confidence_flags
+    text before_after_headline
+    text before_state_summary
+    text after_state_summary
+    jsonb before_after_contrast_pairs
+    text first_shift
+    timestamptz created_at
+  }
+  CURRICULUM_PLAN {
+    uuid id PK
+    text user_id FK
+    uuid onboarding_session_id FK,UK
+    uuid profile_version_id FK
+    varchar status
+    varchar title
+    text summary
+    varchar target_identity
+    jsonb overview
+    timestamptz overview_generated_at
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  CURRICULUM_NODE {
+    uuid id PK
+    uuid plan_id FK
+    uuid parent_node_id "soft ref"
+    varchar kind
+    varchar status
+    varchar title
+    text summary
+    text why_it_matters
+    jsonb briefing
+    jsonb difficulty_bands
+    integer order_index UK
+    integer depth
+    integer position_column
+    integer position_row
+    timestamptz created_at
+  }
+            </pre></div></div>
+          </div>
+          <div data-tab-panel="db-unit" hidden>
+            <div class="diagram-card"><div class="diagram-bar"><span class="diagram-title">Unit content, turn durability, evaluation, adaptive rating</span><div class="controls"><button data-zoom="out">−</button><button data-zoom="reset">1</button><button data-zoom="in">+</button></div></div><div class="diagram-viewport"><pre class="mermaid">
+erDiagram
+  USER ||--o{ JOB_PROGRESS : owns
+  USER ||--o{ MISCONCEPTION : owns
+  USER ||--o{ RATING_PREDICTION : owns
+  USER ||--o{ SCENARIO_ATTEMPT : owns
+  CURRICULUM_NODE ||--o| UNIT_CONTENT : materializes
+  CURRICULUM_NODE ||--o{ JOB_PROGRESS : rates
+  CURRICULUM_NODE ||--o{ MISCONCEPTION : tracks
+  CURRICULUM_NODE ||--o{ RATING_PREDICTION : calibrates
+  CURRICULUM_NODE ||--o{ SCENARIO_ATTEMPT : challenges
+  UNIT_CONTENT ||--o{ UNIT_PHASE_RESPONSE : records
+  UNIT_CONTENT ||--o{ UNIT_RUN : drives
+  UNIT_CONTENT ||--o{ UNIT_ATTEMPT : summarizes
+  ONBOARDING_SESSION ||--o{ UNIT_PHASE_RESPONSE : scopes
+  ONBOARDING_SESSION ||--o{ UNIT_RUN : scopes
+  ONBOARDING_SESSION ||--o{ UNIT_ATTEMPT : scopes
+  ONBOARDING_SESSION ||--o{ WORKSPACE_SUMMARY : compacts
+  ONBOARDING_SESSION ||--o{ WORKSPACE_TURN : leases
+  ONBOARDING_MESSAGE o|--o{ WORKSPACE_TURN : user_message
+  ONBOARDING_MESSAGE o|--o{ WORKSPACE_TURN : assistant_message
+
+  USER {
+    text id PK
+  }
+  CURRICULUM_NODE {
+    uuid id PK
+  }
+  ONBOARDING_SESSION {
+    uuid id PK
+  }
+  ONBOARDING_MESSAGE {
+    uuid id PK
+  }
+
+  UNIT_CONTENT {
+    uuid id PK
+    uuid node_id FK,UK
+    varchar title
+    text seed_prompt
+    text seed_hint
+    text cluster_arc_frame
+    integer complexity_budget
+    text build_content
+    jsonb practice_prompts
+    timestamptz content_generated_at
+    jsonb teachback_setup
+    varchar scenario_title
+    jsonb scenario_focus_areas
+    jsonb unit_mastery_contract_json
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  UNIT_PHASE_RESPONSE {
+    uuid id PK
+    uuid unit_content_id FK
+    uuid session_id FK
+    text user_id FK
+    varchar phase UK
+    integer sequence UK
+    text user_response
+    text ai_response
+    boolean passed
+    integer score
+    jsonb metadata
+    timestamptz created_at
+  }
+  UNIT_RUN {
+    uuid id PK
+    uuid unit_content_id FK,UK
+    uuid session_id FK,UK
+    text user_id FK
+    varchar workflow_id
+    varchar current_step_id
+    integer step_scenario_count
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  UNIT_ATTEMPT {
+    uuid id PK
+    uuid unit_content_id FK
+    uuid onboarding_session_id FK
+    text user_id FK
+    text response
+    integer score
+    varchar readiness
+    jsonb strengths
+    jsonb improvements
+    jsonb failure_tags
+    text target_comparison
+    text seed_response
+    text final_articulation
+    jsonb growth_dimensions
+    text next_step
+    timestamptz created_at
+  }
+  WORKSPACE_SUMMARY {
+    uuid id PK
+    uuid session_id FK,UK
+    varchar slot UK
+    text summary
+    uuid covered_through_unit_id "soft ref"
+    integer covered_through_sequence
+    timestamptz updated_at
+  }
+  WORKSPACE_TURN {
+    uuid id PK
+    uuid session_id FK,UK
+    varchar turn_id UK
+    varchar action
+    varchar slot
+    uuid unit_id "soft ref"
+    text input_content
+    varchar status
+    uuid lease_id
+    timestamptz lease_expires_at
+    uuid user_message_id FK
+    uuid assistant_message_id FK
+    text failure_reason
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  JOB_PROGRESS {
+    uuid id PK
+    text user_id FK,UK
+    uuid node_id FK,UK
+    double rating
+    double rating_deviation
+    double volatility
+    timestamptz last_rated_at
+    integer band_order
+    varchar support_level
+    jsonb recent_attempts_json
+    timestamptz mastered_at
+  }
+  MISCONCEPTION {
+    uuid id PK
+    text user_id FK,UK
+    uuid node_id FK,UK
+    varchar code UK
+    varchar status
+    integer occurrences
+    timestamptz last_seen_at
+  }
+  RATING_PREDICTION {
+    uuid id PK
+    text user_id FK
+    uuid node_id FK
+    double rating_before
+    double rating_deviation_before
+    double rating_after
+    double rating_deviation_after
+    double item_rating
+    double predicted_score
+    double actual_outcome
+    timestamptz occurred_at
+  }
+  SCENARIO_ATTEMPT {
+    uuid id PK
+    text user_id FK
+    uuid node_id FK
+    varchar status
+    jsonb directive_json
+    text scenario_prompt
+    jsonb scenario_contract_json
+    integer contract_version
+    double item_rating
+    varchar target_misconception_code
+    varchar support_level
+    timestamptz created_at
+    timestamptz presented_at
+    timestamptz evaluated_at
+  }
+            </pre></div></div>
+          </div>
+          <div data-tab-panel="db-proof" hidden>
+            <div class="diagram-card"><div class="diagram-bar"><span class="diagram-title">Spaced recall and terminal simulations</span><div class="controls"><button data-zoom="out">−</button><button data-zoom="reset">1</button><button data-zoom="in">+</button></div></div><div class="diagram-viewport"><pre class="mermaid">
+erDiagram
+  USER o|--o{ RECALL_GATE : owns
+  USER o|--o{ CAPSTONE_ATTEMPT : owns
+  CURRICULUM_PLAN ||--o{ RECALL_GATE : schedules
+  ONBOARDING_SESSION ||--o{ RECALL_GATE : scopes
+  CURRICULUM_NODE ||--o{ RECALL_GATE : triggers
+  RECALL_GATE ||--o{ RECALL_PROBE : contains
+  CURRICULUM_NODE ||--o{ UNIT_RECALL_STATE : remembers
+  CURRICULUM_PLAN ||--o{ UNIT_RECALL_STATE : scopes
+  CURRICULUM_NODE ||--o{ CAPSTONE_ATTEMPT : simulation
+  CURRICULUM_PLAN ||--o{ CAPSTONE_ATTEMPT : scopes
+  ONBOARDING_SESSION ||--o{ CAPSTONE_ATTEMPT : scopes
+  CAPSTONE_ATTEMPT ||--o{ CAPSTONE_MESSAGE : transcript
+
+  USER {
+    text id PK
+  }
+  CURRICULUM_PLAN {
+    uuid id PK
+  }
+  ONBOARDING_SESSION {
+    uuid id PK
+  }
+  CURRICULUM_NODE {
+    uuid id PK
+  }
+
+  RECALL_GATE {
+    uuid id PK
+    uuid plan_id FK,UK
+    uuid session_id FK
+    text user_id FK
+    uuid trigger_after_unit_node_id FK,UK
+    varchar status
+    timestamptz completed_at
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  RECALL_PROBE {
+    uuid id PK
+    uuid gate_id FK,UK
+    integer probe_order UK
+    varchar probe_type
+    jsonb source_unit_node_ids "soft refs"
+    text prompt
+    text seed_snapshot
+    text user_response
+    integer score
+    boolean passed
+    text repair_prompt
+    text repair_response
+    integer repair_score
+    boolean repair_passed
+    varchar status
+    timestamptz completed_at
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  UNIT_RECALL_STATE {
+    uuid id PK
+    uuid unit_node_id FK,UK
+    uuid plan_id FK,UK
+    timestamptz last_recalled_at
+    integer last_recall_order_index
+    integer recall_count
+    integer decay_count
+    integer last_recall_score
+    varchar status
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  CAPSTONE_ATTEMPT {
+    uuid id PK
+    uuid simulation_node_id FK,UK
+    uuid plan_id FK
+    uuid session_id FK,UK
+    text user_id FK
+    varchar format
+    varchar status
+    jsonb scenario
+    integer current_round
+    integer max_rounds
+    integer score
+    text feedback
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  CAPSTONE_MESSAGE {
+    uuid id PK
+    uuid capstone_id FK,UK
+    varchar role
+    text content
+    integer sequence UK
+    integer round
+    timestamptz created_at
+  }
+            </pre></div></div>
+          </div>
+          <div class="note-grid"><div class="note"><strong>Declared cascades</strong>Auth children and most session/plan/unit descendants cascade on delete; optional user ownership generally uses <code>SET NULL</code>.</div><div class="note"><strong>Idempotency</strong>Composite unique indexes protect project build steps, workspace turn IDs, unit runs, message sequence, and capstone simulation/session pairs.</div><div class="note warning"><strong>Soft references</strong><code>parentNodeId</code>, workspace/unit anchors, <code>currentVersionId</code>, and recall source arrays are not enforced by PostgreSQL foreign keys.</div></div>
+        </section>
+
+        <section id="inventory">
+          <div class="section-head"><div class="section-no">06 / 06</div><div><h2>Implementation inventory</h2><p>The diagram’s coverage anchors: concrete directories and responsibilities used to derive the preceding views.</p></div></div>
+          <div class="inventory">
+            <article><h3>API domain layers</h3><ul><li><code>router/</code> — auth, post, memory, profile, training endpoints</li><li><code>domain/training/workflows/</code> — application use cases</li><li><code>domain/training/orchestration/</code> — project, unit, curriculum, rating flows</li><li><code>domain/training/workspace-ai/</code> — stage machine and streamed turns</li><li><code>domain/training/engine/</code> — model routing, compaction, Glicko rating</li><li><code>repositories/</code> — Drizzle persistence adapters</li></ul></article>
+            <article><h3>AI authoring and evaluation</h3><ul><li><code>agents/</code> — onboarding, curriculum, project overview, ghost replay</li><li><code>prompts/personas/</code> — focused model roles</li><li><code>prompts/rubrics/</code> — capstone and teachback criteria</li><li><code>unit-builder/</code> — Seed → Build → Prove → Repair</li><li><code>capstone/</code> — build, debate, teach formats</li><li><code>context-engine/</code> — bounded evidence and memory selection</li></ul></article>
+            <article><h3>Next.js feature slices</h3><ul><li><code>features/training/components/</code> — onboarding, workspace, curriculum, education-unit UI</li><li><code>features/training/server/</code> — server-side tRPC callers</li><li><code>features/profile/</code> — account, projects, memory, preferences</li><li><code>features/marketing/</code> — routed landing plus preserved scaled landing</li><li><code>trpc/</code> — server/client query integration</li><li><code>auth/</code> — Better Auth server/client adapters</li></ul></article>
+            <article><h3>Shared contracts and presentation</h3><ul><li><code>@acme/validators</code> — memory, profile, AI model, training schemas</li><li><code>@acme/ui</code> — inputs, menus, tree, theme, chat transcript/composer</li><li><code>@acme/db</code> — 11 schema source files and 29 tables</li><li><code>@acme/auth</code> — auth config and generated schema workflow</li><li><code>tooling/*</code> — ESLint, Prettier, Tailwind, TypeScript presets</li><li><code>apps/expo</code> and <code>apps/tanstack-start</code> — secondary clients</li></ul></article>
+          </div>
+        </section>
+      </main>
+    </div>
+    <footer><div class="shell">Derived from the repository at <span class="mono">/Users/safinahmed/Breakpoint</span>. Mermaid 11.12.2 is vendored beside this HTML for reliable local rendering.</div></footer>
+
+    <script src="./mermaid.min.js"></script>
+    <script>
+      mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: "loose",
+        theme: "base",
+        flowchart: { htmlLabels: true, curve: "basis", nodeSpacing: 34, rankSpacing: 54 },
+        sequence: { useMaxWidth: false, wrap: true, diagramMarginX: 30 },
+        er: { useMaxWidth: false, layoutDirection: "TB", minEntityWidth: 120 },
+        themeVariables: {
+          background: "#0d1118", primaryColor: "#132235", primaryBorderColor: "#78b7ff",
+          primaryTextColor: "#edf4ff", secondaryColor: "#211b31", tertiaryColor: "#13251f",
+          lineColor: "#71849b", textColor: "#edf4ff", mainBkg: "#111722",
+          nodeBorder: "#45617f", clusterBkg: "#0d1118", clusterBorder: "#263244",
+          edgeLabelBackground: "#111722", actorBkg: "#132235", actorBorder: "#78b7ff",
+          actorTextColor: "#edf4ff", signalColor: "#92a2b8", signalTextColor: "#edf4ff",
+          labelBoxBkgColor: "#111722", labelBoxBorderColor: "#45617f", labelTextColor: "#edf4ff",
+          noteBkgColor: "#2a2115", noteBorderColor: "#ffc96b", noteTextColor: "#edf4ff"
+        }
+      });
+
+      const renderDiagram = async (node) => {
+        if (!node || node.dataset.processed === "true" || node.dataset.rendering === "true") return;
+        node.dataset.rendering = "true";
+        try { await mermaid.run({ nodes: [node] }); }
+        finally { delete node.dataset.rendering; }
+      };
+
+      let renderQueue = Promise.resolve();
+      const queueDiagram = (node) => {
+        renderQueue = renderQueue.then(() => renderDiagram(node));
+        return renderQueue;
+      };
+
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting && !entry.target.closest("[data-tab-panel][hidden]")) {
+            queueDiagram(entry.target);
+            observer.unobserve(entry.target);
+          }
+        });
+      }, { rootMargin: "0px" });
+
+      document.querySelectorAll(".mermaid").forEach((node) => observer.observe(node));
+
+      document.querySelectorAll(".tabbar").forEach((bar) => {
+        bar.addEventListener("click", (event) => {
+          const button = event.target.closest("button[data-tab]");
+          if (!button) return;
+          const section = bar.closest("section");
+          bar.querySelectorAll("button").forEach((item) => item.setAttribute("aria-selected", String(item === button)));
+          section.querySelectorAll(":scope > [data-tab-panel]").forEach((panel) => {
+            panel.hidden = panel.dataset.tabPanel !== button.dataset.tab;
+            if (!panel.hidden) queueDiagram(panel.querySelector(".mermaid"));
+          });
+        });
+      });
+
+      document.addEventListener("click", (event) => {
+        const button = event.target.closest("button[data-zoom]");
+        if (!button) return;
+        const mermaidNode = button.closest(".diagram-card").querySelector(".mermaid");
+        let scale = Number(mermaidNode.dataset.scale || 1);
+        if (button.dataset.zoom === "in") scale = Math.min(2.5, scale + 0.15);
+        if (button.dataset.zoom === "out") scale = Math.max(0.35, scale - 0.15);
+        if (button.dataset.zoom === "reset") scale = 1;
+        mermaidNode.dataset.scale = scale;
+        mermaidNode.style.transform = `scale(${scale})`;
+      });
+    </script>
+  </body>
+</html>
