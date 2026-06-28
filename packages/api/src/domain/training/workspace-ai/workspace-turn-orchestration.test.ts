@@ -39,6 +39,7 @@ void test("duplicate submit with an in-flight turn id is rejected before prepari
     saveAttempt: () => fail("saveAttempt"),
     completeNode: () => fail("completeNode"),
     commitEducationTurn: () => fail("commitEducationTurn"),
+    commitRecallTurn: () => fail("commitRecallTurn"),
     commitNextScenarioPrompt: () => fail("commitNextScenarioPrompt"),
     touchSession: () => fail("touchSession"),
     listMemories: () => fail("listMemories"),

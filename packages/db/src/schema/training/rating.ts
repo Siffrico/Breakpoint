@@ -178,6 +178,7 @@ export const TrainingScenarioAttempt = pgTable(
       .timestamp({ mode: "date", withTimezone: true })
       .defaultNow()
       .notNull(),
+    presentedAt: t.timestamp({ mode: "date", withTimezone: true }),
     evaluatedAt: t.timestamp({ mode: "date", withTimezone: true }),
   }),
   (table) => [

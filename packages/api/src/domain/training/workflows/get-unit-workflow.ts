@@ -1,40 +1,31 @@
-import { err, ok  } from "../../../lib/result";
-import type {Result} from "../../../lib/result";
+import type { Result } from "../../../lib/result";
+import type {
+  EducationUnitState,
+  PhaseResponseRecord,
+  UnitContent,
+} from "../types/training.types";
+import { err, ok } from "../../../lib/result";
 import { generateClusterBriefing } from "../generate-cluster-briefing";
 import { generateUnitScaffold } from "../orchestration/unit-flow";
 import {
   getEducationUnitState,
   shouldRefreshLegacyEducationUnit,
 } from "../policies/education-unit-state-policy";
-import type {
-  EducationUnitState,
-  PhaseResponseRecord,
-  UnitContent,
-} from "../types/training.types";
 
 interface GetUnitDependencies {
   getUnitByNodeId: (nodeId: string) => Promise<UnitContent | null>;
-  getNodeById: (nodeId: string) => Promise<{
-    id: string;
-    parentNodeId: string | null;
-    kind: string;
-    title: string;
-    summary: string;
-    whyItMatters: string;
-    orderIndex: number;
-    status: string;
-  } | null>;
   getPlanNodesBySession: (sessionId: string) => Promise<
-    {
-      id: string;
-      parentNodeId: string | null;
-      kind: string;
-      title: string;
-      summary: string;
-      whyItMatters: string;
-      orderIndex: number;
-      status: string;
-    }[] | null
+    | {
+        id: string;
+        parentNodeId: string | null;
+        kind: string;
+        title: string;
+        summary: string;
+        whyItMatters: string;
+        orderIndex: number;
+        status: string;
+      }[]
+    | null
   >;
   getTargetIdentity: (sessionId: string) => Promise<string | null>;
   listAttemptHistory: (sessionId: string) => Promise<
@@ -78,30 +69,27 @@ export const getUnitWorkflow = async ({
   sessionId: string;
   deps: GetUnitDependencies;
 }): Promise<Result<EducationUnitState>> => {
-  const existingUnit = await deps.getUnitByNodeId(nodeId);
-  const [node, planNodes] = await Promise.all([
-    deps.getNodeById(nodeId),
-    deps.getPlanNodesBySession(sessionId),
-  ]);
+  const planNodes = await deps.getPlanNodesBySession(sessionId);
+  if (!planNodes) {
+    return err("Curriculum plan does not exist yet.");
+  }
 
+  const node = planNodes.find((item) => item.id === nodeId);
   if (!node) {
-    return err("Unit node does not exist.");
+    return err("Unit node does not exist in this learning project.");
   }
 
   if (node.kind !== "unit" && node.kind !== "integration") {
     return err("This node is not an education unit.");
   }
 
+  const existingUnit = await deps.getUnitByNodeId(nodeId);
   if (node.status !== "ready" && existingUnit == null) {
     return err("This unit is not ready yet.");
   }
 
-  if (!planNodes) {
-    return err("Curriculum plan does not exist yet.");
-  }
-
   const parentNode = node.parentNodeId
-    ? planNodes.find((item) => item.id === node.parentNodeId) ?? null
+    ? (planNodes.find((item) => item.id === node.parentNodeId) ?? null)
     : null;
 
   const siblingUnits = planNodes
@@ -118,20 +106,18 @@ export const getUnitWorkflow = async ({
     ) + 1;
 
   const completedClusterTitles = planNodes
-      .filter((item) => item.kind === "skill_cluster")
-      .filter((clusterNode) => {
-        const childUnits = planNodes.filter(
-          (item) =>
-            item.parentNodeId === clusterNode.id &&
-            item.kind === "unit",
-        );
+    .filter((item) => item.kind === "skill_cluster")
+    .filter((clusterNode) => {
+      const childUnits = planNodes.filter(
+        (item) => item.parentNodeId === clusterNode.id && item.kind === "unit",
+      );
 
-        return (
-          childUnits.length > 0 &&
-          childUnits.every((item) => item.status === "completed")
-        );
-      })
-      .map((item) => item.title);
+      return (
+        childUnits.length > 0 &&
+        childUnits.every((item) => item.status === "completed")
+      );
+    })
+    .map((item) => item.title);
 
   const clusterContext = parentNode
     ? {
@@ -181,7 +167,10 @@ export const getUnitWorkflow = async ({
     if (!needsScenarioRefresh) {
       const refreshedUnit = await deps.getUnitByNodeId(nodeId);
       const hydratedUnit = refreshedUnit ?? existingUnit;
-      const phaseResponses = await deps.getPhaseResponses(hydratedUnit.id, sessionId);
+      const phaseResponses = await deps.getPhaseResponses(
+        hydratedUnit.id,
+        sessionId,
+      );
       return ok(
         getEducationUnitState({
           unit: hydratedUnit,
@@ -228,9 +217,7 @@ export const getUnitWorkflow = async ({
     ]);
   } catch (error) {
     return err(
-      error instanceof Error
-        ? error.message
-        : "Failed to generate unit setup.",
+      error instanceof Error ? error.message : "Failed to generate unit setup.",
     );
   }
 
@@ -262,7 +249,10 @@ export const getUnitWorkflow = async ({
 
   const refreshedUnit = await deps.getUnitByNodeId(nodeId);
   const hydratedUnit = refreshedUnit ?? createdUnit;
-  const phaseResponses = await deps.getPhaseResponses(hydratedUnit.id, sessionId);
+  const phaseResponses = await deps.getPhaseResponses(
+    hydratedUnit.id,
+    sessionId,
+  );
 
   return ok(
     getEducationUnitState({

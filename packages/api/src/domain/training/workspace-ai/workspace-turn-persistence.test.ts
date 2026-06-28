@@ -153,6 +153,10 @@ const makeDeps = (calls: string[]): WorkspaceTurnPersistenceDependencies => ({
       nextReadyNode: null,
     });
   },
+  commitRecallTurn: () => {
+    calls.push("commitRecallTurn");
+    return Promise.reject(new Error("commitRecallTurn should not be called"));
+  },
   commitNextScenarioPrompt: (input) => {
     calls.push("commitNextScenarioPrompt");
     assert.equal(

@@ -1,6 +1,6 @@
 import type { db as databaseClient } from "@acme/db/client";
 import type { BeforeAfterProfile } from "@acme/validators";
-import { and, asc, desc, eq, inArray, ne, sql } from "@acme/db";
+import { and, asc, desc, eq, inArray, isNull, lt, ne, or, sql } from "@acme/db";
 import {
   TrainingIdentityProfile,
   TrainingIdentityProfileVersion,
@@ -19,6 +19,11 @@ import type {
 import { buildProjectCheckpointRepository } from "./build-project-checkpoint-repository";
 
 type Database = typeof databaseClient;
+const WORKSPACE_TURN_LEASE_MS = 15 * 60 * 1_000;
+
+const getWorkspaceTurnLeaseExpiry = (now = new Date()) =>
+  new Date(now.getTime() + WORKSPACE_TURN_LEASE_MS);
+
 interface OnboardingMessageInsert {
   sessionId: string;
   role: "assistant" | "user";
@@ -272,6 +277,7 @@ export const trainingOnboardingRepository = {
     slot,
     unitId = null,
     turnId,
+    leaseId,
   }: {
     db: Database;
     sessionId: string;
@@ -280,6 +286,7 @@ export const trainingOnboardingRepository = {
     slot: string | null;
     unitId?: string | null;
     turnId: string;
+    leaseId: string;
   }): Promise<
     | { status: "claimed" }
     | { status: "processing" }
@@ -288,6 +295,8 @@ export const trainingOnboardingRepository = {
         assistantMessage: WorkspaceMessage;
       }
   > => {
+    const now = new Date();
+    const leaseExpiresAt = getWorkspaceTurnLeaseExpiry(now);
     const existingTurn = await db.query.TrainingWorkspaceTurn.findFirst({
       where: and(
         eq(TrainingWorkspaceTurn.sessionId, sessionId),
@@ -311,11 +320,34 @@ export const trainingOnboardingRepository = {
     }
 
     if (existingTurn?.status === "processing") {
-      return { status: "processing" };
+      const [reclaimedTurn] = await db
+        .update(TrainingWorkspaceTurn)
+        .set({
+          action,
+          slot,
+          unitId,
+          inputContent: content,
+          leaseId,
+          leaseExpiresAt,
+          failureReason: null,
+        })
+        .where(
+          and(
+            eq(TrainingWorkspaceTurn.id, existingTurn.id),
+            eq(TrainingWorkspaceTurn.status, "processing"),
+            or(
+              isNull(TrainingWorkspaceTurn.leaseExpiresAt),
+              lt(TrainingWorkspaceTurn.leaseExpiresAt, now),
+            ),
+          ),
+        )
+        .returning({ id: TrainingWorkspaceTurn.id });
+
+      return reclaimedTurn ? { status: "claimed" } : { status: "processing" };
     }
 
     if (existingTurn?.status === "failed") {
-      await db
+      const [retriedTurn] = await db
         .update(TrainingWorkspaceTurn)
         .set({
           action,
@@ -323,10 +355,18 @@ export const trainingOnboardingRepository = {
           unitId,
           inputContent: content,
           status: "processing",
+          leaseId,
+          leaseExpiresAt,
           failureReason: null,
         })
-        .where(eq(TrainingWorkspaceTurn.id, existingTurn.id));
-      return { status: "claimed" };
+        .where(
+          and(
+            eq(TrainingWorkspaceTurn.id, existingTurn.id),
+            eq(TrainingWorkspaceTurn.status, "failed"),
+          ),
+        )
+        .returning({ id: TrainingWorkspaceTurn.id });
+      return retriedTurn ? { status: "claimed" } : { status: "processing" };
     }
 
     try {
@@ -338,6 +378,8 @@ export const trainingOnboardingRepository = {
         unitId,
         inputContent: content,
         status: "processing",
+        leaseId,
+        leaseExpiresAt,
       });
       return { status: "claimed" };
     } catch (error) {

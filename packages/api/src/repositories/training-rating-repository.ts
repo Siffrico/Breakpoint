@@ -306,6 +306,7 @@ export const trainingRatingRepository = {
         scenarioPrompt,
         scenarioContractJson: scenarioContract,
         contractVersion: scenarioContract.version,
+        presentedAt: new Date(),
       })
       .where(eq(TrainingScenarioAttempt.id, openScenario.id))
       .returning();

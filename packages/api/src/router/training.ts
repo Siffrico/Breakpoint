@@ -626,11 +626,6 @@ export const trainingRouter = {
                 unitContentId,
                 sessionId,
               }),
-            getNodeById: (nodeId) =>
-              trainingCurriculumRepository.getNodeById({
-                db: ctx.db,
-                nodeId,
-              }),
             getPlanNodesBySession: (sessionId) =>
               trainingCurriculumRepository.getPlanNodesBySession({
                 db: ctx.db,

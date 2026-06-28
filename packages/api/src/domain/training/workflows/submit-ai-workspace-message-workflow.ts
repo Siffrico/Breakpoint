@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type { Result } from "../../../lib/result";
 import type {
   AttemptTiming,
@@ -27,12 +29,14 @@ export const submitAiWorkspaceMessageWorkflow = async ({
   attemptTiming?: AttemptTiming | null;
   deps: WorkspaceTurnOrchestrationDependencies;
 }): Promise<Result<WorkspaceAiTurnResult>> => {
+  const turnLeaseId = turnId ? randomUUID() : null;
   try {
     return ok(
       await runOneStep({
         sessionId,
         userId,
         turnId,
+        turnLeaseId,
         message,
         attemptTiming,
         action: "submit_answer",
@@ -40,10 +44,11 @@ export const submitAiWorkspaceMessageWorkflow = async ({
       }),
     );
   } catch (error) {
-    if (turnId && deps.markWorkspaceTurnFailed) {
+    if (turnId && turnLeaseId && deps.markWorkspaceTurnFailed) {
       await deps.markWorkspaceTurnFailed({
         sessionId,
         turnId,
+        leaseId: turnLeaseId,
         reason: error instanceof Error ? error.message : "unknown error",
       });
     }

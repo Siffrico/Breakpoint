@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { ScenarioEvaluationContractSchema } from "@acme/validators";
 
 import type { Memory } from "../../memory/types";
@@ -33,6 +35,7 @@ import {
   validateEvaluationDimensionResults,
 } from "./evaluation-contracts";
 import {
+  deriveServerAttemptTiming,
   hasFailedEvaluationAttempt,
   normalizeEvaluationPlan,
   selectLatestEvaluationPlan,
@@ -78,6 +81,7 @@ interface OpenScenarioResult {
   scenarioPrompt?: string | null;
   scenarioContractJson?: ScenarioEvaluationContract | null;
   itemRating?: number | null;
+  presentedAt?: Date | null;
 }
 
 export interface WorkspaceTurnOrchestrationDependencies
@@ -139,6 +143,7 @@ export interface PreparedWorkspaceTurn {
   sessionId: string;
   userId: string;
   turnId: string | null;
+  turnLeaseId: string | null;
   message: string;
   attemptTiming?: AttemptTiming | null;
   turn: ResolvedWorkspaceTurn;
@@ -239,8 +244,8 @@ export const prepareWorkspaceTurnPrompt = async ({
   sessionId,
   userId,
   turnId = null,
+  turnLeaseId = null,
   message,
-  attemptTiming,
   action = "submit_answer",
   manualDifficultySignal = null,
   deps,
@@ -248,13 +253,15 @@ export const prepareWorkspaceTurnPrompt = async ({
   sessionId: string;
   userId: string;
   turnId?: string | null;
+  turnLeaseId?: string | null;
   message: string;
-  attemptTiming?: AttemptTiming | null;
   action?: WorkspaceChatAction;
   manualDifficultySignal?: ManualDifficultySignal | null;
   deps: WorkspaceTurnOrchestrationDependencies;
 }): Promise<PreparedWorkspaceTurnResult> => {
   const trimmedMessage = message.trim();
+  const submittedAt = new Date();
+  const claimLeaseId = turnId ? (turnLeaseId ?? randomUUID()) : null;
   if (action === "submit_answer" && trimmedMessage.length < 2) {
     throw new Error("Write a fuller message so the AI can respond usefully.");
   }
@@ -294,6 +301,9 @@ export const prepareWorkspaceTurnPrompt = async ({
   }
 
   if (turnId && deps.claimWorkspaceTurn) {
+    if (!claimLeaseId) {
+      throw new Error("Workspace turn lease could not be created.");
+    }
     const claim = await deps.claimWorkspaceTurn({
       sessionId,
       action,
@@ -305,6 +315,7 @@ export const prepareWorkspaceTurnPrompt = async ({
       slot,
       unitId: unit.nodeId,
       turnId,
+      leaseId: claimLeaseId,
     });
 
     if (claim.status === "completed") {
@@ -436,6 +447,14 @@ export const prepareWorkspaceTurnPrompt = async ({
           nodeId: unit.nodeId,
         })
       : null;
+  const serverAttemptTiming =
+    runtime.contextMode === "evaluator" && activeEvaluationPlan
+      ? deriveServerAttemptTiming({
+          presentedAt: openScenario?.presentedAt,
+          submittedAt,
+          timeLimitSeconds: activeEvaluationPlan.timeLimitSeconds,
+        })
+      : null;
   const scenarioEvaluationContract =
     runtime.contextMode === "evaluator"
       ? openScenario?.scenarioContractJson
@@ -469,7 +488,7 @@ export const prepareWorkspaceTurnPrompt = async ({
     allResponses,
     runtime,
     evaluationPlan: activeEvaluationPlan,
-    attemptTiming,
+    attemptTiming: serverAttemptTiming,
     scenarioEvaluationContract,
     difficultyDirective: difficultyDirectiveResult
       ? {
@@ -491,8 +510,9 @@ export const prepareWorkspaceTurnPrompt = async ({
     sessionId,
     userId,
     turnId,
+    turnLeaseId: claimLeaseId,
     message: trimmedMessage,
-    attemptTiming,
+    attemptTiming: serverAttemptTiming,
     turn,
     runtime,
     promptContext: buildActionPromptContext({
@@ -586,6 +606,7 @@ export const saveStepResult = async ({
           prepared.difficultyDirectiveResult?.directive.reason ?? null,
         manualDifficultySignal: prepared.manualDifficultySignal,
         turnId: prepared.turnId,
+        turnLeaseId: prepared.turnLeaseId,
         deps,
       });
     }
@@ -602,6 +623,7 @@ export const saveStepResult = async ({
         prepared.difficultyDirectiveResult?.directive.reason ?? null,
       deps,
       turnId: prepared.turnId,
+      turnLeaseId: prepared.turnLeaseId,
     });
   }
 
@@ -650,6 +672,7 @@ export const saveStepResult = async ({
       manualDifficultySignal:
         action === "adjust_difficulty" ? prepared.manualDifficultySignal : null,
       turnId: prepared.turnId,
+      turnLeaseId: prepared.turnLeaseId,
       deps,
     });
 
@@ -676,6 +699,7 @@ export const saveStepResult = async ({
     difficultyDirectiveReason:
       prepared.difficultyDirectiveResult?.directive.reason ?? null,
     turnId: prepared.turnId,
+    turnLeaseId: prepared.turnLeaseId,
     deps,
   });
 
@@ -699,8 +723,9 @@ export const runOneStep = async ({
   sessionId,
   userId,
   turnId = null,
+  turnLeaseId = null,
   message,
-  attemptTiming,
+  attemptTiming: _attemptTiming,
   action = "submit_answer",
   manualDifficultySignal = null,
   deps,
@@ -708,6 +733,7 @@ export const runOneStep = async ({
   sessionId: string;
   userId: string;
   turnId?: string | null;
+  turnLeaseId?: string | null;
   message: string;
   attemptTiming?: AttemptTiming | null;
   action?: WorkspaceChatAction;
@@ -718,8 +744,8 @@ export const runOneStep = async ({
     sessionId,
     userId,
     turnId,
+    turnLeaseId,
     message,
-    attemptTiming,
     action,
     manualDifficultySignal,
     deps,

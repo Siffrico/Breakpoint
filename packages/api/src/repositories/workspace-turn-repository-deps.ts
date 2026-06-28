@@ -18,6 +18,7 @@ import type {
 import type {
   WorkspaceEducationTurnCommit,
   WorkspaceNextScenarioCommit,
+  WorkspaceRecallTurnCommit,
 } from "../domain/training/workspace-ai/workspace-turn-persistence";
 import { createInitialRatingState } from "../domain/training/engine/rating";
 import {
@@ -34,6 +35,43 @@ import { trainingRatingRepository } from "./training-rating-repository";
 import { trainingUnitRunRepository } from "./training-unit-run-repository";
 
 type Database = typeof databaseClient;
+const WORKSPACE_TURN_LEASE_MS = 15 * 60 * 1_000;
+
+const assertWorkspaceTurnLease = async ({
+  db,
+  sessionId,
+  turnId,
+  leaseId,
+}: {
+  db: Database;
+  sessionId: string;
+  turnId?: string | null;
+  leaseId?: string | null;
+}) => {
+  if (!turnId) return;
+  if (!leaseId) {
+    throw new Error("Workspace turn lease is missing.");
+  }
+
+  const [leasedTurn] = await db
+    .update(TrainingWorkspaceTurn)
+    .set({
+      leaseExpiresAt: new Date(Date.now() + WORKSPACE_TURN_LEASE_MS),
+    })
+    .where(
+      and(
+        eq(TrainingWorkspaceTurn.sessionId, sessionId),
+        eq(TrainingWorkspaceTurn.turnId, turnId),
+        eq(TrainingWorkspaceTurn.status, "processing"),
+        eq(TrainingWorkspaceTurn.leaseId, leaseId),
+      ),
+    )
+    .returning({ id: TrainingWorkspaceTurn.id });
+
+  if (!leasedTurn) {
+    throw new Error("Workspace turn lease is no longer valid.");
+  }
+};
 
 const toCurriculumNode = (
   node: Awaited<ReturnType<typeof trainingCurriculumRepository.completeNode>>,
@@ -60,16 +98,21 @@ const markWorkspaceTurnCompleted = async ({
   db,
   sessionId,
   turnId,
+  leaseId,
   assistantMessage,
   userMessage,
 }: {
   db: Database;
   sessionId: string;
   turnId?: string | null;
+  leaseId?: string | null;
   assistantMessage: WorkspaceAiMessage;
   userMessage?: WorkspaceAiMessage | null;
 }) => {
   if (!turnId || !assistantMessage.id) return;
+  if (!leaseId) {
+    throw new Error("Workspace turn lease is missing.");
+  }
 
   await db
     .update(TrainingWorkspaceTurn)
@@ -77,12 +120,15 @@ const markWorkspaceTurnCompleted = async ({
       status: "completed",
       assistantMessageId: assistantMessage.id,
       userMessageId: userMessage?.id ?? null,
+      leaseId: null,
+      leaseExpiresAt: null,
       failureReason: null,
     })
     .where(
       and(
         eq(TrainingWorkspaceTurn.sessionId, sessionId),
         eq(TrainingWorkspaceTurn.turnId, turnId),
+        eq(TrainingWorkspaceTurn.leaseId, leaseId),
       ),
     );
 };
@@ -91,17 +137,21 @@ const markWorkspaceTurnFailed = async ({
   db,
   sessionId,
   turnId,
+  leaseId,
   reason,
 }: {
   db: Database;
   sessionId: string;
   turnId: string;
+  leaseId: string;
   reason: string;
 }) => {
   await db
     .update(TrainingWorkspaceTurn)
     .set({
       status: "failed",
+      leaseId: null,
+      leaseExpiresAt: null,
       failureReason: reason.slice(0, 2_000),
     })
     .where(
@@ -109,6 +159,7 @@ const markWorkspaceTurnFailed = async ({
         eq(TrainingWorkspaceTurn.sessionId, sessionId),
         eq(TrainingWorkspaceTurn.turnId, turnId),
         eq(TrainingWorkspaceTurn.status, "processing"),
+        eq(TrainingWorkspaceTurn.leaseId, leaseId),
       ),
     );
 };
@@ -152,6 +203,12 @@ const commitNextScenarioPrompt = async ({
 }): Promise<{ assistantMessage: WorkspaceAiMessage }> =>
   db.transaction(async (tx) => {
     const txDb = tx as unknown as Database;
+    await assertWorkspaceTurnLease({
+      db: txDb,
+      sessionId: input.assistantMessage.sessionId,
+      turnId: input.turnId,
+      leaseId: input.turnLeaseId,
+    });
     await applyContracts({ db: txDb, contracts: input.contracts });
 
     const assistantMessage =
@@ -176,6 +233,7 @@ const commitNextScenarioPrompt = async ({
       db: txDb,
       sessionId: input.assistantMessage.sessionId,
       turnId: input.turnId,
+      leaseId: input.turnLeaseId,
       assistantMessage,
     });
 
@@ -194,6 +252,12 @@ const commitEducationTurn = async ({
 }> =>
   db.transaction(async (tx) => {
     const txDb = tx as unknown as Database;
+    await assertWorkspaceTurnLease({
+      db: txDb,
+      sessionId: input.assistantMessage.sessionId,
+      turnId: input.turnId,
+      leaseId: input.turnLeaseId,
+    });
     await applyContracts({ db: txDb, contracts: input.contracts });
 
     const userMessage = input.userMessage
@@ -237,11 +301,57 @@ const commitEducationTurn = async ({
       db: txDb,
       sessionId: input.assistantMessage.sessionId,
       turnId: input.turnId,
+      leaseId: input.turnLeaseId,
       assistantMessage,
       userMessage,
     });
 
     return { assistantMessage, nextReadyNode };
+  });
+
+const commitRecallTurn = async ({
+  db,
+  input,
+}: {
+  db: Database;
+  input: WorkspaceRecallTurnCommit;
+}): Promise<{ assistantMessage: WorkspaceAiMessage }> =>
+  db.transaction(async (tx) => {
+    const txDb = tx as unknown as Database;
+    await assertWorkspaceTurnLease({
+      db: txDb,
+      sessionId: input.assistantMessage.sessionId,
+      turnId: input.turnId,
+      leaseId: input.turnLeaseId,
+    });
+
+    const assistantMessage =
+      await trainingOnboardingRepository.appendWorkspaceMessage({
+        db: txDb,
+        ...input.assistantMessage,
+      });
+    if (!assistantMessage) {
+      throw new Error("AI response could not be saved.");
+    }
+
+    await trainingCurriculumRepository.savePhaseResponse({
+      db: txDb,
+      ...input.phaseResponse,
+      sequence: input.phaseResponse.sequence ?? assistantMessage.sequence,
+    });
+    await trainingOnboardingRepository.touchSession({
+      db: txDb,
+      sessionId: input.touchSessionId,
+    });
+    await markWorkspaceTurnCompleted({
+      db: txDb,
+      sessionId: input.assistantMessage.sessionId,
+      turnId: input.turnId,
+      leaseId: input.turnLeaseId,
+      assistantMessage,
+    });
+
+    return { assistantMessage };
   });
 
 export const createWorkspaceTurnRepositoryDeps = (
@@ -356,6 +466,7 @@ export const createWorkspaceTurnRepositoryDeps = (
     return toCurriculumNode(node);
   },
   commitEducationTurn: (input) => commitEducationTurn({ db, input }),
+  commitRecallTurn: (input) => commitRecallTurn({ db, input }),
   commitNextScenarioPrompt: (input) => commitNextScenarioPrompt({ db, input }),
   markWorkspaceTurnFailed: (input) => markWorkspaceTurnFailed({ db, ...input }),
   prewarmWorkspaceUnit: (node: CurriculumNode) =>

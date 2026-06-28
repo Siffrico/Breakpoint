@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { UIMessage } from "ai";
 import {
   createUIMessageStream,
@@ -56,7 +57,7 @@ export const streamWorkspaceChat = async ({
   message,
   turnId = null,
   modelName,
-  attemptTiming,
+  attemptTiming: _attemptTiming,
   action = "submit_answer",
   manualDifficultySignal = null,
 }: {
@@ -77,7 +78,6 @@ export const streamWorkspaceChat = async ({
       userId,
       message,
       turnId,
-      attemptTiming,
       action,
       manualDifficultySignal,
     }),
@@ -89,7 +89,6 @@ const streamWorkspaceChatWithModelPreference = async ({
   userId,
   message,
   turnId,
-  attemptTiming,
   action,
   manualDifficultySignal,
 }: {
@@ -98,11 +97,11 @@ const streamWorkspaceChatWithModelPreference = async ({
   userId: string;
   message: string;
   turnId: string | null;
-  attemptTiming?: AttemptTiming | null;
   action: WorkspaceChatAction;
   manualDifficultySignal: ManualDifficultySignal | null;
 }) => {
   const trimmedMessage = message.trim();
+  const turnLeaseId = turnId ? randomUUID() : null;
   if (action === "submit_answer" && trimmedMessage.length < 2) {
     return new Response(
       "Write a fuller message so the AI can respond usefully.",
@@ -187,7 +186,8 @@ const streamWorkspaceChatWithModelPreference = async ({
 
       const turnDeps = createWorkspaceTurnRepositoryDeps(db);
       const markTurnFailed = async (error: unknown) => {
-        if (!turnId || !turnDeps.markWorkspaceTurnFailed) return;
+        if (!turnId || !turnLeaseId || !turnDeps.markWorkspaceTurnFailed)
+          return;
         if (
           error instanceof Error &&
           /already being processed/i.test(error.message)
@@ -197,6 +197,7 @@ const streamWorkspaceChatWithModelPreference = async ({
         await turnDeps.markWorkspaceTurnFailed({
           sessionId,
           turnId,
+          leaseId: turnLeaseId,
           reason: error instanceof Error ? error.message : "unknown error",
         });
       };
@@ -206,8 +207,8 @@ const streamWorkspaceChatWithModelPreference = async ({
           sessionId,
           userId,
           turnId,
+          turnLeaseId,
           message,
-          attemptTiming,
           action,
           manualDifficultySignal,
           deps: turnDeps,

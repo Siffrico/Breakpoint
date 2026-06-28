@@ -35,6 +35,7 @@ export interface WorkspaceTurnPersistenceDependencies
     slot: string | null;
     unitId?: string | null;
     turnId: string;
+    leaseId: string;
   }) => Promise<
     | { status: "claimed" }
     | { status: "processing" }
@@ -108,12 +109,16 @@ export interface WorkspaceTurnPersistenceDependencies
     assistantMessage: WorkspaceAiMessage;
     nextReadyNode: CurriculumNode | null;
   }>;
+  commitRecallTurn: (
+    input: WorkspaceRecallTurnCommit,
+  ) => Promise<{ assistantMessage: WorkspaceAiMessage }>;
   commitNextScenarioPrompt: (
     input: WorkspaceNextScenarioCommit,
   ) => Promise<{ assistantMessage: WorkspaceAiMessage }>;
   markWorkspaceTurnFailed?: (input: {
     sessionId: string;
     turnId: string;
+    leaseId: string;
     reason: string;
   }) => Promise<void>;
   touchSession: (sessionId: string) => Promise<unknown>;
@@ -171,6 +176,7 @@ export interface WorkspacePhaseResponseCommit {
 
 export interface WorkspaceEducationTurnCommit {
   turnId?: string | null;
+  turnLeaseId?: string | null;
   userMessage: WorkspaceUserMessageCommit | null;
   assistantMessage: WorkspaceAssistantMessageCommit;
   contracts: WorkspaceOutputContractCommit | null;
@@ -183,8 +189,19 @@ export interface WorkspaceEducationTurnCommit {
   touchSessionId: string;
 }
 
+export interface WorkspaceRecallTurnCommit {
+  turnId?: string | null;
+  turnLeaseId?: string | null;
+  assistantMessage: Omit<WorkspaceAssistantMessageCommit, "slot"> & {
+    slot: "recall";
+  };
+  phaseResponse: WorkspacePhaseResponseCommit;
+  touchSessionId: string;
+}
+
 export interface WorkspaceNextScenarioCommit {
   turnId?: string | null;
+  turnLeaseId?: string | null;
   assistantMessage: WorkspaceAssistantMessageCommit;
   contracts: WorkspaceOutputContractCommit | null;
   phaseResponse: WorkspacePhaseResponseCommit;
@@ -432,6 +449,7 @@ export const saveRecallTurnResult = async ({
   difficultyDirectiveReason,
   manualDifficultySignal,
   turnId,
+  turnLeaseId,
   deps,
 }: {
   sessionId: string;
@@ -444,46 +462,45 @@ export const saveRecallTurnResult = async ({
   difficultyDirectiveReason?: string | null;
   manualDifficultySignal?: "too_easy" | "too_hard" | null;
   turnId?: string | null;
+  turnLeaseId?: string | null;
   deps: WorkspaceTurnPersistenceDependencies;
 }): Promise<WorkspaceAiTurnResult> => {
-  const assistantMessage = await deps.appendMessage({
-    sessionId,
-    role: "assistant",
-    content: output.assistantMessage,
-    slot: "recall",
-    unitId: unit.nodeId,
-    turnId,
-    metadata: getDifficultyDirectiveMetadata(difficultyDirectiveReason),
-  });
-
-  if (!assistantMessage) {
-    throw new Error("AI response could not be saved.");
-  }
-
   const recallResponses = await deps.getPhaseResponses(unit.id, sessionId);
-  await deps.savePhaseResponse({
-    unitContentId: unit.id,
-    sessionId,
-    userId,
-    phase: "ai_recall",
-    sequence: countPhaseResponses(recallResponses, "ai_recall"),
-    userResponse: message,
-    aiResponse: output.assistantMessage,
-    passed: output.recallComplete,
-    score: output.score,
-    metadata: {
-      recallUnitId: unit.nodeId,
-      promptKind: "recall",
-      modelPurpose: "recall",
-      manualDifficultySignal: manualDifficultySignal ?? undefined,
-      difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
-      estimatedItemRating: output.estimatedItemRating ?? undefined,
-      feedback: output.assistantMessage,
-      evidenceAnchors: output.strengths,
+  const { assistantMessage } = await deps.commitRecallTurn({
+    turnId,
+    turnLeaseId,
+    assistantMessage: {
+      sessionId,
+      role: "assistant",
+      content: output.assistantMessage,
+      slot: "recall",
+      unitId: unit.nodeId,
+      turnId,
+      metadata: getDifficultyDirectiveMetadata(difficultyDirectiveReason),
     },
+    phaseResponse: {
+      unitContentId: unit.id,
+      sessionId,
+      userId,
+      phase: "ai_recall",
+      sequence: countPhaseResponses(recallResponses, "ai_recall"),
+      userResponse: message,
+      aiResponse: output.assistantMessage,
+      passed: output.recallComplete,
+      score: output.score,
+      metadata: {
+        recallUnitId: unit.nodeId,
+        promptKind: "recall",
+        modelPurpose: "recall",
+        manualDifficultySignal: manualDifficultySignal ?? undefined,
+        difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
+        estimatedItemRating: output.estimatedItemRating ?? undefined,
+        feedback: output.assistantMessage,
+        evidenceAnchors: output.strengths,
+      },
+    },
+    touchSessionId: sessionId,
   });
-
-  await deps.touchSession(sessionId);
 
   const nextState = await planNextWorkspaceTurn({ sessionId, plan, deps });
 
@@ -508,6 +525,7 @@ export const saveEducationTurnResult = async ({
   verdict,
   difficultyDirectiveReason,
   turnId,
+  turnLeaseId,
   deps,
 }: {
   sessionId: string;
@@ -523,6 +541,7 @@ export const saveEducationTurnResult = async ({
   verdict: WorkspaceStepVerdict;
   difficultyDirectiveReason?: string | null;
   turnId?: string | null;
+  turnLeaseId?: string | null;
   deps: WorkspaceTurnPersistenceDependencies;
 }): Promise<WorkspaceAiTurnPersistenceResult> => {
   if (!state.educationStage) {
@@ -600,6 +619,7 @@ export const saveEducationTurnResult = async ({
   });
   const { assistantMessage, nextReadyNode } = await deps.commitEducationTurn({
     turnId,
+    turnLeaseId,
     userMessage: {
       sessionId,
       role: "user",
@@ -651,6 +671,7 @@ export const saveNextScenarioPrompt = async ({
   difficultyDirectiveReason,
   manualDifficultySignal,
   turnId,
+  turnLeaseId,
   deps,
 }: {
   sessionId: string;
@@ -662,6 +683,7 @@ export const saveNextScenarioPrompt = async ({
   difficultyDirectiveReason?: string | null;
   manualDifficultySignal?: "too_easy" | "too_hard" | null;
   turnId?: string | null;
+  turnLeaseId?: string | null;
   deps: WorkspaceTurnPersistenceDependencies;
 }): Promise<void> => {
   if (!currentStage) {
@@ -678,6 +700,7 @@ export const saveNextScenarioPrompt = async ({
   const educationResponses = await deps.getPhaseResponses(unit.id, sessionId);
   await deps.commitNextScenarioPrompt({
     turnId,
+    turnLeaseId,
     assistantMessage: {
       sessionId,
       role: "assistant",

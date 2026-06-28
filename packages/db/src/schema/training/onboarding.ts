@@ -153,6 +153,8 @@ export const TrainingWorkspaceTurn = pgTable(
     unitId: t.uuid(),
     inputContent: t.text().notNull(),
     status: t.varchar({ length: 24 }).notNull().default("processing"),
+    leaseId: t.uuid(),
+    leaseExpiresAt: t.timestamp({ mode: "date", withTimezone: true }),
     userMessageId: t.uuid().references(() => TrainingOnboardingMessage.id, {
       onDelete: "set null",
     }),
@@ -179,5 +181,6 @@ export const TrainingWorkspaceTurn = pgTable(
       table.sessionId,
       table.status,
     ),
+    index("becoming_workspace_turn_lease_expiry_idx").on(table.leaseExpiresAt),
   ],
 );
