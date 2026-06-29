@@ -1,6 +1,6 @@
 import type { db as databaseClient } from "@acme/db/client";
 import type { ScenarioEvaluationContract } from "@acme/validators";
-import { and, asc, desc, eq } from "@acme/db";
+import { and, asc, desc, eq, sql } from "@acme/db";
 import {
   TrainingJobProgress,
   TrainingMisconception,
@@ -299,7 +299,7 @@ export const trainingRatingRepository = {
         scenarioPrompt,
         scenarioContractJson: scenarioContract,
         contractVersion: scenarioContract.version,
-        presentedAt: new Date(),
+        presentedAt: sql<Date>`coalesce(${TrainingScenarioAttempt.presentedAt}, now())`,
       })
       .where(
         and(

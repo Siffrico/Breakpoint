@@ -22,6 +22,7 @@ import { trainingAttemptRepository } from "../repositories/training-attempt-repo
 import { trainingCapstoneRepository } from "../repositories/training-capstone-repository";
 import { trainingCurriculumRepository } from "../repositories/training-curriculum-repository";
 import { trainingOnboardingRepository } from "../repositories/training-onboarding-repository";
+import { trainingRatingRepository } from "../repositories/training-rating-repository";
 import { trainingRecallRepository } from "../repositories/training-recall-repository";
 import { trainingUnitRunRepository } from "../repositories/training-unit-run-repository";
 import { createWorkspaceTurnRepositoryDeps } from "../repositories/workspace-turn-repository-deps";
@@ -569,6 +570,20 @@ export const trainingRouter = {
                 db: ctx.db,
                 ...payload,
               }),
+            getScenarioAttemptStartedAt: async ({
+              scenarioAttemptId,
+              nodeId,
+            }) => {
+              const attempt =
+                await trainingRatingRepository.getOpenScenarioById({
+                  db: ctx.db,
+                  scenarioAttemptId,
+                  userId: ctx.session.user.id,
+                  nodeId,
+                });
+
+              return attempt?.presentedAt ?? null;
+            },
           },
         }),
       );

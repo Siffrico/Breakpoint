@@ -1,7 +1,6 @@
 import type { UIMessage } from "ai";
 import type { NextRequest } from "next/server";
 import { isTextUIPart } from "ai";
-import { z } from "zod/v4";
 
 import { streamWorkspaceChat } from "@acme/api/workspace-chat";
 import { db } from "@acme/db/client";
@@ -13,7 +12,6 @@ export const runtime = "nodejs";
 
 interface WorkspaceChatRequestBody {
   action?: "submit_answer" | "next_scenario" | "adjust_difficulty";
-  attemptTiming?: unknown;
   manualDifficultySignal?: "too_easy" | "too_hard";
   message?: string;
   messages?: UIMessage[];
@@ -23,14 +21,6 @@ interface WorkspaceChatRequestBody {
 }
 
 const AI_MODEL_COOKIE = "bp-ai-model";
-const AttemptTimingSchema = z.object({
-  elapsedSeconds: z.number().int(),
-  timeLimitSeconds: z.number().int().positive(),
-  overrunSeconds: z.number().int().min(0),
-  wasOverTime: z.boolean(),
-  pausedSeconds: z.number().int().min(0).optional(),
-});
-
 const resolveModelPreference = (req: NextRequest, model?: string) => {
   const parsed = AiModelPreferenceSchema.safeParse(
     model ?? req.cookies.get(AI_MODEL_COOKIE)?.value,
@@ -101,8 +91,6 @@ export const POST = async (req: NextRequest) => {
     return new Response("Invalid request body", { status: 400 });
   }
 
-  const parsedTiming = AttemptTimingSchema.safeParse(body.attemptTiming);
-
   return streamWorkspaceChat({
     db,
     sessionId,
@@ -115,6 +103,5 @@ export const POST = async (req: NextRequest) => {
         : null,
     manualDifficultySignal: body.manualDifficultySignal ?? null,
     modelName: resolveModelPreference(req, body.model),
-    attemptTiming: parsedTiming.success ? parsedTiming.data : null,
   });
 };

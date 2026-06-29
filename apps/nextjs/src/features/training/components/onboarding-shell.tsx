@@ -38,6 +38,10 @@ import {
 } from "@acme/ui/chat";
 import { toast } from "@acme/ui/toast";
 
+import {
+  onboardingResponseDraftKey,
+  useAutosavedResponseDraft,
+} from "~/features/training/hooks/use-autosaved-response-draft";
 import { previewOnboardingStates } from "~/features/training/lib/training-preview";
 import { useTRPC } from "~/trpc/react";
 import { AssistantRichText } from "./assistant-rich-text";
@@ -135,6 +139,10 @@ export function OnboardingShell({
   >(() => transcriptToMessages(previewOnboardingStates[0] ?? null));
   const [previewIsStreaming, setPreviewIsStreaming] = useState(false);
   const previewTimeoutRef = useRef<number | null>(null);
+  const pendingDraftRef = useRef<{
+    key: string | null;
+    text: string;
+  } | null>(null);
 
   const [sessionId, setSessionId] = useState<string | null>(
     sessionIdProp ?? initialState?.sessionId ?? null,
@@ -212,7 +220,18 @@ export function OnboardingShell({
     experimental_throttle: 50,
     // Auto-resume the run the moment the learner approves "Create project".
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
-    onError: (err) => toast.error(err.message),
+    onFinish: () => {
+      clearSubmittedDraft(pendingDraftRef.current?.key ?? null);
+      pendingDraftRef.current = null;
+    },
+    onError: (err) => {
+      const pendingDraft = pendingDraftRef.current;
+      if (pendingDraft) {
+        restoreSubmittedDraft(pendingDraft.key, pendingDraft.text);
+      }
+      pendingDraftRef.current = null;
+      toast.error(err.message);
+    },
   });
 
   const seededFromStartRef = useRef(false);
@@ -250,11 +269,32 @@ export function OnboardingShell({
     return () => onRunningChange?.(false);
   }, [isStreaming, onRunningChange, startOnboarding.isPending]);
 
-  const [answer, setAnswer] = useState("");
   const composerRef = useRef<HTMLTextAreaElement>(null);
 
   const renderMessages = preview ? previewMessages : messages;
   const effectiveIsStreaming = preview ? previewIsStreaming : isStreaming;
+  const promptId = useMemo(() => {
+    const assistantPromptCount = renderMessages.filter(
+      (message) =>
+        message.role === "assistant" && extractText(message).length > 0,
+    ).length;
+    return `assistant:${Math.max(assistantPromptCount - 1, 0)}`;
+  }, [renderMessages]);
+  const responseDraftKey =
+    !preview && sessionId
+      ? onboardingResponseDraftKey(sessionId, promptId)
+      : null;
+  const {
+    value: answer,
+    setValue: setAnswer,
+    status: draftStatus,
+    markSubmitted,
+    restoreSubmitted: restoreSubmittedDraft,
+    clearSubmitted: clearSubmittedDraft,
+  } = useAutosavedResponseDraft({
+    enabled: !preview,
+    storageKey: responseDraftKey,
+  });
 
   const userTurnCount = useMemo(
     () => renderMessages.filter((m) => m.role === "user").length,
@@ -298,7 +338,10 @@ export function OnboardingShell({
 
       if (!trimmed || !sessionId || isStreaming || projectReady) return;
 
-      setAnswer("");
+      pendingDraftRef.current = {
+        key: markSubmitted(),
+        text: trimmed,
+      };
       sendStartRef.current = Date.now();
       void sendMessage({ text: trimmed });
     },
@@ -308,7 +351,9 @@ export function OnboardingShell({
       preview,
       previewIsStreaming,
       sendMessage,
+      setAnswer,
       sessionId,
+      markSubmitted,
       userTurnCount,
     ],
   );
@@ -394,6 +439,14 @@ export function OnboardingShell({
           >
             <Plus size={16} />
           </button>
+          {draftStatus !== "idle" ? (
+            <span
+              aria-live="polite"
+              className="ml-1 text-[11px] text-[#707070]"
+            >
+              {draftStatus === "saving" ? "Saving…" : "Saved"}
+            </span>
+          ) : null}
         </div>
       }
       rightSlot={
@@ -452,6 +505,11 @@ export function OnboardingShell({
             >
               <Plus size={16} />
             </button>
+            {draftStatus !== "idle" ? (
+              <span aria-live="polite" className="text-[11px] text-[#707070]">
+                {draftStatus === "saving" ? "Saving…" : "Saved"}
+              </span>
+            ) : null}
           </div>
         }
         rightSlot={

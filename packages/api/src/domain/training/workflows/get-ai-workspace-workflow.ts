@@ -49,6 +49,10 @@ interface GetAiWorkspaceDependencies {
     scenario: UnitContent["scenario"];
     unitMasteryContract?: UnitContent["unitMasteryContract"];
   }) => Promise<UnitContent | null>;
+  getScenarioAttemptStartedAt: (input: {
+    scenarioAttemptId: string;
+    nodeId: string;
+  }) => Promise<Date | null>;
 }
 
 export interface AiWorkspaceView {
@@ -64,6 +68,7 @@ export interface AiWorkspaceView {
     completedAttempts: number;
     scenarioCount: number;
     canRequestNextScenario: boolean;
+    attemptStartedAt: Date | null;
   } | null;
   unitAdvanceGate: ReturnType<typeof getUnitAdvanceGate>;
 }
@@ -133,6 +138,18 @@ export const getAiWorkspaceWorkflow = async ({
     ? await deps.listMessages(sessionId, getWorkspaceMessageSlot(state.mode))
     : messages;
   const evaluationProgress = getEvaluationProgress(activeUnitResponses);
+  const activeScenarioAttemptId = activeUnitResponses
+    .slice()
+    .reverse()
+    .find((response) => response.metadata?.scenarioAttemptId)
+    ?.metadata?.scenarioAttemptId;
+  const attemptStartedAt =
+    activeUnit && activeScenarioAttemptId
+      ? await deps.getScenarioAttemptStartedAt({
+          scenarioAttemptId: activeScenarioAttemptId,
+          nodeId: activeUnit.nodeId,
+        })
+      : null;
   const nextLearningNode =
     activeUnitNode == null
       ? null
@@ -154,6 +171,7 @@ export const getAiWorkspaceWorkflow = async ({
             completedAttempts: evaluationProgress.completedAttempts,
             scenarioCount: evaluationProgress.latestPlan.scenarioCount,
             canRequestNextScenario: evaluationProgress.canRequestNextScenario,
+            attemptStartedAt,
           }
         : null,
     unitAdvanceGate: getUnitAdvanceGate({

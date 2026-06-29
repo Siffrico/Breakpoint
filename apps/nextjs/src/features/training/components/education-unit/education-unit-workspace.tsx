@@ -18,18 +18,15 @@ import { toast } from "@acme/ui/toast";
 
 import type { UnitCoachCommandIntent } from "~/features/training/lib/unit-coach-commands";
 import { AssistantRichText } from "~/features/training/components/assistant-rich-text";
+import {
+  educationUnitResponseDraftKey,
+  useAutosavedResponseDraft,
+} from "~/features/training/hooks/use-autosaved-response-draft";
 import { NotionComposer } from "./notion-composer";
 import { WorkspaceComposerInput } from "./workspace-composer-input";
 
 type EducationUnit = RouterOutputs["training"]["unit"];
 type AiWorkspace = RouterOutputs["training"]["aiWorkspace"];
-interface AttemptTiming {
-  elapsedSeconds: number;
-  timeLimitSeconds: number;
-  overrunSeconds: number;
-  wasOverTime: boolean;
-  pausedSeconds: number;
-}
 interface AiWorkspaceIntroMessage {
   prompt: string;
   helper: string | null;
@@ -377,7 +374,6 @@ export function EducationUnitWorkspace({
   onStateChange,
   onRunningChange,
   canRequestNextScenario = false,
-  attemptTiming = null,
   onRunCommand,
 }: {
   unit: EducationUnit;
@@ -386,13 +382,11 @@ export function EducationUnitWorkspace({
   aiWorkspace?: AiWorkspace | null;
   embedded?: boolean;
   canRequestNextScenario?: boolean;
-  attemptTiming?: AttemptTiming | null;
   onStateChange?: (state: EducationUnit) => void;
   onRunningChange?: (isRunning: boolean) => void;
   onRunCommand?: (intent: UnitCoachCommandIntent) => void;
 }) {
   const router = useRouter();
-  const [response, setResponse] = useState("");
   const [isExpanded, setIsExpanded] = useState(false);
   const [previewIsRunning, setPreviewIsRunning] = useState(false);
   const [pendingAction, setPendingAction] = useState<
@@ -403,6 +397,7 @@ export function EducationUnitWorkspace({
   const previewTimeoutRef = useRef<number | null>(null);
   const shouldAutoFollowRef = useRef(true);
   const pendingSubmissionRef = useRef<string | null>(null);
+  const pendingDraftKeyRef = useRef<string | null>(null);
   const pendingErrorToastRef = useRef<
     "submit_answer" | "next_scenario" | "adjust_difficulty" | null
   >(null);
@@ -435,6 +430,8 @@ export function EducationUnitWorkspace({
     // because this route streams structured output, not a plain text stream.
     experimental_throttle: 50,
     onFinish: () => {
+      clearSubmittedDraft(pendingDraftKeyRef.current);
+      pendingDraftKeyRef.current = null;
       pendingSubmissionRef.current = null;
       pendingErrorToastRef.current = null;
       setPendingAction(null);
@@ -497,6 +494,34 @@ export function EducationUnitWorkspace({
 
   const introMessage = getIntroMessage(aiWorkspace);
   const fallbackTurn = getFallbackTurn(unit);
+  const latestAssistantPromptId = useMemo(() => {
+    const assistantPromptCount = chatMessages.filter(
+      (message) =>
+        message.role === "assistant" &&
+        getChatMessageText(message).trim().length > 0,
+    ).length;
+    return assistantPromptCount > 0
+      ? `assistant:${assistantPromptCount - 1}`
+      : `initial:${unit.activeStage}`;
+  }, [chatMessages, unit.activeStage]);
+  const responseDraftKey = preview
+    ? null
+    : educationUnitResponseDraftKey({
+        projectId: sessionId,
+        unitId: unit.nodeId,
+        promptId: latestAssistantPromptId,
+      });
+  const {
+    value: response,
+    setValue: setResponse,
+    status: draftStatus,
+    markSubmitted,
+    restoreSubmitted: restoreSubmittedDraft,
+    clearSubmitted: clearSubmittedDraft,
+  } = useAutosavedResponseDraft({
+    enabled: !preview,
+    storageKey: responseDraftKey,
+  });
   const awaitingUnitAdvance = aiWorkspace?.unitAdvanceGate.status === "enabled";
   const workspaceUnavailable = !preview && aiWorkspace == null;
   const missingTranscriptForResumedUnit =
@@ -544,24 +569,30 @@ export function EducationUnitWorkspace({
   useEffect(() => {
     if (status !== "error" || !error || errorHandledRef.current) return;
 
-    errorHandledRef.current = true;
-    const pendingSubmission = pendingSubmissionRef.current;
-    const pendingAction = pendingErrorToastRef.current;
-    if (pendingSubmission) {
-      setResponse(pendingSubmission);
-    }
-    pendingSubmissionRef.current = null;
-    pendingErrorToastRef.current = null;
-    setPendingAction(null);
-    setMessages(initialChatMessages);
-    toast.error(
-      pendingAction === "next_scenario"
-        ? "Next scenario could not be prepared."
-        : pendingAction === "adjust_difficulty"
-          ? "Difficulty could not be recalibrated."
-          : "AI feedback could not be prepared.",
-    );
-  }, [error, initialChatMessages, setMessages, status]);
+    const errorTimer = window.setTimeout(() => {
+      if (errorHandledRef.current) return;
+      errorHandledRef.current = true;
+      const pendingSubmission = pendingSubmissionRef.current;
+      const pendingAction = pendingErrorToastRef.current;
+      if (pendingSubmission) {
+        restoreSubmittedDraft(pendingDraftKeyRef.current, pendingSubmission);
+      }
+      pendingDraftKeyRef.current = null;
+      pendingSubmissionRef.current = null;
+      pendingErrorToastRef.current = null;
+      setPendingAction(null);
+      setMessages(initialChatMessages);
+      toast.error(
+        pendingAction === "next_scenario"
+          ? "Next scenario could not be prepared."
+          : pendingAction === "adjust_difficulty"
+            ? "Difficulty could not be recalibrated."
+            : "AI feedback could not be prepared.",
+      );
+    }, 0);
+
+    return () => window.clearTimeout(errorTimer);
+  }, [error, initialChatMessages, restoreSubmittedDraft, setMessages, status]);
 
   useEffect(() => {
     if (status !== "error") {
@@ -598,9 +629,9 @@ export function EducationUnitWorkspace({
 
     clearError();
     pendingSubmissionRef.current = message;
+    pendingDraftKeyRef.current = markSubmitted();
     pendingErrorToastRef.current = "submit_answer";
     setPendingAction("submit_answer");
-    setResponse("");
     setIsExpanded(false);
     const turnId = createWorkspaceTurnId();
 
@@ -616,17 +647,18 @@ export function EducationUnitWorkspace({
             sessionId,
             message,
             turnId,
-            attemptTiming,
           },
         },
       );
     } catch {
       if (!errorHandledRef.current) {
         errorHandledRef.current = true;
+        const pendingDraftKey = pendingDraftKeyRef.current;
         pendingSubmissionRef.current = null;
+        pendingDraftKeyRef.current = null;
         pendingErrorToastRef.current = null;
         setPendingAction(null);
-        setResponse(message);
+        restoreSubmittedDraft(pendingDraftKey, message);
         setMessages(initialChatMessages);
         toast.error("AI feedback could not be prepared.");
       }
@@ -831,11 +863,19 @@ export function EducationUnitWorkspace({
           textareaRef={composerTextareaRef}
           placeholder={composerPlaceholder}
         />
-        <div className="mt-1 flex justify-start">
+        <div className="mt-1 flex items-center justify-between">
           <DifficultyControl
             disabled={!canAdjustDifficulty}
             onSelect={(signal) => void handleDifficultyAdjustment(signal)}
           />
+          {draftStatus !== "idle" ? (
+            <span
+              aria-live="polite"
+              className="text-foreground/36 text-[11px] leading-5"
+            >
+              {draftStatus === "saving" ? "Saving…" : "Saved"}
+            </span>
+          ) : null}
         </div>
       </div>
     </div>

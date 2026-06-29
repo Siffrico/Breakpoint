@@ -49,14 +49,6 @@ const EVALUATION_EDUCATION_STAGES = new Set(["Review", "Test", "Check"]);
 
 type WorkspaceMode = "onboarding" | "unit" | "idle";
 type WorkspaceTheme = "light" | "dark" | "warm";
-interface EvaluationTimerSnapshot {
-  elapsedSeconds: number;
-  timeLimitSeconds: number;
-  overrunSeconds: number;
-  wasOverTime: boolean;
-  pausedSeconds: number;
-}
-
 const formatTimerSeconds = (seconds: number) => {
   const sign = seconds < 0 ? "-" : "";
   const absolute = Math.abs(seconds);
@@ -101,7 +93,6 @@ export function WorkspaceShell({
   const [liveUnit, setLiveUnit] = useState(unit);
   const [isSessionRunning, setIsSessionRunning] = useState(false);
   const [onboardingTurnCount, setOnboardingTurnCount] = useState(0);
-  const [timerStartedAt, setTimerStartedAt] = useState<number | null>(null);
   const [timerNow, setTimerNow] = useState(() => Date.now());
   const [workspaceTheme, setWorkspaceTheme] = useLocalStorage<WorkspaceTheme>(
     "bp-workspace-theme",
@@ -121,10 +112,6 @@ export function WorkspaceShell({
     : liveUnit
       ? "unit"
       : "idle";
-  const latestAssistantSequence =
-    aiWorkspace?.messages
-      .filter((message) => message.role === "assistant")
-      .at(-1)?.sequence ?? null;
   const activeEducationState =
     aiWorkspace?.state?.mode === "education_unit" ? aiWorkspace.state : null;
   const activeEvaluationPlan: EvaluationPlan | null =
@@ -147,49 +134,27 @@ export function WorkspaceShell({
     }),
   );
   const timerIsActive = activeEvaluationPlan != null && !canRequestNextScenario;
-  const runningEvaluationPlan = timerIsActive ? activeEvaluationPlan : null;
-  const timerKey = timerIsActive
-    ? [
-        sessionId,
-        activeEducationState?.activeUnitId,
-        activeEducationState?.educationStage,
-        latestAssistantSequence,
-        activeEvaluationPlan.mode,
-        activeEvaluationPlan.timeLimitSeconds,
-      ].join(":")
-    : null;
-  const timerKeyRef = useRef<string | null>(null);
+  const attemptStartedAt =
+    aiWorkspace?.evaluationProgress?.attemptStartedAt?.getTime() ?? null;
+  const runningEvaluationPlan =
+    timerIsActive && attemptStartedAt != null ? activeEvaluationPlan : null;
 
   useEffect(() => {
     setIsSessionRunning(false);
   }, [mode, sessionId]);
 
   useEffect(() => {
-    if (!timerKey) {
-      timerKeyRef.current = null;
-      setTimerStartedAt(null);
+    if (!timerIsActive || attemptStartedAt == null) {
       return;
     }
 
-    if (timerKeyRef.current === timerKey) return;
-
-    const now = Date.now();
-    timerKeyRef.current = timerKey;
-    setTimerStartedAt(now);
-    setTimerNow(now);
-  }, [timerKey]);
-
-  useEffect(() => {
-    if (!timerIsActive || timerStartedAt == null) {
-      return;
-    }
-
+    setTimerNow(Date.now());
     const intervalId = window.setInterval(() => {
       setTimerNow(Date.now());
     }, 250);
 
     return () => window.clearInterval(intervalId);
-  }, [timerIsActive, timerStartedAt]);
+  }, [timerIsActive, attemptStartedAt]);
 
   // Auto-collapse the sidebar to a rail when entering onboarding for a new
   // topic, and auto-expand once the curriculum is ready and we move on.
@@ -272,22 +237,12 @@ export function WorkspaceShell({
     });
   };
   const elapsedSeconds =
-    timerStartedAt == null ? 0 : Math.floor((timerNow - timerStartedAt) / 1000);
+    attemptStartedAt == null
+      ? 0
+      : Math.max(0, Math.floor((timerNow - attemptStartedAt) / 1000));
   const remainingSeconds = runningEvaluationPlan
     ? runningEvaluationPlan.timeLimitSeconds - elapsedSeconds
     : 0;
-  const timerSnapshot: EvaluationTimerSnapshot | null = runningEvaluationPlan
-    ? {
-        elapsedSeconds,
-        timeLimitSeconds: runningEvaluationPlan.timeLimitSeconds,
-        overrunSeconds: Math.max(
-          0,
-          elapsedSeconds - runningEvaluationPlan.timeLimitSeconds,
-        ),
-        wasOverTime: elapsedSeconds > runningEvaluationPlan.timeLimitSeconds,
-        pausedSeconds: 0,
-      }
-    : null;
 
   // Flat Mac/T3 toolbar control: a real filled *material* (subtle surface +
   // soft border + theme-specific shadow), not a transparent bordered box.
@@ -366,9 +321,15 @@ export function WorkspaceShell({
           </div>
 
           {runningEvaluationPlan ? (
-            <div className="text-foreground/76 absolute left-1/2 flex -translate-x-1/2 items-center gap-2 font-mono text-[13px] tabular-nums">
+            <div
+              className="text-foreground/76 absolute left-1/2 flex -translate-x-1/2 items-center gap-2 font-mono text-[13px] tabular-nums"
+              title="Continuous timer: leaving or reloading does not pause it."
+            >
               <span aria-live="polite">
                 {formatTimerSeconds(remainingSeconds)}
+              </span>
+              <span className="text-foreground/38 font-sans text-[10px] tracking-wide uppercase">
+                No pause
               </span>
             </div>
           ) : null}
@@ -468,7 +429,6 @@ export function WorkspaceShell({
                         embedded
                         aiWorkspace={aiWorkspace ?? null}
                         canRequestNextScenario={canRequestNextScenario}
-                        attemptTiming={timerSnapshot}
                         onStateChange={setLiveUnit}
                         onRunningChange={setIsSessionRunning}
                         onRunCommand={openUnitCoachWithCommand}

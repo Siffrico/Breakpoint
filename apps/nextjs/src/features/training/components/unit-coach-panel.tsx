@@ -1,14 +1,8 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
-import {
-  ArrowLeft,
-  ArrowsIn,
-  ArrowsOut,
-  ArrowUp,
-  X,
-} from "@phosphor-icons/react";
+import { ArrowLeft, ArrowsIn, ArrowsOut, ArrowUp, X } from "@phosphor-icons/react";
 import {
   createUIMessageStream,
   createUIMessageStreamResponse,
@@ -19,53 +13,13 @@ import {
 import type { RouterOutputs } from "@acme/api";
 import type { UnitCoachIntent, UnitCoachMessage } from "@acme/api/unit-coach";
 import { Button } from "@acme/ui/button";
+import { ChatComposer, ChatMessage, TextShimmer } from "@acme/ui/chat";
 import { toast } from "@acme/ui/toast";
 
 import type { UnitCoachTrigger } from "~/features/training/lib/unit-coach-commands";
 import { AssistantRichText } from "./assistant-rich-text";
 
 type EducationUnit = RouterOutputs["training"]["unit"];
-
-const COACH_COMPOSER_MIN_HEIGHT = 112;
-const COACH_COMPOSER_MAX_HEIGHT = 280;
-
-const getCoachComposerBounds = (element: HTMLTextAreaElement | null) => {
-  if (typeof window === "undefined") {
-    return {
-      minHeight: COACH_COMPOSER_MIN_HEIGHT,
-      maxHeight: COACH_COMPOSER_MAX_HEIGHT,
-    };
-  }
-
-  const viewportRatioMax = Math.floor(window.innerHeight * 0.26);
-  const viewportCap = Math.min(COACH_COMPOSER_MAX_HEIGHT, viewportRatioMax);
-  const availableSpaceFromTop = element
-    ? Math.floor(window.innerHeight - element.getBoundingClientRect().top - 52)
-    : viewportCap;
-  const maxHeight = Math.max(
-    COACH_COMPOSER_MIN_HEIGHT,
-    Math.min(viewportCap, availableSpaceFromTop),
-  );
-
-  return {
-    minHeight: COACH_COMPOSER_MIN_HEIGHT,
-    maxHeight,
-  };
-};
-
-const syncCoachComposerHeight = (element: HTMLTextAreaElement | null) => {
-  if (!element) return;
-
-  const { minHeight, maxHeight } = getCoachComposerBounds(element);
-  element.style.height = "0px";
-  const nextHeight = Math.max(
-    minHeight,
-    Math.min(element.scrollHeight, maxHeight),
-  );
-  element.style.height = `${nextHeight}px`;
-  element.style.overflowY =
-    element.scrollHeight > maxHeight ? "auto" : "hidden";
-};
 
 const getMessageText = (message: UnitCoachMessage) =>
   message.parts
@@ -173,6 +127,9 @@ const prepareUnitCoachRequest = ({
   },
 });
 
+const ASSISTANT_PROSE_CLASS =
+  "[&_h2]:mt-0 [&_h2]:!mb-3 [&_h2]:text-[17px] [&_h2]:font-semibold [&_li]:my-1 [&_li]:leading-7 [&_ol]:!my-3 [&_ol]:list-decimal [&_ol]:pl-6 [&_p]:!my-3 [&_strong]:font-semibold [&_ul]:!my-3 [&_ul]:list-disc [&_ul]:pl-6 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0";
+
 export function UnitCoachPanel({
   unit,
   sessionId,
@@ -210,6 +167,7 @@ export function UnitCoachPanel({
 
   const [question, setQuestion] = useState("");
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
   const handledNonceRef = useRef<number | null>(null);
   const isRunning = status === "submitted" || status === "streaming";
 
@@ -229,16 +187,19 @@ export function UnitCoachPanel({
     );
   }, [sendMessage, sessionId, trigger, unit.nodeId]);
 
-  useLayoutEffect(() => {
-    syncCoachComposerHeight(composerTextareaRef.current);
-  }, [question]);
+  const visibleMessages = messages.filter(
+    (message) => !(message.role === "user" && message.metadata?.synthetic),
+  );
+  const lastAssistantId = messages.findLast(
+    (message) => message.role === "assistant",
+  )?.id;
 
   useEffect(() => {
-    const handleResize = () =>
-      syncCoachComposerHeight(composerTextareaRef.current);
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
+    const frame = window.requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [visibleMessages.length, status]);
 
   const canSubmit = question.trim().length > 0 && !isRunning;
 
@@ -253,32 +214,31 @@ export function UnitCoachPanel({
     );
   };
 
-  const visibleMessages = messages.filter(
-    (message) => !(message.role === "user" && message.metadata?.synthetic),
-  );
-  const lastAssistantId = messages.findLast(
-    (message) => message.role === "assistant",
-  )?.id;
+  // Narrow rail reads edge-to-edge; focused view centers a readable column so it
+  // mirrors the main workspace transcript.
+  const columnClass = isFocused
+    ? "mx-auto w-[calc(100%-2.5rem)] max-w-[44rem]"
+    : "w-full px-4";
 
   return (
     <aside className="border-foreground/[0.06] bg-sidebar text-foreground flex h-full min-w-0 flex-col border-l">
-      <div className="border-foreground/[0.06] flex h-14 items-center justify-between border-b px-4">
+      <header className="border-foreground/[0.06] flex h-14 shrink-0 items-center justify-between border-b px-4">
         <div className="min-w-0">
-          <div className="text-foreground/80 truncate text-[13px]">
+          <div className="text-foreground/80 truncate text-[13px] font-medium">
             Unit coach
           </div>
           <div className="text-foreground/34 truncate text-[11px]">
             {unit.title}
           </div>
         </div>
-        <div className="flex items-center">
+        <div className="flex items-center gap-0.5">
           {isFocused ? (
             <Button
               type="button"
               variant="ghost"
               size="sm"
               onClick={onReturnToUnit}
-              className="text-foreground/60 hover:bg-foreground/[0.04] hover:text-foreground mr-1 rounded-none border-0 px-2 text-[12px] before:rounded-none"
+              className="text-foreground/60 hover:bg-foreground/[0.04] hover:text-foreground mr-1 rounded-[6px] border-0 px-2 text-[12px] before:rounded-none"
             >
               <ArrowLeft size={14} />
               Return
@@ -289,7 +249,7 @@ export function UnitCoachPanel({
             variant="ghost"
             size="icon-sm"
             onClick={onToggleFocus}
-            className="text-foreground/55 hover:bg-foreground/[0.04] hover:text-foreground rounded-none border-0 before:rounded-none"
+            className="text-foreground/55 hover:bg-foreground/[0.04] hover:text-foreground rounded-[6px] border-0 before:rounded-none"
             aria-label={isFocused ? "Shrink Unit Coach" : "Focus Unit Coach"}
           >
             {isFocused ? <ArrowsIn size={15} /> : <ArrowsOut size={15} />}
@@ -299,84 +259,81 @@ export function UnitCoachPanel({
             variant="ghost"
             size="icon-sm"
             onClick={onClose}
-            className="text-foreground/55 hover:bg-foreground/[0.04] hover:text-foreground rounded-none border-0 before:rounded-none"
+            className="text-foreground/55 hover:bg-foreground/[0.04] hover:text-foreground rounded-[6px] border-0 before:rounded-none"
             aria-label="Close Unit Coach"
           >
             <X size={15} />
           </Button>
         </div>
-      </div>
+      </header>
 
-      <div className="flex-1 overflow-y-auto p-5">
-        <div className="space-y-6">
+      <div className="min-h-0 flex-1 overflow-y-auto py-6">
+        <div className={columnClass}>
           {visibleMessages.length === 0 ? (
-            <div className="text-foreground/82 text-[14px] leading-[1.6]">
-              <AssistantRichText
-                content={`Ask about "${unit.title}" and Unit Coach will stay anchored to the live scenario without giving away the answer. If you are stuck, type **/idk** in the workspace.`}
-              />
-            </div>
+            <ChatMessage from="assistant">
+              <div className="text-foreground/55 text-[14px] leading-7">
+                <AssistantRichText
+                  content={`Ask about **${unit.title}** and I’ll stay anchored to the live scenario without giving away the answer. If you’re stuck, type **/idk** in the workspace.`}
+                />
+              </div>
+            </ChatMessage>
           ) : (
-            visibleMessages.map((message) => {
-              const content = getMessageText(message);
-              if (message.role === "assistant") {
-                const isLive = isRunning && message.id === lastAssistantId;
-                return (
-                  <div
-                    key={message.id}
-                    className="text-foreground/82 text-[14px] leading-[1.6]"
-                  >
-                    {content.trim() ? (
-                      <AssistantRichText content={content} />
-                    ) : isLive ? (
-                      <span className="text-foreground/40 text-[13px]">
-                        Thinking…
-                      </span>
-                    ) : null}
-                  </div>
-                );
-              }
+            <div className="flex flex-col gap-7">
+              {visibleMessages.map((message) => {
+                const content = getMessageText(message);
+                if (message.role === "assistant") {
+                  const isLive = isRunning && message.id === lastAssistantId;
+                  return (
+                    <ChatMessage key={message.id} from="assistant">
+                      {content.trim() ? (
+                        <AssistantRichText
+                          content={content}
+                          className={ASSISTANT_PROSE_CLASS}
+                        />
+                      ) : isLive ? (
+                        <TextShimmer
+                          text="Thinking…"
+                          className="text-foreground/45 text-[14px]"
+                        />
+                      ) : null}
+                    </ChatMessage>
+                  );
+                }
 
-              return (
-                <div key={message.id} className="flex justify-end">
-                  <div className="bg-primary/[0.08] text-primary/90 max-w-[82%] rounded-[14px] px-3.5 py-2 text-[14px] leading-[1.55] whitespace-pre-wrap">
+                return (
+                  <ChatMessage key={message.id} from="user">
                     {content}
-                  </div>
-                </div>
-              );
-            })
+                  </ChatMessage>
+                );
+              })}
+            </div>
           )}
+          <div ref={bottomRef} />
         </div>
       </div>
 
-      <div className="px-4 pt-2 pb-4">
-        <div className="border-foreground/[0.08] bg-card focus-within:border-foreground/18 relative rounded-[10px] border shadow-[0_1px_0_rgba(0,0,0,0.02),0_4px_18px_-12px_rgba(0,0,0,0.14)] transition-[border-color,box-shadow] duration-150">
-          <textarea
-            ref={composerTextareaRef}
-            aria-label="Ask Unit Coach"
+      <div className="shrink-0 pb-4">
+        <div className={columnClass}>
+          <ChatComposer
             value={question}
-            onChange={(event) => setQuestion(event.target.value)}
-            onInput={(event) => syncCoachComposerHeight(event.currentTarget)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                handleAsk();
-              }
-            }}
+            onValueChange={setQuestion}
+            onSubmit={handleAsk}
+            disabled={isRunning}
+            textareaRef={composerTextareaRef}
+            ariaLabel="Ask Unit Coach"
             placeholder="Ask what the scenario is testing, how to start, or where your reasoning is stuck."
-            rows={1}
-            className="text-foreground placeholder:text-foreground/30 block min-h-[112px] w-full resize-none bg-transparent px-3.5 pt-3 pb-10 text-[13.5px] leading-[1.55] tracking-[-0.005em] outline-none"
+            rightSlot={
+              <button
+                type="button"
+                onClick={handleAsk}
+                disabled={!canSubmit}
+                aria-label="Send to Unit Coach"
+                className="inline-flex size-8 shrink-0 items-center justify-center rounded-[7px] border border-white/[0.055] bg-[linear-gradient(180deg,#303030_0%,#252525_48%,#1f1f1f_100%)] text-[#d7d7d7] shadow-[inset_0_1px_0_rgba(255,255,255,0.10),0_6px_16px_rgba(0,0,0,0.34)] transition-colors outline-none hover:bg-[linear-gradient(180deg,#3a3a3a_0%,#2d2d2d_48%,#242424_100%)] focus:outline-none focus-visible:outline-none disabled:border-white/[0.035] disabled:bg-[linear-gradient(180deg,#292929_0%,#222222_48%,#1d1d1d_100%)] disabled:text-[#686868] disabled:shadow-[inset_0_1px_0_rgba(255,255,255,0.07),0_5px_14px_rgba(0,0,0,0.26)]"
+              >
+                <ArrowUp size={15} weight="bold" />
+              </button>
+            }
           />
-          <Button
-            type="button"
-            onClick={handleAsk}
-            disabled={!canSubmit}
-            variant="ghost"
-            size="icon"
-            className="bg-primary text-primary-foreground hover:bg-primary/90 absolute right-2 bottom-2 size-7 rounded-md border-0 p-0 before:rounded-md"
-            aria-label="Send to Unit Coach"
-          >
-            <ArrowUp size={13} weight="bold" />
-          </Button>
         </div>
       </div>
     </aside>

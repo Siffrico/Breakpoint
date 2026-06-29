@@ -11,7 +11,6 @@ import {
 
 import type { db as databaseClient } from "@acme/db/client";
 
-import type { AttemptTiming } from "./domain/training/workspace-ai/types";
 import type {
   ManualDifficultySignal,
   WorkspaceChatAction,
@@ -57,7 +56,6 @@ export const streamWorkspaceChat = async ({
   message,
   turnId = null,
   modelName,
-  attemptTiming: _attemptTiming,
   action = "submit_answer",
   manualDifficultySignal = null,
 }: {
@@ -67,7 +65,6 @@ export const streamWorkspaceChat = async ({
   message: string;
   turnId?: string | null;
   modelName?: string | null;
-  attemptTiming?: AttemptTiming | null;
   action?: WorkspaceChatAction;
   manualDifficultySignal?: ManualDifficultySignal | null;
 }): Promise<Response> =>
