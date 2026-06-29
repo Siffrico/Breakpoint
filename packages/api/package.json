@@ -15,9 +15,9 @@
       "types": "./dist/workspace-chat.d.ts",
       "default": "./src/workspace-chat.ts"
     },
-    "./unit-ask": {
-      "types": "./dist/unit-ask.d.ts",
-      "default": "./src/unit-ask.ts"
+    "./unit-coach": {
+      "types": "./dist/unit-coach.d.ts",
+      "default": "./src/unit-coach.ts"
     }
   },
   "license": "MIT",

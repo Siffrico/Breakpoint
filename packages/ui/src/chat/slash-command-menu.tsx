@@ -2,8 +2,8 @@
 
 import { cn } from "@acme/ui";
 
-export interface SlashMenuItem {
-  id: string;
+export interface SlashMenuItem<TId extends string = string> {
+  id: TId;
   label: string;
   description: string;
 }
@@ -13,16 +13,16 @@ export interface SlashMenuItem {
  * keyboard state — the host composer detects the `/query`, filters the items,
  * and drives `activeIndex`/`onSelect`. Anchored above the composer by the host.
  */
-export function SlashCommandMenu({
+export function SlashCommandMenu<TId extends string>({
   items,
   activeIndex,
   onSelect,
   onHoverIndex,
   className,
 }: {
-  items: SlashMenuItem[];
+  items: SlashMenuItem<TId>[];
   activeIndex: number;
-  onSelect: (item: SlashMenuItem) => void;
+  onSelect: (item: SlashMenuItem<TId>) => void;
   onHoverIndex?: (index: number) => void;
   className?: string;
 }) {

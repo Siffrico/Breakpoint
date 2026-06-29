@@ -105,7 +105,8 @@ The state policy includes a legacy mapper so older `scenario / evaluate / comple
 
 - `packages/validators/src/training.ts`
 - `packages/api/src/domain/training/policies/education-unit-state-policy.ts`
-- `packages/api/src/domain/training/services/education-unit-ai-service.ts`
-- `packages/api/src/domain/training/workflows/submit-education-unit-step-workflow.ts`
-- `apps/nextjs/src/features/training/components/forge/forge-workspace.tsx`
-- `apps/nextjs/src/features/training/components/unit-question-panel.tsx`
+- `packages/api/src/workspace-chat.ts`
+- `packages/api/src/unit-coach.ts`
+- `packages/api/src/domain/training/workspace-ai/workspace-turn-orchestration.ts`
+- `apps/nextjs/src/features/training/components/education-unit/education-unit-workspace.tsx`
+- `apps/nextjs/src/features/training/components/unit-coach-panel.tsx`

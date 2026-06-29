@@ -5,32 +5,21 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import {
-  ArrowsOutSimple,
-  ArrowUp,
   CaretDown,
   CaretRight,
-  Plus,
   SlidersHorizontal,
 } from "@phosphor-icons/react";
 import { DefaultChatTransport, isTextUIPart } from "ai";
 
 import type { RouterOutputs } from "@acme/api";
-import {
-  ChatComposer,
-  ChatComposerDock,
-  SlashCommandMenu,
-  WorkspaceStatusLine,
-} from "@acme/ui/chat";
+import { ChatComposerDock, WorkspaceStatusLine } from "@acme/ui/chat";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "@acme/ui/menu";
 import { toast } from "@acme/ui/toast";
 
-import type { AskIntentKind } from "~/features/training/lib/slash-commands";
+import type { UnitCoachCommandIntent } from "~/features/training/lib/unit-coach-commands";
 import { AssistantRichText } from "~/features/training/components/assistant-rich-text";
-import {
-  matchSlashCommands,
-  parseSlashQuery,
-} from "~/features/training/lib/slash-commands";
 import { NotionComposer } from "./notion-composer";
+import { WorkspaceComposerInput } from "./workspace-composer-input";
 
 type EducationUnit = RouterOutputs["training"]["unit"];
 type AiWorkspace = RouterOutputs["training"]["aiWorkspace"];
@@ -287,24 +276,6 @@ function SubmittedAnswerReceipt({
   );
 }
 
-function ComposerIconButton({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      className="flex size-7 items-center justify-center rounded-[5px] text-[#8b8b8b] transition-colors outline-none hover:bg-white/[0.045] hover:text-[#d0d0d0] focus:outline-none focus-visible:outline-none"
-    >
-      {children}
-    </button>
-  );
-}
-
 const getFallbackTurn = (unit: EducationUnit): WorkspaceFallbackTurn => {
   switch (unit.activeStage) {
     case "mastery_check":
@@ -418,12 +389,10 @@ export function EducationUnitWorkspace({
   attemptTiming?: AttemptTiming | null;
   onStateChange?: (state: EducationUnit) => void;
   onRunningChange?: (isRunning: boolean) => void;
-  onRunCommand?: (kind: AskIntentKind) => void;
+  onRunCommand?: (intent: UnitCoachCommandIntent) => void;
 }) {
   const router = useRouter();
   const [response, setResponse] = useState("");
-  const [slashActiveIndex, setSlashActiveIndex] = useState(0);
-  const [slashDismissed, setSlashDismissed] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [previewIsRunning, setPreviewIsRunning] = useState(false);
   const [pendingAction, setPendingAction] = useState<
@@ -847,116 +816,21 @@ export function EducationUnitWorkspace({
             })
             .concat(nextScenarioControl ? [nextScenarioControl] : []);
 
-  const slashQuery = onRunCommand ? parseSlashQuery(response) : null;
-  const slashItems =
-    slashQuery !== null && !slashDismissed ? matchSlashCommands(slashQuery) : [];
-  const slashMenuOpen = slashItems.length > 0;
-  const slashMenuItems = slashItems.map((command) => ({
-    id: command.id,
-    label: command.label,
-    description: command.description,
-  }));
-
-  // Reset selection / dismissal whenever the active query changes so the menu
-  // reopens after Escape once the user keeps typing a new command.
-  useEffect(() => {
-    setSlashActiveIndex(0);
-    if (slashQuery === null) setSlashDismissed(false);
-  }, [slashQuery]);
-
-  const runSlashCommand = (kind: AskIntentKind) => {
-    setResponse("");
-    setSlashDismissed(false);
-    onRunCommand?.(kind);
-  };
-
-  const handleComposerKeyDown = (
-    event: React.KeyboardEvent<HTMLDivElement>,
-  ) => {
-    if (!slashMenuOpen) return;
-
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      setSlashActiveIndex((index) => (index + 1) % slashItems.length);
-    } else if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setSlashActiveIndex(
-        (index) => (index - 1 + slashItems.length) % slashItems.length,
-      );
-    } else if (
-      (event.key === "Enter" && !event.shiftKey) ||
-      event.key === "Tab"
-    ) {
-      // Stop the event in the capture phase so the composer's submit-on-Enter
-      // never fires: a slash command must not be sent as an answer.
-      event.preventDefault();
-      event.stopPropagation();
-      const selected = slashItems[slashActiveIndex] ?? slashItems[0];
-      if (selected) runSlashCommand(selected.id);
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      setSlashDismissed(true);
-    }
-  };
-
   const inputZone = (
     <div className={embedded ? "bg-background shrink-0" : "mt-10"}>
       <div className="font-sans">
-        <div className="relative" onKeyDownCapture={handleComposerKeyDown}>
-          <SlashCommandMenu
-            items={slashMenuItems}
-            activeIndex={slashActiveIndex}
-            onSelect={(item) => runSlashCommand(item.id as AskIntentKind)}
-            onHoverIndex={setSlashActiveIndex}
-          />
-          <ChatComposer
-            value={response}
-            onValueChange={setResponse}
-            onSubmit={() => void handleSubmit()}
-            disabled={!canCompose || effectiveIsRunning}
+        <WorkspaceComposerInput
+          value={response}
+          onValueChange={setResponse}
+          onSubmit={() => void handleSubmit()}
+          onStop={handleStop}
+          onExpand={() => setIsExpanded(true)}
+          onRunCoachCommand={onRunCommand}
+          disabled={!canCompose || effectiveIsRunning}
+          isRunning={effectiveIsRunning}
           textareaRef={composerTextareaRef}
-          ariaLabel="Response"
           placeholder={composerPlaceholder}
-          leftSlot={
-            <div className="flex min-w-0 items-center gap-1">
-              <ComposerIconButton label="Add attachment">
-                <Plus size={17} />
-              </ComposerIconButton>
-              <button
-                type="button"
-                onClick={() => setIsExpanded(true)}
-                disabled={!canCompose || effectiveIsRunning}
-                aria-label="Open as full page"
-                title="Open as full page"
-                className="flex size-7 items-center justify-center rounded-md text-[#838383] transition-colors outline-none hover:bg-white/[0.045] hover:text-[#d0d0d0] focus:outline-none focus-visible:outline-none disabled:cursor-not-allowed disabled:text-[#4f4f4f] disabled:hover:bg-transparent"
-              >
-                <ArrowsOutSimple size={13} weight="bold" />
-              </button>
-            </div>
-          }
-          rightSlot={
-            <button
-              type="button"
-              onClick={
-                effectiveIsRunning ? handleStop : () => void handleSubmit()
-              }
-              disabled={
-                !effectiveIsRunning && (!response.trim() || !canCompose)
-              }
-              aria-label={
-                effectiveIsRunning ? "Stop generating" : "Submit response"
-              }
-              className="inline-flex size-8 shrink-0 items-center justify-center rounded-[7px] border border-white/[0.055] bg-[linear-gradient(180deg,#303030_0%,#252525_48%,#1f1f1f_100%)] text-[#d7d7d7] shadow-[inset_0_1px_0_rgba(255,255,255,0.10),0_6px_16px_rgba(0,0,0,0.34)] transition-colors outline-none hover:bg-[linear-gradient(180deg,#3a3a3a_0%,#2d2d2d_48%,#242424_100%)] focus:outline-none focus-visible:outline-none disabled:border-white/[0.035] disabled:bg-[linear-gradient(180deg,#292929_0%,#222222_48%,#1d1d1d_100%)] disabled:text-[#686868] disabled:shadow-[inset_0_1px_0_rgba(255,255,255,0.07),0_5px_14px_rgba(0,0,0,0.26)]"
-            >
-              {effectiveIsRunning ? (
-                <span aria-hidden="true" className="size-2.5 bg-current" />
-              ) : (
-                <ArrowUp size={15} weight="bold" />
-              )}
-            </button>
-          }
-          />
-        </div>
+        />
         <div className="mt-1 flex justify-start">
           <DifficultyControl
             disabled={!canAdjustDifficulty}
@@ -991,7 +865,9 @@ export function EducationUnitWorkspace({
             {renderedMessages}
             <div ref={bottomRef} />
           </div>
-          <ChatComposerDock className="mt-auto pb-0">{inputZone}</ChatComposerDock>
+          <ChatComposerDock className="mt-auto pb-0">
+            {inputZone}
+          </ChatComposerDock>
         </div>
         {expandedOverlay}
       </>

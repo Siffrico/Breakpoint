@@ -11,7 +11,10 @@ import type { RouterOutputs } from "@acme/api";
 import { Button } from "@acme/ui/button";
 import { toast } from "@acme/ui/toast";
 
-import type { AskIntent } from "~/features/training/lib/slash-commands";
+import type {
+  UnitCoachCommandIntent,
+  UnitCoachTrigger,
+} from "~/features/training/lib/unit-coach-commands";
 import { useLocalStorage } from "~/hooks/use-local-storage";
 import { useTRPC } from "~/trpc/react";
 import { AssistantRichText } from "./assistant-rich-text";
@@ -27,8 +30,8 @@ const EducationUnitWorkspace = dynamic(() =>
 const OnboardingShell = dynamic(() =>
   import("./onboarding-shell").then((mod) => mod.OnboardingShell),
 );
-const UnitQuestionPanel = dynamic(() =>
-  import("./unit-question-panel").then((mod) => mod.UnitQuestionPanel),
+const UnitCoachPanel = dynamic(() =>
+  import("./unit-coach-panel").then((mod) => mod.UnitCoachPanel),
 );
 
 type WorkspaceState = RouterOutputs["training"]["home"];
@@ -91,9 +94,10 @@ export function WorkspaceShell({
   const toggleSidebar = () => {
     setSidebarCollapsed((prev) => !prev);
   };
-  const [questionPanelOpen, setQuestionPanelOpen] = useState(false);
-  const [questionPanelFocused, setQuestionPanelFocused] = useState(false);
-  const [askIntent, setAskIntent] = useState<AskIntent | null>(null);
+  const [unitCoachOpen, setUnitCoachOpen] = useState(false);
+  const [unitCoachFocused, setUnitCoachFocused] = useState(false);
+  const [unitCoachTrigger, setUnitCoachTrigger] =
+    useState<UnitCoachTrigger | null>(null);
   const [liveUnit, setLiveUnit] = useState(unit);
   const [isSessionRunning, setIsSessionRunning] = useState(false);
   const [onboardingTurnCount, setOnboardingTurnCount] = useState(0);
@@ -226,21 +230,30 @@ export function WorkspaceShell({
         workspace?.nextUnitTitle ??
         "Preparing your next unit");
 
-  const closeQuestionPanel = () => {
-    setQuestionPanelFocused(false);
-    setQuestionPanelOpen(false);
+  const closeUnitCoach = () => {
+    setUnitCoachFocused(false);
+    setUnitCoachOpen(false);
+    setUnitCoachTrigger(null);
   };
 
-  const toggleQuestionPanelFocus = () => {
-    setQuestionPanelOpen(true);
-    setQuestionPanelFocused((prev) => !prev);
+  const toggleUnitCoachFocus = () => {
+    setUnitCoachOpen(true);
+    setUnitCoachFocused((focused) => !focused);
   };
 
-  // A slash command in the workspace composer opens the Ask panel and seeds it
-  // with the requested intent. The nonce makes repeat invocations re-trigger.
-  const handleRunCommand = (kind: AskIntent["kind"]) => {
-    setQuestionPanelOpen(true);
-    setAskIntent({ kind, nonce: Date.now() });
+  const openUnitCoachWithCommand = (intent: UnitCoachCommandIntent) => {
+    if (!liveUnit) return;
+    setUnitCoachOpen(true);
+    setUnitCoachTrigger((previous) => ({
+      intent,
+      nonce: (previous?.nonce ?? 0) + 1,
+      unitId: liveUnit.nodeId,
+    }));
+  };
+
+  const toggleUnitCoach = () => {
+    setUnitCoachTrigger(null);
+    setUnitCoachOpen((open) => (unitCoachFocused ? true : !open));
   };
 
   const handleAdvanceCompletedUnit = () => {
@@ -384,15 +397,11 @@ export function WorkspaceShell({
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() =>
-                  setQuestionPanelOpen((prev) =>
-                    questionPanelFocused ? true : !prev,
-                  )
-                }
+                onClick={toggleUnitCoach}
                 className={headerActionClass}
               >
                 <Lightbulb weight="regular" />
-                Ask
+                Ask coach
               </button>
               <button
                 type="button"
@@ -422,7 +431,7 @@ export function WorkspaceShell({
         <div className="relative flex min-h-0 flex-1">
           <div className="bg-background flex min-w-0 flex-1 flex-col overflow-hidden">
             <div className="flex min-h-0 flex-1 overflow-hidden">
-              {!questionPanelFocused && (
+              {!unitCoachFocused && (
                 <main
                   className={[
                     "flex min-w-0 flex-1 flex-col",
@@ -462,7 +471,7 @@ export function WorkspaceShell({
                         attemptTiming={timerSnapshot}
                         onStateChange={setLiveUnit}
                         onRunningChange={setIsSessionRunning}
-                        onRunCommand={handleRunCommand}
+                        onRunCommand={openUnitCoachWithCommand}
                       />
                     ) : null}
 
@@ -487,21 +496,23 @@ export function WorkspaceShell({
                 </main>
               )}
 
-              {questionPanelOpen && liveUnit ? (
+              {unitCoachOpen && liveUnit ? (
                 <div
                   className={[
                     "min-w-0 transition-[width] duration-200",
-                    questionPanelFocused ? "w-full" : "w-[380px]",
+                    unitCoachFocused ? "w-full" : "w-[380px]",
                   ].join(" ")}
                 >
-                  <UnitQuestionPanel
+                  <UnitCoachPanel
+                    key={`${sessionId}:${liveUnit.nodeId}`}
                     unit={liveUnit}
                     sessionId={sessionId}
-                    intent={askIntent}
-                    isFocused={questionPanelFocused}
-                    onClose={closeQuestionPanel}
-                    onToggleFocus={toggleQuestionPanelFocus}
-                    onReturnToUnit={() => setQuestionPanelFocused(false)}
+                    trigger={unitCoachTrigger}
+                    preview={preview}
+                    isFocused={unitCoachFocused}
+                    onClose={closeUnitCoach}
+                    onToggleFocus={toggleUnitCoachFocus}
+                    onReturnToUnit={() => setUnitCoachFocused(false)}
                   />
                 </div>
               ) : null}

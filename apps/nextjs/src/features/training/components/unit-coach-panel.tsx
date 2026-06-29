@@ -1,13 +1,6 @@
 "use client";
 
-import type { UIMessage } from "ai";
-import {
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import {
   ArrowLeft,
@@ -16,55 +9,54 @@ import {
   ArrowUp,
   X,
 } from "@phosphor-icons/react";
-import { DefaultChatTransport, isTextUIPart } from "ai";
+import {
+  createUIMessageStream,
+  createUIMessageStreamResponse,
+  DefaultChatTransport,
+  isTextUIPart,
+} from "ai";
 
 import type { RouterOutputs } from "@acme/api";
+import type { UnitCoachIntent, UnitCoachMessage } from "@acme/api/unit-coach";
 import { Button } from "@acme/ui/button";
 import { toast } from "@acme/ui/toast";
 
-import type { AskIntent } from "~/features/training/lib/slash-commands";
+import type { UnitCoachTrigger } from "~/features/training/lib/unit-coach-commands";
 import { AssistantRichText } from "./assistant-rich-text";
 
 type EducationUnit = RouterOutputs["training"]["unit"];
 
-interface AskChatMetadata {
-  // Seed turns (/idk, /explain) carry a hidden user message so the transport
-  // has something to send; it must not render as a learner bubble.
-  synthetic?: boolean;
-}
-type AskChatMessage = UIMessage<AskChatMetadata>;
+const COACH_COMPOSER_MIN_HEIGHT = 112;
+const COACH_COMPOSER_MAX_HEIGHT = 280;
 
-const ASK_COMPOSER_MIN_HEIGHT = 112;
-const ASK_COMPOSER_MAX_HEIGHT = 280;
-
-const getAskComposerBounds = (element: HTMLTextAreaElement | null) => {
+const getCoachComposerBounds = (element: HTMLTextAreaElement | null) => {
   if (typeof window === "undefined") {
     return {
-      minHeight: ASK_COMPOSER_MIN_HEIGHT,
-      maxHeight: ASK_COMPOSER_MAX_HEIGHT,
+      minHeight: COACH_COMPOSER_MIN_HEIGHT,
+      maxHeight: COACH_COMPOSER_MAX_HEIGHT,
     };
   }
 
   const viewportRatioMax = Math.floor(window.innerHeight * 0.26);
-  const viewportCap = Math.min(ASK_COMPOSER_MAX_HEIGHT, viewportRatioMax);
+  const viewportCap = Math.min(COACH_COMPOSER_MAX_HEIGHT, viewportRatioMax);
   const availableSpaceFromTop = element
     ? Math.floor(window.innerHeight - element.getBoundingClientRect().top - 52)
     : viewportCap;
   const maxHeight = Math.max(
-    ASK_COMPOSER_MIN_HEIGHT,
+    COACH_COMPOSER_MIN_HEIGHT,
     Math.min(viewportCap, availableSpaceFromTop),
   );
 
   return {
-    minHeight: ASK_COMPOSER_MIN_HEIGHT,
+    minHeight: COACH_COMPOSER_MIN_HEIGHT,
     maxHeight,
   };
 };
 
-const syncAskComposerHeight = (element: HTMLTextAreaElement | null) => {
+const syncCoachComposerHeight = (element: HTMLTextAreaElement | null) => {
   if (!element) return;
 
-  const { minHeight, maxHeight } = getAskComposerBounds(element);
+  const { minHeight, maxHeight } = getCoachComposerBounds(element);
   element.style.height = "0px";
   const nextHeight = Math.max(
     minHeight,
@@ -75,16 +67,117 @@ const syncAskComposerHeight = (element: HTMLTextAreaElement | null) => {
     element.scrollHeight > maxHeight ? "auto" : "hidden";
 };
 
-const getMessageText = (message: AskChatMessage) =>
+const getMessageText = (message: UnitCoachMessage) =>
   message.parts
     .filter(isTextUIPart)
     .map((part) => part.text)
     .join("");
 
-export function UnitQuestionPanel({
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const isUnknownArray = (value: unknown): value is unknown[] =>
+  Array.isArray(value);
+
+const isTextPart = (value: unknown): value is { type: "text"; text: string } =>
+  isRecord(value) && value.type === "text" && typeof value.text === "string";
+
+const getPreviewLearnerMessage = (body: unknown) => {
+  if (!isRecord(body)) return "";
+  const messages = body.messages;
+  if (!isUnknownArray(messages)) return "";
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!isRecord(message) || message.role !== "user") continue;
+    const parts = message.parts;
+    if (!isUnknownArray(parts)) continue;
+
+    return parts
+      .filter(isTextPart)
+      .map((part) => part.text)
+      .join("")
+      .trim();
+  }
+
+  return "";
+};
+
+const buildPreviewCoachReply = ({
+  intent,
+  unit,
+  learnerMessage,
+}: {
+  intent: UnitCoachIntent;
+  unit: EducationUnit;
+  learnerMessage: string;
+}) => {
+  if (intent === "idk") {
+    return `Let’s isolate the blockage in **${unit.title}**. Which part is unclear: **what outcome the scenario wants**, **which signal should drive the decision**, or **how to begin your response**?`;
+  }
+  if (intent === "explain") {
+    return `This scenario is testing whether you can turn the evidence in **${unit.title}** into a concrete decision under pressure. Start by naming the signal that should control the decision; then explain the tradeoff that makes that signal decisive.`;
+  }
+
+  return `Your question is: “${learnerMessage}”\n\nAnchor it to the live scenario: identify the decision you are being asked to make, the strongest available signal, and the tradeoff that could invalidate your first instinct.`;
+};
+
+const createPreviewCoachFetch =
+  (unit: EducationUnit): typeof fetch =>
+  (_input, init) => {
+    let body: unknown = null;
+    if (typeof init?.body === "string") {
+      try {
+        body = JSON.parse(init.body) as unknown;
+      } catch {
+        body = null;
+      }
+    }
+
+    const intentValue = isRecord(body) ? body.intent : null;
+    const intent: UnitCoachIntent =
+      intentValue === "idk" ||
+      intentValue === "explain" ||
+      intentValue === "freeform"
+        ? intentValue
+        : "freeform";
+    const reply = buildPreviewCoachReply({
+      intent,
+      unit,
+      learnerMessage: getPreviewLearnerMessage(body),
+    });
+    const textPartId = "preview-unit-coach-text";
+    const stream = createUIMessageStream<UnitCoachMessage>({
+      execute: ({ writer }) => {
+        writer.write({ type: "start" });
+        writer.write({ type: "text-start", id: textPartId });
+        writer.write({ type: "text-delta", id: textPartId, delta: reply });
+        writer.write({ type: "text-end", id: textPartId });
+        writer.write({ type: "finish", finishReason: "stop" });
+      },
+    });
+
+    return Promise.resolve(createUIMessageStreamResponse({ stream }));
+  };
+
+const prepareUnitCoachRequest = ({
+  messages,
+  body,
+}: {
+  messages: UnitCoachMessage[];
+  body: Record<string, unknown> | undefined;
+}) => ({
+  body: {
+    ...(body ?? {}),
+    messages: messages.slice(-16),
+  },
+});
+
+export function UnitCoachPanel({
   unit,
   sessionId,
-  intent,
+  trigger,
+  preview,
   isFocused,
   onClose,
   onToggleFocus,
@@ -92,7 +185,8 @@ export function UnitQuestionPanel({
 }: {
   unit: EducationUnit;
   sessionId: string;
-  intent: AskIntent | null;
+  trigger: UnitCoachTrigger | null;
+  preview: boolean;
   isFocused: boolean;
   onClose: () => void;
   onToggleFocus: () => void;
@@ -100,60 +194,48 @@ export function UnitQuestionPanel({
 }) {
   const transport = useMemo(
     () =>
-      new DefaultChatTransport<AskChatMessage>({
-        api: "/api/training/unit-ask/chat",
+      new DefaultChatTransport<UnitCoachMessage>({
+        api: "/api/training/unit-coach/chat",
+        fetch: preview ? createPreviewCoachFetch(unit) : undefined,
+        prepareSendMessagesRequest: prepareUnitCoachRequest,
       }),
-    [],
+    [preview, unit],
   );
-  const { messages, sendMessage, setMessages, status, error } =
-    useChat<AskChatMessage>({
-      id: `unit-ask-${sessionId}-${unit.nodeId}`,
-      transport,
-      experimental_throttle: 50,
-    });
+  const { messages, sendMessage, status } = useChat<UnitCoachMessage>({
+    id: `unit-coach-${sessionId}-${unit.nodeId}`,
+    transport,
+    experimental_throttle: 50,
+    onError: () => toast.error("Unit Coach could not respond. Try again."),
+  });
 
   const [question, setQuestion] = useState("");
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
   const handledNonceRef = useRef<number | null>(null);
-  const errorHandledRef = useRef(false);
   const isRunning = status === "submitted" || status === "streaming";
 
-  // Clear the conversation when the active unit changes — answers are scoped to
-  // the live scenario, so stale history would be misleading.
   useEffect(() => {
-    setMessages([]);
-    handledNonceRef.current = null;
-  }, [unit.nodeId, setMessages]);
-
-  // Fire a seed turn when a slash command bumps the intent nonce.
-  useEffect(() => {
-    if (!intent) return;
-    if (handledNonceRef.current === intent.nonce) return;
-    handledNonceRef.current = intent.nonce;
+    if (
+      !trigger ||
+      trigger.unitId !== unit.nodeId ||
+      handledNonceRef.current === trigger.nonce
+    ) {
+      return;
+    }
+    handledNonceRef.current = trigger.nonce;
 
     void sendMessage(
-      { text: `/${intent.kind}`, metadata: { synthetic: true } },
-      { body: { sessionId, intent: intent.kind, unitTitle: unit.title } },
+      { text: `/${trigger.intent}`, metadata: { synthetic: true } },
+      { body: { sessionId, intent: trigger.intent } },
     );
-  }, [intent, sendMessage, sessionId, unit.title]);
-
-  useEffect(() => {
-    if (status !== "error" || !error || errorHandledRef.current) return;
-    errorHandledRef.current = true;
-    toast.error("The tutor could not respond. Try again.");
-  }, [status, error]);
-
-  useEffect(() => {
-    if (status !== "error") errorHandledRef.current = false;
-  }, [status]);
+  }, [sendMessage, sessionId, trigger, unit.nodeId]);
 
   useLayoutEffect(() => {
-    syncAskComposerHeight(composerTextareaRef.current);
+    syncCoachComposerHeight(composerTextareaRef.current);
   }, [question]);
 
   useEffect(() => {
     const handleResize = () =>
-      syncAskComposerHeight(composerTextareaRef.current);
+      syncCoachComposerHeight(composerTextareaRef.current);
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
@@ -167,30 +249,30 @@ export function UnitQuestionPanel({
     setQuestion("");
     void sendMessage(
       { text: trimmed },
-      { body: { sessionId, intent: "freeform", message: trimmed, unitTitle: unit.title } },
+      { body: { sessionId, intent: "freeform" } },
     );
   };
 
   const visibleMessages = messages.filter(
     (message) => !(message.role === "user" && message.metadata?.synthetic),
   );
-  const lastAssistantId = [...messages]
-    .reverse()
-    .find((message) => message.role === "assistant")?.id;
+  const lastAssistantId = messages.findLast(
+    (message) => message.role === "assistant",
+  )?.id;
 
   return (
     <aside className="border-foreground/[0.06] bg-sidebar text-foreground flex h-full min-w-0 flex-col border-l">
       <div className="border-foreground/[0.06] flex h-14 items-center justify-between border-b px-4">
         <div className="min-w-0">
           <div className="text-foreground/80 truncate text-[13px]">
-            Unit help
+            Unit coach
           </div>
           <div className="text-foreground/34 truncate text-[11px]">
             {unit.title}
           </div>
         </div>
         <div className="flex items-center">
-          {isFocused && (
+          {isFocused ? (
             <Button
               type="button"
               variant="ghost"
@@ -201,16 +283,14 @@ export function UnitQuestionPanel({
               <ArrowLeft size={14} />
               Return
             </Button>
-          )}
+          ) : null}
           <Button
             type="button"
             variant="ghost"
             size="icon-sm"
             onClick={onToggleFocus}
             className="text-foreground/55 hover:bg-foreground/[0.04] hover:text-foreground rounded-none border-0 before:rounded-none"
-            aria-label={
-              isFocused ? "Shrink question panel" : "Focus question panel"
-            }
+            aria-label={isFocused ? "Shrink Unit Coach" : "Focus Unit Coach"}
           >
             {isFocused ? <ArrowsIn size={15} /> : <ArrowsOut size={15} />}
           </Button>
@@ -220,7 +300,7 @@ export function UnitQuestionPanel({
             size="icon-sm"
             onClick={onClose}
             className="text-foreground/55 hover:bg-foreground/[0.04] hover:text-foreground rounded-none border-0 before:rounded-none"
-            aria-label="Close question panel"
+            aria-label="Close Unit Coach"
           >
             <X size={15} />
           </Button>
@@ -232,7 +312,7 @@ export function UnitQuestionPanel({
           {visibleMessages.length === 0 ? (
             <div className="text-foreground/82 text-[14px] leading-[1.6]">
               <AssistantRichText
-                content={`Ask about "${unit.title}" and I’ll answer against the live unit context. Stuck? Type **/idk** in the workspace and I’ll help pinpoint what’s confusing.`}
+                content={`Ask about "${unit.title}" and Unit Coach will stay anchored to the live scenario without giving away the answer. If you are stuck, type **/idk** in the workspace.`}
               />
             </div>
           ) : (
@@ -268,21 +348,21 @@ export function UnitQuestionPanel({
         </div>
       </div>
 
-      <div className="px-4 pb-4 pt-2">
+      <div className="px-4 pt-2 pb-4">
         <div className="border-foreground/[0.08] bg-card focus-within:border-foreground/18 relative rounded-[10px] border shadow-[0_1px_0_rgba(0,0,0,0.02),0_4px_18px_-12px_rgba(0,0,0,0.14)] transition-[border-color,box-shadow] duration-150">
           <textarea
             ref={composerTextareaRef}
-            aria-label="Ask a question about this unit"
+            aria-label="Ask Unit Coach"
             value={question}
             onChange={(event) => setQuestion(event.target.value)}
-            onInput={(event) => syncAskComposerHeight(event.currentTarget)}
+            onInput={(event) => syncCoachComposerHeight(event.currentTarget)}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
                 handleAsk();
               }
             }}
-            placeholder="Ask what the unit is really testing, how to start, or what a strong answer should do."
+            placeholder="Ask what the scenario is testing, how to start, or where your reasoning is stuck."
             rows={1}
             className="text-foreground placeholder:text-foreground/30 block min-h-[112px] w-full resize-none bg-transparent px-3.5 pt-3 pb-10 text-[13.5px] leading-[1.55] tracking-[-0.005em] outline-none"
           />
@@ -293,7 +373,7 @@ export function UnitQuestionPanel({
             variant="ghost"
             size="icon"
             className="bg-primary text-primary-foreground hover:bg-primary/90 absolute right-2 bottom-2 size-7 rounded-md border-0 p-0 before:rounded-md"
-            aria-label="Ask question"
+            aria-label="Send to Unit Coach"
           >
             <ArrowUp size={13} weight="bold" />
           </Button>
