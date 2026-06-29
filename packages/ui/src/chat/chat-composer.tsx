@@ -12,10 +12,11 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import { cn } from "@acme/ui";
 
 const MIN_HEIGHT_PX = 94;
+const COMPACT_MIN_HEIGHT_PX = 56;
 const HARD_MAX_HEIGHT_PX = 240;
 const VIEWPORT_RATIO_CAP = 0.24;
 
-function syncHeight(element: HTMLTextAreaElement | null) {
+function syncHeight(element: HTMLTextAreaElement | null, minHeightPx: number) {
   if (!element) return;
 
   const viewportCap =
@@ -25,11 +26,11 @@ function syncHeight(element: HTMLTextAreaElement | null) {
           HARD_MAX_HEIGHT_PX,
           Math.floor(window.innerHeight * VIEWPORT_RATIO_CAP),
         );
-  const maxHeight = Math.max(MIN_HEIGHT_PX, viewportCap);
+  const maxHeight = Math.max(minHeightPx, viewportCap);
 
   element.style.height = "0px";
   const nextHeight = Math.max(
-    MIN_HEIGHT_PX,
+    minHeightPx,
     Math.min(element.scrollHeight, maxHeight),
   );
   element.style.height = `${nextHeight}px`;
@@ -51,6 +52,7 @@ export function ChatComposer({
   hint,
   autoFocus = false,
   ariaLabel = "Message",
+  compact = false,
 }: {
   value: string;
   onValueChange: (next: string) => void;
@@ -65,19 +67,21 @@ export function ChatComposer({
   hint?: ReactNode;
   autoFocus?: boolean;
   ariaLabel?: string;
+  compact?: boolean;
 }) {
   const internalRef = useRef<HTMLTextAreaElement>(null);
   const ref = textareaRef ?? internalRef;
+  const minHeightPx = compact ? COMPACT_MIN_HEIGHT_PX : MIN_HEIGHT_PX;
 
   useLayoutEffect(() => {
-    syncHeight(ref.current);
-  }, [ref, value]);
+    syncHeight(ref.current, minHeightPx);
+  }, [ref, value, minHeightPx]);
 
   useEffect(() => {
-    const handle = () => syncHeight(ref.current);
+    const handle = () => syncHeight(ref.current, minHeightPx);
     window.addEventListener("resize", handle);
     return () => window.removeEventListener("resize", handle);
-  }, [ref]);
+  }, [ref, minHeightPx]);
 
   useEffect(() => {
     if (autoFocus) {
@@ -104,7 +108,8 @@ export function ChatComposer({
         ...style,
       }}
       className={cn(
-        "bg-background border-border relative min-h-[96px] w-full overflow-hidden border transition-[border-color,box-shadow]",
+        "bg-background border-border relative w-full overflow-hidden border transition-[border-color,box-shadow]",
+        compact ? "min-h-[56px]" : "min-h-[96px]",
         className,
       )}
     >
@@ -116,11 +121,25 @@ export function ChatComposer({
         onKeyDown={submitOnEnter}
         placeholder={placeholder}
         rows={1}
-        style={{ paddingBottom: 56, scrollPaddingBottom: 56 }}
-        className="text-foreground placeholder:text-muted-foreground block w-full resize-none rounded-[8px] bg-transparent px-4 pt-4 text-[14px] leading-6 outline-none"
+        style={
+          compact
+            ? { paddingBottom: 28, scrollPaddingBottom: 28 }
+            : { paddingBottom: 56, scrollPaddingBottom: 56 }
+        }
+        className={cn(
+          "text-foreground placeholder:text-muted-foreground block w-full resize-none rounded-[8px] bg-transparent outline-none [&::-webkit-resizer]:hidden",
+          compact
+            ? "px-3 pt-2 text-[13px] leading-5"
+            : "px-4 pt-4 text-[14px] leading-6",
+        )}
       />
 
-      <div className="absolute inset-x-0 bottom-0 flex h-12 items-center justify-between gap-3 px-3">
+      <div
+        className={cn(
+          "absolute inset-x-0 bottom-0 flex items-center justify-between gap-3",
+          compact ? "h-7 px-2" : "h-12 px-3",
+        )}
+      >
         <div className="flex min-w-0 items-center gap-2 leading-none">
           {leftSlot}
           {hint ? (

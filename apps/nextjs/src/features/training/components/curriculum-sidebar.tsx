@@ -9,8 +9,8 @@ import {
   CaretRight,
   DotsThree,
   Gear,
-  MapTrifold,
   MagnifyingGlass,
+  MapTrifold,
   Plus,
   SidebarSimple,
   Storefront,
@@ -30,6 +30,8 @@ import {
 } from "@acme/ui/menu";
 
 import { useLocalStorage } from "~/hooks/use-local-storage";
+import { useCommandPalette } from "../hooks/use-command-palette";
+import { WorkspaceCommandPalette } from "./workspace-command-palette";
 
 type LearningProject =
   RouterOutputs["training"]["listLearningProjects"][number];
@@ -399,7 +401,7 @@ function ProjectRow({
           }}
           aria-expanded={isExpanded}
           aria-label={`${isExpanded ? "Collapse" : "Expand"} ${project.title}`}
-          className="text-foreground/36 flex size-6 shrink-0 items-center justify-center pl-1 transition-colors outline-none focus:outline-none focus-visible:outline-none hover:text-foreground/72"
+          className="text-foreground/36 hover:text-foreground/72 flex size-6 shrink-0 items-center justify-center pl-1 transition-colors outline-none focus:outline-none focus-visible:outline-none"
         >
           <CaretRight
             size={10}
@@ -413,7 +415,7 @@ function ProjectRow({
 
         <Link
           href={href}
-          className="flex min-w-0 flex-1 py-[6px] pr-1 text-left text-[13px] font-normal transition-colors outline-none focus:outline-none focus-visible:outline-none hover:text-foreground/92"
+          className="hover:text-foreground/92 flex min-w-0 flex-1 py-[6px] pr-1 text-left text-[13px] font-normal transition-colors outline-none focus:outline-none focus-visible:outline-none"
         >
           <FadeLabel className="min-w-0 flex-1 leading-[18px]">
             {project.title}
@@ -463,7 +465,7 @@ function ProjectActionsMenu({
           <button
             type="button"
             aria-label="Project actions"
-            className="text-foreground/28 hover:text-foreground/76 hover:bg-foreground/[0.05] flex size-6 shrink-0 items-center justify-center rounded-[5px] opacity-80 transition-colors outline-none focus:outline-none focus-visible:outline-none group-hover/project:opacity-100"
+            className="text-foreground/28 hover:text-foreground/76 hover:bg-foreground/[0.05] flex size-6 shrink-0 items-center justify-center rounded-[5px] opacity-80 transition-colors outline-none group-hover/project:opacity-100 focus:outline-none focus-visible:outline-none"
           />
         }
       >
@@ -473,7 +475,7 @@ function ProjectActionsMenu({
         side="right"
         align="start"
         sideOffset={6}
-        className="w-36 rounded-none border-foreground/[0.1] bg-background text-foreground shadow-[0_10px_30px_rgba(0,0,0,0.12)] before:rounded-none"
+        className="border-foreground/[0.1] bg-background text-foreground w-36 rounded-none shadow-[0_10px_30px_rgba(0,0,0,0.12)] before:rounded-none"
       >
         <MenuItem
           render={<Link href={curriculumHref} />}
@@ -531,6 +533,10 @@ export function CurriculumSidebar({
     router.push("/onboarding");
   };
 
+  const { open: paletteOpen, setOpen: setPaletteOpen } = useCommandPalette({
+    onNewTopic: handleNewProject,
+  });
+
   const [expanded, setExpanded] = useLocalStorage<Record<string, boolean>>(
     "bp-sidebar-expanded",
     {},
@@ -546,6 +552,15 @@ export function CurriculumSidebar({
   const displayName = userName ?? "You";
   const initial = displayName.trim().charAt(0).toUpperCase() || "·";
 
+  const commandPalette = (
+    <WorkspaceCommandPalette
+      open={paletteOpen}
+      onOpenChange={setPaletteOpen}
+      onNewTopic={handleNewProject}
+      preview={preview}
+    />
+  );
+
   if (collapsed) {
     return (
       <aside className="bg-sidebar text-sidebar-foreground flex h-full flex-col">
@@ -559,12 +574,17 @@ export function CurriculumSidebar({
           <IconButton label="New project" onClick={handleNewProject}>
             <Plus size={14} />
           </IconButton>
+          <IconButton label="Search" onClick={() => setPaletteOpen(true)}>
+            <MagnifyingGlass size={14} />
+          </IconButton>
           <Link href="/courses" aria-label="Courses">
             <IconButton label="Courses">
               <Storefront size={14} />
             </IconButton>
           </Link>
         </div>
+
+        {commandPalette}
 
         <div className="flex-1" />
 
@@ -590,7 +610,7 @@ export function CurriculumSidebar({
           <IconButton label="Collapse sidebar" onClick={onToggleCollapsed}>
             <SidebarSimple size={14} />
           </IconButton>
-          <IconButton label="Search">
+          <IconButton label="Search" onClick={() => setPaletteOpen(true)}>
             <MagnifyingGlass size={14} />
           </IconButton>
         </div>
@@ -682,7 +702,7 @@ export function CurriculumSidebar({
 
       {/* Footer: user */}
       <div className="flex items-center gap-1 p-2">
-        <div className="hover:bg-foreground/[0.035] flex min-w-0 max-w-[calc(100%-2rem)] items-center gap-2.5 rounded-[6px] p-1.5 transition-colors">
+        <div className="hover:bg-foreground/[0.035] flex max-w-[calc(100%-2rem)] min-w-0 items-center gap-2.5 rounded-[6px] p-1.5 transition-colors">
           <div className="bg-primary/70 text-primary-foreground flex size-[22px] shrink-0 items-center justify-center rounded-full text-[11px] font-medium">
             {initial}
           </div>
@@ -699,6 +719,8 @@ export function CurriculumSidebar({
           onWorkspaceThemeChange={onWorkspaceThemeChange ?? (() => undefined)}
         />
       </div>
+
+      {commandPalette}
     </aside>
   );
 }

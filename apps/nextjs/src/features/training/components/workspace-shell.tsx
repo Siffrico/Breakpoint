@@ -398,7 +398,7 @@ export function WorkspaceShell({
                     "flex min-w-0 flex-1 flex-col",
                     mode === "onboarding"
                       ? "min-h-0 overflow-hidden"
-                      : "overflow-y-auto px-6 pt-1 pb-6 sm:px-10 sm:pt-2",
+                      : "overflow-y-auto px-6 pt-1 pb-2 sm:px-10 sm:pt-2",
                   ].join(" ")}
                 >
                   <div

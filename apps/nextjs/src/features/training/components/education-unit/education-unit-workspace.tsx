@@ -865,7 +865,7 @@ export function EducationUnitWorkspace({
           textareaRef={composerTextareaRef}
           placeholder={composerPlaceholder}
         />
-        <div className="mt-1 flex items-center justify-between">
+        <div className="mt-2.5 flex items-center justify-between">
           <DifficultyControl
             disabled={!canAdjustDifficulty}
             onSelect={(signal) => void handleDifficultyAdjustment(signal)}
@@ -907,7 +907,7 @@ export function EducationUnitWorkspace({
             {renderedMessages}
             <div ref={bottomRef} />
           </div>
-          <ChatComposerDock className="mt-auto pb-0">
+          <ChatComposerDock className="mt-auto pt-4 pb-1">
             {inputZone}
           </ChatComposerDock>
         </div>

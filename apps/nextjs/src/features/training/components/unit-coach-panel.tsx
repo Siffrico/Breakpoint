@@ -227,9 +227,6 @@ export function UnitCoachPanel({
           <div className="text-foreground/80 truncate text-[13px] font-medium">
             Unit coach
           </div>
-          <div className="text-foreground/34 truncate text-[11px]">
-            {unit.title}
-          </div>
         </div>
         <div className="flex items-center gap-0.5">
           {isFocused ? (
@@ -267,8 +264,9 @@ export function UnitCoachPanel({
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto py-6">
-        <div className={columnClass}>
+      <div className="bg-background flex min-h-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1 overflow-y-auto py-6">
+          <div className={columnClass}>
           {visibleMessages.length === 0 ? (
             <ChatMessage from="assistant">
               <div className="text-foreground/55 text-[14px] leading-7">
@@ -312,9 +310,10 @@ export function UnitCoachPanel({
         </div>
       </div>
 
-      <div className="shrink-0 pb-4">
-        <div className={columnClass}>
-          <ChatComposer
+        <div className="shrink-0 pt-2 pb-4">
+          <div className={columnClass}>
+            <ChatComposer
+            compact
             value={question}
             onValueChange={setQuestion}
             onSubmit={handleAsk}
@@ -328,12 +327,13 @@ export function UnitCoachPanel({
                 onClick={handleAsk}
                 disabled={!canSubmit}
                 aria-label="Send to Unit Coach"
-                className="inline-flex size-8 shrink-0 items-center justify-center rounded-[7px] border border-white/[0.055] bg-[linear-gradient(180deg,#303030_0%,#252525_48%,#1f1f1f_100%)] text-[#d7d7d7] shadow-[inset_0_1px_0_rgba(255,255,255,0.10),0_6px_16px_rgba(0,0,0,0.34)] transition-colors outline-none hover:bg-[linear-gradient(180deg,#3a3a3a_0%,#2d2d2d_48%,#242424_100%)] focus:outline-none focus-visible:outline-none disabled:border-white/[0.035] disabled:bg-[linear-gradient(180deg,#292929_0%,#222222_48%,#1d1d1d_100%)] disabled:text-[#686868] disabled:shadow-[inset_0_1px_0_rgba(255,255,255,0.07),0_5px_14px_rgba(0,0,0,0.26)]"
+                className="inline-flex size-6 shrink-0 items-center justify-center rounded-[6px] border border-white/[0.055] bg-[linear-gradient(180deg,#303030_0%,#252525_48%,#1f1f1f_100%)] text-[#d7d7d7] shadow-[inset_0_1px_0_rgba(255,255,255,0.10),0_6px_16px_rgba(0,0,0,0.34)] transition-colors outline-none hover:bg-[linear-gradient(180deg,#3a3a3a_0%,#2d2d2d_48%,#242424_100%)] focus:outline-none focus-visible:outline-none disabled:border-white/[0.035] disabled:bg-[linear-gradient(180deg,#292929_0%,#222222_48%,#1d1d1d_100%)] disabled:text-[#686868] disabled:shadow-[inset_0_1px_0_rgba(255,255,255,0.07),0_5px_14px_rgba(0,0,0,0.26)]"
               >
-                <ArrowUp size={15} weight="bold" />
+                <ArrowUp size={13} weight="bold" />
               </button>
             }
           />
+          </div>
         </div>
       </div>
     </aside>

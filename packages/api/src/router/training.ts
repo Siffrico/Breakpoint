@@ -15,6 +15,7 @@ import { getCapstoneWorkflow } from "../domain/training/workflows/get-capstone-w
 import { getHomeStateWorkflow } from "../domain/training/workflows/get-home-state-workflow";
 import { getProfileWorkflow } from "../domain/training/workflows/get-profile-workflow";
 import { getUnitWorkflow } from "../domain/training/workflows/get-unit-workflow";
+import { getWorkspaceIndexWorkflow } from "../domain/training/workflows/get-workspace-index-workflow";
 import { startOnboardingWorkflow } from "../domain/training/workflows/start-onboarding-workflow";
 import { submitAiWorkspaceMessageWorkflow } from "../domain/training/workflows/submit-ai-workspace-message-workflow";
 import { submitCapstoneMessageWorkflow } from "../domain/training/workflows/submit-capstone-message-workflow";
@@ -459,6 +460,41 @@ export const trainingRouter = {
       };
     });
   }),
+
+  // Backs the workspace command palette (⌘K): every project with its full chat
+  // list. Ownership is enforced by scoping the session lookup to the caller.
+  listWorkspaceIndex: protectedProcedure.query(async ({ ctx }) =>
+    getWorkspaceIndexWorkflow({
+      deps: {
+        listSessionsByUser: () =>
+          trainingOnboardingRepository.listSessionsByUser({
+            db: ctx.db,
+            userId: ctx.session.user.id,
+          }),
+        listProfilesBySessionIds: async (sessionIds) => {
+          const profiles =
+            await trainingOnboardingRepository.listProfilesBySessionIds({
+              db: ctx.db,
+              sessionIds,
+            });
+          return profiles.map(({ profile, version }) => ({
+            onboardingSessionId: profile.onboardingSessionId,
+            targetIdentity: version.targetIdentity,
+          }));
+        },
+        listPlansBySessionIds: (sessionIds) =>
+          trainingCurriculumRepository.listPlansBySessionIds({
+            db: ctx.db,
+            sessionIds,
+          }),
+        listNodesByPlanIds: (planIds) =>
+          trainingCurriculumRepository.listNodesByPlanIds({
+            db: ctx.db,
+            planIds,
+          }),
+      },
+    }),
+  ),
 
   deleteLearningProject: protectedProcedure
     .input(SessionIdSchema)
