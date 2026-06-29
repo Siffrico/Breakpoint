@@ -40,6 +40,7 @@ import { toast } from "@acme/ui/toast";
 
 import {
   onboardingResponseDraftKey,
+  shouldClearSubmittedDraft,
   useAutosavedResponseDraft,
 } from "~/features/training/hooks/use-autosaved-response-draft";
 import { previewOnboardingStates } from "~/features/training/lib/training-preview";
@@ -220,7 +221,8 @@ export function OnboardingShell({
     experimental_throttle: 50,
     // Auto-resume the run the moment the learner approves "Create project".
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
-    onFinish: () => {
+    onFinish: (finishState) => {
+      if (!shouldClearSubmittedDraft(finishState)) return;
       clearSubmittedDraft(pendingDraftRef.current?.key ?? null);
       pendingDraftRef.current = null;
     },

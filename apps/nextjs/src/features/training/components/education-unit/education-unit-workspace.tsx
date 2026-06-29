@@ -20,6 +20,7 @@ import type { UnitCoachCommandIntent } from "~/features/training/lib/unit-coach-
 import { AssistantRichText } from "~/features/training/components/assistant-rich-text";
 import {
   educationUnitResponseDraftKey,
+  shouldClearSubmittedDraft,
   useAutosavedResponseDraft,
 } from "~/features/training/hooks/use-autosaved-response-draft";
 import { NotionComposer } from "./notion-composer";
@@ -429,7 +430,8 @@ export function EducationUnitWorkspace({
     // word-level reveal itself is handled server-side by smoothStream
     // because this route streams structured output, not a plain text stream.
     experimental_throttle: 50,
-    onFinish: () => {
+    onFinish: (finishState) => {
+      if (!shouldClearSubmittedDraft(finishState)) return;
       clearSubmittedDraft(pendingDraftKeyRef.current);
       pendingDraftKeyRef.current = null;
       pendingSubmissionRef.current = null;

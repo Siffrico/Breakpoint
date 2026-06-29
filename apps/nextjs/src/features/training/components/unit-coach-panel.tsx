@@ -221,7 +221,7 @@ export function UnitCoachPanel({
     : "w-full px-4";
 
   return (
-    <aside className="border-foreground/[0.06] bg-sidebar text-foreground flex h-full min-w-0 flex-col border-l">
+    <aside className="border-foreground/[0.06] bg-secondary text-foreground flex h-full min-w-0 flex-col border-l">
       <header className="border-foreground/[0.06] flex h-14 shrink-0 items-center justify-between border-b px-4">
         <div className="min-w-0">
           <div className="text-foreground/80 truncate text-[13px] font-medium">

@@ -1,17 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 
 type DraftStatus = "idle" | "saving" | "saved";
 
-interface DraftState {
-  key: string | null;
+interface DraftSnapshot {
   status: DraftStatus;
   value: string;
 }
 
+interface ChatFinishState {
+  isAbort: boolean;
+  isDisconnect: boolean;
+  isError: boolean;
+}
+
 const STORAGE_PREFIX = "bp:response-draft:v1";
 const SAVE_DELAY_MS = 400;
+const EMPTY_DRAFT_SNAPSHOT: DraftSnapshot = { status: "idle", value: "" };
 
 const encodeKeyPart = (value: string) => encodeURIComponent(value);
 
@@ -31,6 +37,12 @@ export const educationUnitResponseDraftKey = ({
   promptId: string;
 }) =>
   `${STORAGE_PREFIX}:unit:${encodeKeyPart(projectId)}:${encodeKeyPart(unitId)}:${encodeKeyPart(promptId)}`;
+
+export const shouldClearSubmittedDraft = ({
+  isAbort,
+  isDisconnect,
+  isError,
+}: ChatFinishState) => !isAbort && !isDisconnect && !isError;
 
 const readDraft = (key: string) => {
   try {
@@ -54,10 +66,113 @@ const persistDraft = (key: string, value: string) => {
   }
 };
 
+export const createResponseDraftStore = (storageKey: string | null) => {
+  const listeners = new Set<() => void>();
+  const hydratedValue =
+    storageKey && typeof window !== "undefined" ? readDraft(storageKey) : "";
+  let persistedValue = hydratedValue;
+  let snapshot: DraftSnapshot = {
+    status: hydratedValue ? "saved" : "idle",
+    value: hydratedValue,
+  };
+  let hasPendingSubmission = false;
+  let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const emit = () => {
+    for (const listener of listeners) listener();
+  };
+
+  const updateSnapshot = (next: DraftSnapshot) => {
+    snapshot = next;
+    emit();
+  };
+
+  const cancelPendingSave = () => {
+    if (saveTimer == null) return;
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  };
+
+  const flush = () => {
+    if (hasPendingSubmission) return true;
+    if (!storageKey || persistedValue === snapshot.value) return true;
+    if (!persistDraft(storageKey, snapshot.value)) return false;
+    persistedValue = snapshot.value;
+    return true;
+  };
+
+  const scheduleSave = () => {
+    cancelPendingSave();
+    if (!storageKey || persistedValue === snapshot.value) return;
+
+    saveTimer = setTimeout(() => {
+      saveTimer = null;
+      const valueBeingSaved = snapshot.value;
+      const didSave = flush();
+      if (snapshot.value !== valueBeingSaved) return;
+      updateSnapshot({
+        status: snapshot.value && didSave ? "saved" : "idle",
+        value: snapshot.value,
+      });
+    }, SAVE_DELAY_MS);
+  };
+
+  return {
+    clearSubmitted: (submittedKey: string | null) => {
+      if (!submittedKey) return;
+      if (!persistDraft(submittedKey, "")) return;
+      if (submittedKey === storageKey) {
+        hasPendingSubmission = false;
+        persistedValue = "";
+      }
+    },
+    dispose: () => {
+      cancelPendingSave();
+      flush();
+      listeners.clear();
+    },
+    flush,
+    getServerSnapshot: () => EMPTY_DRAFT_SNAPSHOT,
+    getSnapshot: () => snapshot,
+    markSubmitted: () => {
+      cancelPendingSave();
+      flush();
+      hasPendingSubmission = true;
+      updateSnapshot(EMPTY_DRAFT_SNAPSHOT);
+      return storageKey;
+    },
+    restoreSubmitted: (submittedKey: string | null, value: string) => {
+      if (!submittedKey) {
+        updateSnapshot({ status: "idle", value });
+        return;
+      }
+
+      const didSave = persistDraft(submittedKey, value);
+      if (submittedKey !== storageKey) return;
+      cancelPendingSave();
+      hasPendingSubmission = false;
+      if (didSave) persistedValue = value;
+      updateSnapshot({ status: didSave ? "saved" : "idle", value });
+    },
+    setValue: (value: string) => {
+      hasPendingSubmission = false;
+      const isPersisted = Boolean(storageKey) && persistedValue === value;
+      updateSnapshot({
+        status: value ? (isPersisted ? "saved" : "saving") : "idle",
+        value,
+      });
+      scheduleSave();
+    },
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+};
+
 /**
- * Persists one response per stable prompt key. Key changes flush the previous
- * prompt before hydrating the next, preventing drafts from leaking between
- * projects, units, or turns.
+ * Persists one response per stable prompt key. Each key owns one external
+ * store, so its localStorage value is read before input can update the store.
  */
 export function useAutosavedResponseDraft({
   enabled,
@@ -66,151 +181,37 @@ export function useAutosavedResponseDraft({
   enabled: boolean;
   storageKey: string | null;
 }) {
-  const [state, setState] = useState<DraftState>({
-    key: null,
-    status: "idle",
-    value: "",
-  });
-  const valuesByKeyRef = useRef(new Map<string, string>());
-  const persistedByKeyRef = useRef(new Map<string, string>());
-  const saveTimerRef = useRef<number | null>(null);
+  const activeKey = enabled ? storageKey : null;
+  const store = useMemo(() => createResponseDraftStore(activeKey), [activeKey]);
+  const snapshot = useSyncExternalStore(
+    store.subscribe,
+    store.getSnapshot,
+    store.getServerSnapshot,
+  );
 
-  const activeValue = state.key === storageKey ? state.value : "";
-  const activeStatus = state.key === storageKey ? state.status : "idle";
-
-  const flushKey = useCallback((key: string) => {
-    const value = valuesByKeyRef.current.get(key) ?? "";
-    if (persistedByKeyRef.current.get(key) === value) return true;
-    if (!persistDraft(key, value)) return false;
-    persistedByKeyRef.current.set(key, value);
-    return true;
-  }, []);
-
-  useEffect(() => {
-    let hydrationTimer: number;
-    if (!enabled || !storageKey) {
-      hydrationTimer = window.setTimeout(() => {
-        setState({ key: storageKey, status: "idle", value: "" });
-      }, 0);
-      return () => window.clearTimeout(hydrationTimer);
-    }
-
-    const value = readDraft(storageKey);
-    valuesByKeyRef.current.set(storageKey, value);
-    persistedByKeyRef.current.set(storageKey, value);
-    hydrationTimer = window.setTimeout(() => {
-      setState({
-        key: storageKey,
-        status: value ? "saved" : "idle",
-        value,
-      });
-    }, 0);
-
-    return () => {
-      window.clearTimeout(hydrationTimer);
-      flushKey(storageKey);
-    };
-  }, [enabled, flushKey, storageKey]);
-
-  useEffect(() => {
-    if (!enabled || !storageKey || state.key !== storageKey) return;
-    if (persistedByKeyRef.current.get(storageKey) === state.value) return;
-
-    saveTimerRef.current = window.setTimeout(() => {
-      const didSave = flushKey(storageKey);
-      setState((current) =>
-        current.key === storageKey
-          ? {
-              ...current,
-              status: current.value && didSave ? "saved" : "idle",
-            }
-          : current,
-      );
-      saveTimerRef.current = null;
-    }, SAVE_DELAY_MS);
-
-    return () => {
-      if (saveTimerRef.current != null) {
-        window.clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = null;
-      }
-    };
-  }, [enabled, flushKey, state.key, state.value, storageKey]);
+  useEffect(() => () => store.dispose(), [store]);
 
   useEffect(() => {
     if (!enabled) return;
 
-    const flushVisibleDrafts = () => {
-      for (const key of valuesByKeyRef.current.keys()) flushKey(key);
-    };
     const handleVisibilityChange = () => {
-      if (document.visibilityState === "hidden") flushVisibleDrafts();
+      if (document.visibilityState === "hidden") store.flush();
     };
 
-    window.addEventListener("pagehide", flushVisibleDrafts);
+    window.addEventListener("pagehide", store.flush);
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
-      window.removeEventListener("pagehide", flushVisibleDrafts);
+      window.removeEventListener("pagehide", store.flush);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [enabled, flushKey]);
-
-  const setValue = useCallback(
-    (value: string) => {
-      if (enabled && storageKey) {
-        valuesByKeyRef.current.set(storageKey, value);
-      }
-      const isPersisted =
-        enabled && storageKey
-          ? persistedByKeyRef.current.get(storageKey) === value
-          : false;
-      setState({
-        key: storageKey,
-        status: value ? (isPersisted ? "saved" : "saving") : "idle",
-        value,
-      });
-    },
-    [enabled, storageKey],
-  );
-
-  // Clear the composer while retaining the durable copy until submission wins.
-  const markSubmitted = useCallback(() => {
-    if (enabled && storageKey) flushKey(storageKey);
-    setState({ key: storageKey, status: "idle", value: "" });
-    return enabled ? storageKey : null;
-  }, [enabled, flushKey, storageKey]);
-
-  const restoreSubmitted = useCallback(
-    (submittedKey: string | null, value: string) => {
-      if (!submittedKey) {
-        setState({ key: storageKey, status: "idle", value });
-        return;
-      }
-      valuesByKeyRef.current.set(submittedKey, value);
-      const didSave = persistDraft(submittedKey, value);
-      if (didSave) persistedByKeyRef.current.set(submittedKey, value);
-      setState({
-        key: submittedKey,
-        status: didSave ? "saved" : "idle",
-        value,
-      });
-    },
-    [storageKey],
-  );
-
-  const clearSubmitted = useCallback((submittedKey: string | null) => {
-    if (!submittedKey) return;
-    if (!persistDraft(submittedKey, "")) return;
-    valuesByKeyRef.current.set(submittedKey, "");
-    persistedByKeyRef.current.set(submittedKey, "");
-  }, []);
+  }, [enabled, store]);
 
   return {
-    clearSubmitted,
-    markSubmitted,
-    restoreSubmitted,
-    setValue,
-    status: activeStatus,
-    value: activeValue,
+    clearSubmitted: store.clearSubmitted,
+    markSubmitted: store.markSubmitted,
+    restoreSubmitted: store.restoreSubmitted,
+    setValue: store.setValue,
+    status: snapshot.status,
+    value: snapshot.value,
   };
 }
