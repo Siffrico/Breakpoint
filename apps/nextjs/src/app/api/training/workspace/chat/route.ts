@@ -7,7 +7,7 @@ import { streamWorkspaceChat } from "@acme/api/workspace-chat";
 import { db } from "@acme/db/client";
 import { AiModelPreferenceSchema } from "@acme/validators";
 
-import { auth } from "~/auth/server";
+import { requireSession } from "~/app/api/_lib/require-session";
 
 export const runtime = "nodejs";
 
@@ -67,8 +67,8 @@ const resolveSubmittedMessage = (body: WorkspaceChatRequestBody) => {
 };
 
 export const POST = async (req: NextRequest) => {
-  const session = await auth.api.getSession({ headers: req.headers });
-  if (session == null || session.user.id.length === 0) {
+  const session = await requireSession(req);
+  if (!session) {
     return new Response("Unauthorized", { status: 401 });
   }
 

@@ -18,12 +18,18 @@ import type { RouterOutputs } from "@acme/api";
 import {
   ChatComposer,
   ChatComposerDock,
+  SlashCommandMenu,
   WorkspaceStatusLine,
 } from "@acme/ui/chat";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "@acme/ui/menu";
 import { toast } from "@acme/ui/toast";
 
+import type { AskIntentKind } from "~/features/training/lib/slash-commands";
 import { AssistantRichText } from "~/features/training/components/assistant-rich-text";
+import {
+  matchSlashCommands,
+  parseSlashQuery,
+} from "~/features/training/lib/slash-commands";
 import { NotionComposer } from "./notion-composer";
 
 type EducationUnit = RouterOutputs["training"]["unit"];
@@ -401,6 +407,7 @@ export function EducationUnitWorkspace({
   onRunningChange,
   canRequestNextScenario = false,
   attemptTiming = null,
+  onRunCommand,
 }: {
   unit: EducationUnit;
   sessionId: string;
@@ -411,9 +418,12 @@ export function EducationUnitWorkspace({
   attemptTiming?: AttemptTiming | null;
   onStateChange?: (state: EducationUnit) => void;
   onRunningChange?: (isRunning: boolean) => void;
+  onRunCommand?: (kind: AskIntentKind) => void;
 }) {
   const router = useRouter();
   const [response, setResponse] = useState("");
+  const [slashActiveIndex, setSlashActiveIndex] = useState(0);
+  const [slashDismissed, setSlashDismissed] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [previewIsRunning, setPreviewIsRunning] = useState(false);
   const [pendingAction, setPendingAction] = useState<
@@ -837,14 +847,73 @@ export function EducationUnitWorkspace({
             })
             .concat(nextScenarioControl ? [nextScenarioControl] : []);
 
+  const slashQuery = onRunCommand ? parseSlashQuery(response) : null;
+  const slashItems =
+    slashQuery !== null && !slashDismissed ? matchSlashCommands(slashQuery) : [];
+  const slashMenuOpen = slashItems.length > 0;
+  const slashMenuItems = slashItems.map((command) => ({
+    id: command.id,
+    label: command.label,
+    description: command.description,
+  }));
+
+  // Reset selection / dismissal whenever the active query changes so the menu
+  // reopens after Escape once the user keeps typing a new command.
+  useEffect(() => {
+    setSlashActiveIndex(0);
+    if (slashQuery === null) setSlashDismissed(false);
+  }, [slashQuery]);
+
+  const runSlashCommand = (kind: AskIntentKind) => {
+    setResponse("");
+    setSlashDismissed(false);
+    onRunCommand?.(kind);
+  };
+
+  const handleComposerKeyDown = (
+    event: React.KeyboardEvent<HTMLDivElement>,
+  ) => {
+    if (!slashMenuOpen) return;
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setSlashActiveIndex((index) => (index + 1) % slashItems.length);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setSlashActiveIndex(
+        (index) => (index - 1 + slashItems.length) % slashItems.length,
+      );
+    } else if (
+      (event.key === "Enter" && !event.shiftKey) ||
+      event.key === "Tab"
+    ) {
+      // Stop the event in the capture phase so the composer's submit-on-Enter
+      // never fires: a slash command must not be sent as an answer.
+      event.preventDefault();
+      event.stopPropagation();
+      const selected = slashItems[slashActiveIndex] ?? slashItems[0];
+      if (selected) runSlashCommand(selected.id);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      setSlashDismissed(true);
+    }
+  };
+
   const inputZone = (
     <div className={embedded ? "bg-background shrink-0" : "mt-10"}>
       <div className="font-sans">
-        <ChatComposer
-          value={response}
-          onValueChange={setResponse}
-          onSubmit={() => void handleSubmit()}
-          disabled={!canCompose || effectiveIsRunning}
+        <div className="relative" onKeyDownCapture={handleComposerKeyDown}>
+          <SlashCommandMenu
+            items={slashMenuItems}
+            activeIndex={slashActiveIndex}
+            onSelect={(item) => runSlashCommand(item.id as AskIntentKind)}
+            onHoverIndex={setSlashActiveIndex}
+          />
+          <ChatComposer
+            value={response}
+            onValueChange={setResponse}
+            onSubmit={() => void handleSubmit()}
+            disabled={!canCompose || effectiveIsRunning}
           textareaRef={composerTextareaRef}
           ariaLabel="Response"
           placeholder={composerPlaceholder}
@@ -886,7 +955,8 @@ export function EducationUnitWorkspace({
               )}
             </button>
           }
-        />
+          />
+        </div>
         <div className="mt-1 flex justify-start">
           <DifficultyControl
             disabled={!canAdjustDifficulty}

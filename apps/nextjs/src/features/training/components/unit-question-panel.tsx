@@ -1,6 +1,14 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { UIMessage } from "ai";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { useChat } from "@ai-sdk/react";
 import {
   ArrowLeft,
   ArrowsIn,
@@ -8,19 +16,23 @@ import {
   ArrowUp,
   X,
 } from "@phosphor-icons/react";
+import { DefaultChatTransport, isTextUIPart } from "ai";
 
 import type { RouterOutputs } from "@acme/api";
 import { Button } from "@acme/ui/button";
+import { toast } from "@acme/ui/toast";
 
+import type { AskIntent } from "~/features/training/lib/slash-commands";
 import { AssistantRichText } from "./assistant-rich-text";
 
 type EducationUnit = RouterOutputs["training"]["unit"];
 
-interface PanelMessage {
-  id: string;
-  role: "assistant" | "user";
-  content: string;
+interface AskChatMetadata {
+  // Seed turns (/idk, /explain) carry a hidden user message so the transport
+  // has something to send; it must not render as a learner bubble.
+  synthetic?: boolean;
 }
+type AskChatMessage = UIMessage<AskChatMetadata>;
 
 const ASK_COMPOSER_MIN_HEIGHT = 112;
 const ASK_COMPOSER_MAX_HEIGHT = 280;
@@ -63,153 +75,81 @@ const syncAskComposerHeight = (element: HTMLTextAreaElement | null) => {
     element.scrollHeight > maxHeight ? "auto" : "hidden";
 };
 
-function buildUnitAnswer(unit: EducationUnit, question: string) {
-  const lower = question.toLowerCase();
-  const activeCard =
-    unit.activeStage === "challenge"
-      ? unit.challenge
-      : unit.activeStage === "mastery_check"
-        ? unit.masteryCheck
-        : unit.activeStage === "transfer_challenge"
-          ? unit.transferChallenge
-          : null;
-  const helper =
-    (unit.activeStage === "revision"
-      ? unit.implementationReview?.requiredRevision
-      : activeCard?.helper) ??
-    unit.priorKnowledgeBridge ??
-    unit.summary;
-  const conceptName = unit.conceptCorrection?.name;
-  const conceptSummary = unit.conceptCorrection?.summary;
-
-  if (
-    lower.includes("what is this asking") ||
-    lower.includes("what am i supposed") ||
-    lower.includes("what should i do")
-  ) {
-    return [
-      unit.activeStage === "revision"
-        ? `The task is asking you to revise your build against this brief: "${unit.implementationReview?.requiredRevision ?? unit.title}".`
-        : `The task is asking you to respond to "${activeCard?.title ?? unit.title}" with a concrete judgment, not a generic recap.`,
-      helper
-        ? `Use this constraint: ${helper}`
-        : "Anchor your answer in the scenario, identify the key signal, then state the decision you would make next.",
-    ].join("\n\n");
-  }
-
-  if (
-    lower.includes("how do i start") ||
-    lower.includes("where do i start") ||
-    lower.includes("i'm stuck")
-  ) {
-    return [
-      "Start with the first decision, not the full essay.",
-      unit.activeStage === "revision"
-        ? `Your first move is to address this revision brief directly: ${unit.implementationReview?.requiredRevision ?? unit.title}`
-        : activeCard?.prompt
-          ? `The live tension you need to answer is: ${activeCard.prompt}`
-          : "Name the signal you see, state the decision it implies, and only then justify it.",
-      helper ? `Keep this in view: ${helper}` : null,
-    ]
-      .filter(Boolean)
-      .join("\n\n");
-  }
-
-  if (
-    lower.includes("concept") ||
-    lower.includes("principle") ||
-    lower.includes("lesson") ||
-    lower.includes("idea")
-  ) {
-    return [
-      conceptName
-        ? `The concept being trained here is ${conceptName}.`
-        : `The unit is training ${unit.title}.`,
-      conceptSummary ??
-        "The point is to build a reusable decision pattern under pressure, not just repeat a definition.",
-      unit.priorKnowledgeBridge
-        ? `Tie-back: ${unit.priorKnowledgeBridge}`
-        : null,
-    ]
-      .filter(Boolean)
-      .join("\n\n");
-  }
-
-  if (
-    lower.includes("good answer") ||
-    lower.includes("strong answer") ||
-    lower.includes("what makes")
-  ) {
-    return [
-      "A strong answer is specific, directional, and tied to the actual constraints in the prompt.",
-      "It should identify the key signal, choose a move, and explain the tradeoff behind that move.",
-      helper ? `Avoid drifting past this constraint: ${helper}` : null,
-    ]
-      .filter(Boolean)
-      .join("\n\n");
-  }
-
-  return [
-    `This question sits inside "${unit.title}".`,
-    activeCard?.title
-      ? `Right now the live focus is "${activeCard.title}", so aim your answer at what would move that step forward.`
-      : "Use the active prompt as the anchor for your reasoning.",
-    helper
-      ? `Fast guidance: ${helper}`
-      : "Keep the response concrete, scenario-bound, and decision-shaped.",
-  ].join("\n\n");
-}
+const getMessageText = (message: AskChatMessage) =>
+  message.parts
+    .filter(isTextUIPart)
+    .map((part) => part.text)
+    .join("");
 
 export function UnitQuestionPanel({
   unit,
+  sessionId,
+  intent,
   isFocused,
   onClose,
   onToggleFocus,
   onReturnToUnit,
 }: {
   unit: EducationUnit;
+  sessionId: string;
+  intent: AskIntent | null;
   isFocused: boolean;
   onClose: () => void;
   onToggleFocus: () => void;
   onReturnToUnit: () => void;
 }) {
-  const activeCard =
-    unit.activeStage === "challenge"
-      ? unit.challenge
-      : unit.activeStage === "mastery_check"
-        ? unit.masteryCheck
-        : unit.activeStage === "transfer_challenge"
-          ? unit.transferChallenge
-          : null;
-
-  const initialAssistantMessage = useMemo<PanelMessage>(
-    () => ({
-      id: "intro",
-      role: "assistant",
-      content: [
-        `Ask about "${unit.title}" and I’ll answer against the live unit context.`,
-        unit.activeStage === "revision"
-          ? `Current focus: revise against "${unit.implementationReview?.requiredRevision ?? unit.title}"`
-          : `Current prompt: ${activeCard?.title ?? unit.title}`,
-      ].join("\n\n"),
-    }),
-    [activeCard?.title, unit],
+  const transport = useMemo(
+    () =>
+      new DefaultChatTransport<AskChatMessage>({
+        api: "/api/training/unit-ask/chat",
+      }),
+    [],
   );
+  const { messages, sendMessage, setMessages, status, error } =
+    useChat<AskChatMessage>({
+      id: `unit-ask-${sessionId}-${unit.nodeId}`,
+      transport,
+      experimental_throttle: 50,
+    });
 
-  const [messages, setMessages] = useState<PanelMessage[]>([
-    initialAssistantMessage,
-  ]);
   const [question, setQuestion] = useState("");
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const handledNonceRef = useRef<number | null>(null);
+  const errorHandledRef = useRef(false);
+  const isRunning = status === "submitted" || status === "streaming";
+
+  // Clear the conversation when the active unit changes — answers are scoped to
+  // the live scenario, so stale history would be misleading.
+  useEffect(() => {
+    setMessages([]);
+    handledNonceRef.current = null;
+  }, [unit.nodeId, setMessages]);
+
+  // Fire a seed turn when a slash command bumps the intent nonce.
+  useEffect(() => {
+    if (!intent) return;
+    if (handledNonceRef.current === intent.nonce) return;
+    handledNonceRef.current = intent.nonce;
+
+    void sendMessage(
+      { text: `/${intent.kind}`, metadata: { synthetic: true } },
+      { body: { sessionId, intent: intent.kind, unitTitle: unit.title } },
+    );
+  }, [intent, sendMessage, sessionId, unit.title]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- Reset panel history when the active unit changes.
-    setMessages([initialAssistantMessage]);
-  }, [initialAssistantMessage]);
+    if (status !== "error" || !error || errorHandledRef.current) return;
+    errorHandledRef.current = true;
+    toast.error("The tutor could not respond. Try again.");
+  }, [status, error]);
+
+  useEffect(() => {
+    if (status !== "error") errorHandledRef.current = false;
+  }, [status]);
 
   useLayoutEffect(() => {
     syncAskComposerHeight(composerTextareaRef.current);
-  }, [question, unit.activeStage, initialAssistantMessage]);
+  }, [question]);
 
   useEffect(() => {
     const handleResize = () =>
@@ -218,27 +158,25 @@ export function UnitQuestionPanel({
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  const canSubmit = question.trim().length > 0;
+  const canSubmit = question.trim().length > 0 && !isRunning;
 
   const handleAsk = () => {
     if (!canSubmit) return;
 
     const trimmed = question.trim();
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: `user-${Date.now()}`,
-        role: "user",
-        content: trimmed,
-      },
-      {
-        id: `assistant-${Date.now() + 1}`,
-        role: "assistant",
-        content: buildUnitAnswer(unit, trimmed),
-      },
-    ]);
     setQuestion("");
+    void sendMessage(
+      { text: trimmed },
+      { body: { sessionId, intent: "freeform", message: trimmed, unitTitle: unit.title } },
+    );
   };
+
+  const visibleMessages = messages.filter(
+    (message) => !(message.role === "user" && message.metadata?.synthetic),
+  );
+  const lastAssistantId = [...messages]
+    .reverse()
+    .find((message) => message.role === "assistant")?.id;
 
   return (
     <aside className="border-foreground/[0.06] bg-sidebar text-foreground flex h-full min-w-0 flex-col border-l">
@@ -291,21 +229,41 @@ export function UnitQuestionPanel({
 
       <div className="flex-1 overflow-y-auto p-5">
         <div className="space-y-6">
-          {messages.map((message) =>
-            message.role === "assistant" ? (
-              <div
-                key={message.id}
-                className="text-foreground/82 text-[14px] leading-[1.6]"
-              >
-                <AssistantRichText content={message.content} />
-              </div>
-            ) : (
-              <div key={message.id} className="flex justify-end">
-                <div className="bg-primary/[0.08] text-primary/90 max-w-[82%] rounded-[14px] px-3.5 py-2 text-[14px] leading-[1.55] whitespace-pre-wrap">
-                  {message.content}
+          {visibleMessages.length === 0 ? (
+            <div className="text-foreground/82 text-[14px] leading-[1.6]">
+              <AssistantRichText
+                content={`Ask about "${unit.title}" and I’ll answer against the live unit context. Stuck? Type **/idk** in the workspace and I’ll help pinpoint what’s confusing.`}
+              />
+            </div>
+          ) : (
+            visibleMessages.map((message) => {
+              const content = getMessageText(message);
+              if (message.role === "assistant") {
+                const isLive = isRunning && message.id === lastAssistantId;
+                return (
+                  <div
+                    key={message.id}
+                    className="text-foreground/82 text-[14px] leading-[1.6]"
+                  >
+                    {content.trim() ? (
+                      <AssistantRichText content={content} />
+                    ) : isLive ? (
+                      <span className="text-foreground/40 text-[13px]">
+                        Thinking…
+                      </span>
+                    ) : null}
+                  </div>
+                );
+              }
+
+              return (
+                <div key={message.id} className="flex justify-end">
+                  <div className="bg-primary/[0.08] text-primary/90 max-w-[82%] rounded-[14px] px-3.5 py-2 text-[14px] leading-[1.55] whitespace-pre-wrap">
+                    {content}
+                  </div>
                 </div>
-              </div>
-            ),
+              );
+            })
           )}
         </div>
       </div>
@@ -318,6 +276,12 @@ export function UnitQuestionPanel({
             value={question}
             onChange={(event) => setQuestion(event.target.value)}
             onInput={(event) => syncAskComposerHeight(event.currentTarget)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                handleAsk();
+              }
+            }}
             placeholder="Ask what the unit is really testing, how to start, or what a strong answer should do."
             rows={1}
             className="text-foreground placeholder:text-foreground/30 block min-h-[112px] w-full resize-none bg-transparent px-3.5 pt-3 pb-10 text-[13.5px] leading-[1.55] tracking-[-0.005em] outline-none"

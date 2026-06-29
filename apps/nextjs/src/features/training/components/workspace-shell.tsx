@@ -11,6 +11,7 @@ import type { RouterOutputs } from "@acme/api";
 import { Button } from "@acme/ui/button";
 import { toast } from "@acme/ui/toast";
 
+import type { AskIntent } from "~/features/training/lib/slash-commands";
 import { useLocalStorage } from "~/hooks/use-local-storage";
 import { useTRPC } from "~/trpc/react";
 import { AssistantRichText } from "./assistant-rich-text";
@@ -92,6 +93,7 @@ export function WorkspaceShell({
   };
   const [questionPanelOpen, setQuestionPanelOpen] = useState(false);
   const [questionPanelFocused, setQuestionPanelFocused] = useState(false);
+  const [askIntent, setAskIntent] = useState<AskIntent | null>(null);
   const [liveUnit, setLiveUnit] = useState(unit);
   const [isSessionRunning, setIsSessionRunning] = useState(false);
   const [onboardingTurnCount, setOnboardingTurnCount] = useState(0);
@@ -232,6 +234,13 @@ export function WorkspaceShell({
   const toggleQuestionPanelFocus = () => {
     setQuestionPanelOpen(true);
     setQuestionPanelFocused((prev) => !prev);
+  };
+
+  // A slash command in the workspace composer opens the Ask panel and seeds it
+  // with the requested intent. The nonce makes repeat invocations re-trigger.
+  const handleRunCommand = (kind: AskIntent["kind"]) => {
+    setQuestionPanelOpen(true);
+    setAskIntent({ kind, nonce: Date.now() });
   };
 
   const handleAdvanceCompletedUnit = () => {
@@ -453,6 +462,7 @@ export function WorkspaceShell({
                         attemptTiming={timerSnapshot}
                         onStateChange={setLiveUnit}
                         onRunningChange={setIsSessionRunning}
+                        onRunCommand={handleRunCommand}
                       />
                     ) : null}
 
@@ -486,6 +496,8 @@ export function WorkspaceShell({
                 >
                   <UnitQuestionPanel
                     unit={liveUnit}
+                    sessionId={sessionId}
+                    intent={askIntent}
                     isFocused={questionPanelFocused}
                     onClose={closeQuestionPanel}
                     onToggleFocus={toggleQuestionPanelFocus}
