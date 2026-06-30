@@ -1,11 +1,28 @@
 import {
   defaultShouldDehydrateQuery,
+  MutationCache,
+  QueryCache,
   QueryClient,
 } from "@tanstack/react-query";
+import { TRPCClientError } from "@trpc/client";
 import SuperJSON from "superjson";
+
+// On the client, any UNAUTHORIZED tRPC error means the session is missing or
+// expired. Send the user to the auth page once instead of letting queries fail
+// silently. Guarded against running on the server (no redirect during SSR) and
+// against looping when we're already on /auth.
+const redirectToAuthOnUnauthorized = (error: unknown) => {
+  if (typeof window === "undefined") return;
+  if (!(error instanceof TRPCClientError)) return;
+  if (error.data?.code !== "UNAUTHORIZED") return;
+  if (window.location.pathname === "/auth") return;
+  window.location.href = "/auth";
+};
 
 export const createQueryClient = () =>
   new QueryClient({
+    queryCache: new QueryCache({ onError: redirectToAuthOnUnauthorized }),
+    mutationCache: new MutationCache({ onError: redirectToAuthOnUnauthorized }),
     defaultOptions: {
       queries: {
         // With SSR, we usually want to set some default staleTime

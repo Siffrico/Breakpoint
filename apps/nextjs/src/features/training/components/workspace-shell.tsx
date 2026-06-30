@@ -46,6 +46,7 @@ type LearningProject =
 const LAST_SESSION_COOKIE = "bp-last-learning-session";
 const EMPTY_PROJECTS: LearningProject[] = [];
 const EVALUATION_EDUCATION_STAGES = new Set(["Review", "Test", "Check"]);
+const MAX_COACH_ANSWER_CHARS = 3_200;
 
 type WorkspaceMode = "onboarding" | "unit" | "idle";
 type WorkspaceTheme = "light" | "dark" | "warm";
@@ -211,6 +212,19 @@ export function WorkspaceShell({
     setUnitCoachOpen(true);
     setUnitCoachTrigger((previous) => ({
       intent,
+      nonce: (previous?.nonce ?? 0) + 1,
+      unitId: liveUnit.nodeId,
+    }));
+  };
+
+  const openUnitCoachForAnswer = (answer: string) => {
+    if (!liveUnit) return;
+
+    const excerpt = answer.trim().slice(0, MAX_COACH_ANSWER_CHARS);
+    setUnitCoachOpen(true);
+    setUnitCoachTrigger((previous) => ({
+      intent: "freeform",
+      message: `Help me improve this submitted answer without rewriting it for me. Identify the weakest reasoning, then ask one focused question.\n\nSubmitted answer:\n${excerpt}`,
       nonce: (previous?.nonce ?? 0) + 1,
       unitId: liveUnit.nodeId,
     }));
@@ -432,6 +446,7 @@ export function WorkspaceShell({
                         onStateChange={setLiveUnit}
                         onRunningChange={setIsSessionRunning}
                         onRunCommand={openUnitCoachWithCommand}
+                        onAskCoachAboutAnswer={openUnitCoachForAnswer}
                       />
                     ) : null}
 

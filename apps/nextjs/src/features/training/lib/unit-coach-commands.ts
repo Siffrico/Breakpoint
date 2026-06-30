@@ -2,11 +2,19 @@ import type { UnitCoachIntent } from "@acme/api/unit-coach";
 
 export type UnitCoachCommandIntent = Exclude<UnitCoachIntent, "freeform">;
 
-export interface UnitCoachTrigger {
-  intent: UnitCoachCommandIntent;
-  nonce: number;
-  unitId: string;
-}
+export type UnitCoachTrigger =
+  | {
+      intent: UnitCoachCommandIntent;
+      message?: never;
+      nonce: number;
+      unitId: string;
+    }
+  | {
+      intent: Extract<UnitCoachIntent, "freeform">;
+      message: string;
+      nonce: number;
+      unitId: string;
+    };
 
 export interface UnitCoachCommand {
   id: UnitCoachCommandIntent;

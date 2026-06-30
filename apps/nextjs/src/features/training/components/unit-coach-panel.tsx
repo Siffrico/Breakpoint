@@ -2,7 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
-import { ArrowLeft, ArrowsIn, ArrowsOut, ArrowUp, X } from "@phosphor-icons/react";
+import {
+  ArrowLeft,
+  ArrowsIn,
+  ArrowsOut,
+  ArrowUp,
+  X,
+} from "@phosphor-icons/react";
 import {
   createUIMessageStream,
   createUIMessageStreamResponse,
@@ -181,8 +187,11 @@ export function UnitCoachPanel({
     }
     handledNonceRef.current = trigger.nonce;
 
+    const message =
+      trigger.intent === "freeform" ? trigger.message : `/${trigger.intent}`;
+
     void sendMessage(
-      { text: `/${trigger.intent}`, metadata: { synthetic: true } },
+      { text: message, metadata: { synthetic: true } },
       { body: { sessionId, intent: trigger.intent } },
     );
   }, [sendMessage, sessionId, trigger, unit.nodeId]);
@@ -267,72 +276,72 @@ export function UnitCoachPanel({
       <div className="bg-background flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 overflow-y-auto py-6">
           <div className={columnClass}>
-          {visibleMessages.length === 0 ? (
-            <ChatMessage from="assistant">
-              <div className="text-foreground/55 text-[14px] leading-7">
-                <AssistantRichText
-                  content={`Ask about **${unit.title}** and I’ll stay anchored to the live scenario without giving away the answer. If you’re stuck, type **/idk** in the workspace.`}
-                />
-              </div>
-            </ChatMessage>
-          ) : (
-            <div className="flex flex-col gap-7">
-              {visibleMessages.map((message) => {
-                const content = getMessageText(message);
-                if (message.role === "assistant") {
-                  const isLive = isRunning && message.id === lastAssistantId;
+            {visibleMessages.length === 0 ? (
+              <ChatMessage from="assistant">
+                <div className="text-foreground/55 text-[14px] leading-7">
+                  <AssistantRichText
+                    content={`Ask about **${unit.title}** and I’ll stay anchored to the live scenario without giving away the answer. If you’re stuck, type **/idk** in the workspace.`}
+                  />
+                </div>
+              </ChatMessage>
+            ) : (
+              <div className="flex flex-col gap-7">
+                {visibleMessages.map((message) => {
+                  const content = getMessageText(message);
+                  if (message.role === "assistant") {
+                    const isLive = isRunning && message.id === lastAssistantId;
+                    return (
+                      <ChatMessage key={message.id} from="assistant">
+                        {content.trim() ? (
+                          <AssistantRichText
+                            content={content}
+                            className={ASSISTANT_PROSE_CLASS}
+                          />
+                        ) : isLive ? (
+                          <TextShimmer
+                            text="Thinking…"
+                            className="text-foreground/45 text-[14px]"
+                          />
+                        ) : null}
+                      </ChatMessage>
+                    );
+                  }
+
                   return (
-                    <ChatMessage key={message.id} from="assistant">
-                      {content.trim() ? (
-                        <AssistantRichText
-                          content={content}
-                          className={ASSISTANT_PROSE_CLASS}
-                        />
-                      ) : isLive ? (
-                        <TextShimmer
-                          text="Thinking…"
-                          className="text-foreground/45 text-[14px]"
-                        />
-                      ) : null}
+                    <ChatMessage key={message.id} from="user">
+                      {content}
                     </ChatMessage>
                   );
-                }
-
-                return (
-                  <ChatMessage key={message.id} from="user">
-                    {content}
-                  </ChatMessage>
-                );
-              })}
-            </div>
-          )}
-          <div ref={bottomRef} />
+                })}
+              </div>
+            )}
+            <div ref={bottomRef} />
+          </div>
         </div>
-      </div>
 
         <div className="shrink-0 pt-2 pb-4">
           <div className={columnClass}>
             <ChatComposer
-            compact
-            value={question}
-            onValueChange={setQuestion}
-            onSubmit={handleAsk}
-            disabled={isRunning}
-            textareaRef={composerTextareaRef}
-            ariaLabel="Ask Unit Coach"
-            placeholder="Ask what the scenario is testing, how to start, or where your reasoning is stuck."
-            rightSlot={
-              <button
-                type="button"
-                onClick={handleAsk}
-                disabled={!canSubmit}
-                aria-label="Send to Unit Coach"
-                className="inline-flex size-6 shrink-0 items-center justify-center rounded-[6px] border border-white/[0.055] bg-[linear-gradient(180deg,#303030_0%,#252525_48%,#1f1f1f_100%)] text-[#d7d7d7] shadow-[inset_0_1px_0_rgba(255,255,255,0.10),0_6px_16px_rgba(0,0,0,0.34)] transition-colors outline-none hover:bg-[linear-gradient(180deg,#3a3a3a_0%,#2d2d2d_48%,#242424_100%)] focus:outline-none focus-visible:outline-none disabled:border-white/[0.035] disabled:bg-[linear-gradient(180deg,#292929_0%,#222222_48%,#1d1d1d_100%)] disabled:text-[#686868] disabled:shadow-[inset_0_1px_0_rgba(255,255,255,0.07),0_5px_14px_rgba(0,0,0,0.26)]"
-              >
-                <ArrowUp size={13} weight="bold" />
-              </button>
-            }
-          />
+              compact
+              value={question}
+              onValueChange={setQuestion}
+              onSubmit={handleAsk}
+              disabled={isRunning}
+              textareaRef={composerTextareaRef}
+              ariaLabel="Ask Unit Coach"
+              placeholder="Ask what the scenario is testing, how to start, or where your reasoning is stuck."
+              rightSlot={
+                <button
+                  type="button"
+                  onClick={handleAsk}
+                  disabled={!canSubmit}
+                  aria-label="Send to Unit Coach"
+                  className="inline-flex size-6 shrink-0 items-center justify-center rounded-[6px] border border-white/[0.055] bg-[linear-gradient(180deg,#303030_0%,#252525_48%,#1f1f1f_100%)] text-[#d7d7d7] shadow-[inset_0_1px_0_rgba(255,255,255,0.10),0_6px_16px_rgba(0,0,0,0.34)] transition-colors outline-none hover:bg-[linear-gradient(180deg,#3a3a3a_0%,#2d2d2d_48%,#242424_100%)] focus:outline-none focus-visible:outline-none disabled:border-white/[0.035] disabled:bg-[linear-gradient(180deg,#292929_0%,#222222_48%,#1d1d1d_100%)] disabled:text-[#686868] disabled:shadow-[inset_0_1px_0_rgba(255,255,255,0.07),0_5px_14px_rgba(0,0,0,0.26)]"
+                >
+                  <ArrowUp size={13} weight="bold" />
+                </button>
+              }
+            />
           </div>
         </div>
       </div>

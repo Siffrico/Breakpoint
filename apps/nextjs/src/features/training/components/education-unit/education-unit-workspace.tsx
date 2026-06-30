@@ -7,11 +7,15 @@ import { useChat } from "@ai-sdk/react";
 import {
   CaretDown,
   CaretRight,
+  ChatCircle,
+  Copy,
+  PencilSimple,
   SlidersHorizontal,
 } from "@phosphor-icons/react";
 import { DefaultChatTransport, isTextUIPart } from "ai";
 
 import type { RouterOutputs } from "@acme/api";
+import { Button } from "@acme/ui/button";
 import { ChatComposerDock, WorkspaceStatusLine } from "@acme/ui/chat";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "@acme/ui/menu";
 import { toast } from "@acme/ui/toast";
@@ -225,13 +229,28 @@ const countWords = (text: string) =>
 function SubmittedAnswerReceipt({
   text,
   pending = false,
+  canRevise,
+  onRevise,
+  onAskCoach,
 }: {
   text: string;
   pending?: boolean;
+  canRevise: boolean;
+  onRevise: () => void;
+  onAskCoach?: () => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const wordCount = countWords(text);
   const wordLabel = `${wordCount} ${wordCount === 1 ? "word" : "words"}`;
+
+  const copySubmittedAnswer = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success("Answer copied.");
+    } catch {
+      toast.error("Answer could not be copied.");
+    }
+  };
 
   return (
     <section className="py-3 font-sans">
@@ -262,10 +281,47 @@ function SubmittedAnswerReceipt({
           </button>
 
           {isOpen ? (
-            <div className="border-foreground/[0.1] border-t px-3.5 py-3">
-              <p className="text-foreground/82 text-[14px] leading-6 whitespace-pre-wrap">
-                {text}
-              </p>
+            <div className="border-foreground/[0.1] border-t">
+              <div className="px-3.5 py-3">
+                <p className="text-foreground/82 text-[14px] leading-6 whitespace-pre-wrap">
+                  {text}
+                </p>
+              </div>
+              <div className="border-foreground/[0.08] flex flex-wrap items-center gap-1 border-t px-2 py-1.5">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => void copySubmittedAnswer()}
+                  className="text-foreground/48 hover:text-foreground h-7 border-0 px-2 text-[11px] shadow-none before:hidden"
+                >
+                  <Copy size={13} />
+                  Copy
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  disabled={!canRevise}
+                  onClick={onRevise}
+                  className="text-foreground/48 hover:text-foreground h-7 border-0 px-2 text-[11px] shadow-none before:hidden"
+                >
+                  <PencilSimple size={13} />
+                  Revise
+                </Button>
+                {onAskCoach ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    onClick={onAskCoach}
+                    className="text-foreground/48 hover:text-foreground h-7 border-0 px-2 text-[11px] shadow-none before:hidden"
+                  >
+                    <ChatCircle size={13} />
+                    Ask coach about this
+                  </Button>
+                ) : null}
+              </div>
             </div>
           ) : null}
         </div>
@@ -376,6 +432,7 @@ export function EducationUnitWorkspace({
   onRunningChange,
   canRequestNextScenario = false,
   onRunCommand,
+  onAskCoachAboutAnswer,
 }: {
   unit: EducationUnit;
   sessionId: string;
@@ -386,6 +443,7 @@ export function EducationUnitWorkspace({
   onStateChange?: (state: EducationUnit) => void;
   onRunningChange?: (isRunning: boolean) => void;
   onRunCommand?: (intent: UnitCoachCommandIntent) => void;
+  onAskCoachAboutAnswer?: (answer: string) => void;
 }) {
   const router = useRouter();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -667,6 +725,17 @@ export function EducationUnitWorkspace({
     }
   };
 
+  const startAnswerRevision = (text: string) => {
+    setResponse(text);
+    setIsExpanded(false);
+    window.requestAnimationFrame(() => {
+      const textarea = composerTextareaRef.current;
+      textarea?.focus();
+      textarea?.setSelectionRange(text.length, text.length);
+      textarea?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  };
+
   const handleStop = () => {
     if (preview) {
       if (previewTimeoutRef.current != null) {
@@ -844,6 +913,13 @@ export function EducationUnitWorkspace({
                   pending={
                     effectiveIsRunning &&
                     message.id === latestVisibleUserMessageId
+                  }
+                  canRevise={canCompose && !effectiveIsRunning}
+                  onRevise={() => startAnswerRevision(content)}
+                  onAskCoach={
+                    onAskCoachAboutAnswer
+                      ? () => onAskCoachAboutAnswer(content)
+                      : undefined
                   }
                 />
               );

@@ -117,7 +117,7 @@ export function WorkspaceCommandPalette({
 
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange}>
-      <CommandDialogPopup>
+      <CommandDialogPopup className="bg-secondary text-secondary-foreground">
         <Command
           items={groups}
           itemToStringValue={(item) => {
@@ -126,7 +126,7 @@ export function WorkspaceCommandPalette({
           }}
         >
           <CommandInput placeholder="Search projects and chats…" />
-          <CommandPanel>
+          <CommandPanel className="bg-secondary">
             <CommandEmpty>
               {isLoading ? (
                 "Loading your workspace…"
