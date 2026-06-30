@@ -1,6 +1,6 @@
 import type { db as databaseClient } from "@acme/db/client";
 import type { BeforeAfterProfile } from "@acme/validators";
-import { and, asc, desc, eq, inArray, isNull, lt, ne, or, sql } from "@acme/db";
+import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from "@acme/db";
 import {
   TrainingIdentityProfile,
   TrainingIdentityProfileVersion,
@@ -431,10 +431,51 @@ export const trainingOnboardingRepository = {
       ],
     }),
 
-  // Most-recent onboarding session the user can still continue. A "complete"
-  // session already produced a learning project (and redirects to /workspace),
-  // so it must never be resumed back into onboarding.
-  getLatestResumableSession: async ({
+  listFirstUserMessagesBySessionIds: async ({
+    db,
+    sessionIds,
+  }: {
+    db: Database;
+    sessionIds: string[];
+  }) => {
+    if (sessionIds.length === 0) return [];
+
+    const messages = await db
+      .select({
+        sessionId: TrainingOnboardingMessage.sessionId,
+        content: TrainingOnboardingMessage.content,
+        sequence: TrainingOnboardingMessage.sequence,
+      })
+      .from(TrainingOnboardingMessage)
+      .where(
+        and(
+          inArray(TrainingOnboardingMessage.sessionId, sessionIds),
+          eq(TrainingOnboardingMessage.role, "user"),
+          isNull(TrainingOnboardingMessage.unitId),
+        ),
+      )
+      .orderBy(
+        asc(TrainingOnboardingMessage.sessionId),
+        asc(TrainingOnboardingMessage.sequence),
+      );
+
+    const firstMessageBySessionId = new Map<string, string>();
+    for (const message of messages) {
+      if (!firstMessageBySessionId.has(message.sessionId)) {
+        firstMessageBySessionId.set(message.sessionId, message.content);
+      }
+    }
+
+    return Array.from(firstMessageBySessionId, ([sessionId, content]) => ({
+      sessionId,
+      content,
+    }));
+  },
+
+  // Most recent session for restoring the onboarding screen. Completed sessions
+  // are included by default so a reload cannot discard the finished build card;
+  // callers starting an explicitly new project skip this lookup entirely.
+  getLatestOnboardingSession: async ({
     db,
     userId,
   }: {
@@ -442,10 +483,7 @@ export const trainingOnboardingRepository = {
     userId: string;
   }) => {
     const [session] = await db.query.TrainingOnboardingSession.findMany({
-      where: and(
-        eq(TrainingOnboardingSession.userId, userId),
-        ne(TrainingOnboardingSession.status, "complete"),
-      ),
+      where: eq(TrainingOnboardingSession.userId, userId),
       orderBy: [
         desc(TrainingOnboardingSession.updatedAt),
         desc(TrainingOnboardingSession.createdAt),

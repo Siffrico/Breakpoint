@@ -83,10 +83,22 @@ export function WorkspaceShell({
   const router = useRouter();
   const trpc = useTRPC();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   const toggleSidebar = () => {
     setSidebarCollapsed((prev) => !prev);
   };
+
+  useEffect(() => {
+    if (!mobileSidebarOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileSidebarOpen(false);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [mobileSidebarOpen]);
   const [unitCoachOpen, setUnitCoachOpen] = useState(false);
   const [unitCoachFocused, setUnitCoachFocused] = useState(false);
   const [unitCoachTrigger, setUnitCoachTrigger] =
@@ -275,7 +287,7 @@ export function WorkspaceShell({
       <div
         inert={sidebarCollapsed ? true : undefined}
         className={[
-          "shrink-0 overflow-hidden transition-[width] duration-200",
+          "hidden shrink-0 overflow-hidden transition-[width] duration-200 md:block",
           sidebarCollapsed ? "w-0" : "bg-sidebar w-[232px]",
         ].join(" ")}
       >
@@ -295,15 +307,56 @@ export function WorkspaceShell({
         </div>
       </div>
 
-      <div className="border-foreground/[0.08] flex min-w-0 flex-1 flex-col border-l">
-        <header className="border-foreground/[0.08] relative flex h-14 shrink-0 items-center justify-between border-b px-4 sm:px-6">
+      {mobileSidebarOpen ? (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <button
+            type="button"
+            aria-label="Close sidebar"
+            className="bg-foreground/20 absolute inset-0 backdrop-blur-[1px]"
+            onClick={() => setMobileSidebarOpen(false)}
+          />
+          <div
+            className="bg-sidebar relative h-full w-[min(86vw,320px)] shadow-2xl"
+            onClick={(event) => {
+              if ((event.target as HTMLElement).closest("a")) {
+                setMobileSidebarOpen(false);
+              }
+            }}
+          >
+            <CurriculumSidebar
+              projects={projects}
+              currentSessionId={sessionId}
+              preview={preview}
+              collapsed={false}
+              onToggleCollapsed={() => setMobileSidebarOpen(false)}
+              userName={userName}
+              activeLessonId={liveUnit?.nodeId ?? null}
+              isSessionRunning={isSessionRunning}
+              workspaceTheme={workspaceTheme}
+              onWorkspaceThemeChange={setWorkspaceTheme}
+              onNavigate={() => setMobileSidebarOpen(false)}
+            />
+          </div>
+        </div>
+      ) : null}
+
+      <div className="border-foreground/[0.08] flex min-w-0 flex-1 flex-col md:border-l">
+        <header className="border-foreground/[0.08] relative flex h-14 shrink-0 items-center justify-between gap-2 border-b px-3 sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setMobileSidebarOpen(true)}
+              aria-label="Open sidebar"
+              className="text-foreground/40 hover:text-foreground/80 hover:bg-foreground/[0.04] flex size-7 shrink-0 items-center justify-center rounded-[6px] transition-colors outline-none focus:outline-none focus-visible:outline-none md:hidden"
+            >
+              <SidebarSimple size={15} />
+            </button>
             {sidebarCollapsed ? (
               <button
                 type="button"
                 onClick={toggleSidebar}
                 aria-label="Open sidebar"
-                className="text-foreground/40 hover:text-foreground/80 hover:bg-foreground/[0.04] -ml-1.5 flex size-7 shrink-0 items-center justify-center rounded-[6px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
+                className="text-foreground/40 hover:text-foreground/80 hover:bg-foreground/[0.04] -ml-1.5 hidden size-7 shrink-0 items-center justify-center rounded-[6px] transition-colors outline-none focus:outline-none focus-visible:outline-none md:flex"
               >
                 <SidebarSimple size={15} />
               </button>
@@ -325,7 +378,7 @@ export function WorkspaceShell({
                 </span>
               </>
             ) : (
-              <h1 className="font-display text-foreground text-[16px] tracking-[-0.02em]">
+              <h1 className="font-display text-foreground min-w-0 text-[16px] tracking-[-0.02em]">
                 <AssistantRichText
                   content={shellTitle}
                   className="overflow-hidden [&>*]:overflow-hidden [&>*]:text-ellipsis [&>*]:whitespace-nowrap"
@@ -369,17 +422,21 @@ export function WorkspaceShell({
               </Button>
             </div>
           ) : mode === "unit" && liveUnit ? (
-            <div className="flex items-center gap-2">
+            <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
               <button
                 type="button"
                 onClick={toggleUnitCoach}
+                aria-label="Ask coach"
                 className={headerActionClass}
               >
                 <Lightbulb weight="regular" />
-                Ask coach
+                <span className="hidden sm:inline">Ask coach</span>
               </button>
               <button
                 type="button"
+                aria-label={
+                  advanceCompletedUnit.isPending ? "Advancing" : "Next Unit"
+                }
                 disabled={
                   preview ||
                   isSessionRunning ||
@@ -396,7 +453,11 @@ export function WorkspaceShell({
                 }
                 className={headerActionClass}
               >
-                {advanceCompletedUnit.isPending ? "Advancing..." : "Next Unit"}
+                <span className="hidden sm:inline">
+                  {advanceCompletedUnit.isPending
+                    ? "Advancing..."
+                    : "Next Unit"}
+                </span>
                 <ArrowRight weight="regular" className="-ml-1" />
               </button>
             </div>

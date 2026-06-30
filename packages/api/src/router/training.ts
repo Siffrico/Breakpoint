@@ -6,7 +6,9 @@ import type { CurriculumNode } from "@acme/validators";
 import { sql } from "@acme/db";
 import { CapstoneSubmissionSchema } from "@acme/validators";
 
+import { deriveProvisionalProjectTitle } from "../domain/training/services/provisional-project-title";
 import { advanceCompletedUnitWorkflow } from "../domain/training/workflows/advance-completed-unit-workflow";
+import { continueLearningProjectWorkflow } from "../domain/training/workflows/continue-learning-project-workflow";
 import { createLearningProjectWorkflow } from "../domain/training/workflows/create-learning-project-workflow";
 import { generateCapstoneWorkflow } from "../domain/training/workflows/generate-capstone-workflow";
 import { getActivePlanWorkflow } from "../domain/training/workflows/get-active-plan-workflow";
@@ -78,6 +80,18 @@ const lockCapstoneNode = async ({
 }) => {
   await db.execute(
     sql`select pg_advisory_xact_lock(hashtext(${sessionId}), hashtext(${nodeId}))`,
+  );
+};
+
+const lockProjectContinuation = async ({
+  db,
+  sessionId,
+}: {
+  db: Database;
+  sessionId: string;
+}) => {
+  await db.execute(
+    sql`select pg_advisory_xact_lock(hashtext(${sessionId}), hashtext('continue-learning-project'))`,
   );
 };
 
@@ -284,6 +298,35 @@ const requireSessionOwner = async ({
   return session;
 };
 
+const createGetUnitDependencies = (
+  db: Database,
+): Parameters<typeof getUnitWorkflow>[0]["deps"] => ({
+  getUnitByNodeId: (nodeId) =>
+    trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),
+  getPhaseResponses: (unitContentId, sessionId) =>
+    trainingCurriculumRepository.getPhaseResponses({
+      db,
+      unitContentId,
+      sessionId,
+    }),
+  getPlanNodesBySession: (sessionId) =>
+    trainingCurriculumRepository.getPlanNodesBySession({ db, sessionId }),
+  getTargetIdentity: async (sessionId) => {
+    const profile = await trainingOnboardingRepository.getProfileBySession({
+      db,
+      sessionId,
+    });
+
+    return profile?.version.targetIdentity ?? null;
+  },
+  listAttemptHistory: (sessionId) =>
+    trainingAttemptRepository.listAttemptHistory({ db, sessionId }),
+  createUnitContent: (payload) =>
+    trainingCurriculumRepository.createUnitContent({ db, ...payload }),
+  saveNodeBriefing: (payload) =>
+    trainingCurriculumRepository.saveNodeBriefing({ db, ...payload }),
+});
+
 export const trainingRouter = {
   createLearningProject: protectedProcedure
     .input(CreateLearningProjectSchema)
@@ -358,11 +401,12 @@ export const trainingRouter = {
       return state;
     }),
 
-  // Rehydrate the user's latest in-progress onboarding session so a reload or
-  // idle tab resumes the same transcript instead of minting a fresh session.
+  // Rehydrate the latest onboarding session, including its completed build
+  // card. Starting a new project is an explicit route state and bypasses this
+  // query, so reload and "new project" no longer have ambiguous semantics.
   resumeOnboarding: protectedProcedure.query(async ({ ctx }) => {
     const session =
-      await trainingOnboardingRepository.getLatestResumableSession({
+      await trainingOnboardingRepository.getLatestOnboardingSession({
         db: ctx.db,
         userId: ctx.session.user.id,
       });
@@ -380,12 +424,16 @@ export const trainingRouter = {
       userId: ctx.session.user.id,
     });
     const sessionIds = sessions.map((session) => session.id);
-    const [profiles, plans] = await Promise.all([
+    const [profiles, plans, firstUserMessages] = await Promise.all([
       trainingOnboardingRepository.listProfilesBySessionIds({
         db: ctx.db,
         sessionIds,
       }),
       trainingCurriculumRepository.listPlansBySessionIds({
+        db: ctx.db,
+        sessionIds,
+      }),
+      trainingOnboardingRepository.listFirstUserMessagesBySessionIds({
         db: ctx.db,
         sessionIds,
       }),
@@ -402,6 +450,9 @@ export const trainingRouter = {
     );
     const planBySessionId = new Map(
       plans.map((plan) => [plan.onboardingSessionId, plan]),
+    );
+    const firstUserMessageBySessionId = new Map(
+      firstUserMessages.map((message) => [message.sessionId, message.content]),
     );
 
     const nodes = await trainingCurriculumRepository.listNodesByPlanIds({
@@ -427,9 +478,20 @@ export const trainingRouter = {
       }
     }
 
-    return sessions.map((session) => {
+    return sessions.flatMap((session) => {
       const profile = profileBySessionId.get(session.id) ?? null;
       const plan = planBySessionId.get(session.id) ?? null;
+      const title =
+        plan?.title?.trim() ||
+        profile?.targetIdentity?.trim() ||
+        deriveProvisionalProjectTitle(
+          firstUserMessageBySessionId.get(session.id) ?? "",
+        );
+
+      // An untouched onboarding session has no learner intent to distinguish it
+      // from other abandoned starts, so it should not occupy navigation space.
+      if (!title) return [];
+
       const planNodes = projectNodesBySessionId.get(session.id) ?? [];
       const lessonPreview = planNodes
         .filter((node) => node.kind === "unit" || node.kind === "integration")
@@ -441,23 +503,25 @@ export const trainingRouter = {
           status: node.status,
         }));
 
-      return {
-        sessionId: session.id,
-        title: plan?.title ?? profile?.targetIdentity ?? "New learning track",
-        headline:
-          profile?.headline ?? plan?.summary ?? "Interview in progress.",
-        status:
-          plan?.status === "active"
-            ? "active"
-            : plan // a "generating" shell exists but isn't finished yet
-              ? "building"
-              : session.status === "ready_for_generation" ||
-                  session.status === "complete"
+      return [
+        {
+          sessionId: session.id,
+          title,
+          headline:
+            profile?.headline ?? plan?.summary ?? "Interview in progress.",
+          status:
+            plan?.status === "active"
+              ? "active"
+              : plan // a "generating" shell exists but isn't finished yet
                 ? "building"
-                : "onboarding",
-        lessonPreview,
-        updatedAt: session.updatedAt ?? session.createdAt,
-      };
+                : session.status === "ready_for_generation" ||
+                    session.status === "complete"
+                  ? "building"
+                  : "onboarding",
+          lessonPreview,
+          updatedAt: session.updatedAt ?? session.createdAt,
+        },
+      ];
     });
   }),
 
@@ -642,6 +706,33 @@ export const trainingRouter = {
       );
     }),
 
+  continueLearningProject: protectedProcedure
+    .input(SessionIdSchema)
+    .mutation(async ({ ctx, input }) =>
+      ctx.db.transaction(async (tx) => {
+        await requireSessionOwner({ ctx, sessionId: input.sessionId });
+
+        const db = tx as unknown as Database;
+        await lockProjectContinuation({ db, sessionId: input.sessionId });
+
+        return throwOnFailure(
+          await continueLearningProjectWorkflow({
+            sessionId: input.sessionId,
+            deps: {
+              getActivePlan: (sessionId) =>
+                trainingCurriculumRepository.getActivePlan({ db, sessionId }),
+              prepareUnit: ({ nodeId, sessionId }) =>
+                getUnitWorkflow({
+                  nodeId,
+                  sessionId,
+                  deps: createGetUnitDependencies(db),
+                }),
+            },
+          }),
+        );
+      }),
+    ),
+
   advanceCompletedUnit: protectedProcedure
     .input(NodeSessionSchema)
     .mutation(async ({ ctx, input }) => {
@@ -665,48 +756,7 @@ export const trainingRouter = {
         await getUnitWorkflow({
           nodeId: input.nodeId,
           sessionId: input.sessionId,
-          deps: {
-            getUnitByNodeId: (nodeId) =>
-              trainingCurriculumRepository.getUnitByNodeId({
-                db: ctx.db,
-                nodeId,
-              }),
-            getPhaseResponses: (unitContentId, sessionId) =>
-              trainingCurriculumRepository.getPhaseResponses({
-                db: ctx.db,
-                unitContentId,
-                sessionId,
-              }),
-            getPlanNodesBySession: (sessionId) =>
-              trainingCurriculumRepository.getPlanNodesBySession({
-                db: ctx.db,
-                sessionId,
-              }),
-            getTargetIdentity: async (sessionId) => {
-              const profile =
-                await trainingOnboardingRepository.getProfileBySession({
-                  db: ctx.db,
-                  sessionId,
-                });
-
-              return profile?.version.targetIdentity ?? null;
-            },
-            listAttemptHistory: (sessionId) =>
-              trainingAttemptRepository.listAttemptHistory({
-                db: ctx.db,
-                sessionId,
-              }),
-            createUnitContent: (payload) =>
-              trainingCurriculumRepository.createUnitContent({
-                db: ctx.db,
-                ...payload,
-              }),
-            saveNodeBriefing: (payload) =>
-              trainingCurriculumRepository.saveNodeBriefing({
-                db: ctx.db,
-                ...payload,
-              }),
-          },
+          deps: createGetUnitDependencies(ctx.db),
         }),
       );
     }),

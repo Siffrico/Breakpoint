@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  ArrowRight,
   BookOpenText,
   CaretRight,
   DotsThree,
@@ -15,6 +16,7 @@ import {
   SidebarSimple,
   Storefront,
 } from "@phosphor-icons/react";
+import { useMutation } from "@tanstack/react-query";
 
 import type { RouterOutputs } from "@acme/api";
 import {
@@ -28,8 +30,10 @@ import {
   MenuSeparator,
   MenuTrigger,
 } from "@acme/ui/menu";
+import { toast } from "@acme/ui/toast";
 
 import { useLocalStorage } from "~/hooks/use-local-storage";
+import { useTRPC } from "~/trpc/react";
 import { useCommandPalette } from "../hooks/use-command-palette";
 import { WorkspaceCommandPalette } from "./workspace-command-palette";
 
@@ -370,6 +374,8 @@ function ProjectRow({
   activeLessonId,
   isSessionRunning,
   onToggle,
+  onContinue,
+  isContinuing,
 }: {
   project: LearningProject;
   href: string;
@@ -380,6 +386,8 @@ function ProjectRow({
   activeLessonId?: string | null;
   isSessionRunning?: boolean;
   onToggle: () => void;
+  onContinue: () => void;
+  isContinuing: boolean;
 }) {
   const lessons = project.lessonPreview.slice(0, 3);
   const runningLessonId =
@@ -421,6 +429,25 @@ function ProjectRow({
             {project.title}
           </FadeLabel>
         </Link>
+
+        <button
+          type="button"
+          onClick={onContinue}
+          disabled={isContinuing || project.status !== "active"}
+          aria-label={`Continue ${project.title}`}
+          title={
+            project.status === "active"
+              ? `Continue ${project.title}`
+              : "Curriculum is still being prepared"
+          }
+          className="text-foreground/32 hover:text-foreground/80 hover:bg-foreground/[0.05] flex size-6 shrink-0 items-center justify-center rounded-[5px] opacity-80 transition-colors outline-none group-hover/project:opacity-100 focus:outline-none focus-visible:outline-none disabled:pointer-events-none disabled:opacity-25"
+        >
+          {isContinuing ? (
+            <DotMatrixCircularLoader size={13} dotSize={1.5} />
+          ) : (
+            <ArrowRight size={14} weight="bold" />
+          )}
+        </button>
 
         <ProjectActionsMenu
           overviewHref={overviewHref}
@@ -508,6 +535,7 @@ export function CurriculumSidebar({
   isSessionRunning = false,
   workspaceTheme = "warm",
   onWorkspaceThemeChange,
+  onNavigate,
 }: {
   projects?: LearningProject[];
   currentSessionId: string;
@@ -520,18 +548,38 @@ export function CurriculumSidebar({
   isSessionRunning?: boolean;
   workspaceTheme?: WorkspaceTheme;
   onWorkspaceThemeChange?: (theme: WorkspaceTheme) => void;
+  onNavigate?: () => void;
 }) {
   const router = useRouter();
+  const trpc = useTRPC();
   const profileHref = preview
     ? "/ui/profile"
     : `/profile?session=${currentSessionId}`;
 
   const handleNewProject = () => {
     if (preview) return;
-    // The onboarding shell starts the session itself on mount, so a new topic
-    // is just a clean route into the consultation.
-    router.push("/onboarding");
+    // Make new-project intent explicit. A plain /onboarding visit restores the
+    // latest session, including a completed build card after an accidental reload.
+    router.push("/onboarding?new=1");
   };
+
+  const continueProject = useMutation(
+    trpc.training.continueLearningProject.mutationOptions({
+      onSuccess: (destination) => {
+        onNavigate?.();
+        if (destination.sessionId === currentSessionId) {
+          router.refresh();
+          return;
+        }
+        router.push(destination.href);
+      },
+      onError: (error) => {
+        toast.error(
+          error.message || "The next scenario could not be prepared.",
+        );
+      },
+    }),
+  );
 
   const { open: paletteOpen, setOpen: setPaletteOpen } = useCommandPalette({
     onNewTopic: handleNewProject,
@@ -682,6 +730,17 @@ export function CurriculumSidebar({
                 activeLessonId={activeLessonId}
                 isSessionRunning={isSessionRunning}
                 onToggle={() => toggleProject(project.sessionId, isCurrent)}
+                onContinue={() => {
+                  if (preview) {
+                    router.push(href);
+                    return;
+                  }
+                  continueProject.mutate({ sessionId: project.sessionId });
+                }}
+                isContinuing={
+                  continueProject.isPending &&
+                  continueProject.variables.sessionId === project.sessionId
+                }
               />
             );
           })}

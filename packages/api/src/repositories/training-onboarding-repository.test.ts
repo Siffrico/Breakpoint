@@ -13,41 +13,39 @@ const createDb = (rows: unknown[]) => {
   const db = {
     query: { TrainingOnboardingSession: { findMany } },
   } as unknown as Parameters<
-    typeof trainingOnboardingRepository.getLatestResumableSession
+    typeof trainingOnboardingRepository.getLatestOnboardingSession
   >[0]["db"];
   return { db, findMany };
 };
 
-describe("trainingOnboardingRepository.getLatestResumableSession", () => {
-  it("returns the latest resumable session and asks the DB for a single row", async () => {
-    const session = { id: "s-1", status: "questioning" };
+describe("trainingOnboardingRepository.getLatestOnboardingSession", () => {
+  it("returns the latest session, including a completed build", async () => {
+    const session = { id: "s-1", status: "complete" };
     const { db, findMany } = createDb([session]);
 
-    const result = await trainingOnboardingRepository.getLatestResumableSession(
-      {
+    const result =
+      await trainingOnboardingRepository.getLatestOnboardingSession({
         db,
         userId: "user-1",
-      },
-    );
+      });
 
     expect(result).toBe(session);
-    // The "skip complete" + "latest first" filtering lives in the SQL query,
-    // so assert the wrapper requests exactly one row with a where/orderBy.
+    // Latest-first selection lives in SQL; completed rows are deliberately not
+    // filtered because the onboarding screen must restore their build card.
     const args = findMany.mock.calls[0]?.[0];
     expect(args?.limit).toBe(1);
     expect(args?.where).toBeDefined();
     expect(args?.orderBy).toBeDefined();
   });
 
-  it("returns null when the user has no resumable session", async () => {
+  it("returns null when the user has no onboarding session", async () => {
     const { db } = createDb([]);
 
-    const result = await trainingOnboardingRepository.getLatestResumableSession(
-      {
+    const result =
+      await trainingOnboardingRepository.getLatestOnboardingSession({
         db,
         userId: "user-1",
-      },
-    );
+      });
 
     expect(result).toBeNull();
   });

@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowUDownLeft, Plus } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
@@ -62,11 +62,30 @@ export function WorkspaceCommandPalette({
   const router = useRouter();
   const trpc = useTRPC();
 
-  // Loads only once the palette is first opened, then tRPC caches it, so
-  // reopening is instant. All filtering happens client-side (zero latency).
+  // Warm the index during idle time after the workspace settles, so the *first*
+  // ⌘K open renders instantly instead of paying a cold round-trip and showing
+  // skeletons. Gating purely on `open` made every first open the first fetch;
+  // the cache only ever helped the second open onward. The query itself is a
+  // handful of indexed reads, so prefetching is cheap. The skeleton below now
+  // only appears on a genuinely slow network where idle warming hasn't landed.
+  const [warm, setWarm] = useState(false);
+  useEffect(() => {
+    const w = window as Window & {
+      requestIdleCallback?: (cb: () => void) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    if (w.requestIdleCallback) {
+      const id = w.requestIdleCallback(() => setWarm(true));
+      return () => w.cancelIdleCallback?.(id);
+    }
+    const id = window.setTimeout(() => setWarm(true), 1500);
+    return () => window.clearTimeout(id);
+  }, []);
+
+  // Filtering is entirely client-side once cached, so reopening is instant.
   const { data, isLoading, isError, refetch } = useQuery(
     trpc.training.listWorkspaceIndex.queryOptions(undefined, {
-      enabled: open,
+      enabled: open || warm,
     }),
   );
 
