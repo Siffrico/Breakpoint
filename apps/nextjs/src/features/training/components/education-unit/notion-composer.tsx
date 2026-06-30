@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowsInSimple, ArrowUp } from "@phosphor-icons/react";
 
+import { Spinner } from "@acme/ui/spinner";
+
 import {
   convertBlockToList,
   ensureEditorHasBlock,
@@ -196,10 +198,7 @@ export function NotionComposer({
             <kbd className="ml-0.5 font-sans">↵</kbd> to send · <kbd className="font-sans">Esc</kbd> to collapse
           </span>
           {isSubmitting ? (
-            <div
-              aria-label="Submitting"
-              className="border-foreground/18 border-t-foreground/55 size-4 animate-spin rounded-full border"
-            />
+            <Spinner className="text-foreground/55 size-4" aria-label="Submitting" />
           ) : null}
           <button
             type="button"

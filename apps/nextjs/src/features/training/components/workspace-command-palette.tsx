@@ -129,7 +129,14 @@ export function WorkspaceCommandPalette({
           <CommandPanel className="bg-secondary">
             <CommandEmpty>
               {isLoading ? (
-                "Loading your workspace…"
+                <div
+                  className="w-full space-y-2 py-0.5"
+                  aria-label="Loading your workspace"
+                >
+                  <div className="bg-foreground/[0.07] h-5 w-2/3 animate-pulse rounded-md" />
+                  <div className="bg-foreground/[0.055] h-5 w-1/2 animate-pulse rounded-md" />
+                  <div className="bg-foreground/[0.055] h-5 w-3/5 animate-pulse rounded-md" />
+                </div>
               ) : isError ? (
                 <button
                   type="button"

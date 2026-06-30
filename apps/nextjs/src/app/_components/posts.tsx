@@ -128,8 +128,8 @@ export function PostList() {
         <PostCardSkeleton pulse={false} />
         <PostCardSkeleton pulse={false} />
 
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/10">
-          <p className="text-2xl font-semibold text-white">No posts yet</p>
+        <div className="bg-background/60 absolute inset-0 flex flex-col items-center justify-center backdrop-blur-sm">
+          <p className="text-foreground text-2xl font-semibold">No posts yet</p>
         </div>
       </div>
     );
