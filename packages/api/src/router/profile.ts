@@ -1,5 +1,4 @@
 import type { TRPCRouterRecord } from "@trpc/server";
-import { TRPCError } from "@trpc/server";
 
 import { UpdateProfileGeneralInputSchema } from "@acme/validators";
 
@@ -7,30 +6,15 @@ import { getProfileAccountWorkflow } from "../domain/profile/workflows/get-accou
 import { getProfileBillingWorkflow } from "../domain/profile/workflows/get-billing";
 import { getProfileGeneralWorkflow } from "../domain/profile/workflows/get-general";
 import { updateProfileGeneralWorkflow } from "../domain/profile/workflows/update-general";
+import { requireOwnedSession, runProfile } from "../effect/profile-edge";
 import { trainingOnboardingRepository } from "../repositories/training-onboarding-repository";
-import { profileRepository } from "../repositories/profile-repository";
 import { protectedProcedure } from "../trpc";
 
 const SessionIdInputSchema = UpdateProfileGeneralInputSchema.pick({
   sessionId: true,
 });
 
-const throwOnProfileFailure = <T>(result: {
-  success: boolean;
-  data?: T;
-  error?: { code: string; message: string };
-}) => {
-  if (result.success) {
-    return result.data as T;
-  }
-
-  throw new TRPCError({
-    code: (result.error?.code ?? "INTERNAL_SERVER_ERROR") as TRPCError["code"],
-    message: result.error?.message ?? "Profile request failed.",
-  });
-};
-
-const requireOwnedSession = async ({
+const requireOwnedProfileSession = ({
   db,
   userId,
   sessionId,
@@ -39,55 +23,25 @@ const requireOwnedSession = async ({
   userId: string;
   sessionId: string;
 }) => {
-  const session = await trainingOnboardingRepository.getSession({
-    db,
+  return requireOwnedSession({
+    getSession: (id) =>
+      trainingOnboardingRepository.getSession({ db, sessionId: id }),
+    userId,
     sessionId,
   });
-
-  if (!session) {
-    throw new TRPCError({
-      code: "NOT_FOUND",
-      message: "This learning project could not be found.",
-    });
-  }
-
-  if (session.userId !== userId) {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: "You do not have access to this learning project.",
-    });
-  }
-
-  return session;
 };
 
 export const profileRouter = {
   getGeneral: protectedProcedure
     .input(SessionIdInputSchema)
     .query(async ({ ctx, input }) => {
-      await requireOwnedSession({
+      await requireOwnedProfileSession({
         db: ctx.db,
         userId: ctx.session.user.id,
         sessionId: input.sessionId,
       });
 
-      const result = throwOnProfileFailure(
-        await getProfileGeneralWorkflow({
-          deps: {
-            getGeneral: () =>
-              profileRepository.getGeneralBySession({
-                db: ctx.db,
-                sessionId: input.sessionId,
-              }),
-          },
-        }),
-      );
-
-      if (!result) {
-        return null;
-      }
-
-      return result;
+      return runProfile(ctx.db, getProfileGeneralWorkflow(input.sessionId));
     }),
 
   updateGeneral: protectedProcedure
@@ -96,24 +50,19 @@ export const profileRouter = {
       ctx.db.transaction(async (tx) => {
         const db = tx as unknown as typeof ctx.db;
 
-        await requireOwnedSession({
+        await requireOwnedProfileSession({
           db,
           userId: ctx.session.user.id,
           sessionId: input.sessionId,
         });
 
-        const result = throwOnProfileFailure(
-          await updateProfileGeneralWorkflow({
-            deps: {
-              updateGeneral: () =>
-                profileRepository.updateGeneralBySession({
-                  db,
-                  sessionId: input.sessionId,
-                  targetIdentity: input.targetIdentity,
-                  motivation: input.motivation,
-                  hardMoments: input.hardMoments,
-                }),
-            },
+        const result = await runProfile(
+          db,
+          updateProfileGeneralWorkflow({
+            sessionId: input.sessionId,
+            targetIdentity: input.targetIdentity,
+            motivation: input.motivation,
+            hardMoments: input.hardMoments,
           }),
         );
 
@@ -123,31 +72,14 @@ export const profileRouter = {
         });
 
         return result;
-      })),
-
-  getAccount: protectedProcedure.query(async ({ ctx }) =>
-    throwOnProfileFailure(
-      await getProfileAccountWorkflow({
-        deps: {
-          getAccount: () =>
-            profileRepository.getAccountByUserId({
-              db: ctx.db,
-              userId: ctx.session.user.id,
-            }),
-        },
       }),
-    )),
+    ),
 
-  getBilling: protectedProcedure.query(async ({ ctx }) =>
-    throwOnProfileFailure(
-      await getProfileBillingWorkflow({
-        deps: {
-          getBilling: () =>
-            profileRepository.getBillingByUserId({
-              db: ctx.db,
-              userId: ctx.session.user.id,
-            }),
-        },
-      }),
-    )),
+  getAccount: protectedProcedure.query(({ ctx }) =>
+    runProfile(ctx.db, getProfileAccountWorkflow(ctx.session.user.id)),
+  ),
+
+  getBilling: protectedProcedure.query(({ ctx }) =>
+    runProfile(ctx.db, getProfileBillingWorkflow(ctx.session.user.id)),
+  ),
 } satisfies TRPCRouterRecord;

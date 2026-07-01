@@ -80,8 +80,11 @@ const attempt = <TSchema extends z.ZodTypeAny>(
 // Exponential backoff capped at MAX_RESTARTS attempts — only ever applied to
 // AgentTimeoutError/AgentProviderError (see isRetryable); a call that just
 // didn't land is worth retrying unmodified, unlike a schema failure.
+// v4 renamed Schedule.intersect -> Schedule.both (same "continue only while
+// both recur, take the max delay" semantics). The tuple output it now emits is
+// unused: retry gates on the `while` error predicate, not the schedule output.
 const RESTART_SCHEDULE = Schedule.exponential(Duration.millis(200), 2).pipe(
-  Schedule.intersect(Schedule.recurs(MAX_RESTARTS)),
+  Schedule.both(Schedule.recurs(MAX_RESTARTS)),
 );
 
 const withRepairInstruction = <TSchema extends z.ZodTypeAny>(

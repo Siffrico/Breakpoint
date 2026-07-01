@@ -1,5 +1,6 @@
+import { Effect, Layer } from "effect";
+
 import { eq } from "@acme/db";
-import type { db as databaseClient } from "@acme/db/client";
 import {
   account,
   TrainingCurriculumPlan,
@@ -8,207 +9,138 @@ import {
   user,
 } from "@acme/db/schema";
 
-import type { ProfileAccount, ProfileBilling, ProfileError, ProfileGeneral } from "../domain/profile/types";
-import type {Result} from "../lib/result";
+import type { ProfileBilling } from "../domain/profile/types";
+import type { DatabaseClient } from "../effect/db";
+import { ProfileNotFoundError } from "../domain/profile/errors";
+import { ProfileRepo } from "../domain/profile/profile-repo";
+import { Db, queryWithClient } from "../effect/db";
 
-type Database = typeof databaseClient;
+/** Live Drizzle adapter. It captures the request/transaction client at layer construction. */
+export const ProfileRepoLive = Layer.effect(
+  ProfileRepo,
+  Effect.gen(function* () {
+    const { client } = yield* Db;
+    const query = <A>(run: (client: DatabaseClient) => Promise<A>) =>
+      queryWithClient(client, run);
 
-export const profileRepository = {
-  getGeneralBySession: async ({
-    db,
-    sessionId,
-  }: {
-    db: Database;
-    sessionId: string;
-  }): Promise<Result<ProfileGeneral | null, ProfileError>> => {
-    try {
-      const profile = await db.query.TrainingIdentityProfile.findFirst({
-        where: eq(TrainingIdentityProfile.onboardingSessionId, sessionId),
-      });
+    return {
+      getGeneralBySession: (sessionId) =>
+        Effect.gen(function* () {
+          const profile = yield* query((client) =>
+            client.query.TrainingIdentityProfile.findFirst({
+              where: eq(TrainingIdentityProfile.onboardingSessionId, sessionId),
+            }),
+          );
+          if (!profile?.currentVersionId) return null;
+          // Hoist the narrowed value: TS drops property narrowing inside the query
+          // closure below, but keeps it for a local const.
+          const currentVersionId = profile.currentVersionId;
 
-      if (!profile?.currentVersionId) {
-        return {
-          success: true,
-          data: null,
-        };
-      }
+          const version = yield* query((client) =>
+            client.query.TrainingIdentityProfileVersion.findFirst({
+              where: eq(TrainingIdentityProfileVersion.id, currentVersionId),
+            }),
+          );
+          if (!version) return null;
 
-      const version = await db.query.TrainingIdentityProfileVersion.findFirst({
-        where: eq(TrainingIdentityProfileVersion.id, profile.currentVersionId),
-      });
-
-      if (!version) {
-        return {
-          success: true,
-          data: null,
-        };
-      }
-
-      return {
-        success: true,
-        data: {
-          sessionId,
-          targetIdentity: version.targetIdentity,
-          motivation: version.motivation,
-          hardMoments: version.hardMoments,
-        },
-      };
-    } catch {
-      return {
-        success: false,
-        error: {
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Profile details could not be loaded right now.",
-        },
-      };
-    }
-  },
-
-  updateGeneralBySession: async ({
-    db,
-    sessionId,
-    targetIdentity,
-    motivation,
-    hardMoments,
-  }: {
-    db: Database;
-    sessionId: string;
-    targetIdentity: string;
-    motivation: string;
-    hardMoments: string[];
-  }): Promise<Result<ProfileGeneral, ProfileError>> => {
-    try {
-      const profile = await db.query.TrainingIdentityProfile.findFirst({
-        where: eq(TrainingIdentityProfile.onboardingSessionId, sessionId),
-      });
-
-      if (!profile?.currentVersionId) {
-        return {
-          success: false,
-          error: {
-            code: "NOT_FOUND",
-            message: "This learning profile could not be found.",
-          },
-        };
-      }
-
-      const [version] = await db
-        .update(TrainingIdentityProfileVersion)
-        .set({
-          targetIdentity,
-          motivation,
-          hardMoments,
-        })
-        .where(eq(TrainingIdentityProfileVersion.id, profile.currentVersionId))
-        .returning();
-
-      if (!version) {
-        return {
-          success: false,
-          error: {
-            code: "NOT_FOUND",
-            message: "This learning profile could not be found.",
-          },
-        };
-      }
-
-      await db
-        .update(TrainingIdentityProfile)
-        .set({
-          targetIdentity,
-          updatedAt: new Date(),
-        })
-        .where(eq(TrainingIdentityProfile.id, profile.id));
-
-      await db
-        .update(TrainingCurriculumPlan)
-        .set({
-          targetIdentity,
-          updatedAt: new Date(),
-        })
-        .where(eq(TrainingCurriculumPlan.onboardingSessionId, sessionId));
-
-      return {
-        success: true,
-        data: {
-          sessionId,
-          targetIdentity: version.targetIdentity,
-          motivation: version.motivation,
-          hardMoments: version.hardMoments,
-        },
-      };
-    } catch {
-      return {
-        success: false,
-        error: {
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Profile changes could not be saved right now.",
-        },
-      };
-    }
-  },
-
-  getAccountByUserId: async ({
-    db,
-    userId,
-  }: {
-    db: Database;
-    userId: string;
-  }): Promise<Result<ProfileAccount, ProfileError>> => {
-    try {
-      const [userRecord, accountRecord] = await Promise.all([
-        db.query.user.findFirst({
-          where: eq(user.id, userId),
+          return {
+            sessionId,
+            targetIdentity: version.targetIdentity,
+            motivation: version.motivation,
+            hardMoments: version.hardMoments,
+          };
         }),
-        db.query.account.findFirst({
-          where: eq(account.userId, userId),
+
+      updateGeneralBySession: (input) =>
+        Effect.gen(function* () {
+          const profile = yield* query((client) =>
+            client.query.TrainingIdentityProfile.findFirst({
+              where: eq(
+                TrainingIdentityProfile.onboardingSessionId,
+                input.sessionId,
+              ),
+            }),
+          );
+          if (!profile?.currentVersionId) {
+            return yield* new ProfileNotFoundError({
+              message: "This learning profile could not be found.",
+            });
+          }
+          const currentVersionId = profile.currentVersionId;
+
+          const [version] = yield* query((client) =>
+            client
+              .update(TrainingIdentityProfileVersion)
+              .set({
+                targetIdentity: input.targetIdentity,
+                motivation: input.motivation,
+                hardMoments: input.hardMoments,
+              })
+              .where(eq(TrainingIdentityProfileVersion.id, currentVersionId))
+              .returning(),
+          );
+          if (!version) {
+            return yield* new ProfileNotFoundError({
+              message: "This learning profile could not be found.",
+            });
+          }
+
+          yield* query((client) =>
+            client
+              .update(TrainingIdentityProfile)
+              .set({
+                targetIdentity: input.targetIdentity,
+                updatedAt: new Date(),
+              })
+              .where(eq(TrainingIdentityProfile.id, profile.id)),
+          );
+
+          yield* query((client) =>
+            client
+              .update(TrainingCurriculumPlan)
+              .set({
+                targetIdentity: input.targetIdentity,
+                updatedAt: new Date(),
+              })
+              .where(
+                eq(TrainingCurriculumPlan.onboardingSessionId, input.sessionId),
+              ),
+          );
+
+          return {
+            sessionId: input.sessionId,
+            targetIdentity: version.targetIdentity,
+            motivation: version.motivation,
+            hardMoments: version.hardMoments,
+          };
         }),
-      ]);
 
-      if (!userRecord) {
-        return {
-          success: false,
-          error: {
-            code: "NOT_FOUND",
-            message: "Account details could not be found.",
-          },
-        };
-      }
+      getAccountByUserId: (userId) =>
+        Effect.gen(function* () {
+          const [userRecord, accountRecord] = yield* query((client) =>
+            Promise.all([
+              client.query.user.findFirst({ where: eq(user.id, userId) }),
+              client.query.account.findFirst({
+                where: eq(account.userId, userId),
+              }),
+            ]),
+          );
+          if (!userRecord) {
+            return yield* new ProfileNotFoundError({
+              message: "Account details could not be found.",
+            });
+          }
 
-      return {
-        success: true,
-        data: {
-          name: userRecord.name,
-          email: userRecord.email,
-          provider: accountRecord?.providerId ?? null,
-          image: userRecord.image ?? null,
-        },
-      };
-    } catch {
-      return {
-        success: false,
-        error: {
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Account details could not be loaded right now.",
-        },
-      };
-    }
-  },
+          return {
+            name: userRecord.name,
+            email: userRecord.email,
+            provider: accountRecord?.providerId ?? null,
+            image: userRecord.image ?? null,
+          };
+        }),
 
-  getBillingByUserId: ({
-    userId,
-  }: {
-    db: Database;
-    userId: string;
-  }): Promise<Result<ProfileBilling, ProfileError>> => {
-    void userId;
-
-    return Promise.resolve({
-      success: true,
-      data: {
-        plan: "free",
-        manageUrl: null,
-      },
-    });
-  },
-};
+      getBillingByUserId: () =>
+        Effect.succeed<ProfileBilling>({ plan: "free", manageUrl: null }),
+    };
+  }),
+);

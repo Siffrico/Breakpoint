@@ -1,12 +1,12 @@
-import type { ProfileError, ProfileGeneral } from "../types";
-import type { Result } from "../../../lib/result";
+import { Effect } from "effect";
 
-interface UpdateGeneralDependencies {
-  updateGeneral: () => Promise<Result<ProfileGeneral, ProfileError>>;
-}
+import type { UpdateProfileGeneralInput } from "../profile-repo";
+import { ProfileRepo } from "../profile-repo";
 
-export const updateProfileGeneralWorkflow = async ({
-  deps,
-}: {
-  deps: UpdateGeneralDependencies;
-}): Promise<Result<ProfileGeneral, ProfileError>> => deps.updateGeneral();
+export const updateProfileGeneralWorkflow = (
+  input: UpdateProfileGeneralInput,
+) =>
+  Effect.gen(function* () {
+    const repo = yield* ProfileRepo;
+    return yield* repo.updateGeneralBySession(input);
+  });

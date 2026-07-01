@@ -1,12 +1,9 @@
-import type { ProfileBilling, ProfileError } from "../types";
-import type { Result } from "../../../lib/result";
+import { Effect } from "effect";
 
-interface GetBillingDependencies {
-  getBilling: () => Promise<Result<ProfileBilling, ProfileError>>;
-}
+import { ProfileRepo } from "../profile-repo";
 
-export const getProfileBillingWorkflow = async ({
-  deps,
-}: {
-  deps: GetBillingDependencies;
-}): Promise<Result<ProfileBilling, ProfileError>> => deps.getBilling();
+export const getProfileBillingWorkflow = (userId: string) =>
+  Effect.gen(function* () {
+    const repo = yield* ProfileRepo;
+    return yield* repo.getBillingByUserId(userId);
+  });

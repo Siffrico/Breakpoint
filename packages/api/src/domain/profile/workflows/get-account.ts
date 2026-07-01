@@ -1,12 +1,9 @@
-import type { ProfileAccount, ProfileError } from "../types";
-import type { Result } from "../../../lib/result";
+import { Effect } from "effect";
 
-interface GetAccountDependencies {
-  getAccount: () => Promise<Result<ProfileAccount, ProfileError>>;
-}
+import { ProfileRepo } from "../profile-repo";
 
-export const getProfileAccountWorkflow = async ({
-  deps,
-}: {
-  deps: GetAccountDependencies;
-}): Promise<Result<ProfileAccount, ProfileError>> => deps.getAccount();
+export const getProfileAccountWorkflow = (userId: string) =>
+  Effect.gen(function* () {
+    const repo = yield* ProfileRepo;
+    return yield* repo.getAccountByUserId(userId);
+  });

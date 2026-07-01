@@ -1,12 +1,9 @@
-import type { ProfileError, ProfileGeneral } from "../types";
-import type { Result } from "../../../lib/result";
+import { Effect } from "effect";
 
-interface GetGeneralDependencies {
-  getGeneral: () => Promise<Result<ProfileGeneral | null, ProfileError>>;
-}
+import { ProfileRepo } from "../profile-repo";
 
-export const getProfileGeneralWorkflow = async ({
-  deps,
-}: {
-  deps: GetGeneralDependencies;
-}): Promise<Result<ProfileGeneral | null, ProfileError>> => deps.getGeneral();
+export const getProfileGeneralWorkflow = (sessionId: string) =>
+  Effect.gen(function* () {
+    const repo = yield* ProfileRepo;
+    return yield* repo.getGeneralBySession(sessionId);
+  });
