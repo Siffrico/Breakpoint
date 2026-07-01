@@ -131,25 +131,22 @@ const buildOutputContract = (
   };
 };
 
+// Only recall flows through this envelope now; the education-unit phases run
+// through their own context builder (education-unit/context.ts). This mapping
+// is retained so the shared type still resolves a move for any phase, but it
+// is not exercised on the education path.
 const selectMove = (state: WorkspaceAiState): WorkspaceContextMove => {
   if (state.mode === "recall") return "recall";
 
   switch (state.educationStage) {
-    case "Diagnose":
-      return "diagnose";
-    case "BreakDown":
-    case "TeachGap":
-    case "NameIdea":
+    case "orient":
+    case "teach":
       return "teach";
-    case "Grill":
-    case "Solve":
+    case "connect":
+      return "diagnose";
+    case "solve":
       return "guide";
-    case "Review":
-    case "Check":
-      return "evaluate";
-    case "Test":
-      return "transfer";
-    case "completed":
+    case "mastered":
     case null:
       return "evaluate";
   }

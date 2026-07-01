@@ -24,6 +24,7 @@ export interface GoldilocksDirectiveResult {
   directive: ScenarioDirective;
   promptBlock: string;
   ratingSnapshot: string;
+  learnerRating: number;
 }
 
 interface GoldilocksJobProgress {
@@ -214,6 +215,7 @@ export const prepareScenarioDirective = async ({
     scenarioAttemptId: scenarioAttempt.id,
     directive,
     promptBlock,
+    learnerRating: Math.round(rating.rating),
     ratingSnapshot: buildRatingSnapshot({
       rating: rating.rating,
       ratingDeviation: rating.ratingDeviation,

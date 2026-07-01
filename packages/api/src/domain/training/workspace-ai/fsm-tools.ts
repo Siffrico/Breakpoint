@@ -12,7 +12,7 @@ import { z } from "zod/v4";
 
 import type { UnitEvent } from "../education-unit/unit";
 
-const GradeConnectionInputSchema = z.object({
+export const GradeConnectionInputSchema = z.object({
   connected: z
     .boolean()
     .describe(
@@ -24,7 +24,7 @@ const GradeConnectionInputSchema = z.object({
     .describe("One sentence: what the learner said or missed, in your own words."),
 });
 
-const GradeSolutionInputSchema = z.object({
+export const GradeSolutionInputSchema = z.object({
   passed: z
     .boolean()
     .describe("True only if the solution is correct AND clearly explained."),

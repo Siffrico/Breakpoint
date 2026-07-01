@@ -7,16 +7,19 @@ import type {
   WorkspaceAiPromptKind,
   WorkspaceAiState,
 } from "./types";
-import type { StepCard } from "./workflow";
-import {
+import type {
   WorkspaceAiEducationOutputSchema,
   WorkspaceAiEvaluationOutputSchema,
-  WorkspaceAiRecallOutputSchema,
 } from "./types";
-import { getStepCard as getRulebookStepCard } from "./workflow";
+import { WorkspaceAiRecallOutputSchema } from "./types";
 
 export type WorkspaceContextMode = "teacher" | "evaluator" | "recall";
 
+// The education_unit teaching loop no longer runs through this runtime — it is
+// driven by the education-unit FSM (see education-unit/orchestrate-unit-turn.ts).
+// The education variant is retained only so the shared context-engine types
+// (build-context-envelope / render-context-prompt) still compile; getStepCard
+// only ever constructs the recall variant now.
 export type WorkspaceTurnRuntime =
   | {
       mode: "education_unit";
@@ -32,7 +35,7 @@ export type WorkspaceTurnRuntime =
         | typeof WorkspaceAiEducationOutputSchema
         | typeof WorkspaceAiEvaluationOutputSchema;
       instruction: string;
-      verdictField: StepCard["verdictField"];
+      verdictField: string;
     }
   | {
       mode: "recall";
@@ -47,21 +50,11 @@ export type WorkspaceTurnRuntime =
 export type WorkspaceTurnOutput<TRuntime extends WorkspaceTurnRuntime> =
   z.infer<TRuntime["outputSchema"]>;
 
-const RUNTIME_BY_KIND = {
-  education: {
-    promptKind: "education_unit",
-    modelPurpose: "education",
-    contextMode: "teacher",
-    outputSchema: WorkspaceAiEducationOutputSchema,
-  },
-  evaluation: {
-    promptKind: "evaluate_feedback",
-    modelPurpose: "evaluation",
-    contextMode: "evaluator",
-    outputSchema: WorkspaceAiEvaluationOutputSchema,
-  },
-} as const;
-
+/**
+ * Produces the runtime for a workspace turn. Only recall flows through here;
+ * education units are handled by the FSM engine, so an education state is a
+ * programming error at this seam.
+ */
 export const getStepCard = (state: WorkspaceAiState): WorkspaceTurnRuntime => {
   if (state.mode === "recall") {
     return {
@@ -75,16 +68,7 @@ export const getStepCard = (state: WorkspaceAiState): WorkspaceTurnRuntime => {
     };
   }
 
-  const stage = state.educationStage ?? "Diagnose";
-  const card = getRulebookStepCard(stage);
-  const runtime = RUNTIME_BY_KIND[card.runtimeKind];
-
-  return {
-    mode: "education_unit",
-    stage,
-    ...runtime,
-    contextMove: card.contextMove,
-    instruction: card.instruction,
-    verdictField: card.verdictField,
-  };
+  throw new Error(
+    "getStepCard was called for an education_unit turn; those run through the education-unit FSM, not the stage runtime.",
+  );
 };

@@ -5,10 +5,11 @@ import type {
   UnitContent,
 } from "../types/training.types";
 import type { WorkspaceAiState, WorkspaceAiTurnMode } from "./types";
-import type { UnitRun } from "./workflow";
+import type { PersistedUnitRun } from "../education-unit/unit";
 import { ensureWorkspaceUnit } from "../workflows/get-ai-workspace-workflow";
-import { getCurrentEducationStage, planWorkspaceTurn } from "./orchestrator";
-import { VERDICT_RULEBOOK_WORKFLOW_ID } from "./workflow";
+import { CURRENT_RECIPE_VERSION } from "../education-unit/unit";
+import { initialState } from "../education-unit/fsm";
+import { planWorkspaceTurn } from "./orchestrator";
 
 export interface WorkspaceTurnDependencies {
   getActivePlan: (sessionId: string) => Promise<CurriculumPlan | null>;
@@ -22,8 +23,8 @@ export interface WorkspaceTurnDependencies {
   getUnitRun: (
     sessionId: string,
     unitContentId: string,
-  ) => Promise<UnitRun | null>;
-  upsertUnitRun: (run: UnitRun) => Promise<UnitRun>;
+  ) => Promise<PersistedUnitRun | null>;
+  upsertUnitRun: (run: PersistedUnitRun) => Promise<PersistedUnitRun>;
   getUnitByNodeId: (nodeId: string) => Promise<UnitContent | null>;
   createUnitContent: (input: {
     nodeId: string;
@@ -44,7 +45,7 @@ export interface ResolvedWorkspaceTurn {
   state: WorkspaceAiState;
   node: CurriculumNode;
   unit: UnitContent;
-  unitRun: UnitRun;
+  unitRun: PersistedUnitRun;
   unitResponses: PhaseResponseRecord[];
 }
 
@@ -72,18 +73,18 @@ export const isUnitAwaitingAdvance = ({
   run,
 }: {
   node: Pick<CurriculumNode, "kind" | "status"> | null;
-  run: UnitRun | null;
+  run: PersistedUnitRun | null;
 }) =>
   isLearningUnit(node) &&
   node.status === "ready" &&
-  run?.currentStepId === "completed";
+  run?.phase === "mastered";
 
 export const assertUnitCanAdvance = ({
   node,
   run,
 }: {
   node: Pick<CurriculumNode, "kind" | "status"> | null;
-  run: UnitRun | null;
+  run: PersistedUnitRun | null;
 }) => {
   if (!node || !isLearningUnit(node)) {
     throw new Error("Unit not found.");
@@ -94,7 +95,7 @@ export const assertUnitCanAdvance = ({
   if (node.status !== "ready") {
     throw new Error("Unit is not active.");
   }
-  if (run?.currentStepId !== "completed") {
+  if (run?.phase !== "mastered") {
     throw new Error("Unit is not complete yet.");
   }
 };
@@ -105,7 +106,7 @@ export const getUnitAdvanceGate = ({
   nextNode,
 }: {
   node: CurriculumNode | null;
-  run: UnitRun | null;
+  run: PersistedUnitRun | null;
   nextNode: CurriculumNode | null;
 }): UnitAdvanceGate => {
   if (!node || !isUnitAwaitingAdvance({ node, run })) {
@@ -138,29 +139,24 @@ export const resolveUnitRunProjection = async ({
   sessionId,
   userId,
   unit,
-  unitResponses,
-  fallbackStepId,
   deps,
 }: {
   sessionId: string;
   userId?: string | null;
   unit: UnitContent;
-  unitResponses: PhaseResponseRecord[];
-  fallbackStepId?: WorkspaceAiState["educationStage"];
   deps: Pick<WorkspaceTurnDependencies, "getUnitRun" | "upsertUnitRun">;
-}): Promise<UnitRun> => {
+}): Promise<PersistedUnitRun> => {
   const existing = await deps.getUnitRun(sessionId, unit.id);
   if (existing) {
     return existing;
   }
 
+  // A brand-new run always begins at the FSM's opening phase on the current
+  // recipe. `initialState` owns the phase/pass/counter defaults.
   return deps.upsertUnitRun({
+    ...initialState(unit.id, CURRENT_RECIPE_VERSION),
     sessionId,
-    unitContentId: unit.id,
-    userId,
-    workflowId: VERDICT_RULEBOOK_WORKFLOW_ID,
-    currentStepId: fallbackStepId ?? getCurrentEducationStage(unitResponses),
-    stepScenarioCount: 0,
+    userId: userId ?? null,
   });
 };
 
@@ -199,7 +195,6 @@ export const resolveWorkspaceTurn = async ({
     ? await resolveUnitRunProjection({
         sessionId,
         unit: readyUnit,
-        unitResponses: readyUnitResponses,
         deps,
       })
     : null;
@@ -232,7 +227,6 @@ export const resolveWorkspaceTurn = async ({
       : await resolveUnitRunProjection({
           sessionId,
           unit,
-          unitResponses,
           deps,
         });
 
@@ -240,8 +234,8 @@ export const resolveWorkspaceTurn = async ({
     state.mode === "education_unit"
       ? {
           ...state,
-          educationStage: unitRun.currentStepId,
-          workflowId: unitRun.workflowId,
+          educationStage: unitRun.phase,
+          workflowId: unitRun.recipeVersion,
         }
       : state;
 
@@ -284,7 +278,6 @@ export const planNextWorkspaceTurn = async ({
     ? await resolveUnitRunProjection({
         sessionId,
         unit: readyUnit,
-        unitResponses: readyUnitResponses,
         deps,
       })
     : null;

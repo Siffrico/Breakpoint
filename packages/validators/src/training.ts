@@ -175,25 +175,37 @@ export const UnitMasteryContractSchema = z.object({
   dimensions: z.array(UnitMasteryDimensionSchema).min(1).max(4),
 });
 
+// The education_unit teaching loop is modelled by the education-unit FSM
+// (packages/api .../education-unit/fsm.ts). These are its coarse phases — the
+// durable cursor persisted on the unit run row — not the retired 9-step
+// verdict rulebook. "mastered" is the terminal phase.
 export const WORKSPACE_EDUCATION_STAGE_IDS = [
-  "Diagnose",
-  "BreakDown",
-  "Grill",
-  "Solve",
-  "Review",
-  "TeachGap",
-  "NameIdea",
-  "Test",
-  "Check",
-  "completed",
+  "orient",
+  "connect",
+  "solve",
+  "teach",
+  "mastered",
 ] as const;
 
+// Maps any stale persisted stage id (the retired 9-step rulebook, and its own
+// even-older legacy ids) onto the nearest v4 phase so historical
+// phase-response metadata still parses. New runs never write these.
 const LEGACY_WORKSPACE_EDUCATION_STAGE_IDS: Record<string, string> = {
-  diagnostic_scenario: "Diagnose",
-  concept_instruction: "BreakDown",
-  guided_application: "Solve",
-  performance_evaluation: "Review",
-  transfer_scenario: "Test",
+  diagnostic_scenario: "connect",
+  concept_instruction: "connect",
+  guided_application: "solve",
+  performance_evaluation: "solve",
+  transfer_scenario: "connect",
+  Diagnose: "connect",
+  BreakDown: "connect",
+  Grill: "connect",
+  Solve: "solve",
+  Review: "solve",
+  TeachGap: "teach",
+  NameIdea: "teach",
+  Test: "connect",
+  Check: "solve",
+  completed: "mastered",
 };
 
 export const normalizeWorkspaceEducationStage = (value: unknown): unknown =>
@@ -206,9 +218,11 @@ export const WorkspaceEducationStageSchema = z.preprocess(
   z.enum(WORKSPACE_EDUCATION_STAGE_IDS),
 );
 
+// The phases a scenario-evaluation contract can be attached to. Only the two
+// graded phases produce scenarios; recall carries its own.
 const WorkspaceScenarioStageSchema = z.preprocess(
   normalizeWorkspaceEducationStage,
-  z.enum(["Diagnose", "Solve", "Review", "Test", "Check", "recall"]),
+  z.enum(["connect", "solve", "recall"]),
 );
 
 export const ScenarioEvaluationDimensionSchema = z.object({

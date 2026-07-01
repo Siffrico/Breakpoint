@@ -45,7 +45,6 @@ type LearningProject =
 
 const LAST_SESSION_COOKIE = "bp-last-learning-session";
 const EMPTY_PROJECTS: LearningProject[] = [];
-const EVALUATION_EDUCATION_STAGES = new Set(["Review", "Test", "Check"]);
 const MAX_COACH_ANSWER_CHARS = 3_200;
 
 type WorkspaceMode = "onboarding" | "unit" | "idle";
@@ -125,14 +124,12 @@ export function WorkspaceShell({
     : liveUnit
       ? "unit"
       : "idle";
-  const activeEducationState =
-    aiWorkspace?.state?.mode === "education_unit" ? aiWorkspace.state : null;
+  // Education units are not timed under the v4 FSM — the server never emits an
+  // evaluationPlan for them — so this resolves to null and the timer stays
+  // dormant. Sourced from the server field (rather than a literal null) so the
+  // timer code paths remain type-valid if timed scenarios are reintroduced.
   const activeEvaluationPlan: EvaluationPlan | null =
-    mode === "unit" &&
-    activeEducationState?.educationStage != null &&
-    EVALUATION_EDUCATION_STAGES.has(activeEducationState.educationStage)
-      ? (aiWorkspace?.evaluationPlan ?? null)
-      : null;
+    aiWorkspace?.evaluationPlan ?? null;
   const canRequestNextScenario =
     aiWorkspace?.evaluationProgress?.canRequestNextScenario ?? false;
   const unitAdvanceGate = aiWorkspace?.unitAdvanceGate ?? { status: "locked" };

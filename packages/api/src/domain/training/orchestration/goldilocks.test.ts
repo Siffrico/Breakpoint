@@ -36,6 +36,7 @@ void test("prepared difficulty carries the opened scenario attempt id", async ()
   });
 
   assert.equal(result.scenarioAttemptId, "scenario-1");
+  assert.equal(result.learnerRating, createInitialRatingState().rating);
 });
 
 void test("rating evaluation addresses the exact scenario attempt", async () => {

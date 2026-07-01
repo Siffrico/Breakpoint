@@ -332,6 +332,12 @@ const commitRecallTurn = async ({
       leaseId: input.turnLeaseId,
     });
 
+    const userMessage = input.userMessage
+      ? await trainingOnboardingRepository.appendWorkspaceMessage({
+          db: txDb,
+          ...input.userMessage,
+        })
+      : null;
     const assistantMessage =
       await trainingOnboardingRepository.appendWorkspaceMessage({
         db: txDb,
@@ -356,6 +362,7 @@ const commitRecallTurn = async ({
       turnId: input.turnId,
       leaseId: input.turnLeaseId,
       assistantMessage,
+      userMessage,
     });
 
     return { assistantMessage };

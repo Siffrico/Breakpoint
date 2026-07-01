@@ -66,7 +66,6 @@ const AUTO_SCROLL_BOTTOM_THRESHOLD = 160;
 const CHAT_COLUMN_CLASS =
   "mx-auto w-[calc(100%-2rem)] max-w-[48.9rem] sm:w-[calc(100%-3rem)]";
 const PREVIEW_RESPONSE_DELAY_MS = 450;
-const EVALUATION_EDUCATION_STAGES = new Set(["Review", "Test", "Check"]);
 
 const isViewportNearBottom = () => {
   if (typeof window === "undefined") return true;
@@ -614,12 +613,9 @@ export function EducationUnitWorkspace({
     !missingTranscriptForResumedUnit &&
     !awaitingUnitAdvance &&
     !canRequestNextScenario &&
-    Boolean(
-      aiWorkspace?.state?.mode === "recall" ||
-        (aiWorkspace?.state?.mode === "education_unit" &&
-          aiWorkspace.state.educationStage != null &&
-          EVALUATION_EDUCATION_STAGES.has(aiWorkspace.state.educationStage)),
-    );
+    // Difficulty is only learner-adjustable in recall. Education units drive
+    // difficulty automatically through the FSM's pass-2 Goldilocks write.
+    aiWorkspace?.state?.mode === "recall";
 
   useEffect(() => {
     onRunningChange?.(effectiveIsRunning);

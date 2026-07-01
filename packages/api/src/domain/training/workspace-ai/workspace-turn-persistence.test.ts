@@ -1,49 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 
+import type { UnitTurnResult } from "../education-unit/orchestrate-unit-turn";
+import type { CurriculumPlan, UnitContent } from "../types/training.types";
+import type { WorkspaceAiState } from "./types";
 import type {
-  PhaseResponseRecord,
-  ScenarioEvaluationContract,
-  UnitContent,
-} from "../types/training.types";
-import type { WorkspaceTurnPersistenceDependencies } from "./workspace-turn-persistence";
-import { saveNextScenarioPrompt } from "./workspace-turn-persistence";
-
-const unitMasteryContract = {
-  version: 1,
-  dimensions: [
-    {
-      id: "diagnose-cause",
-      name: "Diagnose cause",
-      description: "Find the cause before choosing a remedy.",
-      passSignals: ["Uses scenario evidence."],
-      failSignals: ["Guesses from labels."],
-      surrogateTraps: ["Generic advice."],
-    },
-  ],
-} satisfies NonNullable<UnitContent["unitMasteryContract"]>;
-
-const scenarioEvaluationContract = {
-  version: 1,
-  scenarioStage: "Review",
-  scenarioPromptSummary: "Diagnose the failing workflow.",
-  testedDimensions: [
-    {
-      dimensionId: "diagnose-cause",
-      promptRole: "Tests diagnosis under ambiguity.",
-      expectedStrongMoves: ["Separates symptom from cause."],
-      acceptableVariants: ["Names uncertainty explicitly."],
-      commonWrongMoves: ["Jumps to a fix."],
-      scoreBands: {
-        strong: "Evidence-backed diagnosis.",
-        partial: "Some evidence, incomplete causal chain.",
-        weak: "Generic fix without diagnosis.",
-      },
-    },
-  ],
-  learnerVisibleCriteria: ["Use the scenario evidence."],
-  evaluatorNotes: ["Private rubric."],
-} satisfies ScenarioEvaluationContract;
+  WorkspaceEducationTurnCommit,
+  WorkspaceTurnPersistenceDependencies,
+} from "./workspace-turn-persistence";
+import { saveUnitPhaseResult } from "./workspace-turn-persistence";
 
 const unit = {
   id: "unit-content-1",
@@ -74,137 +39,146 @@ const unit = {
     passSignals: ["Uses evidence.", "Names uncertainty."],
     failureModes: ["Guesses.", "Overfits the visible symptom."],
   },
-  scenario: {
-    title: "Workflow failure",
-    focusAreas: ["diagnosis"],
-  },
-  unitMasteryContract,
-  difficultyBands: [
-    { order: 0, minRating: 900, maxRating: 1100, label: "Supported diagnosis" },
-    { order: 1, minRating: 1100, maxRating: 1300, label: "Messy diagnosis" },
-    { order: 2, minRating: 1300, maxRating: 1500, label: "Transfer diagnosis" },
-  ],
+  scenario: { title: "Workflow failure", focusAreas: ["diagnosis"] },
+  unitMasteryContract: null,
+  difficultyBands: null,
 } satisfies UnitContent;
 
-const makeDeps = (calls: string[]): WorkspaceTurnPersistenceDependencies => ({
-  appendMessage: () => {
-    calls.push("appendMessage");
-    return Promise.resolve({
-      id: "message-1",
-      sessionId: "session-1",
-      role: "assistant",
-      content: "Replacement scenario",
-      sequence: 1,
-      slot: "education_unit",
-      unitId: "node-1",
-      metadata: null,
-      createdAt: new Date(),
-    });
-  },
-  listMessages: () => Promise.resolve([]),
-  listPhaseResponsesBySession: () => Promise.resolve([]),
-  getPhaseResponses: () => {
-    calls.push("getPhaseResponses");
-    return Promise.resolve([]);
-  },
-  getUnitRun: () => Promise.resolve(null),
-  upsertUnitRun: (run) => Promise.resolve(run),
-  getUnitByNodeId: () => Promise.resolve(unit),
-  createUnitContent: () => Promise.resolve(unit),
-  savePhaseResponse: () => {
-    calls.push("savePhaseResponse");
-    return Promise.resolve({
-      id: "response-1",
-      unitContentId: "unit-content-1",
-      sessionId: "session-1",
-      userId: "user-1",
-      phase: "ai_education",
-      sequence: 0,
-      userResponse: "[next_scenario_requested]",
-      aiResponse: "Replacement scenario",
-      passed: null,
-      score: null,
-      metadata: null,
-      createdAt: new Date(),
-    } satisfies PhaseResponseRecord);
-  },
-  updateUnitMasteryContract: () => {
-    calls.push("updateUnitMasteryContract");
-    return Promise.resolve({});
-  },
-  updateScenarioContract: () => {
-    calls.push("updateScenarioContract");
-    return Promise.resolve(null);
-  },
-  saveAttempt: () => Promise.resolve(),
-  completeNode: () => Promise.resolve(null),
-  commitEducationTurn: () => {
-    calls.push("commitEducationTurn");
-    return Promise.resolve({
-      assistantMessage: {
-        id: "00000000-0000-0000-0000-000000000101",
-        role: "assistant",
-        content: "Saved",
-        sequence: 1,
-        slot: "education_unit",
-        unitId: "node-1",
-        metadata: null,
-      },
-      nextReadyNode: null,
-    });
-  },
-  commitRecallTurn: () => {
-    calls.push("commitRecallTurn");
-    return Promise.reject(new Error("commitRecallTurn should not be called"));
-  },
-  commitNextScenarioPrompt: (input) => {
-    calls.push("commitNextScenarioPrompt");
-    const contract = input.contracts?.openScenarioContract;
-    assert.ok(contract);
-    assert.equal(contract.scenarioPrompt, "Replacement scenario");
-    assert.equal(contract.scenarioAttemptId, "scenario-1");
-    throw new Error(
-      "Scenario evaluation contract could not be attached to an open scenario.",
-    );
-  },
-  touchSession: () => {
-    calls.push("touchSession");
-    return Promise.resolve();
-  },
-});
+// No ready node -> planNextWorkspaceTurn resolves to null, exercising the
+// fallback state path (unit just mastered, awaiting the Next-Unit gate).
+const plan = {
+  title: "Plan",
+  summary: "Summary",
+  targetIdentity: "Identity",
+  nodes: [],
+} as unknown as CurriculumPlan;
 
-void test("next-scenario persistence fails when the private contract cannot attach to an open scenario", async () => {
-  const calls: string[] = [];
+const state = {
+  mode: "education_unit",
+  promptKind: "education_unit",
+  educationStage: "solve",
+  workflowId: "education-unit-v1",
+  activeUnitId: "node-1",
+  activeUnitTitle: "Diagnose workflow failure",
+  recallUnitId: null,
+  recallUnitTitle: null,
+} satisfies WorkspaceAiState;
 
-  await assert.rejects(
-    () =>
-      saveNextScenarioPrompt({
-        sessionId: "session-1",
-        userId: "user-1",
-        unit,
-        output: {
-          assistantMessage: "Replacement scenario",
-          unitMasteryContract,
-          scenarioEvaluationContract,
-          estimatedItemRating: 1200,
-          stageComplete: false,
-          reviewQuality: "retry",
-          unitComplete: false,
-          score: null,
-          strengths: [],
-          improvements: [],
+const masteredTurn: UnitTurnResult = {
+  assistantMessage: "That's a correct, well-explained solution.",
+  event: { type: "solution_graded", passed: true },
+  nextState: {
+    unitId: "unit-content-1",
+    recipeVersion: "education-unit-v1",
+    phase: "mastered",
+    pass: 2,
+    connectGrills: 0,
+    solveRepairs: 0,
+  },
+  forcedConnectAdvance: false,
+  gradeReasoning: "Correct and clearly reasoned.",
+  ratingWrite: { score: 90 },
+};
+
+void test("saveUnitPhaseResult commits a mastered pass-2 solve with completion and rating", async () => {
+  let captured: WorkspaceEducationTurnCommit | null = null;
+
+  const deps = {
+    getPhaseResponses: () => Promise.resolve([]),
+    listPhaseResponsesBySession: () => Promise.resolve([]),
+    listMessages: () => Promise.resolve([]),
+    getUnitRun: () => Promise.resolve(null),
+    upsertUnitRun: (run: unknown) => Promise.resolve(run),
+    getUnitByNodeId: () => Promise.resolve(unit),
+    createUnitContent: () => Promise.resolve(unit),
+    commitEducationTurn: (input: WorkspaceEducationTurnCommit) => {
+      captured = input;
+      return Promise.resolve({
+        assistantMessage: {
+          id: "00000000-0000-0000-0000-000000000101",
+          role: "assistant",
+          content: input.assistantMessage.content,
+          sequence: 1,
+          slot: "education_unit",
+          unitId: "node-1",
+          metadata: null,
         },
-        evaluationPlan: null,
-        currentStage: "Review",
-        scenarioAttemptId: "scenario-1",
-        deps: makeDeps(calls),
-      }),
-    /open scenario|scenario contract/i,
-  );
+        nextReadyNode: null,
+      });
+    },
+    commitRecallTurn: () =>
+      Promise.reject(new Error("commitRecallTurn should not be called")),
+    commitNextScenarioPrompt: () =>
+      Promise.reject(
+        new Error("commitNextScenarioPrompt should not be called"),
+      ),
+    appendMessage: () => Promise.resolve(null),
+    savePhaseResponse: () => Promise.resolve(null),
+    updateUnitMasteryContract: () => Promise.resolve({}),
+    updateScenarioContract: () => Promise.resolve(null),
+    saveAttempt: () => Promise.resolve(),
+    completeNode: () => Promise.resolve(null),
+    touchSession: () => Promise.resolve(),
+  } as unknown as WorkspaceTurnPersistenceDependencies;
 
-  assert.deepEqual(
-    calls,
-    ["getPhaseResponses", "commitNextScenarioPrompt"],
-    "scenario replacement should be handed to the atomic commit boundary",
-  );
+  const ratingEvaluation = {
+    scenarioAttemptId: "scenario-1",
+    userId: "user-1",
+    nodeId: "cluster-1",
+    score: 90,
+    errorCodes: [],
+    wasOverTime: false,
+    occurredAt: new Date(),
+    bands: null,
+  };
+
+  const result = await saveUnitPhaseResult({
+    sessionId: "session-1",
+    userId: "user-1",
+    message: "Here is my final solution.",
+    state,
+    unit,
+    plan,
+    turnResult: masteredTurn,
+    ratingEvaluation,
+    persistUserMessage: true,
+    phaseResponseSequence: 0,
+    turnId: "turn-1",
+    turnLeaseId: "lease-1",
+    deps,
+  });
+
+  assert.ok(captured, "commitEducationTurn should have been called");
+  const commit = captured as unknown as WorkspaceEducationTurnCommit;
+  assert.equal(commit.nextRun.phase, "mastered");
+  assert.equal(commit.nextRun.pass, 2);
+  assert.equal(commit.phaseResponse.metadata?.aiEducationStage, "mastered");
+  assert.equal(commit.phaseResponse.passed, true);
+  assert.equal(commit.phaseResponse.score, 90);
+  assert.ok(commit.completion, "a mastered unit records a completion attempt");
+  assert.equal(commit.completion.nodeId, "node-1");
+  assert.equal(commit.ratingEvaluation, ratingEvaluation);
+  assert.equal(commit.userMessage?.content, "Here is my final solution.");
+  // No next runnable turn -> fallback state carries the mastered phase.
+  assert.equal(result.state.educationStage, "mastered");
+
+  captured = null;
+  await saveUnitPhaseResult({
+    sessionId: "session-1",
+    userId: "user-1",
+    message: "A message already appended before inference.",
+    state,
+    unit,
+    plan,
+    turnResult: masteredTurn,
+    ratingEvaluation: null,
+    persistUserMessage: false,
+    phaseResponseSequence: 3,
+    deps,
+  });
+
+  assert.ok(captured, "the non-claimed turn should still commit");
+  const nonClaimedCommit = captured as unknown as WorkspaceEducationTurnCommit;
+  assert.equal(nonClaimedCommit.userMessage, null);
+  assert.equal(nonClaimedCommit.phaseResponse.sequence, 3);
 });

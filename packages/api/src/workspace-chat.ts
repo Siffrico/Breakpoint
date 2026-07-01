@@ -11,6 +11,7 @@ import {
 
 import type { db as databaseClient } from "@acme/db/client";
 
+import type { WorkspaceAiEducationStage } from "./domain/training/workspace-ai/types";
 import type {
   ManualDifficultySignal,
   WorkspaceChatAction,
@@ -20,11 +21,13 @@ import {
   requireAiModelForPurpose,
   withAiModelPreference,
 } from "./domain/training/engine/model-router";
+import { WorkspaceUserError } from "./domain/training/errors";
 import { getWorkspaceAiSystemPrompt } from "./domain/training/workspace-ai/runtime";
+import { resolveWorkspaceTurn } from "./domain/training/workspace-ai/workspace-turn";
 import {
-  completeWorkspaceTurn,
-  parseWorkspaceTurnOutput,
-  prepareWorkspaceTurnPrompt,
+  prepareRecallTurnPrompt,
+  runEducationUnitTurn,
+  saveRecallStepResult,
 } from "./domain/training/workspace-ai/workspace-turn-orchestration";
 import { trainingOnboardingRepository } from "./repositories/training-onboarding-repository";
 import { createWorkspaceTurnRepositoryDeps } from "./repositories/workspace-turn-repository-deps";
@@ -49,6 +52,29 @@ type WorkspaceChatUIMessage = UIMessage<unknown, WorkspaceStatusData>;
 
 const WORKSPACE_ASSISTANT_TEXT_PART_ID = "workspace-assistant";
 
+/**
+ * Education phase agents emit their complete reply as one block. This label is
+ * what the learner sees while the model is working. The exhaustive switch (no
+ * default) forces a copy decision whenever a phase is added or renamed.
+ */
+const getEducationTurnLabel = (
+  stage: WorkspaceAiEducationStage | null,
+): string => {
+  switch (stage) {
+    case "orient":
+      return "Setting up this unit";
+    case "connect":
+      return "Checking your reasoning";
+    case "solve":
+      return "Reviewing your solution";
+    case "teach":
+      return "Preparing the next concept";
+    case "mastered":
+    case null:
+      return "Preparing feedback";
+  }
+};
+
 export const streamWorkspaceChat = async ({
   db,
   sessionId,
@@ -58,6 +84,7 @@ export const streamWorkspaceChat = async ({
   modelName,
   action = "submit_answer",
   manualDifficultySignal = null,
+  scheduleBackgroundTask,
 }: {
   db: Database;
   sessionId: string;
@@ -67,6 +94,7 @@ export const streamWorkspaceChat = async ({
   modelName?: string | null;
   action?: WorkspaceChatAction;
   manualDifficultySignal?: ManualDifficultySignal | null;
+  scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }): Promise<Response> =>
   withAiModelPreference(modelName, () =>
     streamWorkspaceChatWithModelPreference({
@@ -77,6 +105,7 @@ export const streamWorkspaceChat = async ({
       turnId,
       action,
       manualDifficultySignal,
+      scheduleBackgroundTask,
     }),
   );
 
@@ -88,6 +117,7 @@ const streamWorkspaceChatWithModelPreference = async ({
   turnId,
   action,
   manualDifficultySignal,
+  scheduleBackgroundTask,
 }: {
   db: Database;
   sessionId: string;
@@ -96,9 +126,12 @@ const streamWorkspaceChatWithModelPreference = async ({
   turnId: string | null;
   action: WorkspaceChatAction;
   manualDifficultySignal: ManualDifficultySignal | null;
+  scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }) => {
   const trimmedMessage = message.trim();
-  const turnLeaseId = turnId ? randomUUID() : null;
+  // This layer owns both the lease and the failure path. Lower layers must
+  // never create a lease id that this catch boundary cannot release.
+  const effectiveLeaseId = turnId ? randomUUID() : null;
   if (action === "submit_answer" && trimmedMessage.length < 2) {
     return new Response(
       "Write a fuller message so the AI can respond usefully.",
@@ -120,7 +153,10 @@ const streamWorkspaceChatWithModelPreference = async ({
   }
 
   const stream = createUIMessageStream<WorkspaceChatUIMessage>({
-    onError: () => "AI feedback could not be prepared.",
+    onError: (error) =>
+      error instanceof WorkspaceUserError
+        ? error.message
+        : "AI feedback could not be prepared.",
     execute: async ({ writer }) => {
       writer.write({ type: "start" });
       writer.write({
@@ -183,31 +219,62 @@ const streamWorkspaceChatWithModelPreference = async ({
 
       const turnDeps = createWorkspaceTurnRepositoryDeps(db);
       const markTurnFailed = async (error: unknown) => {
-        if (!turnId || !turnLeaseId || !turnDeps.markWorkspaceTurnFailed)
+        if (!turnId || !effectiveLeaseId || !turnDeps.markWorkspaceTurnFailed)
           return;
-        if (
-          error instanceof Error &&
-          /already being processed/i.test(error.message)
-        ) {
+        if (error instanceof WorkspaceUserError) {
           return;
         }
         await turnDeps.markWorkspaceTurnFailed({
           sessionId,
           turnId,
-          leaseId: turnLeaseId,
+          leaseId: effectiveLeaseId,
           reason: error instanceof Error ? error.message : "unknown error",
         });
       };
 
       try {
-        const prepared = await prepareWorkspaceTurnPrompt({
+        const turn = await resolveWorkspaceTurn({
+          sessionId,
+          deps: turnDeps,
+        });
+
+        // Education phase agents emit one complete reply before persistence.
+        // Recall still streams token-by-token below.
+        if (turn.state.mode === "education_unit") {
+          writeStatus(
+            "thinking",
+            getEducationTurnLabel(turn.state.educationStage),
+          );
+          await runEducationUnitTurn({
+            sessionId,
+            userId,
+            turnId,
+            turnLeaseId: effectiveLeaseId,
+            message,
+            turn,
+            deps: turnDeps,
+            onAssistantMessage: (content) => {
+              streamAssistantDelta(content);
+              endAssistantText();
+              // The reply is on screen; persistence is still running behind it.
+              writeStatus("saving", "Saving your progress");
+            },
+            scheduleBackgroundTask,
+          });
+          writeStatus("complete", "Complete");
+          writer.write({ type: "finish", finishReason: "stop" });
+          return;
+        }
+
+        const prepared = await prepareRecallTurnPrompt({
           sessionId,
           userId,
           turnId,
-          turnLeaseId,
+          turnLeaseId: effectiveLeaseId,
           message,
           action,
           manualDifficultySignal,
+          turn,
           deps: turnDeps,
         });
 
@@ -272,10 +339,9 @@ const streamWorkspaceChatWithModelPreference = async ({
         }
 
         const rawOutput = await result.output;
-        const output = parseWorkspaceTurnOutput({
-          runtime,
-          rawOutput,
-        });
+        const output = runtime.outputSchema.parse(rawOutput) as {
+          assistantMessage: string;
+        };
         streamAssistantDelta(output.assistantMessage);
         endAssistantText();
         writeStatus(
@@ -286,7 +352,7 @@ const streamWorkspaceChatWithModelPreference = async ({
               ? "Saving recalibrated scenario"
               : "Saving feedback",
         );
-        await completeWorkspaceTurn({
+        await saveRecallStepResult({
           prepared,
           rawOutput: output,
           deps: turnDeps,

@@ -1,3 +1,5 @@
+import type { UnitTurnResult } from "../education-unit/orchestrate-unit-turn";
+import type { PersistedUnitRun, UnitEvent } from "../education-unit/unit";
 import type {
   CurriculumNode,
   CurriculumPlan,
@@ -7,24 +9,16 @@ import type {
   UnitContent,
 } from "../types/training.types";
 import type {
-  AttemptTiming,
-  EvaluationPlan,
   WorkspaceAiEducationOutput,
-  WorkspaceAiEvaluationOutput,
   WorkspaceAiMessage,
   WorkspaceAiRecallOutput,
   WorkspaceAiState,
   WorkspaceAiTurnResult,
 } from "./types";
-import type { UnitRun, WorkspaceStepVerdict } from "./workflow";
 import type { WorkspaceTurnDependencies } from "./workspace-turn";
-import { validateScenarioContractAgainstUnit } from "./evaluation-contracts";
-import { advanceUnitRun } from "./orchestrator";
-import { passesUnitCompletionGate } from "./workflow";
 import {
   getWorkspaceMessageSlot,
   planNextWorkspaceTurn,
-  resolveUnitRunProjection,
 } from "./workspace-turn";
 
 export interface WorkspaceTurnPersistenceDependencies
@@ -172,7 +166,7 @@ export interface WorkspaceEducationTurnCommit {
   contracts: WorkspaceOutputContractCommit | null;
   phaseResponse: WorkspacePhaseResponseCommit;
   ratingEvaluation: WorkspaceRatingEvaluationCommit | null;
-  nextRun: UnitRun;
+  nextRun: PersistedUnitRun;
   completion: {
     nodeId: string;
     attempt: Parameters<WorkspaceTurnPersistenceDependencies["saveAttempt"]>[0];
@@ -197,6 +191,9 @@ export interface WorkspaceRecallTurnCommit {
   assistantMessage: Omit<WorkspaceAssistantMessageCommit, "slot"> & {
     slot: "recall";
   };
+  userMessage:
+    | (Omit<WorkspaceUserMessageCommit, "slot"> & { slot: "recall" })
+    | null;
   phaseResponse: WorkspacePhaseResponseCommit;
   touchSessionId: string;
 }
@@ -213,228 +210,37 @@ export interface WorkspaceNextScenarioCommit {
 const getDifficultyDirectiveMetadata = (reason?: string | null) =>
   reason ? { difficultyDirectiveReason: reason } : null;
 
-const countPhaseResponses = (
-  responses: PhaseResponseRecord[],
-  phase: PhaseResponseRecord["phase"],
-) => responses.filter((response) => response.phase === phase).length;
+/** A short, stable verdict word for the persisted phase-response metadata. */
+const verdictLabel = (event: UnitEvent): string => {
+  switch (event.type) {
+    case "teach_done":
+      return "teach_done";
+    case "connection_graded":
+      return event.connected ? "connected" : "not_connected";
+    case "solution_graded":
+      return event.passed ? "passed" : "not_passed";
+  }
+};
 
-const buildCompletionDebrief = ({
-  message,
-  output,
-}: {
-  message: string;
-  output: WorkspaceAiEducationOutput | WorkspaceAiEvaluationOutput;
-}): Debrief => ({
+/**
+ * A minimal completion debrief for a mastered unit. The v4 loop's evidence
+ * lives in the transcript and the pass-2 solve grade, not in a structured
+ * strengths/improvements payload, so this is deliberately thin.
+ */
+const buildUnitCompletionDebrief = (
+  message: string,
+  reasoning: string | null,
+): Debrief => ({
   seedResponse: "",
   finalArticulation: message,
-  growthDimensions:
-    output.strengths.length > 0 ? output.strengths : ["Completed the unit."],
-  score: output.score ?? 0,
+  growthDimensions: ["Completed the unit through both passes."],
+  score: 100,
   readiness: "ready_for_next_unit",
-  strengths:
-    output.strengths.length > 0 ? output.strengths : ["Completed the unit."],
-  improvements:
-    output.improvements.length > 0
-      ? output.improvements
-      : ["Continue applying this under realistic constraints."],
-  failureTags: output.improvements,
+  strengths: [reasoning ?? "Mastered the unit's transfer scenario."],
+  improvements: ["Keep applying this under new, realistic constraints."],
+  failureTags: [],
   nextStep: "Continue to the next training unit.",
 });
-
-const CONTRACTED_SCENARIO_STAGES = new Set([
-  "Diagnose",
-  "Solve",
-  "Review",
-  "Test",
-  "Check",
-]);
-
-const buildOutputContractCommit = ({
-  unit,
-  currentStage,
-  output,
-  scenarioAttemptId,
-}: {
-  unit: UnitContent;
-  currentStage: WorkspaceAiState["educationStage"];
-  output: WorkspaceAiEducationOutput | WorkspaceAiEvaluationOutput;
-  scenarioAttemptId: string | null;
-}): WorkspaceOutputContractCommit | null => {
-  const unitMasteryContract =
-    output.unitMasteryContract ?? unit.unitMasteryContract ?? null;
-
-  if (!output.unitMasteryContract && !output.scenarioEvaluationContract) {
-    return null;
-  }
-
-  const commit: WorkspaceOutputContractCommit = {
-    unitContentId: unit.id,
-    unitMasteryContract: output.unitMasteryContract,
-  };
-
-  if (!output.scenarioEvaluationContract) return commit;
-
-  if (!currentStage || !CONTRACTED_SCENARIO_STAGES.has(currentStage)) {
-    return commit;
-  }
-
-  if (!unitMasteryContract) {
-    throw new Error(
-      "Scenario evaluation contract cannot be persisted without a unit mastery contract.",
-    );
-  }
-
-  validateScenarioContractAgainstUnit({
-    unitContract: unitMasteryContract,
-    scenarioContract: output.scenarioEvaluationContract,
-  });
-
-  if (!scenarioAttemptId) {
-    throw new Error("Scenario evaluation contract has no scenario attempt.");
-  }
-
-  commit.openScenarioContract = {
-    scenarioAttemptId,
-    scenarioPrompt: output.assistantMessage,
-    scenarioContract: output.scenarioEvaluationContract,
-  };
-
-  return commit;
-};
-
-const buildRatingEvaluationCommit = ({
-  userId,
-  output,
-  attemptTiming,
-  ratingNodeId,
-  ratingBands,
-  scenarioAttemptId,
-}: {
-  userId: string;
-  output: WorkspaceAiEducationOutput | WorkspaceAiEvaluationOutput;
-  attemptTiming?: AttemptTiming | null;
-  ratingNodeId: string;
-  ratingBands?: readonly DifficultyBand[] | null;
-  scenarioAttemptId: string | null;
-}): WorkspaceRatingEvaluationCommit | null => {
-  if (!("dimensionResults" in output) || output.score == null) {
-    return null;
-  }
-  if (!scenarioAttemptId) {
-    throw new Error("Scored evaluation has no scenario attempt.");
-  }
-
-  return {
-    scenarioAttemptId,
-    userId,
-    nodeId: ratingNodeId,
-    score: output.score,
-    errorCodes: output.dimensionResults.map(
-      (dimensionResult) => dimensionResult.dimensionId,
-    ),
-    wasOverTime: attemptTiming?.wasOverTime ?? false,
-    occurredAt: new Date(),
-    bands: ratingBands ?? null,
-  };
-};
-
-const buildPhaseEvent = ({
-  sessionId,
-  userId,
-  message,
-  unit,
-  output,
-  nextStepId,
-  runtime,
-  verdict,
-  attemptTiming,
-  evaluationPlan,
-  difficultyDirectiveReason,
-  scenarioAttemptId,
-}: {
-  sessionId: string;
-  userId: string;
-  message: string;
-  unit: UnitContent;
-  output: WorkspaceAiEducationOutput | WorkspaceAiEvaluationOutput;
-  nextStepId: NonNullable<WorkspaceAiState["educationStage"]>;
-  runtime: {
-    promptKind: "education_unit" | "evaluate_feedback";
-    modelPurpose: "education" | "evaluation";
-  };
-  verdict: WorkspaceStepVerdict;
-  attemptTiming?: AttemptTiming | null;
-  evaluationPlan?: EvaluationPlan | null;
-  difficultyDirectiveReason?: string | null;
-  scenarioAttemptId?: string | null;
-}): WorkspacePhaseResponseCommit => ({
-  unitContentId: unit.id,
-  sessionId,
-  userId,
-  phase: "ai_education",
-  userResponse: message,
-  aiResponse: output.assistantMessage,
-  passed: nextStepId === "completed",
-  score: output.score,
-  metadata: {
-    aiEducationStage: nextStepId,
-    promptKind: runtime.promptKind,
-    modelPurpose: runtime.modelPurpose,
-    verdict,
-    evaluationSummary:
-      "evaluationSummary" in output ? output.evaluationSummary : undefined,
-    failedDimensions:
-      "failedDimensions" in output ? output.failedDimensions : undefined,
-    dimensionResults:
-      "dimensionResults" in output ? output.dimensionResults : undefined,
-    evaluationPlan:
-      "evaluationPlan" in output
-        ? (evaluationPlan ?? output.evaluationPlan)
-        : undefined,
-    attemptTiming: attemptTiming ?? undefined,
-    scenarioAttemptId: scenarioAttemptId ?? undefined,
-    difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
-    estimatedItemRating: output.estimatedItemRating ?? undefined,
-    feedback: output.assistantMessage,
-    evidenceAnchors:
-      "evidenceCitations" in output
-        ? output.evidenceCitations
-        : output.strengths,
-  },
-});
-
-const buildCompletionCommit = ({
-  sessionId,
-  userId,
-  message,
-  unit,
-  output,
-  mastered,
-}: {
-  sessionId: string;
-  userId: string;
-  message: string;
-  unit: UnitContent;
-  output: WorkspaceAiEducationOutput | WorkspaceAiEvaluationOutput;
-  mastered: boolean;
-}): WorkspaceEducationTurnCommit["completion"] => {
-  if (!mastered) {
-    return null;
-  }
-
-  return {
-    nodeId: unit.nodeId,
-    attempt: {
-      sessionId,
-      userId,
-      unitId: unit.id,
-      response: message,
-      debrief: buildCompletionDebrief({ message, output }),
-      finalArticulation: message,
-      growthDimensions: output.strengths,
-    },
-  };
-};
 
 export const saveRecallTurnResult = async ({
   sessionId,
@@ -448,6 +254,8 @@ export const saveRecallTurnResult = async ({
   manualDifficultySignal,
   turnId,
   turnLeaseId,
+  persistUserMessage,
+  phaseResponseSequence,
   deps,
 }: {
   sessionId: string;
@@ -461,12 +269,23 @@ export const saveRecallTurnResult = async ({
   manualDifficultySignal?: "too_easy" | "too_hard" | null;
   turnId?: string | null;
   turnLeaseId?: string | null;
+  persistUserMessage: boolean;
+  phaseResponseSequence: number;
   deps: WorkspaceTurnPersistenceDependencies;
 }): Promise<WorkspaceAiTurnResult> => {
-  const recallResponses = await deps.getPhaseResponses(unit.id, sessionId);
   const { assistantMessage } = await deps.commitRecallTurn({
     turnId,
     turnLeaseId,
+    userMessage: persistUserMessage
+      ? {
+          sessionId,
+          role: "user",
+          content: message,
+          slot: "recall",
+          unitId: unit.nodeId,
+          turnId,
+        }
+      : null,
     assistantMessage: {
       sessionId,
       role: "assistant",
@@ -481,7 +300,7 @@ export const saveRecallTurnResult = async ({
       sessionId,
       userId,
       phase: "ai_recall",
-      sequence: countPhaseResponses(recallResponses, "ai_recall"),
+      sequence: phaseResponseSequence,
       userResponse: message,
       aiResponse: output.assistantMessage,
       passed: output.recallComplete,
@@ -509,24 +328,28 @@ export const saveRecallTurnResult = async ({
   };
 };
 
-export const saveEducationTurnResult = async ({
+/**
+ * Persists one education-unit FSM turn: the user + assistant messages, a phase
+ * response carrying the new phase, the advanced unit-run cursor, an optional
+ * Goldilocks write (only the passing pass-2 solve supplies one), and the
+ * completion attempt once the unit is mastered. The `state` fallback is only
+ * used when the curriculum has no next runnable turn (unit just mastered and
+ * awaiting the Next-Unit gate).
+ */
+export const saveUnitPhaseResult = async ({
   sessionId,
   userId,
   message,
   state,
   unit,
   plan,
-  output,
-  attemptTiming,
-  evaluationPlan,
-  priorEvaluationAttempts,
-  verdict,
+  turnResult,
+  ratingEvaluation,
   difficultyDirectiveReason,
-  ratingNodeId,
-  ratingBands,
-  scenarioAttemptId,
   turnId,
   turnLeaseId,
+  persistUserMessage,
+  phaseResponseSequence,
   deps,
 }: {
   sessionId: string;
@@ -535,114 +358,87 @@ export const saveEducationTurnResult = async ({
   state: WorkspaceAiState;
   unit: UnitContent;
   plan: CurriculumPlan;
-  output: WorkspaceAiEducationOutput | WorkspaceAiEvaluationOutput;
-  attemptTiming?: AttemptTiming | null;
-  evaluationPlan?: EvaluationPlan | null;
-  priorEvaluationAttempts: number;
-  verdict: WorkspaceStepVerdict;
+  turnResult: UnitTurnResult;
+  ratingEvaluation: WorkspaceRatingEvaluationCommit | null;
   difficultyDirectiveReason?: string | null;
-  ratingNodeId: string;
-  ratingBands?: readonly DifficultyBand[] | null;
-  scenarioAttemptId: string | null;
   turnId?: string | null;
   turnLeaseId?: string | null;
+  persistUserMessage: boolean;
+  phaseResponseSequence: number;
   deps: WorkspaceTurnPersistenceDependencies;
 }): Promise<WorkspaceAiTurnPersistenceResult> => {
-  if (!state.educationStage) {
-    throw new Error("Education stage is missing.");
-  }
+  const {
+    nextState,
+    event,
+    forcedConnectAdvance,
+    gradeReasoning,
+    ratingWrite,
+  } = turnResult;
+  const aiMessage = turnResult.assistantMessage;
+  const mastered = nextState.phase === "mastered";
 
-  const evaluationComplete =
-    !evaluationPlan ||
-    priorEvaluationAttempts + 1 >= evaluationPlan.scenarioCount;
+  const nextRun: PersistedUnitRun = { ...nextState, sessionId, userId };
 
-  const contracts = buildOutputContractCommit({
-    unit,
-    currentStage: state.educationStage,
-    output,
-    scenarioAttemptId,
-  });
-
-  const currentRun = await resolveUnitRunProjection({
+  const phaseResponse: WorkspacePhaseResponseCommit = {
+    unitContentId: unit.id,
     sessionId,
     userId,
-    unit,
-    unitResponses: [],
-    fallbackStepId: state.educationStage,
-    deps,
-  });
-
-  const isScoredAttempt = "dimensionResults" in output;
-  const ratingEvaluation = buildRatingEvaluationCommit({
-    userId,
-    output,
-    attemptTiming,
-    ratingNodeId,
-    ratingBands,
-    scenarioAttemptId,
-  });
-  const mastered = passesUnitCompletionGate({
-    stepId: state.educationStage,
-    verdict,
-    evaluationComplete,
-  });
-  const nextRun = advanceUnitRun({
-    run: currentRun,
-    outcome: {
-      stepId: state.educationStage,
-      verdict,
-      mastered,
-      scenarioCompleted: isScoredAttempt && evaluationComplete,
-      retryCount: priorEvaluationAttempts,
+    phase: "ai_education",
+    sequence: phaseResponseSequence,
+    userResponse: message,
+    aiResponse: aiMessage,
+    passed: mastered,
+    score: ratingWrite?.score ?? null,
+    metadata: {
+      aiEducationStage: nextState.phase,
+      phasePass: nextState.pass,
+      forcedConnectAdvance: forcedConnectAdvance || undefined,
+      promptKind: "education_unit",
+      modelPurpose: "education",
+      verdict: verdictLabel(event),
+      difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
+      feedback: aiMessage,
     },
-  });
-  const phaseResponse = buildPhaseEvent({
-    sessionId,
-    userId,
-    message,
-    unit,
-    output,
-    nextStepId: nextRun.currentStepId,
-    runtime: {
-      promptKind:
-        "dimensionResults" in output ? "evaluate_feedback" : "education_unit",
-      modelPurpose: "dimensionResults" in output ? "evaluation" : "education",
-    },
-    verdict,
-    attemptTiming,
-    evaluationPlan,
-    difficultyDirectiveReason,
-    scenarioAttemptId,
-  });
-  const completion = buildCompletionCommit({
-    sessionId,
-    userId,
-    message,
-    unit,
-    output,
-    mastered,
-  });
+  };
+
+  const completion = mastered
+    ? {
+        nodeId: unit.nodeId,
+        attempt: {
+          sessionId,
+          userId,
+          unitId: unit.id,
+          response: message,
+          debrief: buildUnitCompletionDebrief(message, gradeReasoning),
+          finalArticulation: message,
+          growthDimensions: [] as string[],
+        },
+      }
+    : null;
+
   const { assistantMessage, nextReadyNode } = await deps.commitEducationTurn({
     turnId,
     turnLeaseId,
-    userMessage: {
-      sessionId,
-      role: "user",
-      content: message,
-      slot: "education_unit",
-      unitId: unit.nodeId,
-      turnId,
-    },
+    userMessage: persistUserMessage
+      ? {
+          sessionId,
+          role: "user",
+          content: message,
+          slot: "education_unit",
+          unitId: unit.nodeId,
+          turnId,
+        }
+      : null,
     assistantMessage: {
       sessionId,
       role: "assistant",
-      content: output.assistantMessage,
+      content: aiMessage,
       slot: "education_unit",
       unitId: unit.nodeId,
       turnId,
       metadata: getDifficultyDirectiveMetadata(difficultyDirectiveReason),
     },
-    contracts,
+    contracts: null,
     phaseResponse,
     ratingEvaluation,
     nextRun,
@@ -650,103 +446,21 @@ export const saveEducationTurnResult = async ({
     touchSessionId: sessionId,
   });
 
-  const nextState = await planNextWorkspaceTurn({
+  const nextWorkspaceState = await planNextWorkspaceTurn({
     sessionId,
     plan,
     deps,
   });
 
   return {
-    state: nextState ?? { ...state, educationStage: nextRun.currentStepId },
+    state: nextWorkspaceState ?? { ...state, educationStage: nextState.phase },
     messages: await deps.listMessages(
       sessionId,
-      nextState ? getWorkspaceMessageSlot(nextState.mode) : "education_unit",
+      nextWorkspaceState
+        ? getWorkspaceMessageSlot(nextWorkspaceState.mode)
+        : "education_unit",
     ),
     assistantMessage,
     nextReadyNode,
   };
-};
-
-export const saveNextScenarioPrompt = async ({
-  sessionId,
-  userId,
-  unit,
-  output,
-  evaluationPlan,
-  currentStage,
-  difficultyDirectiveReason,
-  manualDifficultySignal,
-  scenarioAttemptId,
-  turnId,
-  turnLeaseId,
-  deps,
-}: {
-  sessionId: string;
-  userId: string;
-  unit: UnitContent;
-  output: WorkspaceAiEducationOutput | WorkspaceAiEvaluationOutput;
-  evaluationPlan?: EvaluationPlan | null;
-  currentStage: WorkspaceAiState["educationStage"];
-  difficultyDirectiveReason?: string | null;
-  manualDifficultySignal?: "too_easy" | "too_hard" | null;
-  scenarioAttemptId: string | null;
-  turnId?: string | null;
-  turnLeaseId?: string | null;
-  deps: WorkspaceTurnPersistenceDependencies;
-}): Promise<void> => {
-  if (!currentStage) {
-    throw new Error("Education stage is missing.");
-  }
-
-  const contracts = buildOutputContractCommit({
-    unit,
-    currentStage,
-    output,
-    scenarioAttemptId,
-  });
-
-  const educationResponses = await deps.getPhaseResponses(unit.id, sessionId);
-  await deps.commitNextScenarioPrompt({
-    turnId,
-    turnLeaseId,
-    assistantMessage: {
-      sessionId,
-      role: "assistant",
-      content: output.assistantMessage,
-      slot: "education_unit",
-      unitId: unit.nodeId,
-      turnId,
-      metadata: getDifficultyDirectiveMetadata(difficultyDirectiveReason),
-    },
-    contracts,
-    phaseResponse: {
-      unitContentId: unit.id,
-      sessionId,
-      userId,
-      phase: "ai_education",
-      sequence: countPhaseResponses(educationResponses, "ai_education"),
-      userResponse: manualDifficultySignal
-        ? `[difficulty_adjustment:${manualDifficultySignal}]`
-        : "[next_scenario_requested]",
-      aiResponse: output.assistantMessage,
-      passed: null,
-      score: null,
-      metadata: {
-        aiEducationStage: currentStage,
-        promptKind: "evaluate_feedback",
-        modelPurpose: "evaluation",
-        nextScenarioPrompt: true,
-        scenarioAttemptId: scenarioAttemptId ?? undefined,
-        manualDifficultySignal: manualDifficultySignal ?? undefined,
-        evaluationPlan:
-          "evaluationPlan" in output
-            ? (evaluationPlan ?? output.evaluationPlan)
-            : undefined,
-        difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
-        estimatedItemRating: output.estimatedItemRating ?? undefined,
-        feedback: output.assistantMessage,
-      },
-    },
-    touchSessionId: sessionId,
-  });
 };

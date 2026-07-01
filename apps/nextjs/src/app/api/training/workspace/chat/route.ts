@@ -1,5 +1,6 @@
 import type { UIMessage } from "ai";
 import type { NextRequest } from "next/server";
+import { after } from "next/server";
 import { isTextUIPart } from "ai";
 
 import { streamWorkspaceChat } from "@acme/api/workspace-chat";
@@ -103,5 +104,6 @@ export const POST = async (req: NextRequest) => {
         : null,
     manualDifficultySignal: body.manualDifficultySignal ?? null,
     modelName: resolveModelPreference(req, body.model),
+    scheduleBackgroundTask: (task) => after(task),
   });
 };

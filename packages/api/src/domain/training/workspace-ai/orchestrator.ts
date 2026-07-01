@@ -3,9 +3,8 @@ import type {
   PhaseResponseRecord,
 } from "../types/training.types";
 import type { WorkspaceAiEducationStage, WorkspaceAiState } from "./types";
-import type { UnitRun, WorkspaceStepVerdict } from "./workflow";
+import type { PersistedUnitRun } from "../education-unit/unit";
 import { WorkspaceAiEducationStageSchema } from "./types";
-import { decideNextStep } from "./workflow";
 
 const RECALL_INTERVAL_COMPLETIONS = 3;
 
@@ -60,8 +59,9 @@ export const selectDueRecallUnit = ({
 };
 
 /**
- * Takes phase response history; produces the active education stage; fails
- * only by returning the first stage when no durable stage exists yet.
+ * Takes phase response history; produces the phase the unit last left off in;
+ * defaults to the FSM's opening phase ("orient") when no durable phase exists
+ * yet. Only a fallback — the durable cursor is the unit-run row's `phase`.
  */
 export const getCurrentEducationStage = (
   responses: PhaseResponseRecord[],
@@ -73,73 +73,7 @@ export const getCurrentEducationStage = (
     ?.metadata?.aiEducationStage;
 
   const parsedState = WorkspaceAiEducationStageSchema.safeParse(latestState);
-  return parsedState.success ? parsedState.data : "Diagnose";
-};
-
-export class IllegalUnitRunTransitionError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "IllegalUnitRunTransitionError";
-  }
-}
-
-/**
- * Takes the current run state, one step verdict, and a retry count;
- * produces the next run state; fails only when the outcome names a step that
- * is not current or the verdict rulebook cannot advance that step.
- */
-export const advanceUnitRun = ({
-  run,
-  outcome,
-}: {
-  run: UnitRun;
-  outcome: {
-    stepId: WorkspaceAiEducationStage;
-    verdict: WorkspaceStepVerdict;
-    mastered: boolean;
-    scenarioCompleted: boolean;
-    retryCount: number;
-  };
-}): UnitRun => {
-  if (outcome.stepId !== run.currentStepId) {
-    throw new IllegalUnitRunTransitionError(
-      `Outcome step ${outcome.stepId} does not match current run step ${run.currentStepId}.`,
-    );
-  }
-
-  const nextScenarioCount = outcome.scenarioCompleted
-    ? run.stepScenarioCount + 1
-    : run.stepScenarioCount;
-
-  if (outcome.mastered) {
-    if (run.currentStepId !== "Check" || outcome.verdict !== "pass") {
-      throw new IllegalUnitRunTransitionError(
-        "Only a passing final check can complete a unit run.",
-      );
-    }
-
-    return {
-      ...run,
-      currentStepId: "completed",
-      stepScenarioCount: nextScenarioCount,
-    };
-  }
-
-  const rulebookNextStep = decideNextStep({
-    currentStepId: run.currentStepId,
-    verdict: outcome.verdict,
-    retryCount: outcome.retryCount,
-  });
-  // A model pass only nominates completion; without rating mastery, test
-  // transfer again instead of persisting a false terminal state.
-  const nextStepId =
-    rulebookNextStep === "completed" ? "Test" : rulebookNextStep;
-
-  return {
-    ...run,
-    currentStepId: nextStepId,
-    stepScenarioCount: nextStepId === run.currentStepId ? nextScenarioCount : 0,
-  };
+  return parsedState.success ? parsedState.data : "orient";
 };
 
 /**
@@ -155,7 +89,7 @@ export const planWorkspaceTurn = ({
   nodes: RuntimeNode[];
   allResponses: PhaseResponseRecord[];
   activeUnitResponses: PhaseResponseRecord[];
-  activeUnitRun?: UnitRun | null;
+  activeUnitRun?: PersistedUnitRun | null;
 }): WorkspaceAiState | null => {
   const recallUnit = selectDueRecallUnit({
     nodes,
@@ -184,9 +118,8 @@ export const planWorkspaceTurn = ({
     mode: "education_unit",
     promptKind: "education_unit",
     educationStage:
-      activeUnitRun?.currentStepId ??
-      getCurrentEducationStage(activeUnitResponses),
-    workflowId: activeUnitRun?.workflowId ?? null,
+      activeUnitRun?.phase ?? getCurrentEducationStage(activeUnitResponses),
+    workflowId: activeUnitRun?.recipeVersion ?? null,
     activeUnitId: activeUnit.id,
     activeUnitTitle: activeUnit.title,
     recallUnitId: null,

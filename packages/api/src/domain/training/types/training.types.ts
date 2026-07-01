@@ -247,17 +247,14 @@ export interface PhaseResponseMetadata {
   latencyMs?: number | null;
   signals?: EducationUnitAttemptSignals;
   stateSnapshot?: EducationUnitState;
-  aiEducationStage?:
-    | "Diagnose"
-    | "BreakDown"
-    | "Grill"
-    | "Solve"
-    | "Review"
-    | "TeachGap"
-    | "NameIdea"
-    | "Test"
-    | "Check"
-    | "completed";
+  // The education-unit FSM phase this response left the run in (see
+  // education-unit/unit.ts UnitPhase). Replaces the retired 9-step rulebook ids.
+  aiEducationStage?: "orient" | "connect" | "solve" | "teach" | "mastered";
+  // Which pass (1 or 2) the phase belonged to.
+  phasePass?: number;
+  // One-shot signal: this turn force-advanced Connect->Solve after exhausting
+  // the grill budget, so the next Solve turn must teach the missed idea.
+  forcedConnectAdvance?: boolean;
   recallUnitId?: string;
   promptKind?:
     | "onboarding_curriculum"

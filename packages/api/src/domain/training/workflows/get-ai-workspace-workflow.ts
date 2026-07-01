@@ -10,7 +10,7 @@ import type {
   WorkspaceAiMessage,
   WorkspaceAiState,
 } from "../workspace-ai/types";
-import type { UnitRun } from "../workspace-ai/workflow";
+import type { PersistedUnitRun } from "../education-unit/unit";
 import { err, ok } from "../../../lib/result";
 import { getEvaluationProgress } from "../workspace-ai/evaluation-plan";
 import { planWorkspaceTurn } from "../workspace-ai/orchestrator";
@@ -35,8 +35,8 @@ interface GetAiWorkspaceDependencies {
   getUnitRun: (
     sessionId: string,
     unitContentId: string,
-  ) => Promise<UnitRun | null>;
-  upsertUnitRun: (run: UnitRun) => Promise<UnitRun>;
+  ) => Promise<PersistedUnitRun | null>;
+  upsertUnitRun: (run: PersistedUnitRun) => Promise<PersistedUnitRun>;
   getUnitByNodeId: (nodeId: string) => Promise<UnitContent | null>;
   createUnitContent: (input: {
     nodeId: string;
@@ -108,7 +108,6 @@ export const getAiWorkspaceWorkflow = async ({
     ? await resolveUnitRunProjection({
         sessionId,
         unit: activeUnit,
-        unitResponses: activeUnitResponses,
         deps,
       })
     : null;

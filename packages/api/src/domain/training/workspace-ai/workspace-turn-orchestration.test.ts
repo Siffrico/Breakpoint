@@ -1,27 +1,60 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 
+import type { CurriculumNode, UnitContent } from "../types/training.types";
+import type { PersistedUnitRun } from "../education-unit/unit";
+import type { ResolvedWorkspaceTurn } from "./workspace-turn";
+import type { WorkspaceAiState } from "./types";
 import type { WorkspaceTurnOrchestrationDependencies } from "./workspace-turn-orchestration";
-import { prepareWorkspaceTurnPrompt } from "./workspace-turn-orchestration";
+import { runEducationUnitTurn } from "./workspace-turn-orchestration";
 
 const fail = (name: string): never => {
   throw new Error(`${name} should not be called`);
 };
 
-void test("duplicate submit with an in-flight turn id is rejected before preparing a model prompt", async () => {
+const node = {
+  id: "node-1",
+  parentNodeId: null,
+  kind: "unit",
+  title: "Unit",
+  summary: "Summary",
+  whyItMatters: "Why",
+  learningGoal: "Goal",
+  orderIndex: 1,
+  depth: 1,
+  positionColumn: 0,
+  positionRow: 1,
+  status: "ready",
+  difficultyBands: null,
+} satisfies CurriculumNode;
+
+const unitRun = {
+  unitId: "00000000-0000-0000-0000-000000000003",
+  sessionId: "00000000-0000-0000-0000-000000000010",
+  userId: "user-1",
+  recipeVersion: "education-unit-v1",
+  phase: "connect",
+  pass: 1,
+  connectGrills: 0,
+  solveRepairs: 0,
+} satisfies PersistedUnitRun;
+
+const turn = {
+  plan: { nodes: [node] },
+  allResponses: [],
+  state: { mode: "education_unit" } as WorkspaceAiState,
+  node,
+  unit: {
+    id: "00000000-0000-0000-0000-000000000003",
+    nodeId: "node-1",
+  } as UnitContent,
+  unitRun,
+  unitResponses: [],
+} as unknown as ResolvedWorkspaceTurn;
+
+void test("a claimed, in-flight education turn is rejected before running the model", async () => {
   const deps = {
-    listMessagesByTurnId: () =>
-      Promise.resolve([
-        {
-          role: "user",
-          content: "My first answer",
-          sequence: 4,
-          slot: "education_unit",
-          unitId: "00000000-0000-0000-0000-000000000001",
-          turnId: "turn-1",
-          metadata: null,
-        },
-      ]),
+    claimWorkspaceTurn: () => Promise.resolve({ status: "processing" as const }),
     getActivePlan: () => fail("getActivePlan"),
     listMessages: () => fail("listMessages"),
     getWorkspaceSummary: () => fail("getWorkspaceSummary"),
@@ -43,16 +76,17 @@ void test("duplicate submit with an in-flight turn id is rejected before prepari
     commitNextScenarioPrompt: () => fail("commitNextScenarioPrompt"),
     touchSession: () => fail("touchSession"),
     listMemories: () => fail("listMemories"),
-  } satisfies WorkspaceTurnOrchestrationDependencies;
+  } as unknown as WorkspaceTurnOrchestrationDependencies;
 
   await assert.rejects(
     () =>
-      prepareWorkspaceTurnPrompt({
+      runEducationUnitTurn({
         sessionId: "00000000-0000-0000-0000-000000000010",
         userId: "user-1",
         turnId: "turn-1",
-        message: "My first answer",
-        action: "submit_answer",
+        turnLeaseId: "00000000-0000-0000-0000-000000000099",
+        message: "My answer",
+        turn,
         deps,
       }),
     /already being processed/i,

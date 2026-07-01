@@ -4,7 +4,7 @@ import type {
   CurriculumPlan,
   UnitContent,
 } from "../types/training.types";
-import type { UnitRun } from "../workspace-ai/workflow";
+import type { PersistedUnitRun } from "../education-unit/unit";
 import { err, ok } from "../../../lib/result";
 import { assertUnitCanAdvance } from "../workspace-ai/workspace-turn";
 
@@ -14,7 +14,7 @@ interface AdvanceCompletedUnitDependencies {
   getUnitRun: (
     sessionId: string,
     unitContentId: string,
-  ) => Promise<UnitRun | null>;
+  ) => Promise<PersistedUnitRun | null>;
   completeNode: (nodeId: string) => Promise<CurriculumNode | null>;
   touchSession: (sessionId: string) => Promise<unknown>;
 }

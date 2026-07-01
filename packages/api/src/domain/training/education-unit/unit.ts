@@ -45,53 +45,67 @@ export type UnitEvent =
  * The durable cursor for one unit run. This is the typed view of the `UnitRun`
  * row — the single source of truth for "where are we." Only the reducer writes it.
  */
-export type UnitState = {
+export interface UnitState {
   unitId: string;
   recipeVersion: string; // pins the recipe this run started on
   phase: UnitPhase;
   pass: PassIndex;
   connectGrills: number; // failed connect attempts in the current pass; reset on phase change
   solveRepairs: number; // failed solve attempts in the current pass; reset on phase change
+}
+
+/**
+ * The durable unit-run row: the FSM cursor (`UnitState`) plus the identity it
+ * belongs to. `UnitState.unitId` holds the unit content id; the session and
+ * user are persistence concerns the pure FSM never touches. This is what the
+ * run repository reads and writes, and what a resolved workspace turn carries.
+ */
+export type PersistedUnitRun = UnitState & {
+  sessionId: string;
+  userId: string | null;
 };
 
 /**
  * Loop limits — without these, a stuck learner loops forever. Tunable per unit
  * because they live in the recipe, not the engine.
  */
-export type LoopPolicy = {
+export interface LoopPolicy {
   maxGrillsBeforeTeach: number; // connect: after N failed grills, teach the missing idea, then advance
   maxRepairsBeforeMicroTeach: number; // solve: after N failed repairs, micro-teach, then retry
-};
+}
 
 /** The pass/fail bar for a solve. `evaluationGrade` is 0–100; clearing `passAt` passes. */
-export type GradeThreshold = {
+export interface GradeThreshold {
   passAt: number; // e.g. 80
-};
+}
 
 /**
  * Where this unit reads and writes difficulty. Goldilocks is external and is NOT
  * modified here — we only hold the ports into it.
  */
-export type GoldilocksWiring = {
+export interface GoldilocksWiring {
   scope: RatingScope; // resolved cluster node + difficulty bands
   writeOnPass: PassIndex; // 2 — only the second pass updates the rating
-};
+}
 
 /**
  * The whole recipe: the data that defines a unit. Versioned, so an in-flight unit
  * finishes on the recipe it started with even after the recipe changes.
  */
-export type UnitRecipe = {
+export interface UnitRecipe {
   version: string; // e.g. "education-unit-v1"
   passes: 2; // explicit and changeable; fixed at 2 for now
   teachBeats: { orient: true; concept: true };
   policy: LoopPolicy;
   grade: GradeThreshold;
   goldilocks: GoldilocksWiring;
-};
+}
 
 const RECIPE_VERSIONS = ["education-unit-v1"] as const;
 type RecipeVersion = (typeof RECIPE_VERSIONS)[number];
+
+/** The recipe version every new unit run starts on. */
+export const CURRENT_RECIPE_VERSION: RecipeVersion = "education-unit-v1";
 
 const isRecipeVersion = (version: string): version is RecipeVersion =>
   (RECIPE_VERSIONS as readonly string[]).includes(version);

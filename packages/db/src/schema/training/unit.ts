@@ -96,17 +96,9 @@ export const TrainingUnitPhaseResponse = pgTable(
         reasoningStyle: string;
       };
       stateSnapshot?: unknown;
-      aiEducationStage?:
-        | "Diagnose"
-        | "BreakDown"
-        | "Grill"
-        | "Solve"
-        | "Review"
-        | "TeachGap"
-        | "NameIdea"
-        | "Test"
-        | "Check"
-        | "completed";
+      aiEducationStage?: "orient" | "connect" | "solve" | "teach" | "mastered";
+      phasePass?: number;
+      forcedConnectAdvance?: boolean;
       recallUnitId?: string;
       promptKind?:
         | "onboarding_curriculum"
@@ -192,9 +184,17 @@ export const TrainingUnitRun = pgTable(
       .notNull()
       .references(() => TrainingOnboardingSession.id, { onDelete: "cascade" }),
     userId: t.text().references(() => user.id, { onDelete: "set null" }),
-    workflowId: t.varchar({ length: 96 }).notNull(),
-    currentStepId: t.varchar({ length: 96 }).notNull(),
-    stepScenarioCount: t.integer().notNull().default(0),
+    // The durable cursor for the education-unit FSM (see education-unit/unit.ts
+    // UnitState). recipeVersion pins the recipe a run started on so an in-flight
+    // unit finishes on the recipe it began with.
+    recipeVersion: t
+      .varchar({ length: 96 })
+      .notNull()
+      .default("education-unit-v1"),
+    phase: t.varchar({ length: 32 }).notNull().default("orient"),
+    pass: t.integer().notNull().default(1),
+    connectGrills: t.integer().notNull().default(0),
+    solveRepairs: t.integer().notNull().default(0),
     createdAt: t
       .timestamp({ mode: "date", withTimezone: true })
       .defaultNow()

@@ -1,63 +1,43 @@
-import { randomUUID } from "node:crypto";
-
-import { ScenarioEvaluationContractSchema } from "@acme/validators";
+import type { ModelMessage } from "ai";
 
 import type { Memory } from "../../memory/types";
-import type { RatingScope } from "../orchestration/rating-scope";
-import type {
-  CurriculumNode,
-  DifficultyBand,
-  PhaseResponseRecord,
-  ScenarioEvaluationContract,
-} from "../types/training.types";
+import type { CurriculumNode, DifficultyBand } from "../types/training.types";
 import type { WorkspaceTurnRuntime } from "./stage-runtime";
 import type {
   AttemptTiming,
-  WorkspaceAiEducationOutput,
-  WorkspaceAiEvaluationOutput,
   WorkspaceAiMessage,
   WorkspaceAiRecallOutput,
-  WorkspaceAiState,
   WorkspaceAiTurnResult,
 } from "./types";
 import type {
   ResolvedWorkspaceTurn,
   WorkspaceTurnDependencies,
 } from "./workspace-turn";
-import type { WorkspaceTurnPersistenceDependencies } from "./workspace-turn-persistence";
+import type {
+  WorkspaceRatingEvaluationCommit,
+  WorkspaceTurnPersistenceDependencies,
+} from "./workspace-turn-persistence";
 import { buildWorkspaceContextEnvelope } from "../context-engine/build-context-envelope";
 import { renderWorkspaceStageContextPrompt } from "../context-engine/render-context-prompt";
+import { buildUnitTurnContext } from "../education-unit/context";
+import { runUnitTurn } from "../education-unit/orchestrate-unit-turn";
+import { getUnitRecipe } from "../education-unit/unit";
 import { compactTranscript, createSummarizer } from "../engine/compaction";
 import { getAiModelForPurpose } from "../engine/model-router";
+import { WorkspaceUserError } from "../errors";
 import { clampClaimedItemRating } from "../orchestration/goldilocks";
-import {
-  CurriculumInvariantError,
-  resolveRatingScope,
-} from "../orchestration/rating-scope";
+import { resolveRatingScope } from "../orchestration/rating-scope";
 import { buildWorkspaceIntroMessage } from "../workflows/get-ai-workspace-workflow";
-import {
-  buildLegacyScenarioEvaluationContract,
-  validateEvaluationDimensionResults,
-} from "./evaluation-contracts";
-import {
-  deriveServerAttemptTiming,
-  hasFailedEvaluationAttempt,
-  normalizeEvaluationPlan,
-  selectLatestEvaluationPlan,
-} from "./evaluation-plan";
 import { runWorkspaceAiPrompt } from "./runtime";
 import { getStepCard } from "./stage-runtime";
-import { readVerdict } from "./workflow";
 import {
-  getWorkspaceMessageSlot,
   isUnitAwaitingAdvance,
   planNextWorkspaceTurn,
   resolveWorkspaceTurn,
 } from "./workspace-turn";
 import {
-  saveEducationTurnResult,
-  saveNextScenarioPrompt,
   saveRecallTurnResult,
+  saveUnitPhaseResult,
 } from "./workspace-turn-persistence";
 
 export type WorkspaceChatAction =
@@ -75,6 +55,7 @@ interface DifficultyDirectiveResult {
   };
   promptBlock: string;
   ratingSnapshot: string;
+  learnerRating: number;
 }
 
 interface ManualDifficultyNudgeResult {
@@ -86,7 +67,6 @@ interface ManualDifficultyNudgeResult {
 interface OpenScenarioResult {
   id: string;
   scenarioPrompt?: string | null;
-  scenarioContractJson?: ScenarioEvaluationContract | null;
   itemRating?: number | null;
   presentedAt?: Date | null;
 }
@@ -134,91 +114,15 @@ export interface WorkspaceTurnOrchestrationDependencies
   prewarmWorkspaceUnit?: (node: CurriculumNode) => Promise<unknown>;
 }
 
-export interface PreparedWorkspaceTurn {
-  kind: "prepared";
-  action: WorkspaceChatAction;
-  manualDifficultySignal: ManualDifficultySignal | null;
-  sessionId: string;
-  userId: string;
-  turnId: string | null;
-  turnLeaseId: string | null;
-  message: string;
-  attemptTiming?: AttemptTiming | null;
-  turn: ResolvedWorkspaceTurn;
-  ratingScope: RatingScope;
-  scenarioAttemptId: string | null;
-  runtime: WorkspaceTurnRuntime;
-  promptContext: string;
-  scenarioEvaluationContract: ScenarioEvaluationContract | null;
-  difficultyDirectiveResult: DifficultyDirectiveResult | null;
-  manualDifficultyNudge: ManualDifficultyNudgeResult | null;
-}
+// ---------------------------------------------------------------------------
+// Shared plumbing
+// ---------------------------------------------------------------------------
 
-export interface CachedWorkspaceTurn {
-  kind: "cached";
-  assistantMessage: WorkspaceAiMessage;
-  messages: WorkspaceAiMessage[];
-}
-
-export type PreparedWorkspaceTurnResult =
-  | PreparedWorkspaceTurn
-  | CachedWorkspaceTurn;
-
-export type WorkspaceTurnOutput =
-  | WorkspaceAiRecallOutput
-  | WorkspaceAiEducationOutput
-  | WorkspaceAiEvaluationOutput;
-
-const SCENARIO_EDUCATION_STAGES = new Set<string>([
-  "Diagnose",
-  "Solve",
-  "Review",
-  "Test",
-  "Check",
-]);
-
-export const isEvaluationOutput = (
-  output: WorkspaceAiEducationOutput | WorkspaceAiEvaluationOutput,
-): output is WorkspaceAiEvaluationOutput => "dimensionResults" in output;
-
-const shouldPrepareDifficultyDirective = ({
-  state,
-  action,
-  runtimeContextMode,
-}: {
-  state: WorkspaceAiState;
-  action: WorkspaceChatAction;
-  runtimeContextMode: WorkspaceTurnRuntime["contextMode"];
-}) => {
-  if (state.mode === "recall") return true;
-  if (action === "next_scenario" || action === "adjust_difficulty") return true;
-  if (runtimeContextMode === "evaluator") return false;
-  return state.educationStage
-    ? SCENARIO_EDUCATION_STAGES.has(state.educationStage)
-    : false;
-};
-
-const buildActionPromptContext = ({
-  context,
-  action,
-  manualDifficultySignal,
-  manualDifficultyNudge,
-}: {
-  context: string;
-  action: WorkspaceChatAction;
-  manualDifficultySignal: ManualDifficultySignal | null;
-  manualDifficultyNudge: ManualDifficultyNudgeResult | null;
-}) => {
-  if (action === "next_scenario") {
-    return `${context}\n\n## Turn instruction\nThe learner clicked Next scenario after reading evaluator feedback. Generate the next planned evaluation scenario only. Do not treat this as a learner answer. Do not re-grade the previous answer. Keep the current evaluation stage active unless this prompt is impossible.`;
-  }
-
-  if (action === "adjust_difficulty") {
-    return `${context}\n\n## Turn instruction\nThe learner marked the previous scenario as ${manualDifficultySignal === "too_hard" ? "too hard" : "too easy"}. Do not treat this as a learner answer. Do not grade or discuss their ability. Generate a replacement scenario only. The training engine has already adjusted the learner rating by ${manualDifficultyNudge?.delta ?? 0} points, from ${Math.round(manualDifficultyNudge?.previousRating ?? 0)} to ${Math.round(manualDifficultyNudge?.nextRating ?? 0)}. Make the replacement meaningfully ${manualDifficultySignal === "too_hard" ? "more approachable" : "more challenging"} while following the difficulty directive exactly. It should feel just above the learner's current level, not the same scenario with different wording.`;
-  }
-
-  return context;
-};
+const toModelMessages = (
+  messages: readonly WorkspaceAiMessage[],
+): ModelMessage[] =>
+  // WorkspaceAiMessage.role is already exactly "user" | "assistant".
+  messages.map((m) => ({ role: m.role, content: m.content }) as ModelMessage);
 
 const getTurnClaimContent = ({
   action,
@@ -232,146 +136,115 @@ const getTurnClaimContent = ({
   if (action === "next_scenario") {
     return "[next_scenario_requested]";
   }
-
   if (action === "adjust_difficulty") {
     return `[difficulty_adjustment:${manualDifficultySignal ?? "unknown"}]`;
   }
-
   return message;
 };
 
-export const prepareWorkspaceTurnPrompt = async ({
+type LoadedTurnTranscript =
+  | {
+      kind: "cached";
+      assistantMessage: WorkspaceAiMessage;
+      messages: WorkspaceAiMessage[];
+    }
+  | {
+      kind: "claimed";
+      messages: WorkspaceAiMessage[];
+      transcript: WorkspaceAiMessage[];
+      progressSummary: string | null;
+      claimedDurableTurn: boolean;
+    };
+
+const claimTurnAndLoadTranscript = async ({
   sessionId,
-  userId,
-  turnId = null,
-  turnLeaseId = null,
+  slot,
+  unitId,
+  turnId,
+  turnLeaseId,
+  action,
+  claimContent,
   message,
-  action = "submit_answer",
-  manualDifficultySignal = null,
+  appendSyntheticUserMessage,
   deps,
 }: {
   sessionId: string;
-  userId: string;
-  turnId?: string | null;
-  turnLeaseId?: string | null;
+  slot: "education_unit" | "recall";
+  unitId: string;
+  turnId: string | null;
+  turnLeaseId: string | null;
+  action: WorkspaceChatAction;
+  claimContent: string;
   message: string;
-  action?: WorkspaceChatAction;
-  manualDifficultySignal?: ManualDifficultySignal | null;
+  appendSyntheticUserMessage: boolean;
   deps: WorkspaceTurnOrchestrationDependencies;
-}): Promise<PreparedWorkspaceTurnResult> => {
-  const trimmedMessage = message.trim();
-  const submittedAt = new Date();
-  const claimLeaseId = turnId ? (turnLeaseId ?? randomUUID()) : null;
-  if (action === "submit_answer" && trimmedMessage.length < 2) {
-    throw new Error("Write a fuller message so the AI can respond usefully.");
-  }
-
-  if (turnId && !deps.claimWorkspaceTurn && deps.listMessagesByTurnId) {
-    const turnMessages = await deps.listMessagesByTurnId(sessionId, turnId);
-    const cachedAssistantMessage = turnMessages.find(
-      (workspaceMessage) => workspaceMessage.role === "assistant",
-    );
-    if (cachedAssistantMessage) {
-      const cachedSlot =
-        cachedAssistantMessage.slot === "recall" ? "recall" : "education_unit";
-
-      return {
-        kind: "cached",
-        assistantMessage: cachedAssistantMessage,
-        messages: await deps.listMessages(sessionId, cachedSlot),
-      };
-    }
-
-    if (
-      action === "submit_answer" &&
-      turnMessages.some((workspaceMessage) => workspaceMessage.role === "user")
-    ) {
-      throw new Error("This turn is already being processed.");
-    }
-  }
-
-  const turn = await resolveWorkspaceTurn({ sessionId, deps });
-  const { plan, allResponses, state, node, unit, unitRun, unitResponses } =
-    turn;
-  const ratingScope = resolveRatingScope({ unit, planNodes: plan.nodes });
-  const slot = getWorkspaceMessageSlot(state.mode);
+}): Promise<LoadedTurnTranscript> => {
   let claimedDurableTurn = false;
 
-  if (isUnitAwaitingAdvance({ node, run: unitRun })) {
-    throw new Error("This unit is complete. Press Next Unit to continue.");
-  }
-
   if (turnId && deps.claimWorkspaceTurn) {
-    if (!claimLeaseId) {
+    if (!turnLeaseId) {
       throw new Error("Workspace turn lease could not be created.");
     }
     const claim = await deps.claimWorkspaceTurn({
       sessionId,
       action,
-      content: getTurnClaimContent({
-        action,
-        manualDifficultySignal,
-        message: trimmedMessage,
-      }),
+      content: claimContent,
       slot,
-      unitId: unit.nodeId,
+      unitId,
       turnId,
-      leaseId: claimLeaseId,
+      leaseId: turnLeaseId,
     });
 
     if (claim.status === "completed") {
-      const cachedSlot =
-        claim.assistantMessage.slot === "recall" ? "recall" : "education_unit";
-
       return {
         kind: "cached",
         assistantMessage: claim.assistantMessage,
-        messages: await deps.listMessages(sessionId, cachedSlot),
+        messages: await deps.listMessages(sessionId, slot),
       };
     }
-
     if (claim.status === "processing") {
-      throw new Error("This turn is already being processed.");
+      throw new WorkspaceUserError("This turn is already being processed.");
     }
     claimedDurableTurn = true;
-  } else if (action === "submit_answer") {
+  } else if (appendSyntheticUserMessage) {
     const userMessage = await deps.appendMessage({
       sessionId,
       role: "user",
-      content: trimmedMessage,
+      content: message,
       slot,
-      unitId: unit.nodeId,
+      unitId,
       turnId,
     });
-
     if (!userMessage) {
       throw new Error("User message could not be saved.");
     }
   }
 
-  const persistedMessages = await deps.listMessages(sessionId, slot);
-  const messagesWithUser =
-    claimedDurableTurn && action === "submit_answer"
+  const [persistedMessages, storedSummary] = await Promise.all([
+    deps.listMessages(sessionId, slot),
+    deps.getWorkspaceSummary(sessionId, slot),
+  ]);
+  const messages =
+    claimedDurableTurn && appendSyntheticUserMessage
       ? [
           ...persistedMessages,
           {
             role: "user" as const,
-            content: trimmedMessage,
+            content: message,
             sequence:
               Math.max(-1, ...persistedMessages.map((item) => item.sequence)) +
               1,
             slot,
-            unitId: unit.nodeId,
+            unitId,
             turnId,
             metadata: null,
           },
         ]
       : persistedMessages;
-  const storedSummary = await deps.getWorkspaceSummary(sessionId, slot);
   const summarizeModel = getAiModelForPurpose("recall");
   const compaction = summarizeModel
     ? await compactTranscript({
-        messages: messagesWithUser,
+        messages,
         previousSummary: storedSummary?.summary ?? null,
         previousCoverage: storedSummary?.coveredThroughUnitId ?? null,
         previousCoverageSequence: storedSummary?.coveredThroughSequence ?? null,
@@ -389,35 +262,303 @@ export const prepareWorkspaceTurnPrompt = async ({
     });
   }
 
-  const verbatimMessages = compaction?.messages ?? messagesWithUser;
-  const progressSummary = compaction?.summary ?? storedSummary?.summary ?? null;
-  const introMessage =
-    state.mode === "recall" &&
-    !messagesWithUser.some(
-      (workspaceMessage) => workspaceMessage.role === "assistant",
-    )
-      ? buildWorkspaceIntroMessage({ plan, state })
-      : null;
-  const runtime = getStepCard(state);
+  return {
+    kind: "claimed",
+    messages,
+    transcript: compaction?.messages ?? messages,
+    progressSummary: compaction?.summary ?? storedSummary?.summary ?? null,
+    claimedDurableTurn,
+  };
+};
 
-  if (
-    action === "adjust_difficulty" &&
-    runtime.contextMode !== "evaluator" &&
-    runtime.contextMode !== "recall"
-  ) {
-    throw new Error(
-      "Difficulty can only be adjusted on evaluation or recall scenarios.",
+// ---------------------------------------------------------------------------
+// Education-unit path (v4 FSM)
+// ---------------------------------------------------------------------------
+
+/**
+ * Reads whether the immediately-prior education turn force-advanced Connect
+ * into Solve after exhausting the grill budget. That signal cannot be
+ * recovered from the durable state (connectGrills is reset on the transition —
+ * see fsm.ts), so it is persisted on the phase-response metadata and read back
+ * here to drive the next Solve turn's "teach the missed idea first" directive.
+ */
+const readPendingConnectTeach = (
+  unitResponses: ResolvedWorkspaceTurn["unitResponses"],
+): boolean => {
+  const lastEducation = [...unitResponses]
+    .reverse()
+    .find((response) => response.phase === "ai_education");
+  return lastEducation?.metadata?.forcedConnectAdvance === true;
+};
+
+export const runEducationUnitTurn = async ({
+  sessionId,
+  userId,
+  turnId,
+  turnLeaseId,
+  message,
+  turn,
+  deps,
+  onAssistantMessage,
+  scheduleBackgroundTask,
+}: {
+  sessionId: string;
+  userId: string;
+  turnId: string | null;
+  turnLeaseId: string | null;
+  message: string;
+  turn: ResolvedWorkspaceTurn;
+  deps: WorkspaceTurnOrchestrationDependencies;
+  onAssistantMessage?: (content: string) => void;
+  scheduleBackgroundTask?: (task: () => Promise<void>) => void;
+}): Promise<WorkspaceAiTurnResult> => {
+  const trimmedMessage = message.trim();
+  if (trimmedMessage.length < 2) {
+    throw new WorkspaceUserError(
+      "Write a fuller message so the AI can respond usefully.",
     );
   }
 
-  const activeEvaluationPlan = selectLatestEvaluationPlan(unitResponses);
-  const shouldUseDifficultyDirective =
-    deps.prepareDifficultyDirective &&
-    shouldPrepareDifficultyDirective({
-      state,
-      action,
-      runtimeContextMode: runtime.contextMode,
+  const { plan, state, node, unit, unitRun, unitResponses } = turn;
+
+  if (isUnitAwaitingAdvance({ node, run: unitRun })) {
+    throw new WorkspaceUserError(
+      "This unit is complete. Press Next Unit to continue.",
+    );
+  }
+
+  const loadedTranscript = await claimTurnAndLoadTranscript({
+    sessionId,
+    slot: "education_unit",
+    unitId: unit.nodeId,
+    turnId,
+    turnLeaseId,
+    action: "submit_answer",
+    claimContent: trimmedMessage,
+    message: trimmedMessage,
+    appendSyntheticUserMessage: true,
+    deps,
+  });
+  if (loadedTranscript.kind === "cached") {
+    onAssistantMessage?.(loadedTranscript.assistantMessage.content);
+    const nextState = await planNextWorkspaceTurn({ sessionId, plan, deps });
+    return {
+      state: nextState ?? state,
+      messages: loadedTranscript.messages,
+      assistantMessage: loadedTranscript.assistantMessage,
+    };
+  }
+  const memories = await deps.listMemories(userId);
+  const ratingScope = resolveRatingScope({ unit, planNodes: plan.nodes });
+
+  const recipe = getUnitRecipe(unitRun.recipeVersion, ratingScope);
+  const contextBlock = buildUnitTurnContext({
+    unit,
+    state: unitRun,
+    policy: recipe.policy,
+    memories,
+    progressSummary: loadedTranscript.progressSummary,
+    // Difficulty is currently only WRITTEN on the pass-2 solve (below). A
+    // per-turn READ directive can be layered in later without changing the
+    // engine contract.
+    difficultyLine: null,
+    pendingConnectTeach: readPendingConnectTeach(unitResponses),
+  });
+
+  const turnResult = await runUnitTurn({
+    state: unitRun,
+    recipe,
+    contextBlock,
+    transcript: toModelMessages(loadedTranscript.transcript),
+  });
+  onAssistantMessage?.(turnResult.assistantMessage);
+
+  // Only a passing pass-2 solve feeds Goldilocks. Open a scenario attempt for
+  // the rating node and grade it in the same commit — self-contained, so no
+  // dangling open attempts are left across turns.
+  let ratingEvaluation: WorkspaceRatingEvaluationCommit | null = null;
+  if (turnResult.ratingWrite && deps.prepareDifficultyDirective) {
+    const now = new Date();
+    const opened = await deps.prepareDifficultyDirective({
+      userId,
+      nodeId: ratingScope.nodeId,
+      now,
+      bands: ratingScope.bands,
     });
+    if (deps.updateScenarioItemRating) {
+      // The current FSM does not yet generate Solve from this directive. Grade
+      // conservatively at the learner's actual pre-turn rating, not at an
+      // unpresented target difficulty.
+      await deps.updateScenarioItemRating({
+        scenarioAttemptId: opened.scenarioAttemptId,
+        itemRating: opened.learnerRating,
+      });
+    }
+    ratingEvaluation = {
+      scenarioAttemptId: opened.scenarioAttemptId,
+      userId,
+      nodeId: ratingScope.nodeId,
+      score: turnResult.ratingWrite.score,
+      errorCodes: [],
+      wasOverTime: false,
+      occurredAt: now,
+      bands: ratingScope.bands,
+    };
+  }
+
+  const result = await saveUnitPhaseResult({
+    sessionId,
+    userId,
+    message: trimmedMessage,
+    state,
+    unit,
+    plan,
+    turnResult,
+    ratingEvaluation,
+    turnId,
+    turnLeaseId,
+    persistUserMessage: loadedTranscript.claimedDurableTurn,
+    phaseResponseSequence: unitResponses.filter(
+      (response) => response.phase === "ai_education",
+    ).length,
+    deps,
+  });
+
+  if (result.nextReadyNode && deps.prewarmWorkspaceUnit) {
+    const nextReadyNode = result.nextReadyNode;
+    const prewarm = async () => {
+      try {
+        await deps.prewarmWorkspaceUnit?.(nextReadyNode);
+      } catch (error) {
+        console.error("Next workspace unit prewarm failed", {
+          nodeId: nextReadyNode.id,
+          error,
+        });
+      }
+    };
+    if (scheduleBackgroundTask) {
+      scheduleBackgroundTask(prewarm);
+    } else {
+      void prewarm();
+    }
+  }
+
+  return {
+    state: result.state,
+    messages: result.messages,
+    assistantMessage: result.assistantMessage,
+  };
+};
+
+// ---------------------------------------------------------------------------
+// Recall path
+// ---------------------------------------------------------------------------
+
+export interface PreparedRecallTurn {
+  kind: "prepared";
+  action: WorkspaceChatAction;
+  manualDifficultySignal: ManualDifficultySignal | null;
+  sessionId: string;
+  userId: string;
+  turnId: string | null;
+  turnLeaseId: string | null;
+  message: string;
+  turn: ResolvedWorkspaceTurn;
+  runtime: WorkspaceTurnRuntime;
+  promptContext: string;
+  difficultyDirectiveResult: DifficultyDirectiveResult | null;
+  manualDifficultyNudge: ManualDifficultyNudgeResult | null;
+  persistUserMessage: boolean;
+  phaseResponseSequence: number;
+}
+
+export interface CachedWorkspaceTurn {
+  kind: "cached";
+  assistantMessage: WorkspaceAiMessage;
+  messages: WorkspaceAiMessage[];
+}
+
+const buildRecallActionPromptContext = ({
+  context,
+  action,
+  manualDifficultySignal,
+  manualDifficultyNudge,
+}: {
+  context: string;
+  action: WorkspaceChatAction;
+  manualDifficultySignal: ManualDifficultySignal | null;
+  manualDifficultyNudge: ManualDifficultyNudgeResult | null;
+}) => {
+  if (action === "next_scenario") {
+    return `${context}\n\n## Turn instruction\nThe learner clicked Next scenario. Generate the next recall scenario only. Do not treat this as a learner answer.`;
+  }
+  if (action === "adjust_difficulty") {
+    return `${context}\n\n## Turn instruction\nThe learner marked the previous scenario as ${manualDifficultySignal === "too_hard" ? "too hard" : "too easy"}. Generate a replacement scenario only. The training engine already adjusted the learner rating by ${manualDifficultyNudge?.delta ?? 0} points, from ${Math.round(manualDifficultyNudge?.previousRating ?? 0)} to ${Math.round(manualDifficultyNudge?.nextRating ?? 0)}. Make it meaningfully ${manualDifficultySignal === "too_hard" ? "more approachable" : "more challenging"}.`;
+  }
+  return context;
+};
+
+export const prepareRecallTurnPrompt = async ({
+  sessionId,
+  userId,
+  turnId,
+  turnLeaseId,
+  message,
+  action,
+  manualDifficultySignal,
+  turn,
+  deps,
+}: {
+  sessionId: string;
+  userId: string;
+  turnId: string | null;
+  turnLeaseId: string | null;
+  message: string;
+  action: WorkspaceChatAction;
+  manualDifficultySignal: ManualDifficultySignal | null;
+  turn: ResolvedWorkspaceTurn;
+  deps: WorkspaceTurnOrchestrationDependencies;
+}): Promise<PreparedRecallTurn | CachedWorkspaceTurn> => {
+  const trimmedMessage = message.trim();
+  if (action === "submit_answer" && trimmedMessage.length < 2) {
+    throw new WorkspaceUserError(
+      "Write a fuller message so the AI can respond usefully.",
+    );
+  }
+
+  const { plan, allResponses, state, node, unit, unitResponses } = turn;
+  const ratingScope = resolveRatingScope({ unit, planNodes: plan.nodes });
+  const loadedTranscript = await claimTurnAndLoadTranscript({
+    sessionId,
+    slot: "recall",
+    unitId: unit.nodeId,
+    turnId,
+    turnLeaseId,
+    action,
+    claimContent: getTurnClaimContent({
+      action,
+      manualDifficultySignal,
+      message: trimmedMessage,
+    }),
+    message: trimmedMessage,
+    appendSyntheticUserMessage: action === "submit_answer",
+    deps,
+  });
+  if (loadedTranscript.kind === "cached") {
+    return loadedTranscript;
+  }
+  const memoriesPromise = deps.listMemories(userId);
+
+  const messagesWithUser = loadedTranscript.messages;
+  const verbatimMessages = loadedTranscript.transcript;
+  const progressSummary = loadedTranscript.progressSummary;
+  const introMessage = !messagesWithUser.some(
+    (workspaceMessage) => workspaceMessage.role === "assistant",
+  )
+    ? buildWorkspaceIntroMessage({ plan, state })
+    : null;
+  const runtime = getStepCard(state);
+
   const now = new Date();
   const manualDifficultyNudge =
     action === "adjust_difficulty" &&
@@ -430,70 +571,20 @@ export const prepareWorkspaceTurnPrompt = async ({
           now,
         })
       : null;
-  const [memories, difficultyDirectiveResult] = await Promise.all([
-    deps.listMemories(userId),
-    shouldUseDifficultyDirective
-      ? deps.prepareDifficultyDirective?.({
+  // A manual nudge must land before the directive reads rating state. Memories
+  // are independent and were started above, so they still overlap this chain.
+  const [difficultyDirectiveResult, memories] = await Promise.all([
+    deps.prepareDifficultyDirective
+      ? deps.prepareDifficultyDirective({
           userId,
           nodeId: ratingScope.nodeId,
           now,
           bands: ratingScope.bands,
         })
-      : Promise.resolve(null),
+      : null,
+    memoriesPromise,
   ]);
-  const persistedScenarioAttemptId = [...unitResponses]
-    .reverse()
-    .find((response) => response.metadata?.scenarioAttemptId)
-    ?.metadata?.scenarioAttemptId;
-  const scenarioAttemptId =
-    difficultyDirectiveResult?.scenarioAttemptId ??
-    persistedScenarioAttemptId ??
-    null;
-  const openScenario =
-    runtime.contextMode === "evaluator" &&
-    scenarioAttemptId &&
-    deps.getScenarioAttempt
-      ? await deps.getScenarioAttempt({
-          scenarioAttemptId,
-          userId,
-          nodeId: ratingScope.nodeId,
-        })
-      : null;
-  if (runtime.contextMode === "evaluator" && !openScenario) {
-    throw new CurriculumInvariantError(
-      scenarioAttemptId
-        ? `Open scenario attempt ${scenarioAttemptId} is missing.`
-        : `No scenario attempt is attached to unit ${unit.nodeId}.`,
-    );
-  }
-  const serverAttemptTiming =
-    runtime.contextMode === "evaluator" && activeEvaluationPlan
-      ? deriveServerAttemptTiming({
-          presentedAt: openScenario?.presentedAt,
-          submittedAt,
-          timeLimitSeconds: activeEvaluationPlan.timeLimitSeconds,
-        })
-      : null;
-  const scenarioEvaluationContract =
-    runtime.contextMode === "evaluator"
-      ? openScenario?.scenarioContractJson
-        ? ScenarioEvaluationContractSchema.parse(
-            openScenario.scenarioContractJson,
-          )
-        : buildLegacyScenarioEvaluationContract({
-            unit,
-            stage: state.educationStage ?? "Review",
-            scenarioPrompt:
-              openScenario?.scenarioPrompt ??
-              verbatimMessages
-                .slice()
-                .reverse()
-                .find(
-                  (workspaceMessage) => workspaceMessage.role === "assistant",
-                )?.content ??
-              unit.seedPrompt,
-          })
-      : null;
+
   const contextEnvelope = buildWorkspaceContextEnvelope({
     plan,
     node,
@@ -506,9 +597,9 @@ export const prepareWorkspaceTurnPrompt = async ({
     activeUnitResponses: unitResponses,
     allResponses,
     runtime,
-    evaluationPlan: activeEvaluationPlan,
-    attemptTiming: serverAttemptTiming,
-    scenarioEvaluationContract,
+    evaluationPlan: null,
+    attemptTiming: null,
+    scenarioEvaluationContract: null,
     difficultyDirective: difficultyDirectiveResult
       ? {
           reason: difficultyDirectiveResult.directive.reason,
@@ -529,61 +620,45 @@ export const prepareWorkspaceTurnPrompt = async ({
     sessionId,
     userId,
     turnId,
-    turnLeaseId: claimLeaseId,
+    turnLeaseId,
     message: trimmedMessage,
-    attemptTiming: serverAttemptTiming,
     turn,
-    ratingScope,
-    scenarioAttemptId,
     runtime,
-    promptContext: buildActionPromptContext({
+    promptContext: buildRecallActionPromptContext({
       context,
       action,
       manualDifficultySignal,
       manualDifficultyNudge,
     }),
-    scenarioEvaluationContract,
-    difficultyDirectiveResult: difficultyDirectiveResult ?? null,
+    difficultyDirectiveResult,
     manualDifficultyNudge,
+    persistUserMessage:
+      loadedTranscript.claimedDurableTurn && action === "submit_answer",
+    phaseResponseSequence: unitResponses.filter(
+      (response) => response.phase === "ai_recall",
+    ).length,
   };
 };
-
-export const parseWorkspaceTurnOutput = ({
-  runtime,
-  rawOutput,
-}: {
-  runtime: WorkspaceTurnRuntime;
-  rawOutput: unknown;
-}): WorkspaceTurnOutput =>
-  runtime.outputSchema.parse(rawOutput) as WorkspaceTurnOutput;
-
-const getPriorEvaluationAttempts = (unitResponses: PhaseResponseRecord[]) =>
-  unitResponses.filter(
-    (response) =>
-      response.phase === "ai_education" &&
-      response.metadata?.promptKind === "evaluate_feedback" &&
-      response.metadata.nextScenarioPrompt !== true,
-  ).length;
 
 const maybeUpdateOpenScenarioItemRating = async ({
   prepared,
   output,
   deps,
 }: {
-  prepared: PreparedWorkspaceTurn;
-  output: WorkspaceTurnOutput;
+  prepared: PreparedRecallTurn;
+  output: WorkspaceAiRecallOutput;
   deps: WorkspaceTurnOrchestrationDependencies;
 }) => {
   if (
     !prepared.difficultyDirectiveResult ||
-    !prepared.scenarioAttemptId ||
-    !deps.updateScenarioItemRating
+    !deps.updateScenarioItemRating ||
+    output.estimatedItemRating == null
   ) {
     return;
   }
 
   await deps.updateScenarioItemRating({
-    scenarioAttemptId: prepared.scenarioAttemptId,
+    scenarioAttemptId: prepared.difficultyDirectiveResult.scenarioAttemptId,
     itemRating: clampClaimedItemRating({
       claimed: output.estimatedItemRating,
       target: prepared.difficultyDirectiveResult.directive.targetItemRating,
@@ -591,163 +666,64 @@ const maybeUpdateOpenScenarioItemRating = async ({
   });
 };
 
-export const saveStepResult = async ({
+export const saveRecallStepResult = async ({
   prepared,
   rawOutput,
   deps,
 }: {
-  prepared: PreparedWorkspaceTurn;
+  prepared: PreparedRecallTurn;
   rawOutput: unknown;
   deps: WorkspaceTurnOrchestrationDependencies;
-}): Promise<WorkspaceAiTurnResult | null> => {
-  const output = parseWorkspaceTurnOutput({
-    runtime: prepared.runtime,
+}): Promise<WorkspaceAiTurnResult> => {
+  const output = prepared.runtime.outputSchema.parse(
     rawOutput,
-  });
-  const { action, turn } = prepared;
-  const { state, unit, plan, unitResponses } = turn;
-  const { ratingScope, scenarioAttemptId } = prepared;
+  ) as WorkspaceAiRecallOutput;
+  const { turn } = prepared;
+  const { state, unit, plan } = turn;
 
-  if (state.mode === "recall") {
-    await maybeUpdateOpenScenarioItemRating({
-      prepared,
-      output,
-      deps,
-    });
+  await maybeUpdateOpenScenarioItemRating({ prepared, output, deps });
 
-    if (action === "adjust_difficulty") {
-      return saveRecallTurnResult({
-        sessionId: prepared.sessionId,
-        userId: prepared.userId,
-        message: `[difficulty_adjustment:${prepared.manualDifficultySignal}]`,
-        state,
-        unit,
-        plan,
-        output: {
-          ...(output as WorkspaceAiRecallOutput),
-          recallComplete: false,
-          score: null,
-        },
-        difficultyDirectiveReason:
-          prepared.difficultyDirectiveResult?.directive.reason ?? null,
-        manualDifficultySignal: prepared.manualDifficultySignal,
-        turnId: prepared.turnId,
-        turnLeaseId: prepared.turnLeaseId,
-        deps,
-      });
-    }
-
+  if (prepared.action === "adjust_difficulty") {
     return saveRecallTurnResult({
       sessionId: prepared.sessionId,
       userId: prepared.userId,
-      message: prepared.message,
+      message: `[difficulty_adjustment:${prepared.manualDifficultySignal}]`,
       state,
       unit,
       plan,
-      output: output as WorkspaceAiRecallOutput,
+      output: { ...output, recallComplete: false, score: null },
       difficultyDirectiveReason:
         prepared.difficultyDirectiveResult?.directive.reason ?? null,
-      deps,
+      manualDifficultySignal: prepared.manualDifficultySignal,
       turnId: prepared.turnId,
       turnLeaseId: prepared.turnLeaseId,
-    });
-  }
-
-  if (!state.educationStage) {
-    throw new Error("Education stage is missing.");
-  }
-
-  const educationOutput = output as
-    | WorkspaceAiEducationOutput
-    | WorkspaceAiEvaluationOutput;
-  const evaluationPlan = isEvaluationOutput(educationOutput)
-    ? normalizeEvaluationPlan({
-        plan: educationOutput.evaluationPlan,
-        isRetryAfterFailure: hasFailedEvaluationAttempt(unitResponses),
-      })
-    : null;
-
-  if (
-    isEvaluationOutput(educationOutput) &&
-    prepared.scenarioEvaluationContract
-  ) {
-    validateEvaluationDimensionResults({
-      scenarioContract: prepared.scenarioEvaluationContract,
-      dimensionIds: educationOutput.dimensionResults.map(
-        (dimensionResult) => dimensionResult.dimensionId,
-      ),
-    });
-  }
-
-  await maybeUpdateOpenScenarioItemRating({
-    prepared,
-    output: educationOutput,
-    deps,
-  });
-
-  if (action === "next_scenario" || action === "adjust_difficulty") {
-    await saveNextScenarioPrompt({
-      sessionId: prepared.sessionId,
-      userId: prepared.userId,
-      unit,
-      output: educationOutput,
-      evaluationPlan,
-      currentStage: state.educationStage,
-      difficultyDirectiveReason:
-        prepared.difficultyDirectiveResult?.directive.reason ?? null,
-      manualDifficultySignal:
-        action === "adjust_difficulty" ? prepared.manualDifficultySignal : null,
-      scenarioAttemptId,
-      turnId: prepared.turnId,
-      turnLeaseId: prepared.turnLeaseId,
+      persistUserMessage: prepared.persistUserMessage,
+      phaseResponseSequence: prepared.phaseResponseSequence,
       deps,
     });
-
-    return null;
   }
 
-  const stepVerdict = readVerdict({
-    stepId: state.educationStage,
-    aiOutput: educationOutput,
-  });
-
-  const result = await saveEducationTurnResult({
+  return saveRecallTurnResult({
     sessionId: prepared.sessionId,
     userId: prepared.userId,
     message: prepared.message,
     state,
     unit,
     plan,
-    output: educationOutput,
-    attemptTiming: prepared.attemptTiming,
-    evaluationPlan,
-    priorEvaluationAttempts: getPriorEvaluationAttempts(unitResponses),
-    verdict: stepVerdict,
+    output,
     difficultyDirectiveReason:
       prepared.difficultyDirectiveResult?.directive.reason ?? null,
-    ratingNodeId: ratingScope.nodeId,
-    ratingBands: ratingScope.bands,
-    scenarioAttemptId,
     turnId: prepared.turnId,
     turnLeaseId: prepared.turnLeaseId,
+    persistUserMessage: prepared.persistUserMessage,
+    phaseResponseSequence: prepared.phaseResponseSequence,
     deps,
   });
-
-  if (result.nextReadyNode && deps.prewarmWorkspaceUnit) {
-    try {
-      await deps.prewarmWorkspaceUnit(result.nextReadyNode);
-    } catch (error) {
-      console.error("Next workspace unit prewarm failed", {
-        nodeId: result.nextReadyNode.id,
-        error,
-      });
-    }
-  }
-
-  return result;
 };
 
-export const completeWorkspaceTurn = saveStepResult;
+// ---------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------
 
 export const runOneStep = async ({
   sessionId,
@@ -770,7 +746,26 @@ export const runOneStep = async ({
   manualDifficultySignal?: ManualDifficultySignal | null;
   deps: WorkspaceTurnOrchestrationDependencies;
 }): Promise<WorkspaceAiTurnResult> => {
-  const prepared = await prepareWorkspaceTurnPrompt({
+  const turn = await resolveWorkspaceTurn({ sessionId, deps });
+
+  if (turn.state.mode === "education_unit") {
+    if (action !== "submit_answer") {
+      throw new Error(
+        "Education units only accept answers; there is no next-scenario or difficulty control here.",
+      );
+    }
+    return runEducationUnitTurn({
+      sessionId,
+      userId,
+      turnId,
+      turnLeaseId,
+      message,
+      turn,
+      deps,
+    });
+  }
+
+  const prepared = await prepareRecallTurnPrompt({
     sessionId,
     userId,
     turnId,
@@ -778,44 +773,29 @@ export const runOneStep = async ({
     message,
     action,
     manualDifficultySignal,
+    turn,
     deps,
   });
 
   if (prepared.kind === "cached") {
-    const plan = await deps.getActivePlan(sessionId);
-    const state = plan
-      ? await planNextWorkspaceTurn({ sessionId, plan, deps })
-      : null;
-    if (!state) {
-      throw new Error("Cached workspace turn could not be replayed.");
-    }
-
+    const nextState = await planNextWorkspaceTurn({
+      sessionId,
+      plan: turn.plan,
+      deps,
+    });
     return {
-      state,
+      state: nextState ?? turn.state,
       messages: prepared.messages,
       assistantMessage: prepared.assistantMessage,
     };
   }
 
   const output = await runWorkspaceAiPrompt({
-    kind: prepared.runtime.promptKind,
+    kind: "recall",
     schema: prepared.runtime.outputSchema,
-    errorMessage:
-      prepared.turn.state.mode === "recall"
-        ? "Failed to run recall."
-        : "Failed to run education unit.",
+    errorMessage: "Failed to run recall.",
     context: prepared.promptContext,
   });
 
-  const result = await saveStepResult({
-    prepared,
-    rawOutput: output,
-    deps,
-  });
-
-  if (!result) {
-    throw new Error("Workspace turn did not produce a persisted result.");
-  }
-
-  return result;
+  return saveRecallStepResult({ prepared, rawOutput: output, deps });
 };
