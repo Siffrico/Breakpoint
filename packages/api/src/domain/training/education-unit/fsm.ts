@@ -11,13 +11,15 @@
 //   Solve loops on itself while the solution is wrong or unclear.
 //   Both passes READ difficulty; only pass 2's passing Solve WRITES it.
 
-import type { LoopPolicy, PassIndex, UnitPhase, UnitState } from "./unit";
+import type {
+  LoopPolicy,
+  PassIndex,
+  UnitEvent,
+  UnitPhase,
+  UnitState,
+} from "./unit";
 
-/** The things that can happen in a state. The machine reacts only to these. */
-export type UnitEvent =
-  | { type: "teach_done" } // an Orient or Concept teach finished
-  | { type: "connection_graded"; connected: boolean } // result of a Connect check
-  | { type: "solution_graded"; passed: boolean }; // result of a Solve check (grade >= threshold)
+export type { UnitEvent } from "./unit";
 
 /** Where every unit begins. */
 export const initialState = (unitId: string, recipeVersion: string): UnitState => ({
@@ -63,8 +65,14 @@ export const transition = (
         return enter(state, "solve", state.pass); // got the core — go solve
       }
       const grills = state.connectGrills + 1;
-      // Missed it. Grill again — unless we've hit the limit, then teach the idea
-      // and move on so the learner is never trapped in Connect.
+      // Missed it. Grill again — unless we've hit the limit, in which case we
+      // give up on Connect and advance anyway so the learner is never trapped.
+      // This branch reaches the *same* next state as a clean pass; the only
+      // distinguishing signal (grills exhausted) lives in connectGrills right
+      // up until enter() resets it below. Callers that need to know "did this
+      // learner actually get it, or did we force them through" must check
+      // shouldTeachMissedConnection() against the pre-transition state/event,
+      // not after the fact — the counter is gone once this returns.
       return grills >= policy.maxGrillsBeforeTeach
         ? enter(state, "solve", state.pass)
         : { ...state, connectGrills: grills };
@@ -78,8 +86,11 @@ export const transition = (
           ? enter(state, "teach", 1)
           : enter(state, "mastered", 2);
       }
-      // Wrong or unclear — stay in Solve and try again (the response repairs or,
-      // past the limit, micro-teaches; either way the learner re-solves).
+      // Wrong or unclear — stay in Solve and try again. The FSM itself never
+      // micro-teaches (there is no phase for it); it only tracks the repair
+      // count. Whether this particular repair has crossed the micro-teach
+      // threshold is answered by shouldMicroTeach(), called by the caller
+      // against the pre-transition state/event, same as Connect above.
       return { ...state, solveRepairs: state.solveRepairs + 1 };
     }
 
@@ -98,6 +109,36 @@ export const isTerminal = (state: UnitState): boolean =>
   state.phase === "mastered";
 
 /**
+ * Call this BEFORE transition() — connectGrills resets the instant a phase
+ * changes, so this is the only moment the "did we have to force this learner
+ * through?" signal exists. True means the upcoming Connect failure is the one
+ * that exhausts the grill budget, so the next Solve prompt should teach the
+ * missed idea before posing the scenario.
+ */
+export const shouldTeachMissedConnection = (
+  state: UnitState,
+  event: Extract<UnitEvent, { type: "connection_graded" }>,
+  policy: LoopPolicy,
+): boolean =>
+  state.phase === "connect" &&
+  !event.connected &&
+  state.connectGrills + 1 >= policy.maxGrillsBeforeTeach;
+
+/**
+ * Call this BEFORE transition(), same reason as shouldTeachMissedConnection.
+ * True means the upcoming Solve failure crosses maxRepairsBeforeMicroTeach,
+ * so the next Solve prompt should micro-teach before the learner retries.
+ */
+export const shouldMicroTeach = (
+  state: UnitState,
+  event: Extract<UnitEvent, { type: "solution_graded" }>,
+  policy: LoopPolicy,
+): boolean =>
+  state.phase === "solve" &&
+  !event.passed &&
+  state.solveRepairs + 1 >= policy.maxRepairsBeforeMicroTeach;
+
+/**
  * The single moment the unit feeds the rating system: a passing Solve on pass 2.
  * Both passes read difficulty when generating their scenario; only this writes.
  */
@@ -107,10 +148,10 @@ export const writesGoldilocks = (state: UnitState, event: UnitEvent): boolean =>
   event.type === "solution_graded" &&
   event.passed;
 
-const expect = (ok: boolean, state: UnitState, event: UnitEvent): void => {
+function expect(ok: boolean, state: UnitState, event: UnitEvent): asserts ok {
   if (!ok) {
     throw new Error(
       `Illegal event "${event.type}" in phase "${state.phase}" (pass ${state.pass}).`,
     );
   }
-};
+}

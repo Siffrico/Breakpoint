@@ -4,6 +4,7 @@ import type { WorkspaceContextEnvelope } from "./schemas";
 export const renderWorkspaceContextPrompt = (
   envelope: WorkspaceContextEnvelope,
   runtime?: WorkspaceTurnRuntime,
+  includeTranscript = true,
 ): string => `Workspace context envelope
 
 ## Learner
@@ -43,9 +44,7 @@ Unresolved pattern: ${envelope.evidence.unresolvedPattern ?? "None selected"}
 
 ${formatPromptShownToLearner(envelope)}
 ${formatDifficultyDirective(envelope)}
-## Recent transcript
-${formatList(envelope.evidence.recentTranscript)}
-
+${formatRecentTranscriptSection(envelope, includeTranscript)}
 ## Output contract
 Move: ${envelope.outputContract.move}
 Maximum words: ${envelope.outputContract.maxWords}
@@ -57,20 +56,29 @@ ${formatList(envelope.outputContract.mustNotDo)}`;
 export const renderWorkspaceStageContextPrompt = ({
   envelope,
   runtime,
+  includeTranscript = true,
 }: {
   envelope: WorkspaceContextEnvelope;
   runtime: WorkspaceTurnRuntime;
+  /**
+   * False for callers building a native ModelMessage[] transcript (see
+   * context-engine/build-messages.ts) — the real conversation is passed as
+   * actual messages instead, so re-flattening it into prose here would just
+   * duplicate it.
+   */
+  includeTranscript?: boolean;
 }): string => {
   if (runtime.contextMode === "evaluator") {
-    return renderEvaluatorContextPrompt(envelope, runtime);
+    return renderEvaluatorContextPrompt(envelope, runtime, includeTranscript);
   }
 
-  return renderWorkspaceContextPrompt(envelope, runtime);
+  return renderWorkspaceContextPrompt(envelope, runtime, includeTranscript);
 };
 
 const renderEvaluatorContextPrompt = (
   envelope: WorkspaceContextEnvelope,
   runtime: WorkspaceTurnRuntime,
+  includeTranscript = true,
 ): string => `Evaluation context envelope
 
 ## Runtime
@@ -116,9 +124,7 @@ Most relevant prior failure: ${envelope.evidence.mostRelevantFailure ?? "None se
 Strongest prior success: ${envelope.evidence.strongestPriorSuccess ?? "None selected"}
 Unresolved pattern: ${envelope.evidence.unresolvedPattern ?? "None selected"}
 
-## Minimal teaching transcript
-${formatList(envelope.evidence.recentTranscript)}
-
+${formatMinimalTeachingTranscriptSection(envelope, includeTranscript)}
 ## Evaluator contract
 Maximum words: ${envelope.outputContract.maxWords}
 Must do:
@@ -205,6 +211,30 @@ const formatDifficultyDirective = (
   if (!envelope.difficultyDirective) return "";
 
   return `${envelope.difficultyDirective.promptBlock}
+
+`;
+};
+
+const formatRecentTranscriptSection = (
+  envelope: WorkspaceContextEnvelope,
+  includeTranscript: boolean,
+): string => {
+  if (!includeTranscript) return "";
+
+  return `## Recent transcript
+${formatList(envelope.evidence.recentTranscript)}
+
+`;
+};
+
+const formatMinimalTeachingTranscriptSection = (
+  envelope: WorkspaceContextEnvelope,
+  includeTranscript: boolean,
+): string => {
+  if (!includeTranscript) return "";
+
+  return `## Minimal teaching transcript
+${formatList(envelope.evidence.recentTranscript)}
 
 `;
 };

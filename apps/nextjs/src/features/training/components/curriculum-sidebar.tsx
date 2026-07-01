@@ -5,13 +5,13 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  ArrowRight,
   BookOpenText,
   CaretRight,
   DotsThree,
   Gear,
   MagnifyingGlass,
   MapTrifold,
+  NotePencil,
   Plus,
   SidebarSimple,
   Storefront,
@@ -440,12 +440,12 @@ function ProjectRow({
               ? `Continue ${project.title}`
               : "Curriculum is still being prepared"
           }
-          className="text-foreground/32 hover:text-foreground/80 hover:bg-foreground/[0.05] flex size-6 shrink-0 items-center justify-center rounded-[5px] opacity-80 transition-colors outline-none group-hover/project:opacity-100 focus:outline-none focus-visible:outline-none disabled:pointer-events-none disabled:opacity-25"
+          className="text-foreground/32 hover:text-foreground/80 hover:bg-foreground/[0.05] pointer-events-none flex size-6 shrink-0 items-center justify-center rounded-[5px] opacity-0 transition-[color,background-color,opacity] outline-none group-hover/project:pointer-events-auto group-hover/project:opacity-100 focus:outline-none focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-0 group-hover/project:disabled:opacity-25"
         >
           {isContinuing ? (
             <DotMatrixCircularLoader size={13} dotSize={1.5} />
           ) : (
-            <ArrowRight size={14} weight="bold" />
+            <NotePencil size={15} weight="regular" />
           )}
         </button>
 
