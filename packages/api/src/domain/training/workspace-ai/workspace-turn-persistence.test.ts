@@ -102,7 +102,6 @@ void test("saveUnitPhaseResult persists transitions and non-grading continuation
           unitId: "node-1",
           metadata: null,
         },
-        nextReadyNode: null,
       });
     },
     commitRecallTurn: () =>

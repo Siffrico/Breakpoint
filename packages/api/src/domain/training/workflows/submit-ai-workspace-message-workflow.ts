@@ -22,7 +22,6 @@ export const submitAiWorkspaceMessageWorkflow = async ({
   turnId = null,
   attemptTiming,
   deps,
-  scheduleBackgroundTask,
 }: {
   sessionId: string;
   userId: string;
@@ -30,7 +29,6 @@ export const submitAiWorkspaceMessageWorkflow = async ({
   turnId?: string | null;
   attemptTiming?: AttemptTiming | null;
   deps: WorkspaceTurnOrchestrationDependencies;
-  scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }): Promise<Result<WorkspaceAiTurnResult>> => {
   const turnLeaseId = turnId ? randomUUID() : null;
   try {
@@ -44,7 +42,6 @@ export const submitAiWorkspaceMessageWorkflow = async ({
         attemptTiming,
         action: "submit_answer",
         deps,
-        scheduleBackgroundTask,
       }),
     );
   } catch (error) {

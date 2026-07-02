@@ -84,7 +84,6 @@ export const streamWorkspaceChat = async ({
   modelName,
   action = "submit_answer",
   manualDifficultySignal = null,
-  scheduleBackgroundTask,
 }: {
   db: Database;
   sessionId: string;
@@ -94,7 +93,6 @@ export const streamWorkspaceChat = async ({
   modelName?: string | null;
   action?: WorkspaceChatAction;
   manualDifficultySignal?: ManualDifficultySignal | null;
-  scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }): Promise<Response> =>
   withAiModelPreference(modelName, () =>
     streamWorkspaceChatWithModelPreference({
@@ -105,7 +103,6 @@ export const streamWorkspaceChat = async ({
       turnId,
       action,
       manualDifficultySignal,
-      scheduleBackgroundTask,
     }),
   );
 
@@ -117,7 +114,6 @@ const streamWorkspaceChatWithModelPreference = async ({
   turnId,
   action,
   manualDifficultySignal,
-  scheduleBackgroundTask,
 }: {
   db: Database;
   sessionId: string;
@@ -126,7 +122,6 @@ const streamWorkspaceChatWithModelPreference = async ({
   turnId: string | null;
   action: WorkspaceChatAction;
   manualDifficultySignal: ManualDifficultySignal | null;
-  scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }) => {
   const trimmedMessage = message.trim();
   // This layer owns both the lease and the failure path. Lower layers must
@@ -259,7 +254,6 @@ const streamWorkspaceChatWithModelPreference = async ({
               // The reply is on screen; persistence is still running behind it.
               writeStatus("saving", "Saving your progress");
             },
-            scheduleBackgroundTask,
           });
           writeStatus("complete", "Complete");
           writer.write({ type: "finish", finishReason: "stop" });

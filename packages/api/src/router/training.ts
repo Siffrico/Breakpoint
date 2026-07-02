@@ -697,7 +697,6 @@ export const trainingRouter = {
             turnId: input.turnId ?? null,
             attemptTiming: input.attemptTiming ?? null,
             deps: createWorkspaceTurnRepositoryDeps(ctx.db),
-            scheduleBackgroundTask: ctx.scheduleBackgroundTask,
           }),
         );
       } catch (error) {

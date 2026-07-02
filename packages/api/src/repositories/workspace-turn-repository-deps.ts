@@ -248,7 +248,6 @@ const commitEducationTurn = async ({
   input: WorkspaceEducationTurnCommit;
 }): Promise<{
   assistantMessage: WorkspaceAiMessage;
-  nextReadyNode: CurriculumNode | null;
 }> =>
   db.transaction(async (tx) => {
     const txDb = tx as unknown as Database;
@@ -292,7 +291,6 @@ const commitEducationTurn = async ({
       run: input.nextRun,
     });
 
-    const nextReadyNode: CurriculumNode | null = null;
     if (input.completion) {
       await trainingAttemptRepository.saveAttempt({
         db: txDb,
@@ -313,7 +311,7 @@ const commitEducationTurn = async ({
       userMessage,
     });
 
-    return { assistantMessage, nextReadyNode };
+    return { assistantMessage };
   });
 
 const commitRecallTurn = async ({

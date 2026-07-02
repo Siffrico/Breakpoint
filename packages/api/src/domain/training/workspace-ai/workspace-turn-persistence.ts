@@ -92,7 +92,6 @@ export interface WorkspaceTurnPersistenceDependencies
   completeNode: (nodeId: string) => Promise<CurriculumNode | null>;
   commitEducationTurn: (input: WorkspaceEducationTurnCommit) => Promise<{
     assistantMessage: WorkspaceAiMessage;
-    nextReadyNode: CurriculumNode | null;
   }>;
   commitRecallTurn: (
     input: WorkspaceRecallTurnCommit,
@@ -109,9 +108,7 @@ export interface WorkspaceTurnPersistenceDependencies
   touchSession: (sessionId: string) => Promise<unknown>;
 }
 
-export type WorkspaceAiTurnPersistenceResult = WorkspaceAiTurnResult & {
-  nextReadyNode?: CurriculumNode | null;
-};
+export type WorkspaceAiTurnPersistenceResult = WorkspaceAiTurnResult;
 
 export interface WorkspaceOutputContractCommit {
   unitContentId: string;
@@ -418,7 +415,7 @@ export const saveUnitPhaseResult = async ({
       }
     : null;
 
-  const { assistantMessage, nextReadyNode } = await deps.commitEducationTurn({
+  const { assistantMessage } = await deps.commitEducationTurn({
     turnId,
     turnLeaseId,
     userMessage: persistUserMessage
@@ -463,6 +460,5 @@ export const saveUnitPhaseResult = async ({
         : "education_unit",
     ),
     assistantMessage,
-    nextReadyNode,
   };
 };

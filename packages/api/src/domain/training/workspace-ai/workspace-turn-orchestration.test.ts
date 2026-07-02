@@ -151,15 +151,7 @@ void test("an invalid education-unit result is never persisted", async () => {
   assert.equal(assistantStreamed, false);
 });
 
-void test("a completed turn prewarms the next unit with its session id", async () => {
-  const nextNode = {
-    ...node,
-    id: "node-2",
-    title: "Next unit",
-    orderIndex: 2,
-  } satisfies CurriculumNode;
-  const prewarmCalls: { node: CurriculumNode; sessionId: string }[] = [];
-  let backgroundTask: Promise<void> | null = null;
+void test("an education turn returns the committed assistant message", async () => {
   const assistantMessage = {
     id: "message-2",
     role: "assistant" as const,
@@ -191,23 +183,15 @@ void test("a completed turn prewarms the next unit with its session id", async (
         gradeReasoning: "The learner selected a discriminating probe.",
         ratingWrite: null,
       }),
-    commitEducationTurn: () =>
-      Promise.resolve({ assistantMessage, nextReadyNode: nextNode }),
+    commitEducationTurn: () => Promise.resolve({ assistantMessage }),
     listPhaseResponsesBySession: () => Promise.resolve([]),
     getUnitByNodeId: () => Promise.resolve(turn.unit),
     getPhaseResponses: () => Promise.resolve([]),
     getUnitRun: () => Promise.resolve(unitRun),
     upsertUnitRun: () => Promise.resolve(unitRun),
-    prewarmWorkspaceUnit: (input: {
-      node: CurriculumNode;
-      sessionId: string;
-    }) => {
-      prewarmCalls.push(input);
-      return Promise.resolve();
-    },
   } as unknown as WorkspaceTurnOrchestrationDependencies;
 
-  await runEducationUnitTurn({
+  const result = await runEducationUnitTurn({
     sessionId: unitRun.sessionId,
     userId: "user-1",
     turnId: null,
@@ -215,13 +199,7 @@ void test("a completed turn prewarms the next unit with its session id", async (
     message: "I would isolate one variable first.",
     turn,
     deps,
-    scheduleBackgroundTask: (task) => {
-      backgroundTask = task();
-    },
   });
-  await Promise.resolve(backgroundTask);
 
-  assert.deepEqual(prewarmCalls, [
-    { node: nextNode, sessionId: unitRun.sessionId },
-  ]);
+  assert.equal(result.assistantMessage, assistantMessage);
 });

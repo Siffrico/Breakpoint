@@ -301,7 +301,6 @@ export const runEducationUnitTurn = async ({
   turn,
   deps,
   onAssistantMessage,
-  scheduleBackgroundTask,
 }: {
   sessionId: string;
   userId: string;
@@ -311,7 +310,6 @@ export const runEducationUnitTurn = async ({
   turn: ResolvedWorkspaceTurn;
   deps: WorkspaceTurnOrchestrationDependencies;
   onAssistantMessage?: (content: string) => void;
-  scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }): Promise<WorkspaceAiTurnResult> => {
   const trimmedMessage = message.trim();
   if (trimmedMessage.length < 2) {
@@ -424,28 +422,6 @@ export const runEducationUnitTurn = async ({
     ).length,
     deps,
   });
-
-  if (result.nextReadyNode && deps.prewarmWorkspaceUnit) {
-    const nextReadyNode = result.nextReadyNode;
-    const prewarm = async () => {
-      try {
-        await deps.prewarmWorkspaceUnit?.({
-          node: nextReadyNode,
-          sessionId,
-        });
-      } catch (error) {
-        console.error("Next workspace unit prewarm failed", {
-          nodeId: nextReadyNode.id,
-          error,
-        });
-      }
-    };
-    if (scheduleBackgroundTask) {
-      scheduleBackgroundTask(prewarm);
-    } else {
-      void prewarm();
-    }
-  }
 
   return {
     state: result.state,
@@ -739,7 +715,6 @@ export const runOneStep = async ({
   action = "submit_answer",
   manualDifficultySignal = null,
   deps,
-  scheduleBackgroundTask,
 }: {
   sessionId: string;
   userId: string;
@@ -750,7 +725,6 @@ export const runOneStep = async ({
   action?: WorkspaceChatAction;
   manualDifficultySignal?: ManualDifficultySignal | null;
   deps: WorkspaceTurnOrchestrationDependencies;
-  scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }): Promise<WorkspaceAiTurnResult> => {
   const turn = await resolveWorkspaceTurn({ sessionId, deps });
 
@@ -768,7 +742,6 @@ export const runOneStep = async ({
       message,
       turn,
       deps,
-      scheduleBackgroundTask,
     });
   }
 
