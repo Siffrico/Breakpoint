@@ -8,7 +8,10 @@ import { CapstoneSubmissionSchema } from "@acme/validators";
 
 import { deriveProvisionalProjectTitle } from "../domain/training/services/provisional-project-title";
 import { UnitNotReadyError } from "../domain/training/unit-preparation/errors";
-import { raiseUnitPreparationError } from "../domain/training/unit-preparation/prepare-unit-edge";
+import {
+  raiseUnitPreparationError,
+  runPrepareUnit,
+} from "../domain/training/unit-preparation/prepare-unit-edge";
 import { advanceCompletedUnitWorkflow } from "../domain/training/workflows/advance-completed-unit-workflow";
 import { continueLearningProjectWorkflow } from "../domain/training/workflows/continue-learning-project-workflow";
 import { createLearningProjectWorkflow } from "../domain/training/workflows/create-learning-project-workflow";
@@ -753,7 +756,23 @@ export const trainingRouter = {
         await advanceCompletedUnitWorkflow({
           sessionId: input.sessionId,
           nodeId: input.nodeId,
-          deps: createWorkspaceTurnRepositoryDeps(ctx.db),
+          deps: {
+            withTransaction: (run) =>
+              ctx.db.transaction(async (tx) => {
+                const db = tx as unknown as Database;
+                await db.execute(
+                  sql`select pg_advisory_xact_lock(hashtext(${input.sessionId}), hashtext('advance-completed-unit'))`,
+                );
+                return run(createWorkspaceTurnRepositoryDeps(db));
+              }),
+            prewarmUnit: ({ node, sessionId }) =>
+              runPrepareUnit({
+                node,
+                sessionId,
+                deps: createUnitPreparationRepositoryDeps(ctx.db),
+              }),
+            scheduleBackgroundTask: ctx.scheduleBackgroundTask,
+          },
         }),
       );
     }),
