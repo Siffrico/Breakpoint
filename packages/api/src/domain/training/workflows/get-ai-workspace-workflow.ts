@@ -39,15 +39,6 @@ interface GetAiWorkspaceDependencies {
   ) => Promise<PersistedUnitRun | null>;
   upsertUnitRun: (run: PersistedUnitRun) => Promise<PersistedUnitRun>;
   getUnitByNodeId: (nodeId: string) => Promise<UnitContent | null>;
-  prepareUnit: (input: {
-    node: CurriculumNode;
-    sessionId: string;
-  }) => Promise<unknown>;
-  /**
-   * Keeps the fire-and-forget preparation alive past the response on
-   * serverless hosts (Next.js `after`). Falls back to a detached promise.
-   */
-  scheduleBackgroundTask?: (task: () => Promise<void>) => void;
   getScenarioAttemptStartedAt: (input: {
     scenarioAttemptId: string;
     nodeId: string;
@@ -74,7 +65,7 @@ export interface AiWorkspaceView {
 
 /**
  * Takes a learning session id; produces the current AI workspace view; fails
- * only when the curriculum does not exist or the active unit cannot be prepared.
+ * only when the curriculum does not exist or the active unit is not ready.
  */
 export const getAiWorkspaceWorkflow = async ({
   sessionId,
@@ -93,34 +84,11 @@ export const getAiWorkspaceWorkflow = async ({
     return err("Curriculum is not ready yet.");
   }
 
-  // Read paths never create unit content. On a miss, start the real generator
-  // in the background and tell the client to retry; `scheduleBackgroundTask`
-  // (Next.js `after`) keeps the generation alive past this response on
-  // serverless hosts.
-  const firePrepareUnit = (node: CurriculumNode) => {
-    const task = () =>
-      deps.prepareUnit({ node, sessionId }).then(
-        () => undefined,
-        (error: unknown) => {
-          console.error("Workspace unit preparation failed", {
-            nodeId: node.id,
-            error,
-          });
-        },
-      );
-    if (deps.scheduleBackgroundTask) {
-      deps.scheduleBackgroundTask(task);
-    } else {
-      void task();
-    }
-  };
-
   const activeUnitNode = getNextReadyLearningNode(plan.nodes);
   const activeUnit = activeUnitNode
     ? await deps.getUnitByNodeId(activeUnitNode.id)
     : null;
   if (activeUnitNode && !activeUnit) {
-    firePrepareUnit(activeUnitNode);
     return err(
       new UnitNotReadyError({
         message: "UNIT_PREPARING",
@@ -152,9 +120,6 @@ export const getAiWorkspaceWorkflow = async ({
     );
     const unit = recallNode ? await deps.getUnitByNodeId(recallNode.id) : null;
     if (!unit) {
-      if (recallNode) {
-        firePrepareUnit(recallNode);
-      }
       return err(
         new UnitNotReadyError({
           message: "UNIT_PREPARING",

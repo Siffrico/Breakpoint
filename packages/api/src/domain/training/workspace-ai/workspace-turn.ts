@@ -183,7 +183,7 @@ export const resolveUnitRunProjection = async ({
 /**
  * Takes a workspace session id and curriculum accessors, produces the runnable
  * turn with its unit and response history, and fails only when the curriculum
- * is missing, no turn is runnable, or the active unit cannot be prepared.
+ * is missing, no turn is runnable, or the active unit is not ready.
  */
 export const resolveWorkspaceTurn = async ({
   sessionId,
@@ -206,7 +206,6 @@ export const resolveWorkspaceTurn = async ({
     ? await deps.getUnitByNodeId(readyUnitNode.id)
     : null;
   if (readyUnitNode && !readyUnit) {
-    firePrewarmWorkspaceUnit({ node: readyUnitNode, sessionId, deps });
     throw new UnitNotReadyError({
       message: "UNIT_PREPARING",
       nodeId: readyUnitNode.id,
@@ -238,9 +237,6 @@ export const resolveWorkspaceTurn = async ({
   const unit = node ? await deps.getUnitByNodeId(node.id) : null;
 
   if (!unit || !node) {
-    if (node) {
-      firePrewarmWorkspaceUnit({ node, sessionId, deps });
-    }
     throw new UnitNotReadyError({
       message: "UNIT_PREPARING",
       nodeId: node?.id,

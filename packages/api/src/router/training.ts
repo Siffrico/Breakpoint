@@ -8,10 +8,7 @@ import { CapstoneSubmissionSchema } from "@acme/validators";
 
 import { deriveProvisionalProjectTitle } from "../domain/training/services/provisional-project-title";
 import { UnitNotReadyError } from "../domain/training/unit-preparation/errors";
-import {
-  raiseUnitPreparationError,
-  runPrepareUnit,
-} from "../domain/training/unit-preparation/prepare-unit-edge";
+import { raiseUnitPreparationError } from "../domain/training/unit-preparation/prepare-unit-edge";
 import { advanceCompletedUnitWorkflow } from "../domain/training/workflows/advance-completed-unit-workflow";
 import { continueLearningProjectWorkflow } from "../domain/training/workflows/continue-learning-project-workflow";
 import { createLearningProjectWorkflow } from "../domain/training/workflows/create-learning-project-workflow";
@@ -658,13 +655,6 @@ export const trainingRouter = {
               db: ctx.db,
               nodeId,
             }),
-          prepareUnit: ({ node, sessionId }) =>
-            runPrepareUnit({
-              node,
-              sessionId,
-              deps: createUnitPreparationRepositoryDeps(ctx.db),
-            }),
-          scheduleBackgroundTask: ctx.scheduleBackgroundTask,
           getScenarioAttemptStartedAt: async ({
             scenarioAttemptId,
             nodeId,
