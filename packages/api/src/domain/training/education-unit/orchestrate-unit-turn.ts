@@ -2,7 +2,7 @@
 //
 // The unit turn engine — the ONLY module outside fsm.ts that applies a
 // transition. It picks the phase agent for the current phase, runs its single
-// model call, maps the emitted grading tool call into a UnitEvent, applies
+// model call, maps the emitted phase-event tool call into a UnitEvent, applies
 // fsm.transition(), and reports what the persistence layer needs to commit.
 //
 // It is pure over its inputs except for the one model call (run through the
@@ -10,31 +10,30 @@
 // (workspace-turn-orchestration) owns all of that.
 
 import type { ModelMessage } from "ai";
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 
-import { runConnectAgent } from "./agents/connect-agent";
-import { runOrientAgent } from "./agents/orient-agent";
-import { runSolveAgent } from "./agents/solve-agent";
-import { runTeachAgent } from "./agents/teach-agent";
 import type { PhaseAgentError } from "./agents/errors";
-import type { PhaseAgentResult } from "./agents/run-phase-agent";
 import type { PhaseAgentOutput } from "./agents/output-schema";
-import { transition, writesGoldilocks } from "./fsm";
+import type { PhaseAgentResult } from "./agents/run-phase-agent";
 import type { UnitEvent, UnitRecipe, UnitState } from "./unit";
 import {
   GradeSolutionInputSchema,
   toUnitEvent,
 } from "../workspace-ai/fsm-tools";
+import { runConnectAgent } from "./agents/connect-agent";
+import { runOrientAgent } from "./agents/orient-agent";
+import { PhaseAgentOutputSchema } from "./agents/output-schema";
+import { runSolveAgent } from "./agents/solve-agent";
+import { runTeachAgent } from "./agents/teach-agent";
+import { transition, writesGoldilocks } from "./fsm";
 
-// A turn that cannot be interpreted — the graded phase agent returned no
-// grading tool call, or the args it sent don't validate. This is surfaced to
-// the caller (which fails the turn cleanly) rather than guessing a verdict.
-export class EducationUnitTurnError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "EducationUnitTurnError";
-  }
-}
+// A turn that cannot be interpreted because its output violates the current
+// phase contract. This is surfaced rather than guessing a learner outcome.
+export class EducationUnitContractError extends Data.TaggedError(
+  "EducationUnitContractError",
+)<{
+  readonly message: string;
+}> {}
 
 export interface UnitTurnInput {
   /** The durable cursor BEFORE this turn. */
@@ -69,10 +68,19 @@ export interface UnitTurnResult {
   ratingWrite: { score: number } | null;
 }
 
-const runPhaseForState = (
+export type UnitPhaseRunner = (
   state: UnitState,
   messages: ModelMessage[],
-): Effect.Effect<PhaseAgentResult<PhaseAgentOutput>, PhaseAgentError> => {
+) => Effect.Effect<PhaseAgentResult<PhaseAgentOutput>, PhaseAgentError>;
+
+export interface UnitTurnDependencies {
+  readonly runPhase: UnitPhaseRunner;
+}
+
+const runPhaseForState: UnitPhaseRunner = (
+  state: UnitState,
+  messages: ModelMessage[],
+) => {
   switch (state.phase) {
     case "orient":
       return runOrientAgent(messages);
@@ -84,43 +92,60 @@ const runPhaseForState = (
       return runTeachAgent(messages);
     case "mastered":
       return Effect.die(
-        new EducationUnitTurnError(
-          "Unit is already mastered; no turn to run.",
-        ),
+        new EducationUnitContractError({
+          message: "Unit is already mastered; no turn to run.",
+        }),
       );
   }
 };
 
-const GRADING_TOOL_BY_PHASE: Partial<Record<UnitState["phase"], string>> = {
-  connect: "gradeConnection",
-  solve: "gradeSolution",
+const LIVE_DEPENDENCIES: UnitTurnDependencies = {
+  runPhase: runPhaseForState,
+};
+
+const EVENT_TOOLS_BY_PHASE: Partial<
+  Record<UnitState["phase"], readonly string[]>
+> = {
+  connect: ["continuePhase", "gradeConnection"],
+  solve: ["continuePhase", "gradeSolution"],
 };
 
 /**
- * Reads the single grading tool call the connect/solve agents emit and maps it
- * to a UnitEvent. orient/teach never grade — they auto-fire teach_done.
+ * Takes one validated phase-agent result, produces exactly one UnitEvent, and
+ * fails only when the result violates the phase's tool contract.
  */
 const resolveEvent = (
   state: UnitState,
   result: PhaseAgentResult<PhaseAgentOutput>,
 ): { event: UnitEvent; reasoning: string | null } => {
   if (state.phase === "orient" || state.phase === "teach") {
+    if (result.toolCalls.length > 0) {
+      throw new EducationUnitContractError({
+        message: `The ${state.phase} agent returned an unexpected tool call.`,
+      });
+    }
     return { event: { type: "teach_done" }, reasoning: null };
   }
 
-  const expectedTool = GRADING_TOOL_BY_PHASE[state.phase];
-  const call = result.toolCalls.find((c) => c.toolName === expectedTool);
-  if (!call) {
-    throw new EducationUnitTurnError(
-      `The ${state.phase} agent did not return a verdict (${expectedTool} was not called).`,
-    );
+  const allowedTools = EVENT_TOOLS_BY_PHASE[state.phase] ?? [];
+  if (result.toolCalls.length !== 1) {
+    throw new EducationUnitContractError({
+      message: `The ${state.phase} agent must return exactly one phase event tool call.`,
+    });
+  }
+
+  const call = result.toolCalls[0];
+  if (!call || !allowedTools.includes(call.toolName)) {
+    throw new EducationUnitContractError({
+      message: `The ${state.phase} agent returned an invalid phase event tool.`,
+    });
   }
 
   const event = toUnitEvent(call.toolName, call.input);
   if (!event) {
-    throw new EducationUnitTurnError(
-      `The ${state.phase} agent called ${call.toolName} with invalid arguments.`,
-    );
+    throw new EducationUnitContractError({
+      message: `The ${state.phase} agent called ${call.toolName} with invalid arguments.`,
+    });
   }
 
   const input = call.input;
@@ -145,22 +170,35 @@ const readSolveScore = (
 };
 
 /**
- * Runs one unit turn end to end (model call -> event -> transition) and
- * returns everything the caller must persist. Rejects with
- * EducationUnitTurnError when a graded phase produced no usable verdict, and
- * with the phase agent's own tagged error when the model call itself failed.
+ * Takes a durable unit cursor and phase context, produces one validated turn
+ * result, and fails only on a tagged model failure or phase-contract failure.
  */
 export const runUnitTurn = async (
   input: UnitTurnInput,
+  dependencies: UnitTurnDependencies = LIVE_DEPENDENCIES,
 ): Promise<UnitTurnResult> => {
   const { state, recipe, contextBlock, transcript } = input;
+
+  if (state.phase === "mastered") {
+    throw new EducationUnitContractError({
+      message: "Unit is already mastered; no turn to run.",
+    });
+  }
 
   const messages: ModelMessage[] = [
     { role: "user", content: contextBlock },
     ...transcript,
   ];
 
-  const result = await Effect.runPromise(runPhaseForState(state, messages));
+  const result = await Effect.runPromise(
+    dependencies.runPhase(state, messages),
+  );
+  const parsedOutput = PhaseAgentOutputSchema.safeParse(result.object);
+  if (!parsedOutput.success) {
+    throw new EducationUnitContractError({
+      message: `The ${state.phase} agent returned an invalid learner-facing message.`,
+    });
+  }
   const { event, reasoning } = resolveEvent(state, result);
 
   // Capture the force-advance signal BEFORE transition wipes connectGrills.
@@ -177,7 +215,7 @@ export const runUnitTurn = async (
     : null;
 
   return {
-    assistantMessage: result.object.assistantMessage,
+    assistantMessage: parsedOutput.data.assistantMessage,
     event,
     nextState,
     forcedConnectAdvance,

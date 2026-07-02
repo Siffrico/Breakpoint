@@ -10,16 +10,16 @@
 import type { ModelMessage } from "ai";
 import type { Effect } from "effect";
 
+import type { PhaseAgentError } from "./errors";
+import type { PhaseAgentOutput } from "./output-schema";
+import type { PhaseAgentResult } from "./run-phase-agent";
 import {
   DIFFICULTY_DIAL,
   FIRST_SCENARIO_GOAL,
   REQUIRED_UNDERSTANDING_SPEC,
   SCENARIO_DESIGN_CRITERIA,
 } from "../../prompts/shared-instructions";
-import { gradeConnection } from "../../workspace-ai/fsm-tools";
-import type { PhaseAgentError } from "./errors";
-import type { PhaseAgentResult } from "./run-phase-agent";
-import type { PhaseAgentOutput } from "./output-schema";
+import { continuePhase, gradeConnection } from "../../workspace-ai/fsm-tools";
 import { PhaseAgentOutputSchema } from "./output-schema";
 import { runPhaseAgent } from "./run-phase-agent";
 import { buildPhaseSystemPrompt } from "./system-prompt";
@@ -32,13 +32,14 @@ realistic scenario BEFORE being taught the concept.
 If this is the first turn of Connect, pose one realistic scenario calibrated
 to the learner's current level and ask them to explain the problem in their
 own words — the goal, the rules, what matters, what they are assuming. Do not
-teach and do not solve it for them.
+teach and do not solve it for them. Call continuePhase with reason="prompted".
 
 On every following turn, judge their explanation:
   - If they have reconstructed the core connection themselves, call
     gradeConnection with connected=true and reply confirming what they got
     right, in their own words.
-  - If their framing is still flawed, do NOT call the tool yet. Ask 2-3
+  - If their framing is incomplete and should not yet count as a failed
+    attempt, call continuePhase with reason="needs_more_work" and ask 2-3
     pointed questions aimed at the exact spot their framing breaks, so they
     find their own mistake. Never hand them the fix.
   - If you judge the connection is still missing after this attempt, call
@@ -66,6 +67,6 @@ export const runConnectAgent = (
     messages,
     schema: PhaseAgentOutputSchema,
     schemaName: "connect_output",
-    tools: { gradeConnection },
+    tools: { continuePhase, gradeConnection },
     errorMessage: "Failed to run the Connect step.",
   });

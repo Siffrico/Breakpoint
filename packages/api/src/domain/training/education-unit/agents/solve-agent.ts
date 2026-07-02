@@ -9,11 +9,11 @@
 import type { ModelMessage } from "ai";
 import type { Effect } from "effect";
 
-import { ERROR_CLASSIFICATION_PROTOCOL } from "../../prompts/shared-instructions";
-import { gradeSolution } from "../../workspace-ai/fsm-tools";
 import type { PhaseAgentError } from "./errors";
-import type { PhaseAgentResult } from "./run-phase-agent";
 import type { PhaseAgentOutput } from "./output-schema";
+import type { PhaseAgentResult } from "./run-phase-agent";
+import { ERROR_CLASSIFICATION_PROTOCOL } from "../../prompts/shared-instructions";
+import { continuePhase, gradeSolution } from "../../workspace-ai/fsm-tools";
 import { PhaseAgentOutputSchema } from "./output-schema";
 import { runPhaseAgent } from "./run-phase-agent";
 import { buildPhaseSystemPrompt } from "./system-prompt";
@@ -21,11 +21,15 @@ import { buildPhaseSystemPrompt } from "./system-prompt";
 const SOLVE_INSTRUCTION = `You are in the SOLVE beat. The learner has established the core connection
 (Connect passed) and must now produce a solution to the scenario.
 
-On each turn, judge their solution:
+If the learner has not yet been asked to produce the solution, pose the solve
+task and call continuePhase with reason="prompted".
+
+On each answer, judge their solution:
   - If it is correct AND clearly explained, call gradeSolution with
     passed=true, a score 80-100, and reply confirming what makes it correct.
-  - If it is wrong or unclear, do NOT call the tool. Point at the specific gap
-    without solving it for them, and ask them to try again.
+  - If it is incomplete or unclear and should not yet count as a failed
+    attempt, call continuePhase with reason="needs_more_work". Point at the
+    specific gap without solving it for them, and ask them to try again.
   - If you judge the attempt as a genuine, complete, still-wrong attempt (not
     a mid-thought fragment), call gradeSolution with passed=false, a score
     reflecting how close they got, and reasoning describing the gap.
@@ -48,6 +52,6 @@ export const runSolveAgent = (
     messages,
     schema: PhaseAgentOutputSchema,
     schemaName: "solve_output",
-    tools: { gradeSolution },
+    tools: { continuePhase, gradeSolution },
     errorMessage: "Failed to run the Solve step.",
   });

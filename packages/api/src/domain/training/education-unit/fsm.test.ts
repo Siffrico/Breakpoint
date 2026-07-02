@@ -22,7 +22,11 @@ const state = (overrides: Partial<UnitState> = {}): UnitState => ({
 
 describe("transition", () => {
   it("orient -> connect (pass 1) on teach_done", () => {
-    const next = transition(state({ phase: "orient" }), { type: "teach_done" }, policy);
+    const next = transition(
+      state({ phase: "orient" }),
+      { type: "teach_done" },
+      policy,
+    );
     expect(next).toMatchObject({ phase: "connect", pass: 1, connectGrills: 0 });
   });
 
@@ -42,6 +46,16 @@ describe("transition", () => {
       policy,
     );
     expect(next).toMatchObject({ phase: "connect", pass: 1, connectGrills: 1 });
+  });
+
+  it("connect continuation keeps state and counters unchanged", () => {
+    const current = state({ phase: "connect", pass: 1, connectGrills: 1 });
+    const next = transition(
+      current,
+      { type: "phase_continues", reason: "needs_more_work" },
+      policy,
+    );
+    expect(next).toEqual(current);
   });
 
   it("connect force-advances to solve once the grill limit is hit", () => {
@@ -79,20 +93,42 @@ describe("transition", () => {
     }
   });
 
+  it("solve continuation keeps state and counters unchanged", () => {
+    const current = state({ phase: "solve", pass: 1, solveRepairs: 1 });
+    const next = transition(
+      current,
+      { type: "phase_continues", reason: "prompted" },
+      policy,
+    );
+    expect(next).toEqual(current);
+  });
+
   it("teach -> connect (pass 2) on teach_done", () => {
-    const next = transition(state({ phase: "teach", pass: 1 }), { type: "teach_done" }, policy);
+    const next = transition(
+      state({ phase: "teach", pass: 1 }),
+      { type: "teach_done" },
+      policy,
+    );
     expect(next).toMatchObject({ phase: "connect", pass: 2, connectGrills: 0 });
   });
 
   it("mastered throws on any further event", () => {
     expect(() =>
-      transition(state({ phase: "mastered", pass: 2 }), { type: "teach_done" }, policy),
+      transition(
+        state({ phase: "mastered", pass: 2 }),
+        { type: "teach_done" },
+        policy,
+      ),
     ).toThrow();
   });
 
   it("throws on an illegal event for the current phase", () => {
     expect(() =>
-      transition(state({ phase: "orient" }), { type: "connection_graded", connected: true }, policy),
+      transition(
+        state({ phase: "orient" }),
+        { type: "connection_graded", connected: true },
+        policy,
+      ),
     ).toThrow();
   });
 });
@@ -137,21 +173,33 @@ describe("shouldTeachMissedConnection", () => {
   it("is false while under the grill limit", () => {
     const s = state({ phase: "connect", connectGrills: 0 });
     expect(
-      shouldTeachMissedConnection(s, { type: "connection_graded", connected: false }, policy),
+      shouldTeachMissedConnection(
+        s,
+        { type: "connection_graded", connected: false },
+        policy,
+      ),
     ).toBe(false);
   });
 
   it("is true the moment the grill limit is about to be exhausted", () => {
     const s = state({ phase: "connect", connectGrills: 1 });
     expect(
-      shouldTeachMissedConnection(s, { type: "connection_graded", connected: false }, policy),
+      shouldTeachMissedConnection(
+        s,
+        { type: "connection_graded", connected: false },
+        policy,
+      ),
     ).toBe(true);
   });
 
   it("is false when the connection was actually made", () => {
     const s = state({ phase: "connect", connectGrills: 1 });
     expect(
-      shouldTeachMissedConnection(s, { type: "connection_graded", connected: true }, policy),
+      shouldTeachMissedConnection(
+        s,
+        { type: "connection_graded", connected: true },
+        policy,
+      ),
     ).toBe(false);
   });
 });
@@ -159,16 +207,22 @@ describe("shouldTeachMissedConnection", () => {
 describe("shouldMicroTeach", () => {
   it("is false while under the repair limit", () => {
     const s = state({ phase: "solve", solveRepairs: 0 });
-    expect(shouldMicroTeach(s, { type: "solution_graded", passed: false }, policy)).toBe(false);
+    expect(
+      shouldMicroTeach(s, { type: "solution_graded", passed: false }, policy),
+    ).toBe(false);
   });
 
   it("is true the moment the repair limit is about to be exhausted", () => {
     const s = state({ phase: "solve", solveRepairs: 1 });
-    expect(shouldMicroTeach(s, { type: "solution_graded", passed: false }, policy)).toBe(true);
+    expect(
+      shouldMicroTeach(s, { type: "solution_graded", passed: false }, policy),
+    ).toBe(true);
   });
 
   it("is false when the solve actually passed", () => {
     const s = state({ phase: "solve", solveRepairs: 1 });
-    expect(shouldMicroTeach(s, { type: "solution_graded", passed: true }, policy)).toBe(false);
+    expect(
+      shouldMicroTeach(s, { type: "solution_graded", passed: true }, policy),
+    ).toBe(false);
   });
 });

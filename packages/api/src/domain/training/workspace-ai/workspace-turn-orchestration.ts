@@ -112,6 +112,8 @@ export interface WorkspaceTurnOrchestrationDependencies
     itemRating: number;
   }) => Promise<unknown>;
   prewarmWorkspaceUnit?: (node: CurriculumNode) => Promise<unknown>;
+  /** Test seam for deterministic education-unit contract tests. */
+  runUnitTurn?: typeof runUnitTurn;
 }
 
 // ---------------------------------------------------------------------------
@@ -365,7 +367,7 @@ export const runEducationUnitTurn = async ({
     pendingConnectTeach: readPendingConnectTeach(unitResponses),
   });
 
-  const turnResult = await runUnitTurn({
+  const turnResult = await (deps.runUnitTurn ?? runUnitTurn)({
     state: unitRun,
     recipe,
     contextBlock,

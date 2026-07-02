@@ -22,7 +22,10 @@ import type {
 export type { UnitEvent } from "./unit";
 
 /** Where every unit begins. */
-export const initialState = (unitId: string, recipeVersion: string): UnitState => ({
+export const initialState = (
+  unitId: string,
+  recipeVersion: string,
+): UnitState => ({
   unitId,
   recipeVersion,
   phase: "orient",
@@ -60,7 +63,12 @@ export const transition = (
       return enter(state, "connect", 1);
 
     case "connect": {
-      expect(event.type === "connection_graded", state, event);
+      expect(
+        event.type === "phase_continues" || event.type === "connection_graded",
+        state,
+        event,
+      );
+      if (event.type === "phase_continues") return state;
       if (event.connected) {
         return enter(state, "solve", state.pass); // got the core — go solve
       }
@@ -79,7 +87,12 @@ export const transition = (
     }
 
     case "solve": {
-      expect(event.type === "solution_graded", state, event);
+      expect(
+        event.type === "phase_continues" || event.type === "solution_graded",
+        state,
+        event,
+      );
+      if (event.type === "phase_continues") return state;
       if (event.passed) {
         // Correct and clear. Pass 1 hands off to the concept teach; pass 2 finishes.
         return state.pass === 1

@@ -3,6 +3,13 @@ import { describe, expect, it } from "vitest";
 import { toUnitEvent } from "./fsm-tools";
 
 describe("toUnitEvent", () => {
+  it("maps a continuePhase call to a phase_continues event", () => {
+    expect(toUnitEvent("continuePhase", { reason: "prompted" })).toEqual({
+      type: "phase_continues",
+      reason: "prompted",
+    });
+  });
+
   it("maps a gradeConnection call to a connection_graded event", () => {
     expect(
       toUnitEvent("gradeConnection", { connected: true, reasoning: "got it" }),
@@ -11,7 +18,11 @@ describe("toUnitEvent", () => {
 
   it("maps a gradeSolution call to a solution_graded event", () => {
     expect(
-      toUnitEvent("gradeSolution", { passed: false, score: 40, reasoning: "wrong" }),
+      toUnitEvent("gradeSolution", {
+        passed: false,
+        score: 40,
+        reasoning: "wrong",
+      }),
     ).toEqual({ type: "solution_graded", passed: false });
   });
 
@@ -21,5 +32,6 @@ describe("toUnitEvent", () => {
 
   it("returns null when the args fail schema validation", () => {
     expect(toUnitEvent("gradeConnection", { connected: "yes" })).toBeNull();
+    expect(toUnitEvent("continuePhase", { reason: "unsure" })).toBeNull();
   });
 });

@@ -215,6 +215,8 @@ const verdictLabel = (event: UnitEvent): string => {
   switch (event.type) {
     case "teach_done":
       return "teach_done";
+    case "phase_continues":
+      return event.reason;
     case "connection_graded":
       return event.connected ? "connected" : "not_connected";
     case "solution_graded":

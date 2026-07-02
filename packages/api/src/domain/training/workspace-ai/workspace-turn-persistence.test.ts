@@ -80,7 +80,7 @@ const masteredTurn: UnitTurnResult = {
   ratingWrite: { score: 90 },
 };
 
-void test("saveUnitPhaseResult commits a mastered pass-2 solve with completion and rating", async () => {
+void test("saveUnitPhaseResult persists transitions and non-grading continuations correctly", async () => {
   let captured: WorkspaceEducationTurnCommit | null = null;
 
   const deps = {
@@ -181,4 +181,48 @@ void test("saveUnitPhaseResult commits a mastered pass-2 solve with completion a
   const nonClaimedCommit = captured as unknown as WorkspaceEducationTurnCommit;
   assert.equal(nonClaimedCommit.userMessage, null);
   assert.equal(nonClaimedCommit.phaseResponse.sequence, 3);
+
+  captured = null;
+  const continuationTurn: UnitTurnResult = {
+    assistantMessage:
+      "Start by separating the symptom from its possible causes.",
+    event: { type: "phase_continues", reason: "prompted" },
+    nextState: {
+      unitId: "unit-content-1",
+      recipeVersion: "education-unit-v1",
+      phase: "connect",
+      pass: 1,
+      connectGrills: 0,
+      solveRepairs: 0,
+    },
+    forcedConnectAdvance: false,
+    gradeReasoning: null,
+    ratingWrite: null,
+  };
+
+  await saveUnitPhaseResult({
+    sessionId: "session-1",
+    userId: "user-1",
+    message: "I am ready for the scenario.",
+    state,
+    unit,
+    plan,
+    turnResult: continuationTurn,
+    ratingEvaluation: null,
+    persistUserMessage: true,
+    phaseResponseSequence: 4,
+    turnId: "turn-2",
+    turnLeaseId: "lease-2",
+    deps,
+  });
+
+  assert.ok(captured, "the continuation turn should commit");
+  const continuationCommit =
+    captured as unknown as WorkspaceEducationTurnCommit;
+  assert.equal(continuationCommit.nextRun.phase, "connect");
+  assert.equal(continuationCommit.nextRun.connectGrills, 0);
+  assert.equal(continuationCommit.phaseResponse.metadata?.verdict, "prompted");
+  assert.equal(continuationCommit.phaseResponse.score, null);
+  assert.equal(continuationCommit.ratingEvaluation, null);
+  assert.equal(continuationCommit.completion, null);
 });

@@ -21,7 +21,9 @@ export const GradeConnectionInputSchema = z.object({
   reasoning: z
     .string()
     .min(1)
-    .describe("One sentence: what the learner said or missed, in your own words."),
+    .describe(
+      "One sentence: what the learner said or missed, in your own words.",
+    ),
 });
 
 export const GradeSolutionInputSchema = z.object({
@@ -33,6 +35,14 @@ export const GradeSolutionInputSchema = z.object({
     .string()
     .min(1)
     .describe("One sentence: what made this a pass or a fail."),
+});
+
+export const ContinuePhaseInputSchema = z.object({
+  reason: z
+    .enum(["prompted", "needs_more_work"])
+    .describe(
+      "Use prompted when presenting the task; use needs_more_work when asking the learner to continue or revise without recording a failed verdict.",
+    ),
 });
 
 /** Every tool's execute() returns exactly this — never state, never an event. */
@@ -59,8 +69,17 @@ export const gradeSolution = tool({
   execute: acknowledge,
 });
 
+/** Available in Connect/Solve when the phase needs another learner response. */
+export const continuePhase = tool({
+  description:
+    "Call this when your response asks the learner to answer, clarify, or revise and you are not recording a graded verdict this turn.",
+  inputSchema: ContinuePhaseInputSchema,
+  execute: acknowledge,
+});
+
 export type GradeConnectionInput = z.infer<typeof GradeConnectionInputSchema>;
 export type GradeSolutionInput = z.infer<typeof GradeSolutionInputSchema>;
+export type ContinuePhaseInput = z.infer<typeof ContinuePhaseInputSchema>;
 
 /**
  * The one place a tool call's validated args become a UnitEvent. Returns null
@@ -72,6 +91,12 @@ export const toUnitEvent = (
   args: unknown,
 ): UnitEvent | null => {
   switch (toolName) {
+    case "continuePhase": {
+      const parsed = ContinuePhaseInputSchema.safeParse(args);
+      return parsed.success
+        ? { type: "phase_continues", reason: parsed.data.reason }
+        : null;
+    }
     case "gradeConnection": {
       const parsed = GradeConnectionInputSchema.safeParse(args);
       return parsed.success

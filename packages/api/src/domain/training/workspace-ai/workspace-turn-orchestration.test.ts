@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 
-import type { CurriculumNode, UnitContent } from "../types/training.types";
 import type { PersistedUnitRun } from "../education-unit/unit";
-import type { ResolvedWorkspaceTurn } from "./workspace-turn";
+import type { CurriculumNode, UnitContent } from "../types/training.types";
 import type { WorkspaceAiState } from "./types";
+import type { ResolvedWorkspaceTurn } from "./workspace-turn";
 import type { WorkspaceTurnOrchestrationDependencies } from "./workspace-turn-orchestration";
+import { EducationUnitContractError } from "../education-unit/orchestrate-unit-turn";
 import { runEducationUnitTurn } from "./workspace-turn-orchestration";
 
 const fail = (name: string): never => {
@@ -14,7 +15,7 @@ const fail = (name: string): never => {
 
 const node = {
   id: "node-1",
-  parentNodeId: null,
+  parentNodeId: "cluster-1",
   kind: "unit",
   title: "Unit",
   summary: "Summary",
@@ -24,6 +25,22 @@ const node = {
   depth: 1,
   positionColumn: 0,
   positionRow: 1,
+  status: "ready",
+  difficultyBands: null,
+} satisfies CurriculumNode;
+
+const clusterNode = {
+  id: "cluster-1",
+  parentNodeId: null,
+  kind: "skill_cluster",
+  title: "Cluster",
+  summary: "Cluster summary",
+  whyItMatters: "Cluster importance",
+  learningGoal: "Cluster goal",
+  orderIndex: 0,
+  depth: 0,
+  positionColumn: 0,
+  positionRow: 0,
   status: "ready",
   difficultyBands: null,
 } satisfies CurriculumNode;
@@ -40,7 +57,7 @@ const unitRun = {
 } satisfies PersistedUnitRun;
 
 const turn = {
-  plan: { nodes: [node] },
+  plan: { nodes: [clusterNode, node] },
   allResponses: [],
   state: { mode: "education_unit" } as WorkspaceAiState,
   node,
@@ -54,7 +71,8 @@ const turn = {
 
 void test("a claimed, in-flight education turn is rejected before running the model", async () => {
   const deps = {
-    claimWorkspaceTurn: () => Promise.resolve({ status: "processing" as const }),
+    claimWorkspaceTurn: () =>
+      Promise.resolve({ status: "processing" as const }),
     getActivePlan: () => fail("getActivePlan"),
     listMessages: () => fail("listMessages"),
     getWorkspaceSummary: () => fail("getWorkspaceSummary"),
@@ -91,4 +109,45 @@ void test("a claimed, in-flight education turn is rejected before running the mo
       }),
     /already being processed/i,
   );
+});
+
+void test("an invalid education-unit result is never persisted", async () => {
+  let commitCalled = false;
+  let assistantStreamed = false;
+  const contractError = new EducationUnitContractError({
+    message: "Missing phase event.",
+  });
+
+  const deps = {
+    claimWorkspaceTurn: () => Promise.resolve({ status: "claimed" as const }),
+    listMessages: () => Promise.resolve([]),
+    getWorkspaceSummary: () => Promise.resolve(null),
+    upsertWorkspaceSummary: () => Promise.resolve(),
+    listMemories: () => Promise.resolve([]),
+    runUnitTurn: () => Promise.reject(contractError),
+    commitEducationTurn: () => {
+      commitCalled = true;
+      return fail("commitEducationTurn");
+    },
+  } as unknown as WorkspaceTurnOrchestrationDependencies;
+
+  await assert.rejects(
+    () =>
+      runEducationUnitTurn({
+        sessionId: "00000000-0000-0000-0000-000000000010",
+        userId: "user-1",
+        turnId: "turn-1",
+        turnLeaseId: "00000000-0000-0000-0000-000000000099",
+        message: "My complete learner answer",
+        turn,
+        deps,
+        onAssistantMessage: () => {
+          assistantStreamed = true;
+        },
+      }),
+    (error) => error === contractError,
+  );
+
+  assert.equal(commitCalled, false);
+  assert.equal(assistantStreamed, false);
 });

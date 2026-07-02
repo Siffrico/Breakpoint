@@ -38,6 +38,10 @@ export type PassIndex = 1 | 2;
  */
 export type UnitEvent =
   | { type: "teach_done" } // an Orient or Concept teach finished
+  | {
+      type: "phase_continues";
+      reason: "prompted" | "needs_more_work";
+    } // Connect/Solve produced a learner prompt without grading an attempt
   | { type: "connection_graded"; connected: boolean } // result of a Connect check
   | { type: "solution_graded"; passed: boolean }; // result of a Solve check (grade >= threshold)
 
