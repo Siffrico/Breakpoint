@@ -8,6 +8,11 @@ describe("getUnitWorkflow project boundary", () => {
     const createUnitContentIfAbsent = vi.fn();
     const replaceUnitContent = vi.fn();
     const saveNodeBriefing = vi.fn();
+    const staleWriteDependencies = {
+      createUnitContentIfAbsent,
+      replaceUnitContent,
+      saveNodeBriefing,
+    };
 
     const result = await getUnitWorkflow({
       nodeId: "00000000-0000-0000-0000-000000000002",
@@ -27,12 +32,8 @@ describe("getUnitWorkflow project boundary", () => {
             },
           ]),
         getUnitByNodeId,
-        getTargetIdentity: vi.fn(),
-        listAttemptHistory: vi.fn(),
-        createUnitContentIfAbsent,
-        replaceUnitContent,
         getPhaseResponses: vi.fn(),
-        saveNodeBriefing,
+        ...staleWriteDependencies,
       },
     });
 

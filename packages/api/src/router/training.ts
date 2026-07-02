@@ -20,6 +20,7 @@ import { getHomeStateWorkflow } from "../domain/training/workflows/get-home-stat
 import { getProfileWorkflow } from "../domain/training/workflows/get-profile-workflow";
 import { getUnitWorkflow } from "../domain/training/workflows/get-unit-workflow";
 import { getWorkspaceIndexWorkflow } from "../domain/training/workflows/get-workspace-index-workflow";
+import { prepareUnitWorkflow } from "../domain/training/workflows/prepare-unit-workflow";
 import { startOnboardingWorkflow } from "../domain/training/workflows/start-onboarding-workflow";
 import { submitAiWorkspaceMessageWorkflow } from "../domain/training/workflows/submit-ai-workspace-message-workflow";
 import { submitCapstoneMessageWorkflow } from "../domain/training/workflows/submit-capstone-message-workflow";
@@ -83,18 +84,6 @@ const lockCapstoneNode = async ({
 }) => {
   await db.execute(
     sql`select pg_advisory_xact_lock(hashtext(${sessionId}), hashtext(${nodeId}))`,
-  );
-};
-
-const lockProjectContinuation = async ({
-  db,
-  sessionId,
-}: {
-  db: Database;
-  sessionId: string;
-}) => {
-  await db.execute(
-    sql`select pg_advisory_xact_lock(hashtext(${sessionId}), hashtext('continue-learning-project'))`,
   );
 };
 
@@ -304,6 +293,21 @@ const requireSessionOwner = async ({
 const createGetUnitDependencies = (
   db: Database,
 ): Parameters<typeof getUnitWorkflow>[0]["deps"] => ({
+  getPlanNodesBySession: (sessionId) =>
+    trainingCurriculumRepository.getPlanNodesBySession({ db, sessionId }),
+  getUnitByNodeId: (nodeId) =>
+    trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),
+  getPhaseResponses: (unitContentId, sessionId) =>
+    trainingCurriculumRepository.getPhaseResponses({
+      db,
+      unitContentId,
+      sessionId,
+    }),
+});
+
+const createPrepareUnitDependencies = (
+  db: Database,
+): Parameters<typeof prepareUnitWorkflow>[0]["deps"] => ({
   ...createUnitPreparationRepositoryDeps(db),
   getPhaseResponses: (unitContentId, sessionId) =>
     trainingCurriculumRepository.getPhaseResponses({
@@ -703,30 +707,42 @@ export const trainingRouter = {
 
   continueLearningProject: protectedProcedure
     .input(SessionIdSchema)
-    .mutation(async ({ ctx, input }) =>
-      ctx.db.transaction(async (tx) => {
-        await requireSessionOwner({ ctx, sessionId: input.sessionId });
+    .mutation(async ({ ctx, input }) => {
+      await requireSessionOwner({ ctx, sessionId: input.sessionId });
 
-        const db = tx as unknown as Database;
-        await lockProjectContinuation({ db, sessionId: input.sessionId });
+      return throwOnFailure(
+        await continueLearningProjectWorkflow({
+          sessionId: input.sessionId,
+          deps: {
+            getActivePlan: (sessionId) =>
+              trainingCurriculumRepository.getActivePlan({
+                db: ctx.db,
+                sessionId,
+              }),
+            prepareUnit: ({ nodeId, sessionId }) =>
+              prepareUnitWorkflow({
+                nodeId,
+                sessionId,
+                deps: createPrepareUnitDependencies(ctx.db),
+              }),
+          },
+        }),
+      );
+    }),
 
-        return throwOnFailure(
-          await continueLearningProjectWorkflow({
-            sessionId: input.sessionId,
-            deps: {
-              getActivePlan: (sessionId) =>
-                trainingCurriculumRepository.getActivePlan({ db, sessionId }),
-              prepareUnit: ({ nodeId, sessionId }) =>
-                getUnitWorkflow({
-                  nodeId,
-                  sessionId,
-                  deps: createGetUnitDependencies(db),
-                }),
-            },
-          }),
-        );
-      }),
-    ),
+  prepareUnit: protectedProcedure
+    .input(NodeSessionSchema)
+    .mutation(async ({ ctx, input }) => {
+      await requireSessionOwner({ ctx, sessionId: input.sessionId });
+
+      return throwOnFailure(
+        await prepareUnitWorkflow({
+          nodeId: input.nodeId,
+          sessionId: input.sessionId,
+          deps: createPrepareUnitDependencies(ctx.db),
+        }),
+      );
+    }),
 
   advanceCompletedUnit: protectedProcedure
     .input(NodeSessionSchema)
