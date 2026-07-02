@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { CurriculumNode, CurriculumPlan } from "../types/training.types";
+import type {
+  CurriculumNode,
+  CurriculumPlan,
+  UnitContent,
+} from "../types/training.types";
 import { UnitNotReadyError } from "../unit-preparation/errors";
 import { getAiWorkspaceWorkflow } from "../workflows/get-ai-workspace-workflow";
 import { resolveWorkspaceTurn } from "./workspace-turn";
@@ -78,6 +82,43 @@ describe("workspace read preparation boundary", () => {
     ).rejects.toBeInstanceOf(UnitNotReadyError);
 
     expect(prewarmWorkspaceUnit).not.toHaveBeenCalled();
+    expect(upsertUnitRun).not.toHaveBeenCalled();
+  });
+
+  it("derives an initial run in memory when the run row is missing", async () => {
+    const unit = {
+      id: "unit-content-1",
+      nodeId: readyNode.id,
+    } as UnitContent;
+    const upsertUnitRun = vi.fn();
+
+    const turn = await resolveWorkspaceTurn({
+      sessionId: "session-1",
+      deps: {
+        getActivePlan: () => Promise.resolve(plan),
+        listPhaseResponsesBySession: () => Promise.resolve([]),
+        getPhaseResponses: () => Promise.resolve([]),
+        getUnitRun: () => Promise.resolve(null),
+        getUnitByNodeId: () => Promise.resolve(unit),
+        ...{ upsertUnitRun },
+      },
+    });
+
+    expect(turn.unitRun).toEqual({
+      unitId: unit.id,
+      sessionId: "session-1",
+      userId: null,
+      recipeVersion: "education-unit-v1",
+      phase: "orient",
+      pass: 1,
+      connectGrills: 0,
+      solveRepairs: 0,
+    });
+    expect(turn.state).toMatchObject({
+      mode: "education_unit",
+      educationStage: "orient",
+      workflowId: "education-unit-v1",
+    });
     expect(upsertUnitRun).not.toHaveBeenCalled();
   });
 });
