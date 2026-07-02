@@ -51,12 +51,14 @@ const firePrewarmWorkspaceUnit = ({
   sessionId: string;
   deps: Pick<WorkspaceTurnDependencies, "prewarmWorkspaceUnit">;
 }) => {
-  void deps.prewarmWorkspaceUnit?.({ node, sessionId }).catch((error) => {
-    console.error("Workspace unit prewarm failed", {
-      nodeId: node.id,
-      error,
-    });
-  });
+  void deps.prewarmWorkspaceUnit?.({ node, sessionId }).catch(
+    (error: unknown) => {
+      console.error("Workspace unit prewarm failed", {
+        nodeId: node.id,
+        error,
+      });
+    },
+  );
 };
 
 export interface ResolvedWorkspaceTurn {

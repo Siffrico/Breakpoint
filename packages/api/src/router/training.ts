@@ -472,9 +472,12 @@ export const trainingRouter = {
     return sessions.flatMap((session) => {
       const profile = profileBySessionId.get(session.id) ?? null;
       const plan = planBySessionId.get(session.id) ?? null;
+      // `||` (not `??`) is deliberate: a blank title should fall through.
+      const planTitle = plan?.title.trim() ?? "";
+      const identityTitle = profile?.targetIdentity.trim() ?? "";
       const title =
-        plan?.title?.trim() ||
-        profile?.targetIdentity?.trim() ||
+        planTitle ||
+        identityTitle ||
         deriveProvisionalProjectTitle(
           firstUserMessageBySessionId.get(session.id) ?? "",
         );
@@ -678,10 +681,12 @@ export const trainingRouter = {
         },
       });
       if (!result.success) {
-        if (result.error instanceof UnitNotReadyError) {
-          return raiseUnitPreparationError(result.error);
+        const failure = result.error;
+        if (failure instanceof UnitNotReadyError) {
+          return raiseUnitPreparationError(failure);
         }
-        return throwOnFailure({ success: false, error: result.error });
+        // `success: false` always throws; <never> keeps the return type sound.
+        return throwOnFailure<never>({ success: false, error: failure });
       }
       return result.data;
     }),

@@ -1,7 +1,7 @@
 import type { ModelMessage } from "ai";
 
 import type { Memory } from "../../memory/types";
-import type { CurriculumNode, DifficultyBand } from "../types/training.types";
+import type { DifficultyBand } from "../types/training.types";
 import type { WorkspaceTurnRuntime } from "./stage-runtime";
 import type {
   AttemptTiming,
