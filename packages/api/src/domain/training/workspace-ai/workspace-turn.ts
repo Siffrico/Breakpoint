@@ -24,42 +24,7 @@ import {
   WorkspaceProjectionReader,
 } from "./workspace-reader";
 
-export interface WorkspaceTurnDependencies
-  extends WorkspaceProjectionReaderSource {
-  upsertUnitRun: (run: PersistedUnitRun) => Promise<PersistedUnitRun>;
-  /**
-   * Kicks off scaffold generation only from an explicit progression or
-   * prewarm command. Workspace read effects never receive this capability.
-   */
-  prewarmWorkspaceUnit?: (input: {
-    node: CurriculumNode;
-    sessionId: string;
-  }) => Promise<unknown>;
-}
-
-/**
- * Fire-and-forget scaffold generation for a missing unit row. Errors are
- * logged, never thrown — the caller is about to surface UNIT_PREPARING and the
- * client retry loop re-triggers preparation on every subsequent miss.
- */
-const firePrewarmWorkspaceUnit = ({
-  node,
-  sessionId,
-  deps,
-}: {
-  node: CurriculumNode;
-  sessionId: string;
-  deps: Pick<WorkspaceTurnDependencies, "prewarmWorkspaceUnit">;
-}) => {
-  void deps
-    .prewarmWorkspaceUnit?.({ node, sessionId })
-    .catch((error: unknown) => {
-      console.error("Workspace unit prewarm failed", {
-        nodeId: node.id,
-        error,
-      });
-    });
-};
+export type WorkspaceTurnDependencies = WorkspaceProjectionReaderSource;
 
 export interface ResolvedWorkspaceTurn {
   plan: CurriculumPlan;
@@ -333,12 +298,6 @@ export const planNextWorkspaceTurn = async ({
   const readyUnit = readyUnitNode
     ? await deps.getUnitByNodeId(readyUnitNode.id)
     : null;
-  // A missing row must not fail this planner: it runs after a turn has already
-  // committed, so throwing here would error a submit whose work is durable.
-  // Kick off generation and plan with an empty projection instead.
-  if (readyUnitNode && !readyUnit) {
-    firePrewarmWorkspaceUnit({ node: readyUnitNode, sessionId, deps });
-  }
   const readyUnitResponses = readyUnit
     ? await deps.getPhaseResponses(readyUnit.id, sessionId)
     : [];

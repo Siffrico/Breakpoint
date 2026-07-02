@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "vitest";
+import { test, vi } from "vitest";
 
 import type { UnitTurnResult } from "../education-unit/orchestrate-unit-turn";
 import type { CurriculumPlan, UnitContent } from "../types/training.types";
@@ -82,28 +82,30 @@ const masteredTurn: UnitTurnResult = {
 
 void test("saveUnitPhaseResult persists transitions and non-grading continuations correctly", async () => {
   let captured: WorkspaceEducationTurnCommit | null = null;
+  const legacyDirectRunWrite = vi.fn((run: unknown) => Promise.resolve(run));
+  const commitEducationTurn = vi.fn((input: WorkspaceEducationTurnCommit) => {
+    captured = input;
+    return Promise.resolve({
+      assistantMessage: {
+        id: "00000000-0000-0000-0000-000000000101",
+        role: "assistant" as const,
+        content: input.assistantMessage.content,
+        sequence: 1,
+        slot: "education_unit" as const,
+        unitId: "node-1",
+        metadata: null,
+      },
+    });
+  });
 
   const deps = {
     getPhaseResponses: () => Promise.resolve([]),
     listPhaseResponsesBySession: () => Promise.resolve([]),
     listMessages: () => Promise.resolve([]),
     getUnitRun: () => Promise.resolve(null),
-    upsertUnitRun: (run: unknown) => Promise.resolve(run),
+    upsertUnitRun: legacyDirectRunWrite,
     getUnitByNodeId: () => Promise.resolve(unit),
-    commitEducationTurn: (input: WorkspaceEducationTurnCommit) => {
-      captured = input;
-      return Promise.resolve({
-        assistantMessage: {
-          id: "00000000-0000-0000-0000-000000000101",
-          role: "assistant",
-          content: input.assistantMessage.content,
-          sequence: 1,
-          slot: "education_unit",
-          unitId: "node-1",
-          metadata: null,
-        },
-      });
-    },
+    commitEducationTurn,
     commitRecallTurn: () =>
       Promise.reject(new Error("commitRecallTurn should not be called")),
     commitNextScenarioPrompt: () =>
@@ -157,6 +159,8 @@ void test("saveUnitPhaseResult persists transitions and non-grading continuation
   assert.equal(commit.completion.nodeId, "node-1");
   assert.equal(commit.ratingEvaluation, ratingEvaluation);
   assert.equal(commit.userMessage?.content, "Here is my final solution.");
+  assert.equal(commitEducationTurn.mock.calls.length, 1);
+  assert.equal(legacyDirectRunWrite.mock.calls.length, 0);
   // No next runnable turn -> fallback state carries the mastered phase.
   assert.equal(result.state.educationStage, "mastered");
 

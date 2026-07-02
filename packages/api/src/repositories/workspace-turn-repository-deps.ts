@@ -24,7 +24,6 @@ import {
   prepareScenarioDirective,
   recordEvaluation,
 } from "../domain/training/orchestration/goldilocks";
-import { runPrepareUnit } from "../domain/training/unit-preparation/prepare-unit-edge";
 import { memoryRepository } from "./memory-repository";
 import { trainingAttemptRepository } from "./training-attempt-repository";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
@@ -32,7 +31,6 @@ import { trainingOnboardingRepository } from "./training-onboarding-repository";
 import { createTrainingRatingGoldilocksDeps } from "./training-rating-goldilocks-deps";
 import { trainingRatingRepository } from "./training-rating-repository";
 import { trainingUnitRunRepository } from "./training-unit-run-repository";
-import { createUnitPreparationRepositoryDeps } from "./unit-preparation-repository-deps";
 
 type Database = typeof databaseClient;
 const WORKSPACE_TURN_LEASE_MS = 15 * 60 * 1_000;
@@ -421,11 +419,6 @@ export const createWorkspaceTurnRepositoryDeps = (
       sessionId,
       unitContentId,
     }),
-  upsertUnitRun: (run) =>
-    trainingUnitRunRepository.upsertUnitRun({
-      db,
-      run,
-    }),
   getUnitByNodeId: (nodeId: string) =>
     trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),
   savePhaseResponse: (payload) =>
@@ -465,12 +458,6 @@ export const createWorkspaceTurnRepositoryDeps = (
   commitRecallTurn: (input) => commitRecallTurn({ db, input }),
   commitNextScenarioPrompt: (input) => commitNextScenarioPrompt({ db, input }),
   markWorkspaceTurnFailed: (input) => markWorkspaceTurnFailed({ db, ...input }),
-  prewarmWorkspaceUnit: ({ node, sessionId }) =>
-    runPrepareUnit({
-      node,
-      sessionId,
-      deps: createUnitPreparationRepositoryDeps(db),
-    }),
   touchSession: (sessionId: string) =>
     trainingOnboardingRepository.touchSession({ db, sessionId }),
   listMemories: async (userId: string) => {

@@ -163,6 +163,43 @@ describe("prepareUnitContent", () => {
     expect(deps.createUnitContentIfAbsent).not.toHaveBeenCalled();
   });
 
+  it("returns one canonical winner to concurrent preparation callers", async () => {
+    const competingSetup = {
+      ...setup,
+      seedPrompt: "A competing generator produced a different prompt.",
+    } satisfies SeedStageOutput;
+    runSeedStageMock
+      .mockResolvedValueOnce(setup)
+      .mockResolvedValueOnce(competingSetup);
+
+    let winner: UnitContent | null = null;
+    const createUnitContentIfAbsent = vi.fn(
+      (
+        input: Parameters<
+          UnitPreparationDependencies["createUnitContentIfAbsent"]
+        >[0],
+      ) => {
+        winner ??= { ...unit, seedPrompt: input.seedPrompt };
+        return Promise.resolve(winner);
+      },
+    );
+    const deps = makeDeps({ createUnitContentIfAbsent });
+
+    const [first, second] = await Promise.all([
+      Effect.runPromise(
+        prepareUnitContent({ node, sessionId: "session-1", deps }),
+      ),
+      Effect.runPromise(
+        prepareUnitContent({ node, sessionId: "session-1", deps }),
+      ),
+    ]);
+
+    expect(createUnitContentIfAbsent).toHaveBeenCalledTimes(2);
+    expect(first).toBe(winner);
+    expect(second).toBe(winner);
+    expect(first.seedPrompt).toBe(second.seedPrompt);
+  });
+
   it("does not call the model or retry when required context is missing", async () => {
     const deps = makeDeps({
       getTargetIdentity: vi.fn(() => Promise.resolve(null)),
