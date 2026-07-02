@@ -645,11 +645,6 @@ export const trainingRouter = {
               sessionId,
               unitContentId,
             }),
-          upsertUnitRun: (run) =>
-            trainingUnitRunRepository.upsertUnitRun({
-              db: ctx.db,
-              run,
-            }),
           getUnitByNodeId: (nodeId) =>
             trainingCurriculumRepository.getUnitByNodeId({
               db: ctx.db,

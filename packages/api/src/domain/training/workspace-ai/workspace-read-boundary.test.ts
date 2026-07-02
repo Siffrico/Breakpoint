@@ -27,7 +27,12 @@ describe("workspace read preparation boundary", () => {
   it("getAiWorkspaceWorkflow reports a missing unit without preparing it", async () => {
     const prepareUnit = vi.fn().mockResolvedValue(undefined);
     const scheduleBackgroundTask = vi.fn();
-    const stalePreparationDeps = { prepareUnit, scheduleBackgroundTask };
+    const upsertUnitRun = vi.fn();
+    const stalePreparationDeps = {
+      prepareUnit,
+      scheduleBackgroundTask,
+      upsertUnitRun,
+    };
     const result = await getAiWorkspaceWorkflow({
       sessionId: "session-1",
       deps: {
@@ -36,7 +41,6 @@ describe("workspace read preparation boundary", () => {
         listPhaseResponsesBySession: () => Promise.resolve([]),
         getPhaseResponses: () => Promise.resolve([]),
         getUnitRun: () => Promise.resolve(null),
-        upsertUnitRun: vi.fn(),
         getUnitByNodeId: () => Promise.resolve(null),
         getScenarioAttemptStartedAt: () => Promise.resolve(null),
         // Deliberately pass the former capabilities to guard against a
@@ -51,10 +55,13 @@ describe("workspace read preparation boundary", () => {
     }
     expect(prepareUnit).not.toHaveBeenCalled();
     expect(scheduleBackgroundTask).not.toHaveBeenCalled();
+    expect(upsertUnitRun).not.toHaveBeenCalled();
   });
 
   it("resolveWorkspaceTurn reports a missing unit without prewarming it", async () => {
     const prewarmWorkspaceUnit = vi.fn().mockResolvedValue(undefined);
+    const upsertUnitRun = vi.fn();
+    const stalePreparationDeps = { prewarmWorkspaceUnit, upsertUnitRun };
 
     await expect(
       resolveWorkspaceTurn({
@@ -64,13 +71,13 @@ describe("workspace read preparation boundary", () => {
           listPhaseResponsesBySession: () => Promise.resolve([]),
           getPhaseResponses: () => Promise.resolve([]),
           getUnitRun: () => Promise.resolve(null),
-          upsertUnitRun: vi.fn(),
           getUnitByNodeId: () => Promise.resolve(null),
-          prewarmWorkspaceUnit,
+          ...stalePreparationDeps,
         },
       }),
     ).rejects.toBeInstanceOf(UnitNotReadyError);
 
     expect(prewarmWorkspaceUnit).not.toHaveBeenCalled();
+    expect(upsertUnitRun).not.toHaveBeenCalled();
   });
 });
