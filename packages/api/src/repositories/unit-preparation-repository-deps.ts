@@ -23,6 +23,8 @@ export const createUnitPreparationRepositoryDeps = (
   },
   listAttemptHistory: (sessionId) =>
     trainingAttemptRepository.listAttemptHistory({ db, sessionId }),
-  createUnitContent: (payload) =>
-    trainingCurriculumRepository.createUnitContent({ db, ...payload }),
+  createUnitContentIfAbsent: (payload) =>
+    trainingCurriculumRepository.createUnitContentIfAbsent({ db, ...payload }),
+  replaceUnitContent: (payload) =>
+    trainingCurriculumRepository.replaceUnitContent({ db, ...payload }),
 });

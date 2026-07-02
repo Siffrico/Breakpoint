@@ -5,7 +5,8 @@ import { getUnitWorkflow } from "./get-unit-workflow";
 describe("getUnitWorkflow project boundary", () => {
   it("rejects a node outside the session plan before reading or mutating unit content", async () => {
     const getUnitByNodeId = vi.fn();
-    const createUnitContent = vi.fn();
+    const createUnitContentIfAbsent = vi.fn();
+    const replaceUnitContent = vi.fn();
     const saveNodeBriefing = vi.fn();
 
     const result = await getUnitWorkflow({
@@ -28,7 +29,8 @@ describe("getUnitWorkflow project boundary", () => {
         getUnitByNodeId,
         getTargetIdentity: vi.fn(),
         listAttemptHistory: vi.fn(),
-        createUnitContent,
+        createUnitContentIfAbsent,
+        replaceUnitContent,
         getPhaseResponses: vi.fn(),
         saveNodeBriefing,
       },
@@ -39,7 +41,8 @@ describe("getUnitWorkflow project boundary", () => {
       error: "Unit node does not exist in this learning project.",
     });
     expect(getUnitByNodeId).not.toHaveBeenCalled();
-    expect(createUnitContent).not.toHaveBeenCalled();
+    expect(createUnitContentIfAbsent).not.toHaveBeenCalled();
+    expect(replaceUnitContent).not.toHaveBeenCalled();
     expect(saveNodeBriefing).not.toHaveBeenCalled();
   });
 });

@@ -9,6 +9,10 @@ import {
 } from "@acme/db/schema";
 
 import type {
+  ProgressionNode,
+  StatusChange,
+} from "../domain/training/engine/plan-progression";
+import type {
   BeforeAfterProfile,
   CurriculumBlueprint,
   CurriculumNode,
@@ -19,10 +23,6 @@ import type {
   UnitContent,
   UpdateUnitContentInput,
 } from "../domain/training/types/training.types";
-import type {
-  ProgressionNode,
-  StatusChange,
-} from "../domain/training/engine/plan-progression";
 import {
   planAdvancement,
   planCompletion,
@@ -109,7 +109,10 @@ type CurriculumNodeRow = typeof TrainingCurriculumNode.$inferSelect;
 const loadPlanNodes = async (
   db: Database,
   nodeId: string,
-): Promise<{ target: CurriculumNodeRow; planNodes: CurriculumNodeRow[] } | null> => {
+): Promise<{
+  target: CurriculumNodeRow;
+  planNodes: CurriculumNodeRow[];
+} | null> => {
   const target = await db.query.TrainingCurriculumNode.findFirst({
     where: eq(TrainingCurriculumNode.id, nodeId),
   });
@@ -500,7 +503,7 @@ export const trainingCurriculumRepository = {
     });
   },
 
-  createUnitContent: async ({
+  createUnitContentIfAbsent: async ({
     db,
     nodeId,
     title,
@@ -523,7 +526,7 @@ export const trainingCurriculumRepository = {
     scenario: UnitContent["scenario"];
     unitMasteryContract?: UnitContent["unitMasteryContract"];
   }): Promise<UnitContent | null> => {
-    const [unit] = await db
+    await db
       .insert(TrainingUnitContent)
       .values({
         nodeId,
@@ -540,46 +543,55 @@ export const trainingCurriculumRepository = {
         scenarioFocusAreas: scenario.focusAreas,
         unitMasteryContractJson: unitMasteryContract,
       })
-      .onConflictDoUpdate({
-        target: [TrainingUnitContent.nodeId],
-        set: {
-          title,
-          seedPrompt,
-          seedHint,
-          clusterArcFrame,
-          complexityBudget,
-          teachbackSetup,
-          scenarioTitle: scenario.title,
-          scenarioFocusAreas: scenario.focusAreas,
-          unitMasteryContractJson: unitMasteryContract,
-        },
+      .onConflictDoNothing({ target: [TrainingUnitContent.nodeId] });
+
+    // ON CONFLICT waits for the competing transaction. Reading after it
+    // completes gives both the winner and every loser the canonical row.
+    return trainingCurriculumRepository.getUnitByNodeId({ db, nodeId });
+  },
+
+  replaceUnitContent: async ({
+    db,
+    nodeId,
+    title,
+    seedPrompt,
+    seedHint,
+    clusterArcFrame,
+    complexityBudget,
+    teachbackSetup,
+    scenario,
+    unitMasteryContract = null,
+  }: {
+    db: Database;
+    nodeId: string;
+    title: string;
+    seedPrompt: string;
+    seedHint: string;
+    clusterArcFrame: string;
+    complexityBudget: UnitContent["complexityBudget"];
+    teachbackSetup: UnitContent["teachbackSetup"];
+    scenario: UnitContent["scenario"];
+    unitMasteryContract?: UnitContent["unitMasteryContract"];
+  }): Promise<UnitContent | null> => {
+    const [replaced] = await db
+      .update(TrainingUnitContent)
+      .set({
+        title,
+        seedPrompt,
+        seedHint,
+        clusterArcFrame,
+        complexityBudget,
+        teachbackSetup,
+        scenarioTitle: scenario.title,
+        scenarioFocusAreas: scenario.focusAreas,
+        unitMasteryContractJson: unitMasteryContract,
       })
-      .returning();
+      .where(eq(TrainingUnitContent.nodeId, nodeId))
+      .returning({ id: TrainingUnitContent.id });
 
-    if (!unit) {
-      return null;
-    }
-
-    const node = await db.query.TrainingCurriculumNode.findFirst({
-      where: eq(TrainingCurriculumNode.id, nodeId),
-    });
-
-    if (!node) {
-      return null;
-    }
-
-    const parentNode = node.parentNodeId
-      ? await db.query.TrainingCurriculumNode.findFirst({
-          where: eq(TrainingCurriculumNode.id, node.parentNodeId),
-        })
+    return replaced
+      ? trainingCurriculumRepository.getUnitByNodeId({ db, nodeId })
       : null;
-
-    return mapUnitContent({
-      node,
-      unit,
-      clusterBriefing: (parentNode?.briefing ??
-        null) as UnitContent["clusterBriefing"],
-    });
   },
 
   updateUnitMasteryContract: async ({

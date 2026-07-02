@@ -35,7 +35,17 @@ export interface UnitPreparationDependencies {
   readonly listAttemptHistory: (
     sessionId: string,
   ) => Promise<PriorLearningRecord[]>;
-  readonly createUnitContent: (input: {
+  readonly createUnitContentIfAbsent: (input: {
+    nodeId: string;
+    title: string;
+    seedPrompt: string;
+    seedHint: string;
+    clusterArcFrame: string;
+    complexityBudget: UnitContent["complexityBudget"];
+    teachbackSetup: UnitContent["teachbackSetup"];
+    scenario: UnitContent["scenario"];
+  }) => Promise<UnitContent | null>;
+  readonly replaceUnitContent: (input: {
     nodeId: string;
     title: string;
     seedPrompt: string;
@@ -207,7 +217,10 @@ export const prepareUnitContent = ({
 
     return yield* Effect.tryPromise({
       try: async () => {
-        const created = await deps.createUnitContent({
+        const persist = forceRefresh
+          ? deps.replaceUnitContent
+          : deps.createUnitContentIfAbsent;
+        const created = await persist({
           nodeId: node.id,
           title: setup.title,
           seedPrompt: setup.seedPrompt,

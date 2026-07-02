@@ -40,7 +40,17 @@ interface GetUnitDependencies {
       nextStep: string;
     }[]
   >;
-  createUnitContent: (input: {
+  createUnitContentIfAbsent: (input: {
+    nodeId: string;
+    title: string;
+    seedPrompt: string;
+    seedHint: string;
+    clusterArcFrame: string;
+    complexityBudget: UnitContent["complexityBudget"];
+    teachbackSetup: UnitContent["teachbackSetup"];
+    scenario: UnitContent["scenario"];
+  }) => Promise<UnitContent | null>;
+  replaceUnitContent: (input: {
     nodeId: string;
     title: string;
     seedPrompt: string;

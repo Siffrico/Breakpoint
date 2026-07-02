@@ -100,7 +100,8 @@ const makeDeps = (
   getPlanNodesBySession: vi.fn(() => Promise.resolve(planNodes)),
   getTargetIdentity: vi.fn(() => Promise.resolve("Incident commander")),
   listAttemptHistory: vi.fn(() => Promise.resolve([])),
-  createUnitContent: vi.fn(() => Promise.resolve(unit)),
+  createUnitContentIfAbsent: vi.fn(() => Promise.resolve(unit)),
+  replaceUnitContent: vi.fn(() => Promise.resolve(unit)),
   ...overrides,
 });
 
@@ -122,7 +123,8 @@ describe("prepareUnitContent", () => {
     expect(result).toBe(unit);
     expect(runSeedStageMock).not.toHaveBeenCalled();
     expect(deps.getPlanNodesBySession).not.toHaveBeenCalled();
-    expect(deps.createUnitContent).not.toHaveBeenCalled();
+    expect(deps.createUnitContentIfAbsent).not.toHaveBeenCalled();
+    expect(deps.replaceUnitContent).not.toHaveBeenCalled();
   });
 
   it("retries a provider failure and then persists the successful scaffold", async () => {
@@ -137,7 +139,28 @@ describe("prepareUnitContent", () => {
 
     expect(result).toBe(unit);
     expect(runSeedStageMock).toHaveBeenCalledTimes(2);
-    expect(deps.createUnitContent).toHaveBeenCalledTimes(1);
+    expect(deps.createUnitContentIfAbsent).toHaveBeenCalledTimes(1);
+    expect(deps.replaceUnitContent).not.toHaveBeenCalled();
+  });
+
+  it("uses replacement only for a deliberate legacy refresh", async () => {
+    runSeedStageMock.mockResolvedValue(setup);
+    const deps = makeDeps({
+      getUnitByNodeId: vi.fn(() => Promise.resolve(unit)),
+    });
+
+    const result = await Effect.runPromise(
+      prepareUnitContent({
+        node,
+        sessionId: "session-1",
+        deps,
+        forceRefresh: true,
+      }),
+    );
+
+    expect(result).toBe(unit);
+    expect(deps.replaceUnitContent).toHaveBeenCalledTimes(1);
+    expect(deps.createUnitContentIfAbsent).not.toHaveBeenCalled();
   });
 
   it("does not call the model or retry when required context is missing", async () => {
@@ -178,7 +201,9 @@ describe("prepareUnitContent", () => {
   it("tags a write failure as UnitPersistError without regenerating", async () => {
     runSeedStageMock.mockResolvedValue(setup);
     const deps = makeDeps({
-      createUnitContent: vi.fn(() => Promise.reject(new Error("db down"))),
+      createUnitContentIfAbsent: vi.fn(() =>
+        Promise.reject(new Error("db down")),
+      ),
     });
 
     const exit = await Effect.runPromiseExit(
@@ -190,6 +215,6 @@ describe("prepareUnitContent", () => {
       expect(String(exit.cause)).toContain("UnitPersistError");
     }
     expect(runSeedStageMock).toHaveBeenCalledTimes(1);
-    expect(deps.createUnitContent).toHaveBeenCalledTimes(1);
+    expect(deps.createUnitContentIfAbsent).toHaveBeenCalledTimes(1);
   });
 });
