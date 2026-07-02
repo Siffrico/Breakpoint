@@ -1,14 +1,6 @@
 import { z } from "zod/v4";
 
-import {
-  FailureGapSchema,
-  GhostEvaluationSchema,
-  GhostScenarioSchema,
-  PostSeedUnitContentDraftSchema,
-  PracticePromptSchema,
-  PreSeedUnitContentDraftSchema,
-  TeachbackMessageSchema,
-} from "@acme/validators";
+import { PreSeedUnitContentDraftSchema } from "@acme/validators";
 
 export const PriorLearningRecordSchema = z.object({
   title: z.string().min(1),
@@ -59,112 +51,6 @@ export const SeedStageOutputSchema = PreSeedUnitContentDraftSchema.extend({
   proofTargets: z.array(z.string().min(1)).min(2).max(5),
 });
 
-export const BuildStageInputSchema = UnitBuilderContextSchema.extend({
-  seed: SeedStageOutputSchema,
-  learnerSeedResponse: z.string().min(20),
-});
-
-export const BuildStageOutputSchema = z.object({
-  buildContent: PostSeedUnitContentDraftSchema.shape.buildContent,
-  workedExample: z.string().min(1),
-  coreModel: z.object({
-    name: z.string().min(1),
-    mechanism: z.string().min(1),
-    transferablePrinciple: z.string().min(1),
-  }),
-});
-
-export const ProveStageInputSchema = BuildStageInputSchema.extend({
-  build: BuildStageOutputSchema,
-});
-
-export const StageTeachbackSetupSchema = z.object({
-  studentPersona: z.string().min(1),
-  openingMisconception: z.string().min(1),
-  roundLadder: z
-    .array(
-      z.object({
-        round: z.number().int().min(1).max(3),
-        objection: z.string().min(1),
-        objective: z.string().min(1),
-      }),
-    )
-    .length(3),
-  passSignals: z.array(z.string().min(1)).min(2).max(5),
-  failureModes: z.array(z.string().min(1)).min(2).max(5),
-});
-
-export const ProveStageGenerationSchema = z.object({
-  practicePrompts: z.array(PracticePromptSchema).length(3),
-  teachbackSetup: StageTeachbackSetupSchema,
-  evaluationExpectations: z.array(z.string().min(1)).min(3).max(6),
-});
-
-export const PracticeEvidenceSchema = z.object({
-  sequence: z.number().int().min(0),
-  response: z.string().min(1),
-  feedback: z.string().min(1),
-  passed: z.boolean(),
-});
-
-export const ProveStageReviewSchema = z.object({
-  verdict: z.object({
-    passed: z.boolean(),
-    score: z.number().int().min(0).max(100),
-    feedback: z.string().min(1),
-  }),
-  evidenceAnchors: z.array(z.string().min(1)).min(1),
-});
-
-export const RepairTargetSchema = z.object({
-  skill: z.string().min(1),
-  transferObjective: z.string().min(1),
-  successCriteria: z.array(z.string().min(1)).min(2).max(5),
-});
-
-export const RepairStageInputSchema = z.object({
-  unit: z.object({
-    nodeId: z.string().min(1),
-    title: z.string().min(1),
-    summary: z.string().min(1),
-    whyItMatters: z.string().min(1),
-    scenario: z.object({
-      title: z.string().min(1),
-      focusAreas: z.array(z.string().min(1)).min(1),
-    }),
-  }),
-  buildContent: z.string().min(200),
-  prove: ProveStageGenerationSchema,
-  evidence: z.object({
-    practiceResponses: z.array(PracticeEvidenceSchema),
-    teachbackTranscript: z.array(TeachbackMessageSchema),
-    proveReview: ProveStageReviewSchema,
-  }),
-});
-
-export const RepairStageGenerationSchema = z.object({
-  gap: FailureGapSchema,
-  repairTarget: RepairTargetSchema,
-  ghostScenario: GhostScenarioSchema,
-  transferFocus: z.array(z.string().min(1)).min(2).max(4),
-});
-
-export const RepairStageEvaluationSchema = GhostEvaluationSchema.extend({
-  transferEvidence: z.array(z.string().min(1)).min(1),
-});
-
 export type PriorLearningRecord = z.infer<typeof PriorLearningRecordSchema>;
 export type UnitBuilderContext = z.infer<typeof UnitBuilderContextSchema>;
 export type SeedStageOutput = z.infer<typeof SeedStageOutputSchema>;
-export type BuildStageInput = z.infer<typeof BuildStageInputSchema>;
-export type BuildStageOutput = z.infer<typeof BuildStageOutputSchema>;
-export type ProveStageInput = z.infer<typeof ProveStageInputSchema>;
-export type StageTeachbackSetup = z.infer<typeof StageTeachbackSetupSchema>;
-export type ProveStageGeneration = z.infer<typeof ProveStageGenerationSchema>;
-export type ProveStageReview = z.infer<typeof ProveStageReviewSchema>;
-export type PracticeEvidence = z.infer<typeof PracticeEvidenceSchema>;
-export type RepairTarget = z.infer<typeof RepairTargetSchema>;
-export type RepairStageInput = z.infer<typeof RepairStageInputSchema>;
-export type RepairStageGeneration = z.infer<typeof RepairStageGenerationSchema>;
-export type RepairStageEvaluation = z.infer<typeof RepairStageEvaluationSchema>;
-export type TeachbackTranscript = z.infer<typeof TeachbackMessageSchema>[];
