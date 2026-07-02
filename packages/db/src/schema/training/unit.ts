@@ -16,6 +16,32 @@ export interface TrainingUnitMasteryContractJson {
   }[];
 }
 
+export interface TrainingUnitDifficultySnapshotJson {
+  nodeId: string;
+  directive: {
+    intent:
+      | "repair"
+      | "probe"
+      | "back_off"
+      | "promote"
+      | "fade_support"
+      | "challenge"
+      | "mastered";
+    bandOrder: number;
+    supportLevel: "worked_example" | "guided" | "none";
+    targetItemRating: number;
+    targetMisconceptionCode: string | null;
+    reason: string;
+    nextProgress: {
+      bandOrder: number;
+      supportLevel: "worked_example" | "guided" | "none";
+    };
+  };
+  promptBlock: string;
+  ratingSnapshot: string;
+  learnerRating: number;
+}
+
 export const TrainingUnitContent = pgTable(
   "becoming_unit_content",
   (t) => ({
@@ -133,6 +159,7 @@ export const TrainingUnitPhaseResponse = pgTable(
       nextScenarioPrompt?: boolean;
       manualDifficultySignal?: "too_easy" | "too_hard";
       difficultyDirectiveReason?: string;
+      goldilocksUpdated?: boolean;
       estimatedItemRating?: number;
       assessmentStatus?: "pass" | "retry_concept" | "retry_application";
       gap?: {
@@ -195,6 +222,9 @@ export const TrainingUnitRun = pgTable(
     pass: t.integer().notNull().default(1),
     connectGrills: t.integer().notNull().default(0),
     solveRepairs: t.integer().notNull().default(0),
+    difficultySnapshotJson: t
+      .jsonb()
+      .$type<TrainingUnitDifficultySnapshotJson | null>(),
     createdAt: t
       .timestamp({ mode: "date", withTimezone: true })
       .defaultNow()

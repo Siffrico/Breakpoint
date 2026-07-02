@@ -141,6 +141,7 @@ export const resolveUnitRunProjection = ({
     ...initialState(unit.id, CURRENT_RECIPE_VERSION),
     sessionId,
     userId: userId ?? null,
+    difficultySnapshot: null,
   };
 };
 

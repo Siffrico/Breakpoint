@@ -204,7 +204,7 @@ describe("runUnitTurn contract", () => {
     });
   });
 
-  it("records Solve failures without writing a rating", async () => {
+  it("exposes the first pass-2 Solve failure as rating evidence", async () => {
     const result = await runWithResult(
       {
         ...initialState("unit-1", "education-unit-v1"),
@@ -220,7 +220,7 @@ describe("runUnitTurn contract", () => {
     );
 
     expect(result.nextState).toMatchObject({ phase: "solve", solveRepairs: 1 });
-    expect(result.ratingWrite).toBeNull();
+    expect(result.ratingWrite).toEqual({ score: 64 });
   });
 
   const invalidCases: {

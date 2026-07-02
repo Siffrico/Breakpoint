@@ -18,6 +18,7 @@ const baseRun = {
   pass: 1,
   connectGrills: 0,
   solveRepairs: 0,
+  difficultySnapshot: null,
 } satisfies PersistedUnitRun;
 
 const readyNode = {

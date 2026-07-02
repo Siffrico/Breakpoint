@@ -7,6 +7,7 @@ import {
   deriveDefaultBands,
   prepareScenarioDirective,
   recordEvaluation,
+  resolveScenarioDirective,
 } from "./goldilocks";
 
 const progress = {
@@ -37,6 +38,22 @@ void test("prepared difficulty carries the opened scenario attempt id", async ()
 
   assert.equal(result.scenarioAttemptId, "scenario-1");
   assert.equal(result.learnerRating, createInitialRatingState().rating);
+});
+
+void test("resolving difficulty is read-only", async () => {
+  const result = await resolveScenarioDirective({
+    userId: "user-1",
+    nodeId: "cluster-1",
+    now: new Date("2026-01-01T00:00:00.000Z"),
+    bands: deriveDefaultBands(),
+    deps: {
+      loadJobProgress: () => Promise.resolve(jobProgress()),
+      listRecentPredictions: () => Promise.resolve([]),
+    },
+  });
+
+  assert.equal(result.learnerRating, createInitialRatingState().rating);
+  assert.match(result.promptBlock, /Difficulty directive/);
 });
 
 void test("rating evaluation addresses the exact scenario attempt", async () => {

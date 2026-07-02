@@ -2,6 +2,8 @@ import type { ModelMessage } from "ai";
 
 import type { Memory } from "../../memory/types";
 import type { DifficultyBand } from "../types/training.types";
+import type { UnitDifficultySnapshot } from "../education-unit/unit";
+import type { ScenarioDirective } from "../engine/rating";
 import type { WorkspaceTurnRuntime } from "./stage-runtime";
 import type {
   AttemptTiming,
@@ -25,7 +27,6 @@ import { getUnitRecipe } from "../education-unit/unit";
 import { compactTranscript, createSummarizer } from "../engine/compaction";
 import { getAiModelForPurpose } from "../engine/model-router";
 import { WorkspaceUserError } from "../errors";
-import { clampClaimedItemRating } from "../orchestration/goldilocks";
 import { resolveRatingScope } from "../orchestration/rating-scope";
 import { buildWorkspaceIntroMessage } from "../workflows/get-ai-workspace-workflow";
 import { runWorkspaceAiPrompt } from "./runtime";
@@ -49,14 +50,16 @@ export type ManualDifficultySignal = "too_easy" | "too_hard";
 
 interface DifficultyDirectiveResult {
   scenarioAttemptId: string;
-  directive: {
-    reason: string;
-    targetItemRating: number;
-  };
+  directive: ScenarioDirective;
   promptBlock: string;
   ratingSnapshot: string;
   learnerRating: number;
 }
+
+type ResolvedDifficultyDirectiveResult = Omit<
+  DifficultyDirectiveResult,
+  "scenarioAttemptId"
+>;
 
 interface ManualDifficultyNudgeResult {
   delta: number;
@@ -96,6 +99,12 @@ export interface WorkspaceTurnOrchestrationDependencies
     now: Date;
     bands?: readonly DifficultyBand[] | null;
   }) => Promise<DifficultyDirectiveResult>;
+  resolveDifficultyDirective: (input: {
+    userId: string;
+    nodeId: string;
+    now: Date;
+    bands?: readonly DifficultyBand[] | null;
+  }) => Promise<ResolvedDifficultyDirectiveResult>;
   applyManualDifficultyNudge?: (input: {
     userId: string;
     nodeId: string;
@@ -107,10 +116,6 @@ export interface WorkspaceTurnOrchestrationDependencies
     userId: string;
     nodeId: string;
   }) => Promise<OpenScenarioResult | null>;
-  updateScenarioItemRating?: (input: {
-    scenarioAttemptId: string;
-    itemRating: number;
-  }) => Promise<unknown>;
   /** Test seam for deterministic education-unit contract tests. */
   runUnitTurn?: typeof runUnitTurn;
 }
@@ -347,8 +352,33 @@ export const runEducationUnitTurn = async ({
       assistantMessage: loadedTranscript.assistantMessage,
     };
   }
-  const memories = await deps.listMemories(userId);
   const ratingScope = resolveRatingScope({ unit, planNodes: plan.nodes });
+
+  const [memories, resolvedDifficulty] = await Promise.all([
+    deps.listMemories(userId),
+    unitRun.difficultySnapshot
+      ? null
+      : deps.resolveDifficultyDirective({
+          userId,
+          nodeId: ratingScope.nodeId,
+          now: new Date(),
+          bands: ratingScope.bands,
+        }),
+  ]);
+  let difficultySnapshot: UnitDifficultySnapshot | null =
+    unitRun.difficultySnapshot;
+  if (!difficultySnapshot) {
+    if (!resolvedDifficulty) {
+      throw new Error("Goldilocks did not resolve a unit difficulty snapshot.");
+    }
+    difficultySnapshot = {
+      nodeId: ratingScope.nodeId,
+      directive: resolvedDifficulty.directive,
+      promptBlock: resolvedDifficulty.promptBlock,
+      ratingSnapshot: resolvedDifficulty.ratingSnapshot,
+      learnerRating: resolvedDifficulty.learnerRating,
+    };
+  }
 
   const recipe = getUnitRecipe(unitRun.recipeVersion, ratingScope);
   const contextBlock = buildUnitTurnContext({
@@ -357,10 +387,7 @@ export const runEducationUnitTurn = async ({
     policy: recipe.policy,
     memories,
     progressSummary: loadedTranscript.progressSummary,
-    // Difficulty is currently only WRITTEN on the pass-2 solve (below). A
-    // per-turn READ directive can be layered in later without changing the
-    // engine contract.
-    difficultyLine: null,
+    difficultyLine: difficultySnapshot.promptBlock,
     pendingConnectTeach: readPendingConnectTeach(unitResponses),
   });
 
@@ -370,33 +397,32 @@ export const runEducationUnitTurn = async ({
     contextBlock,
     transcript: toModelMessages(loadedTranscript.transcript),
   });
-  onAssistantMessage?.(turnResult.assistantMessage);
+  const scenarioAttemptId = [...unitResponses]
+    .reverse()
+    .find(
+      (response) =>
+        response.phase === "ai_education" &&
+        response.metadata?.scenarioAttemptId,
+    )?.metadata
+    ?.scenarioAttemptId;
 
-  // Only a passing pass-2 solve feeds Goldilocks. Open a scenario attempt for
-  // the rating node and grade it in the same commit — self-contained, so no
-  // dangling open attempts are left across turns.
+  // Only a passing pass-2 solve feeds Goldilocks, using the attempt that was
+  // atomically opened when the pass-2 Connect scenario was presented.
   let ratingEvaluation: WorkspaceRatingEvaluationCommit | null = null;
-  if (turnResult.ratingWrite && deps.prepareDifficultyDirective) {
-    const now = new Date();
-    const opened = await deps.prepareDifficultyDirective({
-      userId,
-      nodeId: ratingScope.nodeId,
-      now,
-      bands: ratingScope.bands,
-    });
-    if (deps.updateScenarioItemRating) {
-      // The current FSM does not yet generate Solve from this directive. Grade
-      // conservatively at the learner's actual pre-turn rating, not at an
-      // unpresented target difficulty.
-      await deps.updateScenarioItemRating({
-        scenarioAttemptId: opened.scenarioAttemptId,
-        itemRating: opened.learnerRating,
-      });
+  const goldilocksAlreadyUpdated = unitResponses.some(
+    (response) => response.metadata?.goldilocksUpdated === true,
+  );
+  if (turnResult.ratingWrite && !goldilocksAlreadyUpdated) {
+    if (!scenarioAttemptId) {
+      throw new Error(
+        "Pass-2 evaluation requires the scenario attempt opened at presentation.",
+      );
     }
+    const now = new Date();
     ratingEvaluation = {
-      scenarioAttemptId: opened.scenarioAttemptId,
+      scenarioAttemptId,
       userId,
-      nodeId: ratingScope.nodeId,
+      nodeId: difficultySnapshot.nodeId,
       score: turnResult.ratingWrite.score,
       errorCodes: [],
       wasOverTime: false,
@@ -414,6 +440,9 @@ export const runEducationUnitTurn = async ({
     plan,
     turnResult,
     ratingEvaluation,
+    difficultySnapshot,
+    scenarioAttemptId: scenarioAttemptId ?? null,
+    difficultyDirectiveReason: difficultySnapshot.directive.reason,
     turnId,
     turnLeaseId,
     persistUserMessage: loadedTranscript.claimedDurableTurn,
@@ -422,6 +451,7 @@ export const runEducationUnitTurn = async ({
     ).length,
     deps,
   });
+  onAssistantMessage?.(result.assistantMessage.content);
 
   return {
     state: result.state,
@@ -620,32 +650,6 @@ export const prepareRecallTurnPrompt = async ({
   };
 };
 
-const maybeUpdateOpenScenarioItemRating = async ({
-  prepared,
-  output,
-  deps,
-}: {
-  prepared: PreparedRecallTurn;
-  output: WorkspaceAiRecallOutput;
-  deps: WorkspaceTurnOrchestrationDependencies;
-}) => {
-  if (
-    !prepared.difficultyDirectiveResult ||
-    !deps.updateScenarioItemRating ||
-    output.estimatedItemRating == null
-  ) {
-    return;
-  }
-
-  await deps.updateScenarioItemRating({
-    scenarioAttemptId: prepared.difficultyDirectiveResult.scenarioAttemptId,
-    itemRating: clampClaimedItemRating({
-      claimed: output.estimatedItemRating,
-      target: prepared.difficultyDirectiveResult.directive.targetItemRating,
-    }),
-  });
-};
-
 export const saveRecallStepResult = async ({
   prepared,
   rawOutput,
@@ -660,8 +664,6 @@ export const saveRecallStepResult = async ({
   ) as WorkspaceAiRecallOutput;
   const { turn } = prepared;
   const { state, unit, plan } = turn;
-
-  await maybeUpdateOpenScenarioItemRating({ prepared, output, deps });
 
   if (prepared.action === "adjust_difficulty") {
     return saveRecallTurnResult({

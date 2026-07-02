@@ -7,8 +7,24 @@ import type {
   PersistedUnitRun,
   UnitPhase,
 } from "../domain/training/education-unit/unit";
+import { sql } from "@acme/db";
 
 type Database = typeof databaseClient;
+
+const canonicalJson = (value: unknown): string => {
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalJson).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value).sort(([left], [right]) =>
+      left.localeCompare(right),
+    );
+    return `{${entries
+      .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+};
 
 // Narrow the free-text varchar columns back onto the FSM's literal unions. A
 // row that predates the FSM (or was hand-edited) is a corrupt cursor, not a
@@ -46,6 +62,7 @@ const mapUnitRun = (
   pass: parsePass(row.pass),
   connectGrills: row.connectGrills,
   solveRepairs: row.solveRepairs,
+  difficultySnapshot: row.difficultySnapshotJson,
 });
 
 export const trainingUnitRunRepository = {
@@ -84,6 +101,7 @@ export const trainingUnitRunRepository = {
       pass: run.pass,
       connectGrills: run.connectGrills,
       solveRepairs: run.solveRepairs,
+      difficultySnapshotJson: run.difficultySnapshot,
     };
 
     const [row] = await db
@@ -98,12 +116,22 @@ export const trainingUnitRunRepository = {
           pass: values.pass,
           connectGrills: values.connectGrills,
           solveRepairs: values.solveRepairs,
+          difficultySnapshotJson: sql`coalesce(${TrainingUnitRun.difficultySnapshotJson}, excluded.difficulty_snapshot_json)`,
         },
       })
       .returning();
 
     if (!row) {
       throw new Error("Unit run could not be saved.");
+    }
+
+
+    if (
+      run.difficultySnapshot &&
+      canonicalJson(row.difficultySnapshotJson) !==
+        canonicalJson(run.difficultySnapshot)
+    ) {
+      throw new Error("A unit run's difficulty snapshot cannot be replaced.");
     }
 
     return mapUnitRun(row);

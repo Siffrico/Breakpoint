@@ -272,6 +272,7 @@ export interface PhaseResponseMetadata {
   nextScenarioPrompt?: boolean;
   manualDifficultySignal?: "too_easy" | "too_hard";
   difficultyDirectiveReason?: string;
+  goldilocksUpdated?: boolean;
   estimatedItemRating?: number;
   assessmentStatus?: EducationUnitAssessmentStatus;
   gap?: FailureGap;

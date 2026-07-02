@@ -141,7 +141,7 @@ describe("isTerminal", () => {
 });
 
 describe("writesGoldilocks", () => {
-  it("is true only for a passing pass-2 solve", () => {
+  it("is true for a passing pass-2 solve", () => {
     expect(
       writesGoldilocks(state({ phase: "solve", pass: 2 }), {
         type: "solution_graded",
@@ -159,13 +159,13 @@ describe("writesGoldilocks", () => {
     ).toBe(false);
   });
 
-  it("is false for a failing pass-2 solve", () => {
+  it("is true for a failing pass-2 solve", () => {
     expect(
       writesGoldilocks(state({ phase: "solve", pass: 2 }), {
         type: "solution_graded",
         passed: false,
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 });
 

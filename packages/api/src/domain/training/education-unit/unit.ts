@@ -13,6 +13,15 @@
 // Pass 1 READS difficulty from Goldilocks. Pass 2 READS and WRITES it.
 
 import type { RatingScope } from "../orchestration/rating-scope";
+import type { ScenarioDirective } from "../engine/rating";
+
+export interface UnitDifficultySnapshot {
+  nodeId: string;
+  directive: ScenarioDirective;
+  promptBlock: string;
+  ratingSnapshot: string;
+  learnerRating: number;
+}
 
 /**
  * The coarse state a unit sits in. Stored on the run row (reusing `UnitRun`).
@@ -27,7 +36,7 @@ export type UnitPhase =
   | "teach" // concept teach, post-struggle, between the two passes
   | "mastered"; // terminal
 
-/** A unit runs the connect->solve loop twice. Pass 2 is harder and writes Goldilocks. */
+/** Both passes share one calibrated difficulty; pass 2 supplies rating evidence. */
 export type PassIndex = 1 | 2;
 
 /**
@@ -67,6 +76,8 @@ export interface UnitState {
 export type PersistedUnitRun = UnitState & {
   sessionId: string;
   userId: string | null;
+  /** Set once by the first committed turn and reused for both passes. */
+  difficultySnapshot: UnitDifficultySnapshot | null;
 };
 
 /**

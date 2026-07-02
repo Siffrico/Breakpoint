@@ -36,6 +36,8 @@ describe("workspace turn lease fencing", () => {
         userResponse: "Answer",
       },
       ratingEvaluation: null,
+      scenarioPresentation: null,
+      solvePresentation: null,
       nextRun: {
         unitId: "00000000-0000-0000-0000-000000000003",
         sessionId: "00000000-0000-0000-0000-000000000001",
@@ -45,6 +47,7 @@ describe("workspace turn lease fencing", () => {
         pass: 1,
         connectGrills: 0,
         solveRepairs: 0,
+        difficultySnapshot: null,
       },
       completion: null,
       touchSessionId: "00000000-0000-0000-0000-000000000001",

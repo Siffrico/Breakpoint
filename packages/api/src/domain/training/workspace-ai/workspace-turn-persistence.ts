@@ -1,5 +1,9 @@
 import type { UnitTurnResult } from "../education-unit/orchestrate-unit-turn";
-import type { PersistedUnitRun, UnitEvent } from "../education-unit/unit";
+import type {
+  PersistedUnitRun,
+  UnitDifficultySnapshot,
+  UnitEvent,
+} from "../education-unit/unit";
 import type {
   CurriculumNode,
   CurriculumPlan,
@@ -163,6 +167,16 @@ export interface WorkspaceEducationTurnCommit {
   contracts: WorkspaceOutputContractCommit | null;
   phaseResponse: WorkspacePhaseResponseCommit;
   ratingEvaluation: WorkspaceRatingEvaluationCommit | null;
+  scenarioPresentation: {
+    userId: string;
+    nodeId: string;
+    snapshot: UnitDifficultySnapshot;
+    presentedAt: Date;
+  } | null;
+  solvePresentation: {
+    scenarioAttemptId: string;
+    presentedAt: Date;
+  } | null;
   nextRun: PersistedUnitRun;
   completion: {
     nodeId: string;
@@ -330,7 +344,7 @@ export const saveRecallTurnResult = async ({
 /**
  * Persists one education-unit FSM turn: the user + assistant messages, a phase
  * response carrying the new phase, the advanced unit-run cursor, an optional
- * Goldilocks write (only the passing pass-2 solve supplies one), and the
+ * optional exactly-once Goldilocks write from the first scored pass-2 Solve,
  * completion attempt once the unit is mastered. The `state` fallback is only
  * used when the curriculum has no next runnable turn (unit just mastered and
  * awaiting the Next-Unit gate).
@@ -344,6 +358,8 @@ export const saveUnitPhaseResult = async ({
   plan,
   turnResult,
   ratingEvaluation,
+  difficultySnapshot,
+  scenarioAttemptId,
   difficultyDirectiveReason,
   turnId,
   turnLeaseId,
@@ -359,6 +375,8 @@ export const saveUnitPhaseResult = async ({
   plan: CurriculumPlan;
   turnResult: UnitTurnResult;
   ratingEvaluation: WorkspaceRatingEvaluationCommit | null;
+  difficultySnapshot: UnitDifficultySnapshot;
+  scenarioAttemptId: string | null;
   difficultyDirectiveReason?: string | null;
   turnId?: string | null;
   turnLeaseId?: string | null;
@@ -376,7 +394,39 @@ export const saveUnitPhaseResult = async ({
   const aiMessage = turnResult.assistantMessage;
   const mastered = nextState.phase === "mastered";
 
-  const nextRun: PersistedUnitRun = { ...nextState, sessionId, userId };
+  const nextRun: PersistedUnitRun = {
+    ...nextState,
+    sessionId,
+    userId,
+    difficultySnapshot,
+  };
+
+  const scenarioPresentation =
+    state.mode === "education_unit" &&
+    nextRun.pass === 2 &&
+    nextRun.phase === "connect" &&
+    event.type === "phase_continues" &&
+    event.reason === "prompted"
+      ? {
+          userId,
+          nodeId: difficultySnapshot.nodeId,
+          snapshot: difficultySnapshot,
+          presentedAt: new Date(),
+        }
+      : null;
+  const solvePresentation =
+    nextRun.pass === 2 &&
+    nextRun.phase === "solve" &&
+    event.type === "phase_continues" &&
+    event.reason === "prompted"
+      ? scenarioAttemptId
+        ? { scenarioAttemptId, presentedAt: new Date() }
+        : (() => {
+            throw new Error(
+              "Pass-2 Solve cannot be presented without a scenario attempt.",
+            );
+          })()
+      : null;
 
   const phaseResponse: WorkspacePhaseResponseCommit = {
     unitContentId: unit.id,
@@ -396,6 +446,7 @@ export const saveUnitPhaseResult = async ({
       modelPurpose: "education",
       verdict: verdictLabel(event),
       difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
+      goldilocksUpdated: ratingEvaluation ? true : undefined,
       feedback: aiMessage,
     },
   };
@@ -440,6 +491,8 @@ export const saveUnitPhaseResult = async ({
     contracts: null,
     phaseResponse,
     ratingEvaluation,
+    scenarioPresentation,
+    solvePresentation,
     nextRun,
     completion,
     touchSessionId: sessionId,

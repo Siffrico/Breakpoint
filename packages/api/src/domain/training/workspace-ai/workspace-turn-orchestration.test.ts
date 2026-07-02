@@ -54,6 +54,21 @@ const unitRun = {
   pass: 1,
   connectGrills: 0,
   solveRepairs: 0,
+  difficultySnapshot: {
+    nodeId: "cluster-1",
+    directive: {
+      intent: "probe",
+      bandOrder: 0,
+      supportLevel: "guided",
+      targetItemRating: 1100,
+      targetMisconceptionCode: null,
+      reason: "Calibrated probe",
+      nextProgress: { bandOrder: 0, supportLevel: "guided" },
+    },
+    promptBlock: "Keep difficulty fixed at 1100.",
+    ratingSnapshot: "1100 ±200",
+    learnerRating: 1100,
+  },
 } satisfies PersistedUnitRun;
 
 const turn = {
@@ -152,6 +167,9 @@ void test("an invalid education-unit result is never persisted", async () => {
 });
 
 void test("an education turn returns the committed assistant message", async () => {
+  let modelContext = "";
+  let committed = false;
+  let emittedAfterCommit = false;
   const assistantMessage = {
     id: "message-2",
     role: "assistant" as const,
@@ -174,16 +192,22 @@ void test("an education turn returns the committed assistant message", async () 
     getWorkspaceSummary: () => Promise.resolve(null),
     upsertWorkspaceSummary: () => Promise.resolve(),
     listMemories: () => Promise.resolve([]),
-    runUnitTurn: () =>
-      Promise.resolve({
+    resolveDifficultyDirective: () => fail("resolveDifficultyDirective"),
+    runUnitTurn: (input: { contextBlock: string }) => {
+      modelContext = input.contextBlock;
+      return Promise.resolve({
         assistantMessage: assistantMessage.content,
         event: { type: "connection_graded" as const, passed: true },
         nextState: { ...unitRun, phase: "solve" as const },
         forcedConnectAdvance: false,
         gradeReasoning: "The learner selected a discriminating probe.",
         ratingWrite: null,
-      }),
-    commitEducationTurn: () => Promise.resolve({ assistantMessage }),
+      });
+    },
+    commitEducationTurn: () => {
+      committed = true;
+      return Promise.resolve({ assistantMessage });
+    },
     listPhaseResponsesBySession: () => Promise.resolve([]),
     getUnitByNodeId: () => Promise.resolve(turn.unit),
     getPhaseResponses: () => Promise.resolve([]),
@@ -199,7 +223,12 @@ void test("an education turn returns the committed assistant message", async () 
     message: "I would isolate one variable first.",
     turn,
     deps,
+    onAssistantMessage: () => {
+      emittedAfterCommit = committed;
+    },
   });
 
   assert.equal(result.assistantMessage, assistantMessage);
+  assert.match(modelContext, /Keep difficulty fixed at 1100/);
+  assert.equal(emittedAfterCommit, true);
 });

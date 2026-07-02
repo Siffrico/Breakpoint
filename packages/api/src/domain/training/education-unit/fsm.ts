@@ -108,7 +108,8 @@ export const transition = (
     }
 
     case "teach":
-      // The middle concept teach is done — start pass 2 (the harder one).
+      // The middle concept teach is done — start the transfer pass at the same
+      // frozen Goldilocks difficulty.
       expect(event.type === "teach_done", state, event);
       return enter(state, "connect", 2);
 
@@ -152,14 +153,13 @@ export const shouldMicroTeach = (
   state.solveRepairs + 1 >= policy.maxRepairsBeforeMicroTeach;
 
 /**
- * The single moment the unit feeds the rating system: a passing Solve on pass 2.
- * Both passes read difficulty when generating their scenario; only this writes.
+ * A scored Solve on pass 2 is eligible to feed the rating system. Persistence
+ * owns the exactly-once guard so later pedagogical repairs cannot write again.
  */
 export const writesGoldilocks = (state: UnitState, event: UnitEvent): boolean =>
   state.phase === "solve" &&
   state.pass === 2 &&
-  event.type === "solution_graded" &&
-  event.passed;
+  event.type === "solution_graded";
 
 function expect(ok: boolean, state: UnitState, event: UnitEvent): asserts ok {
   if (!ok) {

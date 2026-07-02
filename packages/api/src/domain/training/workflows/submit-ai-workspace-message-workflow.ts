@@ -30,13 +30,16 @@ export const submitAiWorkspaceMessageWorkflow = async ({
   attemptTiming?: AttemptTiming | null;
   deps: WorkspaceTurnOrchestrationDependencies;
 }): Promise<Result<WorkspaceAiTurnResult>> => {
-  const turnLeaseId = turnId ? randomUUID() : null;
+  // Optionality ends at the transport boundary. Every internal turn is leased
+  // and idempotent, including clients that have not adopted turn IDs yet.
+  const normalizedTurnId = turnId ?? randomUUID();
+  const turnLeaseId = randomUUID();
   try {
     return ok(
       await runOneStep({
         sessionId,
         userId,
-        turnId,
+        turnId: normalizedTurnId,
         turnLeaseId,
         message,
         attemptTiming,
@@ -45,10 +48,10 @@ export const submitAiWorkspaceMessageWorkflow = async ({
       }),
     );
   } catch (error) {
-    if (turnId && turnLeaseId && deps.markWorkspaceTurnFailed) {
+    if (deps.markWorkspaceTurnFailed) {
       await deps.markWorkspaceTurnFailed({
         sessionId,
-        turnId,
+        turnId: normalizedTurnId,
         leaseId: turnLeaseId,
         reason: error instanceof Error ? error.message : "unknown error",
       });

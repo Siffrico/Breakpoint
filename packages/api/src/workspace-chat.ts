@@ -251,8 +251,8 @@ const streamWorkspaceChatWithModelPreference = async ({
             onAssistantMessage: (content) => {
               streamAssistantDelta(content);
               endAssistantText();
-              // The reply is on screen; persistence is still running behind it.
-              writeStatus("saving", "Saving your progress");
+              // Education replies are emitted only after their transactional
+              // message, FSM, and Goldilocks writes have committed.
             },
           });
           writeStatus("complete", "Complete");

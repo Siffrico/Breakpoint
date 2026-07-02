@@ -113,6 +113,7 @@ describe("workspace read preparation boundary", () => {
       pass: 1,
       connectGrills: 0,
       solveRepairs: 0,
+      difficultySnapshot: null,
     });
     expect(turn.state).toMatchObject({
       mode: "education_unit",

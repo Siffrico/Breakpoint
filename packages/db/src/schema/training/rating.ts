@@ -2,6 +2,7 @@ import { index, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
 
 import { user } from "../../auth-schema";
 import { TrainingCurriculumNode } from "./curriculum";
+import { TrainingUnitRun } from "./unit";
 
 export type TrainingSupportLevel = "worked_example" | "guided" | "none";
 
@@ -174,11 +175,18 @@ export const TrainingScenarioAttempt = pgTable(
     itemRating: t.doublePrecision().notNull(),
     targetMisconceptionCode: t.varchar({ length: 160 }),
     supportLevel: t.varchar({ length: 32 }).notNull(),
+    /** Present only for education-unit attempts; one measured attempt per run. */
+    unitRunId: t
+      .uuid()
+      .references(() => TrainingUnitRun.id, { onDelete: "cascade" }),
+    originTurnId: t.varchar({ length: 96 }),
     createdAt: t
       .timestamp({ mode: "date", withTimezone: true })
       .defaultNow()
       .notNull(),
     presentedAt: t.timestamp({ mode: "date", withTimezone: true }),
+    solvePresentedAt: t.timestamp({ mode: "date", withTimezone: true }),
+    solvePromptTurnId: t.varchar({ length: 96 }),
     evaluatedAt: t.timestamp({ mode: "date", withTimezone: true }),
   }),
   (table) => [
@@ -187,6 +195,9 @@ export const TrainingScenarioAttempt = pgTable(
       table.nodeId,
       table.status,
       table.createdAt,
+    ),
+    uniqueIndex("becoming_training_scenario_attempt_unit_run_idx").on(
+      table.unitRunId,
     ),
   ],
 );

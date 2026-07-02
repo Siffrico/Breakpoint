@@ -62,8 +62,8 @@ export interface UnitTurnResult {
   /** The grader's one-sentence reasoning, for persistence metadata. */
   gradeReasoning: string | null;
   /**
-   * Present only on a passing pass-2 solve (writesGoldilocks). The score to
-   * feed the rating system; null on every other turn.
+   * Present on a scored pass-2 solve. The persistence boundary applies the
+   * exactly-once guard before feeding this score to Goldilocks.
    */
   ratingWrite: { score: number } | null;
 }

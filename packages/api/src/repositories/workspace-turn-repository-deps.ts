@@ -1,6 +1,6 @@
 import type { db as databaseClient } from "@acme/db/client";
 import { and, eq } from "@acme/db";
-import { TrainingWorkspaceTurn } from "@acme/db/schema";
+import { TrainingUnitRun, TrainingWorkspaceTurn } from "@acme/db/schema";
 
 import type {
   CurriculumNode,
@@ -23,6 +23,7 @@ import { createInitialRatingState } from "../domain/training/engine/rating";
 import {
   prepareScenarioDirective,
   recordEvaluation,
+  resolveScenarioDirective,
 } from "../domain/training/orchestration/goldilocks";
 import { memoryRepository } from "./memory-repository";
 import { trainingAttemptRepository } from "./training-attempt-repository";
@@ -256,6 +257,43 @@ const commitEducationTurn = async ({
       leaseId: input.turnLeaseId,
     });
     await applyContracts({ db: txDb, contracts: input.contracts });
+
+    let presentedScenarioAttemptId: string | null = null;
+    if (input.scenarioPresentation) {
+      const unitRun = await txDb.query.TrainingUnitRun.findFirst({
+        where: and(
+          eq(TrainingUnitRun.sessionId, input.nextRun.sessionId),
+          eq(TrainingUnitRun.unitContentId, input.nextRun.unitId),
+        ),
+      });
+      if (!unitRun) {
+        throw new Error(
+          "Pass-2 scenario presentation requires a durable unit run.",
+        );
+      }
+      const presentation = input.scenarioPresentation;
+      const attempt =
+        await trainingRatingRepository.openEducationScenarioAttempt({
+          db: txDb,
+          unitRunId: unitRun.id,
+          originTurnId: input.turnId ?? null,
+          userId: presentation.userId,
+          nodeId: presentation.nodeId,
+          directive: presentation.snapshot.directive,
+          itemRating: presentation.snapshot.directive.targetItemRating,
+          scenarioPrompt: input.assistantMessage.content,
+          presentedAt: presentation.presentedAt,
+        });
+      presentedScenarioAttemptId = attempt.id;
+    }
+    if (input.solvePresentation) {
+      await trainingRatingRepository.stampSolvePresentation({
+        db: txDb,
+        scenarioAttemptId: input.solvePresentation.scenarioAttemptId,
+        solvePromptTurnId: input.turnId ?? null,
+        presentedAt: input.solvePresentation.presentedAt,
+      });
+    }
     if (input.ratingEvaluation) {
       await recordEvaluation({
         ...input.ratingEvaluation,
@@ -282,6 +320,12 @@ const commitEducationTurn = async ({
     await trainingCurriculumRepository.savePhaseResponse({
       db: txDb,
       ...input.phaseResponse,
+      metadata: presentedScenarioAttemptId
+        ? {
+            ...input.phaseResponse.metadata,
+            scenarioAttemptId: presentedScenarioAttemptId,
+          }
+        : input.phaseResponse.metadata,
       sequence: input.phaseResponse.sequence ?? assistantMessage.sequence,
     });
     await trainingUnitRunRepository.upsertUnitRun({
@@ -486,6 +530,24 @@ export const createWorkspaceTurnRepositoryDeps = (
       bands,
       deps: createTrainingRatingGoldilocksDeps(db),
     }),
+  resolveDifficultyDirective: ({
+    userId,
+    nodeId,
+    now,
+    bands,
+  }: {
+    userId: string;
+    nodeId: string;
+    now: Date;
+    bands?: readonly DifficultyBand[] | null;
+  }) =>
+    resolveScenarioDirective({
+      userId,
+      nodeId,
+      now,
+      bands,
+      deps: createTrainingRatingGoldilocksDeps(db),
+    }),
   applyManualDifficultyNudge: ({
     userId,
     nodeId,
@@ -511,11 +573,5 @@ export const createWorkspaceTurnRepositoryDeps = (
       scenarioAttemptId,
       userId,
       nodeId,
-    }),
-  updateScenarioItemRating: ({ scenarioAttemptId, itemRating }) =>
-    trainingRatingRepository.updateScenarioItemRating({
-      db,
-      scenarioAttemptId,
-      itemRating,
     }),
 });

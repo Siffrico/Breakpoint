@@ -45,6 +45,7 @@ const masteredRun = {
   pass: 2,
   connectGrills: 0,
   solveRepairs: 0,
+  difficultySnapshot: null,
 } satisfies PersistedUnitRun;
 
 describe("advanceCompletedUnitWorkflow", () => {

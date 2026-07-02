@@ -20,11 +20,15 @@ import {
 } from "../engine/rating";
 
 export interface GoldilocksDirectiveResult {
-  scenarioAttemptId: string;
   directive: ScenarioDirective;
   promptBlock: string;
   ratingSnapshot: string;
   learnerRating: number;
+}
+
+export interface PreparedScenarioDirectiveResult
+  extends GoldilocksDirectiveResult {
+  scenarioAttemptId: string;
 }
 
 interface GoldilocksJobProgress {
@@ -41,7 +45,7 @@ interface GoldilocksOpenScenario {
   itemRating: number;
 }
 
-export interface PrepareScenarioDirectiveDependencies {
+export interface ResolveScenarioDirectiveDependencies {
   loadJobProgress: (input: {
     userId: string;
     nodeId: string;
@@ -51,6 +55,10 @@ export interface PrepareScenarioDirectiveDependencies {
     userId: string;
     nodeId: string;
   }) => Promise<RatingPredictionRecord[]>;
+}
+
+export interface PrepareScenarioDirectiveDependencies
+  extends ResolveScenarioDirectiveDependencies {
   openScenarioAttempt: (input: {
     userId: string;
     nodeId: string;
@@ -165,7 +173,12 @@ export const clampClaimedItemRating = ({
   return Math.min(target + window, Math.max(target - window, value));
 };
 
-export const prepareScenarioDirective = async ({
+/**
+ * Reads rating evidence and produces the next calibrated directive. This is a
+ * deliberately read-only operation: presenting a scenario is the transaction
+ * boundary that owns opening an attempt.
+ */
+export const resolveScenarioDirective = async ({
   userId,
   nodeId,
   now,
@@ -176,7 +189,7 @@ export const prepareScenarioDirective = async ({
   nodeId: string;
   now: Date;
   bands?: readonly DifficultyBand[] | null;
-  deps: PrepareScenarioDirectiveDependencies;
+  deps: ResolveScenarioDirectiveDependencies;
 }): Promise<GoldilocksDirectiveResult> => {
   const resolvedBands = resolveBands({ bands, nodeId });
   const [loaded, predictions] = await Promise.all([
@@ -204,15 +217,7 @@ export const prepareScenarioDirective = async ({
 
   const calibration = buildGeneratorCalibrationNote(predictions);
   const promptBlock = renderScenarioDirective(directive, band, calibration);
-  const scenarioAttempt = await deps.openScenarioAttempt({
-    userId,
-    nodeId,
-    directive,
-    itemRating: directive.targetItemRating,
-  });
-
   return {
-    scenarioAttemptId: scenarioAttempt.id,
     directive,
     promptBlock,
     learnerRating: Math.round(rating.rating),
@@ -223,6 +228,30 @@ export const prepareScenarioDirective = async ({
       lastRatedAt: rating.lastRatedAt,
     }),
   };
+};
+
+/**
+ * Legacy recall adapter. Recall still opens an attempt during preparation;
+ * education units use resolveScenarioDirective and open on presentation.
+ */
+export const prepareScenarioDirective = async (
+  input: {
+    userId: string;
+    nodeId: string;
+    now: Date;
+    bands?: readonly DifficultyBand[] | null;
+    deps: PrepareScenarioDirectiveDependencies;
+  },
+): Promise<PreparedScenarioDirectiveResult> => {
+  const resolved = await resolveScenarioDirective(input);
+  const scenarioAttempt = await input.deps.openScenarioAttempt({
+    userId: input.userId,
+    nodeId: input.nodeId,
+    directive: resolved.directive,
+    itemRating: resolved.directive.targetItemRating,
+  });
+
+  return { ...resolved, scenarioAttemptId: scenarioAttempt.id };
 };
 
 export const recordEvaluation = async ({

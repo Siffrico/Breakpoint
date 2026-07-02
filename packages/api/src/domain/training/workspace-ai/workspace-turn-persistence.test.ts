@@ -80,6 +80,22 @@ const masteredTurn: UnitTurnResult = {
   ratingWrite: { score: 90 },
 };
 
+const difficultySnapshot = {
+  nodeId: "cluster-1",
+  directive: {
+    intent: "probe" as const,
+    bandOrder: 0,
+    supportLevel: "guided" as const,
+    targetItemRating: 1100,
+    targetMisconceptionCode: null,
+    reason: "Calibrated probe",
+    nextProgress: { bandOrder: 0, supportLevel: "guided" as const },
+  },
+  promptBlock: "Keep the scenario at rating 1100.",
+  ratingSnapshot: "1100 ±200",
+  learnerRating: 1100,
+};
+
 void test("saveUnitPhaseResult persists transitions and non-grading continuations correctly", async () => {
   let captured: WorkspaceEducationTurnCommit | null = null;
   const legacyDirectRunWrite = vi.fn((run: unknown) => Promise.resolve(run));
@@ -141,6 +157,8 @@ void test("saveUnitPhaseResult persists transitions and non-grading continuation
     plan,
     turnResult: masteredTurn,
     ratingEvaluation,
+    difficultySnapshot,
+    scenarioAttemptId: "scenario-1",
     persistUserMessage: true,
     phaseResponseSequence: 0,
     turnId: "turn-1",
@@ -174,6 +192,8 @@ void test("saveUnitPhaseResult persists transitions and non-grading continuation
     plan,
     turnResult: masteredTurn,
     ratingEvaluation: null,
+    difficultySnapshot,
+    scenarioAttemptId: "scenario-1",
     persistUserMessage: false,
     phaseResponseSequence: 3,
     deps,
@@ -211,6 +231,8 @@ void test("saveUnitPhaseResult persists transitions and non-grading continuation
     plan,
     turnResult: continuationTurn,
     ratingEvaluation: null,
+    difficultySnapshot,
+    scenarioAttemptId: null,
     persistUserMessage: true,
     phaseResponseSequence: 4,
     turnId: "turn-2",
@@ -227,4 +249,34 @@ void test("saveUnitPhaseResult persists transitions and non-grading continuation
   assert.equal(continuationCommit.phaseResponse.score, null);
   assert.equal(continuationCommit.ratingEvaluation, null);
   assert.equal(continuationCommit.completion, null);
+
+  captured = null;
+  await saveUnitPhaseResult({
+    sessionId: "session-1",
+    userId: "user-1",
+    message: "Present the transfer scenario.",
+    state,
+    unit,
+    plan,
+    turnResult: {
+      ...continuationTurn,
+      nextState: { ...continuationTurn.nextState, pass: 2 },
+    },
+    ratingEvaluation: null,
+    difficultySnapshot,
+    scenarioAttemptId: null,
+    persistUserMessage: true,
+    phaseResponseSequence: 5,
+    turnId: "turn-3",
+    turnLeaseId: "lease-3",
+    deps,
+  });
+
+  assert.ok(captured);
+  const presentationCommit = captured as unknown as WorkspaceEducationTurnCommit;
+  assert.equal(
+    presentationCommit.scenarioPresentation?.snapshot,
+    difficultySnapshot,
+  );
+  assert.equal(presentationCommit.solvePresentation, null);
 });
