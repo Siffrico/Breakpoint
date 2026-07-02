@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Lightbulb, SidebarSimple } from "@phosphor-icons/react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 
 import type { RouterOutputs } from "@acme/api";
 import { Button } from "@acme/ui/button";
@@ -46,6 +46,18 @@ type LearningProject =
 const LAST_SESSION_COOKIE = "bp-last-learning-session";
 const EMPTY_PROJECTS: LearningProject[] = [];
 const MAX_COACH_ANSWER_CHARS = 3_200;
+
+const isUnitPreparingError = (error: unknown) => {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as {
+    message?: string;
+    data?: { code?: string };
+  };
+  return (
+    candidate.data?.code === "PRECONDITION_FAILED" &&
+    candidate.message === "UNIT_PREPARING"
+  );
+};
 
 type WorkspaceMode = "onboarding" | "unit" | "idle";
 type WorkspaceTheme = "light" | "dark" | "warm";
@@ -110,6 +122,40 @@ export function WorkspaceShell({
     "bp-workspace-theme",
     "warm",
   );
+  const aiWorkspaceQuery = useQuery(
+    trpc.training.aiWorkspace.queryOptions(
+      { sessionId },
+      {
+        enabled: !preview,
+        initialData: aiWorkspace ?? undefined,
+        // Keep polling while the unit is being prepared: every retry that
+        // still misses re-triggers generation server-side, so this loop is
+        // what heals a prewarm that died (e.g. a frozen serverless instance).
+        // Any other error stops retrying and surfaces normally.
+        retry: (_failureCount, error) => isUnitPreparingError(error),
+        retryDelay: (attemptIndex) =>
+          Math.min(2 ** attemptIndex * 1_500, 15_000),
+      },
+    ),
+  );
+  const resolvedAiWorkspace = aiWorkspaceQuery.data ?? aiWorkspace ?? null;
+  const unitPreparing = isUnitPreparingError(
+    aiWorkspaceQuery.failureReason ?? aiWorkspaceQuery.error,
+  );
+  const refreshedPreparedUnitRef = useRef(false);
+
+  useEffect(() => {
+    if (
+      preview ||
+      unit ||
+      !aiWorkspaceQuery.data ||
+      refreshedPreparedUnitRef.current
+    ) {
+      return;
+    }
+    refreshedPreparedUnitRef.current = true;
+    router.refresh();
+  }, [aiWorkspaceQuery.data, preview, router, unit]);
 
   useEffect(() => {
     document.cookie = `${LAST_SESSION_COOKIE}=${sessionId}; path=/; SameSite=Lax`;
@@ -129,10 +175,12 @@ export function WorkspaceShell({
   // dormant. Sourced from the server field (rather than a literal null) so the
   // timer code paths remain type-valid if timed scenarios are reintroduced.
   const activeEvaluationPlan: EvaluationPlan | null =
-    aiWorkspace?.evaluationPlan ?? null;
+    resolvedAiWorkspace?.evaluationPlan ?? null;
   const canRequestNextScenario =
-    aiWorkspace?.evaluationProgress?.canRequestNextScenario ?? false;
-  const unitAdvanceGate = aiWorkspace?.unitAdvanceGate ?? { status: "locked" };
+    resolvedAiWorkspace?.evaluationProgress?.canRequestNextScenario ?? false;
+  const unitAdvanceGate = resolvedAiWorkspace?.unitAdvanceGate ?? {
+    status: "locked",
+  };
   const canAdvanceUnit =
     mode === "unit" && unitAdvanceGate.status === "enabled";
   const advanceCompletedUnit = useMutation(
@@ -145,7 +193,8 @@ export function WorkspaceShell({
   );
   const timerIsActive = activeEvaluationPlan != null && !canRequestNextScenario;
   const attemptStartedAt =
-    aiWorkspace?.evaluationProgress?.attemptStartedAt?.getTime() ?? null;
+    resolvedAiWorkspace?.evaluationProgress?.attemptStartedAt?.getTime() ??
+    null;
   const runningEvaluationPlan =
     timerIsActive && attemptStartedAt != null ? activeEvaluationPlan : null;
 
@@ -499,7 +548,7 @@ export function WorkspaceShell({
                         sessionId={sessionId}
                         preview={preview}
                         embedded
-                        aiWorkspace={aiWorkspace ?? null}
+                        aiWorkspace={resolvedAiWorkspace}
                         canRequestNextScenario={canRequestNextScenario}
                         onStateChange={setLiveUnit}
                         onRunningChange={setIsSessionRunning}
@@ -520,7 +569,13 @@ export function WorkspaceShell({
                             />
                           </h2>
                           <div className="text-foreground/52 mt-3 text-[13px] leading-6">
-                            <AssistantRichText content="Your next learning step is being prepared." />
+                            <AssistantRichText
+                              content={
+                                unitPreparing
+                                  ? "Your next learning step is being prepared. This page will continue automatically."
+                                  : "Your next learning step is being prepared."
+                              }
+                            />
                           </div>
                         </div>
                       </div>

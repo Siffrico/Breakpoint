@@ -258,6 +258,9 @@ const makeDeps = (
       planState.status = "active";
       return Promise.resolve(plan);
     }),
+    prepareUnit: vi.fn<BuildProjectDeps["prepareUnit"]>(() =>
+      Promise.resolve(),
+    ),
   };
 
   return { deps, store, updateRunCalls };

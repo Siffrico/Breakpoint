@@ -2,11 +2,13 @@ import type { db as databaseClient } from "@acme/db/client";
 
 import type { BuildProjectDeps } from "../domain/training/orchestration/build-project";
 import { ArtifactBuildError } from "../domain/training/orchestration/agent-runtime";
+import { runPrepareUnit } from "../domain/training/unit-preparation/prepare-unit-edge";
 import { buildProjectCheckpointRepository } from "./build-project-checkpoint-repository";
 import { buildProjectCurriculumRepository } from "./build-project-curriculum-repository";
 import { buildProjectProfileRepository } from "./build-project-profile-repository";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
 import { trainingOnboardingRepository } from "./training-onboarding-repository";
+import { createUnitPreparationRepositoryDeps } from "./unit-preparation-repository-deps";
 
 type Database = typeof databaseClient;
 
@@ -136,5 +138,12 @@ export const createBuildProjectDeps = (db: Database): BuildProjectDeps => ({
         db: dbTx,
         sessionId,
       });
+    }),
+
+  prepareUnit: ({ node, sessionId }) =>
+    runPrepareUnit({
+      node,
+      sessionId,
+      deps: createUnitPreparationRepositoryDeps(db),
     }),
 });

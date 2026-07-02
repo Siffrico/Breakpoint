@@ -111,7 +111,6 @@ export interface WorkspaceTurnOrchestrationDependencies
     scenarioAttemptId: string;
     itemRating: number;
   }) => Promise<unknown>;
-  prewarmWorkspaceUnit?: (node: CurriculumNode) => Promise<unknown>;
   /** Test seam for deterministic education-unit contract tests. */
   runUnitTurn?: typeof runUnitTurn;
 }
@@ -430,7 +429,10 @@ export const runEducationUnitTurn = async ({
     const nextReadyNode = result.nextReadyNode;
     const prewarm = async () => {
       try {
-        await deps.prewarmWorkspaceUnit?.(nextReadyNode);
+        await deps.prewarmWorkspaceUnit?.({
+          node: nextReadyNode,
+          sessionId,
+        });
       } catch (error) {
         console.error("Next workspace unit prewarm failed", {
           nodeId: nextReadyNode.id,
@@ -737,6 +739,7 @@ export const runOneStep = async ({
   action = "submit_answer",
   manualDifficultySignal = null,
   deps,
+  scheduleBackgroundTask,
 }: {
   sessionId: string;
   userId: string;
@@ -747,6 +750,7 @@ export const runOneStep = async ({
   action?: WorkspaceChatAction;
   manualDifficultySignal?: ManualDifficultySignal | null;
   deps: WorkspaceTurnOrchestrationDependencies;
+  scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }): Promise<WorkspaceAiTurnResult> => {
   const turn = await resolveWorkspaceTurn({ sessionId, deps });
 
@@ -764,6 +768,7 @@ export const runOneStep = async ({
       message,
       turn,
       deps,
+      scheduleBackgroundTask,
     });
   }
 

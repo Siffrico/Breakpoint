@@ -83,7 +83,6 @@ void test("a claimed, in-flight education turn is rejected before running the mo
     getUnitRun: () => fail("getUnitRun"),
     upsertUnitRun: () => fail("upsertUnitRun"),
     getUnitByNodeId: () => fail("getUnitByNodeId"),
-    createUnitContent: () => fail("createUnitContent"),
     savePhaseResponse: () => fail("savePhaseResponse"),
     updateUnitMasteryContract: () => fail("updateUnitMasteryContract"),
     updateScenarioContract: () => fail("updateScenarioContract"),
@@ -150,4 +149,79 @@ void test("an invalid education-unit result is never persisted", async () => {
 
   assert.equal(commitCalled, false);
   assert.equal(assistantStreamed, false);
+});
+
+void test("a completed turn prewarms the next unit with its session id", async () => {
+  const nextNode = {
+    ...node,
+    id: "node-2",
+    title: "Next unit",
+    orderIndex: 2,
+  } satisfies CurriculumNode;
+  const prewarmCalls: { node: CurriculumNode; sessionId: string }[] = [];
+  let backgroundTask: Promise<void> | null = null;
+  const assistantMessage = {
+    id: "message-2",
+    role: "assistant" as const,
+    content: "Use the evidence to choose the next probe.",
+    sequence: 2,
+    slot: "education_unit" as const,
+    unitId: node.id,
+    metadata: null,
+  };
+  const deps = {
+    appendMessage: () =>
+      Promise.resolve({
+        ...assistantMessage,
+        id: "message-1",
+        role: "user" as const,
+        content: "I would isolate one variable first.",
+        sequence: 1,
+      }),
+    listMessages: () => Promise.resolve([]),
+    getWorkspaceSummary: () => Promise.resolve(null),
+    upsertWorkspaceSummary: () => Promise.resolve(),
+    listMemories: () => Promise.resolve([]),
+    runUnitTurn: () =>
+      Promise.resolve({
+        assistantMessage: assistantMessage.content,
+        event: { type: "connection_graded" as const, passed: true },
+        nextState: { ...unitRun, phase: "solve" as const },
+        forcedConnectAdvance: false,
+        gradeReasoning: "The learner selected a discriminating probe.",
+        ratingWrite: null,
+      }),
+    commitEducationTurn: () =>
+      Promise.resolve({ assistantMessage, nextReadyNode: nextNode }),
+    listPhaseResponsesBySession: () => Promise.resolve([]),
+    getUnitByNodeId: () => Promise.resolve(turn.unit),
+    getPhaseResponses: () => Promise.resolve([]),
+    getUnitRun: () => Promise.resolve(unitRun),
+    upsertUnitRun: () => Promise.resolve(unitRun),
+    prewarmWorkspaceUnit: (input: {
+      node: CurriculumNode;
+      sessionId: string;
+    }) => {
+      prewarmCalls.push(input);
+      return Promise.resolve();
+    },
+  } as unknown as WorkspaceTurnOrchestrationDependencies;
+
+  await runEducationUnitTurn({
+    sessionId: unitRun.sessionId,
+    userId: "user-1",
+    turnId: null,
+    turnLeaseId: null,
+    message: "I would isolate one variable first.",
+    turn,
+    deps,
+    scheduleBackgroundTask: (task) => {
+      backgroundTask = task();
+    },
+  });
+  await Promise.resolve(backgroundTask);
+
+  assert.deepEqual(prewarmCalls, [
+    { node: nextNode, sessionId: unitRun.sessionId },
+  ]);
 });

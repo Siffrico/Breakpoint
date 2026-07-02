@@ -5,7 +5,6 @@ import { TrainingWorkspaceTurn } from "@acme/db/schema";
 import type {
   CurriculumNode,
   DifficultyBand,
-  UnitContent,
 } from "../domain/training/types/training.types";
 import type {
   WorkspaceAiEducationOutput,
@@ -25,7 +24,7 @@ import {
   prepareScenarioDirective,
   recordEvaluation,
 } from "../domain/training/orchestration/goldilocks";
-import { ensureWorkspaceUnit } from "../domain/training/workflows/get-ai-workspace-workflow";
+import { runPrepareUnit } from "../domain/training/unit-preparation/prepare-unit-edge";
 import { memoryRepository } from "./memory-repository";
 import { trainingAttemptRepository } from "./training-attempt-repository";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
@@ -33,6 +32,7 @@ import { trainingOnboardingRepository } from "./training-onboarding-repository";
 import { createTrainingRatingGoldilocksDeps } from "./training-rating-goldilocks-deps";
 import { trainingRatingRepository } from "./training-rating-repository";
 import { trainingUnitRunRepository } from "./training-unit-run-repository";
+import { createUnitPreparationRepositoryDeps } from "./unit-preparation-repository-deps";
 
 type Database = typeof databaseClient;
 const WORKSPACE_TURN_LEASE_MS = 15 * 60 * 1_000;
@@ -430,21 +430,6 @@ export const createWorkspaceTurnRepositoryDeps = (
     }),
   getUnitByNodeId: (nodeId: string) =>
     trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),
-  createUnitContent: (payload: {
-    nodeId: string;
-    title: string;
-    seedPrompt: string;
-    seedHint: string;
-    clusterArcFrame: string;
-    complexityBudget: UnitContent["complexityBudget"];
-    teachbackSetup: UnitContent["teachbackSetup"];
-    scenario: UnitContent["scenario"];
-    unitMasteryContract?: UnitContent["unitMasteryContract"];
-  }) =>
-    trainingCurriculumRepository.createUnitContent({
-      db,
-      ...payload,
-    }),
   savePhaseResponse: (payload) =>
     trainingCurriculumRepository.savePhaseResponse({
       db,
@@ -482,8 +467,12 @@ export const createWorkspaceTurnRepositoryDeps = (
   commitRecallTurn: (input) => commitRecallTurn({ db, input }),
   commitNextScenarioPrompt: (input) => commitNextScenarioPrompt({ db, input }),
   markWorkspaceTurnFailed: (input) => markWorkspaceTurnFailed({ db, ...input }),
-  prewarmWorkspaceUnit: (node: CurriculumNode) =>
-    ensureWorkspaceUnit({ node, deps: createWorkspaceTurnRepositoryDeps(db) }),
+  prewarmWorkspaceUnit: ({ node, sessionId }) =>
+    runPrepareUnit({
+      node,
+      sessionId,
+      deps: createUnitPreparationRepositoryDeps(db),
+    }),
   touchSession: (sessionId: string) =>
     trainingOnboardingRepository.touchSession({ db, sessionId }),
   listMemories: async (userId: string) => {

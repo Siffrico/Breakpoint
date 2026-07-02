@@ -275,79 +275,248 @@ contract must represent the real pedagogical move.
 
 These are behavior defects in the live canonical path, not cleanup preferences.
 
+Phase 3 is governed by one persistence invariant:
+
+> A lease claim is the entry gate for a learner turn. AI generation may propose
+> a result, but only a validated domain event may select an idempotent commit.
+> Workspace reads stay read-only, unit provisioning is an explicit lifecycle
+> command, and transcript compaction is an independent idempotent checkpoint.
+
+This does **not** mean every write belongs in the education-turn transaction.
+The allowed write owners are deliberately narrow:
+
+- the unit-provisioning command owns generated unit content;
+- the claimed-turn commit owns messages, FSM state, attempt lifecycle, rating
+  evidence, and lease completion for one learner turn;
+- the compaction checkpoint owns only its replaceable transcript summary;
+- the completed-unit advance command owns curriculum progression and triggers
+  prewarm only after it makes the next node ready.
+
+Model calls and other slow work must not run inside a database transaction.
+
 ### 3.1 Fix unit provisioning
 
-`ensureWorkspaceUnit` can create hardcoded generic placeholder content during a
-workspace read/prewarm. That can persist inferior content before the live seed
-authoring path runs.
+The new `unit-preparation/` workflow establishes the correct owner, but the
+remaining callers and repository semantics must finish the boundary:
 
-Create a dedicated `UnitProvisioner` domain capability or workflow that:
+- Keep `prepareUnitContent` as the only code path allowed to generate and write
+  unit content. It must use the canonical seed-stage generator and return an
+  existing row without spending model tokens.
+- Remove preparation from `getAiWorkspaceWorkflow`. A workspace query may
+  return `UNIT_PREPARING`, but it must not start generation. Project build,
+  completed-unit advance, intentional prewarm, and an explicit recovery command
+  are the allowed preparation triggers.
+- Make `resolveWorkspaceTurn`, `planNextWorkspaceTurn`, and workspace display
+  loading pure reads. If a unit-run row does not exist, derive `initialState` in
+  memory and materialize it only in the first claimed-turn commit.
+- Change unit-content conflict handling from `onConflictDoUpdate` to
+  `onConflictDoNothing`, followed by a read of the winning row. A concurrent
+  loser must never overwrite the winner's generated content.
+- Keep mastering a unit separate from advancing the curriculum. Remove the
+  dead `nextReadyNode` result from `commitEducationTurn`; the
+  `advanceCompletedUnit` transaction must return the node it actually made
+  ready, and only that successful command may schedule its prewarm.
+- Preserve the legacy-template refresh policy, but route regeneration through
+  the same preparation owner.
 
-- owns idempotent unit creation;
-- uses the canonical seed-stage generator;
-- distinguishes an existing unit from a generation in progress or a failed
-  generation;
-- prevents generic placeholders from becoming canonical content;
-- is invoked explicitly by commands/prewarm, not hidden inside read helpers;
-- handles concurrent provisioning with a database uniqueness constraint and a
-  deterministic winner/read-after-conflict path.
+Required tests:
 
-### 3.2 Make Goldilocks affect the scenario the learner sees
+- workspace projection and turn loading perform zero writes;
+- concurrent preparation produces one canonical winner and every caller reads
+  that same row;
+- a failed prewarm leaves reads recoverable through the explicit preparation
+  command;
+- advancing a completed unit returns and prewarms the newly-ready node;
+- a unit-run is created once by the first claimed commit, never by a read.
 
-The current Education V4 path passes `difficultyLine: null`. It opens/updates a
-scenario attempt after the answer rather than calibrating the presented task.
+### 3.2 Make turn identity and lease ownership mandatory
 
-Change the order to:
+`turnId: null` currently bypasses lease fencing and makes timestamp-based
+deduplication impossible. Normalize identity once at the transport boundary:
 
-1. resolve rating scope and learner rating;
-2. choose the target difficulty before generation;
-3. include the directive in the phase context/prompt;
-4. persist the presented item rating with the turn/scenario identity;
-5. grade against that exact presented item;
-6. commit rating evidence atomically with turn completion.
+- If a client does not supply a turn id, generate a UUID before entering the
+  workspace service. Internal turn APIs and commit inputs require a non-null
+  `turnId`; optionality exists only at the outer compatibility boundary.
+- Claim the `(sessionId, turnId)` lease before transcript mutation, model work,
+  scenario preparation, or rating work.
+- A completed claim returns the cached durable result. A live claim reports
+  processing. A failed or expired claim follows one explicit reclaim policy.
+- Add `originTurnId` to scenario attempts with a unique constraint scoped to
+  the curriculum node (or session). The Pass-2 Connect presentation commit is
+  the attempt's origin.
+- Record the turn that presented the Solve task as `solvePromptTurnId` so the
+  timing boundary is auditable and idempotent.
+- Transaction retries and HTTP retries using the same turn id must not duplicate
+  messages, phase responses, attempts, evaluations, predictions, or FSM moves.
 
-Do not overwrite an item's original presented rating after the learner answers.
+Do not use `openedAt`, request time, or another changing timestamp as an
+idempotency key.
 
-### 3.3 Restore rating evidence
+### 3.3 Use presentation events to open the measured attempt
 
-`attemptTiming` is currently discarded and Education V4 writes hardcoded
-`wasOverTime: false` and empty error codes.
+The event vocabulary already identifies the real learner-facing boundaries:
 
-- Thread validated timing through `runOneStep` to evaluation persistence.
-- Define which errors/misconceptions become rating evidence.
-- Preserve absence versus a genuine zero/false measurement.
-- Add tests proving timing and error evidence change the recorded evaluation as
-  intended.
+- Pass-2 Connect `phase_continues(reason="prompted")` means the assistant
+  message contains the calibrated scenario the learner is now seeing.
+- Solve `phase_continues(reason="prompted")` means the assistant message
+  contains the actual Solve task and starts Solve-only timing.
 
-### 3.4 Make rating and turn persistence atomic
+Split the current `prepareScenarioDirective` behavior into two responsibilities:
 
-Scenario-attempt preparation/update currently happens before the education turn
-transaction. A later failure can leave a dangling attempt.
+1. A read-only resolver loads rating state, chooses a directive, and renders the
+   difficulty guidance before the phase-agent call.
+2. The validated presentation-event commit persists that proposal with the
+   assistant message that actually presents it.
 
-- Move attempt creation, presented rating, evaluation, unit-run transition,
-  messages, and lease completion into one transaction where they represent one
-  learner turn.
-- If generation must precede the transaction, carry an immutable proposed
-  scenario into the transaction and create its durable record there.
-- Ensure transaction retry cannot duplicate attempts, messages, ratings, or
-  completion.
+For both passes, inject the resolved difficulty guidance into
+`buildUnitTurnContext` before generation. Pass 1 reads difficulty for
+calibration but does not open the measured rating attempt. On Pass 2:
 
-### 3.5 Select and budget memory
+- the Connect prompted commit atomically inserts the scenario attempt,
+  `originTurnId`, directive, support level, immutable item rating, scenario
+  prompt, and `presentedAt` alongside the presenting assistant message;
+- the Solve prompted commit atomically stamps `solvePresentedAt` and
+  `solvePromptTurnId` using set-once semantics alongside the Solve prompt;
+- `itemRating`, directive identity, `presentedAt`, and `solvePresentedAt` are
+  immutable after their respective presentation commits;
+- if validation or persistence fails, neither the presenting message nor its
+  attempt boundary becomes durable.
 
-Do not inject every learner memory into every turn.
+This resolves the Phase 2 prompt/tool/FSM contract and Goldilocks presentation
+ordering with the same typed `prompted` event rather than a special-case flag.
 
-- Reuse or extend the context-engine's relevance and budget logic.
-- Select only relevant memories for the current unit, misconception, and phase.
-- Put hard token/character limits around memory context.
-- Test empty, irrelevant, highly relevant, and oversized memory sets.
+### 3.4 Record the first verdict, including failure evidence
+
+Rating only successful solves is biased: Glicko cannot learn from losses and
+the misconception ladder never sees the errors it is designed to repair.
+
+- Define one shared `ErrorCodeSchema` taxonomy, render
+  `ERROR_CLASSIFICATION_PROTOCOL` from that source, and extend
+  `GradeSolutionInputSchema` with `errorCodes`. The prompt and tool schema must
+  not maintain separate lists that can drift.
+- Enforce the protocol's primary-error rule: a genuine failed verdict supplies
+  exactly one primary error code and a pass supplies none.
+- On Pass 2, the first `solution_graded` event against the open attempt is the
+  sole rating observation, whether `passed` is true or false.
+- That first verdict atomically saves score, error evidence, server occurrence
+  time, rating/misconception updates, and closes the scenario attempt.
+- Subsequent Solve repairs remain pedagogical FSM turns. They do not reopen the
+  attempt or write another rating observation because the learner has already
+  received feedback on that item.
+- A later repair may still advance the FSM to `mastered`; mastery progression
+  and unbiased rating evidence are related but distinct facts.
+
+Timing is Solve-only:
+
+- resolve the time limit from the server-owned recipe/policy and snapshot it on
+  the attempt;
+- calculate elapsed time from persisted `solvePresentedAt` to the first verdict
+  commit time;
+- derive `wasOverTime` on the server;
+- treat client `attemptTiming` as optional telemetry, not authoritative rating
+  evidence;
+- preserve "not measured" separately from a genuine `false` value.
+
+Required tests cover first-verdict pass, first-verdict fail, `needs_more_work`
+without closure, fail-then-repair without a second rating write, duplicate
+turn replay, missing Solve presentation, timeout boundary, and error-code-driven
+misconception updates.
+
+### 3.5 Commit validated turns atomically
+
+Generation happens outside the transaction. After the model result passes Zod,
+tool-contract, and FSM validation, one event-specific commit owns the durable
+turn:
+
+```text
+claim lease
+  -> load read model and proposed difficulty
+  -> run model and validate exactly one event
+  -> commit user/assistant messages
+            + phase response
+            + FSM cursor
+            + event-specific attempt/rating writes
+            + lease completion
+```
+
+- A Connect presentation commit opens the measured attempt.
+- A Solve presentation commit stamps the Solve timing boundary.
+- A first-verdict commit closes and evaluates the attempt.
+- Other valid phase events persist messages, phase response, FSM cursor, and
+  lease completion without inventing attempt or rating writes.
+- Any failure rolls back the entire commit. No transaction may leave a message
+  without its FSM move, a rating update without its verdict, or a completed
+  lease without its durable response.
+- Repository ports should expose these commit capabilities rather than raw
+  multi-step write methods to the orchestration layer.
+
+Transcript compaction is intentionally outside this transaction. Keep one
+summary row per `(sessionId, slot)` and make checkpoint updates monotonic by
+`coveredThroughSequence`: a newer sequence may replace the summary, while an
+equal or older retry is a no-op. A failed summary write must not corrupt or
+partially commit the learner turn.
+
+### 3.6 Make streaming retry safe
+
+`streamAssistantDelta` is prefix-append-only. If a retry or schema repair emits
+a different prefix after text is visible, the browser can display a response
+that differs from the response eventually persisted.
+
+- Provider restart and schema repair are allowed only before the first visible
+  assistant delta.
+- Once any assistant text is visible, do not restart generation. Close the text
+  part, emit the stable public error state, mark the claimed turn failed, and
+  let the learner retry using the same durable turn id.
+- A completed retry returns the cached durable response. A reclaim after a
+  failed turn follows the lease policy and starts a fresh UI response rather
+  than appending to the failed prefix.
+- Education V4 currently exposes only a complete validated reply, so its
+  internal pre-output retries remain safe. Apply the visible-output guard to
+  recall streaming and to any future token-streamed phase agent.
+- Add contract tests where the retry prefix diverges, failure occurs before the
+  first delta, failure occurs after the first delta, and a retry reuses the same
+  turn id.
+
+### 3.7 Select, adapt, and budget memory
+
+The context engine already produces bounded string collections, while
+`buildUnitTurnContext` currently expects `{ content }[]`; the live education
+path bypasses the selector and passes raw memories.
+
+- Route education turns through one memory-selection adapter before building
+  phase context.
+- Normalize the selector/consumer contract to one representation rather than
+  leaking repository `Memory` objects into the agent context.
+- Rank against the current node, scenario focus, active phase, and known
+  misconception. Apply a relevance floor based on actual query overlap before
+  source weighting so an unrelated memory cannot survive only because its
+  source has a bonus.
+- Keep structured profile preferences and recent unit summaries under explicit
+  category budgets; deduplicate and enforce the existing hard character limits.
+- Render no memory section when selection is empty.
+- Test empty, zero-overlap, highly relevant, source-weight-only, duplicate, and
+  oversized memory sets plus the adapter into `buildUnitTurnContext`.
 
 ### Phase 3 exit gate
 
-- Unit reads do not silently author placeholder content.
-- Difficulty is chosen before scenario presentation and is immutable evidence.
-- Timing and error evidence reach rating decisions.
-- Turn/rating persistence is atomic.
-- Memory context is selected and bounded.
+- Workspace and turn-projection reads perform no writes.
+- Unit provisioning has one explicit owner, concurrent creation cannot
+  overwrite the winner, and advance-triggered prewarm is live.
+- Every internal workspace turn has a durable non-null id and enters through a
+  lease claim.
+- Difficulty is chosen before generation and the measured scenario is opened
+  by the Pass-2 Connect prompted commit.
+- Solve timing begins at the Solve prompted commit and is computed from server
+  timestamps.
+- The first Pass-2 Solve verdict records pass or failure evidence exactly once;
+  repairs never double-rate the item.
+- Error codes flow from a closed grader schema into misconception updates.
+- Messages, FSM movement, event-specific attempt/rating writes, and lease
+  completion are atomic.
+- Visible-output failures never restart into a divergent streamed prefix.
+- Memory context is relevant, adapted to the consumer contract, deduplicated,
+  and bounded.
+- Compaction remains an independent idempotent checkpoint.
 
 ## Phase 4 — Consolidate live architecture before broad Effect adoption
 

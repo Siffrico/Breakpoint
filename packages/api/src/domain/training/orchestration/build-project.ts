@@ -268,6 +268,10 @@ export interface BuildProjectDeps {
     sessionId: string;
     planId: string;
   }) => Promise<CurriculumPlan | null>;
+  prepareUnit: (input: {
+    node: CurriculumPlan["nodes"][number];
+    sessionId: string;
+  }) => Promise<unknown>;
 }
 
 const countModules = (plan: CurriculumPlan): number =>
@@ -334,6 +338,7 @@ export const buildProjectFromOnboarding = async ({
   input,
   deps,
   onProgress,
+  scheduleBackgroundTask,
 }: {
   sessionId: string;
   userId: string | null;
@@ -341,6 +346,11 @@ export const buildProjectFromOnboarding = async ({
   input: CreateProjectInput;
   deps: BuildProjectDeps;
   onProgress: (state: ProjectBuildState) => void;
+  /**
+   * Keeps the first-unit prewarm alive past the response on serverless hosts
+   * (Next.js `after`). Falls back to a detached promise.
+   */
+  scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }): Promise<
   Result<{
     sessionId: string;
@@ -889,6 +899,29 @@ export const buildProjectFromOnboarding = async ({
   state.gaps = gaps.length > 0 ? gaps : undefined;
   emit();
   await updateRun("complete");
+
+  const firstReadyUnit = plan.nodes.find(
+    (node) =>
+      (node.kind === "unit" || node.kind === "integration") &&
+      node.status === "ready",
+  );
+  if (firstReadyUnit) {
+    const prewarmFirstUnit = () =>
+      deps.prepareUnit({ node: firstReadyUnit, sessionId }).then(
+        () => undefined,
+        (error: unknown) => {
+          console.error("First workspace unit prewarm failed", {
+            nodeId: firstReadyUnit.id,
+            error,
+          });
+        },
+      );
+    if (scheduleBackgroundTask) {
+      scheduleBackgroundTask(prewarmFirstUnit);
+    } else {
+      void prewarmFirstUnit();
+    }
+  }
 
   return ok({
     sessionId,

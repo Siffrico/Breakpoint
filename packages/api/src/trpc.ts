@@ -29,6 +29,12 @@ import { db } from "@acme/db/client";
 export const createTRPCContext = async (opts: {
   headers: Headers;
   auth: Auth;
+  /**
+   * Keeps a fire-and-forget task alive past the response on serverless hosts
+   * (Next.js `after`). Absent in environments without such a hook; callers
+   * fall back to a detached promise.
+   */
+  scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }) => {
   const authApi = opts.auth.api;
   const session = await authApi.getSession({
@@ -38,6 +44,7 @@ export const createTRPCContext = async (opts: {
     authApi,
     session,
     db,
+    scheduleBackgroundTask: opts.scheduleBackgroundTask,
   };
 };
 /**

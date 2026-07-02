@@ -7,6 +7,7 @@ import type {
 } from "../workspace-ai/types";
 import type { WorkspaceTurnOrchestrationDependencies } from "../workspace-ai/workspace-turn-orchestration";
 import { err, ok } from "../../../lib/result";
+import { UnitNotReadyError } from "../unit-preparation/errors";
 import { runOneStep } from "../workspace-ai/workspace-turn-orchestration";
 
 /**
@@ -21,6 +22,7 @@ export const submitAiWorkspaceMessageWorkflow = async ({
   turnId = null,
   attemptTiming,
   deps,
+  scheduleBackgroundTask,
 }: {
   sessionId: string;
   userId: string;
@@ -28,6 +30,7 @@ export const submitAiWorkspaceMessageWorkflow = async ({
   turnId?: string | null;
   attemptTiming?: AttemptTiming | null;
   deps: WorkspaceTurnOrchestrationDependencies;
+  scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }): Promise<Result<WorkspaceAiTurnResult>> => {
   const turnLeaseId = turnId ? randomUUID() : null;
   try {
@@ -41,6 +44,7 @@ export const submitAiWorkspaceMessageWorkflow = async ({
         attemptTiming,
         action: "submit_answer",
         deps,
+        scheduleBackgroundTask,
       }),
     );
   } catch (error) {
@@ -51,6 +55,9 @@ export const submitAiWorkspaceMessageWorkflow = async ({
         leaseId: turnLeaseId,
         reason: error instanceof Error ? error.message : "unknown error",
       });
+    }
+    if (error instanceof UnitNotReadyError) {
+      throw error;
     }
     return err(
       error instanceof Error ? error.message : "Workspace turn failed.",

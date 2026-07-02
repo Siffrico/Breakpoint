@@ -6,11 +6,11 @@ import type {
 } from "../types/training.types";
 import { err, ok } from "../../../lib/result";
 import { generateClusterBriefing } from "../generate-cluster-briefing";
-import { generateUnitScaffold } from "../orchestration/unit-flow";
 import {
   getEducationUnitState,
   shouldRefreshLegacyEducationUnit,
 } from "../policies/education-unit-state-policy";
+import { runPrepareUnit } from "../unit-preparation/prepare-unit-edge";
 
 interface GetUnitDependencies {
   getUnitByNodeId: (nodeId: string) => Promise<UnitContent | null>;
@@ -99,12 +99,6 @@ export const getUnitWorkflow = async ({
     )
     .sort((a, b) => a.orderIndex - b.orderIndex);
 
-  const slotIndex =
-    Math.max(
-      siblingUnits.findIndex((item) => item.id === node.id),
-      0,
-    ) + 1;
-
   const completedClusterTitles = planNodes
     .filter((item) => item.kind === "skill_cluster")
     .filter((clusterNode) => {
@@ -118,14 +112,6 @@ export const getUnitWorkflow = async ({
       );
     })
     .map((item) => item.title);
-
-  const clusterContext = parentNode
-    ? {
-        title: parentNode.title,
-        summary: parentNode.summary,
-        whyItMatters: parentNode.whyItMatters,
-      }
-    : null;
 
   const briefingPromise =
     parentNode && existingUnit?.clusterBriefing == null
@@ -180,38 +166,15 @@ export const getUnitWorkflow = async ({
     }
   }
 
-  const [targetIdentity, priorLearning] = await Promise.all([
-    deps.getTargetIdentity(sessionId),
-    deps.listAttemptHistory(sessionId),
-  ]);
-
-  if (!targetIdentity) {
-    return err("Target identity is missing.");
-  }
-
-  let setup;
+  let createdUnit: UnitContent;
   let generatedBriefing: NonNullable<UnitContent["clusterBriefing"]> | null;
   try {
-    [setup, generatedBriefing] = await Promise.all([
-      generateUnitScaffold({
-        slotKind: node.kind,
-        slotIndex,
-        totalSlots: siblingUnits.length || 1,
-        clusterContext,
-        integrationContext:
-          node.kind === "integration"
-            ? {
-                completedClusterTitles,
-              }
-            : null,
-        targetIdentity,
-        priorLearning,
-        nodeId: node.id,
-        plannedUnit: {
-          title: node.title,
-          summary: node.summary,
-          whyItMatters: node.whyItMatters,
-        },
+    [createdUnit, generatedBriefing] = await Promise.all([
+      runPrepareUnit({
+        node,
+        sessionId,
+        deps,
+        forceRefresh: existingUnit != null,
       }),
       briefingPromise,
     ]);
@@ -219,21 +182,6 @@ export const getUnitWorkflow = async ({
     return err(
       error instanceof Error ? error.message : "Failed to generate unit setup.",
     );
-  }
-
-  const createdUnit = await deps.createUnitContent({
-    nodeId,
-    title: setup.title,
-    seedPrompt: setup.seedPrompt,
-    seedHint: setup.seedHint,
-    clusterArcFrame: setup.clusterArcFrame,
-    complexityBudget: setup.complexityBudget,
-    teachbackSetup: setup.teachbackSetup,
-    scenario: setup.scenario,
-  });
-
-  if (!createdUnit) {
-    return err("Unit content could not be created.");
   }
 
   if (parentNode && generatedBriefing) {

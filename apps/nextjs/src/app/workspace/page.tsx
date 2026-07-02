@@ -1,10 +1,4 @@
 import type { Metadata } from "next";
-
-export const metadata: Metadata = {
-  title: "Workspace",
-  description: "Work through your Breakpoint learning workspace.",
-};
-
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
@@ -12,13 +6,18 @@ import { getSession } from "~/auth/server";
 import { WorkspaceShell } from "~/features/training/components/workspace-shell";
 import {
   getActivePlan,
-  getAiWorkspace,
   getEducationUnit,
+  getInitialAiWorkspace,
   getOnboardingState,
   getWorkspaceState,
   listLearningProjects,
 } from "~/features/training/server/training-queries";
 import { TRPCReactProvider } from "~/trpc/react";
+
+export const metadata: Metadata = {
+  title: "Workspace",
+  description: "Work through your Breakpoint learning workspace.",
+};
 
 const LAST_SESSION_COOKIE = "bp-last-learning-session";
 
@@ -76,7 +75,7 @@ export default async function WorkspacePage(props: {
 
   const [workspace, aiWorkspace] = await Promise.all([
     getWorkspaceState(resolvedSessionId),
-    getAiWorkspace(resolvedSessionId).catch(() => null),
+    getInitialAiWorkspace(resolvedSessionId),
   ]);
   const activeNodeId =
     aiWorkspace?.state?.recallUnitId ??
@@ -88,7 +87,7 @@ export default async function WorkspacePage(props: {
     : null;
 
   const unit =
-    activeNode && activeNode.kind !== "simulation"
+    aiWorkspace && activeNode && activeNode.kind !== "simulation"
       ? await getEducationUnit({
           nodeId: activeNode.id,
           sessionId: resolvedSessionId,

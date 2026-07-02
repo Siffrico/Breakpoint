@@ -7,6 +7,11 @@ import { sql } from "@acme/db";
 import { CapstoneSubmissionSchema } from "@acme/validators";
 
 import { deriveProvisionalProjectTitle } from "../domain/training/services/provisional-project-title";
+import { UnitNotReadyError } from "../domain/training/unit-preparation/errors";
+import {
+  raiseUnitPreparationError,
+  runPrepareUnit,
+} from "../domain/training/unit-preparation/prepare-unit-edge";
 import { advanceCompletedUnitWorkflow } from "../domain/training/workflows/advance-completed-unit-workflow";
 import { continueLearningProjectWorkflow } from "../domain/training/workflows/continue-learning-project-workflow";
 import { createLearningProjectWorkflow } from "../domain/training/workflows/create-learning-project-workflow";
@@ -28,6 +33,7 @@ import { trainingOnboardingRepository } from "../repositories/training-onboardin
 import { trainingRatingRepository } from "../repositories/training-rating-repository";
 import { trainingRecallRepository } from "../repositories/training-recall-repository";
 import { trainingUnitRunRepository } from "../repositories/training-unit-run-repository";
+import { createUnitPreparationRepositoryDeps } from "../repositories/unit-preparation-repository-deps";
 import { createWorkspaceTurnRepositoryDeps } from "../repositories/workspace-turn-repository-deps";
 import { protectedProcedure } from "../trpc";
 
@@ -301,28 +307,13 @@ const requireSessionOwner = async ({
 const createGetUnitDependencies = (
   db: Database,
 ): Parameters<typeof getUnitWorkflow>[0]["deps"] => ({
-  getUnitByNodeId: (nodeId) =>
-    trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),
+  ...createUnitPreparationRepositoryDeps(db),
   getPhaseResponses: (unitContentId, sessionId) =>
     trainingCurriculumRepository.getPhaseResponses({
       db,
       unitContentId,
       sessionId,
     }),
-  getPlanNodesBySession: (sessionId) =>
-    trainingCurriculumRepository.getPlanNodesBySession({ db, sessionId }),
-  getTargetIdentity: async (sessionId) => {
-    const profile = await trainingOnboardingRepository.getProfileBySession({
-      db,
-      sessionId,
-    });
-
-    return profile?.version.targetIdentity ?? null;
-  },
-  listAttemptHistory: (sessionId) =>
-    trainingAttemptRepository.listAttemptHistory({ db, sessionId }),
-  createUnitContent: (payload) =>
-    trainingCurriculumRepository.createUnitContent({ db, ...payload }),
   saveNodeBriefing: (payload) =>
     trainingCurriculumRepository.saveNodeBriefing({ db, ...payload }),
 });
@@ -623,70 +614,76 @@ export const trainingRouter = {
     .query(async ({ ctx, input }) => {
       await requireSessionOwner({ ctx, sessionId: input.sessionId });
 
-      return throwOnFailure(
-        await getAiWorkspaceWorkflow({
-          sessionId: input.sessionId,
-          deps: {
-            getActivePlan: (sessionId) =>
-              trainingCurriculumRepository.getActivePlan({
-                db: ctx.db,
-                sessionId,
-              }),
-            listMessages: (sessionId, slot) =>
-              trainingOnboardingRepository.listWorkspaceMessages({
-                db: ctx.db,
-                sessionId,
-                slot,
-              }),
-            listPhaseResponsesBySession: (sessionId) =>
-              trainingCurriculumRepository.listPhaseResponsesBySession({
-                db: ctx.db,
-                sessionId,
-              }),
-            getPhaseResponses: (unitContentId, sessionId) =>
-              trainingCurriculumRepository.getPhaseResponses({
-                db: ctx.db,
-                unitContentId,
-                sessionId,
-              }),
-            getUnitRun: (sessionId, unitContentId) =>
-              trainingUnitRunRepository.getUnitRun({
-                db: ctx.db,
-                sessionId,
-                unitContentId,
-              }),
-            upsertUnitRun: (run) =>
-              trainingUnitRunRepository.upsertUnitRun({
-                db: ctx.db,
-                run,
-              }),
-            getUnitByNodeId: (nodeId) =>
-              trainingCurriculumRepository.getUnitByNodeId({
-                db: ctx.db,
-                nodeId,
-              }),
-            createUnitContent: (payload) =>
-              trainingCurriculumRepository.createUnitContent({
-                db: ctx.db,
-                ...payload,
-              }),
-            getScenarioAttemptStartedAt: async ({
-              scenarioAttemptId,
+      const result = await getAiWorkspaceWorkflow({
+        sessionId: input.sessionId,
+        deps: {
+          getActivePlan: (sessionId) =>
+            trainingCurriculumRepository.getActivePlan({
+              db: ctx.db,
+              sessionId,
+            }),
+          listMessages: (sessionId, slot) =>
+            trainingOnboardingRepository.listWorkspaceMessages({
+              db: ctx.db,
+              sessionId,
+              slot,
+            }),
+          listPhaseResponsesBySession: (sessionId) =>
+            trainingCurriculumRepository.listPhaseResponsesBySession({
+              db: ctx.db,
+              sessionId,
+            }),
+          getPhaseResponses: (unitContentId, sessionId) =>
+            trainingCurriculumRepository.getPhaseResponses({
+              db: ctx.db,
+              unitContentId,
+              sessionId,
+            }),
+          getUnitRun: (sessionId, unitContentId) =>
+            trainingUnitRunRepository.getUnitRun({
+              db: ctx.db,
+              sessionId,
+              unitContentId,
+            }),
+          upsertUnitRun: (run) =>
+            trainingUnitRunRepository.upsertUnitRun({
+              db: ctx.db,
+              run,
+            }),
+          getUnitByNodeId: (nodeId) =>
+            trainingCurriculumRepository.getUnitByNodeId({
+              db: ctx.db,
               nodeId,
-            }) => {
-              const attempt =
-                await trainingRatingRepository.getOpenScenarioById({
-                  db: ctx.db,
-                  scenarioAttemptId,
-                  userId: ctx.session.user.id,
-                  nodeId,
-                });
+            }),
+          prepareUnit: ({ node, sessionId }) =>
+            runPrepareUnit({
+              node,
+              sessionId,
+              deps: createUnitPreparationRepositoryDeps(ctx.db),
+            }),
+          scheduleBackgroundTask: ctx.scheduleBackgroundTask,
+          getScenarioAttemptStartedAt: async ({
+            scenarioAttemptId,
+            nodeId,
+          }) => {
+            const attempt = await trainingRatingRepository.getOpenScenarioById({
+              db: ctx.db,
+              scenarioAttemptId,
+              userId: ctx.session.user.id,
+              nodeId,
+            });
 
-              return attempt?.presentedAt ?? null;
-            },
+            return attempt?.presentedAt ?? null;
           },
-        }),
-      );
+        },
+      });
+      if (!result.success) {
+        if (result.error instanceof UnitNotReadyError) {
+          return raiseUnitPreparationError(result.error);
+        }
+        return throwOnFailure({ success: false, error: result.error });
+      }
+      return result.data;
     }),
 
   submitAiWorkspaceMessage: protectedProcedure
@@ -694,16 +691,24 @@ export const trainingRouter = {
     .mutation(async ({ ctx, input }) => {
       await requireSessionOwner({ ctx, sessionId: input.sessionId });
 
-      return throwOnFailure(
-        await submitAiWorkspaceMessageWorkflow({
-          sessionId: input.sessionId,
-          userId: ctx.session.user.id,
-          message: input.message,
-          turnId: input.turnId ?? null,
-          attemptTiming: input.attemptTiming ?? null,
-          deps: createWorkspaceTurnRepositoryDeps(ctx.db),
-        }),
-      );
+      try {
+        return throwOnFailure(
+          await submitAiWorkspaceMessageWorkflow({
+            sessionId: input.sessionId,
+            userId: ctx.session.user.id,
+            message: input.message,
+            turnId: input.turnId ?? null,
+            attemptTiming: input.attemptTiming ?? null,
+            deps: createWorkspaceTurnRepositoryDeps(ctx.db),
+            scheduleBackgroundTask: ctx.scheduleBackgroundTask,
+          }),
+        );
+      } catch (error) {
+        if (error instanceof UnitNotReadyError) {
+          return raiseUnitPreparationError(error);
+        }
+        throw error;
+      }
     }),
 
   continueLearningProject: protectedProcedure

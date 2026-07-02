@@ -71,15 +71,18 @@ export const streamOnboardingChat = async ({
   userId,
   messages,
   modelName,
+  scheduleBackgroundTask,
 }: {
   db: Database;
   sessionId: string;
   userId: string;
   messages: UIMessage[];
   modelName?: string | null;
+  /** Next.js `after` seam so post-build prewarm survives the response. */
+  scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }): Promise<Response> =>
   withAiModelPreference(modelName, () =>
-    runOnboardingChat({ db, sessionId, userId, messages }),
+    runOnboardingChat({ db, sessionId, userId, messages, scheduleBackgroundTask }),
   );
 
 /**
@@ -95,11 +98,14 @@ export const streamProjectBuildResume = async ({
   sessionId,
   userId,
   modelName,
+  scheduleBackgroundTask,
 }: {
   db: Database;
   sessionId: string;
   userId: string;
   modelName?: string | null;
+  /** Next.js `after` seam so post-build prewarm survives the response. */
+  scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }): Promise<Response> => {
   const session = await trainingOnboardingRepository.getSession({
     db,
@@ -135,6 +141,7 @@ export const streamProjectBuildResume = async ({
           transcript,
           input: run.input,
           deps: createBuildProjectDeps(db),
+          scheduleBackgroundTask,
           onProgress: (build) => {
             writer.write({
               type: "data-project-build",
@@ -155,11 +162,13 @@ const runOnboardingChat = async ({
   sessionId,
   userId,
   messages,
+  scheduleBackgroundTask,
 }: {
   db: Database;
   sessionId: string;
   userId: string;
   messages: UIMessage[];
+  scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }): Promise<Response> => {
   const session = await trainingOnboardingRepository.getSession({
     db,
@@ -216,6 +225,7 @@ const runOnboardingChat = async ({
           transcript,
           input,
           deps: createBuildProjectDeps(db),
+          scheduleBackgroundTask,
           onProgress: (build) => {
             writer.write({
               type: "data-project-build",

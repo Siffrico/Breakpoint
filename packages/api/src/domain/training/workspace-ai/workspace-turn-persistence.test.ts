@@ -90,7 +90,6 @@ void test("saveUnitPhaseResult persists transitions and non-grading continuation
     getUnitRun: () => Promise.resolve(null),
     upsertUnitRun: (run: unknown) => Promise.resolve(run),
     getUnitByNodeId: () => Promise.resolve(unit),
-    createUnitContent: () => Promise.resolve(unit),
     commitEducationTurn: (input: WorkspaceEducationTurnCommit) => {
       captured = input;
       return Promise.resolve({

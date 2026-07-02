@@ -1,10 +1,10 @@
 import { z } from "zod/v4";
-import {
-  EducationUnitStateSchema
-  
-  
+
+import type {
+  EducationUnitConceptCorrection,
+  EducationUnitState,
 } from "@acme/validators";
-import type {EducationUnitConceptCorrection, EducationUnitState} from "@acme/validators";
+import { EducationUnitStateSchema } from "@acme/validators";
 
 import type { PhaseResponseRecord, UnitContent } from "../types/training.types";
 
@@ -15,7 +15,7 @@ const toConceptId = (title: string) =>
     .replace(/^_+|_+$/g, "") || "core_concept";
 
 const looksLikeLegacySeedPrompt = (prompt: string) =>
-  /what do you (currently )?think|write what you|define|how do you believe/i.test(
+  /what do you (currently )?think|write what you|define|how do you believe|what would you do first, and what would you watch for/i.test(
     prompt,
   );
 
@@ -232,7 +232,8 @@ export const getEducationUnitState = ({
   unit: UnitContent;
   responses: PhaseResponseRecord[];
 }): EducationUnitState =>
-  getLatestStateSnapshot(responses) ?? createInitialEducationUnitState({ unit });
+  getLatestStateSnapshot(responses) ??
+  createInitialEducationUnitState({ unit });
 
 export const shouldRefreshLegacyEducationUnit = ({
   unit,
@@ -294,7 +295,10 @@ export const buildEducationDebrief = ({
   failureTags:
     state.assessmentStatus === "pass"
       ? []
-      : [state.diagnosticGap?.attemptSignals.misconceptionDirection ?? "concept_gap"],
+      : [
+          state.diagnosticGap?.attemptSignals.misconceptionDirection ??
+            "concept_gap",
+        ],
   nextStep:
     state.nextStep ??
     (state.assessmentStatus === "pass"

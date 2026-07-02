@@ -1,6 +1,7 @@
 import type { TRPCQueryOptions } from "@trpc/tanstack-react-query";
 import { cache } from "react";
 import { headers } from "next/headers";
+import { after } from "next/server";
 import { dehydrate, HydrationBoundary } from "@tanstack/react-query";
 import { createTRPCOptionsProxy } from "@trpc/tanstack-react-query";
 
@@ -21,6 +22,7 @@ const createContext = cache(async () => {
   return createTRPCContext({
     headers: heads,
     auth,
+    scheduleBackgroundTask: (task) => after(task),
   });
 });
 

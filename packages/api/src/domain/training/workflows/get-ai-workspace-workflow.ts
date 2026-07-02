@@ -1,4 +1,5 @@
 import type { Result } from "../../../lib/result";
+import type { PersistedUnitRun } from "../education-unit/unit";
 import type {
   CurriculumNode,
   CurriculumPlan,
@@ -10,8 +11,8 @@ import type {
   WorkspaceAiMessage,
   WorkspaceAiState,
 } from "../workspace-ai/types";
-import type { PersistedUnitRun } from "../education-unit/unit";
 import { err, ok } from "../../../lib/result";
+import { UnitNotReadyError } from "../unit-preparation/errors";
 import { getEvaluationProgress } from "../workspace-ai/evaluation-plan";
 import { planWorkspaceTurn } from "../workspace-ai/orchestrator";
 import {
@@ -38,17 +39,15 @@ interface GetAiWorkspaceDependencies {
   ) => Promise<PersistedUnitRun | null>;
   upsertUnitRun: (run: PersistedUnitRun) => Promise<PersistedUnitRun>;
   getUnitByNodeId: (nodeId: string) => Promise<UnitContent | null>;
-  createUnitContent: (input: {
-    nodeId: string;
-    title: string;
-    seedPrompt: string;
-    seedHint: string;
-    clusterArcFrame: string;
-    complexityBudget: UnitContent["complexityBudget"];
-    teachbackSetup: UnitContent["teachbackSetup"];
-    scenario: UnitContent["scenario"];
-    unitMasteryContract?: UnitContent["unitMasteryContract"];
-  }) => Promise<UnitContent | null>;
+  prepareUnit: (input: {
+    node: CurriculumNode;
+    sessionId: string;
+  }) => Promise<unknown>;
+  /**
+   * Keeps the fire-and-forget preparation alive past the response on
+   * serverless hosts (Next.js `after`). Falls back to a detached promise.
+   */
+  scheduleBackgroundTask?: (task: () => Promise<void>) => void;
   getScenarioAttemptStartedAt: (input: {
     scenarioAttemptId: string;
     nodeId: string;
@@ -83,7 +82,7 @@ export const getAiWorkspaceWorkflow = async ({
 }: {
   sessionId: string;
   deps: GetAiWorkspaceDependencies;
-}): Promise<Result<AiWorkspaceView>> => {
+}): Promise<Result<AiWorkspaceView, string | UnitNotReadyError>> => {
   const [plan, messages, allResponses] = await Promise.all([
     deps.getActivePlan(sessionId),
     deps.listMessages(sessionId),
@@ -94,13 +93,41 @@ export const getAiWorkspaceWorkflow = async ({
     return err("Curriculum is not ready yet.");
   }
 
+  // Read paths never create unit content. On a miss, start the real generator
+  // in the background and tell the client to retry; `scheduleBackgroundTask`
+  // (Next.js `after`) keeps the generation alive past this response on
+  // serverless hosts.
+  const firePrepareUnit = (node: CurriculumNode) => {
+    const task = () =>
+      deps.prepareUnit({ node, sessionId }).then(
+        () => undefined,
+        (error: unknown) => {
+          console.error("Workspace unit preparation failed", {
+            nodeId: node.id,
+            error,
+          });
+        },
+      );
+    if (deps.scheduleBackgroundTask) {
+      deps.scheduleBackgroundTask(task);
+    } else {
+      void task();
+    }
+  };
+
   const activeUnitNode = getNextReadyLearningNode(plan.nodes);
   const activeUnit = activeUnitNode
-    ? await ensureWorkspaceUnit({
-        node: activeUnitNode,
-        deps,
-      })
+    ? await deps.getUnitByNodeId(activeUnitNode.id)
     : null;
+  if (activeUnitNode && !activeUnit) {
+    firePrepareUnit(activeUnitNode);
+    return err(
+      new UnitNotReadyError({
+        message: "UNIT_PREPARING",
+        nodeId: activeUnitNode.id,
+      }),
+    );
+  }
   const activeUnitResponses = activeUnit
     ? await deps.getPhaseResponses(activeUnit.id, sessionId)
     : [];
@@ -119,17 +146,21 @@ export const getAiWorkspaceWorkflow = async ({
     activeUnitRun,
   });
 
-  if (state?.activeUnitId && !activeUnit) {
-    return err("Active education unit could not be prepared.");
-  }
-
   if (state?.recallUnitId) {
-    const unit = await ensureWorkspaceUnit({
-      node: plan.nodes.find((node) => node.id === state.recallUnitId) ?? null,
-      deps,
-    });
+    const recallNode = plan.nodes.find(
+      (node) => node.id === state.recallUnitId,
+    );
+    const unit = recallNode ? await deps.getUnitByNodeId(recallNode.id) : null;
     if (!unit) {
-      return err("Recall unit could not be prepared.");
+      if (recallNode) {
+        firePrepareUnit(recallNode);
+      }
+      return err(
+        new UnitNotReadyError({
+          message: "UNIT_PREPARING",
+          nodeId: recallNode?.id,
+        }),
+      );
     }
   }
 
@@ -215,62 +246,4 @@ export const buildWorkspaceIntroMessage = ({
     helper: "Recall",
     prompt: `Return to ${recallUnit.title}. Reconstruct the key distinction, mechanism, or procedure from memory before you move on.`,
   };
-};
-
-export const ensureWorkspaceUnit = async ({
-  node,
-  deps,
-}: {
-  node: CurriculumNode | null;
-  deps: Pick<
-    GetAiWorkspaceDependencies,
-    "getUnitByNodeId" | "createUnitContent"
-  >;
-}) => {
-  if (!node) {
-    return null;
-  }
-
-  const existingUnit = await deps.getUnitByNodeId(node.id);
-  if (existingUnit) {
-    return existingUnit;
-  }
-
-  return deps.createUnitContent({
-    nodeId: node.id,
-    title: node.title,
-    seedPrompt: `You are in a real situation where ${node.summary} matters. What would you do first, and what would you watch for?`,
-    seedHint:
-      "Answer with the concrete move you would make, the reason for it, and the signal that would tell you whether it is working.",
-    clusterArcFrame: node.whyItMatters,
-    complexityBudget: 1,
-    teachbackSetup: {
-      studentPersona: "A skeptical peer who needs the idea made practical.",
-      openingMisconception:
-        "The learner can describe the topic but has not yet shown reliable transfer.",
-      roundLadder: [
-        {
-          round: 1,
-          objection: "Why does this matter in a real case?",
-          objective: "Test practical grounding.",
-        },
-        {
-          round: 2,
-          objection: "What would break if you applied it too simply?",
-          objective: "Test boundaries.",
-        },
-        {
-          round: 3,
-          objection: "How would you explain the tradeoff under pressure?",
-          objective: "Test transfer.",
-        },
-      ],
-      passSignals: ["Names the mechanism", "Applies it in context"],
-      failureModes: ["Stays abstract", "Misses the boundary condition"],
-    },
-    scenario: {
-      title: node.title,
-      focusAreas: [node.summary, node.whyItMatters].filter(Boolean).slice(0, 2),
-    },
-  });
 };

@@ -1,3 +1,4 @@
+import type { PersistedUnitRun } from "../education-unit/unit";
 import type {
   CurriculumNode,
   CurriculumPlan,
@@ -5,10 +6,9 @@ import type {
   UnitContent,
 } from "../types/training.types";
 import type { WorkspaceAiState, WorkspaceAiTurnMode } from "./types";
-import type { PersistedUnitRun } from "../education-unit/unit";
-import { ensureWorkspaceUnit } from "../workflows/get-ai-workspace-workflow";
-import { CURRENT_RECIPE_VERSION } from "../education-unit/unit";
 import { initialState } from "../education-unit/fsm";
+import { CURRENT_RECIPE_VERSION } from "../education-unit/unit";
+import { UnitNotReadyError } from "../unit-preparation/errors";
 import { planWorkspaceTurn } from "./orchestrator";
 
 export interface WorkspaceTurnDependencies {
@@ -26,18 +26,38 @@ export interface WorkspaceTurnDependencies {
   ) => Promise<PersistedUnitRun | null>;
   upsertUnitRun: (run: PersistedUnitRun) => Promise<PersistedUnitRun>;
   getUnitByNodeId: (nodeId: string) => Promise<UnitContent | null>;
-  createUnitContent: (input: {
-    nodeId: string;
-    title: string;
-    seedPrompt: string;
-    seedHint: string;
-    clusterArcFrame: string;
-    complexityBudget: UnitContent["complexityBudget"];
-    teachbackSetup: UnitContent["teachbackSetup"];
-    scenario: UnitContent["scenario"];
-    unitMasteryContract?: UnitContent["unitMasteryContract"];
-  }) => Promise<UnitContent | null>;
+  /**
+   * Kicks off real scaffold generation for a unit whose row is missing. The
+   * read paths never create content themselves; they call this fire-and-forget
+   * so a miss starts healing before the client retries.
+   */
+  prewarmWorkspaceUnit?: (input: {
+    node: CurriculumNode;
+    sessionId: string;
+  }) => Promise<unknown>;
 }
+
+/**
+ * Fire-and-forget scaffold generation for a missing unit row. Errors are
+ * logged, never thrown — the caller is about to surface UNIT_PREPARING and the
+ * client retry loop re-triggers preparation on every subsequent miss.
+ */
+const firePrewarmWorkspaceUnit = ({
+  node,
+  sessionId,
+  deps,
+}: {
+  node: CurriculumNode;
+  sessionId: string;
+  deps: Pick<WorkspaceTurnDependencies, "prewarmWorkspaceUnit">;
+}) => {
+  void deps.prewarmWorkspaceUnit?.({ node, sessionId }).catch((error) => {
+    console.error("Workspace unit prewarm failed", {
+      nodeId: node.id,
+      error,
+    });
+  });
+};
 
 export interface ResolvedWorkspaceTurn {
   plan: CurriculumPlan;
@@ -75,9 +95,7 @@ export const isUnitAwaitingAdvance = ({
   node: Pick<CurriculumNode, "kind" | "status"> | null;
   run: PersistedUnitRun | null;
 }) =>
-  isLearningUnit(node) &&
-  node.status === "ready" &&
-  run?.phase === "mastered";
+  isLearningUnit(node) && node.status === "ready" && run?.phase === "mastered";
 
 export const assertUnitCanAdvance = ({
   node,
@@ -183,11 +201,15 @@ export const resolveWorkspaceTurn = async ({
 
   const readyUnitNode = getNextReadyLearningNode(plan.nodes);
   const readyUnit = readyUnitNode
-    ? await ensureWorkspaceUnit({
-        node: readyUnitNode,
-        deps,
-      })
+    ? await deps.getUnitByNodeId(readyUnitNode.id)
     : null;
+  if (readyUnitNode && !readyUnit) {
+    firePrewarmWorkspaceUnit({ node: readyUnitNode, sessionId, deps });
+    throw new UnitNotReadyError({
+      message: "UNIT_PREPARING",
+      nodeId: readyUnitNode.id,
+    });
+  }
   const readyUnitResponses = readyUnit
     ? await deps.getPhaseResponses(readyUnit.id, sessionId)
     : [];
@@ -211,10 +233,16 @@ export const resolveWorkspaceTurn = async ({
   }
 
   const node = findWorkspaceTurnNode({ nodes: plan.nodes, state });
-  const unit = await ensureWorkspaceUnit({ node, deps });
+  const unit = node ? await deps.getUnitByNodeId(node.id) : null;
 
   if (!unit || !node) {
-    throw new Error("Workspace unit could not be prepared.");
+    if (node) {
+      firePrewarmWorkspaceUnit({ node, sessionId, deps });
+    }
+    throw new UnitNotReadyError({
+      message: "UNIT_PREPARING",
+      nodeId: node?.id,
+    });
   }
 
   const unitResponses =
@@ -266,11 +294,14 @@ export const planNextWorkspaceTurn = async ({
   const allResponses = await deps.listPhaseResponsesBySession(sessionId);
   const readyUnitNode = getNextReadyLearningNode(plan.nodes);
   const readyUnit = readyUnitNode
-    ? await ensureWorkspaceUnit({
-        node: readyUnitNode,
-        deps,
-      })
+    ? await deps.getUnitByNodeId(readyUnitNode.id)
     : null;
+  // A missing row must not fail this planner: it runs after a turn has already
+  // committed, so throwing here would error a submit whose work is durable.
+  // Kick off generation and plan with an empty projection instead.
+  if (readyUnitNode && !readyUnit) {
+    firePrewarmWorkspaceUnit({ node: readyUnitNode, sessionId, deps });
+  }
   const readyUnitResponses = readyUnit
     ? await deps.getPhaseResponses(readyUnit.id, sessionId)
     : [];

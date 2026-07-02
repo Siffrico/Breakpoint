@@ -23,12 +23,21 @@ const PURPOSE_BY_AGENT = {
   projectOverview: "projectOverview",
 } as const;
 
-const REASONING_PROVIDER_OPTIONS = {
-  openai: { reasoningEffort: "high", reasoningSummary: "auto" },
+type ReasoningEffort = "low" | "medium" | "high";
+
+const getReasoningProviderOptions = (effort: ReasoningEffort) => ({
+  openai: { reasoningEffort: effort, reasoningSummary: "auto" as const },
   // Gemini 3.x models use `thinkingLevel`; `thinkingBudget` is the Gemini 2.5
   // knob and is ignored by 3.x. See @ai-sdk/google provider options.
-  google: { thinkingConfig: { thinkingLevel: "high", includeThoughts: true } },
-} as const;
+  google: {
+    thinkingConfig: { thinkingLevel: effort, includeThoughts: true },
+  },
+  // OpenRouter (the current default stack) reads `reasoning.effort`; without
+  // this key GLM's reasoning runs uncapped and eats into maxOutputTokens.
+  openrouter: { reasoning: { effort } },
+});
+
+const REASONING_PROVIDER_OPTIONS = getReasoningProviderOptions("high");
 
 export const runAgent = async <TSchema extends z.ZodTypeAny>({
   agent,
@@ -37,6 +46,8 @@ export const runAgent = async <TSchema extends z.ZodTypeAny>({
   schema,
   errorMessage,
   reasoning = false,
+  reasoningEffort = "high",
+  maxOutputTokens,
 }: {
   agent: keyof typeof PURPOSE_BY_AGENT;
   system: string;
@@ -44,6 +55,8 @@ export const runAgent = async <TSchema extends z.ZodTypeAny>({
   schema: TSchema;
   errorMessage: string;
   reasoning?: boolean;
+  reasoningEffort?: ReasoningEffort;
+  maxOutputTokens?: number;
 }): Promise<z.infer<TSchema>> => {
   const purpose = PURPOSE_BY_AGENT[agent] as AiModelPurpose;
   const model = requireAiModelForPurpose(
@@ -62,7 +75,10 @@ export const runAgent = async <TSchema extends z.ZodTypeAny>({
       prompt,
       tools: getSearchToolsForSelectedProvider(purpose),
       stopWhen: stepCountIs(4),
-      ...(reasoning ? { providerOptions: REASONING_PROVIDER_OPTIONS } : {}),
+      ...(maxOutputTokens == null ? {} : { maxOutputTokens }),
+      ...(reasoning
+        ? { providerOptions: getReasoningProviderOptions(reasoningEffort) }
+        : {}),
     });
     const object = await result.output;
 
@@ -276,7 +292,10 @@ export const runResilientAgent = async <TSchema extends z.ZodTypeAny>({
         tools: getSearchToolsForSelectedProvider(purpose),
         // Pace the structured-output text deltas so onPartial flushes feel like
         // a steady stream rather than chunky bursts.
-        experimental_transform: smoothStream({ delayInMs: 15, chunking: "word" }),
+        experimental_transform: smoothStream({
+          delayInMs: 15,
+          chunking: "word",
+        }),
         stopWhen: stepCountIs(4),
         ...(reasoning ? { providerOptions: REASONING_PROVIDER_OPTIONS } : {}),
       });
