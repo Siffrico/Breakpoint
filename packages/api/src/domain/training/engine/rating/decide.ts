@@ -1,7 +1,17 @@
+import type {
+  DirectiveIntent,
+  JobProgressState,
+  ScenarioDirective,
+} from "@acme/validators";
 import type { AttemptRecord } from "./evidence";
 import type { JobRatingState } from "./glicko";
 import type { MisconceptionState } from "./misconceptions";
-import type { RatingPolicy, SupportLevel } from "./policy";
+import type { RatingPolicy } from "./policy";
+
+// The persisted rating contract lives in `@acme/validators` so the API engine
+// and the database cannot drift. Re-export the shapes the engine builds on so
+// existing imports (`from "../engine/rating"`) keep resolving unchanged.
+export type { DirectiveIntent, JobProgressState, ScenarioDirective };
 import { fadeSupport, isLowSupport, raiseSupport } from "./evidence";
 import { targetItemRating } from "./glicko";
 import { selectRepairTarget } from "./misconceptions";
@@ -28,37 +38,6 @@ export interface DifficultyBand {
   readonly maxRating: number;
   /** Optional label for prompts/UI ("two-step word problems"). */
   readonly label?: string;
-}
-
-/** Where the learner currently sits inside the job's band ladder. */
-export interface JobProgressState {
-  readonly bandOrder: number;
-  readonly supportLevel: SupportLevel;
-}
-
-export type DirectiveIntent =
-  | "repair"
-  | "probe"
-  | "back_off"
-  | "promote"
-  | "fade_support"
-  | "challenge"
-  | "mastered";
-
-export interface ScenarioDirective {
-  readonly intent: DirectiveIntent;
-  /** Band the next scenario is generated in. */
-  readonly bandOrder: number;
-  /** Scaffolding the next scenario is generated with. */
-  readonly supportLevel: SupportLevel;
-  /** Item rating the generator should aim for, clamped into the band. */
-  readonly targetItemRating: number;
-  /** Misconception code the scenario must engineer a distractor against. */
-  readonly targetMisconceptionCode: string | null;
-  /** Human-readable explanation — decision log entry and "why this" chip. */
-  readonly reason: string;
-  /** Progress state to persist alongside the generated scenario. */
-  readonly nextProgress: JobProgressState;
 }
 
 export interface DecideInput {

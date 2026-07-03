@@ -12,16 +12,13 @@
 //
 // Pass 1 READS difficulty from Goldilocks. Pass 2 READS and WRITES it.
 
+import type { UnitDifficultySnapshot } from "@acme/validators";
 import type { RatingScope } from "../orchestration/rating-scope";
-import type { ScenarioDirective } from "../engine/rating";
 
-export interface UnitDifficultySnapshot {
-  nodeId: string;
-  directive: ScenarioDirective;
-  promptBlock: string;
-  ratingSnapshot: string;
-  learnerRating: number;
-}
+// The calibrated-difficulty snapshot persisted on a unit run. Canonical
+// definition lives in `@acme/validators` (shared with the DB `.$type<>()`
+// column) so the API and database contracts cannot drift.
+export type { UnitDifficultySnapshot };
 
 /**
  * The coarse state a unit sits in. Stored on the run row (reusing `UnitRun`).

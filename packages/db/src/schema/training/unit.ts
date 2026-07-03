@@ -1,8 +1,16 @@
+import type { UnitDifficultySnapshot } from "@acme/validators";
 import { index, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
 
 import { user } from "../../auth-schema";
 import { TrainingCurriculumNode } from "./curriculum";
 import { TrainingOnboardingSession } from "./onboarding";
+
+/**
+ * @deprecated Use `UnitDifficultySnapshot` from `@acme/validators` directly.
+ * Kept as an alias so the persisted contract has one canonical definition and
+ * cannot drift from the API engine's rating model.
+ */
+export type TrainingUnitDifficultySnapshotJson = UnitDifficultySnapshot;
 
 export interface TrainingUnitMasteryContractJson {
   version: 1;
@@ -14,32 +22,6 @@ export interface TrainingUnitMasteryContractJson {
     failSignals: string[];
     surrogateTraps: string[];
   }[];
-}
-
-export interface TrainingUnitDifficultySnapshotJson {
-  nodeId: string;
-  directive: {
-    intent:
-      | "repair"
-      | "probe"
-      | "back_off"
-      | "promote"
-      | "fade_support"
-      | "challenge"
-      | "mastered";
-    bandOrder: number;
-    supportLevel: "worked_example" | "guided" | "none";
-    targetItemRating: number;
-    targetMisconceptionCode: string | null;
-    reason: string;
-    nextProgress: {
-      bandOrder: number;
-      supportLevel: "worked_example" | "guided" | "none";
-    };
-  };
-  promptBlock: string;
-  ratingSnapshot: string;
-  learnerRating: number;
 }
 
 export const TrainingUnitContent = pgTable(

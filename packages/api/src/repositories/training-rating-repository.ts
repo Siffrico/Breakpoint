@@ -1,5 +1,10 @@
 import type { db as databaseClient } from "@acme/db/client";
-import type { ScenarioEvaluationContract } from "@acme/validators";
+import type {
+  JobProgressState,
+  ScenarioDirective,
+  ScenarioEvaluationContract,
+  SupportLevel,
+} from "@acme/validators";
 import { and, asc, desc, eq, sql } from "@acme/db";
 import {
   TrainingJobProgress,
@@ -9,8 +14,6 @@ import {
 } from "@acme/db/schema";
 
 type Database = typeof databaseClient;
-
-type SupportLevel = "worked_example" | "guided" | "none";
 
 const sameDirective = (
   left: ScenarioDirective,
@@ -30,11 +33,6 @@ interface JobRatingState {
   ratingDeviation: number;
   volatility: number;
   lastRatedAt: Date | null;
-}
-
-interface JobProgressState {
-  bandOrder: number;
-  supportLevel: SupportLevel;
 }
 
 interface MisconceptionState {
@@ -66,23 +64,6 @@ interface RatingPredictionRecord {
   predictedScore: number;
   actualOutcome: number;
   occurredAt: Date;
-}
-
-interface ScenarioDirective {
-  intent:
-    | "repair"
-    | "probe"
-    | "back_off"
-    | "promote"
-    | "fade_support"
-    | "challenge"
-    | "mastered";
-  bandOrder: number;
-  supportLevel: SupportLevel;
-  targetItemRating: number;
-  targetMisconceptionCode: string | null;
-  reason: string;
-  nextProgress: JobProgressState;
 }
 
 interface ApplyEvaluationResult {

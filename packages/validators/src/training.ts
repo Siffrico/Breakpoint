@@ -77,6 +77,54 @@ export const DifficultyBandSchema = z.object({
   label: z.string().min(1).optional(),
 });
 
+/**
+ * Canonical Goldilocks rating contract shared by the API engine and the
+ * database. This is the ONE definition of a persisted difficulty directive and
+ * its unit snapshot — the DB `.$type<>()` columns and the engine's runtime
+ * types both derive from here, so a rating-model change can never silently
+ * drift between the two layers.
+ */
+
+/** How scaffolded a scenario is when presented (4C/ID support axis). */
+export const SupportLevelSchema = z.enum(["worked_example", "guided", "none"]);
+
+/** The decision the Goldilocks ladder emits for the next scenario. */
+export const DirectiveIntentSchema = z.enum([
+  "repair",
+  "probe",
+  "back_off",
+  "promote",
+  "fade_support",
+  "challenge",
+  "mastered",
+]);
+
+/** Where the learner sits inside a job's band ladder. */
+export const JobProgressStateSchema = z.object({
+  bandOrder: z.number().int().min(0),
+  supportLevel: SupportLevelSchema,
+});
+
+/** A single difficulty directive, as decided by the engine and persisted. */
+export const ScenarioDirectiveSchema = z.object({
+  intent: DirectiveIntentSchema,
+  bandOrder: z.number().int().min(0),
+  supportLevel: SupportLevelSchema,
+  targetItemRating: z.number(),
+  targetMisconceptionCode: z.string().nullable(),
+  reason: z.string(),
+  nextProgress: JobProgressStateSchema,
+});
+
+/** The calibrated-difficulty snapshot stored on a unit run. */
+export const UnitDifficultySnapshotSchema = z.object({
+  nodeId: z.string(),
+  directive: ScenarioDirectiveSchema,
+  promptBlock: z.string(),
+  ratingSnapshot: z.string(),
+  learnerRating: z.number(),
+});
+
 export const CurriculumNodeSchema = z.object({
   id: z.string().min(1),
   parentNodeId: z.string().min(1).nullable(),
@@ -840,6 +888,13 @@ export type BeforeAfterProfile = z.infer<typeof BeforeAfterProfileSchema>;
 export type CurriculumNodeKind = z.infer<typeof CurriculumNodeKindSchema>;
 export type CurriculumNodeStatus = z.infer<typeof CurriculumNodeStatusSchema>;
 export type DifficultyBand = z.infer<typeof DifficultyBandSchema>;
+export type SupportLevel = z.infer<typeof SupportLevelSchema>;
+export type DirectiveIntent = z.infer<typeof DirectiveIntentSchema>;
+export type JobProgressState = z.infer<typeof JobProgressStateSchema>;
+export type ScenarioDirective = z.infer<typeof ScenarioDirectiveSchema>;
+export type UnitDifficultySnapshot = z.infer<
+  typeof UnitDifficultySnapshotSchema
+>;
 export type CurriculumNode = z.infer<typeof CurriculumNodeSchema>;
 export type ProjectOverview = z.infer<typeof ProjectOverviewSchema>;
 export type ProjectOverviewSummary = z.infer<

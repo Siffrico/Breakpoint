@@ -1,10 +1,15 @@
+import type { ScenarioDirective, SupportLevel } from "@acme/validators";
 import { index, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
 
 import { user } from "../../auth-schema";
 import { TrainingCurriculumNode } from "./curriculum";
 import { TrainingUnitRun } from "./unit";
 
-export type TrainingSupportLevel = "worked_example" | "guided" | "none";
+/**
+ * @deprecated Alias of the canonical `SupportLevel` from `@acme/validators`.
+ * Kept so persisted rating shapes share one source of truth with the engine.
+ */
+export type TrainingSupportLevel = SupportLevel;
 
 export interface TrainingRecentAttemptJson {
   bandOrder: number;
@@ -19,25 +24,12 @@ export interface TrainingRecentAttemptJson {
   occurredAt: string;
 }
 
-export interface TrainingScenarioDirectiveJson {
-  intent:
-    | "repair"
-    | "probe"
-    | "back_off"
-    | "promote"
-    | "fade_support"
-    | "challenge"
-    | "mastered";
-  bandOrder: number;
-  supportLevel: TrainingSupportLevel;
-  targetItemRating: number;
-  targetMisconceptionCode: string | null;
-  reason: string;
-  nextProgress: {
-    bandOrder: number;
-    supportLevel: TrainingSupportLevel;
-  };
-}
+/**
+ * @deprecated Alias of the canonical `ScenarioDirective` from
+ * `@acme/validators`. Kept so the persisted `directiveJson` column shares one
+ * source of truth with the API rating engine.
+ */
+export type TrainingScenarioDirectiveJson = ScenarioDirective;
 
 export interface TrainingScenarioEvaluationContractJson {
   version: 1;
