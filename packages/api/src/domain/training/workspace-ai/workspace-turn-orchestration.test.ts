@@ -54,6 +54,7 @@ const unitRun = {
   pass: 1,
   connectGrills: 0,
   solveRepairs: 0,
+  scenarioSpec: null,
   difficultySnapshot: {
     nodeId: "cluster-1",
     directive: {

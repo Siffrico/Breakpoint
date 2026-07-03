@@ -19,7 +19,11 @@ import {
   REQUIRED_UNDERSTANDING_SPEC,
   SCENARIO_DESIGN_CRITERIA,
 } from "../../prompts/shared-instructions";
-import { continuePhase, gradeConnection } from "../../workspace-ai/fsm-tools";
+import {
+  continuePhase,
+  gradeConnection,
+  recordScenarioSpec,
+} from "../../workspace-ai/fsm-tools";
 import { PhaseAgentOutputSchema } from "./output-schema";
 import { runPhaseAgent } from "./run-phase-agent";
 import { buildPhaseSystemPrompt } from "./system-prompt";
@@ -29,10 +33,19 @@ const CONNECT_INSTRUCTION = `${FIRST_SCENARIO_GOAL}
 You are in the CONNECT beat. Productive failure: the learner engages with a
 realistic scenario BEFORE being taught the concept.
 
-If this is the first turn of Connect, pose one realistic scenario calibrated
-to the learner's current level and ask them to explain the problem in their
-own words — the goal, the rules, what matters, what they are assuming. Do not
-teach and do not solve it for them. Call continuePhase with reason="prompted".
+If this is the first turn of Connect, first reverse-engineer a target answer,
+then build the scenario backwards from it so the learner must reason to reach
+it. Pose one realistic scenario calibrated to the learner's current level and
+ask them to explain the problem in their own words — the goal, the rules, what
+matters, what they are assuming. Do not teach and do not solve it for them.
+On this opening turn, call recordScenarioSpec once with the target skill (the
+transferable reasoning ability, not the surface topic), the surface (this
+scenario's disposable framing), the canonical answer, the concise reasoning
+path, and the grading rubric. Then call continuePhase with reason="prompted".
+
+If the context contains a "## Transfer constraint (pass 2)" block, obey it:
+keep the same target skill, invent a NEW surface that does not reuse the listed
+pass-1 framing, and add a twist that defeats a memorized procedure.
 
 On every following turn, judge their explanation:
   - If they have reconstructed the core connection themselves, call
@@ -67,6 +80,6 @@ export const runConnectAgent = (
     messages,
     schema: PhaseAgentOutputSchema,
     schemaName: "connect_output",
-    tools: { continuePhase, gradeConnection },
+    tools: { continuePhase, gradeConnection, recordScenarioSpec },
     errorMessage: "Failed to run the Connect step.",
   });

@@ -14,7 +14,12 @@
 //     signal forward as `pendingConnectTeach`.
 
 import type { UnitContent } from "../types/training.types";
+import type { ScenarioSpec } from "./scenario-spec";
 import type { LoopPolicy, UnitState } from "./unit";
+import {
+  renderEvalRubricContext,
+  renderPriorSurfaceConstraint,
+} from "./scenario-spec";
 
 export interface UnitTurnContextInput {
   unit: Pick<
@@ -44,6 +49,12 @@ export interface UnitTurnContextInput {
    * the problem. Only meaningful on a solve turn.
    */
   pendingConnectTeach: boolean;
+  /**
+   * The spec stored on the run (pass 1's, when we are in pass 2). Drives the
+   * pass-2 transfer constraint (connect) and the eval rubric (solve). Null on
+   * pass 1 or before any spec has been recorded.
+   */
+  scenarioSpec: ScenarioSpec | null;
   syllabus: {
     workflow: { name: string; steps: readonly string[] };
     checked: readonly { label: string; gloss: string }[];
@@ -130,6 +141,16 @@ export const buildUnitTurnContext = (input: UnitTurnContextInput): string => {
         memories.map((memory) => memory.content),
       )}`,
     );
+  }
+
+  // Pass-2 reuse of pass-1's spec: the connect agent must vary the surface off
+  // the recorded one; the eval agent (pass-2 solve) grades against its rubric.
+  if (state.pass === 2 && input.scenarioSpec) {
+    if (state.phase === "connect") {
+      sections.push(renderPriorSurfaceConstraint(input.scenarioSpec));
+    } else if (state.phase === "solve") {
+      sections.push(renderEvalRubricContext(input.scenarioSpec));
+    }
   }
 
   const outputContract = buildOutputContract(input);

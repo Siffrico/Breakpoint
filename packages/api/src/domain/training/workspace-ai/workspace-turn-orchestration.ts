@@ -404,6 +404,7 @@ export const runEducationUnitTurn = async ({
     progressSummary: loadedTranscript.progressSummary,
     difficultyLine: difficultySnapshot.promptBlock,
     pendingConnectTeach: readPendingConnectTeach(unitResponses),
+    scenarioSpec: unitRun.scenarioSpec,
     syllabus,
   });
 

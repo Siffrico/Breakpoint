@@ -11,6 +11,7 @@ import { tool } from "ai";
 import { z } from "zod/v4";
 
 import type { UnitEvent } from "../education-unit/unit";
+import { ScenarioSpecSchema } from "../education-unit/scenario-spec";
 
 export const GradeConnectionInputSchema = z.object({
   connected: z
@@ -66,6 +67,20 @@ export const gradeSolution = tool({
   description:
     "Call this once you can judge whether the learner's solution passes. Do not call it while still reviewing — only when you have a verdict.",
   inputSchema: GradeSolutionInputSchema,
+  execute: acknowledge,
+});
+
+/**
+ * Available in Connect when the scenario is first posed. NOT an FSM event — it
+ * records the reverse-engineered ScenarioSpec artifact (canonical answer,
+ * reasoning path, rubric, target skill/surface) so teach and the pass-2 eval
+ * can reuse it. The orchestrator reads it out of the tool calls (like the solve
+ * score), never through toUnitEvent.
+ */
+export const recordScenarioSpec = tool({
+  description:
+    "Call this exactly once, on the turn you first pose the scenario, to record the spec you reverse-engineered: the target skill, the surface, the canonical answer, the reasoning path, and the grading rubric.",
+  inputSchema: ScenarioSpecSchema,
   execute: acknowledge,
 });
 

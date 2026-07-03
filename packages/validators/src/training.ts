@@ -116,6 +116,19 @@ export const ScenarioDirectiveSchema = z.object({
   nextProgress: JobProgressStateSchema,
 });
 
+/**
+ * The ScenarioSpec stored on a unit run — the scenario agent's reverse-engineered
+ * artifact (see education-unit/scenario-spec.ts). `targetSkill` is the unit-level
+ * invariant; the rest is scenario-scoped and replaced each pass.
+ */
+export const UnitScenarioSpecSchema = z.object({
+  targetSkill: z.string().min(1),
+  surface: z.string().min(1),
+  canonicalAnswer: z.string().min(1),
+  reasoningPath: z.string().min(1),
+  rubric: z.string().min(1),
+});
+
 /** The calibrated-difficulty snapshot stored on a unit run. */
 export const UnitDifficultySnapshotSchema = z.object({
   nodeId: z.string(),
@@ -895,6 +908,7 @@ export type ScenarioDirective = z.infer<typeof ScenarioDirectiveSchema>;
 export type UnitDifficultySnapshot = z.infer<
   typeof UnitDifficultySnapshotSchema
 >;
+export type UnitScenarioSpec = z.infer<typeof UnitScenarioSpecSchema>;
 export type CurriculumNode = z.infer<typeof CurriculumNodeSchema>;
 export type ProjectOverview = z.infer<typeof ProjectOverviewSchema>;
 export type ProjectOverviewSummary = z.infer<

@@ -14,56 +14,13 @@
 // generated with pass 1's spec as a "do NOT reuse these dimensions" reference,
 // same skill, new surface, plus a twist that beats a memorized procedure.
 
-import { z } from "zod/v4";
+// The canonical schema lives in @acme/validators (shared with the DB column's
+// .$type<>()), so the persisted contract and the agent contract cannot drift.
+import type { UnitScenarioSpec } from "@acme/validators";
+import { UnitScenarioSpecSchema } from "@acme/validators";
 
-export const ScenarioSpecSchema = z.object({
-  /**
-   * The invariant reasoning ability under test — the same string on both
-   * passes. Not the surface topic; the transferable skill (e.g. "isolate the
-   * variable that actually drives the outcome before optimizing").
-   */
-  targetSkill: z
-    .string()
-    .min(1)
-    .describe(
-      "The transferable reasoning ability under test. Identical across both passes of the unit.",
-    ),
-  /**
-   * The disposable framing for THIS scenario: the concrete domain, characters,
-   * numbers, story. MUST differ between pass 1 and pass 2.
-   */
-  surface: z
-    .string()
-    .min(1)
-    .describe(
-      "The concrete, disposable framing of this scenario (domain, story, numbers). Must differ from the other pass.",
-    ),
-  /** The canonical correct answer, reverse-engineered before the question. */
-  canonicalAnswer: z
-    .string()
-    .min(1)
-    .describe("The correct answer this scenario was reverse-engineered from."),
-  /**
-   * The concise "why" — the reasoning path from scenario to answer. The teach
-   * agent anchors its worked example on this; keep it tight.
-   */
-  reasoningPath: z
-    .string()
-    .min(1)
-    .describe(
-      "Concise reasoning path from scenario to answer — the WHY the teach agent teaches.",
-    ),
-  /**
-   * How a learner answer is scored. Read only by the eval agent on pass 2.
-   * Free-form rubric text (criteria + what full marks vs. a miss looks like).
-   */
-  rubric: z
-    .string()
-    .min(1)
-    .describe("Scoring rubric the pass-2 eval agent grades the answer against."),
-});
-
-export type ScenarioSpec = z.infer<typeof ScenarioSpecSchema>;
+export const ScenarioSpecSchema = UnitScenarioSpecSchema;
+export type ScenarioSpec = UnitScenarioSpec;
 
 /**
  * Renders a prior-pass spec into the "avoid these dimensions" constraint block

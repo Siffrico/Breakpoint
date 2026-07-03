@@ -399,6 +399,10 @@ export const saveUnitPhaseResult = async ({
     sessionId,
     userId,
     difficultySnapshot,
+    // The connect agent records a spec only when it poses a scenario; on every
+    // other turn this is null, and the upsert coalesces null onto the stored
+    // spec so it is preserved rather than wiped. See the repository.
+    scenarioSpec: turnResult.scenarioSpec,
   };
 
   const scenarioPresentation =

@@ -15,11 +15,13 @@ import { Data, Effect } from "effect";
 import type { PhaseAgentError } from "./agents/errors";
 import type { PhaseAgentOutput } from "./agents/output-schema";
 import type { PhaseAgentResult } from "./agents/run-phase-agent";
+import type { ScenarioSpec } from "./scenario-spec";
 import type { UnitEvent, UnitRecipe, UnitState } from "./unit";
 import {
   GradeSolutionInputSchema,
   toUnitEvent,
 } from "../workspace-ai/fsm-tools";
+import { ScenarioSpecSchema } from "./scenario-spec";
 import { CheckOffSyllabusInputSchema } from "./agents/check-off-syllabus.tool";
 import { runConnectAgent } from "./agents/connect-agent";
 import { runEvalAgent } from "./agents/eval-agent";
@@ -69,6 +71,12 @@ export interface UnitTurnResult {
    */
   ratingWrite: { score: number } | null;
   syllabusCheckOff: { entryIds: string[]; evidence: string } | null;
+  /**
+   * The ScenarioSpec the connect agent reverse-engineered when it posed the
+   * scenario. Null on every turn that doesn't record one — persistence
+   * coalesces null onto the stored spec, so it is preserved, not wiped.
+   */
+  scenarioSpec: ScenarioSpec | null;
 }
 
 export type UnitPhaseRunner = (
@@ -182,6 +190,17 @@ const readSolveScore = (
   return parsed.success ? parsed.data.score : null;
 };
 
+const readScenarioSpec = (
+  result: PhaseAgentResult<PhaseAgentOutput>,
+): ScenarioSpec | null => {
+  const call = result.toolCalls.find(
+    (c) => c.toolName === "recordScenarioSpec",
+  );
+  if (!call) return null;
+  const parsed = ScenarioSpecSchema.safeParse(call.input);
+  return parsed.success ? parsed.data : null;
+};
+
 /**
  * Takes a durable unit cursor and phase context, produces one validated turn
  * result, and fails only on a tagged model failure or phase-contract failure.
@@ -249,5 +268,6 @@ export const runUnitTurn = async (
     gradeReasoning: reasoning,
     ratingWrite,
     syllabusCheckOff,
+    scenarioSpec: readScenarioSpec(result),
   };
 };

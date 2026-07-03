@@ -18,6 +18,7 @@ const baseRun = {
   pass: 1,
   connectGrills: 0,
   solveRepairs: 0,
+  scenarioSpec: null,
   difficultySnapshot: null,
 } satisfies PersistedUnitRun;
 

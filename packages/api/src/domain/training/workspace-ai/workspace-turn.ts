@@ -142,6 +142,7 @@ export const resolveUnitRunProjection = ({
     sessionId,
     userId: userId ?? null,
     difficultySnapshot: null,
+    scenarioSpec: null,
   };
 };
 

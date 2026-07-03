@@ -79,6 +79,7 @@ const masteredTurn: UnitTurnResult = {
   gradeReasoning: "Correct and clearly reasoned.",
   ratingWrite: { score: 90 },
   syllabusCheckOff: null,
+  scenarioSpec: null,
 };
 
 const difficultySnapshot = {
@@ -222,6 +223,7 @@ void test("saveUnitPhaseResult persists transitions and non-grading continuation
     gradeReasoning: null,
     ratingWrite: null,
     syllabusCheckOff: null,
+    scenarioSpec: null,
   };
 
   await saveUnitPhaseResult({

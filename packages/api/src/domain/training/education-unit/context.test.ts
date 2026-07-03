@@ -22,6 +22,7 @@ const baseInput = (
   progressSummary: null,
   difficultyLine: null,
   pendingConnectTeach: false,
+  scenarioSpec: null,
   syllabus: null,
   ...overrides,
 });

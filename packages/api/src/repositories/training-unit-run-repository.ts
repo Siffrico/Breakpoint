@@ -63,6 +63,7 @@ const mapUnitRun = (
   connectGrills: row.connectGrills,
   solveRepairs: row.solveRepairs,
   difficultySnapshot: row.difficultySnapshotJson,
+  scenarioSpec: row.scenarioSpecJson,
 });
 
 export const trainingUnitRunRepository = {
@@ -102,6 +103,7 @@ export const trainingUnitRunRepository = {
       connectGrills: run.connectGrills,
       solveRepairs: run.solveRepairs,
       difficultySnapshotJson: run.difficultySnapshot,
+      scenarioSpecJson: run.scenarioSpec,
     };
 
     const [row] = await db
@@ -117,6 +119,11 @@ export const trainingUnitRunRepository = {
           connectGrills: values.connectGrills,
           solveRepairs: values.solveRepairs,
           difficultySnapshotJson: sql`coalesce(${TrainingUnitRun.difficultySnapshotJson}, excluded.difficulty_snapshot_json)`,
+          // Replaceable, unlike difficulty (which is coalesced write-once): a
+          // turn that produces a new spec overwrites; a turn that produces none
+          // (null) preserves the stored one. So pass 2's connect replaces pass
+          // 1's spec, but ordinary grill/solve turns never wipe it.
+          scenarioSpecJson: sql`coalesce(excluded.scenario_spec_json, ${TrainingUnitRun.scenarioSpecJson})`,
         },
       })
       .returning();

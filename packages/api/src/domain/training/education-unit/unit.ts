@@ -12,7 +12,7 @@
 //
 // Pass 1 READS difficulty from Goldilocks. Pass 2 READS and WRITES it.
 
-import type { UnitDifficultySnapshot } from "@acme/validators";
+import type { UnitDifficultySnapshot, UnitScenarioSpec } from "@acme/validators";
 import type { RatingScope } from "../orchestration/rating-scope";
 
 // The calibrated-difficulty snapshot persisted on a unit run. Canonical
@@ -75,6 +75,11 @@ export type PersistedUnitRun = UnitState & {
   userId: string | null;
   /** Set once by the first committed turn and reused for both passes. */
   difficultySnapshot: UnitDifficultySnapshot | null;
+  /**
+   * The active ScenarioSpec. Replaceable — pass 1's spec is stored, then pass 2
+   * overwrites it after reading pass 1's as its "new surface" constraint.
+   */
+  scenarioSpec: UnitScenarioSpec | null;
 };
 
 /**
