@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { Effect } from "effect";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   buildMintedDifficultyBands,
+  mintNextUnit,
   sliceSyllabusFrontier,
 } from "./mint-next-unit";
 
@@ -32,5 +34,59 @@ describe("buildMintedDifficultyBands", () => {
       maxRating: 1260,
       label: "Target",
     });
+  });
+});
+
+const openUnit = { id: "unit-1" };
+
+const openSkill = {
+  title: "Distributed systems",
+  whyItMatters: "Reliability requires sound failure handling.",
+  entries: [],
+  openUnit,
+};
+
+describe("mintNextUnit", () => {
+  it("resumes preparation when an open unit has no content", async () => {
+    const prepareUnitEffect = vi.fn(() => Effect.void);
+    const appendUnit = vi.fn();
+
+    const result = await Effect.runPromise(
+      mintNextUnit({
+        clusterNodeId: "cluster-1",
+        deps: {
+          loadSkill: () => Effect.succeed(openSkill),
+          resolveDirective: () => Effect.die("should not resolve"),
+          appendUnit,
+          hasUnitContent: () => Effect.succeed(false),
+          prepareUnitEffect,
+        },
+      }),
+    );
+
+    expect(result).toBe(openUnit);
+    expect(prepareUnitEffect).toHaveBeenCalledOnce();
+    expect(prepareUnitEffect).toHaveBeenCalledWith(openUnit);
+    expect(appendUnit).not.toHaveBeenCalled();
+  });
+
+  it("returns an already-prepared open unit without regenerating it", async () => {
+    const prepareUnitEffect = vi.fn(() => Effect.void);
+
+    const result = await Effect.runPromise(
+      mintNextUnit({
+        clusterNodeId: "cluster-1",
+        deps: {
+          loadSkill: () => Effect.succeed(openSkill),
+          resolveDirective: () => Effect.die("should not resolve"),
+          appendUnit: () => Effect.die("should not append"),
+          hasUnitContent: () => Effect.succeed(true),
+          prepareUnitEffect,
+        },
+      }),
+    );
+
+    expect(result).toBe(openUnit);
+    expect(prepareUnitEffect).not.toHaveBeenCalled();
   });
 });

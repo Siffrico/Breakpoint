@@ -1,3 +1,5 @@
+import { Effect } from "effect";
+
 import type { db as databaseClient } from "@acme/db/client";
 import { and, desc, eq, ne } from "@acme/db";
 import { TrainingCurriculumNode } from "@acme/db/schema";
@@ -8,8 +10,10 @@ import {
   expandSkillBands,
 } from "../domain/training/engine/rating";
 import { resolveScenarioDirective } from "../domain/training/orchestration/goldilocks";
-import { runPrepareUnit } from "../domain/training/unit-preparation/prepare-unit-edge";
+import { prepareUnitContent } from "../domain/training/unit-preparation/prepare-unit-content";
+import { queryWithClient } from "../effect/db";
 import { appendMintedUnitNode } from "./training-curriculum-node-writer";
+import { trainingCurriculumRepository } from "./training-curriculum-repository";
 import { createTrainingRatingGoldilocksDeps } from "./training-rating-goldilocks-deps";
 import { trainingRatingRepository } from "./training-rating-repository";
 import { trainingSyllabusRepository } from "./training-syllabus-repository";
@@ -27,61 +31,70 @@ export const createUnitMintingRepositoryDeps = ({
   sessionId: string;
   userId: string;
 }): MintNextUnitDependencies<NodeRow> => ({
-  loadSkill: async (clusterNodeId) => {
-    const cluster = await db.query.TrainingCurriculumNode.findFirst({
-      where: eq(TrainingCurriculumNode.id, clusterNodeId),
-    });
-    if (!cluster?.skillMap) return null;
-    const [entries, openUnit] = await Promise.all([
-      trainingSyllabusRepository.listEntries({ db, clusterNodeId }),
-      db.query.TrainingCurriculumNode.findFirst({
-        where: and(
-          eq(TrainingCurriculumNode.parentNodeId, clusterNodeId),
-          eq(TrainingCurriculumNode.kind, "unit"),
-          ne(TrainingCurriculumNode.status, "completed"),
-        ),
-        orderBy: [desc(TrainingCurriculumNode.orderIndex)],
-      }),
-    ]);
-    return {
-      title: cluster.title,
-      whyItMatters: cluster.whyItMatters,
-      entries: entries.map((entry) => ({
-        id: entry.id,
-        label: entry.label,
-        gloss: entry.gloss,
-        kind: entry.kind as
-          | "discrimination"
-          | "concept"
-          | "subskill"
-          | "vocabulary",
-        status: entry.status,
-      })),
-      openUnit: openUnit ?? null,
-    };
-  },
-  resolveDirective: async (clusterNodeId) => {
-    const cluster = await db.query.TrainingCurriculumNode.findFirst({
-      where: eq(TrainingCurriculumNode.id, clusterNodeId),
-    });
-    if (!cluster?.skillMap) throw new Error("Skill map is missing.");
-    return resolveScenarioDirective({
-      userId,
-      nodeId: clusterNodeId,
-      now: new Date(),
-      bands:
-        cluster.difficultyBands ?? expandSkillBands(cluster.skillMap.bandRamp),
-      deps: createTrainingRatingGoldilocksDeps(db),
-    });
-  },
-  appendUnit: (input) => appendMintedUnitNode({ db, ...input }),
-  prepareUnit: async (node) => {
-    await runPrepareUnit({
+  loadSkill: (clusterNodeId) =>
+    queryWithClient(db, async () => {
+      const cluster = await db.query.TrainingCurriculumNode.findFirst({
+        where: eq(TrainingCurriculumNode.id, clusterNodeId),
+      });
+      if (!cluster?.skillMap) return null;
+      const [entries, openUnit] = await Promise.all([
+        trainingSyllabusRepository.listEntries({ db, clusterNodeId }),
+        db.query.TrainingCurriculumNode.findFirst({
+          where: and(
+            eq(TrainingCurriculumNode.parentNodeId, clusterNodeId),
+            eq(TrainingCurriculumNode.kind, "unit"),
+            ne(TrainingCurriculumNode.status, "completed"),
+          ),
+          orderBy: [desc(TrainingCurriculumNode.orderIndex)],
+        }),
+      ]);
+      return {
+        title: cluster.title,
+        whyItMatters: cluster.whyItMatters,
+        entries: entries.map((entry) => ({
+          id: entry.id,
+          label: entry.label,
+          gloss: entry.gloss,
+          kind: entry.kind as
+            | "discrimination"
+            | "concept"
+            | "subskill"
+            | "vocabulary",
+          status: entry.status,
+        })),
+        openUnit: openUnit ?? null,
+      };
+    }),
+  resolveDirective: (clusterNodeId) =>
+    queryWithClient(db, async () => {
+      const cluster = await db.query.TrainingCurriculumNode.findFirst({
+        where: eq(TrainingCurriculumNode.id, clusterNodeId),
+      });
+      if (!cluster?.skillMap) throw new Error("Skill map is missing.");
+      return resolveScenarioDirective({
+        userId,
+        nodeId: clusterNodeId,
+        now: new Date(),
+        bands:
+          cluster.difficultyBands ??
+          expandSkillBands(cluster.skillMap.bandRamp),
+        deps: createTrainingRatingGoldilocksDeps(db),
+      });
+    }),
+  appendUnit: (input) =>
+    queryWithClient(db, () => appendMintedUnitNode({ db, ...input })),
+  hasUnitContent: (nodeId) =>
+    queryWithClient(db, async () =>
+      Boolean(
+        await trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),
+      ),
+    ),
+  prepareUnitEffect: (node) =>
+    prepareUnitContent({
       node,
       sessionId,
       deps: createUnitPreparationRepositoryDeps(db),
-    });
-  },
+    }).pipe(Effect.asVoid),
 });
 
 /**

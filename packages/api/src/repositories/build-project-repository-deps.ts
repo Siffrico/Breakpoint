@@ -1,3 +1,5 @@
+import { Effect } from "effect";
+
 import type { db as databaseClient } from "@acme/db/client";
 
 import type { BuildProjectDeps } from "../domain/training/orchestration/build-project";
@@ -65,10 +67,12 @@ export const ensureSkillUnit = async ({
   sessionId: string;
   userId: string;
 }) =>
-  mintNextUnit({
-    clusterNodeId,
-    deps: createUnitMintingRepositoryDeps({ db, sessionId, userId }),
-  });
+  Effect.runPromise(
+    mintNextUnit({
+      clusterNodeId,
+      deps: createUnitMintingRepositoryDeps({ db, sessionId, userId }),
+    }),
+  );
 
 export const recoverSkillUnits = async ({
   db,

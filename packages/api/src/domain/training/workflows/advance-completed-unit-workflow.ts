@@ -1,3 +1,6 @@
+import { Duration, Effect, Schedule } from "effect";
+
+import type { DbError } from "../../../effect/errors";
 import type { Result } from "../../../lib/result";
 import type { PersistedUnitRun } from "../education-unit/unit";
 import type {
@@ -5,6 +8,7 @@ import type {
   CurriculumPlan,
   UnitContent,
 } from "../types/training.types";
+import type { MintNextUnitError } from "../unit-minting/mint-next-unit";
 import { err, ok } from "../../../lib/result";
 import { decideMasteryProgression } from "../engine/plan-progression";
 import { assertUnitCanAdvance } from "../workspace-ai/workspace-turn";
@@ -28,22 +32,36 @@ interface AdvanceCompletedUnitDependencies {
     clusterNodeId: string;
     sessionId: string;
     userId: string;
-  }) => Promise<unknown>;
+  }) => Effect.Effect<unknown, MintNextUnitError>;
   /** Resolves null when the cluster has no skill map (legacy/imported plans). */
   getMasteryState: (input: {
     clusterNodeId: string;
     userId: string;
-  }) => Promise<{
-    uncheckedEntryCount: number;
-    learnerRating: number;
-    ratingDeviation: number;
-    peakRating: number;
-    simulationPassed: boolean;
-    maxRatingDeviation?: number;
-  } | null>;
-  openSimulation: (clusterNodeId: string) => Promise<unknown>;
+  }) => Effect.Effect<
+    {
+      uncheckedEntryCount: number;
+      learnerRating: number;
+      ratingDeviation: number;
+      peakRating: number;
+      simulationPassed: boolean;
+      maxRatingDeviation?: number;
+    } | null,
+    DbError
+  >;
+  openSimulation: (clusterNodeId: string) => Effect.Effect<unknown, DbError>;
+  /**
+   * Keeps the serverless function alive until the task settles (Next.js
+   * `after`). Without it the runtime freezes the instance once the response
+   * is sent, killing the mint mid-generation.
+   */
   scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }
+
+const isTransientMintFailure = (error: DbError | MintNextUnitError): boolean =>
+  error._tag === "DbError" ||
+  error._tag === "UnitPersistError" ||
+  (error._tag === "UnitScaffoldError" &&
+    (error.kind === "provider" || error.kind === "timeout"));
 
 /**
  * Takes a mastered unit, produces the node made ready by its atomic curriculum
@@ -81,39 +99,54 @@ export const advanceCompletedUnitWorkflow = async ({
 
   if (completed.node.kind === "unit" && completed.node.parentNodeId) {
     const clusterNodeId = completed.node.parentNodeId;
-    const mint = async () => {
-      try {
-        const userId = completed.run.userId;
-        if (!userId) throw new Error("Unit run has no learner id.");
-        const state = await deps.getMasteryState({
+    const mint = Effect.gen(function* () {
+      const userId = completed.run.userId;
+      if (!userId) {
+        yield* Effect.logError("Unit run has no learner id.", {
           clusterNodeId,
+        });
+        return;
+      }
+      const state = yield* deps.getMasteryState({
+        clusterNodeId,
+        userId,
+      });
+      // Legacy plans have no skill map; completeNode already ran list
+      // advancement for them, so there is nothing to mint here.
+      if (!state) return;
+      const decision = decideMasteryProgression(state);
+      if (decision.intent === "mint") {
+        yield* deps.mintUnit({
+          clusterNodeId,
+          sessionId,
           userId,
         });
-        // Legacy plans have no skill map; completeNode already ran list
-        // advancement for them, so there is nothing to mint here.
-        if (!state) return;
-        const decision = decideMasteryProgression(state);
-        if (decision.intent === "mint") {
-          await deps.mintUnit({
-            clusterNodeId,
-            sessionId,
-            userId,
-          });
-        } else if (decision.intent === "simulation") {
-          await deps.openSimulation(clusterNodeId);
-        }
-      } catch (error) {
-        console.error("Next unit mint failed", {
-          clusterNodeId: completed.node.parentNodeId,
-          error,
-        });
+      } else if (decision.intent === "simulation") {
+        yield* deps.openSimulation(clusterNodeId);
       }
-    };
+    }).pipe(
+      Effect.retry({
+        schedule: Schedule.exponential(Duration.seconds(2)).pipe(
+          Schedule.jittered,
+        ),
+        times: 3,
+        while: isTransientMintFailure,
+      }),
+      Effect.tapCause((cause) =>
+        Effect.logError("mint failed permanently", {
+          clusterNodeId,
+          cause,
+        }),
+      ),
+    );
 
+    // Failures are already logged via tapCause; ignore them here so the
+    // background runner never rejects.
+    const runMint = () => Effect.runPromise(Effect.ignore(mint));
     if (deps.scheduleBackgroundTask) {
-      deps.scheduleBackgroundTask(mint);
+      deps.scheduleBackgroundTask(runMint);
     } else {
-      void mint();
+      void runMint();
     }
   }
 

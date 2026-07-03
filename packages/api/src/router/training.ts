@@ -25,6 +25,7 @@ import { prepareUnitWorkflow } from "../domain/training/workflows/prepare-unit-w
 import { startOnboardingWorkflow } from "../domain/training/workflows/start-onboarding-workflow";
 import { submitAiWorkspaceMessageWorkflow } from "../domain/training/workflows/submit-ai-workspace-message-workflow";
 import { submitCapstoneMessageWorkflow } from "../domain/training/workflows/submit-capstone-message-workflow";
+import { queryWithClient } from "../effect/db";
 import { recoverSkillUnits } from "../repositories/build-project-repository-deps";
 import { trainingAttemptRepository } from "../repositories/training-attempt-repository";
 import { trainingCapstoneRepository } from "../repositories/training-capstone-repository";
@@ -785,9 +786,17 @@ export const trainingRouter = {
                 }),
               }),
             getMasteryState: ({ clusterNodeId, userId }) =>
-              loadSkillMasteryState({ db: ctx.db, clusterNodeId, userId }),
+              queryWithClient(ctx.db, () =>
+                loadSkillMasteryState({
+                  db: ctx.db,
+                  clusterNodeId,
+                  userId,
+                }),
+              ),
             openSimulation: (clusterNodeId) =>
-              openSkillSimulation({ db: ctx.db, clusterNodeId }),
+              queryWithClient(ctx.db, () =>
+                openSkillSimulation({ db: ctx.db, clusterNodeId }),
+              ),
             scheduleBackgroundTask: ctx.scheduleBackgroundTask,
           },
         }),

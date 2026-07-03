@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
 import type { PersistedUnitRun } from "../education-unit/unit";
@@ -52,10 +53,9 @@ const masteredRun = {
 describe("advanceCompletedUnitWorkflow", () => {
   it("commits immediately and mints the next unit in the background", async () => {
     const events: string[] = [];
-    let backgroundTask: Promise<void> | null = null;
     const mintUnit = vi.fn(() => {
       events.push("mint");
-      return Promise.resolve();
+      return Effect.void;
     });
 
     const result = await advanceCompletedUnitWorkflow({
@@ -79,21 +79,18 @@ describe("advanceCompletedUnitWorkflow", () => {
         },
         mintUnit,
         getMasteryState: () =>
-          Promise.resolve({
+          Effect.succeed({
             uncheckedEntryCount: 3,
             learnerRating: 1200,
             ratingDeviation: 100,
             peakRating: 1600,
             simulationPassed: false,
           }),
-        openSimulation: () => Promise.resolve(),
-        scheduleBackgroundTask: (task) => {
-          backgroundTask = task();
-        },
+        openSimulation: () => Effect.void,
       },
     });
 
-    await Promise.resolve(backgroundTask);
+    await vi.waitFor(() => expect(mintUnit).toHaveBeenCalledOnce());
 
     expect(result).toEqual({
       success: true,
@@ -111,9 +108,8 @@ describe("advanceCompletedUnitWorkflow", () => {
     const consoleError = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
-    let backgroundTask: Promise<void> | null = null;
-    const mintUnit = vi.fn(() => Promise.resolve());
-    const openSimulation = vi.fn(() => Promise.resolve());
+    const mintUnit = vi.fn(() => Effect.void);
+    const openSimulation = vi.fn(() => Effect.void);
 
     const result = await advanceCompletedUnitWorkflow({
       sessionId: "session-1",
@@ -131,15 +127,12 @@ describe("advanceCompletedUnitWorkflow", () => {
             touchSession: () => Promise.resolve(),
           }),
         mintUnit,
-        getMasteryState: () => Promise.resolve(null),
+        getMasteryState: () => Effect.succeed(null),
         openSimulation,
-        scheduleBackgroundTask: (task) => {
-          backgroundTask = task();
-        },
       },
     });
 
-    await Promise.resolve(backgroundTask);
+    await vi.waitFor(() => expect(consoleError).not.toHaveBeenCalled());
 
     expect(result.success).toBe(true);
     expect(mintUnit).not.toHaveBeenCalled();

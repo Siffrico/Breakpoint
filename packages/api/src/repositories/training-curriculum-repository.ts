@@ -1,5 +1,5 @@
 import type { db as databaseClient } from "@acme/db/client";
-import { and, asc, desc, eq, inArray } from "@acme/db";
+import { and, asc, desc, eq, inArray, sql } from "@acme/db";
 import {
   TrainingCurriculumNode,
   TrainingCurriculumPlan,
@@ -527,28 +527,35 @@ export const trainingCurriculumRepository = {
     scenario: UnitContent["scenario"];
     unitMasteryContract?: UnitContent["unitMasteryContract"];
   }): Promise<UnitContent | null> => {
-    await db
-      .insert(TrainingUnitContent)
-      .values({
-        nodeId,
-        title,
-        seedPrompt,
-        seedHint,
-        clusterArcFrame,
-        complexityBudget,
-        buildContent: null,
-        practicePrompts: null,
-        contentGeneratedAt: null,
-        teachbackSetup,
-        scenarioTitle: scenario.title,
-        scenarioFocusAreas: scenario.focusAreas,
-        unitMasteryContractJson: unitMasteryContract,
-      })
-      .onConflictDoNothing({ target: [TrainingUnitContent.nodeId] });
+    return db.transaction(async (tx) => {
+      const transactionDb = tx as unknown as Database;
+      await transactionDb.execute(
+        sql`select pg_advisory_xact_lock(hashtext(${nodeId}), hashtext('prepare-unit-content'))`,
+      );
+      await transactionDb
+        .insert(TrainingUnitContent)
+        .values({
+          nodeId,
+          title,
+          seedPrompt,
+          seedHint,
+          clusterArcFrame,
+          complexityBudget,
+          buildContent: null,
+          practicePrompts: null,
+          contentGeneratedAt: null,
+          teachbackSetup,
+          scenarioTitle: scenario.title,
+          scenarioFocusAreas: scenario.focusAreas,
+          unitMasteryContractJson: unitMasteryContract,
+        })
+        .onConflictDoNothing({ target: [TrainingUnitContent.nodeId] });
 
-    // ON CONFLICT waits for the competing transaction. Reading after it
-    // completes gives both the winner and every loser the canonical row.
-    return trainingCurriculumRepository.getUnitByNodeId({ db, nodeId });
+      return trainingCurriculumRepository.getUnitByNodeId({
+        db: transactionDb,
+        nodeId,
+      });
+    });
   },
 
   replaceUnitContent: async ({

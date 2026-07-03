@@ -1,4 +1,8 @@
+import { Data, Effect } from "effect";
+
+import type { DbError } from "../../../effect/errors";
 import type { ScenarioDirective } from "../engine/rating";
+import type { UnitPreparationError } from "../unit-preparation/errors";
 
 export interface FrontierEntry {
   id: string;
@@ -61,16 +65,22 @@ export const buildMintedDifficultyBands = (
 };
 
 export interface MintNextUnitDependencies<TNode> {
-  loadSkill: (clusterNodeId: string) => Promise<{
-    title: string;
-    whyItMatters: string;
-    entries: FrontierEntry[];
-    openUnit: TNode | null;
-  } | null>;
-  resolveDirective: (clusterNodeId: string) => Promise<{
-    directive: ScenarioDirective;
-    promptBlock: string;
-  }>;
+  loadSkill: (clusterNodeId: string) => Effect.Effect<
+    {
+      title: string;
+      whyItMatters: string;
+      entries: FrontierEntry[];
+      openUnit: TNode | null;
+    } | null,
+    DbError
+  >;
+  resolveDirective: (clusterNodeId: string) => Effect.Effect<
+    {
+      directive: ScenarioDirective;
+      promptBlock: string;
+    },
+    DbError
+  >;
   appendUnit: (input: {
     clusterNodeId: string;
     title: string;
@@ -78,11 +88,27 @@ export interface MintNextUnitDependencies<TNode> {
     whyItMatters: string;
     difficultyBands: ReturnType<typeof buildMintedDifficultyBands>;
     targetEntryIds: string[];
-  }) => Promise<{ node: TNode; created: boolean }>;
-  prepareUnit: (node: TNode) => Promise<void>;
+  }) => Effect.Effect<{ node: TNode; created: boolean }, DbError>;
+  hasUnitContent: (nodeId: string) => Effect.Effect<boolean, DbError>;
+  prepareUnitEffect: (
+    node: TNode,
+  ) => Effect.Effect<unknown, UnitPreparationError>;
 }
 
-export const mintNextUnit = async <TNode>({
+export class SkillClusterNotFoundError extends Data.TaggedError(
+  "SkillClusterNotFoundError",
+)<{ readonly clusterNodeId: string }> {}
+
+export type MintNextUnitError =
+  | DbError
+  | UnitPreparationError
+  | SkillClusterNotFoundError;
+
+/**
+ * Takes a skill frontier, produces its open or newly minted unit, and fails
+ * only when the skill is missing or its database/scaffold preparation fails.
+ */
+export const mintNextUnit = <TNode extends { id: string }>({
   clusterNodeId,
   complexityBudget = 2,
   deps,
@@ -90,22 +116,29 @@ export const mintNextUnit = async <TNode>({
   clusterNodeId: string;
   complexityBudget?: 1 | 2 | 3;
   deps: MintNextUnitDependencies<TNode>;
-}): Promise<TNode | null> => {
-  const skill = await deps.loadSkill(clusterNodeId);
-  if (!skill) throw new Error("Skill cluster was not found.");
-  if (skill.openUnit) return skill.openUnit;
+}): Effect.Effect<TNode | null, MintNextUnitError> =>
+  Effect.gen(function* () {
+    const skill = yield* deps.loadSkill(clusterNodeId);
+    if (!skill) {
+      return yield* new SkillClusterNotFoundError({ clusterNodeId });
+    }
+    if (skill.openUnit) {
+      const hasContent = yield* deps.hasUnitContent(skill.openUnit.id);
+      if (!hasContent) yield* deps.prepareUnitEffect(skill.openUnit);
+      return skill.openUnit;
+    }
 
-  const targets = selectMintTargets(skill.entries, complexityBudget);
-  if (targets.length === 0) return null;
-  const calibrated = await deps.resolveDirective(clusterNodeId);
-  const persisted = await deps.appendUnit({
-    clusterNodeId,
-    title: `Practice ${targets.map((entry) => entry.label).join(" and ")}`,
-    summary: `Practice ${targets.map((entry) => entry.gloss).join(" ")}`,
-    whyItMatters: skill.whyItMatters,
-    difficultyBands: buildMintedDifficultyBands(calibrated.directive),
-    targetEntryIds: targets.map((entry) => entry.id),
+    const targets = selectMintTargets(skill.entries, complexityBudget);
+    if (targets.length === 0) return null;
+    const calibrated = yield* deps.resolveDirective(clusterNodeId);
+    const persisted = yield* deps.appendUnit({
+      clusterNodeId,
+      title: `Practice ${targets.map((entry) => entry.label).join(" and ")}`,
+      summary: `Practice ${targets.map((entry) => entry.gloss).join(" ")}`,
+      whyItMatters: skill.whyItMatters,
+      difficultyBands: buildMintedDifficultyBands(calibrated.directive),
+      targetEntryIds: targets.map((entry) => entry.id),
+    });
+    if (persisted.created) yield* deps.prepareUnitEffect(persisted.node);
+    return persisted.node;
   });
-  if (persisted.created) await deps.prepareUnit(persisted.node);
-  return persisted.node;
-};
