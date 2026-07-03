@@ -29,7 +29,11 @@ import { runOrientAgent } from "./agents/orient-agent";
 import { PhaseAgentOutputSchema } from "./agents/output-schema";
 import { runSolveAgent } from "./agents/solve-agent";
 import { runTeachAgent } from "./agents/teach-agent";
-import { transition, writesGoldilocks } from "./fsm";
+import {
+  shouldTeachMissedConnection,
+  transition,
+  writesGoldilocks,
+} from "./fsm";
 
 // A turn that cannot be interpreted because its output violates the current
 // phase contract. This is surfaced rather than guessing a learner outcome.
@@ -237,10 +241,8 @@ export const runUnitTurn = async (
 
   // Capture the force-advance signal BEFORE transition wipes connectGrills.
   const forcedConnectAdvance =
-    state.phase === "connect" &&
     event.type === "connection_graded" &&
-    !event.connected &&
-    state.connectGrills + 1 >= recipe.policy.maxGrillsBeforeTeach;
+    shouldTeachMissedConnection(state, event, recipe.policy);
 
   const nextState = transition(state, event, recipe.policy);
 
