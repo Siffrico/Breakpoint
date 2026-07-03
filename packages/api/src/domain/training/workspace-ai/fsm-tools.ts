@@ -12,6 +12,7 @@ import { z } from "zod/v4";
 
 import type { UnitEvent } from "../education-unit/unit";
 import { ScenarioSpecSchema } from "../education-unit/scenario-spec";
+import { ERROR_CLASSIFICATION_CODES } from "../prompts/shared-instructions";
 
 export const GradeConnectionInputSchema = z.object({
   connected: z
@@ -36,6 +37,13 @@ export const GradeSolutionInputSchema = z.object({
     .string()
     .min(1)
     .describe("One sentence: what made this a pass or a fail."),
+  errorCodes: z
+    .array(z.enum(ERROR_CLASSIFICATION_CODES))
+    .max(2)
+    .optional()
+    .describe(
+      "On a failed or fragile pass: the primary ERROR_CLASSIFICATION code (add a second only if truly co-primary). Omit on a clean pass.",
+    ),
 });
 
 export const ContinuePhaseInputSchema = z.object({

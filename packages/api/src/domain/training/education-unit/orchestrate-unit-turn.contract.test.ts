@@ -116,7 +116,7 @@ describe("runUnitTurn contract", () => {
       expect(turn.nextState).toMatchObject({ phase, pass });
       expect(turn.assistantMessage).toBe(result.object.assistantMessage);
       expect(turn.ratingWrite).toEqual(
-        index === script.length - 1 ? { score: 93 } : null,
+        index === script.length - 1 ? { score: 93, errorCodes: [] } : null,
       );
       expect(turn.syllabusCheckOff).toEqual(
         index === script.length - 1
@@ -235,7 +235,7 @@ describe("runUnitTurn contract", () => {
     );
 
     expect(result.nextState).toMatchObject({ phase: "solve", solveRepairs: 1 });
-    expect(result.ratingWrite).toEqual({ score: 64 });
+    expect(result.ratingWrite).toEqual({ score: 64, errorCodes: [] });
   });
 
   const invalidCases: {

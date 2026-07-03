@@ -48,7 +48,8 @@ On an answer:
     directly demonstrated, with concise evidence from their answer.
   - A genuine, complete, but wrong or shortcut-reasoned attempt: call
     gradeSolution with passed=false and a score reflecting how close the
-    REASONING got, with reasoning naming the exact gap.
+    REASONING got, with reasoning naming the exact gap, and errorCodes set to
+    the primary ERROR_CLASSIFICATION code that best explains the failure.
   - A mid-thought fragment that should not yet count as a scored attempt: call
     continuePhase with reason="needs_more_work" and point at the gap without
     solving it.

@@ -27,6 +27,24 @@ evidence_a_learner_has_it pattern from the response, the dimension has not been
 demonstrated regardless of how fluent the response sounded.
 `.trim();
 
+/**
+ * The closed error taxonomy. `GradeSolutionInputSchema.errorCodes` and the
+ * misconception ledger (see engine/rating/misconceptions.ts) both key off
+ * these exact codes — keep them in sync with the prose protocol below.
+ */
+export const ERROR_CLASSIFICATION_CODES = [
+  "missing_prerequisite",
+  "weak_definition",
+  "false_analogy",
+  "surface_pattern_matching",
+  "local_correct_global_wrong",
+  "overgeneralization",
+  "poor_problem_representation",
+  "wrong_abstraction_level",
+  "confused_causality",
+  "cannot_choose_tool",
+] as const;
+
 export const ERROR_CLASSIFICATION_PROTOCOL = `
 ERROR_CLASSIFICATION — diagnose why the learner's reasoning broke.
 

@@ -334,6 +334,13 @@ const commitEducationTurn = async ({
       run: input.nextRun,
     });
 
+    if (input.syllabusCheckOff) {
+      await trainingSyllabusRepository.checkOffEntries({
+        db: txDb,
+        ...input.syllabusCheckOff,
+      });
+    }
+
     if (input.completion) {
       await trainingAttemptRepository.saveAttempt({
         db: txDb,
@@ -515,8 +522,6 @@ export const createWorkspaceTurnRepositoryDeps = (
   },
   getUnitSyllabusContext: (unitNodeId: string) =>
     trainingSyllabusRepository.getUnitContext({ db, unitNodeId }),
-  checkOffSyllabus: (input) =>
-    trainingSyllabusRepository.checkOffEntries({ db, ...input }),
   prepareDifficultyDirective: ({
     userId,
     nodeId,

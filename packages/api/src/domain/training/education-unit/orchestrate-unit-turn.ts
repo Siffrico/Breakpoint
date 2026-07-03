@@ -69,7 +69,7 @@ export interface UnitTurnResult {
    * Present on a scored pass-2 solve. The persistence boundary applies the
    * exactly-once guard before feeding this score to Goldilocks.
    */
-  ratingWrite: { score: number } | null;
+  ratingWrite: { score: number; errorCodes: readonly string[] } | null;
   syllabusCheckOff: { entryIds: string[]; evidence: string } | null;
   /**
    * The ScenarioSpec the connect agent reverse-engineered when it posed the
@@ -181,13 +181,15 @@ const resolveEvent = (
   return { event, reasoning };
 };
 
-const readSolveScore = (
+const readSolveGrade = (
   result: PhaseAgentResult<PhaseAgentOutput>,
-): number | null => {
+): { score: number; errorCodes: readonly string[] } | null => {
   const call = result.toolCalls.find((c) => c.toolName === "gradeSolution");
   if (!call) return null;
   const parsed = GradeSolutionInputSchema.safeParse(call.input);
-  return parsed.success ? parsed.data.score : null;
+  return parsed.success
+    ? { score: parsed.data.score, errorCodes: parsed.data.errorCodes ?? [] }
+    : null;
 };
 
 const readScenarioSpec = (
@@ -243,7 +245,10 @@ export const runUnitTurn = async (
   const nextState = transition(state, event, recipe.policy);
 
   const ratingWrite = writesGoldilocks(state, event)
-    ? { score: readSolveScore(result) ?? recipe.grade.passAt }
+    ? (readSolveGrade(result) ?? {
+        score: recipe.grade.passAt,
+        errorCodes: [] as readonly string[],
+      })
     : null;
   const checkOffCall = result.toolCalls.find(
     (call) => call.toolName === "checkOffSyllabus",

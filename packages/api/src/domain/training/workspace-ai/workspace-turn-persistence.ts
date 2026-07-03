@@ -167,6 +167,11 @@ export interface WorkspaceEducationTurnCommit {
   contracts: WorkspaceOutputContractCommit | null;
   phaseResponse: WorkspacePhaseResponseCommit;
   ratingEvaluation: WorkspaceRatingEvaluationCommit | null;
+  /**
+   * Mastery check-offs commit atomically with the turn — a lost lease or a
+   * failed commit must never leave checked entries without a mastered turn.
+   */
+  syllabusCheckOff: WorkspaceSyllabusCheckOffCommit | null;
   scenarioPresentation: {
     userId: string;
     nodeId: string;
@@ -183,6 +188,13 @@ export interface WorkspaceEducationTurnCommit {
     attempt: Parameters<WorkspaceTurnPersistenceDependencies["saveAttempt"]>[0];
   } | null;
   touchSessionId: string;
+}
+
+export interface WorkspaceSyllabusCheckOffCommit {
+  clusterNodeId: string;
+  requestedEntryIds: string[];
+  targetedEntryIds: string[];
+  evidenceNodeId: string;
 }
 
 export interface WorkspaceRatingEvaluationCommit {
@@ -358,6 +370,7 @@ export const saveUnitPhaseResult = async ({
   plan,
   turnResult,
   ratingEvaluation,
+  syllabusCheckOff = null,
   difficultySnapshot,
   scenarioAttemptId,
   difficultyDirectiveReason,
@@ -375,6 +388,7 @@ export const saveUnitPhaseResult = async ({
   plan: CurriculumPlan;
   turnResult: UnitTurnResult;
   ratingEvaluation: WorkspaceRatingEvaluationCommit | null;
+  syllabusCheckOff?: WorkspaceSyllabusCheckOffCommit | null;
   difficultySnapshot: UnitDifficultySnapshot;
   scenarioAttemptId: string | null;
   difficultyDirectiveReason?: string | null;
@@ -495,6 +509,7 @@ export const saveUnitPhaseResult = async ({
     contracts: null,
     phaseResponse,
     ratingEvaluation,
+    syllabusCheckOff,
     scenarioPresentation,
     solvePresentation,
     nextRun,

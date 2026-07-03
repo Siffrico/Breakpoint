@@ -29,6 +29,7 @@ import { getAiModelForPurpose } from "../engine/model-router";
 import { WorkspaceUserError } from "../errors";
 import { resolveRatingScope } from "../orchestration/rating-scope";
 import { buildWorkspaceIntroMessage } from "../workflows/get-ai-workspace-workflow";
+import { deriveServerAttemptTiming } from "./evaluation-plan";
 import { runWorkspaceAiPrompt } from "./runtime";
 import { getStepCard } from "./stage-runtime";
 import {
@@ -72,6 +73,7 @@ interface OpenScenarioResult {
   scenarioPrompt?: string | null;
   itemRating?: number | null;
   presentedAt?: Date | null;
+  solvePresentedAt?: Date | null;
 }
 
 export interface WorkspaceTurnOrchestrationDependencies
@@ -99,12 +101,6 @@ export interface WorkspaceTurnOrchestrationDependencies
     checked: { label: string; gloss: string }[];
     targets: { id: string; label: string; gloss: string }[];
   } | null>;
-  checkOffSyllabus?: (input: {
-    clusterNodeId: string;
-    requestedEntryIds: string[];
-    targetedEntryIds: string[];
-    evidenceNodeId: string;
-  }) => Promise<{ checked: string[]; deferred: string[] }>;
   prepareDifficultyDirective?: (input: {
     userId: string;
     nodeId: string;
@@ -414,18 +410,17 @@ export const runEducationUnitTurn = async ({
     contextBlock,
     transcript: toModelMessages(loadedTranscript.transcript),
   });
-  if (
-    turnResult.nextState.phase === "mastered" &&
-    syllabus &&
-    deps.checkOffSyllabus
-  ) {
-    await deps.checkOffSyllabus({
-      clusterNodeId: syllabus.clusterNodeId,
-      requestedEntryIds: turnResult.syllabusCheckOff?.entryIds ?? [],
-      targetedEntryIds: syllabus.targets.map((entry) => entry.id),
-      evidenceNodeId: unit.nodeId,
-    });
-  }
+  // Check-offs ride the atomic turn commit (lease-guarded), never the outer
+  // connection — a lost lease or failed commit must not leave phantom mastery.
+  const syllabusCheckOff =
+    turnResult.nextState.phase === "mastered" && syllabus
+      ? {
+          clusterNodeId: syllabus.clusterNodeId,
+          requestedEntryIds: turnResult.syllabusCheckOff?.entryIds ?? [],
+          targetedEntryIds: syllabus.targets.map((entry) => entry.id),
+          evidenceNodeId: unit.nodeId,
+        }
+      : null;
   const scenarioAttemptId = [...unitResponses]
     .reverse()
     .find(
@@ -447,13 +442,25 @@ export const runEducationUnitTurn = async ({
       );
     }
     const now = new Date();
+    const attempt = deps.getScenarioAttempt
+      ? await deps.getScenarioAttempt({
+          scenarioAttemptId,
+          userId,
+          nodeId: difficultySnapshot.nodeId,
+        })
+      : null;
+    const timing = deriveServerAttemptTiming({
+      presentedAt: attempt?.solvePresentedAt ?? null,
+      submittedAt: now,
+      timeLimitSeconds: recipe.grade.solveTimeLimitSeconds,
+    });
     ratingEvaluation = {
       scenarioAttemptId,
       userId,
       nodeId: difficultySnapshot.nodeId,
       score: turnResult.ratingWrite.score,
-      errorCodes: [],
-      wasOverTime: false,
+      errorCodes: turnResult.ratingWrite.errorCodes,
+      wasOverTime: timing?.wasOverTime ?? false,
       occurredAt: now,
       bands: ratingScope.bands,
     };
@@ -468,6 +475,7 @@ export const runEducationUnitTurn = async ({
     plan,
     turnResult,
     ratingEvaluation,
+    syllabusCheckOff,
     difficultySnapshot,
     scenarioAttemptId: scenarioAttemptId ?? null,
     difficultyDirectiveReason: difficultySnapshot.directive.reason,

@@ -77,7 +77,7 @@ const masteredTurn: UnitTurnResult = {
   },
   forcedConnectAdvance: false,
   gradeReasoning: "Correct and clearly reasoned.",
-  ratingWrite: { score: 90 },
+  ratingWrite: { score: 90, errorCodes: [] },
   syllabusCheckOff: null,
   scenarioSpec: null,
 };

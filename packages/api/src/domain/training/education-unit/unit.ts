@@ -94,6 +94,12 @@ export interface LoopPolicy {
 /** The pass/fail bar for a solve. `evaluationGrade` is 0–100; clearing `passAt` passes. */
 export interface GradeThreshold {
   passAt: number; // e.g. 80
+  /**
+   * Time budget for the pass-2 transfer solve, measured from the persisted
+   * solvePresentedAt stamp. Exceeding it marks the attempt wasOverTime, which
+   * Goldilocks discounts (see engine/rating/evidence.ts overTimeDiscount).
+   */
+  solveTimeLimitSeconds: number;
 }
 
 /**
@@ -149,6 +155,7 @@ export function getUnitRecipe(version: string, scope: RatingScope): UnitRecipe {
     },
     grade: {
       passAt: 80,
+      solveTimeLimitSeconds: 300,
     },
     goldilocks: {
       scope,
