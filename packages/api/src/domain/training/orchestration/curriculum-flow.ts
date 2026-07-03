@@ -1,5 +1,6 @@
 import type { designCurriculum } from "../agents/curriculum-designer";
 import type { CurriculumNodeBlueprint } from "../types/training.types";
+import { expandSkillBands } from "../engine/rating";
 
 export const buildCurriculumNodes = (
   draft: Awaited<ReturnType<typeof designCurriculum>>["planDraft"],
@@ -42,7 +43,7 @@ export const buildCurriculumNodes = (
       depth: 1,
       positionColumn: clusterIndex,
       positionRow: 1,
-      difficultyBands: null,
+      difficultyBands: expandSkillBands(cluster.bandRamp),
       skillMap: {
         workflow: cluster.workflow,
         bandRamp: cluster.bandRamp,

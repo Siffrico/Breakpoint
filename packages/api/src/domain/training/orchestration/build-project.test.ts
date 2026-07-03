@@ -271,7 +271,11 @@ const makeDeps = (
   return { deps, store, updateRunCalls };
 };
 
-const run = (deps: BuildProjectDeps, onProgress = vi.fn()) =>
+const run = (
+  deps: BuildProjectDeps,
+  onProgress = vi.fn(),
+  scheduleBackgroundTask?: (task: () => Promise<void>) => void,
+) =>
   buildProjectFromOnboarding({
     sessionId: "session-id",
     userId: "user-id",
@@ -279,9 +283,50 @@ const run = (deps: BuildProjectDeps, onProgress = vi.fn()) =>
     input,
     deps,
     onProgress,
+    scheduleBackgroundTask,
   });
 
 describe("buildProjectFromOnboarding", () => {
+  it("prewarms a syllabus and first unit for every independent skill", async () => {
+    mockPacket.mockResolvedValue(packet);
+    mockCurriculum.mockResolvedValue(curriculum);
+    mockOverview.mockResolvedValue(overview);
+    const { deps } = makeDeps();
+    const skills = curriculum.planDraft.clusters.map((cluster, index) => ({
+      id: `skill-${index + 1}`,
+      parentNodeId: null,
+      kind: "skill_cluster" as const,
+      title: cluster.title,
+      summary: cluster.summary,
+      whyItMatters: cluster.whyItMatters,
+      learningGoal: cluster.masteryContract.exitCriteria.join(" "),
+      orderIndex: index,
+      depth: 1,
+      positionColumn: index,
+      positionRow: 1,
+      status: "ready" as const,
+      difficultyBands: null,
+    }));
+    deps.finalize = vi.fn(() =>
+      Promise.resolve({ ...plan, nodes: skills, nextUnitId: null }),
+    );
+    const tasks: Promise<void>[] = [];
+
+    const result = await run(deps, vi.fn(), (task) => {
+      tasks.push(task());
+    });
+    await Promise.all(tasks);
+
+    expect(result.success).toBe(true);
+    expect(deps.ensureSkillSyllabus).toHaveBeenCalledTimes(skills.length);
+    expect(deps.mintSkillUnit).toHaveBeenCalledTimes(skills.length);
+    expect(deps.mintSkillUnit).toHaveBeenCalledWith({
+      clusterNodeId: "skill-3",
+      sessionId: "session-id",
+      userId: "user-id",
+    });
+  });
+
   it("does not generate or persist while a build is already running", async () => {
     const processing: Awaited<ReturnType<BuildProjectDeps["claimRun"]>> = {
       status: "processing",

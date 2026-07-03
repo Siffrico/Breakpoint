@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "vitest";
 
 import type { DifficultyBand } from "../engine/rating";
-import { expandUnitBands, validateDifficultyBands } from "../engine/rating";
+import {
+  expandSkillBands,
+  expandUnitBands,
+  validateDifficultyBands,
+} from "../engine/rating";
 import { CurriculumPlanDraftSchema } from "./contracts";
 
 const topCeilingOf = (bands: readonly DifficultyBand[]): number => {
@@ -111,4 +115,11 @@ void test("expandUnitBands rejects a degenerate ramp", () => {
     () => expandUnitBands(0, 5, { startRating: 1500, peakRating: 1500 }),
     /peakRating .* must be greater than startRating/i,
   );
+});
+
+void test("expandSkillBands produces one canonical ladder ending at peak", () => {
+  const bands = expandSkillBands({ startRating: 1100, peakRating: 1700 });
+  assert.doesNotThrow(() => validateDifficultyBands(bands));
+  assert.equal(bands.length, 3);
+  assert.equal(bands.at(-1)?.maxRating, 1700);
 });

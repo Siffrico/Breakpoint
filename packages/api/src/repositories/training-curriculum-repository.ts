@@ -26,6 +26,7 @@ import type {
 import {
   planAdvancement,
   planCompletion,
+  usesMintedMasteryLoop,
 } from "../domain/training/engine/plan-progression";
 import { insertBlueprintNodes } from "./training-curriculum-node-writer";
 
@@ -927,7 +928,24 @@ export const trainingCurriculumRepository = {
       db,
       nodeId,
     });
-    if (node?.kind === "unit" || node?.kind === "simulation") return node;
-    return trainingCurriculumRepository.advancePlanAfterCompletion({ db, nodeId });
+    const parent = node?.parentNodeId
+      ? await trainingCurriculumRepository.getNodeById({
+          db,
+          nodeId: node.parentNodeId,
+        })
+      : null;
+    if (
+      node &&
+      usesMintedMasteryLoop({
+        nodeKind: node.kind as CurriculumNodeKind,
+        parentHasSkillMap: Boolean(parent?.skillMap),
+      })
+    ) {
+      return node;
+    }
+    return trainingCurriculumRepository.advancePlanAfterCompletion({
+      db,
+      nodeId,
+    });
   },
 };

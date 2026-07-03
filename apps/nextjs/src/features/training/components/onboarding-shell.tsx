@@ -160,6 +160,15 @@ export function OnboardingShell({
       onError: (error) => toast.error(error.message),
     }),
   );
+  const continueLearning = useMutation(
+    trpc.training.continueLearningProject.mutationOptions({
+      onSuccess: (destination) => {
+        router.replace(destination.href);
+        router.refresh();
+      },
+      onError: (error) => toast.error(error.message),
+    }),
+  );
   useEffect(() => {
     if (preview || sessionId || startedRef.current) return;
     startedRef.current = true;
@@ -634,12 +643,12 @@ export function OnboardingShell({
                             key={`${message.id}-build-${partIndex}`}
                             state={build}
                             preview={preview}
+                            startPending={continueLearning.isPending}
                             onStartLearning={() => {
                               if (preview || !build.sessionId) return;
-                              router.replace(
-                                `/workspace?session=${encodeURIComponent(build.sessionId)}`,
-                              );
-                              router.refresh();
+                              continueLearning.mutate({
+                                sessionId: build.sessionId,
+                              });
                             }}
                             onSeeOverview={() => {
                               if (preview || !build.sessionId) return;

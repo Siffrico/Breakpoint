@@ -1,5 +1,5 @@
 import type { SyllabusOutput } from "./contracts";
-import { runAgent } from "../orchestration/agent-runtime";
+import { runResilientAgent } from "../orchestration/agent-runtime";
 import { SyllabusOutputSchema } from "./contracts";
 
 export interface SyllabusSkillInput {
@@ -21,7 +21,7 @@ Search for current practitioner evidence, official guidance, postmortems, and fi
 export const designSyllabus = async (
   skill: SyllabusSkillInput,
 ): Promise<SyllabusOutput> =>
-  runAgent({
+  runResilientAgent({
     agent: "syllabusDesigner",
     system: SYLLABUS_DESIGNER_SYSTEM,
     schema: SyllabusOutputSchema,

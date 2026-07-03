@@ -38,6 +38,7 @@ interface AdvanceCompletedUnitDependencies {
     ratingDeviation: number;
     peakRating: number;
     simulationPassed: boolean;
+    maxRatingDeviation?: number;
   }>;
   openSimulation: (clusterNodeId: string) => Promise<unknown>;
   scheduleBackgroundTask?: (task: () => Promise<void>) => void;

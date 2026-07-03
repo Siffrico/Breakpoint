@@ -8,16 +8,122 @@ import { runPrepareUnit } from "../domain/training/unit-preparation/prepare-unit
 import { buildProjectCheckpointRepository } from "./build-project-checkpoint-repository";
 import { buildProjectCurriculumRepository } from "./build-project-curriculum-repository";
 import { buildProjectProfileRepository } from "./build-project-profile-repository";
-import {
-  trainingCurriculumRepository as curriculumRepository,
-  trainingCurriculumRepository,
-} from "./training-curriculum-repository";
+import { trainingCurriculumRepository } from "./training-curriculum-repository";
 import { trainingOnboardingRepository } from "./training-onboarding-repository";
 import { trainingSyllabusRepository } from "./training-syllabus-repository";
 import { createUnitMintingRepositoryDeps } from "./unit-minting-repository-deps";
 import { createUnitPreparationRepositoryDeps } from "./unit-preparation-repository-deps";
 
 type Database = typeof databaseClient;
+
+export const ensureSkillSyllabus = async ({
+  db,
+  clusterNodeId,
+  targetIdentity,
+}: {
+  db: Database;
+  clusterNodeId: string;
+  targetIdentity: string;
+}) => {
+  const cluster = await trainingCurriculumRepository.getNodeById({
+    db,
+    nodeId: clusterNodeId,
+  });
+  if (!cluster?.skillMap) return null;
+  const existing = await trainingSyllabusRepository.listEntries({
+    db,
+    clusterNodeId,
+  });
+  if (existing.length > 0) return existing;
+  const syllabus = await designSyllabus({
+    title: cluster.title,
+    summary: cluster.summary,
+    targetIdentity,
+    workflow: cluster.skillMap.workflow,
+    masteryContract: cluster.skillMap.masteryContract,
+  });
+  return trainingSyllabusRepository.ensureSyllabus({
+    db,
+    clusterNodeId,
+    entries: syllabus.entries,
+  });
+};
+
+export const ensureSkillUnit = async ({
+  db,
+  clusterNodeId,
+  sessionId,
+  userId,
+}: {
+  db: Database;
+  clusterNodeId: string;
+  sessionId: string;
+  userId: string;
+}) =>
+  mintNextUnit({
+    clusterNodeId,
+    deps: createUnitMintingRepositoryDeps({ db, sessionId, userId }),
+  });
+
+export const recoverSkillUnits = async ({
+  db,
+  sessionId,
+  userId,
+}: {
+  db: Database;
+  sessionId: string;
+  userId: string;
+}) => {
+  const plan = await trainingCurriculumRepository.getActivePlan({
+    db,
+    sessionId,
+  });
+  if (!plan) return;
+  const rawNodes = await trainingCurriculumRepository.listNodesByPlanIds({
+    db,
+    planIds: [plan.id],
+  });
+  const usesDynamicSkills = rawNodes.some((node) => node.skillMap != null);
+  if (!usesDynamicSkills) {
+    const hasReadyUnit = rawNodes.some(
+      (node) =>
+        (node.kind === "unit" || node.kind === "integration") &&
+        node.status === "ready",
+    );
+    const latestCompletedUnit = rawNodes
+      .filter(
+        (node) =>
+          (node.kind === "unit" || node.kind === "integration") &&
+          node.status === "completed",
+      )
+      .at(-1);
+    if (!hasReadyUnit && latestCompletedUnit) {
+      await trainingCurriculumRepository.advancePlanAfterCompletion({
+        db,
+        nodeId: latestCompletedUnit.id,
+      });
+    }
+    return;
+  }
+  const skills = plan.nodes.filter((node) => node.kind === "skill_cluster");
+  await Promise.allSettled(
+    skills.map(async (skill) => {
+      const syllabus = await ensureSkillSyllabus({
+        db,
+        clusterNodeId: skill.id,
+        targetIdentity: plan.targetIdentity,
+      });
+      if (syllabus) {
+        await ensureSkillUnit({
+          db,
+          clusterNodeId: skill.id,
+          sessionId,
+          userId,
+        });
+      }
+    }),
+  );
+};
 
 /**
  * Edge adapter that wires {@link BuildProjectDeps} to the repositories for a
@@ -153,33 +259,7 @@ export const createBuildProjectDeps = (db: Database): BuildProjectDeps => ({
       sessionId,
       deps: createUnitPreparationRepositoryDeps(db),
     }),
-  ensureSkillSyllabus: async ({ clusterNodeId, targetIdentity }) => {
-    const cluster = await curriculumRepository.getNodeById({
-      db,
-      nodeId: clusterNodeId,
-    });
-    if (!cluster?.skillMap) throw new Error("Skill map is missing.");
-    const existing = await trainingSyllabusRepository.listEntries({
-      db,
-      clusterNodeId,
-    });
-    if (existing.length > 0) return existing;
-    const syllabus = await designSyllabus({
-      title: cluster.title,
-      summary: cluster.summary,
-      targetIdentity,
-      workflow: cluster.skillMap.workflow,
-      masteryContract: cluster.skillMap.masteryContract,
-    });
-    return trainingSyllabusRepository.ensureSyllabus({
-      db,
-      clusterNodeId,
-      entries: syllabus.entries,
-    });
-  },
+  ensureSkillSyllabus: (input) => ensureSkillSyllabus({ db, ...input }),
   mintSkillUnit: ({ clusterNodeId, sessionId, userId }) =>
-    mintNextUnit({
-      clusterNodeId,
-      deps: createUnitMintingRepositoryDeps({ db, sessionId, userId }),
-    }),
+    ensureSkillUnit({ db, clusterNodeId, sessionId, userId }),
 });

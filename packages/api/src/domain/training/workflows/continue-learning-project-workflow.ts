@@ -4,6 +4,7 @@ import { err, ok } from "../../../lib/result";
 
 interface ContinueLearningProjectDependencies {
   getActivePlan: (sessionId: string) => Promise<CurriculumPlan | null>;
+  recoverSkillUnits: () => Promise<void>;
   prepareUnit: (input: {
     nodeId: string;
     sessionId: string;
@@ -22,15 +23,25 @@ export const continueLearningProjectWorkflow = async ({
   sessionId: string;
   deps: ContinueLearningProjectDependencies;
 }): Promise<Result<{ sessionId: string; nodeId: string; href: string }>> => {
-  const plan = await deps.getActivePlan(sessionId);
+  let plan = await deps.getActivePlan(sessionId);
   if (!plan) {
     return err("This project's curriculum is not ready yet.");
   }
 
-  const learningNodes = plan.nodes
+  let learningNodes = plan.nodes
     .filter((node) => node.kind === "unit" || node.kind === "integration")
     .sort((left, right) => left.orderIndex - right.orderIndex);
-  const nextNode = learningNodes.find((node) => node.status === "ready");
+  let nextNode = learningNodes.find((node) => node.status === "ready");
+
+  if (!nextNode) {
+    await deps.recoverSkillUnits();
+    plan = await deps.getActivePlan(sessionId);
+    if (!plan) return err("This project's curriculum is not ready yet.");
+    learningNodes = plan.nodes
+      .filter((node) => node.kind === "unit" || node.kind === "integration")
+      .sort((left, right) => left.orderIndex - right.orderIndex);
+    nextNode = learningNodes.find((node) => node.status === "ready");
+  }
 
   if (!nextNode) {
     const isComplete =

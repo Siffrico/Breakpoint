@@ -93,7 +93,7 @@ export const mintNextUnit = async <TNode>({
   const calibrated = await deps.resolveDirective(clusterNodeId);
   const persisted = await deps.appendUnit({
     clusterNodeId,
-    title: targets.map((entry) => entry.label).join(" · "),
+    title: `Practice ${targets.map((entry) => entry.label).join(" and ")}`,
     summary: `Practice ${targets.map((entry) => entry.gloss).join(" ")}`,
     whyItMatters: skill.whyItMatters,
     difficultyBands: buildMintedDifficultyBands(calibrated.directive),

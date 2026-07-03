@@ -161,7 +161,10 @@ export interface CurriculumNodeBlueprint {
   skillMap: {
     workflow: { name: string; steps: string[] };
     bandRamp: { startRating: number; peakRating: number };
-    masteryContract: { exitCriteria: string[] };
+    masteryContract: {
+      exitCriteria: string[];
+      maxRatingDeviation?: number;
+    };
   } | null;
 }
 

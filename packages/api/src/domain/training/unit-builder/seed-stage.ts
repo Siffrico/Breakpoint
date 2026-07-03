@@ -95,8 +95,12 @@ Completed clusters for integration: ${integrationContext}
 Target identity: ${context.learner.targetIdentity}
 Prior learning:
 ${priorLearning}
-Workflow: ${context.syllabus.workflow.name}
+${
+  context.syllabus
+    ? `Workflow: ${context.syllabus.workflow.name}
 Workflow spine: ${context.syllabus.workflow.steps.join(" -> ")}
 Already checked (assume known): ${context.syllabus.checked.map((entry) => `${entry.label}: ${entry.gloss}`).join("; ") || "None"}
-This unit must land: ${context.syllabus.targets.map((entry) => `${entry.label}: ${entry.gloss}`).join("; ")}`;
+This unit must land: ${context.syllabus.targets.map((entry) => `${entry.label}: ${entry.gloss}`).join("; ")}`
+    : "Legacy curriculum: follow the node learning goal and sequence context; no syllabus frontier is attached."
+}`;
 };

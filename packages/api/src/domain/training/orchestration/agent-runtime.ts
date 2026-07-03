@@ -25,13 +25,18 @@ const PURPOSE_BY_AGENT = {
   projectOverview: "projectOverview",
 } as const;
 
-const getReasoningProviderOptions = (budget: number) => ({
-  openai: { reasoningEffort: "high" as const, reasoningSummary: "auto" as const },
-  google: {
-    thinkingConfig: { thinkingBudget: budget, includeThoughts: true },
-  },
-  openrouter: { reasoning: { enabled: true, max_tokens: budget } },
-});
+const getReasoningProviderOptions = (budget: number) => {
+  const effort = budget >= 8_192 ? "high" : budget >= 4_096 ? "medium" : "low";
+  return {
+    openai: { reasoningEffort: effort, reasoningSummary: "auto" as const },
+    google: {
+      // Gemini 3 uses thinkingLevel; older Gemini models ignore it and retain
+      // their provider default rather than receiving an invalid token budget.
+      thinkingConfig: { thinkingLevel: effort, includeThoughts: true },
+    },
+    openrouter: { reasoning: { enabled: true, max_tokens: budget } },
+  };
+};
 
 export const runAgent = async <TSchema extends z.ZodTypeAny>({
   agent,
@@ -64,11 +69,14 @@ export const runAgent = async <TSchema extends z.ZodTypeAny>({
       prompt,
       tools: getSearchToolsForSelectedProvider(purpose),
       stopWhen: stepCountIs(profile.maxSteps),
-      maxOutputTokens:
-        profile.maxOutputTokens + profile.reasoningBudgetTokens,
-      providerOptions: getReasoningProviderOptions(
-        profile.reasoningBudgetTokens,
-      ),
+      maxOutputTokens: profile.maxOutputTokens + profile.reasoningBudgetTokens,
+      ...(profile.reasoningBudgetTokens > 0
+        ? {
+            providerOptions: getReasoningProviderOptions(
+              profile.reasoningBudgetTokens,
+            ),
+          }
+        : {}),
     });
     const object = await result.output;
 
@@ -288,9 +296,13 @@ export const runResilientAgent = async <TSchema extends z.ZodTypeAny>({
         stopWhen: stepCountIs(profile.maxSteps),
         maxOutputTokens:
           profile.maxOutputTokens + profile.reasoningBudgetTokens,
-        providerOptions: getReasoningProviderOptions(
-          profile.reasoningBudgetTokens,
-        ),
+        ...(profile.reasoningBudgetTokens > 0
+          ? {
+              providerOptions: getReasoningProviderOptions(
+                profile.reasoningBudgetTokens,
+              ),
+            }
+          : {}),
       });
 
       for await (const next of result.partialOutputStream) {

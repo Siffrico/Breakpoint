@@ -81,7 +81,10 @@ export const TrainingCurriculumNode = pgTable(
     skillMap: t.jsonb().$type<{
       workflow: { name: string; steps: string[] };
       bandRamp: { startRating: number; peakRating: number };
-      masteryContract: { exitCriteria: string[] };
+      masteryContract: {
+        exitCriteria: string[];
+        maxRatingDeviation?: number;
+      };
     }>(),
     orderIndex: t.integer().notNull(),
     depth: t.integer().notNull(),

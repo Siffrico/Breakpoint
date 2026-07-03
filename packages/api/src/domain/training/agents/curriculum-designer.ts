@@ -18,7 +18,7 @@ For each skill:
 - Give the workflow a concrete output-oriented name and 3-7 ordered reasoning/action steps.
 - Set bandRamp.startRating near the lowest scaffoldable whole-task performance and peakRating at genuine expert transfer under ambiguity.
 - Define a realistic simulation with a situation, required action/output, and externally checkable stakes.
-- Define a mastery contract as observable exit criteria for independent expert performance.
+- Define a mastery contract as observable exit criteria for independent expert performance. Set maxRatingDeviation only when the skill needs a stability threshold different from the default 80.
 - Keep skills independent: mastering one must not require completing another skill's authored sequence first.
 
 Difficulty and pedagogy:

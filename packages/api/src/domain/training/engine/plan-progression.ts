@@ -40,24 +40,35 @@ export type MasteryProgressionDecision =
   | { intent: "simulation" }
   | { intent: "cluster_complete" };
 
+export const usesMintedMasteryLoop = ({
+  nodeKind,
+  parentHasSkillMap,
+}: {
+  nodeKind: CurriculumNodeKind;
+  parentHasSkillMap: boolean;
+}): boolean =>
+  nodeKind === "simulation" || (nodeKind === "unit" && parentHasSkillMap);
+
 export const decideMasteryProgression = ({
   uncheckedEntryCount,
   learnerRating,
   ratingDeviation,
   peakRating,
   simulationPassed,
+  maxRatingDeviation = 80,
 }: {
   uncheckedEntryCount: number;
   learnerRating: number;
   ratingDeviation: number;
   peakRating: number;
   simulationPassed: boolean;
+  maxRatingDeviation?: number;
 }): MasteryProgressionDecision => {
   if (simulationPassed) return { intent: "cluster_complete" };
   if (
     uncheckedEntryCount === 0 &&
     learnerRating >= peakRating &&
-    ratingDeviation <= 80
+    ratingDeviation <= maxRatingDeviation
   ) {
     return { intent: "simulation" };
   }

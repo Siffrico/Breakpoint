@@ -120,6 +120,28 @@ afterEach(() => {
 });
 
 describe("prepareUnitContent", () => {
+  it("prepares a legacy unit without syllabus targets", async () => {
+    runSeedStageMock.mockResolvedValue(setup);
+    const legacyParent = planNodes[0];
+    if (!legacyParent) throw new Error("Expected a legacy parent node.");
+    const legacyNodes = [
+      { ...legacyParent, kind: "root", skillMap: undefined },
+      { ...planNode, parentNodeId: "cluster-1" },
+    ];
+    const result = await Effect.runPromise(
+      prepareUnitContent({
+        node,
+        sessionId: "session-1",
+        deps: makeDeps({
+          getPlanNodesBySession: vi.fn(() => Promise.resolve(legacyNodes)),
+          getUnitSyllabusContext: vi.fn(() => Promise.resolve(null)),
+        }),
+      }),
+    );
+
+    expect(result).toBe(unit);
+  });
+
   it("short-circuits an existing row without spending an LLM call", async () => {
     const deps = makeDeps({
       getUnitByNodeId: vi.fn(() => Promise.resolve(unit)),

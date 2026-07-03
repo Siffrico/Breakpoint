@@ -24,6 +24,7 @@ interface PlanNodeContext {
   readonly whyItMatters: string;
   readonly orderIndex: number;
   readonly status: string;
+  readonly skillMap?: unknown;
 }
 
 export interface UnitPreparationDependencies {
@@ -103,14 +104,17 @@ const assembleSeedContext = ({
   if (!targetIdentity?.trim()) {
     return Effect.fail(contextMissing("Target identity is missing."));
   }
-  if (!syllabus || syllabus.targets.length === 0) {
-    return Effect.fail(contextMissing("Unit syllabus targets are missing."));
-  }
-
   const parentNode = node.parentNodeId
     ? (planNodes.find((candidate) => candidate.id === node.parentNodeId) ??
       null)
     : null;
+  if (
+    parentNode?.kind === "skill_cluster" &&
+    parentNode.skillMap &&
+    !syllabus
+  ) {
+    return Effect.fail(contextMissing("Unit syllabus targets are missing."));
+  }
   const siblingUnits = planNodes
     .filter(
       (candidate) =>

@@ -8,7 +8,7 @@ export interface RunProfile {
 }
 
 const STANDARD_PROFILE = {
-  reasoningBudgetTokens: 4_096,
+  reasoningBudgetTokens: 0,
   maxOutputTokens: 4_096,
   maxSteps: 4,
   search: false,
@@ -36,9 +36,9 @@ export const RUN_PROFILES = {
   },
   failure: { ...STANDARD_PROFILE, reasoningBudgetTokens: 8_192 },
   ghost: { ...STANDARD_PROFILE, reasoningBudgetTokens: 8_192 },
-  education: STANDARD_PROFILE,
+  education: { ...STANDARD_PROFILE, reasoningBudgetTokens: 4_096 },
   recall: STANDARD_PROFILE,
-  evaluation: STANDARD_PROFILE,
+  evaluation: { ...STANDARD_PROFILE, reasoningBudgetTokens: 4_096 },
   tutor: STANDARD_PROFILE,
   capstone: { ...STANDARD_PROFILE, reasoningBudgetTokens: 8_192 },
   projectOverview: {

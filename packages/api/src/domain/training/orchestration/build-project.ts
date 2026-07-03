@@ -76,7 +76,7 @@ export interface ProjectBuildState {
   /** Display name (human-readable), resolved in the `name` step. */
   projectName: string;
   steps: ProjectBuildStepState[];
-  /** Unit titles, revealed once the curriculum agent returns. */
+  /** Skill titles, revealed once the curriculum agent returns. */
   modules: string[];
   moduleCount: number;
   // Populated as soon as the shell exists (before AI runs), so the library and
@@ -931,14 +931,14 @@ export const buildProjectFromOnboarding = async ({
   }
 
   const skills = plan.nodes.filter((node) => node.kind === "skill_cluster");
-  for (const [index, skill] of skills.entries()) {
+  for (const skill of skills) {
     const prepareSkill = async () => {
       try {
         await deps.ensureSkillSyllabus({
           clusterNodeId: skill.id,
           targetIdentity: plan.targetIdentity,
         });
-        if (index === 0 && userId) {
+        if (userId) {
           await deps.mintSkillUnit({
             clusterNodeId: skill.id,
             sessionId,

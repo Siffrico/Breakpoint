@@ -6,7 +6,22 @@ import {
   planAdvancement,
   planCompletion,
   rollUpParentStatus,
+  usesMintedMasteryLoop,
 } from "./plan-progression";
+
+describe("usesMintedMasteryLoop", () => {
+  it("keeps legacy and imported units on list advancement", () => {
+    expect(
+      usesMintedMasteryLoop({ nodeKind: "unit", parentHasSkillMap: false }),
+    ).toBe(false);
+  });
+
+  it("routes dynamic skill units through minting", () => {
+    expect(
+      usesMintedMasteryLoop({ nodeKind: "unit", parentHasSkillMap: true }),
+    ).toBe(true);
+  });
+});
 
 describe("decideMasteryProgression", () => {
   it("keeps minting while knowledge remains unchecked", () => {

@@ -3,7 +3,10 @@ import { and, desc, eq, ne } from "@acme/db";
 import { TrainingCurriculumNode } from "@acme/db/schema";
 
 import type { MintNextUnitDependencies } from "../domain/training/unit-minting/mint-next-unit";
-import { createInitialRatingState } from "../domain/training/engine/rating";
+import {
+  createInitialRatingState,
+  expandSkillBands,
+} from "../domain/training/engine/rating";
 import { resolveScenarioDirective } from "../domain/training/orchestration/goldilocks";
 import { runPrepareUnit } from "../domain/training/unit-preparation/prepare-unit-edge";
 import { appendMintedUnitNode } from "./training-curriculum-node-writer";
@@ -14,18 +17,6 @@ import { createUnitPreparationRepositoryDeps } from "./unit-preparation-reposito
 
 type Database = typeof databaseClient;
 type NodeRow = typeof TrainingCurriculumNode.$inferSelect;
-
-const bandsFromRamp = (ramp: { startRating: number; peakRating: number }) => {
-  const span = Math.max(ramp.peakRating - ramp.startRating, 3);
-  const width = Math.max(Math.round(span / 3), 1);
-  return [0, 1, 2].map((order) => ({
-    order,
-    minRating: ramp.startRating + width * order,
-    maxRating:
-      order === 2 ? ramp.peakRating : ramp.startRating + width * (order + 1),
-    label: `Band ${order + 1}`,
-  }));
-};
 
 export const createUnitMintingRepositoryDeps = ({
   db,
@@ -78,7 +69,8 @@ export const createUnitMintingRepositoryDeps = ({
       userId,
       nodeId: clusterNodeId,
       now: new Date(),
-      bands: bandsFromRamp(cluster.skillMap.bandRamp),
+      bands:
+        cluster.difficultyBands ?? expandSkillBands(cluster.skillMap.bandRamp),
       deps: createTrainingRatingGoldilocksDeps(db),
     });
   },
@@ -126,6 +118,8 @@ export const loadSkillMasteryState = async ({
     learnerRating: progress.ratingState.rating,
     ratingDeviation: progress.ratingState.ratingDeviation,
     peakRating: cluster.skillMap.bandRamp.peakRating,
+    maxRatingDeviation:
+      cluster.skillMap.masteryContract.maxRatingDeviation ?? 80,
     simulationPassed: simulation?.status === "completed",
   };
 };

@@ -91,6 +91,9 @@ export const appendMintedUnitNode = async ({
       where: eq(TrainingCurriculumNode.id, clusterNodeId),
     });
     if (!cluster) throw new Error("Skill cluster was not found.");
+    await transactionDb.execute(
+      sql`select pg_advisory_xact_lock(hashtext(${cluster.planId}), hashtext('mint-unit-order'))`,
+    );
 
     const open = await transactionDb.query.TrainingCurriculumNode.findFirst({
       where: and(

@@ -9,9 +9,7 @@ import { CapstoneSubmissionSchema } from "@acme/validators";
 import { deriveProvisionalProjectTitle } from "../domain/training/services/provisional-project-title";
 import { mintNextUnit } from "../domain/training/unit-minting/mint-next-unit";
 import { UnitNotReadyError } from "../domain/training/unit-preparation/errors";
-import {
-  raiseUnitPreparationError,
-} from "../domain/training/unit-preparation/prepare-unit-edge";
+import { raiseUnitPreparationError } from "../domain/training/unit-preparation/prepare-unit-edge";
 import { advanceCompletedUnitWorkflow } from "../domain/training/workflows/advance-completed-unit-workflow";
 import { continueLearningProjectWorkflow } from "../domain/training/workflows/continue-learning-project-workflow";
 import { createLearningProjectWorkflow } from "../domain/training/workflows/create-learning-project-workflow";
@@ -27,6 +25,7 @@ import { prepareUnitWorkflow } from "../domain/training/workflows/prepare-unit-w
 import { startOnboardingWorkflow } from "../domain/training/workflows/start-onboarding-workflow";
 import { submitAiWorkspaceMessageWorkflow } from "../domain/training/workflows/submit-ai-workspace-message-workflow";
 import { submitCapstoneMessageWorkflow } from "../domain/training/workflows/submit-capstone-message-workflow";
+import { recoverSkillUnits } from "../repositories/build-project-repository-deps";
 import { trainingAttemptRepository } from "../repositories/training-attempt-repository";
 import { trainingCapstoneRepository } from "../repositories/training-capstone-repository";
 import { trainingCurriculumRepository } from "../repositories/training-curriculum-repository";
@@ -725,6 +724,12 @@ export const trainingRouter = {
               trainingCurriculumRepository.getActivePlan({
                 db: ctx.db,
                 sessionId,
+              }),
+            recoverSkillUnits: () =>
+              recoverSkillUnits({
+                db: ctx.db,
+                sessionId: input.sessionId,
+                userId: ctx.session.user.id,
               }),
             prepareUnit: ({ nodeId, sessionId }) =>
               prepareUnitWorkflow({

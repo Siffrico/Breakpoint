@@ -56,6 +56,7 @@ export const CurriculumPlanDraftSchema = z.object({
         }),
         masteryContract: z.object({
           exitCriteria: z.array(z.string().min(1)).min(1),
+          maxRatingDeviation: z.number().int().min(30).max(200).optional(),
         }),
       }),
     )

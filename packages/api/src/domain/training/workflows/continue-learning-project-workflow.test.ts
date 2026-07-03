@@ -81,6 +81,7 @@ describe("continueLearningProjectWorkflow", () => {
       sessionId: "session-1",
       deps: {
         getActivePlan: vi.fn().mockResolvedValue(plan),
+        recoverSkillUnits: vi.fn().mockResolvedValue(undefined),
         prepareUnit,
       },
     });
@@ -113,6 +114,7 @@ describe("continueLearningProjectWorkflow", () => {
             status: node.id === "unit-complete" ? "completed" : "planned",
           })),
         }),
+        recoverSkillUnits: vi.fn().mockResolvedValue(undefined),
         prepareUnit,
       },
     });
@@ -137,6 +139,7 @@ describe("continueLearningProjectWorkflow", () => {
             status: "completed" as const,
           })),
         }),
+        recoverSkillUnits: vi.fn().mockResolvedValue(undefined),
         prepareUnit,
       },
     });
@@ -153,6 +156,7 @@ describe("continueLearningProjectWorkflow", () => {
       sessionId: "session-1",
       deps: {
         getActivePlan: vi.fn().mockResolvedValue(plan),
+        recoverSkillUnits: vi.fn().mockResolvedValue(undefined),
         prepareUnit: vi.fn().mockResolvedValue({
           success: false,
           error: "Failed to generate unit setup.",
@@ -164,5 +168,34 @@ describe("continueLearningProjectWorkflow", () => {
       success: false,
       error: "Failed to generate unit setup.",
     });
+  });
+
+  it("recovers missing dynamic units before reporting the project blocked", async () => {
+    const recoveredPlan = {
+      ...plan,
+      nodes: plan.nodes.map((node) =>
+        node.id === "unit-ready" ? { ...node, status: "ready" as const } : node,
+      ),
+    };
+    const getActivePlan = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ...plan,
+        nodes: [],
+      })
+      .mockResolvedValueOnce(recoveredPlan);
+    const recoverSkillUnits = vi.fn().mockResolvedValue(undefined);
+
+    const result = await continueLearningProjectWorkflow({
+      sessionId: "session-1",
+      deps: {
+        getActivePlan,
+        recoverSkillUnits,
+        prepareUnit: vi.fn().mockResolvedValue({ success: true, data: {} }),
+      },
+    });
+
+    expect(recoverSkillUnits).toHaveBeenCalledOnce();
+    expect(result.success).toBe(true);
   });
 });
