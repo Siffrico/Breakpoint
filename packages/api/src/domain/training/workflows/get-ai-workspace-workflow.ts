@@ -3,7 +3,7 @@ import { Cause, Effect, Exit } from "effect";
 
 import type { DbError } from "../../../effect/errors";
 import type { Result } from "../../../lib/result";
-import type { CurriculumNode, CurriculumPlan } from "../types/training.types";
+import type { CurriculumPlan } from "../types/training.types";
 import type {
   EvaluationPlan,
   WorkspaceAiMessage,
@@ -25,7 +25,9 @@ import {
   WorkspaceProjectionReader,
 } from "../workspace-ai/workspace-reader";
 import {
+  getNextReadyLearningNode,
   getUnitAdvanceGate,
+  getWorkspaceMessageSlot,
   resolveUnitRunProjection,
 } from "../workspace-ai/workspace-turn";
 
@@ -214,16 +216,6 @@ export const getAiWorkspaceWorkflow = async ({
   }
   throw failure;
 };
-
-const getNextReadyLearningNode = (nodes: CurriculumNode[]) =>
-  nodes.find(
-    (node) =>
-      (node.kind === "unit" || node.kind === "integration") &&
-      node.status === "ready",
-  ) ?? null;
-
-const getWorkspaceMessageSlot = (mode: WorkspaceAiState["mode"]) =>
-  mode === "recall" ? "recall" : "education_unit";
 
 export const buildWorkspaceIntroMessage = ({
   plan,
