@@ -64,12 +64,6 @@ const packet: OnboardingPacket = {
   confidenceFlags: [],
 };
 
-const buildUnit = (index: number) => ({
-  title: `Unit ${index + 1}`,
-  learningGoal:
-    "Given a concrete replicated-service failure, identify the causal mechanism and choose the next operational move.",
-});
-
 const curriculum: CurriculumDesignerOutput = {
   identityReport: {
     targetIdentity: "backend engineer",
@@ -106,16 +100,71 @@ const curriculum: CurriculumDesignerOutput = {
         title: "Diagnose replicated-service failures",
         summary: "Trace reads, writes, lag, and acknowledgement boundaries.",
         whyItMatters: "Reliability claims fail here first.",
-        units: Array.from({ length: 20 }, (_, index) => buildUnit(index)),
+        workflow: {
+          name: "Diagnose a replicated-service failure",
+          steps: [
+            "Collect evidence",
+            "Trace message flow",
+            "Choose the next probe",
+          ],
+        },
         bandRamp: { startRating: 1000, peakRating: 1600 },
         simulation: {
           title: "Checkout under replica lag",
           summary: "Diagnose stale inventory during a live incident.",
           whyItMatters: "It combines user impact and consistency mechanics.",
         },
+        masteryContract: {
+          exitCriteria: [
+            "Diagnoses the causal mechanism from incomplete evidence.",
+          ],
+        },
+      },
+      {
+        title: "Choose consistency guarantees",
+        summary: "Match guarantees to user-visible invariants.",
+        whyItMatters: "Guarantees determine failure behavior.",
+        workflow: {
+          name: "Choose a consistency guarantee",
+          steps: [
+            "Name the invariant",
+            "Model failures",
+            "Select the guarantee",
+          ],
+        },
+        bandRamp: { startRating: 1000, peakRating: 1600 },
+        simulation: {
+          title: "Inventory guarantee review",
+          summary: "Choose guarantees for a constrained checkout system.",
+          whyItMatters: "It exposes the real tradeoff.",
+        },
+        masteryContract: {
+          exitCriteria: ["Defends a guarantee from invariants."],
+        },
+      },
+      {
+        title: "Design safe retries",
+        summary: "Prevent duplicate effects across partial failures.",
+        whyItMatters: "Retries amplify unsafe state transitions.",
+        workflow: {
+          name: "Design a retry-safe operation",
+          steps: [
+            "Locate effects",
+            "Define identity",
+            "Verify replay behavior",
+          ],
+        },
+        bandRamp: { startRating: 1000, peakRating: 1600 },
+        simulation: {
+          title: "Payment timeout",
+          summary: "Recover a timed-out payment without duplicate charge.",
+          whyItMatters: "It tests effect safety.",
+        },
+        masteryContract: {
+          exitCriteria: ["Proves retry safety under ambiguity."],
+        },
       },
     ],
-    integrationLayers: [],
   },
 };
 
@@ -187,8 +236,8 @@ describe("buildProjectFromOnboarding repository integration", () => {
           if (!result.success) {
             throw new Error(result.error);
           }
-          expect(result.data.moduleCount).toBe(20);
-          expect(result.data.firstUnitId).toEqual(expect.any(String));
+          expect(result.data.moduleCount).toBe(3);
+          expect(result.data.firstUnitId).toBeNull();
 
           const run = await buildProjectCheckpointRepository.getRun({
             db: testDb,
@@ -206,15 +255,14 @@ describe("buildProjectFromOnboarding repository integration", () => {
               })
             : [];
           expect(
-            activePlan?.nodes.some((node) => node.difficultyBands),
-            `Expected at least one active-plan node with difficultyBands. Raw DB values: ${JSON.stringify(
+            rawNodes.some((node) => node.skillMap),
+            `Expected at least one persisted skill map. Raw DB values: ${JSON.stringify(
               rawNodes.map((node) => ({
                 kind: node.kind,
-                difficultyBands: node.difficultyBands,
+                skillMap: node.skillMap,
               })),
             )}`,
           ).toBe(true);
-          expect(activePlan?.nodes[0]?.difficultyBands).toBeNull();
 
           throw new Error(rollbackMessage);
         });

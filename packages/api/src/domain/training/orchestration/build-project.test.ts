@@ -82,10 +82,23 @@ const packet: OnboardingPacket = {
   confidenceFlags: [],
 };
 
-const buildUnit = (index: number) => ({
-  title: `Unit ${index + 1}`,
-  learningGoal:
-    "Given a concrete replicated-service failure, identify the causal mechanism and choose the next operational move.",
+const buildSkill = (index: number) => ({
+  title: `Diagnose replicated-service failure ${index + 1}`,
+  summary: "Trace reads, writes, lag, and acknowledgement boundaries.",
+  whyItMatters: "Reliability claims fail here first.",
+  workflow: {
+    name: "Diagnose a replicated-service failure",
+    steps: ["Collect evidence", "Trace message flow", "Choose the next probe"],
+  },
+  bandRamp: { startRating: 1000, peakRating: 1600 },
+  simulation: {
+    title: `Checkout under replica lag ${index + 1}`,
+    summary: "Diagnose stale inventory during a live incident.",
+    whyItMatters: "It combines user impact and consistency mechanics.",
+  },
+  masteryContract: {
+    exitCriteria: ["Diagnoses the causal mechanism from incomplete evidence."],
+  },
 });
 
 const curriculum: CurriculumDesignerOutput = {
@@ -119,21 +132,7 @@ const curriculum: CurriculumDesignerOutput = {
     title: "Distributed systems",
     summary: "Practice operational judgment for replicated services.",
     targetIdentity: "backend engineer",
-    clusters: [
-      {
-        title: "Diagnose replicated-service failures",
-        summary: "Trace reads, writes, lag, and acknowledgement boundaries.",
-        whyItMatters: "Reliability claims fail here first.",
-        units: Array.from({ length: 20 }, (_, index) => buildUnit(index)),
-        bandRamp: { startRating: 1000, peakRating: 1600 },
-        simulation: {
-          title: "Checkout under replica lag",
-          summary: "Diagnose stale inventory during a live incident.",
-          whyItMatters: "It combines user impact and consistency mechanics.",
-        },
-      },
-    ],
-    integrationLayers: [],
+    clusters: Array.from({ length: 3 }, (_, index) => buildSkill(index)),
   },
 };
 

@@ -30,6 +30,7 @@ export const insertBlueprintNodes = async ({
         positionColumn: node.positionColumn,
         positionRow: node.positionRow,
         difficultyBands: node.difficultyBands ?? null,
+        skillMap: node.skillMap,
         parentNodeId: null,
       })),
     )

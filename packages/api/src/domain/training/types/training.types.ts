@@ -158,6 +158,11 @@ export interface CurriculumNodeBlueprint {
   positionColumn: number;
   positionRow: number;
   difficultyBands: DifficultyBand[] | null;
+  skillMap: {
+    workflow: { name: string; steps: string[] };
+    bandRamp: { startRating: number; peakRating: number };
+    masteryContract: { exitCriteria: string[] };
+  } | null;
 }
 
 export interface PostSeedGenerationResult {

@@ -275,13 +275,11 @@ export interface BuildProjectDeps {
 }
 
 const countModules = (plan: CurriculumPlan): number =>
-  plan.nodes.filter(
-    (node) => node.kind === "unit" || node.kind === "integration",
-  ).length;
+  plan.nodes.filter((node) => node.kind === "skill_cluster").length;
 
 const moduleTitles = (blueprint: CurriculumBlueprint): string[] =>
   blueprint.nodes
-    .filter((node) => node.kind === "unit" || node.kind === "integration")
+    .filter((node) => node.kind === "skill_cluster")
     .map((node) => node.title);
 
 const getProjectBuildSourceKey = (input: CreateProjectInput) =>
@@ -503,7 +501,7 @@ export const buildProjectFromOnboarding = async ({
       state.phase = "complete";
       state.projectName = existingPlan.title || projectName;
       state.modules = existingPlan.nodes
-        .filter((node) => node.kind === "unit" || node.kind === "integration")
+        .filter((node) => node.kind === "skill_cluster")
         .map((node) => node.title);
       state.moduleCount = countModules(existingPlan);
       state.planId = existingPlan.id;
@@ -891,7 +889,7 @@ export const buildProjectFromOnboarding = async ({
   state.projectName = plan.title || projectName;
   state.moduleCount = countModules(plan);
   state.modules = plan.nodes
-    .filter((node) => node.kind === "unit" || node.kind === "integration")
+    .filter((node) => node.kind === "skill_cluster")
     .map((node) => node.title);
   state.planId = plan.id;
   state.firstUnitId = plan.nextUnitId;

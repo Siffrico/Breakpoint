@@ -1,8 +1,6 @@
 import { z } from "zod/v4";
 
-import type {
-  OnboardingTranscriptMessageSchema,
-} from "@acme/validators";
+import type { OnboardingTranscriptMessageSchema } from "@acme/validators";
 import {
   BeforeAfterProfileSchema,
   IdentityReportSchema,
@@ -19,11 +17,6 @@ export const OnboardingPacketSchema = z.object({
   identityFriction: z.string().min(1),
   behaviorSignals: z.array(z.string().min(1)).min(3),
   confidenceFlags: z.array(z.string().min(1)),
-});
-
-const CurriculumUnitDraftSchema = z.object({
-  title: z.string().min(1),
-  learningGoal: z.string().min(1),
 });
 
 /**
@@ -51,29 +44,36 @@ export const CurriculumPlanDraftSchema = z.object({
         title: z.string().min(1),
         summary: z.string().min(1),
         whyItMatters: z.string().min(1),
-        units: z.array(CurriculumUnitDraftSchema).min(8).max(24),
+        workflow: z.object({
+          name: z.string().min(1),
+          steps: z.array(z.string().min(1)).min(3).max(7),
+        }),
         bandRamp: BandRampSchema,
         simulation: z.object({
           title: z.string().min(1),
           summary: z.string().min(1),
           whyItMatters: z.string().min(1),
         }),
+        masteryContract: z.object({
+          exitCriteria: z.array(z.string().min(1)).min(1),
+        }),
       }),
     )
-    .min(1)
-    .max(7),
-  integrationLayers: z
+    .min(3)
+    .max(6),
+});
+
+export const SyllabusOutputSchema = z.object({
+  entries: z
     .array(
       z.object({
-        title: z.string().min(1),
-        summary: z.string().min(1),
-        whyItMatters: z.string().min(1),
-        units: z.array(CurriculumUnitDraftSchema).min(1).max(4),
-        bandRamp: BandRampSchema,
-        clusterSynthesis: z.array(z.string().min(1)).min(2),
+        label: z.string().min(1),
+        kind: z.enum(["discrimination", "concept", "subskill", "vocabulary"]),
+        gloss: z.string().min(1),
       }),
     )
-    .max(6),
+    .min(20)
+    .max(60),
 });
 
 export const CurriculumDesignerOutputSchema = z.object({
@@ -91,6 +91,7 @@ export type CurriculumDesignerOutput = z.infer<
   typeof CurriculumDesignerOutputSchema
 >;
 export type ProjectOverviewOutput = z.infer<typeof ProjectOverviewOutputSchema>;
+export type SyllabusOutput = z.infer<typeof SyllabusOutputSchema>;
 export type OnboardingTranscript = z.infer<
   typeof OnboardingTranscriptMessageSchema
 >[];

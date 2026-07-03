@@ -12,10 +12,12 @@ import {
   TrainingCurriculumNode,
   TrainingCurriculumPlan,
   TrainingOnboardingSession,
+  TrainingSyllabusEntry,
   TrainingUnitContent,
 } from "@acme/db/schema";
 
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
+import { trainingSyllabusRepository } from "./training-syllabus-repository";
 
 const loadPostgresUrlFromDotenv = () => {
   if (process.env.POSTGRES_URL) return;
@@ -143,6 +145,111 @@ describe("trainingCurriculumRepository conflict handling", () => {
       });
       expect(persistedRows).toHaveLength(1);
       expect(persistedRows[0]?.seedPrompt).toBe(first?.seedPrompt);
+    },
+    20_000,
+  );
+});
+
+describe("trainingSyllabusRepository persistence", () => {
+  afterEach(async () => {
+    if (!process.env.POSTGRES_URL || createdSessionIds.length === 0) return;
+    const { db } = await import("@acme/db/client");
+    for (const sessionId of createdSessionIds.splice(0)) {
+      await db
+        .delete(TrainingOnboardingSession)
+        .where(eq(TrainingOnboardingSession.id, sessionId));
+    }
+  });
+
+  it.skipIf(!process.env.POSTGRES_URL)(
+    "creates once and transactionally clamps check-offs to assigned targets",
+    async () => {
+      const { db } = await import("@acme/db/client");
+      const [session] = await db
+        .insert(TrainingOnboardingSession)
+        .values({ status: "ready_for_generation" })
+        .returning({ id: TrainingOnboardingSession.id });
+      if (!session) throw new Error("Expected an onboarding session.");
+      createdSessionIds.push(session.id);
+
+      const [plan] = await db
+        .insert(TrainingCurriculumPlan)
+        .values({
+          onboardingSessionId: session.id,
+          title: "Syllabus persistence test",
+          summary: "Exercises normalized progression state.",
+          targetIdentity: "Incident commander",
+        })
+        .returning({ id: TrainingCurriculumPlan.id });
+      if (!plan) throw new Error("Expected a curriculum plan.");
+
+      const [cluster, evidence] = await db
+        .insert(TrainingCurriculumNode)
+        .values([
+          {
+            planId: plan.id,
+            kind: "skill_cluster",
+            status: "ready",
+            title: "Diagnose incidents",
+            summary: "Trace evidence to causes.",
+            whyItMatters: "Fast guesses compound failures.",
+            orderIndex: 1,
+            depth: 1,
+            positionColumn: 0,
+            positionRow: 1,
+          },
+          {
+            planId: plan.id,
+            kind: "unit",
+            status: "ready",
+            title: "Separate symptoms from causes",
+            summary: "Choose a discriminating probe.",
+            whyItMatters: "Evidence must change the hypothesis set.",
+            orderIndex: 2,
+            depth: 2,
+            positionColumn: 0,
+            positionRow: 2,
+          },
+        ])
+        .returning({ id: TrainingCurriculumNode.id });
+      if (!cluster || !evidence) throw new Error("Expected curriculum nodes.");
+
+      const entries = Array.from({ length: 20 }, (_, index) => ({
+        label: `Discrimination ${index + 1}`,
+        kind: "discrimination" as const,
+        gloss: `Tell signal ${index + 1} from its plausible surrogate.`,
+      }));
+      const first = await trainingSyllabusRepository.ensureSyllabus({
+        db,
+        clusterNodeId: cluster.id,
+        entries,
+      });
+      const second = await trainingSyllabusRepository.ensureSyllabus({
+        db,
+        clusterNodeId: cluster.id,
+        entries: [...entries].reverse(),
+      });
+      expect(second.map((entry) => entry.id)).toEqual(
+        first.map((entry) => entry.id),
+      );
+
+      const target = first[0];
+      if (!target) throw new Error("Expected a syllabus entry.");
+      const result = await trainingSyllabusRepository.checkOffEntries({
+        db,
+        clusterNodeId: cluster.id,
+        requestedEntryIds: [target.id, "00000000-0000-0000-0000-000000000000"],
+        targetedEntryIds: [target.id],
+        evidenceNodeId: evidence.id,
+      });
+      expect(result.checked).toEqual([target.id]);
+      expect(result.deferred).toEqual(["00000000-0000-0000-0000-000000000000"]);
+
+      const persisted = await db.query.TrainingSyllabusEntry.findFirst({
+        where: eq(TrainingSyllabusEntry.id, target.id),
+      });
+      expect(persisted?.status).toBe("checked");
+      expect(persisted?.evidenceNodeId).toBe(evidence.id);
     },
     20_000,
   );

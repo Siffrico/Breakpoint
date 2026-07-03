@@ -78,6 +78,11 @@ export const TrainingCurriculumNode = pgTable(
         label?: string;
       }[]
     >(),
+    skillMap: t.jsonb().$type<{
+      workflow: { name: string; steps: string[] };
+      bandRamp: { startRating: number; peakRating: number };
+      masteryContract: { exitCriteria: string[] };
+    }>(),
     orderIndex: t.integer().notNull(),
     depth: t.integer().notNull(),
     positionColumn: t.integer().notNull(),
@@ -96,5 +101,36 @@ export const TrainingCurriculumNode = pgTable(
       table.parentNodeId,
       table.orderIndex,
     ),
+  ],
+);
+
+export const TrainingSyllabusEntry = pgTable(
+  "becoming_training_syllabus_entry",
+  (t) => ({
+    id: t.uuid().notNull().primaryKey().defaultRandom(),
+    clusterNodeId: t
+      .uuid()
+      .notNull()
+      .references(() => TrainingCurriculumNode.id, { onDelete: "cascade" }),
+    orderIndex: t.integer().notNull(),
+    label: t.text().notNull(),
+    kind: t.varchar({ length: 32 }).notNull(),
+    gloss: t.text().notNull(),
+    status: t.varchar({ length: 32 }).notNull().default("unchecked"),
+    checkedAt: t.timestamp({ mode: "date", withTimezone: true }),
+    evidenceNodeId: t
+      .uuid()
+      .references(() => TrainingCurriculumNode.id, { onDelete: "set null" }),
+    createdAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  }),
+  (table) => [
+    uniqueIndex("becoming_syllabus_cluster_order_idx").on(
+      table.clusterNodeId,
+      table.orderIndex,
+    ),
+    index("becoming_syllabus_evidence_node_idx").on(table.evidenceNodeId),
   ],
 );
