@@ -27,6 +27,13 @@ const selectMintTargets = (
     .slice(-complexityBudget);
 };
 
+/**
+ * Fallback-only. Rating reads resolve bands from the parent skill cluster
+ * first (see `resolveRatingScope`), and every dynamic cluster is written with
+ * bands at plan-build time, so this local ±180 ladder on the minted unit node
+ * is only consulted if a cluster somehow loses its bands. It is not the live
+ * difficulty config — tune `expandSkillBands` / the cluster bands instead.
+ */
 export const buildMintedDifficultyBands = (
   directive: Pick<ScenarioDirective, "targetItemRating">,
 ) => {

@@ -730,6 +730,7 @@ export const trainingRouter = {
                 db: ctx.db,
                 sessionId: input.sessionId,
                 userId: ctx.session.user.id,
+                scheduleBackgroundTask: ctx.scheduleBackgroundTask,
               }),
             prepareUnit: ({ nodeId, sessionId }) =>
               prepareUnitWorkflow({

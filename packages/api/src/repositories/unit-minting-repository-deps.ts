@@ -84,6 +84,11 @@ export const createUnitMintingRepositoryDeps = ({
   },
 });
 
+/**
+ * Load the mastery-progression inputs for a dynamic skill cluster. Returns null
+ * when the cluster has no skill map (legacy/imported plans) — those plans never
+ * enter the mastery loop, so callers treat null as "nothing to decide".
+ */
 export const loadSkillMasteryState = async ({
   db,
   clusterNodeId,
@@ -96,7 +101,7 @@ export const loadSkillMasteryState = async ({
   const cluster = await db.query.TrainingCurriculumNode.findFirst({
     where: eq(TrainingCurriculumNode.id, clusterNodeId),
   });
-  if (!cluster?.skillMap) throw new Error("Skill map is missing.");
+  if (!cluster?.skillMap) return null;
   const [entries, progress, simulation] = await Promise.all([
     trainingSyllabusRepository.listEntries({ db, clusterNodeId }),
     trainingRatingRepository.loadJobProgress({

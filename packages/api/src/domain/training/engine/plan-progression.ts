@@ -40,6 +40,13 @@ export type MasteryProgressionDecision =
   | { intent: "simulation" }
   | { intent: "cluster_complete" };
 
+/**
+ * Whether a completed node's progression is owned by the minted mastery loop
+ * (mint/simulation decisions) instead of list advancement. Only nodes inside a
+ * dynamic skill cluster (parent has a skill map) qualify — legacy and imported
+ * plans have no skill map, so their units *and* simulations keep advancing via
+ * {@link planAdvancement}.
+ */
 export const usesMintedMasteryLoop = ({
   nodeKind,
   parentHasSkillMap,
@@ -47,7 +54,7 @@ export const usesMintedMasteryLoop = ({
   nodeKind: CurriculumNodeKind;
   parentHasSkillMap: boolean;
 }): boolean =>
-  nodeKind === "simulation" || (nodeKind === "unit" && parentHasSkillMap);
+  (nodeKind === "simulation" || nodeKind === "unit") && parentHasSkillMap;
 
 export const decideMasteryProgression = ({
   uncheckedEntryCount,

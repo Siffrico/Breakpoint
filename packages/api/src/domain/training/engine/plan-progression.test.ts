@@ -21,6 +21,24 @@ describe("usesMintedMasteryLoop", () => {
       usesMintedMasteryLoop({ nodeKind: "unit", parentHasSkillMap: true }),
     ).toBe(true);
   });
+
+  it("keeps legacy simulations on list advancement", () => {
+    expect(
+      usesMintedMasteryLoop({
+        nodeKind: "simulation",
+        parentHasSkillMap: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("routes dynamic skill simulations through the mastery loop", () => {
+    expect(
+      usesMintedMasteryLoop({
+        nodeKind: "simulation",
+        parentHasSkillMap: true,
+      }),
+    ).toBe(true);
+  });
 });
 
 describe("decideMasteryProgression", () => {

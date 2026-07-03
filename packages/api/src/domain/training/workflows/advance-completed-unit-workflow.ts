@@ -29,6 +29,7 @@ interface AdvanceCompletedUnitDependencies {
     sessionId: string;
     userId: string;
   }) => Promise<unknown>;
+  /** Resolves null when the cluster has no skill map (legacy/imported plans). */
   getMasteryState: (input: {
     clusterNodeId: string;
     userId: string;
@@ -39,7 +40,7 @@ interface AdvanceCompletedUnitDependencies {
     peakRating: number;
     simulationPassed: boolean;
     maxRatingDeviation?: number;
-  }>;
+  } | null>;
   openSimulation: (clusterNodeId: string) => Promise<unknown>;
   scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }
@@ -88,6 +89,9 @@ export const advanceCompletedUnitWorkflow = async ({
           clusterNodeId,
           userId,
         });
+        // Legacy plans have no skill map; completeNode already ran list
+        // advancement for them, so there is nothing to mint here.
+        if (!state) return;
         const decision = decideMasteryProgression(state);
         if (decision.intent === "mint") {
           await deps.mintUnit({

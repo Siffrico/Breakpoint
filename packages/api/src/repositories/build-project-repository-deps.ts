@@ -2,6 +2,7 @@ import type { db as databaseClient } from "@acme/db/client";
 
 import type { BuildProjectDeps } from "../domain/training/orchestration/build-project";
 import { designSyllabus } from "../domain/training/agents/syllabus-designer";
+import { decideMasteryProgression } from "../domain/training/engine/plan-progression";
 import { ArtifactBuildError } from "../domain/training/orchestration/agent-runtime";
 import { mintNextUnit } from "../domain/training/unit-minting/mint-next-unit";
 import { runPrepareUnit } from "../domain/training/unit-preparation/prepare-unit-edge";
@@ -11,7 +12,11 @@ import { buildProjectProfileRepository } from "./build-project-profile-repositor
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
 import { trainingOnboardingRepository } from "./training-onboarding-repository";
 import { trainingSyllabusRepository } from "./training-syllabus-repository";
-import { createUnitMintingRepositoryDeps } from "./unit-minting-repository-deps";
+import {
+  createUnitMintingRepositoryDeps,
+  loadSkillMasteryState,
+  openSkillSimulation,
+} from "./unit-minting-repository-deps";
 import { createUnitPreparationRepositoryDeps } from "./unit-preparation-repository-deps";
 
 type Database = typeof databaseClient;
@@ -69,10 +74,12 @@ export const recoverSkillUnits = async ({
   db,
   sessionId,
   userId,
+  scheduleBackgroundTask,
 }: {
   db: Database;
   sessionId: string;
   userId: string;
+  scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }) => {
   const plan = await trainingCurriculumRepository.getActivePlan({
     db,
@@ -105,24 +112,56 @@ export const recoverSkillUnits = async ({
     }
     return;
   }
-  const skills = plan.nodes.filter((node) => node.kind === "skill_cluster");
-  await Promise.allSettled(
-    skills.map(async (skill) => {
-      const syllabus = await ensureSkillSyllabus({
-        db,
-        clusterNodeId: skill.id,
-        targetIdentity: plan.targetIdentity,
-      });
-      if (syllabus) {
-        await ensureSkillUnit({
-          db,
-          clusterNodeId: skill.id,
-          sessionId,
-          userId,
-        });
-      }
-    }),
+
+  // Completed clusters are mastered — never reopen them with review units.
+  const skills = rawNodes.filter(
+    (node) =>
+      node.kind === "skill_cluster" &&
+      node.status !== "completed" &&
+      node.skillMap != null,
   );
+
+  const recoverSkill = async (clusterNodeId: string) => {
+    const syllabus = await ensureSkillSyllabus({
+      db,
+      clusterNodeId,
+      targetIdentity: plan.targetIdentity,
+    });
+    if (!syllabus) return;
+    const mastery = await loadSkillMasteryState({ db, clusterNodeId, userId });
+    if (!mastery) return;
+    const decision = decideMasteryProgression(mastery);
+    if (decision.intent === "mint") {
+      await ensureSkillUnit({ db, clusterNodeId, sessionId, userId });
+    } else if (decision.intent === "simulation") {
+      await openSkillSimulation({ db, clusterNodeId });
+    }
+  };
+
+  // Recovery may run syllabus generation (a slow AI call) per skill. Only the
+  // earliest incomplete skill — the one Continue is about to enter — is
+  // recovered synchronously; the rest are healed off the request path.
+  const [firstSkill, ...remainingSkills] = skills;
+  if (!firstSkill) return;
+  try {
+    await recoverSkill(firstSkill.id);
+  } catch (error) {
+    console.error("Skill unit recovery failed", {
+      clusterNodeId: firstSkill.id,
+      error,
+    });
+  }
+  if (remainingSkills.length === 0) return;
+  const recoverRemaining = async () => {
+    await Promise.allSettled(
+      remainingSkills.map((skill) => recoverSkill(skill.id)),
+    );
+  };
+  if (scheduleBackgroundTask) {
+    scheduleBackgroundTask(recoverRemaining);
+  } else {
+    await recoverRemaining();
+  }
 };
 
 /**

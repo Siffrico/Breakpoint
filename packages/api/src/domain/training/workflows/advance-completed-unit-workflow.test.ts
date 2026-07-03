@@ -105,4 +105,45 @@ describe("advanceCompletedUnitWorkflow", () => {
     });
     expect(events).toEqual(["transaction:start", "transaction:commit", "mint"]);
   });
+
+  it("skips the mastery loop quietly for legacy plans without a skill map", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    let backgroundTask: Promise<void> | null = null;
+    const mintUnit = vi.fn(() => Promise.resolve());
+    const openSimulation = vi.fn(() => Promise.resolve());
+
+    const result = await advanceCompletedUnitWorkflow({
+      sessionId: "session-1",
+      nodeId: currentNode.id,
+      deps: {
+        withTransaction: (run) =>
+          run({
+            getActivePlan: () =>
+              Promise.resolve({
+                nodes: [currentNode, nextNode],
+              } as CurriculumPlan),
+            getUnitByNodeId: () => Promise.resolve(unit),
+            getUnitRun: () => Promise.resolve(masteredRun),
+            completeNode: () => Promise.resolve(nextNode),
+            touchSession: () => Promise.resolve(),
+          }),
+        mintUnit,
+        getMasteryState: () => Promise.resolve(null),
+        openSimulation,
+        scheduleBackgroundTask: (task) => {
+          backgroundTask = task();
+        },
+      },
+    });
+
+    await Promise.resolve(backgroundTask);
+
+    expect(result.success).toBe(true);
+    expect(mintUnit).not.toHaveBeenCalled();
+    expect(openSimulation).not.toHaveBeenCalled();
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
 });

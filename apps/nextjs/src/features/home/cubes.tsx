@@ -152,6 +152,7 @@ const Cubes: React.FC<CubesProps> = ({
       const cellH = rect.height / rows;
 
       const touch = e.touches[0];
+      if (!touch) return;
       const colCenter = (touch.clientX - rect.left) / cellW;
       const rowCenter = (touch.clientY - rect.top) / cellH;
 
@@ -181,8 +182,10 @@ const Cubes: React.FC<CubesProps> = ({
       const cellW = rect.width / cols;
       const cellH = rect.height / rows;
 
-      const clientX = (e as MouseEvent).clientX || ((e as TouchEvent).touches && (e as TouchEvent).touches[0].clientX);
-      const clientY = (e as MouseEvent).clientY || ((e as TouchEvent).touches && (e as TouchEvent).touches[0].clientY);
+      const point = "touches" in e ? e.touches[0] : e;
+      if (!point) return;
+      const clientX = point.clientX;
+      const clientY = point.clientY;
 
       const colHit = Math.floor((clientX - rect.left) / cellW);
       const rowHit = Math.floor((clientY - rect.top) / cellH);
@@ -209,8 +212,10 @@ const Cubes: React.FC<CubesProps> = ({
         .map(Number)
         .sort((a, b) => a - b)
         .forEach(ring => {
+          const cubesInRing = rings[ring];
+          if (!cubesInRing) return;
           const delay = ring * spreadDelay;
-          const faces = rings[ring].flatMap(cube => Array.from(cube.querySelectorAll<HTMLElement>('.cube-face')));
+          const faces = cubesInRing.flatMap(cube => Array.from(cube.querySelectorAll<HTMLElement>('.cube-face')));
 
           gsap.to(faces, {
             backgroundColor: rippleColor,
