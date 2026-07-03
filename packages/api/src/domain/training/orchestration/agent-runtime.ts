@@ -13,31 +13,25 @@ import {
   getSearchToolsForSelectedProvider,
   requireAiModelForPurpose,
 } from "../engine/model-router";
+import { getRunProfile } from "../engine/run-profiles";
 
 const PURPOSE_BY_AGENT = {
   onboarding: "onboarding",
   curriculumDesigner: "curriculum",
+  syllabusDesigner: "syllabus",
   buildContent: "buildContent",
   failureIsolation: "failure",
   ghostReplay: "ghost",
   projectOverview: "projectOverview",
 } as const;
 
-type ReasoningEffort = "low" | "medium" | "high";
-
-const getReasoningProviderOptions = (effort: ReasoningEffort) => ({
-  openai: { reasoningEffort: effort, reasoningSummary: "auto" as const },
-  // Gemini 3.x models use `thinkingLevel`; `thinkingBudget` is the Gemini 2.5
-  // knob and is ignored by 3.x. See @ai-sdk/google provider options.
+const getReasoningProviderOptions = (budget: number) => ({
+  openai: { reasoningEffort: "high" as const, reasoningSummary: "auto" as const },
   google: {
-    thinkingConfig: { thinkingLevel: effort, includeThoughts: true },
+    thinkingConfig: { thinkingBudget: budget, includeThoughts: true },
   },
-  // OpenRouter (the current default stack) reads `reasoning.effort`; without
-  // this key GLM's reasoning runs uncapped and eats into maxOutputTokens.
-  openrouter: { reasoning: { effort } },
+  openrouter: { reasoning: { enabled: true, max_tokens: budget } },
 });
-
-const REASONING_PROVIDER_OPTIONS = getReasoningProviderOptions("high");
 
 export const runAgent = async <TSchema extends z.ZodTypeAny>({
   agent,
@@ -45,20 +39,15 @@ export const runAgent = async <TSchema extends z.ZodTypeAny>({
   prompt,
   schema,
   errorMessage,
-  reasoning = false,
-  reasoningEffort = "high",
-  maxOutputTokens,
 }: {
   agent: keyof typeof PURPOSE_BY_AGENT;
   system: string;
   prompt: string;
   schema: TSchema;
   errorMessage: string;
-  reasoning?: boolean;
-  reasoningEffort?: ReasoningEffort;
-  maxOutputTokens?: number;
 }): Promise<z.infer<TSchema>> => {
   const purpose = PURPOSE_BY_AGENT[agent] as AiModelPurpose;
+  const profile = getRunProfile(purpose);
   const model = requireAiModelForPurpose(
     purpose,
     "AI-generated training workflows",
@@ -74,11 +63,12 @@ export const runAgent = async <TSchema extends z.ZodTypeAny>({
       system,
       prompt,
       tools: getSearchToolsForSelectedProvider(purpose),
-      stopWhen: stepCountIs(4),
-      ...(maxOutputTokens == null ? {} : { maxOutputTokens }),
-      ...(reasoning
-        ? { providerOptions: getReasoningProviderOptions(reasoningEffort) }
-        : {}),
+      stopWhen: stepCountIs(profile.maxSteps),
+      maxOutputTokens:
+        profile.maxOutputTokens + profile.reasoningBudgetTokens,
+      providerOptions: getReasoningProviderOptions(
+        profile.reasoningBudgetTokens,
+      ),
     });
     const object = await result.output;
 
@@ -244,7 +234,6 @@ export const runResilientAgent = async <TSchema extends z.ZodTypeAny>({
   prompt,
   schema,
   errorMessage,
-  reasoning = false,
   continuation,
   onPartial,
   seedPartial,
@@ -254,7 +243,6 @@ export const runResilientAgent = async <TSchema extends z.ZodTypeAny>({
   prompt: string;
   schema: TSchema;
   errorMessage: string;
-  reasoning?: boolean;
   continuation?: ContinuationConfig<z.infer<TSchema>>;
   /** Throttled, fire-and-forget partial sink for mid-stream checkpointing. */
   onPartial?: (partial: Partial<z.infer<TSchema>>) => void;
@@ -263,6 +251,7 @@ export const runResilientAgent = async <TSchema extends z.ZodTypeAny>({
 }): Promise<z.infer<TSchema>> => {
   type T = z.infer<TSchema>;
   const purpose = PURPOSE_BY_AGENT[agent] as AiModelPurpose;
+  const profile = getRunProfile(purpose);
   const model = requireAiModelForPurpose(
     purpose,
     "AI-generated training workflows",
@@ -296,8 +285,12 @@ export const runResilientAgent = async <TSchema extends z.ZodTypeAny>({
           delayInMs: 15,
           chunking: "word",
         }),
-        stopWhen: stepCountIs(4),
-        ...(reasoning ? { providerOptions: REASONING_PROVIDER_OPTIONS } : {}),
+        stopWhen: stepCountIs(profile.maxSteps),
+        maxOutputTokens:
+          profile.maxOutputTokens + profile.reasoningBudgetTokens,
+        providerOptions: getReasoningProviderOptions(
+          profile.reasoningBudgetTokens,
+        ),
       });
 
       for await (const next of result.partialOutputStream) {

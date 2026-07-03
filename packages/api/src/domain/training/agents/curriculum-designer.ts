@@ -98,7 +98,6 @@ export const designCurriculum = async ({
     system: CURRICULUM_DESIGNER_SYSTEM,
     schema: CurriculumDesignerOutputSchema,
     errorMessage: "Failed to generate the curriculum architecture.",
-    reasoning: true,
     onPartial: options?.onPartial,
     seedPartial: options?.seedPartial,
     prompt: `Design the learner's identity report, before/after, and curriculum skeleton for the project they chose in the consultation.

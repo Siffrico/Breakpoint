@@ -7,6 +7,7 @@ import type { AiModelPreference } from "@acme/validators";
 import { AiModelPreferenceSchema } from "@acme/validators";
 
 import type { ModelTier } from "../prompts/types";
+import { getRunProfile } from "./run-profiles";
 
 type AiProvider = "google" | "openai" | "openrouter";
 type CodeDefaultAiStack = "openai-gpt-5.5" | "openrouter-glm-5.2";
@@ -35,6 +36,7 @@ const CODE_DEFAULT_TIER_MODELS: Record<
 export type AiModelPurpose =
   | "onboarding"
   | "curriculum"
+  | "syllabus"
   | "buildContent"
   | "failure"
   | "ghost"
@@ -49,6 +51,7 @@ export type AiModelPurpose =
 const PURPOSE_TIER: Record<AiModelPurpose, ModelTier> = {
   onboarding: "critical",
   curriculum: "critical",
+  syllabus: "critical",
   buildContent: "critical",
   failure: "critical",
   ghost: "critical",
@@ -135,11 +138,13 @@ export const withAiModelPreference = async <T>(
 };
 
 export const getSearchToolsForSelectedProvider = (
-  _purpose?: AiModelPurpose,
+  purpose: AiModelPurpose = "default",
 ): ToolSet => {
-  if (!isEnabled("AI_ENABLE_SEARCH_TOOLS")) {
+  if (isEnabled("AI_DISABLE_SEARCH_TOOLS")) {
     return {};
   }
+
+  if (!getRunProfile(purpose).search) return {};
 
   const provider = getSelectedProvider();
 
@@ -151,10 +156,13 @@ export const getSearchToolsForSelectedProvider = (
     } as unknown as ToolSet;
   }
 
-  // OpenRouter does grounding via the `:online` model suffix / web plugin
-  // rather than an AI SDK tool, so there is no provider-native tool to attach.
   if (provider === "openrouter") {
-    return {};
+    const openrouter = createOpenRouter({
+      apiKey: getProviderApiKey("openrouter"),
+    });
+    return {
+      web_search: openrouter.tools.webSearch({ maxResults: 5 }),
+    } as unknown as ToolSet;
   }
 
   return {

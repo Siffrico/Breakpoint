@@ -42,13 +42,6 @@ export const runSeedStage = async (
     system: SEED_STAGE_SYSTEM,
     schema: SeedStageOutputSchema,
     errorMessage: "Failed to generate the seed stage.",
-    reasoning: true,
-    reasoningEffort: "high",
-    // maxOutputTokens includes reasoning tokens on OpenRouter-style providers;
-    // the scaffold JSON is ~800 tokens, the rest is thinking headroom. A tight
-    // cap truncates the JSON mid-object, which classifies as a non-retryable
-    // schema failure.
-    maxOutputTokens: 8_192,
     prompt: `Design the Seed stage for this education unit.
 
 Rules:
