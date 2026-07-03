@@ -22,6 +22,7 @@ import {
 } from "../workspace-ai/fsm-tools";
 import { CheckOffSyllabusInputSchema } from "./agents/check-off-syllabus.tool";
 import { runConnectAgent } from "./agents/connect-agent";
+import { runEvalAgent } from "./agents/eval-agent";
 import { runOrientAgent } from "./agents/orient-agent";
 import { PhaseAgentOutputSchema } from "./agents/output-schema";
 import { runSolveAgent } from "./agents/solve-agent";
@@ -89,7 +90,11 @@ const runPhaseForState: UnitPhaseRunner = (
     case "connect":
       return runConnectAgent(messages);
     case "solve":
-      return runSolveAgent(messages);
+      // Pass 1's Solve is graded inline by the scenario/solve agent (formative,
+      // no rating). Pass 2 — the transfer pass — is the only scored moment, so
+      // it is handed to the dedicated eval agent, whose gradeSolution score is
+      // the one Goldilocks consumes (see writesGoldilocks / ratingWrite).
+      return state.pass === 2 ? runEvalAgent(messages) : runSolveAgent(messages);
     case "teach":
       return runTeachAgent(messages);
     case "mastered":
