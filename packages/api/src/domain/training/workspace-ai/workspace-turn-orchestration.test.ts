@@ -99,15 +99,9 @@ void test("a claimed, in-flight education turn is rejected before running the mo
     getUnitRun: () => fail("getUnitRun"),
     upsertUnitRun: () => fail("upsertUnitRun"),
     getUnitByNodeId: () => fail("getUnitByNodeId"),
-    savePhaseResponse: () => fail("savePhaseResponse"),
-    updateUnitMasteryContract: () => fail("updateUnitMasteryContract"),
-    updateScenarioContract: () => fail("updateScenarioContract"),
-    saveAttempt: () => fail("saveAttempt"),
-    completeNode: () => fail("completeNode"),
     commitEducationTurn: () => fail("commitEducationTurn"),
     commitRecallTurn: () => fail("commitRecallTurn"),
     commitNextScenarioPrompt: () => fail("commitNextScenarioPrompt"),
-    touchSession: () => fail("touchSession"),
     listMemories: () => fail("listMemories"),
   } as unknown as WorkspaceTurnOrchestrationDependencies;
 

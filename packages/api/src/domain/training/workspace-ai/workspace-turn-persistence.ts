@@ -5,7 +5,6 @@ import type {
   UnitEvent,
 } from "../education-unit/unit";
 import type {
-  CurriculumNode,
   CurriculumPlan,
   Debrief,
   DifficultyBand,
@@ -52,48 +51,10 @@ export interface WorkspaceTurnPersistenceDependencies
     turnId?: string | null;
     metadata?: WorkspaceAiMessage["metadata"];
   }) => Promise<WorkspaceAiMessage | null>;
-  listMessagesByTurnId?: (
-    sessionId: string,
-    turnId: string,
-  ) => Promise<WorkspaceAiMessage[]>;
   listMessages: (
     sessionId: string,
     slot?: "education_unit" | "recall",
   ) => Promise<WorkspaceAiMessage[]>;
-  savePhaseResponse: (input: {
-    unitContentId: string;
-    sessionId: string;
-    userId?: string | null;
-    phase: PhaseResponseRecord["phase"];
-    sequence: number;
-    userResponse: string;
-    aiResponse?: string | null;
-    passed?: boolean | null;
-    score?: number | null;
-    metadata?: PhaseResponseRecord["metadata"];
-  }) => Promise<PhaseResponseRecord | null>;
-  updateUnitMasteryContract: (input: {
-    unitContentId: string;
-    unitMasteryContract: UnitContent["unitMasteryContract"];
-  }) => Promise<unknown>;
-  updateScenarioContract: (input: {
-    scenarioAttemptId: string;
-    scenarioPrompt: string;
-    scenarioContract: NonNullable<
-      WorkspaceAiEducationOutput["scenarioEvaluationContract"]
-    >;
-  }) => Promise<unknown>;
-  saveAttempt: (input: {
-    sessionId: string;
-    userId?: string | null;
-    unitId: string;
-    response: string;
-    debrief: Debrief;
-    seedResponse?: string | null;
-    finalArticulation?: string | null;
-    growthDimensions?: string[] | null;
-  }) => Promise<unknown>;
-  completeNode: (nodeId: string) => Promise<CurriculumNode | null>;
   commitEducationTurn: (input: WorkspaceEducationTurnCommit) => Promise<{
     assistantMessage: WorkspaceAiMessage;
   }>;
@@ -109,7 +70,6 @@ export interface WorkspaceTurnPersistenceDependencies
     leaseId: string;
     reason: string;
   }) => Promise<void>;
-  touchSession: (sessionId: string) => Promise<unknown>;
 }
 
 export type WorkspaceAiTurnPersistenceResult = WorkspaceAiTurnResult;
@@ -134,6 +94,17 @@ export interface WorkspaceAssistantMessageCommit {
   unitId: string;
   turnId?: string | null;
   metadata?: WorkspaceAiMessage["metadata"];
+}
+
+export interface WorkspaceAttemptCommit {
+  sessionId: string;
+  userId?: string | null;
+  unitId: string;
+  response: string;
+  debrief: Debrief;
+  seedResponse?: string | null;
+  finalArticulation?: string | null;
+  growthDimensions?: string[] | null;
 }
 
 export interface WorkspaceUserMessageCommit {
@@ -185,7 +156,7 @@ export interface WorkspaceEducationTurnCommit {
   nextRun: PersistedUnitRun;
   completion: {
     nodeId: string;
-    attempt: Parameters<WorkspaceTurnPersistenceDependencies["saveAttempt"]>[0];
+    attempt: WorkspaceAttemptCommit;
   } | null;
   touchSessionId: string;
 }

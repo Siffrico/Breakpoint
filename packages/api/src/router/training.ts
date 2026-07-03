@@ -774,7 +774,31 @@ export const trainingRouter = {
                 await db.execute(
                   sql`select pg_advisory_xact_lock(hashtext(${input.sessionId}), hashtext('advance-completed-unit'))`,
                 );
-                return run(createWorkspaceTurnRepositoryDeps(db));
+                return run({
+                  getActivePlan: (sessionId) =>
+                    trainingCurriculumRepository.getActivePlan({
+                      db,
+                      sessionId,
+                    }),
+                  getUnitByNodeId: (nodeId) =>
+                    trainingCurriculumRepository.getUnitByNodeId({
+                      db,
+                      nodeId,
+                    }),
+                  getUnitRun: (sessionId, unitContentId) =>
+                    trainingUnitRunRepository.getUnitRun({
+                      db,
+                      sessionId,
+                      unitContentId,
+                    }),
+                  completeNode: (nodeId) =>
+                    trainingCurriculumRepository.completeNode({ db, nodeId }),
+                  touchSession: (sessionId) =>
+                    trainingOnboardingRepository.touchSession({
+                      db,
+                      sessionId,
+                    }),
+                });
               }),
             mintUnit: ({ clusterNodeId, sessionId, userId }) =>
               mintNextUnit({

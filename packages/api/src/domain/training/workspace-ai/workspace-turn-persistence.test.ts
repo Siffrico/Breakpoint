@@ -131,12 +131,6 @@ void test("saveUnitPhaseResult persists transitions and non-grading continuation
         new Error("commitNextScenarioPrompt should not be called"),
       ),
     appendMessage: () => Promise.resolve(null),
-    savePhaseResponse: () => Promise.resolve(null),
-    updateUnitMasteryContract: () => Promise.resolve({}),
-    updateScenarioContract: () => Promise.resolve(null),
-    saveAttempt: () => Promise.resolve(),
-    completeNode: () => Promise.resolve(null),
-    touchSession: () => Promise.resolve(),
   } as unknown as WorkspaceTurnPersistenceDependencies;
 
   const ratingEvaluation = {

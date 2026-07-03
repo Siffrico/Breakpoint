@@ -2,14 +2,8 @@ import type { db as databaseClient } from "@acme/db/client";
 import { and, eq } from "@acme/db";
 import { TrainingUnitRun, TrainingWorkspaceTurn } from "@acme/db/schema";
 
-import type {
-  CurriculumNode,
-  DifficultyBand,
-} from "../domain/training/types/training.types";
-import type {
-  WorkspaceAiEducationOutput,
-  WorkspaceAiMessage,
-} from "../domain/training/workspace-ai/types";
+import type { DifficultyBand } from "../domain/training/types/training.types";
+import type { WorkspaceAiMessage } from "../domain/training/workspace-ai/types";
 import type {
   ManualDifficultySignal,
   WorkspaceTurnOrchestrationDependencies,
@@ -72,27 +66,6 @@ const assertWorkspaceTurnLease = async ({
     throw new Error("Workspace turn lease is no longer valid.");
   }
 };
-
-const toCurriculumNode = (
-  node: Awaited<ReturnType<typeof trainingCurriculumRepository.completeNode>>,
-): CurriculumNode | null =>
-  node
-    ? ({
-        id: node.id,
-        parentNodeId: node.parentNodeId,
-        kind: node.kind as CurriculumNode["kind"],
-        title: node.title,
-        summary: node.summary,
-        whyItMatters: node.whyItMatters,
-        learningGoal: node.summary,
-        orderIndex: node.orderIndex,
-        depth: node.depth,
-        positionColumn: node.positionColumn,
-        positionRow: node.positionRow,
-        status: node.status as CurriculumNode["status"],
-        difficultyBands: node.difficultyBands ?? null,
-      } satisfies CurriculumNode)
-    : null;
 
 const markWorkspaceTurnCompleted = async ({
   db,
@@ -448,12 +421,6 @@ export const createWorkspaceTurnRepositoryDeps = (
       db,
       ...payload,
     }),
-  listMessagesByTurnId: (sessionId: string, turnId: string) =>
-    trainingOnboardingRepository.listWorkspaceMessagesByTurnId({
-      db,
-      sessionId,
-      turnId,
-    }),
   listPhaseResponsesBySession: (sessionId: string) =>
     trainingCurriculumRepository.listPhaseResponsesBySession({
       db,
@@ -473,45 +440,10 @@ export const createWorkspaceTurnRepositoryDeps = (
     }),
   getUnitByNodeId: (nodeId: string) =>
     trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),
-  savePhaseResponse: (payload) =>
-    trainingCurriculumRepository.savePhaseResponse({
-      db,
-      ...payload,
-    }),
-  updateUnitMasteryContract: (payload) =>
-    trainingCurriculumRepository.updateUnitMasteryContract({
-      db,
-      ...payload,
-    }),
-  updateScenarioContract: (payload: {
-    scenarioAttemptId: string;
-    scenarioPrompt: string;
-    scenarioContract: NonNullable<
-      WorkspaceAiEducationOutput["scenarioEvaluationContract"]
-    >;
-  }) =>
-    trainingRatingRepository.updateScenarioContract({
-      db,
-      ...payload,
-    }),
-  saveAttempt: (payload) =>
-    trainingAttemptRepository.saveAttempt({
-      db,
-      ...payload,
-    }),
-  completeNode: async (nodeId: string) => {
-    const node = await trainingCurriculumRepository.completeNode({
-      db,
-      nodeId,
-    });
-    return toCurriculumNode(node);
-  },
   commitEducationTurn: (input) => commitEducationTurn({ db, input }),
   commitRecallTurn: (input) => commitRecallTurn({ db, input }),
   commitNextScenarioPrompt: (input) => commitNextScenarioPrompt({ db, input }),
   markWorkspaceTurnFailed: (input) => markWorkspaceTurnFailed({ db, ...input }),
-  touchSession: (sessionId: string) =>
-    trainingOnboardingRepository.touchSession({ db, sessionId }),
   listMemories: async (userId: string) => {
     const result = await memoryRepository.listByUserId({
       db,

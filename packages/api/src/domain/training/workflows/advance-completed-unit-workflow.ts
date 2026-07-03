@@ -20,7 +20,7 @@ interface AdvanceCompletedUnitTransactionDependencies {
     sessionId: string,
     unitContentId: string,
   ) => Promise<PersistedUnitRun | null>;
-  completeNode: (nodeId: string) => Promise<CurriculumNode | null>;
+  completeNode: (nodeId: string) => Promise<unknown>;
   touchSession: (sessionId: string) => Promise<unknown>;
 }
 
