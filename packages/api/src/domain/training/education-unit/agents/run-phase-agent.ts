@@ -5,11 +5,11 @@
 // directly, so the retry policy stays in exactly one place.
 
 import type { ModelMessage, ToolSet } from "ai";
-import { Output, stepCountIs, streamText } from "ai";
 import { Duration, Effect, Schedule } from "effect";
 import type { z } from "zod/v4";
 
 import type { AiModelPurpose } from "../../engine/model-router";
+import { invokeStructuredModel } from "../../engine/invoke-structured-model";
 import { requireAiModelForPurpose } from "../../engine/model-router";
 import type { PhaseAgentError } from "./errors";
 import { classifyPhaseAgentFailure, isRetryable } from "./errors";
@@ -43,16 +43,17 @@ const callModel = async <TSchema extends z.ZodTypeAny>(
 ): Promise<PhaseAgentResult<z.infer<TSchema>>> => {
   const model = requireAiModelForPurpose(input.purpose, input.errorMessage);
 
-  const result = streamText({
+  const result = invokeStructuredModel({
     model,
-    output: Output.object({ schema: input.schema, name: input.schemaName }),
+    schema: input.schema,
+    schemaName: input.schemaName,
     system: input.system,
     prompt: input.messages,
     tools: input.tools,
     // A tool call + its result is a step; the structured reply that follows
     // is one more. 3 covers "call the grading tool, then answer" without
     // giving the model room to loop.
-    stopWhen: stepCountIs(3),
+    maxSteps: 3,
   });
 
   const [object, toolCalls] = await Promise.all([

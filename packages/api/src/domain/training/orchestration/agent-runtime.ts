@@ -1,14 +1,8 @@
 import type { z } from "zod/v4";
-import {
-  APICallError,
-  NoObjectGeneratedError,
-  Output,
-  smoothStream,
-  stepCountIs,
-  streamText,
-} from "ai";
+import { APICallError, NoObjectGeneratedError } from "ai";
 
 import type { AiModelPurpose } from "../engine/model-router";
+import { invokeStructuredModel } from "../engine/invoke-structured-model";
 import {
   getSearchToolsForSelectedProvider,
   requireAiModelForPurpose,
@@ -24,19 +18,6 @@ const PURPOSE_BY_AGENT = {
   ghostReplay: "ghost",
   projectOverview: "projectOverview",
 } as const;
-
-const getReasoningProviderOptions = (budget: number) => {
-  const effort = budget >= 8_192 ? "high" : budget >= 4_096 ? "medium" : "low";
-  return {
-    openai: { reasoningEffort: effort, reasoningSummary: "auto" as const },
-    google: {
-      // Gemini 3 uses thinkingLevel; older Gemini models ignore it and retain
-      // their provider default rather than receiving an invalid token budget.
-      thinkingConfig: { thinkingLevel: effort, includeThoughts: true },
-    },
-    openrouter: { reasoning: { enabled: true, max_tokens: budget } },
-  };
-};
 
 export const runAgent = async <TSchema extends z.ZodTypeAny>({
   agent,
@@ -59,24 +40,15 @@ export const runAgent = async <TSchema extends z.ZodTypeAny>({
   );
 
   try {
-    const result = streamText({
+    const result = invokeStructuredModel({
       model,
-      output: Output.object({
-        schema,
-        name: `${agent}_output`,
-      }),
+      schema,
+      schemaName: `${agent}_output`,
       system,
       prompt,
       tools: getSearchToolsForSelectedProvider(purpose),
-      stopWhen: stepCountIs(profile.maxSteps),
-      maxOutputTokens: profile.maxOutputTokens + profile.reasoningBudgetTokens,
-      ...(profile.reasoningBudgetTokens > 0
-        ? {
-            providerOptions: getReasoningProviderOptions(
-              profile.reasoningBudgetTokens,
-            ),
-          }
-        : {}),
+      maxSteps: profile.maxSteps,
+      profile,
     });
     const object = await result.output;
 
@@ -281,28 +253,18 @@ export const runResilientAgent = async <TSchema extends z.ZodTypeAny>({
 
   while (true) {
     try {
-      const result = streamText({
+      const result = invokeStructuredModel({
         model,
-        output: Output.object({ schema, name: `${agent}_output` }),
+        schema,
+        schemaName: `${agent}_output`,
         system,
         prompt: activePrompt,
         tools: getSearchToolsForSelectedProvider(purpose),
         // Pace the structured-output text deltas so onPartial flushes feel like
         // a steady stream rather than chunky bursts.
-        experimental_transform: smoothStream({
-          delayInMs: 15,
-          chunking: "word",
-        }),
-        stopWhen: stepCountIs(profile.maxSteps),
-        maxOutputTokens:
-          profile.maxOutputTokens + profile.reasoningBudgetTokens,
-        ...(profile.reasoningBudgetTokens > 0
-          ? {
-              providerOptions: getReasoningProviderOptions(
-                profile.reasoningBudgetTokens,
-              ),
-            }
-          : {}),
+        smoothPartials: true,
+        maxSteps: profile.maxSteps,
+        profile,
       });
 
       for await (const next of result.partialOutputStream) {

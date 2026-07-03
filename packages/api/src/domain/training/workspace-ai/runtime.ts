@@ -1,7 +1,7 @@
 import type { z } from "zod/v4";
-import { Output, stepCountIs, streamText } from "ai";
 
 import type { AiModelPurpose } from "../engine/model-router";
+import { invokeStructuredModel } from "../engine/invoke-structured-model";
 import type { WorkspaceAiPromptKind } from "./types";
 import {
   getSearchToolsForSelectedProvider,
@@ -58,16 +58,14 @@ export const runWorkspaceAiPrompt = async <TSchema extends z.ZodTypeAny>({
   );
 
   try {
-    const result = streamText({
+    const result = invokeStructuredModel({
       model,
-      output: Output.object({
-        schema,
-        name: `${kind}_output`,
-      }),
+      schema,
+      schemaName: `${kind}_output`,
       system: SYSTEM_PROMPT_BY_KIND[kind],
       prompt: context,
       tools: getSearchToolsForSelectedProvider(PURPOSE_BY_KIND[kind]),
-      stopWhen: stepCountIs(4),
+      maxSteps: 4,
     });
     const object = await result.output;
 
