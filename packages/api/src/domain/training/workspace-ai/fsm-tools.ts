@@ -28,23 +28,41 @@ export const GradeConnectionInputSchema = z.object({
     ),
 });
 
-export const GradeSolutionInputSchema = z.object({
-  passed: z
-    .boolean()
-    .describe("True only if the solution is correct AND clearly explained."),
-  score: z.number().min(0).max(100),
-  reasoning: z
-    .string()
-    .min(1)
-    .describe("One sentence: what made this a pass or a fail."),
-  errorCodes: z
-    .array(z.enum(ERROR_CLASSIFICATION_CODES))
-    .max(2)
-    .optional()
-    .describe(
-      "On a failed or fragile pass: the primary ERROR_CLASSIFICATION code (add a second only if truly co-primary). Omit on a clean pass.",
-    ),
-});
+export const GradeSolutionInputSchema = z
+  .object({
+    passed: z
+      .boolean()
+      .describe("True only if the solution is correct AND clearly explained."),
+    score: z.number().min(0).max(100),
+    reasoning: z
+      .string()
+      .min(1)
+      .describe("One sentence: what made this a pass or a fail."),
+    errorCodes: z
+      .array(z.enum(ERROR_CLASSIFICATION_CODES))
+      .max(1)
+      .optional()
+      .describe(
+        "On a failed verdict: the primary ERROR_CLASSIFICATION code. Omit on a pass.",
+      ),
+  })
+  .superRefine((grade, context) => {
+    const errorCodeCount = grade.errorCodes?.length ?? 0;
+    if (!grade.passed && errorCodeCount !== 1) {
+      context.addIssue({
+        code: "custom",
+        path: ["errorCodes"],
+        message: "A failed verdict requires exactly one primary error code.",
+      });
+    }
+    if (grade.passed && errorCodeCount !== 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["errorCodes"],
+        message: "A passing verdict must not include error codes.",
+      });
+    }
+  });
 
 export const ContinuePhaseInputSchema = z.object({
   reason: z

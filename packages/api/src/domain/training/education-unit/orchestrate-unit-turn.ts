@@ -246,12 +246,13 @@ export const runUnitTurn = async (
 
   const nextState = transition(state, event, recipe.policy);
 
-  const ratingWrite = writesGoldilocks(state, event)
-    ? (readSolveGrade(result) ?? {
-        score: recipe.grade.passAt,
-        errorCodes: [] as readonly string[],
-      })
-    : null;
+  const shouldWriteRating = writesGoldilocks(state, event);
+  const ratingWrite = shouldWriteRating ? readSolveGrade(result) : null;
+  if (shouldWriteRating && !ratingWrite) {
+    throw new EducationUnitContractError({
+      message: "A scored Solve verdict is missing valid rating evidence.",
+    });
+  }
   const checkOffCall = result.toolCalls.find(
     (call) => call.toolName === "checkOffSyllabus",
   );

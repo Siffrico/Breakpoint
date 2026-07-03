@@ -429,7 +429,7 @@ export const runEducationUnitTurn = async ({
         response.metadata?.scenarioAttemptId,
     )?.metadata?.scenarioAttemptId;
 
-  // Only a passing pass-2 solve feeds Goldilocks, using the attempt that was
+  // The first pass-2 verdict feeds Goldilocks, using the attempt that was
   // atomically opened when the pass-2 Connect scenario was presented.
   let ratingEvaluation: WorkspaceRatingEvaluationCommit | null = null;
   const goldilocksAlreadyUpdated = unitResponses.some(
@@ -442,25 +442,34 @@ export const runEducationUnitTurn = async ({
       );
     }
     const now = new Date();
-    const attempt = deps.getScenarioAttempt
-      ? await deps.getScenarioAttempt({
-          scenarioAttemptId,
-          userId,
-          nodeId: difficultySnapshot.nodeId,
-        })
-      : null;
+    if (!deps.getScenarioAttempt) {
+      throw new Error("Pass-2 evaluation requires scenario attempt reads.");
+    }
+    const attempt = await deps.getScenarioAttempt({
+      scenarioAttemptId,
+      userId,
+      nodeId: difficultySnapshot.nodeId,
+    });
+    if (!attempt?.solvePresentedAt) {
+      throw new Error(
+        "Pass-2 evaluation requires a persisted Solve presentation time.",
+      );
+    }
     const timing = deriveServerAttemptTiming({
-      presentedAt: attempt?.solvePresentedAt ?? null,
+      presentedAt: attempt.solvePresentedAt,
       submittedAt: now,
       timeLimitSeconds: recipe.grade.solveTimeLimitSeconds,
     });
+    if (!timing) {
+      throw new Error("Pass-2 evaluation timing could not be derived.");
+    }
     ratingEvaluation = {
       scenarioAttemptId,
       userId,
       nodeId: difficultySnapshot.nodeId,
       score: turnResult.ratingWrite.score,
       errorCodes: turnResult.ratingWrite.errorCodes,
-      wasOverTime: timing?.wasOverTime ?? false,
+      wasOverTime: timing.wasOverTime,
       occurredAt: now,
       bands: ratingScope.bands,
     };

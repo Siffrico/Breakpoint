@@ -22,6 +22,7 @@ describe("toUnitEvent", () => {
         passed: false,
         score: 40,
         reasoning: "wrong",
+        errorCodes: ["poor_problem_representation"],
       }),
     ).toEqual({ type: "solution_graded", passed: false });
   });
@@ -33,5 +34,20 @@ describe("toUnitEvent", () => {
   it("returns null when the args fail schema validation", () => {
     expect(toUnitEvent("gradeConnection", { connected: "yes" })).toBeNull();
     expect(toUnitEvent("continuePhase", { reason: "unsure" })).toBeNull();
+    expect(
+      toUnitEvent("gradeSolution", {
+        passed: false,
+        score: 40,
+        reasoning: "wrong",
+      }),
+    ).toBeNull();
+    expect(
+      toUnitEvent("gradeSolution", {
+        passed: true,
+        score: 90,
+        reasoning: "correct",
+        errorCodes: ["weak_definition"],
+      }),
+    ).toBeNull();
   });
 });

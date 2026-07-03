@@ -229,13 +229,21 @@ describe("runUnitTurn contract", () => {
       phaseResult("The solution still misses the constraint.", [
         {
           toolName: "gradeSolution",
-          input: { passed: false, score: 64, reasoning: "Constraint omitted." },
+          input: {
+            passed: false,
+            score: 64,
+            reasoning: "Constraint omitted.",
+            errorCodes: ["poor_problem_representation"],
+          },
         },
       ]),
     );
 
     expect(result.nextState).toMatchObject({ phase: "solve", solveRepairs: 1 });
-    expect(result.ratingWrite).toEqual({ score: 64, errorCodes: [] });
+    expect(result.ratingWrite).toEqual({
+      score: 64,
+      errorCodes: ["poor_problem_representation"],
+    });
   });
 
   const invalidCases: {
