@@ -1,9 +1,9 @@
 import type { ModelMessage } from "ai";
 
 import type { Memory } from "../../memory/types";
-import type { DifficultyBand } from "../types/training.types";
 import type { UnitDifficultySnapshot } from "../education-unit/unit";
 import type { ScenarioDirective } from "../engine/rating";
+import type { DifficultyBand } from "../types/training.types";
 import type { WorkspaceTurnRuntime } from "./stage-runtime";
 import type {
   AttemptTiming,
@@ -93,6 +93,18 @@ export interface WorkspaceTurnOrchestrationDependencies
     coveredThroughSequence: number | null;
   }) => Promise<void>;
   listMemories: (userId: string) => Promise<Memory[]>;
+  getUnitSyllabusContext?: (unitNodeId: string) => Promise<{
+    clusterNodeId: string;
+    workflow: { name: string; steps: string[] };
+    checked: { label: string; gloss: string }[];
+    targets: { id: string; label: string; gloss: string }[];
+  } | null>;
+  checkOffSyllabus?: (input: {
+    clusterNodeId: string;
+    requestedEntryIds: string[];
+    targetedEntryIds: string[];
+    evidenceNodeId: string;
+  }) => Promise<{ checked: string[]; deferred: string[] }>;
   prepareDifficultyDirective?: (input: {
     userId: string;
     nodeId: string;
@@ -381,6 +393,9 @@ export const runEducationUnitTurn = async ({
   }
 
   const recipe = getUnitRecipe(unitRun.recipeVersion, ratingScope);
+  const syllabus = deps.getUnitSyllabusContext
+    ? await deps.getUnitSyllabusContext(unit.nodeId)
+    : null;
   const contextBlock = buildUnitTurnContext({
     unit,
     state: unitRun,
@@ -389,6 +404,7 @@ export const runEducationUnitTurn = async ({
     progressSummary: loadedTranscript.progressSummary,
     difficultyLine: difficultySnapshot.promptBlock,
     pendingConnectTeach: readPendingConnectTeach(unitResponses),
+    syllabus,
   });
 
   const turnResult = await (deps.runUnitTurn ?? runUnitTurn)({
@@ -397,14 +413,25 @@ export const runEducationUnitTurn = async ({
     contextBlock,
     transcript: toModelMessages(loadedTranscript.transcript),
   });
+  if (
+    turnResult.nextState.phase === "mastered" &&
+    syllabus &&
+    deps.checkOffSyllabus
+  ) {
+    await deps.checkOffSyllabus({
+      clusterNodeId: syllabus.clusterNodeId,
+      requestedEntryIds: turnResult.syllabusCheckOff?.entryIds ?? [],
+      targetedEntryIds: syllabus.targets.map((entry) => entry.id),
+      evidenceNodeId: unit.nodeId,
+    });
+  }
   const scenarioAttemptId = [...unitResponses]
     .reverse()
     .find(
       (response) =>
         response.phase === "ai_education" &&
         response.metadata?.scenarioAttemptId,
-    )?.metadata
-    ?.scenarioAttemptId;
+    )?.metadata?.scenarioAttemptId;
 
   // Only a passing pass-2 solve feeds Goldilocks, using the attempt that was
   // atomically opened when the pass-2 Connect scenario was presented.

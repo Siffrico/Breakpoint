@@ -35,6 +35,35 @@ export interface AdvanceResult {
   changes: StatusChange[];
 }
 
+export type MasteryProgressionDecision =
+  | { intent: "mint" }
+  | { intent: "simulation" }
+  | { intent: "cluster_complete" };
+
+export const decideMasteryProgression = ({
+  uncheckedEntryCount,
+  learnerRating,
+  ratingDeviation,
+  peakRating,
+  simulationPassed,
+}: {
+  uncheckedEntryCount: number;
+  learnerRating: number;
+  ratingDeviation: number;
+  peakRating: number;
+  simulationPassed: boolean;
+}): MasteryProgressionDecision => {
+  if (simulationPassed) return { intent: "cluster_complete" };
+  if (
+    uncheckedEntryCount === 0 &&
+    learnerRating >= peakRating &&
+    ratingDeviation <= 80
+  ) {
+    return { intent: "simulation" };
+  }
+  return { intent: "mint" };
+};
+
 /**
  * Roll a parent's status up from its children: `completed` when every child is,
  * `ready` when any child is ready-or-completed, otherwise `planned`. Returns
@@ -77,7 +106,7 @@ const parentRollup = (
   const status = rollUpParentStatus(
     children.map((child) => ({ status: overrides[child.id] ?? child.status })),
   );
-  if (!status || (parent && parent.status === status)) {
+  if (!status || parent?.status === status) {
     return null;
   }
   return { nodeId: parentNodeId, status };
@@ -96,7 +125,9 @@ export const planCompletion = (
     return [];
   }
   const changes: StatusChange[] = [{ nodeId, status: "completed" }];
-  const rollup = parentRollup(nodes, node.parentNodeId, { [nodeId]: "completed" });
+  const rollup = parentRollup(nodes, node.parentNodeId, {
+    [nodeId]: "completed",
+  });
   if (rollup) {
     changes.push(rollup);
   }
@@ -126,7 +157,10 @@ export const planAdvancement = (
   const statusOf = (node: ProgressionNode): CurriculumNodeStatus =>
     node.id === completedNodeId ? "completed" : node.status;
 
-  const unlock = (nodeId: string, parentNodeId: string | null): AdvanceResult => {
+  const unlock = (
+    nodeId: string,
+    parentNodeId: string | null,
+  ): AdvanceResult => {
     const changes: StatusChange[] = [{ nodeId, status: "ready" }];
     const rollup = parentRollup(nodes, parentNodeId, {
       [completedNodeId]: "completed",

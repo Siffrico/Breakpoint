@@ -1,13 +1,20 @@
 import type { db as databaseClient } from "@acme/db/client";
 
 import type { BuildProjectDeps } from "../domain/training/orchestration/build-project";
+import { designSyllabus } from "../domain/training/agents/syllabus-designer";
 import { ArtifactBuildError } from "../domain/training/orchestration/agent-runtime";
+import { mintNextUnit } from "../domain/training/unit-minting/mint-next-unit";
 import { runPrepareUnit } from "../domain/training/unit-preparation/prepare-unit-edge";
 import { buildProjectCheckpointRepository } from "./build-project-checkpoint-repository";
 import { buildProjectCurriculumRepository } from "./build-project-curriculum-repository";
 import { buildProjectProfileRepository } from "./build-project-profile-repository";
-import { trainingCurriculumRepository } from "./training-curriculum-repository";
+import {
+  trainingCurriculumRepository as curriculumRepository,
+  trainingCurriculumRepository,
+} from "./training-curriculum-repository";
 import { trainingOnboardingRepository } from "./training-onboarding-repository";
+import { trainingSyllabusRepository } from "./training-syllabus-repository";
+import { createUnitMintingRepositoryDeps } from "./unit-minting-repository-deps";
 import { createUnitPreparationRepositoryDeps } from "./unit-preparation-repository-deps";
 
 type Database = typeof databaseClient;
@@ -145,5 +152,34 @@ export const createBuildProjectDeps = (db: Database): BuildProjectDeps => ({
       node,
       sessionId,
       deps: createUnitPreparationRepositoryDeps(db),
+    }),
+  ensureSkillSyllabus: async ({ clusterNodeId, targetIdentity }) => {
+    const cluster = await curriculumRepository.getNodeById({
+      db,
+      nodeId: clusterNodeId,
+    });
+    if (!cluster?.skillMap) throw new Error("Skill map is missing.");
+    const existing = await trainingSyllabusRepository.listEntries({
+      db,
+      clusterNodeId,
+    });
+    if (existing.length > 0) return existing;
+    const syllabus = await designSyllabus({
+      title: cluster.title,
+      summary: cluster.summary,
+      targetIdentity,
+      workflow: cluster.skillMap.workflow,
+      masteryContract: cluster.skillMap.masteryContract,
+    });
+    return trainingSyllabusRepository.ensureSyllabus({
+      db,
+      clusterNodeId,
+      entries: syllabus.entries,
+    });
+  },
+  mintSkillUnit: ({ clusterNodeId, sessionId, userId }) =>
+    mintNextUnit({
+      clusterNodeId,
+      deps: createUnitMintingRepositoryDeps({ db, sessionId, userId }),
     }),
 });

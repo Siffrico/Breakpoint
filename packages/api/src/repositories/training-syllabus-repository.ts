@@ -1,6 +1,6 @@
 import type { db as databaseClient } from "@acme/db/client";
 import { and, asc, eq, inArray } from "@acme/db";
-import { TrainingSyllabusEntry } from "@acme/db/schema";
+import { TrainingCurriculumNode, TrainingSyllabusEntry } from "@acme/db/schema";
 
 import type { SyllabusOutput } from "../domain/training/agents/contracts";
 
@@ -71,6 +71,34 @@ export const trainingSyllabusRepository = {
 
   listEntries,
 
+  getUnitContext: async ({
+    db,
+    unitNodeId,
+  }: {
+    db: Database;
+    unitNodeId: string;
+  }) => {
+    const unit = await db.query.TrainingCurriculumNode.findFirst({
+      where: eq(TrainingCurriculumNode.id, unitNodeId),
+    });
+    if (!unit?.parentNodeId) return null;
+    const cluster = await db.query.TrainingCurriculumNode.findFirst({
+      where: eq(TrainingCurriculumNode.id, unit.parentNodeId),
+    });
+    if (!cluster?.skillMap) return null;
+    const entries = await listEntries({ db, clusterNodeId: cluster.id });
+    return {
+      clusterNodeId: cluster.id,
+      workflow: cluster.skillMap.workflow,
+      checked: entries
+        .filter((entry) => entry.status === "checked")
+        .map(({ label, gloss }) => ({ label, gloss })),
+      targets: entries
+        .filter((entry) => entry.status === "targeted")
+        .map(({ id, label, gloss }) => ({ id, label, gloss })),
+    };
+  },
+
   checkOffEntries: async ({
     db,
     clusterNodeId,
@@ -88,27 +116,37 @@ export const trainingSyllabusRepository = {
       requestedEntryIds,
       targetedEntryIds,
     });
-    if (acceptedIds.length === 0) return { checked: [], deferred };
-
     return db.transaction(async (tx) => {
       const transactionDb = tx as unknown as Database;
-      const checked = await transactionDb
-        .update(TrainingSyllabusEntry)
-        .set({
-          status: "checked",
-          checkedAt: new Date(),
-          evidenceNodeId,
-        })
-        .where(
-          and(
-            eq(TrainingSyllabusEntry.clusterNodeId, clusterNodeId),
-            inArray(TrainingSyllabusEntry.id, acceptedIds),
-          ),
-        )
-        .returning({ id: TrainingSyllabusEntry.id });
+      const checked =
+        acceptedIds.length === 0
+          ? []
+          : await transactionDb
+              .update(TrainingSyllabusEntry)
+              .set({
+                status: "checked",
+                checkedAt: new Date(),
+                evidenceNodeId,
+              })
+              .where(
+                and(
+                  eq(TrainingSyllabusEntry.clusterNodeId, clusterNodeId),
+                  inArray(TrainingSyllabusEntry.id, acceptedIds),
+                ),
+              )
+              .returning({ id: TrainingSyllabusEntry.id });
 
       const checkedIds = checked.map((entry) => entry.id);
       const missing = acceptedIds.filter((id) => !checkedIds.includes(id));
+      await transactionDb
+        .update(TrainingSyllabusEntry)
+        .set({ status: "unchecked" })
+        .where(
+          and(
+            eq(TrainingSyllabusEntry.clusterNodeId, clusterNodeId),
+            eq(TrainingSyllabusEntry.status, "targeted"),
+          ),
+        );
       return { checked: checkedIds, deferred: [...deferred, ...missing] };
     });
   },

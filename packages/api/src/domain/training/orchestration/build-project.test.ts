@@ -260,6 +260,12 @@ const makeDeps = (
     prepareUnit: vi.fn<BuildProjectDeps["prepareUnit"]>(() =>
       Promise.resolve(),
     ),
+    ensureSkillSyllabus: vi.fn<BuildProjectDeps["ensureSkillSyllabus"]>(() =>
+      Promise.resolve(),
+    ),
+    mintSkillUnit: vi.fn<BuildProjectDeps["mintSkillUnit"]>(() =>
+      Promise.resolve(),
+    ),
   };
 
   return { deps, store, updateRunCalls };

@@ -20,6 +20,7 @@ import {
   GradeSolutionInputSchema,
   toUnitEvent,
 } from "../workspace-ai/fsm-tools";
+import { CheckOffSyllabusInputSchema } from "./agents/check-off-syllabus.tool";
 import { runConnectAgent } from "./agents/connect-agent";
 import { runOrientAgent } from "./agents/orient-agent";
 import { PhaseAgentOutputSchema } from "./agents/output-schema";
@@ -66,6 +67,7 @@ export interface UnitTurnResult {
    * exactly-once guard before feeding this score to Goldilocks.
    */
   ratingWrite: { score: number } | null;
+  syllabusCheckOff: { entryIds: string[]; evidence: string } | null;
 }
 
 export type UnitPhaseRunner = (
@@ -128,13 +130,19 @@ const resolveEvent = (
   }
 
   const allowedTools = EVENT_TOOLS_BY_PHASE[state.phase] ?? [];
-  if (result.toolCalls.length !== 1) {
+  const phaseCalls = result.toolCalls.filter((call) =>
+    allowedTools.includes(call.toolName),
+  );
+  const checkOffCalls = result.toolCalls.filter(
+    (call) => call.toolName === "checkOffSyllabus",
+  );
+  if (phaseCalls.length !== 1 || checkOffCalls.length > 1) {
     throw new EducationUnitContractError({
       message: `The ${state.phase} agent must return exactly one phase event tool call.`,
     });
   }
 
-  const call = result.toolCalls[0];
+  const call = phaseCalls[0];
   if (!call || !allowedTools.includes(call.toolName)) {
     throw new EducationUnitContractError({
       message: `The ${state.phase} agent returned an invalid phase event tool.`,
@@ -213,6 +221,20 @@ export const runUnitTurn = async (
   const ratingWrite = writesGoldilocks(state, event)
     ? { score: readSolveScore(result) ?? recipe.grade.passAt }
     : null;
+  const checkOffCall = result.toolCalls.find(
+    (call) => call.toolName === "checkOffSyllabus",
+  );
+  const parsedCheckOff = CheckOffSyllabusInputSchema.safeParse(
+    checkOffCall?.input,
+  );
+  const syllabusCheckOff =
+    state.phase === "solve" &&
+    state.pass === 2 &&
+    event.type === "solution_graded" &&
+    event.passed &&
+    parsedCheckOff.success
+      ? parsedCheckOff.data
+      : null;
 
   return {
     assistantMessage: parsedOutput.data.assistantMessage,
@@ -221,5 +243,6 @@ export const runUnitTurn = async (
     forcedConnectAdvance,
     gradeReasoning: reasoning,
     ratingWrite,
+    syllabusCheckOff,
   };
 };

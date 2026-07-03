@@ -7,10 +7,10 @@ import { sql } from "@acme/db";
 import { CapstoneSubmissionSchema } from "@acme/validators";
 
 import { deriveProvisionalProjectTitle } from "../domain/training/services/provisional-project-title";
+import { mintNextUnit } from "../domain/training/unit-minting/mint-next-unit";
 import { UnitNotReadyError } from "../domain/training/unit-preparation/errors";
 import {
   raiseUnitPreparationError,
-  runPrepareUnit,
 } from "../domain/training/unit-preparation/prepare-unit-edge";
 import { advanceCompletedUnitWorkflow } from "../domain/training/workflows/advance-completed-unit-workflow";
 import { continueLearningProjectWorkflow } from "../domain/training/workflows/continue-learning-project-workflow";
@@ -34,6 +34,11 @@ import { trainingOnboardingRepository } from "../repositories/training-onboardin
 import { trainingRatingRepository } from "../repositories/training-rating-repository";
 import { trainingRecallRepository } from "../repositories/training-recall-repository";
 import { trainingUnitRunRepository } from "../repositories/training-unit-run-repository";
+import {
+  createUnitMintingRepositoryDeps,
+  loadSkillMasteryState,
+  openSkillSimulation,
+} from "../repositories/unit-minting-repository-deps";
 import { createUnitPreparationRepositoryDeps } from "../repositories/unit-preparation-repository-deps";
 import { createWorkspaceTurnRepositoryDeps } from "../repositories/workspace-turn-repository-deps";
 import { protectedProcedure } from "../trpc";
@@ -764,12 +769,19 @@ export const trainingRouter = {
                 );
                 return run(createWorkspaceTurnRepositoryDeps(db));
               }),
-            prewarmUnit: ({ node, sessionId }) =>
-              runPrepareUnit({
-                node,
-                sessionId,
-                deps: createUnitPreparationRepositoryDeps(ctx.db),
+            mintUnit: ({ clusterNodeId, sessionId, userId }) =>
+              mintNextUnit({
+                clusterNodeId,
+                deps: createUnitMintingRepositoryDeps({
+                  db: ctx.db,
+                  sessionId,
+                  userId,
+                }),
               }),
+            getMasteryState: ({ clusterNodeId, userId }) =>
+              loadSkillMasteryState({ db: ctx.db, clusterNodeId, userId }),
+            openSimulation: (clusterNodeId) =>
+              openSkillSimulation({ db: ctx.db, clusterNodeId }),
             scheduleBackgroundTask: ctx.scheduleBackgroundTask,
           },
         }),

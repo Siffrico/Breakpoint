@@ -272,6 +272,15 @@ export interface BuildProjectDeps {
     node: CurriculumPlan["nodes"][number];
     sessionId: string;
   }) => Promise<unknown>;
+  ensureSkillSyllabus: (input: {
+    clusterNodeId: string;
+    targetIdentity: string;
+  }) => Promise<unknown>;
+  mintSkillUnit: (input: {
+    clusterNodeId: string;
+    sessionId: string;
+    userId: string;
+  }) => Promise<unknown>;
 }
 
 const countModules = (plan: CurriculumPlan): number =>
@@ -919,6 +928,32 @@ export const buildProjectFromOnboarding = async ({
     } else {
       void prewarmFirstUnit();
     }
+  }
+
+  const skills = plan.nodes.filter((node) => node.kind === "skill_cluster");
+  for (const [index, skill] of skills.entries()) {
+    const prepareSkill = async () => {
+      try {
+        await deps.ensureSkillSyllabus({
+          clusterNodeId: skill.id,
+          targetIdentity: plan.targetIdentity,
+        });
+        if (index === 0 && userId) {
+          await deps.mintSkillUnit({
+            clusterNodeId: skill.id,
+            sessionId,
+            userId,
+          });
+        }
+      } catch (error) {
+        console.error("Skill syllabus prewarm failed", {
+          clusterNodeId: skill.id,
+          error,
+        });
+      }
+    };
+    if (scheduleBackgroundTask) scheduleBackgroundTask(prepareSkill);
+    else void prepareSkill();
   }
 
   return ok({

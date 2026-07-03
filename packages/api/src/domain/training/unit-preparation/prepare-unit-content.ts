@@ -35,6 +35,11 @@ export interface UnitPreparationDependencies {
   readonly listAttemptHistory: (
     sessionId: string,
   ) => Promise<PriorLearningRecord[]>;
+  readonly getUnitSyllabusContext: (unitNodeId: string) => Promise<{
+    workflow: { name: string; steps: string[] };
+    checked: { label: string; gloss: string }[];
+    targets: { id: string; label: string; gloss: string }[];
+  } | null>;
   readonly createUnitContentIfAbsent: (input: {
     nodeId: string;
     title: string;
@@ -77,11 +82,15 @@ const assembleSeedContext = ({
   planNodes,
   targetIdentity,
   priorLearning,
+  syllabus,
 }: {
   nodeId: string;
   planNodes: PlanNodeContext[] | null;
   targetIdentity: string | null;
   priorLearning: PriorLearningRecord[];
+  syllabus: Awaited<
+    ReturnType<UnitPreparationDependencies["getUnitSyllabusContext"]>
+  >;
 }): Effect.Effect<UnitBuilderContext, UnitContextMissingError> => {
   if (!planNodes) {
     return Effect.fail(contextMissing("Curriculum plan context is missing."));
@@ -93,6 +102,9 @@ const assembleSeedContext = ({
   }
   if (!targetIdentity?.trim()) {
     return Effect.fail(contextMissing("Target identity is missing."));
+  }
+  if (!syllabus || syllabus.targets.length === 0) {
+    return Effect.fail(contextMissing("Unit syllabus targets are missing."));
   }
 
   const parentNode = node.parentNodeId
@@ -147,6 +159,7 @@ const assembleSeedContext = ({
         node.kind === "integration" ? { completedClusterTitles } : null,
     },
     learner: { targetIdentity: targetIdentity.trim(), priorLearning },
+    syllabus,
   });
 };
 
@@ -174,26 +187,27 @@ export const prepareUnitContent = ({
     });
     if (existing && !forceRefresh) return existing;
 
-    const [planNodes, targetIdentity, priorLearning] = yield* Effect.tryPromise(
-      {
+    const [planNodes, targetIdentity, priorLearning, syllabus] =
+      yield* Effect.tryPromise({
         try: () =>
           Promise.all([
             deps.getPlanNodesBySession(sessionId),
             deps.getTargetIdentity(sessionId),
             deps.listAttemptHistory(sessionId),
+            deps.getUnitSyllabusContext(node.id),
           ]),
         catch: (cause) =>
           contextMissing(
             "Unit preparation context could not be loaded.",
             cause,
           ),
-      },
-    );
+      });
     const context = yield* assembleSeedContext({
       nodeId: node.id,
       planNodes,
       targetIdentity,
       priorLearning,
+      syllabus,
     });
 
     const setup = yield* Effect.tryPromise({

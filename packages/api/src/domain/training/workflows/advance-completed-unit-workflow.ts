@@ -6,6 +6,7 @@ import type {
   UnitContent,
 } from "../types/training.types";
 import { err, ok } from "../../../lib/result";
+import { decideMasteryProgression } from "../engine/plan-progression";
 import { assertUnitCanAdvance } from "../workspace-ai/workspace-turn";
 
 interface AdvanceCompletedUnitTransactionDependencies {
@@ -23,10 +24,22 @@ interface AdvanceCompletedUnitDependencies {
   withTransaction: <A>(
     run: (deps: AdvanceCompletedUnitTransactionDependencies) => Promise<A>,
   ) => Promise<A>;
-  prewarmUnit: (input: {
-    node: CurriculumNode;
+  mintUnit: (input: {
+    clusterNodeId: string;
     sessionId: string;
+    userId: string;
   }) => Promise<unknown>;
+  getMasteryState: (input: {
+    clusterNodeId: string;
+    userId: string;
+  }) => Promise<{
+    uncheckedEntryCount: number;
+    learnerRating: number;
+    ratingDeviation: number;
+    peakRating: number;
+    simulationPassed: boolean;
+  }>;
+  openSimulation: (clusterNodeId: string) => Promise<unknown>;
   scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }
 
@@ -45,9 +58,9 @@ export const advanceCompletedUnitWorkflow = async ({
 }): Promise<
   Result<{ advanced: true; nextReadyNode: CurriculumNode | null }>
 > => {
-  let nextReadyNode: CurriculumNode | null;
+  let completed: { node: CurriculumNode; run: PersistedUnitRun };
   try {
-    nextReadyNode = await deps.withTransaction(async (tx) => {
+    completed = await deps.withTransaction(async (tx) => {
       const plan = await tx.getActivePlan(sessionId);
       const node = plan?.nodes.find((item) => item.id === nodeId) ?? null;
       const unit = node ? await tx.getUnitByNodeId(node.id) : null;
@@ -55,33 +68,49 @@ export const advanceCompletedUnitWorkflow = async ({
 
       assertUnitCanAdvance({ node, run });
 
-      const advancedNode =
-        node?.status === "completed" ? null : await tx.completeNode(nodeId);
+      if (!node || !run) throw new Error("Completed unit context is missing.");
+      if (node.status !== "completed") await tx.completeNode(nodeId);
       await tx.touchSession(sessionId);
-      return advancedNode;
+      return { node, run };
     });
   } catch (error) {
     return err(error instanceof Error ? error.message : "Unit cannot advance.");
   }
 
-  if (nextReadyNode) {
-    const prewarm = async () => {
+  if (completed.node.kind === "unit" && completed.node.parentNodeId) {
+    const clusterNodeId = completed.node.parentNodeId;
+    const mint = async () => {
       try {
-        await deps.prewarmUnit({ node: nextReadyNode, sessionId });
+        const userId = completed.run.userId;
+        if (!userId) throw new Error("Unit run has no learner id.");
+        const state = await deps.getMasteryState({
+          clusterNodeId,
+          userId,
+        });
+        const decision = decideMasteryProgression(state);
+        if (decision.intent === "mint") {
+          await deps.mintUnit({
+            clusterNodeId,
+            sessionId,
+            userId,
+          });
+        } else if (decision.intent === "simulation") {
+          await deps.openSimulation(clusterNodeId);
+        }
       } catch (error) {
-        console.error("Advanced unit prewarm failed", {
-          nodeId: nextReadyNode.id,
+        console.error("Next unit mint failed", {
+          clusterNodeId: completed.node.parentNodeId,
           error,
         });
       }
     };
 
     if (deps.scheduleBackgroundTask) {
-      deps.scheduleBackgroundTask(prewarm);
+      deps.scheduleBackgroundTask(mint);
     } else {
-      void prewarm();
+      void mint();
     }
   }
 
-  return ok({ advanced: true, nextReadyNode });
+  return ok({ advanced: true, nextReadyNode: null });
 };

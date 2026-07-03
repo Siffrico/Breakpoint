@@ -22,6 +22,7 @@ const baseInput = (
   progressSummary: null,
   difficultyLine: null,
   pendingConnectTeach: false,
+  syllabus: null,
   ...overrides,
 });
 
@@ -100,5 +101,33 @@ describe("buildUnitTurnContext", () => {
       }),
     );
     expect(atThreshold).toContain("MICRO-TEACH");
+  });
+
+  it("renders the workflow, assumed knowledge, and exact targets", () => {
+    const context = buildUnitTurnContext(
+      baseInput({
+        syllabus: {
+          workflow: {
+            name: "Diagnose an incident",
+            steps: ["Collect signals", "Separate hypotheses"],
+          },
+          checked: [
+            { label: "Symptom versus cause", gloss: "Do not conflate them." },
+          ],
+          targets: [
+            {
+              id: "entry-2",
+              label: "Correlated versus causal",
+              gloss: "Demand a discriminating prediction.",
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(context).toContain("## Syllabus");
+    expect(context).toContain("Workflow: Diagnose an incident");
+    expect(context).toContain("Already checked (assume known; build on these)");
+    expect(context).toContain("entry-2 — Correlated versus causal");
   });
 });

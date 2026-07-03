@@ -73,6 +73,18 @@ describe("explicit unit preparation recovery", () => {
       getPhaseResponses: () => Promise.resolve([]),
       getTargetIdentity: () => Promise.resolve("Incident commander"),
       listAttemptHistory: () => Promise.resolve([]),
+      getUnitSyllabusContext: () =>
+        Promise.resolve({
+          workflow: { name: "Diagnose an incident", steps: ["Choose a probe"] },
+          checked: [],
+          targets: [
+            {
+              id: "entry-1",
+              label: "Causal probe",
+              gloss: "Separate causes.",
+            },
+          ],
+        }),
       createUnitContentIfAbsent: () => Promise.resolve(unit),
       replaceUnitContent: () => Promise.resolve(unit),
       saveNodeBriefing: () => Promise.resolve(null),

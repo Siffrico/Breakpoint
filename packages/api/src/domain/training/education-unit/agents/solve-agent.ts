@@ -14,6 +14,7 @@ import type { PhaseAgentOutput } from "./output-schema";
 import type { PhaseAgentResult } from "./run-phase-agent";
 import { ERROR_CLASSIFICATION_PROTOCOL } from "../../prompts/shared-instructions";
 import { continuePhase, gradeSolution } from "../../workspace-ai/fsm-tools";
+import { checkOffSyllabus } from "./check-off-syllabus.tool";
 import { PhaseAgentOutputSchema } from "./output-schema";
 import { runPhaseAgent } from "./run-phase-agent";
 import { buildPhaseSystemPrompt } from "./system-prompt";
@@ -27,6 +28,8 @@ task and call continuePhase with reason="prompted".
 On each answer, judge their solution:
   - If it is correct AND clearly explained, call gradeSolution with
     passed=true, a score 80-100, and reply confirming what makes it correct.
+    On pass 2, also call checkOffSyllabus with only target entry ids directly
+    demonstrated by the learner and concise evidence from their answer.
   - If it is incomplete or unclear and should not yet count as a failed
     attempt, call continuePhase with reason="needs_more_work". Point at the
     specific gap without solving it for them, and ask them to try again.
@@ -52,6 +55,6 @@ export const runSolveAgent = (
     messages,
     schema: PhaseAgentOutputSchema,
     schemaName: "solve_output",
-    tools: { continuePhase, gradeSolution },
+    tools: { continuePhase, gradeSolution, checkOffSyllabus },
     errorMessage: "Failed to run the Solve step.",
   });

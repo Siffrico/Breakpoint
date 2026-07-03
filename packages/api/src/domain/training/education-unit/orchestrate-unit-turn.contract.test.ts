@@ -86,6 +86,13 @@ describe("runUnitTurn contract", () => {
           toolName: "gradeSolution",
           input: { passed: true, score: 93, reasoning: "Clear transfer." },
         },
+        {
+          toolName: "checkOffSyllabus",
+          input: {
+            entryIds: ["entry-1"],
+            evidence: "The learner separated correlation from causality.",
+          },
+        },
       ]),
     ];
 
@@ -110,6 +117,14 @@ describe("runUnitTurn contract", () => {
       expect(turn.assistantMessage).toBe(result.object.assistantMessage);
       expect(turn.ratingWrite).toEqual(
         index === script.length - 1 ? { score: 93 } : null,
+      );
+      expect(turn.syllabusCheckOff).toEqual(
+        index === script.length - 1
+          ? {
+              entryIds: ["entry-1"],
+              evidence: "The learner separated correlation from causality.",
+            }
+          : null,
       );
       state = turn.nextState;
     }

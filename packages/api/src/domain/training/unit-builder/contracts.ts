@@ -42,6 +42,25 @@ export const UnitBuilderContextSchema = z.object({
     targetIdentity: z.string().min(1),
     priorLearning: z.array(PriorLearningRecordSchema),
   }),
+  syllabus: z.object({
+    workflow: z.object({
+      name: z.string().min(1),
+      steps: z.array(z.string().min(1)).min(1),
+    }),
+    checked: z.array(
+      z.object({ label: z.string().min(1), gloss: z.string().min(1) }),
+    ),
+    targets: z
+      .array(
+        z.object({
+          id: z.string().min(1),
+          label: z.string().min(1),
+          gloss: z.string().min(1),
+        }),
+      )
+      .min(1)
+      .max(3),
+  }),
 });
 
 export const SeedStageOutputSchema = PreSeedUnitContentDraftSchema.extend({

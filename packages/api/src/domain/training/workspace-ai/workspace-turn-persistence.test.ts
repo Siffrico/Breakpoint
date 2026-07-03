@@ -78,6 +78,7 @@ const masteredTurn: UnitTurnResult = {
   forcedConnectAdvance: false,
   gradeReasoning: "Correct and clearly reasoned.",
   ratingWrite: { score: 90 },
+  syllabusCheckOff: null,
 };
 
 const difficultySnapshot = {
@@ -220,6 +221,7 @@ void test("saveUnitPhaseResult persists transitions and non-grading continuation
     forcedConnectAdvance: false,
     gradeReasoning: null,
     ratingWrite: null,
+    syllabusCheckOff: null,
   };
 
   await saveUnitPhaseResult({
@@ -273,7 +275,8 @@ void test("saveUnitPhaseResult persists transitions and non-grading continuation
   });
 
   assert.ok(captured);
-  const presentationCommit = captured as unknown as WorkspaceEducationTurnCommit;
+  const presentationCommit =
+    captured as unknown as WorkspaceEducationTurnCommit;
   assert.equal(
     presentationCommit.scenarioPresentation?.snapshot,
     difficultySnapshot,

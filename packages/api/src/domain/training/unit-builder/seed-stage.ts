@@ -60,6 +60,8 @@ Rules:
 - clusterArcFrame must not answer the seed prompt or teach the lesson content.
 - complexityBudget 1 = foundational, 2 = intermediate, 3 = advanced.
 - Earlier non-integration slots should usually stay at 1 or 2 unless there is a clear reason the concept is inherently dense.
+- Force the unit's target syllabus entries through the scenario; they are the non-negotiable discriminations for this unit.
+- Treat checked syllabus entries as assumed-known. Do not re-teach them except where they are load-bearing context.
 
 Context:
 ${formatUnitBuilderContext(context)}`,
@@ -92,5 +94,9 @@ Cluster context: ${clusterContext}
 Completed clusters for integration: ${integrationContext}
 Target identity: ${context.learner.targetIdentity}
 Prior learning:
-${priorLearning}`;
+${priorLearning}
+Workflow: ${context.syllabus.workflow.name}
+Workflow spine: ${context.syllabus.workflow.steps.join(" -> ")}
+Already checked (assume known): ${context.syllabus.checked.map((entry) => `${entry.label}: ${entry.gloss}`).join("; ") || "None"}
+This unit must land: ${context.syllabus.targets.map((entry) => `${entry.label}: ${entry.gloss}`).join("; ")}`;
 };

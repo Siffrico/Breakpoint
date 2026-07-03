@@ -922,14 +922,12 @@ export const trainingCurriculumRepository = {
   },
 
   completeNode: async ({ db, nodeId }: { db: Database; nodeId: string }) => {
+    const node = await trainingCurriculumRepository.getNodeById({ db, nodeId });
     await trainingCurriculumRepository.markNodeCompleted({
       db,
       nodeId,
     });
-
-    return trainingCurriculumRepository.advancePlanAfterCompletion({
-      db,
-      nodeId,
-    });
+    if (node?.kind === "unit" || node?.kind === "simulation") return node;
+    return trainingCurriculumRepository.advancePlanAfterCompletion({ db, nodeId });
   },
 };

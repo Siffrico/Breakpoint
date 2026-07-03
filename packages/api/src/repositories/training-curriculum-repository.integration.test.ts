@@ -2,7 +2,6 @@
  * Integration test: the canonical-winner guarantee belongs to Postgres conflict
  * handling, so a mocked persistence callback cannot prove it.
  */
-/* eslint-disable no-restricted-imports */
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -16,6 +15,7 @@ import {
   TrainingUnitContent,
 } from "@acme/db/schema";
 
+import { appendMintedUnitNode } from "./training-curriculum-node-writer";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
 import { trainingSyllabusRepository } from "./training-syllabus-repository";
 
@@ -201,7 +201,7 @@ describe("trainingSyllabusRepository persistence", () => {
           {
             planId: plan.id,
             kind: "unit",
-            status: "ready",
+            status: "completed",
             title: "Separate symptoms from causes",
             summary: "Choose a discriminating probe.",
             whyItMatters: "Evidence must change the hypothesis set.",
@@ -235,12 +235,28 @@ describe("trainingSyllabusRepository persistence", () => {
 
       const target = first[0];
       if (!target) throw new Error("Expected a syllabus entry.");
+      const minted = await appendMintedUnitNode({
+        db,
+        clusterNodeId: cluster.id,
+        title: target.label,
+        summary: target.gloss,
+        whyItMatters: "The next frontier must persist atomically.",
+        difficultyBands: [
+          { order: 0, minRating: 900, maxRating: 1000 },
+          { order: 1, minRating: 1000, maxRating: 1100 },
+          { order: 2, minRating: 1100, maxRating: 1200 },
+        ],
+        targetEntryIds: [target.id],
+      });
+      expect(minted.created).toBe(true);
+      expect(minted.node.parentNodeId).toBe(cluster.id);
+
       const result = await trainingSyllabusRepository.checkOffEntries({
         db,
         clusterNodeId: cluster.id,
         requestedEntryIds: [target.id, "00000000-0000-0000-0000-000000000000"],
         targetedEntryIds: [target.id],
-        evidenceNodeId: evidence.id,
+        evidenceNodeId: minted.node.id,
       });
       expect(result.checked).toEqual([target.id]);
       expect(result.deferred).toEqual(["00000000-0000-0000-0000-000000000000"]);
@@ -249,7 +265,7 @@ describe("trainingSyllabusRepository persistence", () => {
         where: eq(TrainingSyllabusEntry.id, target.id),
       });
       expect(persisted?.status).toBe("checked");
-      expect(persisted?.evidenceNodeId).toBe(evidence.id);
+      expect(persisted?.evidenceNodeId).toBe(minted.node.id);
     },
     20_000,
   );

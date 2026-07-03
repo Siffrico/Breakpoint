@@ -4,6 +4,7 @@ import type { UnitPreparationDependencies } from "../domain/training/unit-prepar
 import { trainingAttemptRepository } from "./training-attempt-repository";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
 import { trainingOnboardingRepository } from "./training-onboarding-repository";
+import { trainingSyllabusRepository } from "./training-syllabus-repository";
 
 type Database = typeof databaseClient;
 
@@ -23,6 +24,8 @@ export const createUnitPreparationRepositoryDeps = (
   },
   listAttemptHistory: (sessionId) =>
     trainingAttemptRepository.listAttemptHistory({ db, sessionId }),
+  getUnitSyllabusContext: (unitNodeId) =>
+    trainingSyllabusRepository.getUnitContext({ db, unitNodeId }),
   createUnitContentIfAbsent: (payload) =>
     trainingCurriculumRepository.createUnitContentIfAbsent({ db, ...payload }),
   replaceUnitContent: (payload) =>

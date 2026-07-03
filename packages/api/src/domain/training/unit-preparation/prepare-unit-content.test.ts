@@ -100,6 +100,15 @@ const makeDeps = (
   getPlanNodesBySession: vi.fn(() => Promise.resolve(planNodes)),
   getTargetIdentity: vi.fn(() => Promise.resolve("Incident commander")),
   listAttemptHistory: vi.fn(() => Promise.resolve([])),
+  getUnitSyllabusContext: vi.fn(() =>
+    Promise.resolve({
+      workflow: { name: "Diagnose an incident", steps: ["Choose a probe"] },
+      checked: [],
+      targets: [
+        { id: "entry-1", label: "Causal probe", gloss: "Separate causes." },
+      ],
+    }),
+  ),
   createUnitContentIfAbsent: vi.fn(() => Promise.resolve(unit)),
   replaceUnitContent: vi.fn(() => Promise.resolve(unit)),
   ...overrides,

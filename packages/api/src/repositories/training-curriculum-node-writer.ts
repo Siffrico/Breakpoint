@@ -1,6 +1,6 @@
 import type { db as databaseClient } from "@acme/db/client";
-import { eq } from "@acme/db";
-import { TrainingCurriculumNode } from "@acme/db/schema";
+import { and, desc, eq, inArray, ne, sql } from "@acme/db";
+import { TrainingCurriculumNode, TrainingSyllabusEntry } from "@acme/db/schema";
 
 import type { CurriculumBlueprint } from "../domain/training/types/training.types";
 
@@ -59,3 +59,85 @@ export const insertBlueprintNodes = async ({
 
   return insertedNodes;
 };
+
+export const appendMintedUnitNode = async ({
+  db,
+  clusterNodeId,
+  title,
+  summary,
+  whyItMatters,
+  difficultyBands,
+  targetEntryIds,
+}: {
+  db: Database;
+  clusterNodeId: string;
+  title: string;
+  summary: string;
+  whyItMatters: string;
+  difficultyBands: {
+    order: number;
+    minRating: number;
+    maxRating: number;
+    label?: string;
+  }[];
+  targetEntryIds: string[];
+}) =>
+  db.transaction(async (tx) => {
+    const transactionDb = tx as unknown as Database;
+    await transactionDb.execute(
+      sql`select pg_advisory_xact_lock(hashtext(${clusterNodeId}))`,
+    );
+    const cluster = await transactionDb.query.TrainingCurriculumNode.findFirst({
+      where: eq(TrainingCurriculumNode.id, clusterNodeId),
+    });
+    if (!cluster) throw new Error("Skill cluster was not found.");
+
+    const open = await transactionDb.query.TrainingCurriculumNode.findFirst({
+      where: and(
+        eq(TrainingCurriculumNode.parentNodeId, clusterNodeId),
+        eq(TrainingCurriculumNode.kind, "unit"),
+        ne(TrainingCurriculumNode.status, "completed"),
+      ),
+      orderBy: [desc(TrainingCurriculumNode.orderIndex)],
+    });
+    if (open) return { node: open, created: false } as const;
+
+    const latest = await transactionDb.query.TrainingCurriculumNode.findFirst({
+      where: eq(TrainingCurriculumNode.planId, cluster.planId),
+      orderBy: [desc(TrainingCurriculumNode.orderIndex)],
+    });
+    const latestSibling =
+      await transactionDb.query.TrainingCurriculumNode.findFirst({
+        where: eq(TrainingCurriculumNode.parentNodeId, clusterNodeId),
+        orderBy: [desc(TrainingCurriculumNode.positionRow)],
+      });
+    const [node] = await transactionDb
+      .insert(TrainingCurriculumNode)
+      .values({
+        planId: cluster.planId,
+        parentNodeId: cluster.id,
+        kind: "unit",
+        status: "ready",
+        title,
+        summary,
+        whyItMatters,
+        difficultyBands,
+        orderIndex: (latest?.orderIndex ?? 0) + 1,
+        depth: 2,
+        positionColumn: cluster.positionColumn,
+        positionRow: Math.max(latestSibling?.positionRow ?? 1, 1) + 1,
+      })
+      .returning();
+    if (!node) throw new Error("Minted unit could not be persisted.");
+
+    await transactionDb
+      .update(TrainingSyllabusEntry)
+      .set({ status: "targeted" })
+      .where(
+        and(
+          eq(TrainingSyllabusEntry.clusterNodeId, clusterNodeId),
+          inArray(TrainingSyllabusEntry.id, targetEntryIds),
+        ),
+      );
+    return { node, created: true } as const;
+  });

@@ -49,11 +49,11 @@ const masteredRun = {
 } satisfies PersistedUnitRun;
 
 describe("advanceCompletedUnitWorkflow", () => {
-  it("returns and prewarms the node made ready by the committed transaction", async () => {
+  it("commits immediately and mints the next unit in the background", async () => {
     const events: string[] = [];
     let backgroundTask: Promise<void> | null = null;
-    const prewarmUnit = vi.fn(() => {
-      events.push("prewarm");
+    const mintUnit = vi.fn(() => {
+      events.push("mint");
       return Promise.resolve();
     });
 
@@ -76,7 +76,16 @@ describe("advanceCompletedUnitWorkflow", () => {
           events.push("transaction:commit");
           return value;
         },
-        prewarmUnit,
+        mintUnit,
+        getMasteryState: () =>
+          Promise.resolve({
+            uncheckedEntryCount: 3,
+            learnerRating: 1200,
+            ratingDeviation: 100,
+            peakRating: 1600,
+            simulationPassed: false,
+          }),
+        openSimulation: () => Promise.resolve(),
         scheduleBackgroundTask: (task) => {
           backgroundTask = task();
         },
@@ -87,16 +96,13 @@ describe("advanceCompletedUnitWorkflow", () => {
 
     expect(result).toEqual({
       success: true,
-      data: { advanced: true, nextReadyNode: nextNode },
+      data: { advanced: true, nextReadyNode: null },
     });
-    expect(prewarmUnit).toHaveBeenCalledWith({
-      node: nextNode,
+    expect(mintUnit).toHaveBeenCalledWith({
+      clusterNodeId: "cluster-1",
       sessionId: "session-1",
+      userId: "user-1",
     });
-    expect(events).toEqual([
-      "transaction:start",
-      "transaction:commit",
-      "prewarm",
-    ]);
+    expect(events).toEqual(["transaction:start", "transaction:commit", "mint"]);
   });
 });

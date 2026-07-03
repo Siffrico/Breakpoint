@@ -31,6 +31,7 @@ import { trainingCurriculumRepository } from "./training-curriculum-repository";
 import { trainingOnboardingRepository } from "./training-onboarding-repository";
 import { createTrainingRatingGoldilocksDeps } from "./training-rating-goldilocks-deps";
 import { trainingRatingRepository } from "./training-rating-repository";
+import { trainingSyllabusRepository } from "./training-syllabus-repository";
 import { trainingUnitRunRepository } from "./training-unit-run-repository";
 
 type Database = typeof databaseClient;
@@ -512,6 +513,10 @@ export const createWorkspaceTurnRepositoryDeps = (
 
     return result.success ? result.data : [];
   },
+  getUnitSyllabusContext: (unitNodeId: string) =>
+    trainingSyllabusRepository.getUnitContext({ db, unitNodeId }),
+  checkOffSyllabus: (input) =>
+    trainingSyllabusRepository.checkOffEntries({ db, ...input }),
   prepareDifficultyDirective: ({
     userId,
     nodeId,

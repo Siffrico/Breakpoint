@@ -44,6 +44,11 @@ export interface UnitTurnContextInput {
    * the problem. Only meaningful on a solve turn.
    */
   pendingConnectTeach: boolean;
+  syllabus: {
+    workflow: { name: string; steps: readonly string[] };
+    checked: readonly { label: string; gloss: string }[];
+    targets: readonly { id: string; label: string; gloss: string }[];
+  } | null;
 }
 
 const bullet = (lines: readonly string[]): string =>
@@ -90,6 +95,25 @@ export const buildUnitTurnContext = (input: UnitTurnContextInput): string => {
 
   if (unit.clusterArcFrame) {
     sections.push(`## How this unit fits\n${unit.clusterArcFrame}`);
+  }
+
+  if (input.syllabus) {
+    const checked =
+      input.syllabus.checked.length > 0
+        ? bullet(
+            input.syllabus.checked.map(
+              (entry) => `${entry.label}: ${entry.gloss}`,
+            ),
+          )
+        : "- None yet";
+    const targets = bullet(
+      input.syllabus.targets.map(
+        (entry) => `${entry.id} — ${entry.label}: ${entry.gloss}`,
+      ),
+    );
+    sections.push(
+      `## Syllabus\nWorkflow: ${input.syllabus.workflow.name}\nSpine:\n${bullet(input.syllabus.workflow.steps)}\n\nAlready checked (assume known; build on these):\n${checked}\n\nThis unit must land:\n${targets}`,
+    );
   }
 
   if (difficultyLine) {
