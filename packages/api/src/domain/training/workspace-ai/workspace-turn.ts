@@ -146,6 +146,51 @@ export const resolveUnitRunProjection = ({
   };
 };
 
+export interface NextReadyUnitProjection {
+  node: CurriculumNode | null;
+  unit: UnitContent | null;
+  responses: PhaseResponseRecord[];
+  run: PersistedUnitRun | null;
+}
+
+/**
+ * Takes the plan's nodes and a session id; produces the next-ready learning
+ * node's unit, phase responses, and in-memory run projection. A missing unit
+ * is not a failure here because each caller owns that decision.
+ */
+export const loadNextReadyUnitProjection = ({
+  sessionId,
+  nodes,
+}: {
+  sessionId: string;
+  nodes: CurriculumNode[];
+}): EffectType.Effect<
+  NextReadyUnitProjection,
+  DbError,
+  WorkspaceProjectionReader
+> =>
+  Effect.gen(function* () {
+    const reader = yield* WorkspaceProjectionReader;
+    const node = getNextReadyLearningNode(nodes);
+    const unit = node ? yield* reader.getUnitByNodeId(node.id) : null;
+    if (!unit) {
+      return { node, unit: null, responses: [], run: null };
+    }
+    const [responses, existingRun] = yield* Effect.all(
+      [
+        reader.getPhaseResponses(unit.id, sessionId),
+        reader.getUnitRun(sessionId, unit.id),
+      ],
+      { concurrency: 2 },
+    );
+    return {
+      node,
+      unit,
+      responses,
+      run: resolveUnitRunProjection({ sessionId, unit, existing: existingRun }),
+    };
+  });
+
 /**
  * Takes a workspace session id and curriculum accessors, produces the runnable
  * turn with its unit and response history, and fails only when the curriculum
@@ -179,38 +224,22 @@ export const resolveWorkspaceTurnEffect = ({
       });
     }
 
-    const readyUnitNode = getNextReadyLearningNode(plan.nodes);
-    const readyUnit = readyUnitNode
-      ? yield* reader.getUnitByNodeId(readyUnitNode.id)
-      : null;
-    if (readyUnitNode && !readyUnit) {
+    const active = yield* loadNextReadyUnitProjection({
+      sessionId,
+      nodes: plan.nodes,
+    });
+    if (active.node && !active.unit) {
       return yield* new UnitNotReadyError({
         message: "UNIT_PREPARING",
-        nodeId: readyUnitNode.id,
+        nodeId: active.node.id,
       });
     }
-    const [readyUnitResponses, existingReadyUnitRun] = readyUnit
-      ? yield* Effect.all(
-          [
-            reader.getPhaseResponses(readyUnit.id, sessionId),
-            reader.getUnitRun(sessionId, readyUnit.id),
-          ],
-          { concurrency: 2 },
-        )
-      : [[], null];
-    const readyUnitRun = readyUnit
-      ? resolveUnitRunProjection({
-          sessionId,
-          unit: readyUnit,
-          existing: existingReadyUnitRun,
-        })
-      : null;
 
     const state = planWorkspaceTurn({
       nodes: plan.nodes,
       allResponses,
-      activeUnitResponses: readyUnitResponses,
-      activeUnitRun: readyUnitRun,
+      activeUnitResponses: active.responses,
+      activeUnitRun: active.run,
     });
 
     if (!state) {
@@ -230,12 +259,12 @@ export const resolveWorkspaceTurnEffect = ({
     }
 
     const unitResponses =
-      unit.id === readyUnit?.id
-        ? readyUnitResponses
+      unit.id === active.unit?.id
+        ? active.responses
         : yield* reader.getPhaseResponses(unit.id, sessionId);
     const unitRun =
-      unit.id === readyUnit?.id && readyUnitRun
-        ? readyUnitRun
+      unit.id === active.unit?.id && active.run
+        ? active.run
         : resolveUnitRunProjection({
             sessionId,
             unit,
@@ -295,29 +324,33 @@ export const planNextWorkspaceTurn = async ({
   plan: CurriculumPlan;
   deps: Omit<WorkspaceTurnDependencies, "getActivePlan">;
 }): Promise<WorkspaceAiState | null> => {
-  const allResponses = await deps.listPhaseResponsesBySession(sessionId);
-  const readyUnitNode = getNextReadyLearningNode(plan.nodes);
-  const readyUnit = readyUnitNode
-    ? await deps.getUnitByNodeId(readyUnitNode.id)
-    : null;
-  const readyUnitResponses = readyUnit
-    ? await deps.getPhaseResponses(readyUnit.id, sessionId)
-    : [];
-  const existingReadyUnitRun = readyUnit
-    ? await deps.getUnitRun(sessionId, readyUnit.id)
-    : null;
-  const readyUnitRun = readyUnit
-    ? resolveUnitRunProjection({
-        sessionId,
-        unit: readyUnit,
-        existing: existingReadyUnitRun,
-      })
-    : null;
+  const exit = await Effect.runPromiseExit(
+    Effect.gen(function* () {
+      const reader = yield* WorkspaceProjectionReader;
+      const [allResponses, active] = yield* Effect.all(
+        [
+          reader.listPhaseResponsesBySession(sessionId),
+          loadNextReadyUnitProjection({ sessionId, nodes: plan.nodes }),
+        ],
+        { concurrency: 2 },
+      );
+      return planWorkspaceTurn({
+        nodes: plan.nodes,
+        allResponses,
+        activeUnitResponses: active.responses,
+        activeUnitRun: active.run,
+      });
+    }).pipe(
+      Effect.provideService(
+        WorkspaceProjectionReader,
+        makeWorkspaceProjectionReader({
+          ...deps,
+          getActivePlan: () => Promise.resolve(plan),
+        }),
+      ),
+    ),
+  );
 
-  return planWorkspaceTurn({
-    nodes: plan.nodes,
-    allResponses,
-    activeUnitResponses: readyUnitResponses,
-    activeUnitRun: readyUnitRun,
-  });
+  if (Exit.isSuccess(exit)) return exit.value;
+  throw Cause.squash(exit.cause);
 };

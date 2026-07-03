@@ -25,10 +25,9 @@ import {
   WorkspaceProjectionReader,
 } from "../workspace-ai/workspace-reader";
 import {
-  getNextReadyLearningNode,
   getUnitAdvanceGate,
   getWorkspaceMessageSlot,
-  resolveUnitRunProjection,
+  loadNextReadyUnitProjection,
 } from "../workspace-ai/workspace-turn";
 
 interface GetAiWorkspaceDependencies
@@ -84,38 +83,22 @@ export const getAiWorkspaceWorkflowEffect = ({
       });
     }
 
-    const activeUnitNode = getNextReadyLearningNode(plan.nodes);
-    const activeUnit = activeUnitNode
-      ? yield* projectionReader.getUnitByNodeId(activeUnitNode.id)
-      : null;
-    if (activeUnitNode && !activeUnit) {
+    const active = yield* loadNextReadyUnitProjection({
+      sessionId,
+      nodes: plan.nodes,
+    });
+    if (active.node && !active.unit) {
       return yield* new UnitNotReadyError({
         message: "UNIT_PREPARING",
-        nodeId: activeUnitNode.id,
+        nodeId: active.node.id,
       });
     }
-    const [activeUnitResponses, existingActiveUnitRun] = activeUnit
-      ? yield* Effect.all(
-          [
-            projectionReader.getPhaseResponses(activeUnit.id, sessionId),
-            projectionReader.getUnitRun(sessionId, activeUnit.id),
-          ],
-          { concurrency: 2 },
-        )
-      : [[], null];
-    const activeUnitRun = activeUnit
-      ? resolveUnitRunProjection({
-          sessionId,
-          unit: activeUnit,
-          existing: existingActiveUnitRun,
-        })
-      : null;
 
     const state = planWorkspaceTurn({
       nodes: plan.nodes,
       allResponses,
-      activeUnitResponses,
-      activeUnitRun,
+      activeUnitResponses: active.responses,
+      activeUnitRun: active.run,
     });
 
     if (state?.recallUnitId) {
@@ -139,26 +122,27 @@ export const getAiWorkspaceWorkflowEffect = ({
           getWorkspaceMessageSlot(state.mode),
         )
       : messages;
-    const evaluationProgress = getEvaluationProgress(activeUnitResponses);
-    const activeScenarioAttemptId = activeUnitResponses
+    const evaluationProgress = getEvaluationProgress(active.responses);
+    const activeScenarioAttemptId = active.responses
       .slice()
       .reverse()
       .find((response) => response.metadata?.scenarioAttemptId)
       ?.metadata?.scenarioAttemptId;
     const attemptStartedAt =
-      activeUnit && activeScenarioAttemptId
+      active.unit && activeScenarioAttemptId
         ? yield* displayReader.getScenarioAttemptStartedAt({
             scenarioAttemptId: activeScenarioAttemptId,
-            nodeId: activeUnit.nodeId,
+            nodeId: active.unit.nodeId,
           })
         : null;
+    const activeNode = active.node;
     const nextLearningNode =
-      activeUnitNode == null
+      activeNode == null
         ? null
         : (plan.nodes.find(
             (node) =>
               (node.kind === "unit" || node.kind === "integration") &&
-              node.orderIndex > activeUnitNode.orderIndex,
+              node.orderIndex > activeNode.orderIndex,
           ) ?? null);
 
     return {
@@ -177,8 +161,8 @@ export const getAiWorkspaceWorkflowEffect = ({
             }
           : null,
       unitAdvanceGate: getUnitAdvanceGate({
-        node: activeUnitNode,
-        run: activeUnitRun,
+        node: active.node,
+        run: active.run,
         nextNode: nextLearningNode,
       }),
       introMessage: buildWorkspaceIntroMessage({
