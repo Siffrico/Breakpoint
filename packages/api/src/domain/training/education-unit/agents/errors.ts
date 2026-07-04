@@ -1,3 +1,4 @@
+import { APICallError } from "ai";
 import { Data } from "effect";
 
 import { classifyFailure } from "../../orchestration/agent-runtime";
@@ -14,7 +15,16 @@ export class AgentSchemaError extends Data.TaggedError("AgentSchemaError")<{
   readonly cause?: unknown;
 }> {}
 
-export class AgentProviderError extends Data.TaggedError("AgentProviderError")<{
+export class AgentTransientProviderError extends Data.TaggedError(
+  "AgentTransientProviderError",
+)<{
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
+
+export class AgentProviderRejectedError extends Data.TaggedError(
+  "AgentProviderRejectedError",
+)<{
   readonly message: string;
   readonly cause?: unknown;
 }> {}
@@ -33,13 +43,15 @@ export class AgentPartialOutputError extends Data.TaggedError(
 
 export type PhaseAgentError =
   | AgentSchemaError
-  | AgentProviderError
+  | AgentTransientProviderError
+  | AgentProviderRejectedError
   | AgentTimeoutError
   | AgentPartialOutputError;
 
 /** True for the errors Schedule-based retry should attempt again. */
 export const isRetryable = (error: PhaseAgentError): boolean =>
-  error._tag === "AgentTimeoutError" || error._tag === "AgentProviderError";
+  error._tag === "AgentTimeoutError" ||
+  error._tag === "AgentTransientProviderError";
 
 const fallbackMessage = "Phase agent call failed.";
 
@@ -63,6 +75,11 @@ export const classifyPhaseAgentFailure = (error: unknown): PhaseAgentError => {
       return new AgentPartialOutputError({ message, cause: error });
     case "provider":
     case "save":
-      return new AgentProviderError({ message, cause: error });
+      return APICallError.isInstance(error) &&
+        (error.statusCode === undefined ||
+          error.statusCode === 429 ||
+          error.statusCode >= 500)
+        ? new AgentTransientProviderError({ message, cause: error })
+        : new AgentProviderRejectedError({ message, cause: error });
   }
 };

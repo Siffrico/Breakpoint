@@ -7,7 +7,7 @@ import type { PhaseAgentResult } from "./agents/run-phase-agent";
 import type { UnitPhaseRunner } from "./orchestrate-unit-turn";
 import type { UnitState } from "./unit";
 import {
-  AgentProviderError,
+  AgentProviderRejectedError,
   AgentSchemaError,
   AgentTimeoutError,
 } from "./agents/errors";
@@ -343,7 +343,7 @@ describe("runUnitTurn contract", () => {
   });
 
   it.each([
-    new AgentProviderError({ message: "provider rejected" }),
+    new AgentProviderRejectedError({ message: "provider rejected" }),
     new AgentTimeoutError({ message: "provider timed out" }),
     new AgentSchemaError({ message: "invalid schema" }),
   ])("preserves the $._tag failure", async (failure) => {

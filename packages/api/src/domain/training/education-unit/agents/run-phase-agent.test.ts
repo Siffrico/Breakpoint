@@ -1,3 +1,4 @@
+import { APICallError } from "ai";
 import type * as AiModule from "ai";
 import { Effect } from "effect";
 import { z } from "zod/v4";
@@ -69,6 +70,40 @@ describe("runPhaseAgent", () => {
 
     expect(result.object).toEqual({ assistantMessage: "recovered" });
     expect(streamTextMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("restarts a transient provider failure", async () => {
+    streamTextMock
+      .mockImplementationOnce(() => {
+        throw new APICallError({
+          message: "rate limited",
+          url: "https://provider.test/generate",
+          requestBodyValues: {},
+          statusCode: 429,
+        });
+      })
+      .mockReturnValueOnce(streamResult({ assistantMessage: "recovered" }));
+
+    const result = await Effect.runPromise(runPhaseAgent(baseInput));
+
+    expect(result.object).toEqual({ assistantMessage: "recovered" });
+    expect(streamTextMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not retry a rejected provider request", async () => {
+    streamTextMock.mockImplementationOnce(() => {
+      throw new APICallError({
+        message: "invalid API key",
+        url: "https://provider.test/generate",
+        requestBodyValues: {},
+        statusCode: 401,
+      });
+    });
+
+    const exit = await Effect.runPromiseExit(runPhaseAgent(baseInput));
+
+    expect(exit._tag).toBe("Failure");
+    expect(streamTextMock).toHaveBeenCalledTimes(1);
   });
 
   it("repairs once on a schema failure by appending a corrective message", async () => {

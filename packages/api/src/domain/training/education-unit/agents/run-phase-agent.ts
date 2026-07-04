@@ -79,7 +79,7 @@ const attempt = <TSchema extends z.ZodTypeAny>(
   });
 
 // Exponential backoff capped at MAX_RESTARTS attempts — only ever applied to
-// AgentTimeoutError/AgentProviderError (see isRetryable); a call that just
+// AgentTimeoutError/AgentTransientProviderError (see isRetryable); a call that just
 // didn't land is worth retrying unmodified, unlike a schema failure.
 // v4 renamed Schedule.intersect -> Schedule.both (same "continue only while
 // both recur, take the max delay" semantics). The tuple output it now emits is
@@ -104,12 +104,13 @@ const withRepairInstruction = <TSchema extends z.ZodTypeAny>(
 
 /**
  * Runs one phase-agent model call with typed, tag-driven retry:
- *   - AgentTimeoutError / AgentProviderError -> restart with the same input,
+ *   - AgentTimeoutError / AgentTransientProviderError -> restart with the same input,
  *     up to MAX_RESTARTS times with exponential backoff (the call just didn't
  *     land — nothing about the input was wrong).
  *   - AgentSchemaError -> one repair pass with a corrective instruction
  *     appended to the transcript (the model answered, just not validly).
- *   - AgentPartialOutputError -> not retried here. Phase-agent turns are
+ *   - AgentProviderRejectedError / AgentPartialOutputError -> not retried here.
+ *     Phase-agent turns are
  *     short, single-shot structured calls, not a resumable long-form
  *     generation like the artifact agents in orchestration/agent-runtime.ts.
  * Exhausting a budget fails with the tagged error; the caller decides the
