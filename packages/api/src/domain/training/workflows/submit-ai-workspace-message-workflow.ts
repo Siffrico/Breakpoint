@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { Layer } from "effect";
 
 import type { Result } from "../../../lib/result";
 import type {
@@ -6,6 +7,7 @@ import type {
   WorkspaceAiTurnResult,
 } from "../workspace-ai/types";
 import type { WorkspaceTurnOrchestrationDependencies } from "../workspace-ai/workspace-turn-orchestration";
+import type { WorkspaceTurnRepo } from "../workspace-ai/workspace-turn-repo";
 import { err, ok } from "../../../lib/result";
 import { UnitNotReadyError } from "../unit-preparation/errors";
 import { runOneStep } from "../workspace-ai/workspace-turn-orchestration";
@@ -22,6 +24,7 @@ export const submitAiWorkspaceMessageWorkflow = async ({
   turnId = null,
   attemptTiming,
   deps,
+  workspaceTurnRepoLayer,
 }: {
   sessionId: string;
   userId: string;
@@ -29,6 +32,7 @@ export const submitAiWorkspaceMessageWorkflow = async ({
   turnId?: string | null;
   attemptTiming?: AttemptTiming | null;
   deps: WorkspaceTurnOrchestrationDependencies;
+  workspaceTurnRepoLayer: Layer.Layer<WorkspaceTurnRepo>;
 }): Promise<Result<WorkspaceAiTurnResult, Error | string>> => {
   // Optionality ends at the transport boundary. Every internal turn is leased
   // and idempotent, including clients that have not adopted turn IDs yet.
@@ -45,6 +49,7 @@ export const submitAiWorkspaceMessageWorkflow = async ({
         attemptTiming,
         action: "submit_answer",
         deps,
+        workspaceTurnRepoLayer,
       }),
     );
   } catch (error) {

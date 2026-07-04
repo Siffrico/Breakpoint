@@ -40,7 +40,10 @@ import {
   openSkillSimulation,
 } from "../repositories/unit-minting-repository-deps";
 import { createUnitPreparationRepositoryDeps } from "../repositories/unit-preparation-repository-deps";
-import { createWorkspaceTurnRepositoryDeps } from "../repositories/workspace-turn-repository-deps";
+import {
+  createWorkspaceTurnRepositoryDeps,
+  workspaceTurnRepoLayer,
+} from "../repositories/workspace-turn-repository-deps";
 import { protectedProcedure } from "../trpc";
 
 const SessionIdSchema = z.object({
@@ -699,6 +702,7 @@ export const trainingRouter = {
           turnId: input.turnId ?? null,
           attemptTiming: input.attemptTiming ?? null,
           deps: createWorkspaceTurnRepositoryDeps(ctx.db),
+          workspaceTurnRepoLayer: workspaceTurnRepoLayer(ctx.db),
         });
         if (result.success) return result.data;
         if (result.error instanceof TRPCError) throw result.error;

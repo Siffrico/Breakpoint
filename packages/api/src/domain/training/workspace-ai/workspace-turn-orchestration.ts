@@ -1,4 +1,5 @@
 import type { ModelMessage } from "ai";
+import type { Layer } from "effect";
 import { Effect } from "effect";
 
 import type { Memory } from "../../memory/types";
@@ -50,6 +51,7 @@ import {
   saveRecallTurnResult,
   saveUnitPhaseResult,
 } from "./workspace-turn-persistence";
+import type { WorkspaceTurnRepo } from "./workspace-turn-repo";
 
 export type WorkspaceChatAction =
   | "submit_answer"
@@ -393,7 +395,11 @@ export const runEducationUnitTurn = ({
   turn: ResolvedWorkspaceTurn;
   deps: WorkspaceTurnOrchestrationDependencies;
   onAssistantMessage?: (content: string) => void;
-}): Effect.Effect<WorkspaceAiTurnResult, WorkspaceEducationTurnError> =>
+}): Effect.Effect<
+  WorkspaceAiTurnResult,
+  WorkspaceEducationTurnError,
+  WorkspaceTurnRepo
+> =>
   Effect.gen(function* () {
     const trimmedMessage = message.trim();
     if (trimmedMessage.length < 2) {
@@ -567,29 +573,27 @@ export const runEducationUnitTurn = ({
       };
     }
 
-    const result = yield* persistPromise("saveUnitPhaseResult", () =>
-      saveUnitPhaseResult({
-        sessionId,
-        userId,
-        message: trimmedMessage,
-        state,
-        unit,
-        plan,
-        turnResult,
-        ratingEvaluation,
-        syllabusCheckOff,
-        difficultySnapshot,
-        scenarioAttemptId: scenarioAttemptId ?? null,
-        difficultyDirectiveReason: difficultySnapshot.directive.reason,
-        turnId,
-        turnLeaseId,
-        persistUserMessage: loadedTranscript.claimedDurableTurn,
-        phaseResponseSequence: unitResponses.filter(
-          (response) => response.phase === "ai_education",
-        ).length,
-        deps,
-      }),
-    );
+    const result = yield* saveUnitPhaseResult({
+      sessionId,
+      userId,
+      message: trimmedMessage,
+      state,
+      unit,
+      plan,
+      turnResult,
+      ratingEvaluation,
+      syllabusCheckOff,
+      difficultySnapshot,
+      scenarioAttemptId: scenarioAttemptId ?? null,
+      difficultyDirectiveReason: difficultySnapshot.directive.reason,
+      turnId,
+      turnLeaseId,
+      persistUserMessage: loadedTranscript.claimedDurableTurn,
+      phaseResponseSequence: unitResponses.filter(
+        (response) => response.phase === "ai_education",
+      ).length,
+      deps,
+    });
     onAssistantMessage?.(result.assistantMessage.content);
 
     return {
@@ -858,6 +862,7 @@ export const runOneStep = async ({
   action = "submit_answer",
   manualDifficultySignal = null,
   deps,
+  workspaceTurnRepoLayer,
 }: {
   sessionId: string;
   userId: string;
@@ -868,6 +873,7 @@ export const runOneStep = async ({
   action?: WorkspaceChatAction;
   manualDifficultySignal?: ManualDifficultySignal | null;
   deps: WorkspaceTurnOrchestrationDependencies;
+  workspaceTurnRepoLayer: Layer.Layer<WorkspaceTurnRepo>;
 }): Promise<WorkspaceAiTurnResult> => {
   const turn = await resolveWorkspaceTurn({ sessionId, deps });
 
@@ -887,7 +893,7 @@ export const runOneStep = async ({
         message,
         turn,
         deps,
-      }),
+      }).pipe(Effect.provide(workspaceTurnRepoLayer)),
     );
   }
 

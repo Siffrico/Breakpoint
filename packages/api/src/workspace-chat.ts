@@ -9,6 +9,7 @@ import {
   stepCountIs,
   streamText,
 } from "ai";
+import { Effect } from "effect";
 
 import type { db as databaseClient } from "@acme/db/client";
 
@@ -32,7 +33,10 @@ import {
   saveRecallStepResult,
 } from "./domain/training/workspace-ai/workspace-turn-orchestration";
 import { trainingOnboardingRepository } from "./repositories/training-onboarding-repository";
-import { createWorkspaceTurnRepositoryDeps } from "./repositories/workspace-turn-repository-deps";
+import {
+  createWorkspaceTurnRepositoryDeps,
+  workspaceTurnRepoLayer,
+} from "./repositories/workspace-turn-repository-deps";
 
 type Database = typeof databaseClient;
 
@@ -261,7 +265,7 @@ const streamWorkspaceChatWithModelPreference = async ({
                 // Education replies are emitted only after their transactional
                 // message, FSM, and Goldilocks writes have committed.
               },
-            }),
+            }).pipe(Effect.provide(workspaceTurnRepoLayer(db))),
           );
           writeStatus("complete", "Complete");
           writer.write({ type: "finish", finishReason: "stop" });

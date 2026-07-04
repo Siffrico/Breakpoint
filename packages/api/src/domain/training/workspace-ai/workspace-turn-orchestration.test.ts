@@ -7,8 +7,21 @@ import type { CurriculumNode, UnitContent } from "../types/training.types";
 import type { WorkspaceAiState } from "./types";
 import type { ResolvedWorkspaceTurn } from "./workspace-turn";
 import type { WorkspaceTurnOrchestrationDependencies } from "./workspace-turn-orchestration";
+import type { WorkspaceTurnRepoShape } from "./workspace-turn-repo";
 import { EducationUnitContractError } from "../education-unit/orchestrate-unit-turn";
 import { runEducationUnitTurn } from "./workspace-turn-orchestration";
+import { WorkspaceTurnRepo } from "./workspace-turn-repo";
+
+const runEducationTest = <A, E>(
+  effect: Effect.Effect<A, E, WorkspaceTurnRepo>,
+  commitEducationTurn: WorkspaceTurnRepoShape["commitEducationTurn"] = () =>
+    Effect.die("commitEducationTurn should not be called"),
+) =>
+  Effect.runPromise(
+    effect.pipe(
+      Effect.provideService(WorkspaceTurnRepo, { commitEducationTurn }),
+    ),
+  );
 
 const fail = (name: string): never => {
   throw new Error(`${name} should not be called`);
@@ -108,7 +121,7 @@ void test("a claimed, in-flight education turn is rejected before running the mo
 
   await assert.rejects(
     () =>
-      Effect.runPromise(
+      runEducationTest(
         runEducationUnitTurn({
           sessionId: "00000000-0000-0000-0000-000000000010",
           userId: "user-1",
@@ -145,7 +158,7 @@ void test("an invalid education-unit result is never persisted", async () => {
 
   await assert.rejects(
     () =>
-      Effect.runPromise(
+      runEducationTest(
         runEducationUnitTurn({
           sessionId: "00000000-0000-0000-0000-000000000010",
           userId: "user-1",
@@ -158,6 +171,10 @@ void test("an invalid education-unit result is never persisted", async () => {
             assistantStreamed = true;
           },
         }),
+        () => {
+          commitCalled = true;
+          return Effect.die("commitEducationTurn should not be called");
+        },
       ),
     (error) => error === contractError,
   );
@@ -215,7 +232,7 @@ void test("an education turn returns the committed assistant message", async () 
     upsertUnitRun: () => Promise.resolve(unitRun),
   } as unknown as WorkspaceTurnOrchestrationDependencies;
 
-  const result = await Effect.runPromise(
+  const result = await runEducationTest(
     runEducationUnitTurn({
       sessionId: unitRun.sessionId,
       userId: "user-1",
@@ -228,6 +245,10 @@ void test("an education turn returns the committed assistant message", async () 
         emittedAfterCommit = committed;
       },
     }),
+    () => {
+      committed = true;
+      return Effect.succeed({ assistantMessage });
+    },
   );
 
   assert.equal(result.assistantMessage, assistantMessage);

@@ -1,3 +1,5 @@
+import { Effect, Layer } from "effect";
+
 import type { db as databaseClient } from "@acme/db/client";
 import { and, eq } from "@acme/db";
 import { TrainingUnitRun, TrainingWorkspaceTurn } from "@acme/db/schema";
@@ -19,6 +21,8 @@ import {
   recordEvaluation,
   resolveScenarioDirective,
 } from "../domain/training/orchestration/goldilocks";
+import { WorkspaceTurnRepo } from "../domain/training/workspace-ai/workspace-turn-repo";
+import { makeDbError } from "../effect/db";
 import { memoryRepository } from "./memory-repository";
 import { trainingAttemptRepository } from "./training-attempt-repository";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
@@ -337,6 +341,15 @@ const commitEducationTurn = async ({
     return { assistantMessage };
   });
 
+export const workspaceTurnRepoLayer = (db: Database) =>
+  Layer.succeed(WorkspaceTurnRepo, {
+    commitEducationTurn: (input) =>
+      Effect.tryPromise({
+        try: () => commitEducationTurn({ db, input }),
+        catch: (cause) => makeDbError("commitEducationTurn", cause),
+      }),
+  });
+
 const commitRecallTurn = async ({
   db,
   input,
@@ -440,7 +453,6 @@ export const createWorkspaceTurnRepositoryDeps = (
     }),
   getUnitByNodeId: (nodeId: string) =>
     trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),
-  commitEducationTurn: (input) => commitEducationTurn({ db, input }),
   commitRecallTurn: (input) => commitRecallTurn({ db, input }),
   commitNextScenarioPrompt: (input) => commitNextScenarioPrompt({ db, input }),
   markWorkspaceTurnFailed: (input) => markWorkspaceTurnFailed({ db, ...input }),

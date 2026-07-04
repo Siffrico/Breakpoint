@@ -1,5 +1,6 @@
 import { Data } from "effect";
 
+import type { DbError } from "../../../effect/errors";
 import type { PhaseAgentError } from "../education-unit/agents/errors";
 import type { EducationUnitContractError } from "../education-unit/orchestrate-unit-turn";
 
@@ -56,6 +57,7 @@ export type WorkspaceEducationTurnError =
   | TurnLeaseMissingError
   | TurnLeaseConflictError
   | WorkspacePersistenceError
+  | DbError
   | RatingEvidenceError
   | InteractivePhaseAgentError
   | EducationUnitContractError;

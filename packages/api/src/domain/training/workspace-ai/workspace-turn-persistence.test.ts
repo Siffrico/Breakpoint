@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Effect } from "effect";
 import { test, vi } from "vitest";
 
 import type { UnitTurnResult } from "../education-unit/orchestrate-unit-turn";
@@ -9,6 +10,7 @@ import type {
   WorkspaceTurnPersistenceDependencies,
 } from "./workspace-turn-persistence";
 import { saveUnitPhaseResult } from "./workspace-turn-persistence";
+import { WorkspaceTurnRepo } from "./workspace-turn-repo";
 
 const unit = {
   id: "unit-content-1",
@@ -133,6 +135,16 @@ void test("saveUnitPhaseResult persists transitions and non-grading continuation
     appendMessage: () => Promise.resolve(null),
   } as unknown as WorkspaceTurnPersistenceDependencies;
 
+  const runSave = (input: Parameters<typeof saveUnitPhaseResult>[0]) =>
+    Effect.runPromise(
+      saveUnitPhaseResult(input).pipe(
+        Effect.provideService(WorkspaceTurnRepo, {
+          commitEducationTurn: (commit) =>
+            Effect.promise(() => commitEducationTurn(commit)),
+        }),
+      ),
+    );
+
   const ratingEvaluation = {
     scenarioAttemptId: "scenario-1",
     userId: "user-1",
@@ -144,7 +156,7 @@ void test("saveUnitPhaseResult persists transitions and non-grading continuation
     bands: null,
   };
 
-  const result = await saveUnitPhaseResult({
+  const result = await runSave({
     sessionId: "session-1",
     userId: "user-1",
     message: "Here is my final solution.",
@@ -179,7 +191,7 @@ void test("saveUnitPhaseResult persists transitions and non-grading continuation
   assert.equal(result.state.educationStage, "mastered");
 
   captured = null;
-  await saveUnitPhaseResult({
+  await runSave({
     sessionId: "session-1",
     userId: "user-1",
     message: "A message already appended before inference.",
@@ -220,7 +232,7 @@ void test("saveUnitPhaseResult persists transitions and non-grading continuation
     scenarioSpec: null,
   };
 
-  await saveUnitPhaseResult({
+  await runSave({
     sessionId: "session-1",
     userId: "user-1",
     message: "I am ready for the scenario.",
@@ -249,7 +261,7 @@ void test("saveUnitPhaseResult persists transitions and non-grading continuation
   assert.equal(continuationCommit.completion, null);
 
   captured = null;
-  await saveUnitPhaseResult({
+  await runSave({
     sessionId: "session-1",
     userId: "user-1",
     message: "Present the transfer scenario.",

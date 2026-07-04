@@ -1,3 +1,6 @@
+import { Effect } from "effect";
+
+import type { DbError } from "../../../effect/errors";
 import type { UnitTurnResult } from "../education-unit/orchestrate-unit-turn";
 import type {
   PersistedUnitRun,
@@ -20,9 +23,14 @@ import type {
 } from "./types";
 import type { WorkspaceTurnDependencies } from "./workspace-turn";
 import {
+  RatingEvidenceError,
+  WorkspacePersistenceError,
+} from "./workspace-errors";
+import {
   getWorkspaceMessageSlot,
   planNextWorkspaceTurn,
 } from "./workspace-turn";
+import { WorkspaceTurnRepo } from "./workspace-turn-repo";
 
 export interface WorkspaceTurnPersistenceDependencies
   extends Omit<WorkspaceTurnDependencies, "getActivePlan"> {
@@ -55,9 +63,6 @@ export interface WorkspaceTurnPersistenceDependencies
     sessionId: string,
     slot?: "education_unit" | "recall",
   ) => Promise<WorkspaceAiMessage[]>;
-  commitEducationTurn: (input: WorkspaceEducationTurnCommit) => Promise<{
-    assistantMessage: WorkspaceAiMessage;
-  }>;
   commitRecallTurn: (
     input: WorkspaceRecallTurnCommit,
   ) => Promise<{ assistantMessage: WorkspaceAiMessage }>;
@@ -332,7 +337,7 @@ export const saveRecallTurnResult = async ({
  * used when the curriculum has no next runnable turn (unit just mastered and
  * awaiting the Next-Unit gate).
  */
-export const saveUnitPhaseResult = async ({
+export const saveUnitPhaseResult = ({
   sessionId,
   userId,
   message,
@@ -368,140 +373,163 @@ export const saveUnitPhaseResult = async ({
   persistUserMessage: boolean;
   phaseResponseSequence: number;
   deps: WorkspaceTurnPersistenceDependencies;
-}): Promise<WorkspaceAiTurnPersistenceResult> => {
-  const {
-    nextState,
-    event,
-    forcedConnectAdvance,
-    gradeReasoning,
-    ratingWrite,
-  } = turnResult;
-  const aiMessage = turnResult.assistantMessage;
-  const mastered = nextState.phase === "mastered";
+}): Effect.Effect<
+  WorkspaceAiTurnPersistenceResult,
+  DbError | RatingEvidenceError | WorkspacePersistenceError,
+  WorkspaceTurnRepo
+> =>
+  Effect.gen(function* () {
+    const {
+      nextState,
+      event,
+      forcedConnectAdvance,
+      gradeReasoning,
+      ratingWrite,
+    } = turnResult;
+    const aiMessage = turnResult.assistantMessage;
+    const mastered = nextState.phase === "mastered";
 
-  const nextRun: PersistedUnitRun = {
-    ...nextState,
-    sessionId,
-    userId,
-    difficultySnapshot,
-    // The connect agent records a spec only when it poses a scenario; on every
-    // other turn this is null, and the upsert coalesces null onto the stored
-    // spec so it is preserved rather than wiped. See the repository.
-    scenarioSpec: turnResult.scenarioSpec,
-  };
-
-  const scenarioPresentation =
-    state.mode === "education_unit" &&
-    nextRun.pass === 2 &&
-    nextRun.phase === "connect" &&
-    event.type === "phase_continues" &&
-    event.reason === "prompted"
-      ? {
-          userId,
-          nodeId: difficultySnapshot.nodeId,
-          snapshot: difficultySnapshot,
-          presentedAt: new Date(),
-        }
-      : null;
-  const solvePresentation =
-    nextRun.pass === 2 &&
-    nextRun.phase === "solve" &&
-    event.type === "phase_continues" &&
-    event.reason === "prompted"
-      ? scenarioAttemptId
-        ? { scenarioAttemptId, presentedAt: new Date() }
-        : (() => {
-            throw new Error(
-              "Pass-2 Solve cannot be presented without a scenario attempt.",
-            );
-          })()
-      : null;
-
-  const phaseResponse: WorkspacePhaseResponseCommit = {
-    unitContentId: unit.id,
-    sessionId,
-    userId,
-    phase: "ai_education",
-    sequence: phaseResponseSequence,
-    userResponse: message,
-    aiResponse: aiMessage,
-    passed: mastered,
-    score: ratingWrite?.score ?? null,
-    metadata: {
-      aiEducationStage: nextState.phase,
-      phasePass: nextState.pass,
-      forcedConnectAdvance: forcedConnectAdvance || undefined,
-      promptKind: "education_unit",
-      modelPurpose: "education",
-      verdict: verdictLabel(event),
-      difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
-      goldilocksUpdated: ratingEvaluation ? true : undefined,
-      feedback: aiMessage,
-    },
-  };
-
-  const completion = mastered
-    ? {
-        nodeId: unit.nodeId,
-        attempt: {
-          sessionId,
-          userId,
-          unitId: unit.id,
-          response: message,
-          debrief: buildUnitCompletionDebrief(message, gradeReasoning),
-          finalArticulation: message,
-          growthDimensions: [] as string[],
-        },
-      }
-    : null;
-
-  const { assistantMessage } = await deps.commitEducationTurn({
-    turnId,
-    turnLeaseId,
-    userMessage: persistUserMessage
-      ? {
-          sessionId,
-          role: "user",
-          content: message,
-          slot: "education_unit",
-          unitId: unit.nodeId,
-          turnId,
-        }
-      : null,
-    assistantMessage: {
+    const nextRun: PersistedUnitRun = {
+      ...nextState,
       sessionId,
-      role: "assistant",
-      content: aiMessage,
-      slot: "education_unit",
-      unitId: unit.nodeId,
+      userId,
+      difficultySnapshot,
+      // The connect agent records a spec only when it poses a scenario; on every
+      // other turn this is null, and the upsert coalesces null onto the stored
+      // spec so it is preserved rather than wiped. See the repository.
+      scenarioSpec: turnResult.scenarioSpec,
+    };
+
+    const scenarioPresentation =
+      state.mode === "education_unit" &&
+      nextRun.pass === 2 &&
+      nextRun.phase === "connect" &&
+      event.type === "phase_continues" &&
+      event.reason === "prompted"
+        ? {
+            userId,
+            nodeId: difficultySnapshot.nodeId,
+            snapshot: difficultySnapshot,
+            presentedAt: new Date(),
+          }
+        : null;
+    const solvePresentation =
+      nextRun.pass === 2 &&
+      nextRun.phase === "solve" &&
+      event.type === "phase_continues" &&
+      event.reason === "prompted"
+        ? scenarioAttemptId
+          ? { scenarioAttemptId, presentedAt: new Date() }
+          : yield* new RatingEvidenceError({
+              message:
+                "Pass-2 Solve cannot be presented without a scenario attempt.",
+            })
+        : null;
+
+    const phaseResponse: WorkspacePhaseResponseCommit = {
+      unitContentId: unit.id,
+      sessionId,
+      userId,
+      phase: "ai_education",
+      sequence: phaseResponseSequence,
+      userResponse: message,
+      aiResponse: aiMessage,
+      passed: mastered,
+      score: ratingWrite?.score ?? null,
+      metadata: {
+        aiEducationStage: nextState.phase,
+        phasePass: nextState.pass,
+        forcedConnectAdvance: forcedConnectAdvance || undefined,
+        promptKind: "education_unit",
+        modelPurpose: "education",
+        verdict: verdictLabel(event),
+        difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
+        goldilocksUpdated: ratingEvaluation ? true : undefined,
+        feedback: aiMessage,
+      },
+    };
+
+    const completion = mastered
+      ? {
+          nodeId: unit.nodeId,
+          attempt: {
+            sessionId,
+            userId,
+            unitId: unit.id,
+            response: message,
+            debrief: buildUnitCompletionDebrief(message, gradeReasoning),
+            finalArticulation: message,
+            growthDimensions: [] as string[],
+          },
+        }
+      : null;
+
+    const workspaceTurnRepo = yield* WorkspaceTurnRepo;
+    const { assistantMessage } = yield* workspaceTurnRepo.commitEducationTurn({
       turnId,
-      metadata: getDifficultyDirectiveMetadata(difficultyDirectiveReason),
-    },
-    contracts: null,
-    phaseResponse,
-    ratingEvaluation,
-    syllabusCheckOff,
-    scenarioPresentation,
-    solvePresentation,
-    nextRun,
-    completion,
-    touchSessionId: sessionId,
-  });
+      turnLeaseId,
+      userMessage: persistUserMessage
+        ? {
+            sessionId,
+            role: "user",
+            content: message,
+            slot: "education_unit",
+            unitId: unit.nodeId,
+            turnId,
+          }
+        : null,
+      assistantMessage: {
+        sessionId,
+        role: "assistant",
+        content: aiMessage,
+        slot: "education_unit",
+        unitId: unit.nodeId,
+        turnId,
+        metadata: getDifficultyDirectiveMetadata(difficultyDirectiveReason),
+      },
+      contracts: null,
+      phaseResponse,
+      ratingEvaluation,
+      syllabusCheckOff,
+      scenarioPresentation,
+      solvePresentation,
+      nextRun,
+      completion,
+      touchSessionId: sessionId,
+    });
 
-  const nextWorkspaceState = await planNextWorkspaceTurn({
-    sessionId,
-    plan,
-    deps,
-  });
+    const nextWorkspaceState = yield* Effect.tryPromise({
+      try: () => planNextWorkspaceTurn({ sessionId, plan, deps }),
+      catch: (cause) =>
+        new WorkspacePersistenceError({
+          message: "Workspace state could not be replanned.",
+          operation: "planNextWorkspaceTurn",
+          cause,
+        }),
+    });
 
-  return {
-    state: nextWorkspaceState ?? { ...state, educationStage: nextState.phase },
-    messages: await deps.listMessages(
-      sessionId,
-      nextWorkspaceState
-        ? getWorkspaceMessageSlot(nextWorkspaceState.mode)
-        : "education_unit",
-    ),
-    assistantMessage,
-  };
-};
+    const messages = yield* Effect.tryPromise({
+      try: () =>
+        deps.listMessages(
+          sessionId,
+          nextWorkspaceState
+            ? getWorkspaceMessageSlot(nextWorkspaceState.mode)
+            : "education_unit",
+        ),
+      catch: (cause) =>
+        new WorkspacePersistenceError({
+          message: "Workspace messages could not be loaded.",
+          operation: "listWorkspaceMessages",
+          cause,
+        }),
+    });
+
+    return {
+      state: nextWorkspaceState ?? {
+        ...state,
+        educationStage: nextState.phase,
+      },
+      messages,
+      assistantMessage,
+    };
+  });
