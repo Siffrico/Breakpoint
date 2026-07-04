@@ -1,5 +1,8 @@
 import { Data } from "effect";
 
+import type { PhaseAgentError } from "../education-unit/agents/errors";
+import type { EducationUnitContractError } from "../education-unit/orchestrate-unit-turn";
+
 export class CurriculumNotReadyError extends Data.TaggedError(
   "CurriculumNotReadyError",
 )<{
@@ -11,3 +14,49 @@ export class NoRunnableWorkspaceTurnError extends Data.TaggedError(
 )<{
   readonly message: string;
 }> {}
+
+export class WorkspaceInputError extends Data.TaggedError(
+  "WorkspaceInputError",
+)<{
+  readonly message: string;
+}> {}
+
+export class TurnLeaseMissingError extends Data.TaggedError(
+  "TurnLeaseMissingError",
+)<{
+  readonly message: string;
+}> {}
+
+export class TurnLeaseConflictError extends Data.TaggedError(
+  "TurnLeaseConflictError",
+)<{
+  readonly message: string;
+}> {}
+
+export class WorkspacePersistenceError extends Data.TaggedError(
+  "WorkspacePersistenceError",
+)<{
+  readonly message: string;
+  readonly operation: string;
+  readonly cause?: unknown;
+}> {}
+
+export class RatingEvidenceError extends Data.TaggedError(
+  "RatingEvidenceError",
+)<{
+  readonly message: string;
+}> {}
+
+export type InteractivePhaseAgentError = Exclude<
+  PhaseAgentError,
+  { readonly _tag: "AgentPartialOutputError" }
+>;
+
+export type WorkspaceEducationTurnError =
+  | WorkspaceInputError
+  | TurnLeaseMissingError
+  | TurnLeaseConflictError
+  | WorkspacePersistenceError
+  | RatingEvidenceError
+  | InteractivePhaseAgentError
+  | EducationUnitContractError;

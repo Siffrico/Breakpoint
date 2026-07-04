@@ -34,19 +34,11 @@ export class AgentTimeoutError extends Data.TaggedError("AgentTimeoutError")<{
   readonly cause?: unknown;
 }> {}
 
-export class AgentPartialOutputError extends Data.TaggedError(
-  "AgentPartialOutputError",
-)<{
-  readonly message: string;
-  readonly cause?: unknown;
-}> {}
-
 export type PhaseAgentError =
   | AgentSchemaError
   | AgentTransientProviderError
   | AgentProviderRejectedError
-  | AgentTimeoutError
-  | AgentPartialOutputError;
+  | AgentTimeoutError;
 
 /** True for the errors Schedule-based retry should attempt again. */
 export const isRetryable = (error: PhaseAgentError): boolean =>
@@ -72,7 +64,7 @@ export const classifyPhaseAgentFailure = (error: unknown): PhaseAgentError => {
     case "timeout":
       return new AgentTimeoutError({ message, cause: error });
     case "partial":
-      return new AgentPartialOutputError({ message, cause: error });
+      return new AgentSchemaError({ message, cause: error });
     case "provider":
     case "save":
       return APICallError.isInstance(error) &&

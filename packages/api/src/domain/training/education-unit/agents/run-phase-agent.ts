@@ -5,13 +5,13 @@
 // directly, so the retry policy stays in exactly one place.
 
 import type { ModelMessage, ToolSet } from "ai";
-import { Duration, Effect, Schedule } from "effect";
 import type { z } from "zod/v4";
+import { Duration, Effect, Schedule } from "effect";
 
 import type { AiModelPurpose } from "../../engine/model-router";
+import type { PhaseAgentError } from "./errors";
 import { invokeStructuredModel } from "../../engine/invoke-structured-model";
 import { requireAiModelForPurpose } from "../../engine/model-router";
-import type { PhaseAgentError } from "./errors";
 import { classifyPhaseAgentFailure, isRetryable } from "./errors";
 
 export interface PhaseAgentToolCall {
@@ -109,10 +109,7 @@ const withRepairInstruction = <TSchema extends z.ZodTypeAny>(
  *     land — nothing about the input was wrong).
  *   - AgentSchemaError -> one repair pass with a corrective instruction
  *     appended to the transcript (the model answered, just not validly).
- *   - AgentProviderRejectedError / AgentPartialOutputError -> not retried here.
- *     Phase-agent turns are
- *     short, single-shot structured calls, not a resumable long-form
- *     generation like the artifact agents in orchestration/agent-runtime.ts.
+ *   - AgentProviderRejectedError -> not retried here.
  * Exhausting a budget fails with the tagged error; the caller decides the
  * turn-failed UX, this function never guesses a fallback response.
  */

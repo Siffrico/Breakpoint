@@ -27,12 +27,18 @@ import { runUnitTurn } from "../education-unit/orchestrate-unit-turn";
 import { getUnitRecipe } from "../education-unit/unit";
 import { compactTranscript, createSummarizer } from "../engine/compaction";
 import { getAiModelForPurpose } from "../engine/model-router";
-import { WorkspaceUserError } from "../errors";
 import { resolveRatingScope } from "../orchestration/rating-scope";
 import { buildWorkspaceIntroMessage } from "../workflows/get-ai-workspace-workflow";
 import { deriveServerAttemptTiming } from "./evaluation-plan";
 import { runWorkspaceAiPrompt } from "./runtime";
 import { getStepCard } from "./stage-runtime";
+import {
+  RatingEvidenceError,
+  TurnLeaseConflictError,
+  TurnLeaseMissingError,
+  WorkspaceInputError,
+  WorkspacePersistenceError,
+} from "./workspace-errors";
 import {
   isUnitAwaitingAdvance,
   planNextWorkspaceTurn,
@@ -198,7 +204,9 @@ const claimTurnAndLoadTranscript = async ({
 
   if (turnId && deps.claimWorkspaceTurn) {
     if (!turnLeaseId) {
-      throw new Error("Workspace turn lease could not be created.");
+      throw new TurnLeaseMissingError({
+        message: "Workspace turn lease could not be created.",
+      });
     }
     const claim = await deps.claimWorkspaceTurn({
       sessionId,
@@ -218,7 +226,9 @@ const claimTurnAndLoadTranscript = async ({
       };
     }
     if (claim.status === "processing") {
-      throw new WorkspaceUserError("This turn is already being processed.");
+      throw new TurnLeaseConflictError({
+        message: "This turn is already being processed.",
+      });
     }
     claimedDurableTurn = true;
   } else if (appendSyntheticUserMessage) {
@@ -231,7 +241,10 @@ const claimTurnAndLoadTranscript = async ({
       turnId,
     });
     if (!userMessage) {
-      throw new Error("User message could not be saved.");
+      throw new WorkspacePersistenceError({
+        message: "User message could not be saved.",
+        operation: "appendWorkspaceMessage",
+      });
     }
   }
 
@@ -327,17 +340,17 @@ export const runEducationUnitTurn = async ({
 }): Promise<WorkspaceAiTurnResult> => {
   const trimmedMessage = message.trim();
   if (trimmedMessage.length < 2) {
-    throw new WorkspaceUserError(
-      "Write a fuller message so the AI can respond usefully.",
-    );
+    throw new WorkspaceInputError({
+      message: "Write a fuller message so the AI can respond usefully.",
+    });
   }
 
   const { plan, state, node, unit, unitRun, unitResponses } = turn;
 
   if (isUnitAwaitingAdvance({ node, run: unitRun })) {
-    throw new WorkspaceUserError(
-      "This unit is complete. Press Next Unit to continue.",
-    );
+    throw new WorkspaceInputError({
+      message: "This unit is complete. Press Next Unit to continue.",
+    });
   }
 
   const loadedTranscript = await claimTurnAndLoadTranscript({
@@ -378,7 +391,9 @@ export const runEducationUnitTurn = async ({
     unitRun.difficultySnapshot;
   if (!difficultySnapshot) {
     if (!resolvedDifficulty) {
-      throw new Error("Goldilocks did not resolve a unit difficulty snapshot.");
+      throw new RatingEvidenceError({
+        message: "Goldilocks did not resolve a unit difficulty snapshot.",
+      });
     }
     difficultySnapshot = {
       nodeId: ratingScope.nodeId,
@@ -440,13 +455,16 @@ export const runEducationUnitTurn = async ({
   );
   if (turnResult.ratingWrite && !goldilocksAlreadyUpdated) {
     if (!scenarioAttemptId) {
-      throw new Error(
-        "Pass-2 evaluation requires the scenario attempt opened at presentation.",
-      );
+      throw new RatingEvidenceError({
+        message:
+          "Pass-2 evaluation requires the scenario attempt opened at presentation.",
+      });
     }
     const now = new Date();
     if (!deps.getScenarioAttempt) {
-      throw new Error("Pass-2 evaluation requires scenario attempt reads.");
+      throw new RatingEvidenceError({
+        message: "Pass-2 evaluation requires scenario attempt reads.",
+      });
     }
     const attempt = await deps.getScenarioAttempt({
       scenarioAttemptId,
@@ -454,9 +472,10 @@ export const runEducationUnitTurn = async ({
       nodeId: difficultySnapshot.nodeId,
     });
     if (!attempt?.solvePresentedAt) {
-      throw new Error(
-        "Pass-2 evaluation requires a persisted Solve presentation time.",
-      );
+      throw new RatingEvidenceError({
+        message:
+          "Pass-2 evaluation requires a persisted Solve presentation time.",
+      });
     }
     const timing = deriveServerAttemptTiming({
       presentedAt: attempt.solvePresentedAt,
@@ -464,7 +483,9 @@ export const runEducationUnitTurn = async ({
       timeLimitSeconds: recipe.grade.solveTimeLimitSeconds,
     });
     if (!timing) {
-      throw new Error("Pass-2 evaluation timing could not be derived.");
+      throw new RatingEvidenceError({
+        message: "Pass-2 evaluation timing could not be derived.",
+      });
     }
     ratingEvaluation = {
       scenarioAttemptId,
@@ -579,9 +600,9 @@ export const prepareRecallTurnPrompt = async ({
 }): Promise<PreparedRecallTurn | CachedWorkspaceTurn> => {
   const trimmedMessage = message.trim();
   if (action === "submit_answer" && trimmedMessage.length < 2) {
-    throw new WorkspaceUserError(
-      "Write a fuller message so the AI can respond usefully.",
-    );
+    throw new WorkspaceInputError({
+      message: "Write a fuller message so the AI can respond usefully.",
+    });
   }
 
   const { plan, allResponses, state, node, unit, unitResponses } = turn;
@@ -780,9 +801,10 @@ export const runOneStep = async ({
 
   if (turn.state.mode === "education_unit") {
     if (action !== "submit_answer") {
-      throw new Error(
-        "Education units only accept answers; there is no next-scenario or difficulty control here.",
-      );
+      throw new WorkspaceInputError({
+        message:
+          "Education units only accept answers; there is no next-scenario or difficulty control here.",
+      });
     }
     return runEducationUnitTurn({
       sessionId,
