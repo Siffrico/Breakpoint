@@ -37,9 +37,11 @@ export interface RunPhaseAgentInput<TSchema extends z.ZodTypeAny> {
 
 const MAX_RESTARTS = 2;
 const MAX_SCHEMA_REPAIRS = 1;
+const PHASE_AGENT_TIMEOUT_MS = 45_000;
 
 const callModel = async <TSchema extends z.ZodTypeAny>(
   input: RunPhaseAgentInput<TSchema>,
+  abortSignal: AbortSignal,
 ): Promise<PhaseAgentResult<z.infer<TSchema>>> => {
   const model = requireAiModelForPurpose(input.purpose, input.errorMessage);
 
@@ -54,6 +56,7 @@ const callModel = async <TSchema extends z.ZodTypeAny>(
     // is one more. 3 covers "call the grading tool, then answer" without
     // giving the model room to loop.
     maxSteps: 3,
+    abortSignal,
   });
 
   const [object, toolCalls] = await Promise.all([
@@ -74,7 +77,11 @@ const attempt = <TSchema extends z.ZodTypeAny>(
   input: RunPhaseAgentInput<TSchema>,
 ): Effect.Effect<PhaseAgentResult<z.infer<TSchema>>, PhaseAgentError> =>
   Effect.tryPromise({
-    try: () => callModel(input),
+    try: (signal) =>
+      callModel(
+        input,
+        AbortSignal.any([signal, AbortSignal.timeout(PHASE_AGENT_TIMEOUT_MS)]),
+      ),
     catch: classifyPhaseAgentFailure,
   });
 

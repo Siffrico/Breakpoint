@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { Effect } from "effect";
-import { test } from "vitest";
+import { expect, test, vi } from "vitest";
 
 import type { PersistedUnitRun } from "../education-unit/unit";
 import type { CurriculumNode, UnitContent } from "../types/training.types";
@@ -181,6 +181,48 @@ void test("an invalid education-unit result is never persisted", async () => {
 
   assert.equal(commitCalled, false);
   assert.equal(assistantStreamed, false);
+});
+
+void test("interrupting a claimed education turn releases its owned lease", async () => {
+  const markWorkspaceTurnFailed = vi.fn(() => Promise.resolve());
+  const runUnitTurn = vi.fn(() => Effect.never);
+  const deps = {
+    claimWorkspaceTurn: () => Promise.resolve({ status: "claimed" as const }),
+    listMessages: () => Promise.resolve([]),
+    getWorkspaceSummary: () => Promise.resolve(null),
+    upsertWorkspaceSummary: () => Promise.resolve(),
+    listMemories: () => Promise.resolve([]),
+    runUnitTurn,
+    markWorkspaceTurnFailed,
+  } as unknown as WorkspaceTurnOrchestrationDependencies;
+  const controller = new AbortController();
+  const effect = runEducationUnitTurn({
+    sessionId: unitRun.sessionId,
+    userId: "user-1",
+    turnId: "turn-1",
+    turnLeaseId: "00000000-0000-0000-0000-000000000099",
+    message: "My complete learner answer",
+    turn,
+    deps,
+  }).pipe(
+    Effect.provideService(WorkspaceTurnRepo, {
+      commitEducationTurn: () =>
+        Effect.die("commitEducationTurn should not be called"),
+    }),
+  );
+
+  const running = Effect.runPromise(effect, { signal: controller.signal });
+  await vi.waitFor(() => expect(runUnitTurn).toHaveBeenCalledOnce());
+  controller.abort();
+
+  await expect(running).rejects.toBeDefined();
+  expect(markWorkspaceTurnFailed).toHaveBeenCalledOnce();
+  expect(markWorkspaceTurnFailed).toHaveBeenCalledWith({
+    sessionId: unitRun.sessionId,
+    turnId: "turn-1",
+    leaseId: "00000000-0000-0000-0000-000000000099",
+    reason: "Education turn ended before its atomic commit completed.",
+  });
 });
 
 void test("an education turn returns the committed assistant message", async () => {

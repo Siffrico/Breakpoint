@@ -1,8 +1,8 @@
-import { APICallError } from "ai";
 import type * as AiModule from "ai";
+import { APICallError } from "ai";
 import { Effect } from "effect";
-import { z } from "zod/v4";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod/v4";
 
 vi.mock("../../engine/model-router", () => ({
   requireAiModelForPurpose: vi.fn(() => ({ modelId: "fake-model" })),
@@ -103,6 +103,41 @@ describe("runPhaseAgent", () => {
     const exit = await Effect.runPromiseExit(runPhaseAgent(baseInput));
 
     expect(exit._tag).toBe("Failure");
+    expect(streamTextMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("aborts the provider call when the Effect is interrupted", async () => {
+    let providerSignal: AbortSignal | undefined;
+    let providerAborted = false;
+    streamTextMock.mockImplementationOnce(
+      ({ abortSignal }: { abortSignal: AbortSignal }) => {
+        providerSignal = abortSignal;
+        const interrupted = new Promise<never>((_resolve, reject) => {
+          abortSignal.addEventListener(
+            "abort",
+            () => {
+              providerAborted = true;
+              const error = new Error("aborted");
+              error.name = "AbortError";
+              reject(error);
+            },
+            { once: true },
+          );
+        });
+        return { output: interrupted, toolCalls: interrupted };
+      },
+    );
+    const controller = new AbortController();
+
+    const running = Effect.runPromise(runPhaseAgent(baseInput), {
+      signal: controller.signal,
+    });
+    await vi.waitFor(() => expect(providerSignal).toBeDefined());
+    controller.abort();
+
+    await expect(running).rejects.toBeDefined();
+    expect(providerAborted).toBe(true);
+    expect(providerSignal?.aborted).toBe(true);
     expect(streamTextMock).toHaveBeenCalledTimes(1);
   });
 

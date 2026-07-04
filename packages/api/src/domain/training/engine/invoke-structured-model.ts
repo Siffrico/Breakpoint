@@ -1,8 +1,4 @@
-import type {
-  ModelMessage,
-  StreamTextResult,
-  ToolSet,
-} from "ai";
+import type { ModelMessage, StreamTextResult, ToolSet } from "ai";
 import type { z } from "zod/v4";
 import { Output, smoothStream, stepCountIs, streamText } from "ai";
 
@@ -39,6 +35,7 @@ export const invokeStructuredModel = <TSchema extends z.ZodTypeAny>({
   maxSteps,
   profile,
   smoothPartials = false,
+  abortSignal,
 }: {
   model: StructuredModel;
   schema: TSchema;
@@ -51,6 +48,7 @@ export const invokeStructuredModel = <TSchema extends z.ZodTypeAny>({
   profile?: RunProfile;
   /** Pace partial-output deltas for checkpoint streaming (resilient agent). */
   smoothPartials?: boolean;
+  abortSignal?: AbortSignal;
 }): StreamTextResult<
   ToolSet,
   ReturnType<typeof Output.object<z.infer<TSchema>>>
@@ -62,6 +60,7 @@ export const invokeStructuredModel = <TSchema extends z.ZodTypeAny>({
     prompt,
     tools,
     stopWhen: stepCountIs(maxSteps),
+    abortSignal,
     ...(smoothPartials
       ? {
           experimental_transform: smoothStream({

@@ -103,5 +103,6 @@ export const POST = async (req: NextRequest) => {
         : null,
     manualDifficultySignal: body.manualDifficultySignal ?? null,
     modelName: resolveModelPreference(req, body.model),
+    signal: req.signal,
   });
 };

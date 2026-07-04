@@ -1,6 +1,6 @@
 import type { ModelMessage } from "ai";
 import type { Layer } from "effect";
-import { Effect } from "effect";
+import { Effect, Exit } from "effect";
 
 import type { Memory } from "../../memory/types";
 import type { UnitDifficultySnapshot } from "../education-unit/unit";
@@ -22,6 +22,7 @@ import type {
   WorkspaceRatingEvaluationCommit,
   WorkspaceTurnPersistenceDependencies,
 } from "./workspace-turn-persistence";
+import type { WorkspaceTurnRepo } from "./workspace-turn-repo";
 import { buildWorkspaceContextEnvelope } from "../context-engine/build-context-envelope";
 import { renderWorkspaceStageContextPrompt } from "../context-engine/render-context-prompt";
 import { buildUnitTurnContext } from "../education-unit/context";
@@ -51,7 +52,6 @@ import {
   saveRecallTurnResult,
   saveUnitPhaseResult,
 } from "./workspace-turn-persistence";
-import type { WorkspaceTurnRepo } from "./workspace-turn-repo";
 
 export type WorkspaceChatAction =
   | "submit_answer"
@@ -208,6 +208,38 @@ const ratingPromise = <A>(
         cause,
       }),
   });
+
+const releaseClaimedTurn = ({
+  sessionId,
+  turnId,
+  turnLeaseId,
+  deps,
+}: {
+  sessionId: string;
+  turnId: string | null;
+  turnLeaseId: string | null;
+  deps: WorkspaceTurnOrchestrationDependencies;
+}): Effect.Effect<void> => {
+  const markWorkspaceTurnFailed = deps.markWorkspaceTurnFailed;
+  if (!turnId || !turnLeaseId || !markWorkspaceTurnFailed) return Effect.void;
+
+  return Effect.tryPromise(() =>
+    markWorkspaceTurnFailed({
+      sessionId,
+      turnId,
+      leaseId: turnLeaseId,
+      reason: "Education turn ended before its atomic commit completed.",
+    }),
+  ).pipe(
+    Effect.catch((cause) =>
+      Effect.logError("Failed to release an education turn lease.", {
+        cause,
+        sessionId,
+        turnId,
+      }),
+    ),
+  );
+};
 
 const claimTurnAndLoadTranscript = ({
   sessionId,
@@ -428,6 +460,16 @@ export const runEducationUnitTurn = ({
       appendSyntheticUserMessage: true,
       deps,
     });
+    if (
+      loadedTranscript.kind === "claimed" &&
+      loadedTranscript.claimedDurableTurn
+    ) {
+      yield* Effect.addFinalizer((exit) =>
+        Exit.isFailure(exit)
+          ? releaseClaimedTurn({ sessionId, turnId, turnLeaseId, deps })
+          : Effect.void,
+      );
+    }
     if (loadedTranscript.kind === "cached") {
       onAssistantMessage?.(loadedTranscript.assistantMessage.content);
       const nextState = yield* persistPromise("planNextWorkspaceTurn", () =>
@@ -601,7 +643,7 @@ export const runEducationUnitTurn = ({
       messages: result.messages,
       assistantMessage: result.assistantMessage,
     };
-  });
+  }).pipe(Effect.scoped);
 
 // ---------------------------------------------------------------------------
 // Recall path

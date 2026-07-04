@@ -90,6 +90,7 @@ export const streamWorkspaceChat = async ({
   modelName,
   action = "submit_answer",
   manualDifficultySignal = null,
+  signal,
 }: {
   db: Database;
   sessionId: string;
@@ -99,6 +100,7 @@ export const streamWorkspaceChat = async ({
   modelName?: string | null;
   action?: WorkspaceChatAction;
   manualDifficultySignal?: ManualDifficultySignal | null;
+  signal?: AbortSignal;
 }): Promise<Response> =>
   withAiModelPreference(modelName, () =>
     streamWorkspaceChatWithModelPreference({
@@ -109,6 +111,7 @@ export const streamWorkspaceChat = async ({
       turnId,
       action,
       manualDifficultySignal,
+      signal,
     }),
   );
 
@@ -120,6 +123,7 @@ const streamWorkspaceChatWithModelPreference = async ({
   turnId,
   action,
   manualDifficultySignal,
+  signal,
 }: {
   db: Database;
   sessionId: string;
@@ -128,6 +132,7 @@ const streamWorkspaceChatWithModelPreference = async ({
   turnId: string | null;
   action: WorkspaceChatAction;
   manualDifficultySignal: ManualDifficultySignal | null;
+  signal?: AbortSignal;
 }) => {
   const trimmedMessage = message.trim();
   // This layer owns both the lease and the failure path. Lower layers must
@@ -219,6 +224,7 @@ const streamWorkspaceChatWithModelPreference = async ({
       };
 
       const turnDeps = createWorkspaceTurnRepositoryDeps(db);
+      let educationLeaseManaged = false;
       const markTurnFailed = async (error: unknown) => {
         if (!turnId || !effectiveLeaseId || !turnDeps.markWorkspaceTurnFailed)
           return;
@@ -246,6 +252,7 @@ const streamWorkspaceChatWithModelPreference = async ({
         // Education phase agents emit one complete reply before persistence.
         // Recall still streams token-by-token below.
         if (turn.state.mode === "education_unit") {
+          educationLeaseManaged = true;
           writeStatus(
             "thinking",
             getEducationTurnLabel(turn.state.educationStage),
@@ -266,6 +273,7 @@ const streamWorkspaceChatWithModelPreference = async ({
                 // message, FSM, and Goldilocks writes have committed.
               },
             }).pipe(Effect.provide(workspaceTurnRepoLayer(db))),
+            { signal },
           );
           writeStatus("complete", "Complete");
           writer.write({ type: "finish", finishReason: "stop" });
@@ -367,7 +375,7 @@ const streamWorkspaceChatWithModelPreference = async ({
         writeStatus("complete", "Complete");
         writer.write({ type: "finish", finishReason: "stop" });
       } catch (error) {
-        await markTurnFailed(error);
+        if (!educationLeaseManaged) await markTurnFailed(error);
         throw error;
       }
     },
