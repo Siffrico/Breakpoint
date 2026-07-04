@@ -815,7 +815,7 @@ export const trainingRouter = {
                 }),
               }),
             getMasteryState: ({ clusterNodeId, userId }) =>
-              queryWithClient(ctx.db, () =>
+              queryWithClient(ctx.db, "loadSkillMasteryState", () =>
                 loadSkillMasteryState({
                   db: ctx.db,
                   clusterNodeId,
@@ -823,7 +823,7 @@ export const trainingRouter = {
                 }),
               ),
             openSimulation: (clusterNodeId) =>
-              queryWithClient(ctx.db, () =>
+              queryWithClient(ctx.db, "openSkillSimulation", () =>
                 openSkillSimulation({ db: ctx.db, clusterNodeId }),
               ),
             scheduleBackgroundTask: ctx.scheduleBackgroundTask,

@@ -7,9 +7,21 @@ import { Data } from "effect";
  * via Effect.catchTag(s) instead of matching on message strings.
  */
 
+export type DbFailureKind =
+  | "serialization"
+  | "deadlock"
+  | "connection"
+  | "timeout"
+  | "constraint"
+  | "query"
+  | "unknown";
+
 /** A Drizzle/Postgres call rejected (connection drop, timeout, constraint). */
 export class DbError extends Data.TaggedError("DbError")<{
   readonly message: string;
+  readonly operation: string;
+  readonly sqlState?: string;
+  readonly kind: DbFailureKind;
   readonly cause?: unknown;
 }> {}
 

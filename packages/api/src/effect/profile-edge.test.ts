@@ -40,6 +40,8 @@ describe("profile Effect error translation", () => {
           Effect.fail(
             new DbError({
               message: "connection leaked details",
+              operation: "getProfile",
+              kind: "connection",
               cause: "secret",
             }),
           ),

@@ -9,16 +9,12 @@ import type {
   UnitContent,
 } from "../types/training.types";
 import type { WorkspaceAiMessage } from "./types";
-import { DbError as WorkspaceReadError } from "../../../effect/errors";
+import { makeDbError } from "../../../effect/db";
 
 const read = <A>(operation: string, run: () => Promise<A>) =>
   Fx.tryPromise({
     try: run,
-    catch: (cause) =>
-      new WorkspaceReadError({
-        message: `Workspace read failed: ${operation}.`,
-        cause,
-      }),
+    catch: (cause) => makeDbError(operation, cause),
   });
 
 export interface WorkspaceProjectionReaderSource {

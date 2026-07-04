@@ -32,7 +32,7 @@ export const createUnitMintingRepositoryDeps = ({
   userId: string;
 }): MintNextUnitDependencies<NodeRow> => ({
   loadSkill: (clusterNodeId) =>
-    queryWithClient(db, async () => {
+    queryWithClient(db, "loadSkillForUnitMinting", async () => {
       const cluster = await db.query.TrainingCurriculumNode.findFirst({
         where: eq(TrainingCurriculumNode.id, clusterNodeId),
       });
@@ -66,7 +66,7 @@ export const createUnitMintingRepositoryDeps = ({
       };
     }),
   resolveDirective: (clusterNodeId) =>
-    queryWithClient(db, async () => {
+    queryWithClient(db, "resolveUnitMintingDirective", async () => {
       const cluster = await db.query.TrainingCurriculumNode.findFirst({
         where: eq(TrainingCurriculumNode.id, clusterNodeId),
       });
@@ -82,9 +82,11 @@ export const createUnitMintingRepositoryDeps = ({
       });
     }),
   appendUnit: (input) =>
-    queryWithClient(db, () => appendMintedUnitNode({ db, ...input })),
+    queryWithClient(db, "appendMintedUnit", () =>
+      appendMintedUnitNode({ db, ...input }),
+    ),
   hasUnitContent: (nodeId) =>
-    queryWithClient(db, async () =>
+    queryWithClient(db, "hasMintedUnitContent", async () =>
       Boolean(
         await trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),
       ),
