@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
+import { DbError } from "../../../effect/errors";
 import { AgentTimeoutError } from "../education-unit/agents/errors";
 import {
   TurnLeaseConflictError,
@@ -36,4 +37,19 @@ describe("runWorkspaceTurn", () => {
       });
     },
   );
+
+  it("retains a classified database failure as the tRPC cause", async () => {
+    const failure = new DbError({
+      message: "Database operation failed: commitEducationTurn",
+      operation: "commitEducationTurn",
+      sqlState: "40001",
+      kind: "serialization",
+    });
+
+    await expect(runWorkspaceTurn(Effect.fail(failure))).rejects.toMatchObject({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "AI feedback could not be prepared.",
+      cause: failure,
+    });
+  });
 });

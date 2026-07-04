@@ -6,72 +6,68 @@ import type { WorkspaceEducationTurnError } from "./workspace-errors";
 
 const feedbackFailureMessage = "AI feedback could not be prepared.";
 
+const logFields = (
+  error: WorkspaceEducationTurnError,
+): Record<string, unknown> => {
+  switch (error._tag) {
+    case "DbError":
+      return {
+        tag: error._tag,
+        operation: error.operation,
+        kind: error.kind,
+        sqlState: error.sqlState,
+      };
+    case "WorkspacePersistenceError":
+    case "RatingEvidenceError":
+      return { tag: error._tag, operation: error.operation };
+    case "WorkspaceInputError":
+    case "TurnLeaseConflictError":
+    case "TurnLeaseMissingError":
+    case "AgentTimeoutError":
+    case "AgentTransientProviderError":
+    case "AgentProviderRejectedError":
+    case "AgentSchemaError":
+    case "EducationUnitContractError":
+      return { tag: error._tag };
+  }
+};
+
+const trpcFailure = (
+  error: WorkspaceEducationTurnError,
+  code: TRPCError["code"],
+  message: string,
+) => Effect.fail(new TRPCError({ code, message, cause: error }));
+
 export const translateWorkspaceTurnErrors = <A, R>(
   effect: Effect.Effect<A, WorkspaceEducationTurnError, R>,
-) =>
+): Effect.Effect<A, TRPCError, R> =>
   effect.pipe(
+    Effect.tapError((error) =>
+      Effect.logError("Workspace education turn failed.", logFields(error)),
+    ),
     Effect.catchTags({
       WorkspaceInputError: (error) =>
-        Effect.fail(
-          new TRPCError({ code: "BAD_REQUEST", message: error.message }),
-        ),
+        trpcFailure(error, "BAD_REQUEST", error.message),
       TurnLeaseConflictError: (error) =>
-        Effect.fail(
-          new TRPCError({ code: "CONFLICT", message: error.message }),
-        ),
-      TurnLeaseMissingError: () =>
-        Effect.fail(
-          new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: feedbackFailureMessage,
-          }),
-        ),
-      WorkspacePersistenceError: () =>
-        Effect.fail(
-          new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: feedbackFailureMessage,
-          }),
-        ),
-      RatingEvidenceError: () =>
-        Effect.fail(
-          new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: feedbackFailureMessage,
-          }),
-        ),
-      AgentTimeoutError: () =>
-        Effect.fail(
-          new TRPCError({ code: "TIMEOUT", message: feedbackFailureMessage }),
-        ),
-      AgentTransientProviderError: () =>
-        Effect.fail(
-          new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: feedbackFailureMessage,
-          }),
-        ),
-      AgentProviderRejectedError: () =>
-        Effect.fail(
-          new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: feedbackFailureMessage,
-          }),
-        ),
-      AgentSchemaError: () =>
-        Effect.fail(
-          new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: feedbackFailureMessage,
-          }),
-        ),
-      EducationUnitContractError: () =>
-        Effect.fail(
-          new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: feedbackFailureMessage,
-          }),
-        ),
+        trpcFailure(error, "CONFLICT", error.message),
+      TurnLeaseMissingError: (error) =>
+        trpcFailure(error, "INTERNAL_SERVER_ERROR", feedbackFailureMessage),
+      WorkspacePersistenceError: (error) =>
+        trpcFailure(error, "INTERNAL_SERVER_ERROR", feedbackFailureMessage),
+      DbError: (error) =>
+        trpcFailure(error, "INTERNAL_SERVER_ERROR", feedbackFailureMessage),
+      RatingEvidenceError: (error) =>
+        trpcFailure(error, "INTERNAL_SERVER_ERROR", feedbackFailureMessage),
+      AgentTimeoutError: (error) =>
+        trpcFailure(error, "TIMEOUT", feedbackFailureMessage),
+      AgentTransientProviderError: (error) =>
+        trpcFailure(error, "INTERNAL_SERVER_ERROR", feedbackFailureMessage),
+      AgentProviderRejectedError: (error) =>
+        trpcFailure(error, "INTERNAL_SERVER_ERROR", feedbackFailureMessage),
+      AgentSchemaError: (error) =>
+        trpcFailure(error, "INTERNAL_SERVER_ERROR", feedbackFailureMessage),
+      EducationUnitContractError: (error) =>
+        trpcFailure(error, "INTERNAL_SERVER_ERROR", feedbackFailureMessage),
     }),
   );
 

@@ -1,5 +1,5 @@
 import type { ModelMessage } from "ai";
-import type { Layer } from "effect";
+import type { Layer, Scope } from "effect";
 import { Effect, Exit } from "effect";
 
 import type { Memory } from "../../memory/types";
@@ -265,7 +265,8 @@ const claimTurnAndLoadTranscript = ({
   deps: WorkspaceTurnOrchestrationDependencies;
 }): Effect.Effect<
   LoadedTurnTranscript,
-  TurnLeaseMissingError | TurnLeaseConflictError | WorkspacePersistenceError
+  TurnLeaseMissingError | TurnLeaseConflictError | WorkspacePersistenceError,
+  Scope.Scope
 > =>
   Effect.gen(function* () {
     let claimedDurableTurn = false;
@@ -304,6 +305,13 @@ const claimTurnAndLoadTranscript = ({
         });
       }
       claimedDurableTurn = true;
+      if (slot === "education_unit") {
+        yield* Effect.addFinalizer((exit) =>
+          Exit.isFailure(exit)
+            ? releaseClaimedTurn({ sessionId, turnId, turnLeaseId, deps })
+            : Effect.void,
+        );
+      }
     } else if (appendSyntheticUserMessage) {
       const userMessage = yield* persistPromise("appendWorkspaceMessage", () =>
         deps.appendMessage({
@@ -460,16 +468,6 @@ export const runEducationUnitTurn = ({
       appendSyntheticUserMessage: true,
       deps,
     });
-    if (
-      loadedTranscript.kind === "claimed" &&
-      loadedTranscript.claimedDurableTurn
-    ) {
-      yield* Effect.addFinalizer((exit) =>
-        Exit.isFailure(exit)
-          ? releaseClaimedTurn({ sessionId, turnId, turnLeaseId, deps })
-          : Effect.void,
-      );
-    }
     if (loadedTranscript.kind === "cached") {
       onAssistantMessage?.(loadedTranscript.assistantMessage.content);
       const nextState = yield* persistPromise("planNextWorkspaceTurn", () =>
@@ -739,7 +737,7 @@ export const prepareRecallTurnPrompt = async ({
       message: trimmedMessage,
       appendSyntheticUserMessage: action === "submit_answer",
       deps,
-    }),
+    }).pipe(Effect.scoped),
   );
   if (loadedTranscript.kind === "cached") {
     return loadedTranscript;

@@ -225,6 +225,35 @@ void test("interrupting a claimed education turn releases its owned lease", asyn
   });
 });
 
+void test("a post-claim transcript load failure releases the lease", async () => {
+  const markWorkspaceTurnFailed = vi.fn(() => Promise.resolve());
+  const deps = {
+    claimWorkspaceTurn: () => Promise.resolve({ status: "claimed" as const }),
+    listMessages: () => Promise.reject(new Error("message read failed")),
+    getWorkspaceSummary: () => Promise.resolve(null),
+    upsertWorkspaceSummary: () => Promise.resolve(),
+    markWorkspaceTurnFailed,
+  } as unknown as WorkspaceTurnOrchestrationDependencies;
+
+  await expect(
+    runEducationTest(
+      runEducationUnitTurn({
+        sessionId: unitRun.sessionId,
+        userId: "user-1",
+        turnId: "turn-1",
+        turnLeaseId: "00000000-0000-0000-0000-000000000099",
+        message: "My complete learner answer",
+        turn,
+        deps,
+      }),
+    ),
+  ).rejects.toMatchObject({
+    _tag: "WorkspacePersistenceError",
+    operation: "listWorkspaceMessages",
+  });
+  expect(markWorkspaceTurnFailed).toHaveBeenCalledOnce();
+});
+
 void test("an education turn returns the committed assistant message", async () => {
   let modelContext = "";
   let committed = false;
