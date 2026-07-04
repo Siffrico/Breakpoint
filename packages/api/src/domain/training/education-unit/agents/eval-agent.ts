@@ -18,13 +18,13 @@
 import type { ModelMessage } from "ai";
 import type { Effect } from "effect";
 
+import type { PhaseAgentError } from "./errors";
+import type { PhaseAgentOutput } from "./output-schema";
+import type { PhaseAgentResult } from "./run-phase-agent";
 import { ERROR_CLASSIFICATION_PROTOCOL } from "../../prompts/shared-instructions";
 import { continuePhase, gradeSolution } from "../../workspace-ai/fsm-tools";
 import { checkOffSyllabus } from "./check-off-syllabus.tool";
-import type { PhaseAgentError } from "./errors";
-import type { PhaseAgentOutput } from "./output-schema";
 import { PhaseAgentOutputSchema } from "./output-schema";
-import type { PhaseAgentResult } from "./run-phase-agent";
 import { runPhaseAgent } from "./run-phase-agent";
 import { buildPhaseSystemPrompt } from "./system-prompt";
 
@@ -67,6 +67,7 @@ export const runEvalAgent = (
 ): Effect.Effect<PhaseAgentResult<PhaseAgentOutput>, PhaseAgentError> =>
   runPhaseAgent({
     purpose: "education",
+    phase: "solve",
     system: SYSTEM,
     messages,
     schema: PhaseAgentOutputSchema,

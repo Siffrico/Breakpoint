@@ -347,7 +347,19 @@ export const workspaceTurnRepoLayer = (db: Database) =>
       Effect.tryPromise({
         try: () => commitEducationTurn({ db, input }),
         catch: (cause) => makeDbError("commitEducationTurn", cause),
-      }),
+      }).pipe(
+        Effect.tap(() => Effect.annotateCurrentSpan({ outcome: "success" })),
+        Effect.tapError((error) =>
+          Effect.annotateCurrentSpan({ outcome: error.kind }),
+        ),
+        Effect.withSpan("workspace-turn.commit", {
+          attributes: {
+            purpose: "education",
+            phase: input.nextRun.phase,
+            attempt: 1,
+          },
+        }),
+      ),
   });
 
 const commitRecallTurn = async ({

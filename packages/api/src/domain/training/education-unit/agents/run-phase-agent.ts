@@ -26,6 +26,7 @@ export interface PhaseAgentResult<T> {
 
 export interface RunPhaseAgentInput<TSchema extends z.ZodTypeAny> {
   readonly purpose: AiModelPurpose;
+  readonly phase: "orient" | "connect" | "solve" | "teach";
   readonly system: string;
   readonly messages: ModelMessage[];
   readonly schema: TSchema;
@@ -85,6 +86,24 @@ const attempt = <TSchema extends z.ZodTypeAny>(
     catch: classifyPhaseAgentFailure,
   });
 
+const tracedAttempt = <TSchema extends z.ZodTypeAny>(
+  input: RunPhaseAgentInput<TSchema>,
+  attemptNumber: number,
+) =>
+  attempt(input).pipe(
+    Effect.tap(() => Effect.annotateCurrentSpan({ outcome: "success" })),
+    Effect.tapError((error) =>
+      Effect.annotateCurrentSpan({ outcome: error._tag }),
+    ),
+    Effect.withSpan("phase-agent.attempt", {
+      attributes: {
+        purpose: input.purpose,
+        phase: input.phase,
+        attempt: attemptNumber,
+      },
+    }),
+  );
+
 // Exponential backoff capped at MAX_RESTARTS attempts — only ever applied to
 // AgentTimeoutError/AgentTransientProviderError (see isRetryable); a call that just
 // didn't land is worth retrying unmodified, unlike a schema failure.
@@ -124,13 +143,19 @@ export const runPhaseAgent = <TSchema extends z.ZodTypeAny>(
   input: RunPhaseAgentInput<TSchema>,
   repairsLeft = MAX_SCHEMA_REPAIRS,
 ): Effect.Effect<PhaseAgentResult<z.infer<TSchema>>, PhaseAgentError> =>
-  Effect.retry(attempt(input), {
-    schedule: RESTART_SCHEDULE,
-    while: isRetryable,
-  }).pipe(
-    Effect.catchTag("AgentSchemaError", (error) =>
-      repairsLeft > 0
-        ? runPhaseAgent(withRepairInstruction(input, error), repairsLeft - 1)
-        : Effect.fail(error),
-    ),
-  );
+  Effect.suspend(() => {
+    let attemptNumber = 0;
+    return Effect.retry(
+      Effect.suspend(() => tracedAttempt(input, ++attemptNumber)),
+      {
+        schedule: RESTART_SCHEDULE,
+        while: isRetryable,
+      },
+    ).pipe(
+      Effect.catchTag("AgentSchemaError", (error) =>
+        repairsLeft > 0
+          ? runPhaseAgent(withRepairInstruction(input, error), repairsLeft - 1)
+          : Effect.fail(error),
+      ),
+    );
+  });

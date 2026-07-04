@@ -8,10 +8,10 @@
 import type { ModelMessage } from "ai";
 import type { Effect } from "effect";
 
-import { ERROR_CLASSIFICATION_PROTOCOL } from "../../prompts/shared-instructions";
 import type { PhaseAgentError } from "./errors";
-import type { PhaseAgentResult } from "./run-phase-agent";
 import type { PhaseAgentOutput } from "./output-schema";
+import type { PhaseAgentResult } from "./run-phase-agent";
+import { ERROR_CLASSIFICATION_PROTOCOL } from "../../prompts/shared-instructions";
 import { PhaseAgentOutputSchema } from "./output-schema";
 import { runPhaseAgent } from "./run-phase-agent";
 import { buildPhaseSystemPrompt } from "./system-prompt";
@@ -42,6 +42,7 @@ export const runTeachAgent = (
 ): Effect.Effect<PhaseAgentResult<PhaseAgentOutput>, PhaseAgentError> =>
   runPhaseAgent({
     purpose: "education",
+    phase: "teach",
     system: SYSTEM,
     messages,
     schema: PhaseAgentOutputSchema,

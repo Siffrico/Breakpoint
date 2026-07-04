@@ -9,8 +9,8 @@ import type { ModelMessage } from "ai";
 import type { Effect } from "effect";
 
 import type { PhaseAgentError } from "./errors";
-import type { PhaseAgentResult } from "./run-phase-agent";
 import type { PhaseAgentOutput } from "./output-schema";
+import type { PhaseAgentResult } from "./run-phase-agent";
 import { PhaseAgentOutputSchema } from "./output-schema";
 import { runPhaseAgent } from "./run-phase-agent";
 import { buildPhaseSystemPrompt } from "./system-prompt";
@@ -36,6 +36,7 @@ export const runOrientAgent = (
 ): Effect.Effect<PhaseAgentResult<PhaseAgentOutput>, PhaseAgentError> =>
   runPhaseAgent({
     purpose: "education",
+    phase: "orient",
     system: SYSTEM,
     messages,
     schema: PhaseAgentOutputSchema,

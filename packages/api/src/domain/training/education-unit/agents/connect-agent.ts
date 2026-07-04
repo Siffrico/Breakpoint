@@ -76,6 +76,7 @@ export const runConnectAgent = (
 ): Effect.Effect<PhaseAgentResult<PhaseAgentOutput>, PhaseAgentError> =>
   runPhaseAgent({
     purpose: "education",
+    phase: "connect",
     system: SYSTEM,
     messages,
     schema: PhaseAgentOutputSchema,

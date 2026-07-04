@@ -29,6 +29,7 @@ const streamResult = (object: unknown, toolCalls: unknown[] = []) => ({
 
 const baseInput = {
   purpose: "education" as const,
+  phase: "orient" as const,
   system: "system prompt",
   messages: [{ role: "user" as const, content: "hi" }],
   schema,

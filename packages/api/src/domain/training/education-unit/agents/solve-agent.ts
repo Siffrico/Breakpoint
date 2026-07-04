@@ -51,6 +51,7 @@ export const runSolveAgent = (
 ): Effect.Effect<PhaseAgentResult<PhaseAgentOutput>, PhaseAgentError> =>
   runPhaseAgent({
     purpose: "education",
+    phase: "solve",
     system: SYSTEM,
     messages,
     schema: PhaseAgentOutputSchema,
