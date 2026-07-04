@@ -108,15 +108,17 @@ void test("a claimed, in-flight education turn is rejected before running the mo
 
   await assert.rejects(
     () =>
-      runEducationUnitTurn({
-        sessionId: "00000000-0000-0000-0000-000000000010",
-        userId: "user-1",
-        turnId: "turn-1",
-        turnLeaseId: "00000000-0000-0000-0000-000000000099",
-        message: "My answer",
-        turn,
-        deps,
-      }),
+      Effect.runPromise(
+        runEducationUnitTurn({
+          sessionId: "00000000-0000-0000-0000-000000000010",
+          userId: "user-1",
+          turnId: "turn-1",
+          turnLeaseId: "00000000-0000-0000-0000-000000000099",
+          message: "My answer",
+          turn,
+          deps,
+        }),
+      ),
     /already being processed/i,
   );
 });
@@ -143,18 +145,20 @@ void test("an invalid education-unit result is never persisted", async () => {
 
   await assert.rejects(
     () =>
-      runEducationUnitTurn({
-        sessionId: "00000000-0000-0000-0000-000000000010",
-        userId: "user-1",
-        turnId: "turn-1",
-        turnLeaseId: "00000000-0000-0000-0000-000000000099",
-        message: "My complete learner answer",
-        turn,
-        deps,
-        onAssistantMessage: () => {
-          assistantStreamed = true;
-        },
-      }),
+      Effect.runPromise(
+        runEducationUnitTurn({
+          sessionId: "00000000-0000-0000-0000-000000000010",
+          userId: "user-1",
+          turnId: "turn-1",
+          turnLeaseId: "00000000-0000-0000-0000-000000000099",
+          message: "My complete learner answer",
+          turn,
+          deps,
+          onAssistantMessage: () => {
+            assistantStreamed = true;
+          },
+        }),
+      ),
     (error) => error === contractError,
   );
 
@@ -211,18 +215,20 @@ void test("an education turn returns the committed assistant message", async () 
     upsertUnitRun: () => Promise.resolve(unitRun),
   } as unknown as WorkspaceTurnOrchestrationDependencies;
 
-  const result = await runEducationUnitTurn({
-    sessionId: unitRun.sessionId,
-    userId: "user-1",
-    turnId: null,
-    turnLeaseId: null,
-    message: "I would isolate one variable first.",
-    turn,
-    deps,
-    onAssistantMessage: () => {
-      emittedAfterCommit = committed;
-    },
-  });
+  const result = await Effect.runPromise(
+    runEducationUnitTurn({
+      sessionId: unitRun.sessionId,
+      userId: "user-1",
+      turnId: null,
+      turnLeaseId: null,
+      message: "I would isolate one variable first.",
+      turn,
+      deps,
+      onAssistantMessage: () => {
+        emittedAfterCommit = committed;
+      },
+    }),
+  );
 
   assert.equal(result.assistantMessage, assistantMessage);
   assert.match(modelContext, /Keep difficulty fixed at 1100/);

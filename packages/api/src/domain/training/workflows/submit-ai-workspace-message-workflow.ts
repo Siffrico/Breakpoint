@@ -29,7 +29,7 @@ export const submitAiWorkspaceMessageWorkflow = async ({
   turnId?: string | null;
   attemptTiming?: AttemptTiming | null;
   deps: WorkspaceTurnOrchestrationDependencies;
-}): Promise<Result<WorkspaceAiTurnResult>> => {
+}): Promise<Result<WorkspaceAiTurnResult, Error | string>> => {
   // Optionality ends at the transport boundary. Every internal turn is leased
   // and idempotent, including clients that have not adopted turn IDs yet.
   const normalizedTurnId = turnId ?? randomUUID();
@@ -59,8 +59,6 @@ export const submitAiWorkspaceMessageWorkflow = async ({
     if (error instanceof UnitNotReadyError) {
       throw error;
     }
-    return err(
-      error instanceof Error ? error.message : "Workspace turn failed.",
-    );
+    return err(error instanceof Error ? error : "Workspace turn failed.");
   }
 };

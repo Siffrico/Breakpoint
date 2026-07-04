@@ -12,6 +12,7 @@ import type {
   WorkspaceAiRecallOutput,
   WorkspaceAiTurnResult,
 } from "./types";
+import type { WorkspaceEducationTurnError } from "./workspace-errors";
 import type {
   ResolvedWorkspaceTurn,
   WorkspaceTurnDependencies,
@@ -44,6 +45,7 @@ import {
   planNextWorkspaceTurn,
   resolveWorkspaceTurn,
 } from "./workspace-turn";
+import { runWorkspaceTurn } from "./workspace-turn-edge";
 import {
   saveRecallTurnResult,
   saveUnitPhaseResult,
@@ -177,7 +179,35 @@ type LoadedTurnTranscript =
       claimedDurableTurn: boolean;
     };
 
-const claimTurnAndLoadTranscript = async ({
+const persistPromise = <A>(
+  operation: string,
+  evaluate: (signal: AbortSignal) => PromiseLike<A>,
+): Effect.Effect<A, WorkspacePersistenceError> =>
+  Effect.tryPromise({
+    try: evaluate,
+    catch: (cause) =>
+      new WorkspacePersistenceError({
+        message: "Workspace data could not be saved or loaded.",
+        operation,
+        cause,
+      }),
+  });
+
+const ratingPromise = <A>(
+  operation: string,
+  evaluate: (signal: AbortSignal) => PromiseLike<A>,
+): Effect.Effect<A, RatingEvidenceError> =>
+  Effect.tryPromise({
+    try: evaluate,
+    catch: (cause) =>
+      new RatingEvidenceError({
+        message: "Rating evidence could not be loaded.",
+        operation,
+        cause,
+      }),
+  });
+
+const claimTurnAndLoadTranscript = ({
   sessionId,
   slot,
   unitId,
@@ -199,105 +229,131 @@ const claimTurnAndLoadTranscript = async ({
   message: string;
   appendSyntheticUserMessage: boolean;
   deps: WorkspaceTurnOrchestrationDependencies;
-}): Promise<LoadedTurnTranscript> => {
-  let claimedDurableTurn = false;
+}): Effect.Effect<
+  LoadedTurnTranscript,
+  TurnLeaseMissingError | TurnLeaseConflictError | WorkspacePersistenceError
+> =>
+  Effect.gen(function* () {
+    let claimedDurableTurn = false;
 
-  if (turnId && deps.claimWorkspaceTurn) {
-    if (!turnLeaseId) {
-      throw new TurnLeaseMissingError({
-        message: "Workspace turn lease could not be created.",
-      });
+    const claimWorkspaceTurn = deps.claimWorkspaceTurn;
+    if (turnId && claimWorkspaceTurn) {
+      if (!turnLeaseId) {
+        return yield* new TurnLeaseMissingError({
+          message: "Workspace turn lease could not be created.",
+        });
+      }
+      const claim = yield* persistPromise("claimWorkspaceTurn", () =>
+        claimWorkspaceTurn({
+          sessionId,
+          action,
+          content: claimContent,
+          slot,
+          unitId,
+          turnId,
+          leaseId: turnLeaseId,
+        }),
+      );
+
+      if (claim.status === "completed") {
+        return {
+          kind: "cached",
+          assistantMessage: claim.assistantMessage,
+          messages: yield* persistPromise("listWorkspaceMessages", () =>
+            deps.listMessages(sessionId, slot),
+          ),
+        };
+      }
+      if (claim.status === "processing") {
+        return yield* new TurnLeaseConflictError({
+          message: "This turn is already being processed.",
+        });
+      }
+      claimedDurableTurn = true;
+    } else if (appendSyntheticUserMessage) {
+      const userMessage = yield* persistPromise("appendWorkspaceMessage", () =>
+        deps.appendMessage({
+          sessionId,
+          role: "user",
+          content: message,
+          slot,
+          unitId,
+          turnId,
+        }),
+      );
+      if (!userMessage) {
+        return yield* new WorkspacePersistenceError({
+          message: "User message could not be saved.",
+          operation: "appendWorkspaceMessage",
+        });
+      }
     }
-    const claim = await deps.claimWorkspaceTurn({
-      sessionId,
-      action,
-      content: claimContent,
-      slot,
-      unitId,
-      turnId,
-      leaseId: turnLeaseId,
-    });
 
-    if (claim.status === "completed") {
-      return {
-        kind: "cached",
-        assistantMessage: claim.assistantMessage,
-        messages: await deps.listMessages(sessionId, slot),
-      };
+    const [persistedMessages, storedSummary] = yield* Effect.all(
+      [
+        persistPromise("listWorkspaceMessages", () =>
+          deps.listMessages(sessionId, slot),
+        ),
+        persistPromise("getWorkspaceSummary", () =>
+          deps.getWorkspaceSummary(sessionId, slot),
+        ),
+      ],
+      { concurrency: 2 },
+    );
+    const messages =
+      claimedDurableTurn && appendSyntheticUserMessage
+        ? [
+            ...persistedMessages,
+            {
+              role: "user" as const,
+              content: message,
+              sequence:
+                Math.max(
+                  -1,
+                  ...persistedMessages.map((item) => item.sequence),
+                ) + 1,
+              slot,
+              unitId,
+              turnId,
+              metadata: null,
+            },
+          ]
+        : persistedMessages;
+    const summarizeModel = getAiModelForPurpose("recall");
+    const compaction = summarizeModel
+      ? yield* persistPromise("compactWorkspaceTranscript", () =>
+          compactTranscript({
+            messages,
+            previousSummary: storedSummary?.summary ?? null,
+            previousCoverage: storedSummary?.coveredThroughUnitId ?? null,
+            previousCoverageSequence:
+              storedSummary?.coveredThroughSequence ?? null,
+            summarize: createSummarizer(summarizeModel),
+          }),
+        )
+      : null;
+
+    if (compaction?.summaryChanged && compaction.summary) {
+      const summary = compaction.summary;
+      yield* persistPromise("upsertWorkspaceSummary", () =>
+        deps.upsertWorkspaceSummary({
+          sessionId,
+          slot,
+          summary,
+          coveredThroughUnitId: compaction.coverage,
+          coveredThroughSequence: compaction.coverageSequence,
+        }),
+      );
     }
-    if (claim.status === "processing") {
-      throw new TurnLeaseConflictError({
-        message: "This turn is already being processed.",
-      });
-    }
-    claimedDurableTurn = true;
-  } else if (appendSyntheticUserMessage) {
-    const userMessage = await deps.appendMessage({
-      sessionId,
-      role: "user",
-      content: message,
-      slot,
-      unitId,
-      turnId,
-    });
-    if (!userMessage) {
-      throw new WorkspacePersistenceError({
-        message: "User message could not be saved.",
-        operation: "appendWorkspaceMessage",
-      });
-    }
-  }
 
-  const [persistedMessages, storedSummary] = await Promise.all([
-    deps.listMessages(sessionId, slot),
-    deps.getWorkspaceSummary(sessionId, slot),
-  ]);
-  const messages =
-    claimedDurableTurn && appendSyntheticUserMessage
-      ? [
-          ...persistedMessages,
-          {
-            role: "user" as const,
-            content: message,
-            sequence:
-              Math.max(-1, ...persistedMessages.map((item) => item.sequence)) +
-              1,
-            slot,
-            unitId,
-            turnId,
-            metadata: null,
-          },
-        ]
-      : persistedMessages;
-  const summarizeModel = getAiModelForPurpose("recall");
-  const compaction = summarizeModel
-    ? await compactTranscript({
-        messages,
-        previousSummary: storedSummary?.summary ?? null,
-        previousCoverage: storedSummary?.coveredThroughUnitId ?? null,
-        previousCoverageSequence: storedSummary?.coveredThroughSequence ?? null,
-        summarize: createSummarizer(summarizeModel),
-      })
-    : null;
-
-  if (compaction?.summaryChanged && compaction.summary) {
-    await deps.upsertWorkspaceSummary({
-      sessionId,
-      slot,
-      summary: compaction.summary,
-      coveredThroughUnitId: compaction.coverage,
-      coveredThroughSequence: compaction.coverageSequence,
-    });
-  }
-
-  return {
-    kind: "claimed",
-    messages,
-    transcript: compaction?.messages ?? messages,
-    progressSummary: compaction?.summary ?? storedSummary?.summary ?? null,
-    claimedDurableTurn,
-  };
-};
+    return {
+      kind: "claimed",
+      messages,
+      transcript: compaction?.messages ?? messages,
+      progressSummary: compaction?.summary ?? storedSummary?.summary ?? null,
+      claimedDurableTurn,
+    };
+  });
 
 // ---------------------------------------------------------------------------
 // Education-unit path (v4 FSM)
@@ -319,7 +375,7 @@ const readPendingConnectTeach = (
   return lastEducation?.metadata?.forcedConnectAdvance === true;
 };
 
-export const runEducationUnitTurn = async ({
+export const runEducationUnitTurn = ({
   sessionId,
   userId,
   turnId,
@@ -337,197 +393,211 @@ export const runEducationUnitTurn = async ({
   turn: ResolvedWorkspaceTurn;
   deps: WorkspaceTurnOrchestrationDependencies;
   onAssistantMessage?: (content: string) => void;
-}): Promise<WorkspaceAiTurnResult> => {
-  const trimmedMessage = message.trim();
-  if (trimmedMessage.length < 2) {
-    throw new WorkspaceInputError({
-      message: "Write a fuller message so the AI can respond usefully.",
-    });
-  }
-
-  const { plan, state, node, unit, unitRun, unitResponses } = turn;
-
-  if (isUnitAwaitingAdvance({ node, run: unitRun })) {
-    throw new WorkspaceInputError({
-      message: "This unit is complete. Press Next Unit to continue.",
-    });
-  }
-
-  const loadedTranscript = await claimTurnAndLoadTranscript({
-    sessionId,
-    slot: "education_unit",
-    unitId: unit.nodeId,
-    turnId,
-    turnLeaseId,
-    action: "submit_answer",
-    claimContent: trimmedMessage,
-    message: trimmedMessage,
-    appendSyntheticUserMessage: true,
-    deps,
-  });
-  if (loadedTranscript.kind === "cached") {
-    onAssistantMessage?.(loadedTranscript.assistantMessage.content);
-    const nextState = await planNextWorkspaceTurn({ sessionId, plan, deps });
-    return {
-      state: nextState ?? state,
-      messages: loadedTranscript.messages,
-      assistantMessage: loadedTranscript.assistantMessage,
-    };
-  }
-  const ratingScope = resolveRatingScope({ unit, planNodes: plan.nodes });
-
-  const [memories, resolvedDifficulty] = await Promise.all([
-    deps.listMemories(userId),
-    unitRun.difficultySnapshot
-      ? null
-      : deps.resolveDifficultyDirective({
-          userId,
-          nodeId: ratingScope.nodeId,
-          now: new Date(),
-          bands: ratingScope.bands,
-        }),
-  ]);
-  let difficultySnapshot: UnitDifficultySnapshot | null =
-    unitRun.difficultySnapshot;
-  if (!difficultySnapshot) {
-    if (!resolvedDifficulty) {
-      throw new RatingEvidenceError({
-        message: "Goldilocks did not resolve a unit difficulty snapshot.",
+}): Effect.Effect<WorkspaceAiTurnResult, WorkspaceEducationTurnError> =>
+  Effect.gen(function* () {
+    const trimmedMessage = message.trim();
+    if (trimmedMessage.length < 2) {
+      return yield* new WorkspaceInputError({
+        message: "Write a fuller message so the AI can respond usefully.",
       });
     }
-    difficultySnapshot = {
-      nodeId: ratingScope.nodeId,
-      directive: resolvedDifficulty.directive,
-      promptBlock: resolvedDifficulty.promptBlock,
-      ratingSnapshot: resolvedDifficulty.ratingSnapshot,
-      learnerRating: resolvedDifficulty.learnerRating,
-    };
-  }
 
-  const recipe = getUnitRecipe(unitRun.recipeVersion, ratingScope);
-  const syllabus = deps.getUnitSyllabusContext
-    ? await deps.getUnitSyllabusContext(unit.nodeId)
-    : null;
-  const contextBlock = buildUnitTurnContext({
-    unit,
-    state: unitRun,
-    policy: recipe.policy,
-    memories,
-    progressSummary: loadedTranscript.progressSummary,
-    difficultyLine: difficultySnapshot.promptBlock,
-    pendingConnectTeach: readPendingConnectTeach(unitResponses),
-    scenarioSpec: unitRun.scenarioSpec,
-    syllabus,
-  });
+    const { plan, state, node, unit, unitRun, unitResponses } = turn;
 
-  const turnResult = await Effect.runPromise(
-    (deps.runUnitTurn ?? runUnitTurn)({
+    if (isUnitAwaitingAdvance({ node, run: unitRun })) {
+      return yield* new WorkspaceInputError({
+        message: "This unit is complete. Press Next Unit to continue.",
+      });
+    }
+
+    const loadedTranscript = yield* claimTurnAndLoadTranscript({
+      sessionId,
+      slot: "education_unit",
+      unitId: unit.nodeId,
+      turnId,
+      turnLeaseId,
+      action: "submit_answer",
+      claimContent: trimmedMessage,
+      message: trimmedMessage,
+      appendSyntheticUserMessage: true,
+      deps,
+    });
+    if (loadedTranscript.kind === "cached") {
+      onAssistantMessage?.(loadedTranscript.assistantMessage.content);
+      const nextState = yield* persistPromise("planNextWorkspaceTurn", () =>
+        planNextWorkspaceTurn({ sessionId, plan, deps }),
+      );
+      return {
+        state: nextState ?? state,
+        messages: loadedTranscript.messages,
+        assistantMessage: loadedTranscript.assistantMessage,
+      };
+    }
+    const ratingScope = resolveRatingScope({ unit, planNodes: plan.nodes });
+
+    const [memories, resolvedDifficulty] = yield* Effect.all(
+      [
+        persistPromise("listMemories", () => deps.listMemories(userId)),
+        unitRun.difficultySnapshot
+          ? Effect.succeed(null)
+          : ratingPromise("resolveDifficultyDirective", () =>
+              deps.resolveDifficultyDirective({
+                userId,
+                nodeId: ratingScope.nodeId,
+                now: new Date(),
+                bands: ratingScope.bands,
+              }),
+            ),
+      ],
+      { concurrency: 2 },
+    );
+    let difficultySnapshot: UnitDifficultySnapshot | null =
+      unitRun.difficultySnapshot;
+    if (!difficultySnapshot) {
+      if (!resolvedDifficulty) {
+        return yield* new RatingEvidenceError({
+          message: "Goldilocks did not resolve a unit difficulty snapshot.",
+        });
+      }
+      difficultySnapshot = {
+        nodeId: ratingScope.nodeId,
+        directive: resolvedDifficulty.directive,
+        promptBlock: resolvedDifficulty.promptBlock,
+        ratingSnapshot: resolvedDifficulty.ratingSnapshot,
+        learnerRating: resolvedDifficulty.learnerRating,
+      };
+    }
+
+    const recipe = getUnitRecipe(unitRun.recipeVersion, ratingScope);
+    const getUnitSyllabusContext = deps.getUnitSyllabusContext;
+    const syllabus = getUnitSyllabusContext
+      ? yield* persistPromise("getUnitSyllabusContext", () =>
+          getUnitSyllabusContext(unit.nodeId),
+        )
+      : null;
+    const contextBlock = buildUnitTurnContext({
+      unit,
+      state: unitRun,
+      policy: recipe.policy,
+      memories,
+      progressSummary: loadedTranscript.progressSummary,
+      difficultyLine: difficultySnapshot.promptBlock,
+      pendingConnectTeach: readPendingConnectTeach(unitResponses),
+      scenarioSpec: unitRun.scenarioSpec,
+      syllabus,
+    });
+
+    const turnResult = yield* (deps.runUnitTurn ?? runUnitTurn)({
       state: unitRun,
       recipe,
       contextBlock,
       transcript: toModelMessages(loadedTranscript.transcript),
-    }),
-  );
-  // Check-offs ride the atomic turn commit (lease-guarded), never the outer
-  // connection — a lost lease or failed commit must not leave phantom mastery.
-  const syllabusCheckOff =
-    turnResult.nextState.phase === "mastered" && syllabus
-      ? {
-          clusterNodeId: syllabus.clusterNodeId,
-          requestedEntryIds: turnResult.syllabusCheckOff?.entryIds ?? [],
-          targetedEntryIds: syllabus.targets.map((entry) => entry.id),
-          evidenceNodeId: unit.nodeId,
-        }
-      : null;
-  const scenarioAttemptId = [...unitResponses]
-    .reverse()
-    .find(
-      (response) =>
-        response.phase === "ai_education" &&
-        response.metadata?.scenarioAttemptId,
-    )?.metadata?.scenarioAttemptId;
+    });
+    // Check-offs ride the atomic turn commit (lease-guarded), never the outer
+    // connection — a lost lease or failed commit must not leave phantom mastery.
+    const syllabusCheckOff =
+      turnResult.nextState.phase === "mastered" && syllabus
+        ? {
+            clusterNodeId: syllabus.clusterNodeId,
+            requestedEntryIds: turnResult.syllabusCheckOff?.entryIds ?? [],
+            targetedEntryIds: syllabus.targets.map((entry) => entry.id),
+            evidenceNodeId: unit.nodeId,
+          }
+        : null;
+    const scenarioAttemptId = [...unitResponses]
+      .reverse()
+      .find(
+        (response) =>
+          response.phase === "ai_education" &&
+          response.metadata?.scenarioAttemptId,
+      )?.metadata?.scenarioAttemptId;
 
-  // The first pass-2 verdict feeds Goldilocks, using the attempt that was
-  // atomically opened when the pass-2 Connect scenario was presented.
-  let ratingEvaluation: WorkspaceRatingEvaluationCommit | null = null;
-  const goldilocksAlreadyUpdated = unitResponses.some(
-    (response) => response.metadata?.goldilocksUpdated === true,
-  );
-  if (turnResult.ratingWrite && !goldilocksAlreadyUpdated) {
-    if (!scenarioAttemptId) {
-      throw new RatingEvidenceError({
-        message:
-          "Pass-2 evaluation requires the scenario attempt opened at presentation.",
+    // The first pass-2 verdict feeds Goldilocks, using the attempt that was
+    // atomically opened when the pass-2 Connect scenario was presented.
+    let ratingEvaluation: WorkspaceRatingEvaluationCommit | null = null;
+    const goldilocksAlreadyUpdated = unitResponses.some(
+      (response) => response.metadata?.goldilocksUpdated === true,
+    );
+    if (turnResult.ratingWrite && !goldilocksAlreadyUpdated) {
+      if (!scenarioAttemptId) {
+        return yield* new RatingEvidenceError({
+          message:
+            "Pass-2 evaluation requires the scenario attempt opened at presentation.",
+        });
+      }
+      const now = new Date();
+      const getScenarioAttempt = deps.getScenarioAttempt;
+      if (!getScenarioAttempt) {
+        return yield* new RatingEvidenceError({
+          message: "Pass-2 evaluation requires scenario attempt reads.",
+        });
+      }
+      const attempt = yield* ratingPromise("getScenarioAttempt", () =>
+        getScenarioAttempt({
+          scenarioAttemptId,
+          userId,
+          nodeId: difficultySnapshot.nodeId,
+        }),
+      );
+      if (!attempt?.solvePresentedAt) {
+        return yield* new RatingEvidenceError({
+          message:
+            "Pass-2 evaluation requires a persisted Solve presentation time.",
+        });
+      }
+      const timing = deriveServerAttemptTiming({
+        presentedAt: attempt.solvePresentedAt,
+        submittedAt: now,
+        timeLimitSeconds: recipe.grade.solveTimeLimitSeconds,
       });
+      if (!timing) {
+        return yield* new RatingEvidenceError({
+          message: "Pass-2 evaluation timing could not be derived.",
+        });
+      }
+      ratingEvaluation = {
+        scenarioAttemptId,
+        userId,
+        nodeId: difficultySnapshot.nodeId,
+        score: turnResult.ratingWrite.score,
+        errorCodes: turnResult.ratingWrite.errorCodes,
+        wasOverTime: timing.wasOverTime,
+        occurredAt: now,
+        bands: ratingScope.bands,
+      };
     }
-    const now = new Date();
-    if (!deps.getScenarioAttempt) {
-      throw new RatingEvidenceError({
-        message: "Pass-2 evaluation requires scenario attempt reads.",
-      });
-    }
-    const attempt = await deps.getScenarioAttempt({
-      scenarioAttemptId,
-      userId,
-      nodeId: difficultySnapshot.nodeId,
-    });
-    if (!attempt?.solvePresentedAt) {
-      throw new RatingEvidenceError({
-        message:
-          "Pass-2 evaluation requires a persisted Solve presentation time.",
-      });
-    }
-    const timing = deriveServerAttemptTiming({
-      presentedAt: attempt.solvePresentedAt,
-      submittedAt: now,
-      timeLimitSeconds: recipe.grade.solveTimeLimitSeconds,
-    });
-    if (!timing) {
-      throw new RatingEvidenceError({
-        message: "Pass-2 evaluation timing could not be derived.",
-      });
-    }
-    ratingEvaluation = {
-      scenarioAttemptId,
-      userId,
-      nodeId: difficultySnapshot.nodeId,
-      score: turnResult.ratingWrite.score,
-      errorCodes: turnResult.ratingWrite.errorCodes,
-      wasOverTime: timing.wasOverTime,
-      occurredAt: now,
-      bands: ratingScope.bands,
+
+    const result = yield* persistPromise("saveUnitPhaseResult", () =>
+      saveUnitPhaseResult({
+        sessionId,
+        userId,
+        message: trimmedMessage,
+        state,
+        unit,
+        plan,
+        turnResult,
+        ratingEvaluation,
+        syllabusCheckOff,
+        difficultySnapshot,
+        scenarioAttemptId: scenarioAttemptId ?? null,
+        difficultyDirectiveReason: difficultySnapshot.directive.reason,
+        turnId,
+        turnLeaseId,
+        persistUserMessage: loadedTranscript.claimedDurableTurn,
+        phaseResponseSequence: unitResponses.filter(
+          (response) => response.phase === "ai_education",
+        ).length,
+        deps,
+      }),
+    );
+    onAssistantMessage?.(result.assistantMessage.content);
+
+    return {
+      state: result.state,
+      messages: result.messages,
+      assistantMessage: result.assistantMessage,
     };
-  }
-
-  const result = await saveUnitPhaseResult({
-    sessionId,
-    userId,
-    message: trimmedMessage,
-    state,
-    unit,
-    plan,
-    turnResult,
-    ratingEvaluation,
-    syllabusCheckOff,
-    difficultySnapshot,
-    scenarioAttemptId: scenarioAttemptId ?? null,
-    difficultyDirectiveReason: difficultySnapshot.directive.reason,
-    turnId,
-    turnLeaseId,
-    persistUserMessage: loadedTranscript.claimedDurableTurn,
-    phaseResponseSequence: unitResponses.filter(
-      (response) => response.phase === "ai_education",
-    ).length,
-    deps,
   });
-  onAssistantMessage?.(result.assistantMessage.content);
-
-  return {
-    state: result.state,
-    messages: result.messages,
-    assistantMessage: result.assistantMessage,
-  };
-};
 
 // ---------------------------------------------------------------------------
 // Recall path
@@ -607,22 +677,24 @@ export const prepareRecallTurnPrompt = async ({
 
   const { plan, allResponses, state, node, unit, unitResponses } = turn;
   const ratingScope = resolveRatingScope({ unit, planNodes: plan.nodes });
-  const loadedTranscript = await claimTurnAndLoadTranscript({
-    sessionId,
-    slot: "recall",
-    unitId: unit.nodeId,
-    turnId,
-    turnLeaseId,
-    action,
-    claimContent: getTurnClaimContent({
+  const loadedTranscript = await Effect.runPromise(
+    claimTurnAndLoadTranscript({
+      sessionId,
+      slot: "recall",
+      unitId: unit.nodeId,
+      turnId,
+      turnLeaseId,
       action,
-      manualDifficultySignal,
+      claimContent: getTurnClaimContent({
+        action,
+        manualDifficultySignal,
+        message: trimmedMessage,
+      }),
       message: trimmedMessage,
+      appendSyntheticUserMessage: action === "submit_answer",
+      deps,
     }),
-    message: trimmedMessage,
-    appendSyntheticUserMessage: action === "submit_answer",
-    deps,
-  });
+  );
   if (loadedTranscript.kind === "cached") {
     return loadedTranscript;
   }
@@ -806,15 +878,17 @@ export const runOneStep = async ({
           "Education units only accept answers; there is no next-scenario or difficulty control here.",
       });
     }
-    return runEducationUnitTurn({
-      sessionId,
-      userId,
-      turnId,
-      turnLeaseId,
-      message,
-      turn,
-      deps,
-    });
+    return runWorkspaceTurn(
+      runEducationUnitTurn({
+        sessionId,
+        userId,
+        turnId,
+        turnLeaseId,
+        message,
+        turn,
+        deps,
+      }),
+    );
   }
 
   const prepared = await prepareRecallTurnPrompt({

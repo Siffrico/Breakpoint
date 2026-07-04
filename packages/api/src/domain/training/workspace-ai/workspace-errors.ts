@@ -45,12 +45,11 @@ export class RatingEvidenceError extends Data.TaggedError(
   "RatingEvidenceError",
 )<{
   readonly message: string;
+  readonly operation?: string;
+  readonly cause?: unknown;
 }> {}
 
-export type InteractivePhaseAgentError = Exclude<
-  PhaseAgentError,
-  { readonly _tag: "AgentPartialOutputError" }
->;
+export type InteractivePhaseAgentError = PhaseAgentError;
 
 export type WorkspaceEducationTurnError =
   | WorkspaceInputError

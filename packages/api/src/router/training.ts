@@ -221,10 +221,8 @@ const getErrorCode = (message: string) => {
     message.includes("more specific") ||
     message.includes("fuller") ||
     message.includes("before") ||
-    message.includes("Pass") ||
     message.includes("limit") ||
     message.includes("unlock") ||
-    message.includes("unit is complete") ||
     message.includes("complete yet") ||
     message.includes("not active")
   ) {
@@ -694,16 +692,23 @@ export const trainingRouter = {
       await requireSessionOwner({ ctx, sessionId: input.sessionId });
 
       try {
-        return throwOnFailure(
-          await submitAiWorkspaceMessageWorkflow({
-            sessionId: input.sessionId,
-            userId: ctx.session.user.id,
-            message: input.message,
-            turnId: input.turnId ?? null,
-            attemptTiming: input.attemptTiming ?? null,
-            deps: createWorkspaceTurnRepositoryDeps(ctx.db),
-          }),
-        );
+        const result = await submitAiWorkspaceMessageWorkflow({
+          sessionId: input.sessionId,
+          userId: ctx.session.user.id,
+          message: input.message,
+          turnId: input.turnId ?? null,
+          attemptTiming: input.attemptTiming ?? null,
+          deps: createWorkspaceTurnRepositoryDeps(ctx.db),
+        });
+        if (result.success) return result.data;
+        if (result.error instanceof TRPCError) throw result.error;
+        return throwOnFailure<never>({
+          success: false,
+          error:
+            typeof result.error === "string"
+              ? result.error
+              : result.error.message,
+        });
       } catch (error) {
         if (error instanceof UnitNotReadyError) {
           return raiseUnitPreparationError(error);

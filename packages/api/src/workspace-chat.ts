@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { UIMessage } from "ai";
+import { TRPCError } from "@trpc/server";
 import {
   createUIMessageStream,
   createUIMessageStreamResponse,
@@ -24,6 +25,7 @@ import {
 import { WorkspaceUserError } from "./domain/training/errors";
 import { getWorkspaceAiSystemPrompt } from "./domain/training/workspace-ai/runtime";
 import { resolveWorkspaceTurn } from "./domain/training/workspace-ai/workspace-turn";
+import { runWorkspaceTurn } from "./domain/training/workspace-ai/workspace-turn-edge";
 import {
   prepareRecallTurnPrompt,
   runEducationUnitTurn,
@@ -149,7 +151,7 @@ const streamWorkspaceChatWithModelPreference = async ({
 
   const stream = createUIMessageStream<WorkspaceChatUIMessage>({
     onError: (error) =>
-      error instanceof WorkspaceUserError
+      error instanceof WorkspaceUserError || error instanceof TRPCError
         ? error.message
         : "AI feedback could not be prepared.",
     execute: async ({ writer }) => {
@@ -216,7 +218,11 @@ const streamWorkspaceChatWithModelPreference = async ({
       const markTurnFailed = async (error: unknown) => {
         if (!turnId || !effectiveLeaseId || !turnDeps.markWorkspaceTurnFailed)
           return;
-        if (error instanceof WorkspaceUserError) {
+        if (
+          error instanceof WorkspaceUserError ||
+          (error instanceof TRPCError &&
+            (error.code === "BAD_REQUEST" || error.code === "CONFLICT"))
+        ) {
           return;
         }
         await turnDeps.markWorkspaceTurnFailed({
@@ -240,21 +246,23 @@ const streamWorkspaceChatWithModelPreference = async ({
             "thinking",
             getEducationTurnLabel(turn.state.educationStage),
           );
-          await runEducationUnitTurn({
-            sessionId,
-            userId,
-            turnId,
-            turnLeaseId: effectiveLeaseId,
-            message,
-            turn,
-            deps: turnDeps,
-            onAssistantMessage: (content) => {
-              streamAssistantDelta(content);
-              endAssistantText();
-              // Education replies are emitted only after their transactional
-              // message, FSM, and Goldilocks writes have committed.
-            },
-          });
+          await runWorkspaceTurn(
+            runEducationUnitTurn({
+              sessionId,
+              userId,
+              turnId,
+              turnLeaseId: effectiveLeaseId,
+              message,
+              turn,
+              deps: turnDeps,
+              onAssistantMessage: (content) => {
+                streamAssistantDelta(content);
+                endAssistantText();
+                // Education replies are emitted only after their transactional
+                // message, FSM, and Goldilocks writes have committed.
+              },
+            }),
+          );
           writeStatus("complete", "Complete");
           writer.write({ type: "finish", finishReason: "stop" });
           return;
