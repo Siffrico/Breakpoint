@@ -137,7 +137,6 @@ export const getEvaluationProgress = (
 ): {
   completedAttempts: number;
   latestPlan: EvaluationPlan | null;
-  canRequestNextScenario: boolean;
 } => {
   const latestPlan = selectLatestEvaluationPlan(responses);
   const evaluationResponses = responses.filter(
@@ -148,21 +147,8 @@ export const getEvaluationProgress = (
   const attemptResponses = evaluationResponses.filter(
     (response) => response.metadata?.nextScenarioPrompt !== true,
   );
-  const latestAttempt = attemptResponses.at(-1) ?? null;
-  const latestScenarioPrompt = evaluationResponses
-    .filter((response) => response.metadata?.nextScenarioPrompt === true)
-    .at(-1);
-
   return {
     completedAttempts: attemptResponses.length,
     latestPlan,
-    canRequestNextScenario: Boolean(
-      latestPlan &&
-        latestAttempt &&
-        attemptResponses.length < latestPlan.scenarioCount &&
-        (!latestScenarioPrompt ||
-          latestScenarioPrompt.createdAt.getTime() <
-            latestAttempt.createdAt.getTime()),
-    ),
   };
 };

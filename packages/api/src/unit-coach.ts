@@ -16,10 +16,7 @@ import type {
   WorkspaceAiState,
 } from "./domain/training/workspace-ai/types";
 import { requireAiModelForPurpose } from "./domain/training/engine/model-router";
-import {
-  getWorkspaceMessageSlot,
-  resolveWorkspaceTurn,
-} from "./domain/training/workspace-ai/workspace-turn";
+import { resolveWorkspaceTurn } from "./domain/training/workspace-ai/workspace-turn";
 import { trainingOnboardingRepository } from "./repositories/training-onboarding-repository";
 import { createWorkspaceTurnRepositoryDeps } from "./repositories/workspace-turn-repository-deps";
 
@@ -196,10 +193,7 @@ export const streamUnitCoach = async ({
   }
 
   const [workspaceMessages, modelMessages] = await Promise.all([
-    deps.listMessages(
-      sessionId,
-      getWorkspaceMessageSlot(resolvedTurn.state.mode),
-    ),
+    deps.listMessages(sessionId, "education_unit"),
     convertToModelMessages(validatedMessages.data),
   ]);
   const currentUnitMessages = selectCurrentUnitMessages(

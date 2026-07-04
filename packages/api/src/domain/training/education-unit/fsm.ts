@@ -34,6 +34,23 @@ export const initialState = (
   solveRepairs: 0,
 });
 
+/**
+ * Where a recall run begins: directly at the scored transfer moment. The
+ * existing solve-phase transitions do the rest — prompted presents the
+ * composed scenario, a passing verdict masters, a failing one repairs.
+ */
+export const recallInitialState = (
+  unitId: string,
+  recipeVersion: string,
+): UnitState => ({
+  unitId,
+  recipeVersion,
+  phase: "solve",
+  pass: 2,
+  connectGrills: 0,
+  solveRepairs: 0,
+});
+
 const enter = (
   state: UnitState,
   phase: UnitPhase,

@@ -46,6 +46,7 @@ describe("workspace read preparation boundary", () => {
         getPhaseResponses: () => Promise.resolve([]),
         getUnitRun: () => Promise.resolve(null),
         getUnitByNodeId: () => Promise.resolve(null),
+        listRecallCandidates: () => Promise.resolve([]),
         getScenarioAttemptStartedAt: () => Promise.resolve(null),
         // Deliberately pass the former capabilities to guard against a
         // regression even if callers retain stale dependency objects.
@@ -76,6 +77,7 @@ describe("workspace read preparation boundary", () => {
           getPhaseResponses: () => Promise.resolve([]),
           getUnitRun: () => Promise.resolve(null),
           getUnitByNodeId: () => Promise.resolve(null),
+          listRecallCandidates: () => Promise.resolve([]),
           ...stalePreparationDeps,
         },
       }),
@@ -100,6 +102,7 @@ describe("workspace read preparation boundary", () => {
         getPhaseResponses: () => Promise.resolve([]),
         getUnitRun: () => Promise.resolve(null),
         getUnitByNodeId: () => Promise.resolve(unit),
+        listRecallCandidates: () => Promise.resolve([]),
         ...{ upsertUnitRun },
       },
     });

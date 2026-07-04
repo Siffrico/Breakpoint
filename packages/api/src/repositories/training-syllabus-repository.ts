@@ -1,8 +1,9 @@
 import type { db as databaseClient } from "@acme/db/client";
-import { and, asc, eq, inArray } from "@acme/db";
+import { and, asc, eq, inArray, sql } from "@acme/db";
 import { TrainingCurriculumNode, TrainingSyllabusEntry } from "@acme/db/schema";
 
 import type { SyllabusOutput } from "../domain/training/agents/contracts";
+import type { RecallCandidateEntry } from "../domain/training/policies/recall-decay";
 
 type Database = typeof databaseClient;
 
@@ -149,5 +150,86 @@ export const trainingSyllabusRepository = {
         );
       return { checked: checkedIds, deferred: [...deferred, ...missing] };
     });
+  },
+
+  /**
+   * Every checked entry across the plan's clusters, shaped for the
+   * recall-decay policy. Entries that were never checked have no decay clock
+   * and are excluded at the query.
+   */
+  listRecallCandidates: async ({
+    db,
+    planId,
+  }: {
+    db: Database;
+    planId: string;
+  }): Promise<RecallCandidateEntry[]> => {
+    const rows = await db
+      .select({
+        id: TrainingSyllabusEntry.id,
+        clusterNodeId: TrainingSyllabusEntry.clusterNodeId,
+        label: TrainingSyllabusEntry.label,
+        gloss: TrainingSyllabusEntry.gloss,
+        checkedAt: TrainingSyllabusEntry.checkedAt,
+        strength: TrainingSyllabusEntry.strength,
+        lastReinforcedAt: TrainingSyllabusEntry.lastReinforcedAt,
+        evidenceNodeId: TrainingSyllabusEntry.evidenceNodeId,
+      })
+      .from(TrainingSyllabusEntry)
+      .innerJoin(
+        TrainingCurriculumNode,
+        eq(TrainingCurriculumNode.id, TrainingSyllabusEntry.clusterNodeId),
+      )
+      .where(
+        and(
+          eq(TrainingCurriculumNode.planId, planId),
+          eq(TrainingSyllabusEntry.status, "checked"),
+        ),
+      );
+
+    return rows.flatMap((row) =>
+      row.checkedAt
+        ? [
+            {
+              id: row.id,
+              clusterNodeId: row.clusterNodeId,
+              label: row.label,
+              gloss: row.gloss,
+              checkedAt: row.checkedAt,
+              strength: row.strength,
+              lastReinforcedAt: row.lastReinforcedAt,
+              evidenceNodeId: row.evidenceNodeId,
+            },
+          ]
+        : [],
+    );
+  },
+
+  /**
+   * Applies one scored recall verdict to the composed entries: pass climbs a
+   * strength rung, fail drops one (floored at zero). Stamps the anchor either
+   * way so the spacing clock restarts from this verdict.
+   */
+  applyReinforcement: async ({
+    db,
+    entryIds,
+    passed,
+    occurredAt,
+  }: {
+    db: Database;
+    entryIds: string[];
+    passed: boolean;
+    occurredAt: Date;
+  }) => {
+    if (entryIds.length === 0) return;
+    await db
+      .update(TrainingSyllabusEntry)
+      .set({
+        strength: passed
+          ? sql`${TrainingSyllabusEntry.strength} + 1`
+          : sql`greatest(${TrainingSyllabusEntry.strength} - 1, 0)`,
+        lastReinforcedAt: occurredAt,
+      })
+      .where(inArray(TrainingSyllabusEntry.id, entryIds));
   },
 };

@@ -125,13 +125,8 @@ void test("saveUnitPhaseResult persists transitions and non-grading continuation
     getUnitRun: () => Promise.resolve(null),
     upsertUnitRun: legacyDirectRunWrite,
     getUnitByNodeId: () => Promise.resolve(unit),
+    listRecallCandidates: () => Promise.resolve([]),
     commitEducationTurn,
-    commitRecallTurn: () =>
-      Promise.reject(new Error("commitRecallTurn should not be called")),
-    commitNextScenarioPrompt: () =>
-      Promise.reject(
-        new Error("commitNextScenarioPrompt should not be called"),
-      ),
     appendMessage: () => Promise.resolve(null),
   } as unknown as WorkspaceTurnPersistenceDependencies;
 

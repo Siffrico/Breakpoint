@@ -60,6 +60,16 @@ export interface UnitTurnContextInput {
     checked: readonly { label: string; gloss: string }[];
     targets: readonly { id: string; label: string; gloss: string }[];
   } | null;
+  /**
+   * Set on recall interludes: the decayed skill this scenario must make the
+   * learner retrieve and apply, plus an optional well-known companion skill
+   * to compose with it. Recall never re-teaches — it poses one realistic
+   * problem where the primary skill is load-bearing.
+   */
+  recallFocus?: {
+    primary: { label: string; gloss: string };
+    companion: { label: string; gloss: string } | null;
+  } | null;
 }
 
 const bullet = (lines: readonly string[]): string =>
@@ -124,6 +134,15 @@ export const buildUnitTurnContext = (input: UnitTurnContextInput): string => {
     );
     sections.push(
       `## Syllabus\nWorkflow: ${input.syllabus.workflow.name}\nSpine:\n${bullet(input.syllabus.workflow.steps)}\n\nAlready checked (assume known; build on these):\n${checked}\n\nThis unit must land:\n${targets}`,
+    );
+  }
+
+  if (input.recallFocus) {
+    const companion = input.recallFocus.companion
+      ? `\nCompose it with this well-known skill (assume solid; no review needed): ${input.recallFocus.companion.label} — ${input.recallFocus.companion.gloss}`
+      : "";
+    sections.push(
+      `## Recall focus\nThis is a spaced-recall checkpoint, not a lesson. Pose ONE realistic scenario in which the learner must retrieve and apply: ${input.recallFocus.primary.label} — ${input.recallFocus.primary.gloss}${companion}\nDo not re-teach the skill before they attempt it. Frame it briefly as a quick checkpoint before their next unit.`,
     );
   }
 

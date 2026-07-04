@@ -1,20 +1,16 @@
 import type { PromptTemplate } from "./types";
+import { educationUnitPrompt } from "./education-unit";
+import { evaluationStagePrompt } from "./evaluation-stage";
+import { onboardingCurriculumPrompt } from "./onboarding-curriculum";
 
 export { onboardingCurriculumPrompt } from "./onboarding-curriculum";
 export { educationUnitPrompt } from "./education-unit";
-export { recallPrompt } from "./recall";
 export { evaluationStagePrompt } from "./evaluation-stage";
 export { evaluationStagePrompt as evaluateFeedbackPrompt } from "./evaluation-stage";
-
-import { onboardingCurriculumPrompt } from "./onboarding-curriculum";
-import { educationUnitPrompt } from "./education-unit";
-import { recallPrompt } from "./recall";
-import { evaluationStagePrompt } from "./evaluation-stage";
 
 const ACTIVE_PROMPTS: PromptTemplate[] = [
   onboardingCurriculumPrompt,
   educationUnitPrompt,
-  recallPrompt,
   evaluationStagePrompt,
 ];
 

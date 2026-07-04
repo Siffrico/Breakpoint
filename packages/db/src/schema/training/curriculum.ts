@@ -121,6 +121,11 @@ export const TrainingSyllabusEntry = pgTable(
     gloss: t.text().notNull(),
     status: t.varchar({ length: 32 }).notNull().default("unchecked"),
     checkedAt: t.timestamp({ mode: "date", withTimezone: true }),
+    // Spaced-reinforcement state: how many consecutive scored recalls this
+    // entry has survived, and when it last earned (or lost) one. checkedAt is
+    // the anchor until the first reinforcement. See policies/recall-decay.ts.
+    strength: t.integer().notNull().default(0),
+    lastReinforcedAt: t.timestamp({ mode: "date", withTimezone: true }),
     evidenceNodeId: t
       .uuid()
       .references(() => TrainingCurriculumNode.id, { onDelete: "set null" }),

@@ -11,8 +11,6 @@ import { requireSession } from "~/app/api/_lib/require-session";
 export const runtime = "nodejs";
 
 interface WorkspaceChatRequestBody {
-  action?: "submit_answer" | "next_scenario" | "adjust_difficulty";
-  manualDifficultySignal?: "too_easy" | "too_hard";
   message?: string;
   messages?: UIMessage[];
   model?: string;
@@ -70,24 +68,8 @@ export const POST = async (req: NextRequest) => {
   }
 
   const { sessionId } = body;
-  const action =
-    body.action === "next_scenario" || body.action === "adjust_difficulty"
-      ? body.action
-      : "submit_answer";
-  const submittedMessage =
-    action === "next_scenario"
-      ? "Next scenario"
-      : action === "adjust_difficulty"
-        ? `Difficulty adjustment: ${body.manualDifficultySignal ?? "unknown"}`
-        : resolveSubmittedMessage(body);
-  if (
-    !sessionId ||
-    typeof sessionId !== "string" ||
-    (action === "submit_answer" && submittedMessage.length === 0) ||
-    (action === "adjust_difficulty" &&
-      body.manualDifficultySignal !== "too_easy" &&
-      body.manualDifficultySignal !== "too_hard")
-  ) {
+  const submittedMessage = resolveSubmittedMessage(body);
+  if (!sessionId || typeof sessionId !== "string" || submittedMessage.length === 0) {
     return new Response("Invalid request body", { status: 400 });
   }
 
@@ -96,12 +78,10 @@ export const POST = async (req: NextRequest) => {
     sessionId,
     userId: session.user.id,
     message: submittedMessage,
-    action,
     turnId:
       typeof body.turnId === "string" && body.turnId.length > 0
         ? body.turnId.slice(0, 96)
         : null,
-    manualDifficultySignal: body.manualDifficultySignal ?? null,
     modelName: resolveModelPreference(req, body.model),
     signal: req.signal,
   });

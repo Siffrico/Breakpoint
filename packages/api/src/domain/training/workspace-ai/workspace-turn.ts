@@ -3,18 +3,24 @@ import { Cause, Effect, Exit } from "effect";
 
 import type { DbError } from "../../../effect/errors";
 import type { PersistedUnitRun } from "../education-unit/unit";
+import type { RecallTarget } from "../policies/recall-decay";
 import type {
   CurriculumNode,
   CurriculumPlan,
   PhaseResponseRecord,
   UnitContent,
 } from "../types/training.types";
-import type { WorkspaceAiState, WorkspaceAiTurnMode } from "./types";
+import type { WorkspaceAiState } from "./types";
 import type { WorkspaceProjectionReaderSource } from "./workspace-reader";
-import { initialState } from "../education-unit/fsm";
-import { CURRENT_RECIPE_VERSION } from "../education-unit/unit";
+import { initialState, recallInitialState } from "../education-unit/fsm";
+import {
+  CURRENT_RECIPE_VERSION,
+  isRecallRecipe,
+  RECALL_RECIPE_VERSION,
+} from "../education-unit/unit";
+import { selectRecallTarget } from "../policies/recall-decay";
 import { UnitNotReadyError } from "../unit-preparation/errors";
-import { planWorkspaceTurn } from "./orchestrator";
+import { isUnitMidFlight, planWorkspaceTurn } from "./orchestrator";
 import {
   CurriculumNotReadyError,
   NoRunnableWorkspaceTurnError,
@@ -34,11 +40,9 @@ export interface ResolvedWorkspaceTurn {
   unit: UnitContent;
   unitRun: PersistedUnitRun;
   unitResponses: PhaseResponseRecord[];
+  /** Set when this turn is a recall interlude: the skills to compose. */
+  recallFocus: RecallTarget | null;
 }
-
-export const getWorkspaceMessageSlot = (
-  mode: WorkspaceAiTurnMode,
-): WorkspaceAiTurnMode => (mode === "recall" ? "recall" : "education_unit");
 
 export const getNextReadyLearningNode = (nodes: CurriculumNode[]) =>
   nodes.find(
@@ -115,6 +119,60 @@ export const findWorkspaceTurnNode = ({
   nodes.find(
     (node) => node.id === (state.activeUnitId ?? state.recallUnitId),
   ) ?? null;
+
+/**
+ * Produces a recall run projection without materializing it. An in-flight
+ * recall run (prompted but not yet graded) resumes; anything else — the
+ * mastered education run, a finished earlier recall — projects a fresh
+ * cursor at the scored Solve moment. The first claimed commit materializes
+ * it, resetting the row onto the recall recipe.
+ */
+export const resolveRecallRunProjection = ({
+  sessionId,
+  userId,
+  unit,
+  existing,
+}: {
+  sessionId: string;
+  userId?: string | null;
+  unit: UnitContent;
+  existing: PersistedUnitRun | null;
+}): PersistedUnitRun => {
+  if (
+    existing &&
+    isRecallRecipe(existing.recipeVersion) &&
+    existing.phase !== "mastered"
+  ) {
+    return existing;
+  }
+
+  return {
+    ...recallInitialState(unit.id, RECALL_RECIPE_VERSION),
+    sessionId,
+    userId: userId ?? null,
+    difficultySnapshot: null,
+    scenarioSpec: null,
+  };
+};
+
+/**
+ * Resolves the plan's due recall target (if any) against its nodes. Returns
+ * null when nothing has decayed or the evidence unit is no longer in the plan.
+ */
+export const resolvePlannedRecall = ({
+  plan,
+  candidates,
+  now,
+}: {
+  plan: CurriculumPlan;
+  candidates: Parameters<typeof selectRecallTarget>[0];
+  now: Date;
+}): { target: RecallTarget; node: CurriculumNode } | null => {
+  const target = selectRecallTarget(candidates, now);
+  if (!target) return null;
+  const node = plan.nodes.find((n) => n.id === target.evidenceNodeId);
+  return node?.status === "completed" ? { target, node } : null;
+};
 
 /**
  * Produces a run projection without materializing it. The first claimed-turn
@@ -235,11 +293,30 @@ export const resolveWorkspaceTurnEffect = ({
       });
     }
 
+    // The decay query runs only at a unit boundary — mid-FSM turns never
+    // consider recall, so they never pay for the candidate read.
+    const plannedRecall = isUnitMidFlight({
+      activeUnitResponses: active.responses,
+      activeUnitRun: active.run,
+    })
+      ? null
+      : resolvePlannedRecall({
+          plan,
+          candidates: yield* reader.listRecallCandidates(plan.id),
+          now: new Date(),
+        });
+
     const state = planWorkspaceTurn({
       nodes: plan.nodes,
       allResponses,
       activeUnitResponses: active.responses,
       activeUnitRun: active.run,
+      recallTarget: plannedRecall
+        ? {
+            unitNodeId: plannedRecall.node.id,
+            unitTitle: plannedRecall.node.title,
+          }
+        : null,
     });
 
     if (!state) {
@@ -258,12 +335,18 @@ export const resolveWorkspaceTurnEffect = ({
       });
     }
 
+    const isRecallTurn = state.recallUnitId !== null;
     const unitResponses =
       unit.id === active.unit?.id
         ? active.responses
         : yield* reader.getPhaseResponses(unit.id, sessionId);
-    const unitRun =
-      unit.id === active.unit?.id && active.run
+    const unitRun = isRecallTurn
+      ? resolveRecallRunProjection({
+          sessionId,
+          unit,
+          existing: yield* reader.getUnitRun(sessionId, unit.id),
+        })
+      : unit.id === active.unit?.id && active.run
         ? active.run
         : resolveUnitRunProjection({
             sessionId,
@@ -271,14 +354,11 @@ export const resolveWorkspaceTurnEffect = ({
             existing: yield* reader.getUnitRun(sessionId, unit.id),
           });
 
-    const resolvedState =
-      state.mode === "education_unit"
-        ? {
-            ...state,
-            educationStage: unitRun.phase,
-            workflowId: unitRun.recipeVersion,
-          }
-        : state;
+    const resolvedState = {
+      ...state,
+      educationStage: unitRun.phase,
+      workflowId: unitRun.recipeVersion,
+    };
 
     return {
       plan,
@@ -288,6 +368,7 @@ export const resolveWorkspaceTurnEffect = ({
       unit,
       unitRun,
       unitResponses,
+      recallFocus: isRecallTurn ? (plannedRecall?.target ?? null) : null,
     };
   });
 
@@ -334,11 +415,27 @@ export const planNextWorkspaceTurn = async ({
         ],
         { concurrency: 2 },
       );
+      const plannedRecall = isUnitMidFlight({
+        activeUnitResponses: active.responses,
+        activeUnitRun: active.run,
+      })
+        ? null
+        : resolvePlannedRecall({
+            plan,
+            candidates: yield* reader.listRecallCandidates(plan.id),
+            now: new Date(),
+          });
       return planWorkspaceTurn({
         nodes: plan.nodes,
         allResponses,
         activeUnitResponses: active.responses,
         activeUnitRun: active.run,
+        recallTarget: plannedRecall
+          ? {
+              unitNodeId: plannedRecall.node.id,
+              unitTitle: plannedRecall.node.title,
+            }
+          : null,
       });
     }).pipe(
       Effect.provideService(

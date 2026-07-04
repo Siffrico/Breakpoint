@@ -3,6 +3,7 @@ import { Context, Effect as Fx } from "effect";
 
 import type { DbError } from "../../../effect/errors";
 import type { PersistedUnitRun } from "../education-unit/unit";
+import type { RecallCandidateEntry } from "../policies/recall-decay";
 import type {
   CurriculumPlan,
   PhaseResponseRecord,
@@ -31,6 +32,9 @@ export interface WorkspaceProjectionReaderSource {
     unitContentId: string,
   ) => Promise<PersistedUnitRun | null>;
   readonly getUnitByNodeId: (nodeId: string) => Promise<UnitContent | null>;
+  readonly listRecallCandidates: (
+    planId: string,
+  ) => Promise<RecallCandidateEntry[]>;
 }
 
 export interface WorkspaceProjectionReaderShape {
@@ -51,6 +55,9 @@ export interface WorkspaceProjectionReaderShape {
   readonly getUnitByNodeId: (
     nodeId: string,
   ) => Effect.Effect<UnitContent | null, DbError>;
+  readonly listRecallCandidates: (
+    planId: string,
+  ) => Effect.Effect<RecallCandidateEntry[], DbError>;
 }
 
 export class WorkspaceProjectionReader extends Context.Service<
@@ -75,6 +82,8 @@ export const makeWorkspaceProjectionReader = (
     read("getUnitRun", () => source.getUnitRun(sessionId, unitContentId)),
   getUnitByNodeId: (nodeId) =>
     read("getUnitByNodeId", () => source.getUnitByNodeId(nodeId)),
+  listRecallCandidates: (planId) =>
+    read("listRecallCandidates", () => source.listRecallCandidates(planId)),
 });
 
 export interface AiWorkspaceReaderSource {

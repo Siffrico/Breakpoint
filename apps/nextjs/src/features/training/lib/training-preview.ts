@@ -217,7 +217,6 @@ export const previewHomeState: HomeState = {
   nextUnitId: "00000000-0000-4000-8000-000000000101",
   totalUnits: 8,
   completedUnits: 3,
-  activeRecallGate: null,
   blockingSignals: [
     "You know the terms but still blur consistency guarantees under partition pressure.",
     "Replica lag and read freshness tradeoffs are not yet instinctive.",

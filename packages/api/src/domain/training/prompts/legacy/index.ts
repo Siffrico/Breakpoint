@@ -1,10 +1,13 @@
 import type { PromptTemplate } from "../types";
+import {
+  debateRoundPrompt,
+  evaluateBuildPrompt,
+  evaluateDebatePrompt,
+  evaluateTeachPrompt,
+  legacyCapstoneDesignPrompt,
+  teachRoundPrompt,
+} from "./capstone";
 
-export {
-  recallSeedReturnPrompt,
-  recallInterleavePrompt,
-  recallCompressionPrompt,
-} from "./recall";
 export {
   legacyCapstoneDesignPrompt,
   debateRoundPrompt,
@@ -15,15 +18,6 @@ export {
 } from "./capstone";
 
 export { legacyCapstoneDesignPrompt as capstoneAgentPrompt } from "./capstone";
-
-import {
-  legacyCapstoneDesignPrompt,
-  debateRoundPrompt,
-  teachRoundPrompt,
-  evaluateBuildPrompt,
-  evaluateDebatePrompt,
-  evaluateTeachPrompt,
-} from "./capstone";
 
 const LEGACY_PROMPTS: PromptTemplate[] = [
   legacyCapstoneDesignPrompt,
@@ -42,7 +36,11 @@ export const getPrompt = (id: string): PromptTemplate => {
   return found;
 };
 
-export const listPrompts = (): { id: string; version: number; tier: string }[] =>
+export const listPrompts = (): {
+  id: string;
+  version: number;
+  tier: string;
+}[] =>
   LEGACY_PROMPTS.map((prompt) => ({
     id: prompt.id,
     version: prompt.version,

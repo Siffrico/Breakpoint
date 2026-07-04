@@ -4,34 +4,17 @@ import { TRPCError } from "@trpc/server";
 import {
   createUIMessageStream,
   createUIMessageStreamResponse,
-  Output,
-  smoothStream,
-  stepCountIs,
-  streamText,
 } from "ai";
 import { Effect } from "effect";
 
 import type { db as databaseClient } from "@acme/db/client";
 
 import type { WorkspaceAiEducationStage } from "./domain/training/workspace-ai/types";
-import type {
-  ManualDifficultySignal,
-  WorkspaceChatAction,
-} from "./domain/training/workspace-ai/workspace-turn-orchestration";
-import {
-  getSearchToolsForSelectedProvider,
-  requireAiModelForPurpose,
-  withAiModelPreference,
-} from "./domain/training/engine/model-router";
+import { withAiModelPreference } from "./domain/training/engine/model-router";
 import { WorkspaceUserError } from "./domain/training/errors";
-import { getWorkspaceAiSystemPrompt } from "./domain/training/workspace-ai/runtime";
 import { resolveWorkspaceTurn } from "./domain/training/workspace-ai/workspace-turn";
 import { runWorkspaceTurn } from "./domain/training/workspace-ai/workspace-turn-edge";
-import {
-  prepareRecallTurnPrompt,
-  runEducationUnitTurn,
-  saveRecallStepResult,
-} from "./domain/training/workspace-ai/workspace-turn-orchestration";
+import { runEducationUnitTurn } from "./domain/training/workspace-ai/workspace-turn-orchestration";
 import { trainingOnboardingRepository } from "./repositories/training-onboarding-repository";
 import {
   createWorkspaceTurnRepositoryDeps,
@@ -62,10 +45,14 @@ const WORKSPACE_ASSISTANT_TEXT_PART_ID = "workspace-assistant";
  * Education phase agents emit their complete reply as one block. This label is
  * what the learner sees while the model is working. The exhaustive switch (no
  * default) forces a copy decision whenever a phase is added or renamed.
+ * A recall interlude arrives as a solve-phase education turn with
+ * recallUnitId set, so it gets its own checkpoint framing.
  */
 const getEducationTurnLabel = (
   stage: WorkspaceAiEducationStage | null,
+  isRecall: boolean,
 ): string => {
+  if (isRecall) return "Running a quick checkpoint";
   switch (stage) {
     case "orient":
       return "Setting up this unit";
@@ -88,8 +75,6 @@ export const streamWorkspaceChat = async ({
   message,
   turnId = null,
   modelName,
-  action = "submit_answer",
-  manualDifficultySignal = null,
   signal,
 }: {
   db: Database;
@@ -98,8 +83,6 @@ export const streamWorkspaceChat = async ({
   message: string;
   turnId?: string | null;
   modelName?: string | null;
-  action?: WorkspaceChatAction;
-  manualDifficultySignal?: ManualDifficultySignal | null;
   signal?: AbortSignal;
 }): Promise<Response> =>
   withAiModelPreference(modelName, () =>
@@ -109,8 +92,6 @@ export const streamWorkspaceChat = async ({
       userId,
       message,
       turnId,
-      action,
-      manualDifficultySignal,
       signal,
     }),
   );
@@ -121,8 +102,6 @@ const streamWorkspaceChatWithModelPreference = async ({
   userId,
   message,
   turnId,
-  action,
-  manualDifficultySignal,
   signal,
 }: {
   db: Database;
@@ -130,15 +109,13 @@ const streamWorkspaceChatWithModelPreference = async ({
   userId: string;
   message: string;
   turnId: string | null;
-  action: WorkspaceChatAction;
-  manualDifficultySignal: ManualDifficultySignal | null;
   signal?: AbortSignal;
 }) => {
   const trimmedMessage = message.trim();
-  // This layer owns both the lease and the failure path. Lower layers must
-  // never create a lease id that this catch boundary cannot release.
+  // This layer owns the lease id; the education turn claims it and its
+  // finalizer releases it on failure. Pre-claim failures have nothing to free.
   const effectiveLeaseId = turnId ? randomUUID() : null;
-  if (action === "submit_answer" && trimmedMessage.length < 2) {
+  if (trimmedMessage.length < 2) {
     return new Response(
       "Write a fuller message so the AI can respond usefully.",
       {
@@ -165,19 +142,6 @@ const streamWorkspaceChatWithModelPreference = async ({
         : "AI feedback could not be prepared.",
     execute: async ({ writer }) => {
       writer.write({ type: "start" });
-      writer.write({
-        type: "data-workspace-status",
-        id: "workspace-status",
-        data: {
-          status: "preparing",
-          label:
-            action === "next_scenario"
-              ? "Preparing next scenario"
-              : action === "adjust_difficulty"
-                ? "Recalibrating difficulty"
-                : "Preparing feedback",
-        },
-      });
 
       let textPartStarted = false;
       let streamedAssistantMessage = "";
@@ -224,160 +188,40 @@ const streamWorkspaceChatWithModelPreference = async ({
       };
 
       const turnDeps = createWorkspaceTurnRepositoryDeps(db);
-      let educationLeaseManaged = false;
-      const markTurnFailed = async (error: unknown) => {
-        if (!turnId || !effectiveLeaseId || !turnDeps.markWorkspaceTurnFailed)
-          return;
-        if (
-          error instanceof WorkspaceUserError ||
-          (error instanceof TRPCError &&
-            (error.code === "BAD_REQUEST" || error.code === "CONFLICT"))
-        ) {
-          return;
-        }
-        await turnDeps.markWorkspaceTurnFailed({
-          sessionId,
-          turnId,
-          leaseId: effectiveLeaseId,
-          reason: error instanceof Error ? error.message : "unknown error",
-        });
-      };
+      writeStatus("preparing", "Preparing feedback");
 
-      try {
-        const turn = await resolveWorkspaceTurn({
-          sessionId,
-          deps: turnDeps,
-        });
+      const turn = await resolveWorkspaceTurn({
+        sessionId,
+        deps: turnDeps,
+      });
 
-        // Education phase agents emit one complete reply before persistence.
-        // Recall still streams token-by-token below.
-        if (turn.state.mode === "education_unit") {
-          educationLeaseManaged = true;
-          writeStatus(
-            "thinking",
-            getEducationTurnLabel(turn.state.educationStage),
-          );
-          await runWorkspaceTurn(
-            runEducationUnitTurn({
-              sessionId,
-              userId,
-              turnId,
-              turnLeaseId: effectiveLeaseId,
-              message,
-              turn,
-              deps: turnDeps,
-              onAssistantMessage: (content) => {
-                streamAssistantDelta(content);
-                endAssistantText();
-                // Education replies are emitted only after their transactional
-                // message, FSM, and Goldilocks writes have committed.
-              },
-            }).pipe(Effect.provide(workspaceTurnRepoLayer(db))),
-            { signal },
-          );
-          writeStatus("complete", "Complete");
-          writer.write({ type: "finish", finishReason: "stop" });
-          return;
-        }
-
-        const prepared = await prepareRecallTurnPrompt({
+      writeStatus(
+        "thinking",
+        getEducationTurnLabel(
+          turn.state.educationStage,
+          turn.state.recallUnitId !== null,
+        ),
+      );
+      await runWorkspaceTurn(
+        runEducationUnitTurn({
           sessionId,
           userId,
           turnId,
           turnLeaseId: effectiveLeaseId,
           message,
-          action,
-          manualDifficultySignal,
           turn,
           deps: turnDeps,
-        });
-
-        if (prepared.kind === "cached") {
-          streamAssistantDelta(prepared.assistantMessage.content);
-          endAssistantText();
-          writeStatus("complete", "Complete");
-          writer.write({ type: "finish", finishReason: "stop" });
-          return;
-        }
-
-        const { runtime } = prepared;
-
-        writeStatus(
-          runtime.promptKind === "evaluate_feedback"
-            ? "evaluating"
-            : "thinking",
-          prepared.turn.state.mode === "recall"
-            ? action === "adjust_difficulty"
-              ? "Rebuilding recall"
-              : "Checking recall"
-            : action === "next_scenario"
-              ? "Preparing next scenario"
-              : action === "adjust_difficulty"
-                ? "Recalibrating difficulty"
-                : runtime.promptKind === "evaluate_feedback"
-                  ? "Evaluating your answer"
-                  : "Preparing feedback",
-        );
-        const result = streamText({
-          model: requireAiModelForPurpose(
-            runtime.modelPurpose,
-            "AI workspace turns",
-          ),
-          output: Output.object({
-            schema: runtime.outputSchema as never,
-            name:
-              prepared.turn.state.mode === "recall"
-                ? "workspace_recall_turn"
-                : "workspace_education_turn",
-          }),
-          system: getWorkspaceAiSystemPrompt(runtime.promptKind),
-          prompt: prepared.promptContext,
-          tools: getSearchToolsForSelectedProvider(runtime.modelPurpose),
-          // SDK-native server-side smoothing: pace the underlying text deltas
-          // (the structured-output JSON) on word boundaries so partialOutputStream
-          // grows in steady increments. Removes the need for client-side pacing.
-          experimental_transform: smoothStream({
-            delayInMs: 15,
-            chunking: "word",
-          }),
-          stopWhen: stepCountIs(4),
-        });
-
-        for await (const partial of result.partialOutputStream) {
-          const partialOutput = partial as { assistantMessage?: unknown };
-          streamAssistantDelta(
-            typeof partialOutput.assistantMessage === "string"
-              ? partialOutput.assistantMessage
-              : "",
-          );
-        }
-
-        const rawOutput = await result.output;
-        const output = runtime.outputSchema.parse(rawOutput) as {
-          assistantMessage: string;
-        };
-        streamAssistantDelta(output.assistantMessage);
-        endAssistantText();
-        writeStatus(
-          "saving",
-          action === "next_scenario"
-            ? "Saving next scenario"
-            : action === "adjust_difficulty"
-              ? "Saving recalibrated scenario"
-              : "Saving feedback",
-        );
-        await saveRecallStepResult({
-          prepared,
-          rawOutput: output,
-          deps: turnDeps,
-        });
-
-        writeStatus("complete", "Complete");
-        writer.write({ type: "finish", finishReason: "stop" });
-      } catch (error) {
-        if (!educationLeaseManaged) await markTurnFailed(error);
-        throw error;
-      }
+          onAssistantMessage: (content) => {
+            streamAssistantDelta(content);
+            endAssistantText();
+            // Education replies are emitted only after their transactional
+            // message, FSM, and Goldilocks writes have committed.
+          },
+        }).pipe(Effect.provide(workspaceTurnRepoLayer(db))),
+        { signal },
+      );
+      writeStatus("complete", "Complete");
+      writer.write({ type: "finish", finishReason: "stop" });
     },
   });
 

@@ -75,10 +75,7 @@ const mapWorkspaceMessage = (
 
 type WorkspaceMessage = ReturnType<typeof mapWorkspaceMessage>;
 
-type WorkspaceTurnAction =
-  | "submit_answer"
-  | "next_scenario"
-  | "adjust_difficulty";
+type WorkspaceTurnAction = "submit_answer";
 
 const getMessageByTurnRole = async ({
   db,

@@ -2,10 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Layer } from "effect";
 
 import type { Result } from "../../../lib/result";
-import type {
-  AttemptTiming,
-  WorkspaceAiTurnResult,
-} from "../workspace-ai/types";
+import type { WorkspaceAiTurnResult } from "../workspace-ai/types";
 import type { WorkspaceTurnOrchestrationDependencies } from "../workspace-ai/workspace-turn-orchestration";
 import type { WorkspaceTurnRepo } from "../workspace-ai/workspace-turn-repo";
 import { err, ok } from "../../../lib/result";
@@ -22,7 +19,6 @@ export const submitAiWorkspaceMessageWorkflow = async ({
   userId,
   message,
   turnId = null,
-  attemptTiming,
   deps,
   workspaceTurnRepoLayer,
 }: {
@@ -30,7 +26,6 @@ export const submitAiWorkspaceMessageWorkflow = async ({
   userId: string;
   message: string;
   turnId?: string | null;
-  attemptTiming?: AttemptTiming | null;
   deps: WorkspaceTurnOrchestrationDependencies;
   workspaceTurnRepoLayer: Layer.Layer<WorkspaceTurnRepo>;
 }): Promise<Result<WorkspaceAiTurnResult, Error | string>> => {
@@ -46,8 +41,6 @@ export const submitAiWorkspaceMessageWorkflow = async ({
         turnId: normalizedTurnId,
         turnLeaseId,
         message,
-        attemptTiming,
-        action: "submit_answer",
         deps,
         workspaceTurnRepoLayer,
       }),

@@ -26,7 +26,6 @@ import {
 } from "../workspace-ai/workspace-reader";
 import {
   getUnitAdvanceGate,
-  getWorkspaceMessageSlot,
   loadNextReadyUnitProjection,
 } from "../workspace-ai/workspace-turn";
 
@@ -46,7 +45,6 @@ export interface AiWorkspaceView {
   evaluationProgress: {
     completedAttempts: number;
     scenarioCount: number;
-    canRequestNextScenario: boolean;
     attemptStartedAt: Date | null;
   } | null;
   unitAdvanceGate: ReturnType<typeof getUnitAdvanceGate>;
@@ -117,10 +115,7 @@ export const getAiWorkspaceWorkflowEffect = ({
     }
 
     const activeMessages = state
-      ? yield* displayReader.listMessages(
-          sessionId,
-          getWorkspaceMessageSlot(state.mode),
-        )
+      ? yield* displayReader.listMessages(sessionId, "education_unit")
       : messages;
     const evaluationProgress = getEvaluationProgress(active.responses);
     const activeScenarioAttemptId = active.responses
@@ -156,7 +151,6 @@ export const getAiWorkspaceWorkflowEffect = ({
           ? {
               completedAttempts: evaluationProgress.completedAttempts,
               scenarioCount: evaluationProgress.latestPlan.scenarioCount,
-              canRequestNextScenario: evaluationProgress.canRequestNextScenario,
               attemptStartedAt,
             }
           : null,
@@ -208,7 +202,7 @@ export const buildWorkspaceIntroMessage = ({
   plan: CurriculumPlan;
   state: WorkspaceAiState | null;
 }) => {
-  if (state?.mode !== "recall" || !state.recallUnitId) {
+  if (!state?.recallUnitId) {
     return null;
   }
 

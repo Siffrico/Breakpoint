@@ -32,7 +32,7 @@ import { trainingCapstoneRepository } from "../repositories/training-capstone-re
 import { trainingCurriculumRepository } from "../repositories/training-curriculum-repository";
 import { trainingOnboardingRepository } from "../repositories/training-onboarding-repository";
 import { trainingRatingRepository } from "../repositories/training-rating-repository";
-import { trainingRecallRepository } from "../repositories/training-recall-repository";
+import { trainingSyllabusRepository } from "../repositories/training-syllabus-repository";
 import { trainingUnitRunRepository } from "../repositories/training-unit-run-repository";
 import {
   createUnitMintingRepositoryDeps,
@@ -663,6 +663,11 @@ export const trainingRouter = {
               db: ctx.db,
               nodeId,
             }),
+          listRecallCandidates: (planId) =>
+            trainingSyllabusRepository.listRecallCandidates({
+              db: ctx.db,
+              planId,
+            }),
           getScenarioAttemptStartedAt: async ({
             scenarioAttemptId,
             nodeId,
@@ -700,7 +705,6 @@ export const trainingRouter = {
           userId: ctx.session.user.id,
           message: input.message,
           turnId: input.turnId ?? null,
-          attemptTiming: input.attemptTiming ?? null,
           deps: createWorkspaceTurnRepositoryDeps(ctx.db),
           workspaceTurnRepoLayer: workspaceTurnRepoLayer(ctx.db),
         });
@@ -943,7 +947,6 @@ export const trainingRouter = {
                 profile,
                 plan,
                 summary,
-                activeRecallGate,
                 attemptHistory,
                 nodeScores,
               ] = await Promise.all([
@@ -956,10 +959,6 @@ export const trainingRouter = {
                   sessionId,
                 }),
                 trainingAttemptRepository.getHomeSummary({
-                  db: ctx.db,
-                  sessionId,
-                }),
-                trainingRecallRepository.getActiveGateSummaryBySession({
                   db: ctx.db,
                   sessionId,
                 }),
@@ -1025,7 +1024,6 @@ export const trainingRouter = {
                         ? "Cluster capstone ready"
                         : "Next unit ready"
                     : null),
-                activeRecallGate,
                 blockingSignals:
                   summary.recentFailureTags.length > 0
                     ? summary.recentFailureTags

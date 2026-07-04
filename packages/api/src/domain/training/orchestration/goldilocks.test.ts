@@ -5,7 +5,6 @@ import type { ScenarioDirective } from "../engine/rating";
 import { createInitialRatingState } from "../engine/rating";
 import {
   deriveDefaultBands,
-  prepareScenarioDirective,
   recordEvaluation,
   resolveScenarioDirective,
 } from "./goldilocks";
@@ -21,23 +20,6 @@ const jobProgress = () => ({
   misconceptions: [],
   recentAttempts: [],
   masteredAt: null,
-});
-
-void test("prepared difficulty carries the opened scenario attempt id", async () => {
-  const result = await prepareScenarioDirective({
-    userId: "user-1",
-    nodeId: "cluster-1",
-    now: new Date("2026-01-01T00:00:00.000Z"),
-    bands: deriveDefaultBands(),
-    deps: {
-      loadJobProgress: () => Promise.resolve(jobProgress()),
-      listRecentPredictions: () => Promise.resolve([]),
-      openScenarioAttempt: () => Promise.resolve({ id: "scenario-1" }),
-    },
-  });
-
-  assert.equal(result.scenarioAttemptId, "scenario-1");
-  assert.equal(result.learnerRating, createInitialRatingState().rating);
 });
 
 void test("resolving difficulty is read-only", async () => {

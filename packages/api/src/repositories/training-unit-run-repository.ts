@@ -118,12 +118,16 @@ export const trainingUnitRunRepository = {
           pass: values.pass,
           connectGrills: values.connectGrills,
           solveRepairs: values.solveRepairs,
-          difficultySnapshotJson: sql`coalesce(${TrainingUnitRun.difficultySnapshotJson}, excluded.difficulty_snapshot_json)`,
+          // Write-once WITHIN a recipe. A recipe change (a recall run resets
+          // a mastered education row, or vice versa) is a new run: the
+          // incoming snapshot replaces the old one wholesale.
+          difficultySnapshotJson: sql`case when ${TrainingUnitRun.recipeVersion} = excluded.recipe_version then coalesce(${TrainingUnitRun.difficultySnapshotJson}, excluded.difficulty_snapshot_json) else excluded.difficulty_snapshot_json end`,
           // Replaceable, unlike difficulty (which is coalesced write-once): a
           // turn that produces a new spec overwrites; a turn that produces none
           // (null) preserves the stored one. So pass 2's connect replaces pass
-          // 1's spec, but ordinary grill/solve turns never wipe it.
-          scenarioSpecJson: sql`coalesce(excluded.scenario_spec_json, ${TrainingUnitRun.scenarioSpecJson})`,
+          // 1's spec, but ordinary grill/solve turns never wipe it. A recipe
+          // change starts clean.
+          scenarioSpecJson: sql`case when ${TrainingUnitRun.recipeVersion} = excluded.recipe_version then coalesce(excluded.scenario_spec_json, ${TrainingUnitRun.scenarioSpecJson}) else excluded.scenario_spec_json end`,
         },
       })
       .returning();

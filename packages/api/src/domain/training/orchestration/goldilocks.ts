@@ -26,11 +26,6 @@ export interface GoldilocksDirectiveResult {
   learnerRating: number;
 }
 
-export interface PreparedScenarioDirectiveResult
-  extends GoldilocksDirectiveResult {
-  scenarioAttemptId: string;
-}
-
 interface GoldilocksJobProgress {
   ratingState: JobRatingState;
   progress: JobProgressState;
@@ -55,16 +50,6 @@ export interface ResolveScenarioDirectiveDependencies {
     userId: string;
     nodeId: string;
   }) => Promise<RatingPredictionRecord[]>;
-}
-
-export interface PrepareScenarioDirectiveDependencies
-  extends ResolveScenarioDirectiveDependencies {
-  openScenarioAttempt: (input: {
-    userId: string;
-    nodeId: string;
-    directive: ScenarioDirective;
-    itemRating: number;
-  }) => Promise<{ id: string }>;
 }
 
 export interface RecordEvaluationDependencies {
@@ -228,30 +213,6 @@ export const resolveScenarioDirective = async ({
       lastRatedAt: rating.lastRatedAt,
     }),
   };
-};
-
-/**
- * Legacy recall adapter. Recall still opens an attempt during preparation;
- * education units use resolveScenarioDirective and open on presentation.
- */
-export const prepareScenarioDirective = async (
-  input: {
-    userId: string;
-    nodeId: string;
-    now: Date;
-    bands?: readonly DifficultyBand[] | null;
-    deps: PrepareScenarioDirectiveDependencies;
-  },
-): Promise<PreparedScenarioDirectiveResult> => {
-  const resolved = await resolveScenarioDirective(input);
-  const scenarioAttempt = await input.deps.openScenarioAttempt({
-    userId: input.userId,
-    nodeId: input.nodeId,
-    directive: resolved.directive,
-    itemRating: resolved.directive.targetItemRating,
-  });
-
-  return { ...resolved, scenarioAttemptId: scenarioAttempt.id };
 };
 
 export const recordEvaluation = async ({

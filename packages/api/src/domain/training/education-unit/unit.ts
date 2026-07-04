@@ -124,11 +124,21 @@ export interface UnitRecipe {
   goldilocks: GoldilocksWiring;
 }
 
-const RECIPE_VERSIONS = ["education-unit-v1"] as const;
+const RECIPE_VERSIONS = ["education-unit-v1", "recall-v1"] as const;
 type RecipeVersion = (typeof RECIPE_VERSIONS)[number];
 
 /** The recipe version every new unit run starts on. */
 export const CURRENT_RECIPE_VERSION: RecipeVersion = "education-unit-v1";
+
+/**
+ * The recall interlude: a degenerate unit run that begins at Solve pass 2 —
+ * the scored transfer moment — and skips every teaching beat. One composed
+ * scenario, one first-verdict rating write, optional repairs, mastered.
+ */
+export const RECALL_RECIPE_VERSION: RecipeVersion = "recall-v1";
+
+export const isRecallRecipe = (version: string): boolean =>
+  version === RECALL_RECIPE_VERSION;
 
 const isRecipeVersion = (version: string): version is RecipeVersion =>
   (RECIPE_VERSIONS as readonly string[]).includes(version);

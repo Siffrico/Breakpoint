@@ -176,8 +176,6 @@ export function WorkspaceShell({
   // timer code paths remain type-valid if timed scenarios are reintroduced.
   const activeEvaluationPlan: EvaluationPlan | null =
     resolvedAiWorkspace?.evaluationPlan ?? null;
-  const canRequestNextScenario =
-    resolvedAiWorkspace?.evaluationProgress?.canRequestNextScenario ?? false;
   const unitAdvanceGate = resolvedAiWorkspace?.unitAdvanceGate ?? {
     status: "locked",
   };
@@ -191,7 +189,7 @@ export function WorkspaceShell({
       onError: (error) => toast.error(error.message),
     }),
   );
-  const timerIsActive = activeEvaluationPlan != null && !canRequestNextScenario;
+  const timerIsActive = activeEvaluationPlan != null;
   const attemptStartedAt =
     resolvedAiWorkspace?.evaluationProgress?.attemptStartedAt?.getTime() ??
     null;
@@ -549,7 +547,6 @@ export function WorkspaceShell({
                         preview={preview}
                         embedded
                         aiWorkspace={resolvedAiWorkspace}
-                        canRequestNextScenario={canRequestNextScenario}
                         onStateChange={setLiveUnit}
                         onRunningChange={setIsSessionRunning}
                         onRunCommand={openUnitCoachWithCommand}

@@ -686,118 +686,6 @@ export const SubmitEducationUnitStepSchema = z.object({
   latencyMs: z.number().int().min(0).nullable().optional(),
 });
 
-export const RecallGateStatusSchema = z.enum([
-  "pending",
-  "active",
-  "passed",
-  "repaired",
-  "flagged",
-]);
-
-export const RecallProbeTypeSchema = z.enum([
-  "seed_return",
-  "interleave",
-  "compression",
-]);
-
-export const RecallProbeStatusSchema = z.enum([
-  "pending",
-  "answered",
-  "repair_pending",
-  "repaired",
-  "failed",
-]);
-
-export const UnitRecallStatusSchema = z.enum([
-  "retained",
-  "decayed",
-  "repaired",
-]);
-
-export const RecallProbeSchema = z.object({
-  id: z.string().min(1),
-  gateId: z.string().min(1),
-  probeOrder: z.number().int().min(0),
-  probeType: RecallProbeTypeSchema,
-  sourceUnitNodeIds: z.array(z.string().min(1)).min(1),
-  prompt: z.string().min(1),
-  seedSnapshot: z.string().nullable(),
-  userResponse: z.string().nullable(),
-  score: z.number().int().min(0).max(100).nullable(),
-  passed: z.boolean().nullable(),
-  repairPrompt: z.string().nullable(),
-  repairResponse: z.string().nullable(),
-  repairScore: z.number().int().min(0).max(100).nullable(),
-  repairPassed: z.boolean().nullable(),
-  status: RecallProbeStatusSchema,
-  createdAt: z.date(),
-  updatedAt: z.date().nullable(),
-  completedAt: z.date().nullable(),
-});
-
-export const RecallGateSchema = z.object({
-  id: z.string().min(1),
-  planId: z.string().min(1),
-  sessionId: z.string().min(1),
-  userId: z.string().nullable(),
-  triggerAfterUnitNodeId: z.string().min(1),
-  status: RecallGateStatusSchema,
-  probes: z.array(RecallProbeSchema),
-  createdAt: z.date(),
-  updatedAt: z.date().nullable(),
-  completedAt: z.date().nullable(),
-});
-
-export const RecallGateSummarySchema = z.object({
-  id: z.string().min(1),
-  status: RecallGateStatusSchema,
-  triggerAfterUnitNodeId: z.string().min(1),
-  probeCount: z.number().int().min(0),
-  pendingProbeCount: z.number().int().min(0),
-});
-
-export const UnitRecallStateSchema = z.object({
-  id: z.string().min(1),
-  unitNodeId: z.string().min(1),
-  planId: z.string().min(1),
-  lastRecalledAt: z.date().nullable(),
-  lastRecallOrderIndex: z.number().int().min(0).nullable(),
-  recallCount: z.number().int().min(0),
-  decayCount: z.number().int().min(0),
-  lastRecallScore: z.number().int().min(0).max(100).nullable(),
-  status: UnitRecallStatusSchema,
-  createdAt: z.date(),
-  updatedAt: z.date().nullable(),
-});
-
-export const SubmitRecallProbeSchema = z.object({
-  gateId: z.string().uuid(),
-  probeId: z.string().uuid(),
-  mode: z.enum(["probe", "repair"]),
-  response: z.string().min(20).max(5_000),
-});
-
-export const FinalizeForgeUnitResultSchema = z.discriminatedUnion(
-  "nextAction",
-  [
-    z.object({
-      nextAction: z.literal("recall_gate"),
-      gate: RecallGateSchema,
-    }),
-    z.object({
-      nextAction: z.literal("unit"),
-      nodeId: z.string().min(1),
-    }),
-    z.object({
-      nextAction: z.literal("simulation"),
-      nodeId: z.string().min(1),
-    }),
-    z.object({
-      nextAction: z.literal("home"),
-    }),
-  ],
-);
-
 export const UnitContentSchema = ForgeUnitContentSchema;
 export const DebriefSchema = ForgeDebriefSchema;
 
@@ -995,20 +883,8 @@ export type EducationUnitImplementationReview = z.infer<
   typeof EducationUnitImplementationReviewSchema
 >;
 export type EducationUnitState = z.infer<typeof EducationUnitStateSchema>;
-export type RecallGateStatus = z.infer<typeof RecallGateStatusSchema>;
-export type RecallProbeType = z.infer<typeof RecallProbeTypeSchema>;
-export type RecallProbeStatus = z.infer<typeof RecallProbeStatusSchema>;
-export type UnitRecallStatus = z.infer<typeof UnitRecallStatusSchema>;
-export type RecallProbe = z.infer<typeof RecallProbeSchema>;
-export type RecallGate = z.infer<typeof RecallGateSchema>;
-export type RecallGateSummary = z.infer<typeof RecallGateSummarySchema>;
-export type UnitRecallState = z.infer<typeof UnitRecallStateSchema>;
-export type SubmitRecallProbe = z.infer<typeof SubmitRecallProbeSchema>;
 export type SubmitEducationUnitStep = z.infer<
   typeof SubmitEducationUnitStepSchema
->;
-export type FinalizeForgeUnitResult = z.infer<
-  typeof FinalizeForgeUnitResultSchema
 >;
 export type UnitContent = z.infer<typeof UnitContentSchema>;
 export type UnitMasteryContract = z.infer<typeof UnitMasteryContractSchema>;

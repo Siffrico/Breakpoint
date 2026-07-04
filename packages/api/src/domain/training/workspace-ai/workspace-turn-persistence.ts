@@ -17,26 +17,23 @@ import type {
 import type {
   WorkspaceAiEducationOutput,
   WorkspaceAiMessage,
-  WorkspaceAiRecallOutput,
   WorkspaceAiState,
   WorkspaceAiTurnResult,
 } from "./types";
 import type { WorkspaceTurnDependencies } from "./workspace-turn";
+import { isRecallRecipe } from "../education-unit/unit";
 import {
   RatingEvidenceError,
   WorkspacePersistenceError,
 } from "./workspace-errors";
-import {
-  getWorkspaceMessageSlot,
-  planNextWorkspaceTurn,
-} from "./workspace-turn";
+import { planNextWorkspaceTurn } from "./workspace-turn";
 import { WorkspaceTurnRepo } from "./workspace-turn-repo";
 
 export interface WorkspaceTurnPersistenceDependencies
   extends Omit<WorkspaceTurnDependencies, "getActivePlan"> {
   claimWorkspaceTurn?: (input: {
     sessionId: string;
-    action: "submit_answer" | "next_scenario" | "adjust_difficulty";
+    action: "submit_answer";
     content: string;
     slot: string | null;
     unitId?: string | null;
@@ -63,12 +60,6 @@ export interface WorkspaceTurnPersistenceDependencies
     sessionId: string,
     slot?: "education_unit" | "recall",
   ) => Promise<WorkspaceAiMessage[]>;
-  commitRecallTurn: (
-    input: WorkspaceRecallTurnCommit,
-  ) => Promise<{ assistantMessage: WorkspaceAiMessage }>;
-  commitNextScenarioPrompt: (
-    input: WorkspaceNextScenarioCommit,
-  ) => Promise<{ assistantMessage: WorkspaceAiMessage }>;
   markWorkspaceTurnFailed?: (input: {
     sessionId: string;
     turnId: string;
@@ -148,6 +139,11 @@ export interface WorkspaceEducationTurnCommit {
    * failed commit must never leave checked entries without a mastered turn.
    */
   syllabusCheckOff: WorkspaceSyllabusCheckOffCommit | null;
+  /**
+   * Recall verdicts strengthen or weaken the composed syllabus entries
+   * atomically with the rated turn (see policies/recall-decay.ts).
+   */
+  syllabusReinforcement?: { entryIds: string[]; passed: boolean } | null;
   scenarioPresentation: {
     userId: string;
     nodeId: string;
@@ -155,7 +151,11 @@ export interface WorkspaceEducationTurnCommit {
     presentedAt: Date;
   } | null;
   solvePresentation: {
-    scenarioAttemptId: string;
+    /**
+     * Null on a recall presentation, where the attempt is opened in the same
+     * commit — the repository stamps the attempt it just opened.
+     */
+    scenarioAttemptId: string | null;
     presentedAt: Date;
   } | null;
   nextRun: PersistedUnitRun;
@@ -182,28 +182,6 @@ export interface WorkspaceRatingEvaluationCommit {
   wasOverTime: boolean;
   occurredAt: Date;
   bands: readonly DifficultyBand[] | null;
-}
-
-export interface WorkspaceRecallTurnCommit {
-  turnId?: string | null;
-  turnLeaseId?: string | null;
-  assistantMessage: Omit<WorkspaceAssistantMessageCommit, "slot"> & {
-    slot: "recall";
-  };
-  userMessage:
-    | (Omit<WorkspaceUserMessageCommit, "slot"> & { slot: "recall" })
-    | null;
-  phaseResponse: WorkspacePhaseResponseCommit;
-  touchSessionId: string;
-}
-
-export interface WorkspaceNextScenarioCommit {
-  turnId?: string | null;
-  turnLeaseId?: string | null;
-  assistantMessage: WorkspaceAssistantMessageCommit;
-  contracts: WorkspaceOutputContractCommit | null;
-  phaseResponse: WorkspacePhaseResponseCommit;
-  touchSessionId: string;
 }
 
 const getDifficultyDirectiveMetadata = (reason?: string | null) =>
@@ -243,92 +221,6 @@ const buildUnitCompletionDebrief = (
   nextStep: "Continue to the next training unit.",
 });
 
-export const saveRecallTurnResult = async ({
-  sessionId,
-  userId,
-  message,
-  state,
-  unit,
-  plan,
-  output,
-  difficultyDirectiveReason,
-  manualDifficultySignal,
-  turnId,
-  turnLeaseId,
-  persistUserMessage,
-  phaseResponseSequence,
-  deps,
-}: {
-  sessionId: string;
-  userId: string;
-  message: string;
-  state: WorkspaceAiState;
-  unit: UnitContent;
-  plan: CurriculumPlan;
-  output: WorkspaceAiRecallOutput;
-  difficultyDirectiveReason?: string | null;
-  manualDifficultySignal?: "too_easy" | "too_hard" | null;
-  turnId?: string | null;
-  turnLeaseId?: string | null;
-  persistUserMessage: boolean;
-  phaseResponseSequence: number;
-  deps: WorkspaceTurnPersistenceDependencies;
-}): Promise<WorkspaceAiTurnResult> => {
-  const { assistantMessage } = await deps.commitRecallTurn({
-    turnId,
-    turnLeaseId,
-    userMessage: persistUserMessage
-      ? {
-          sessionId,
-          role: "user",
-          content: message,
-          slot: "recall",
-          unitId: unit.nodeId,
-          turnId,
-        }
-      : null,
-    assistantMessage: {
-      sessionId,
-      role: "assistant",
-      content: output.assistantMessage,
-      slot: "recall",
-      unitId: unit.nodeId,
-      turnId,
-      metadata: getDifficultyDirectiveMetadata(difficultyDirectiveReason),
-    },
-    phaseResponse: {
-      unitContentId: unit.id,
-      sessionId,
-      userId,
-      phase: "ai_recall",
-      sequence: phaseResponseSequence,
-      userResponse: message,
-      aiResponse: output.assistantMessage,
-      passed: output.recallComplete,
-      score: output.score,
-      metadata: {
-        recallUnitId: unit.nodeId,
-        promptKind: "recall",
-        modelPurpose: "recall",
-        manualDifficultySignal: manualDifficultySignal ?? undefined,
-        difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
-        estimatedItemRating: output.estimatedItemRating ?? undefined,
-        feedback: output.assistantMessage,
-        evidenceAnchors: output.strengths,
-      },
-    },
-    touchSessionId: sessionId,
-  });
-
-  const nextState = await planNextWorkspaceTurn({ sessionId, plan, deps });
-
-  return {
-    state: nextState ?? state,
-    messages: await deps.listMessages(sessionId, "recall"),
-    assistantMessage,
-  };
-};
-
 /**
  * Persists one education-unit FSM turn: the user + assistant messages, a phase
  * response carrying the new phase, the advanced unit-run cursor, an optional
@@ -347,6 +239,9 @@ export const saveUnitPhaseResult = ({
   turnResult,
   ratingEvaluation,
   syllabusCheckOff = null,
+  syllabusReinforcement = null,
+  openRecallAttempt = false,
+  recallEntryIds = null,
   difficultySnapshot,
   scenarioAttemptId,
   difficultyDirectiveReason,
@@ -365,6 +260,11 @@ export const saveUnitPhaseResult = ({
   turnResult: UnitTurnResult;
   ratingEvaluation: WorkspaceRatingEvaluationCommit | null;
   syllabusCheckOff?: WorkspaceSyllabusCheckOffCommit | null;
+  syllabusReinforcement?: { entryIds: string[]; passed: boolean } | null;
+  /** True when this turn's prompted commit must open the recall attempt. */
+  openRecallAttempt?: boolean;
+  /** Composed entry ids, stamped on the recall presentation's metadata. */
+  recallEntryIds?: string[] | null;
   difficultySnapshot: UnitDifficultySnapshot;
   scenarioAttemptId: string | null;
   difficultyDirectiveReason?: string | null;
@@ -400,12 +300,18 @@ export const saveUnitPhaseResult = ({
       scenarioSpec: turnResult.scenarioSpec,
     };
 
+    const prompted =
+      event.type === "phase_continues" && event.reason === "prompted";
+    // A recall presentation opens the attempt and stamps Solve timing in one
+    // commit: the composed scenario IS the solve task, so presentation and
+    // solve-start are the same moment.
+    const isRecallPresentation =
+      openRecallAttempt && prompted && nextRun.phase === "solve";
     const scenarioPresentation =
-      state.mode === "education_unit" &&
-      nextRun.pass === 2 &&
-      nextRun.phase === "connect" &&
-      event.type === "phase_continues" &&
-      event.reason === "prompted"
+      (nextRun.pass === 2 &&
+        nextRun.phase === "connect" &&
+        prompted) ||
+      isRecallPresentation
         ? {
             userId,
             nodeId: difficultySnapshot.nodeId,
@@ -414,16 +320,15 @@ export const saveUnitPhaseResult = ({
           }
         : null;
     const solvePresentation =
-      nextRun.pass === 2 &&
-      nextRun.phase === "solve" &&
-      event.type === "phase_continues" &&
-      event.reason === "prompted"
-        ? scenarioAttemptId
-          ? { scenarioAttemptId, presentedAt: new Date() }
-          : yield* new RatingEvidenceError({
-              message:
-                "Pass-2 Solve cannot be presented without a scenario attempt.",
-            })
+      nextRun.pass === 2 && nextRun.phase === "solve" && prompted
+        ? isRecallPresentation
+          ? { scenarioAttemptId: null, presentedAt: new Date() }
+          : scenarioAttemptId
+            ? { scenarioAttemptId, presentedAt: new Date() }
+            : yield* new RatingEvidenceError({
+                message:
+                  "Pass-2 Solve cannot be presented without a scenario attempt.",
+              })
         : null;
 
     const phaseResponse: WorkspacePhaseResponseCommit = {
@@ -445,24 +350,29 @@ export const saveUnitPhaseResult = ({
         verdict: verdictLabel(event),
         difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
         goldilocksUpdated: ratingEvaluation ? true : undefined,
+        recallEntryIds:
+          isRecallPresentation && recallEntryIds ? recallEntryIds : undefined,
         feedback: aiMessage,
       },
     };
 
-    const completion = mastered
-      ? {
-          nodeId: unit.nodeId,
-          attempt: {
-            sessionId,
-            userId,
-            unitId: unit.id,
-            response: message,
-            debrief: buildUnitCompletionDebrief(message, gradeReasoning),
-            finalArticulation: message,
-            growthDimensions: [] as string[],
-          },
-        }
-      : null;
+    // A mastered recall is a checkpoint, not a unit completion: the node was
+    // completed by the original run and must not gain a second attempt row.
+    const completion =
+      mastered && !isRecallRecipe(nextRun.recipeVersion)
+        ? {
+            nodeId: unit.nodeId,
+            attempt: {
+              sessionId,
+              userId,
+              unitId: unit.id,
+              response: message,
+              debrief: buildUnitCompletionDebrief(message, gradeReasoning),
+              finalArticulation: message,
+              growthDimensions: [] as string[],
+            },
+          }
+        : null;
 
     const workspaceTurnRepo = yield* WorkspaceTurnRepo;
     const { assistantMessage } = yield* workspaceTurnRepo.commitEducationTurn({
@@ -491,6 +401,7 @@ export const saveUnitPhaseResult = ({
       phaseResponse,
       ratingEvaluation,
       syllabusCheckOff,
+      syllabusReinforcement,
       scenarioPresentation,
       solvePresentation,
       nextRun,
@@ -509,13 +420,7 @@ export const saveUnitPhaseResult = ({
     });
 
     const messages = yield* Effect.tryPromise({
-      try: () =>
-        deps.listMessages(
-          sessionId,
-          nextWorkspaceState
-            ? getWorkspaceMessageSlot(nextWorkspaceState.mode)
-            : "education_unit",
-        ),
+      try: () => deps.listMessages(sessionId, "education_unit"),
       catch: (cause) =>
         new WorkspacePersistenceError({
           message: "Workspace messages could not be loaded.",

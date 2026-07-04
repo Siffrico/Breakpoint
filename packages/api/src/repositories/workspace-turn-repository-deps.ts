@@ -6,18 +6,9 @@ import { TrainingUnitRun, TrainingWorkspaceTurn } from "@acme/db/schema";
 
 import type { DifficultyBand } from "../domain/training/types/training.types";
 import type { WorkspaceAiMessage } from "../domain/training/workspace-ai/types";
-import type {
-  ManualDifficultySignal,
-  WorkspaceTurnOrchestrationDependencies,
-} from "../domain/training/workspace-ai/workspace-turn-orchestration";
-import type {
-  WorkspaceEducationTurnCommit,
-  WorkspaceNextScenarioCommit,
-  WorkspaceRecallTurnCommit,
-} from "../domain/training/workspace-ai/workspace-turn-persistence";
-import { createInitialRatingState } from "../domain/training/engine/rating";
+import type { WorkspaceTurnOrchestrationDependencies } from "../domain/training/workspace-ai/workspace-turn-orchestration";
+import type { WorkspaceEducationTurnCommit } from "../domain/training/workspace-ai/workspace-turn-persistence";
 import {
-  prepareScenarioDirective,
   recordEvaluation,
   resolveScenarioDirective,
 } from "../domain/training/orchestration/goldilocks";
@@ -171,52 +162,6 @@ const applyContracts = async ({
   }
 };
 
-const commitNextScenarioPrompt = async ({
-  db,
-  input,
-}: {
-  db: Database;
-  input: WorkspaceNextScenarioCommit;
-}): Promise<{ assistantMessage: WorkspaceAiMessage }> =>
-  db.transaction(async (tx) => {
-    const txDb = tx as unknown as Database;
-    await assertWorkspaceTurnLease({
-      db: txDb,
-      sessionId: input.assistantMessage.sessionId,
-      turnId: input.turnId,
-      leaseId: input.turnLeaseId,
-    });
-    await applyContracts({ db: txDb, contracts: input.contracts });
-
-    const assistantMessage =
-      await trainingOnboardingRepository.appendWorkspaceMessage({
-        db: txDb,
-        ...input.assistantMessage,
-      });
-    if (!assistantMessage) {
-      throw new Error("AI response could not be saved.");
-    }
-
-    await trainingCurriculumRepository.savePhaseResponse({
-      db: txDb,
-      ...input.phaseResponse,
-      sequence: input.phaseResponse.sequence ?? assistantMessage.sequence,
-    });
-    await trainingOnboardingRepository.touchSession({
-      db: txDb,
-      sessionId: input.touchSessionId,
-    });
-    await markWorkspaceTurnCompleted({
-      db: txDb,
-      sessionId: input.assistantMessage.sessionId,
-      turnId: input.turnId,
-      leaseId: input.turnLeaseId,
-      assistantMessage,
-    });
-
-    return { assistantMessage };
-  });
-
 const commitEducationTurn = async ({
   db,
   input,
@@ -265,9 +210,18 @@ const commitEducationTurn = async ({
       presentedScenarioAttemptId = attempt.id;
     }
     if (input.solvePresentation) {
+      // A recall presentation opens its attempt in this same commit and
+      // stamps it directly; education stamps the attempt opened at Connect.
+      const solveAttemptId =
+        input.solvePresentation.scenarioAttemptId ?? presentedScenarioAttemptId;
+      if (!solveAttemptId) {
+        throw new Error(
+          "Solve presentation has no scenario attempt to stamp.",
+        );
+      }
       await trainingRatingRepository.stampSolvePresentation({
         db: txDb,
-        scenarioAttemptId: input.solvePresentation.scenarioAttemptId,
+        scenarioAttemptId: solveAttemptId,
         solvePromptTurnId: input.turnId ?? null,
         presentedAt: input.solvePresentation.presentedAt,
       });
@@ -318,6 +272,15 @@ const commitEducationTurn = async ({
       });
     }
 
+    if (input.syllabusReinforcement) {
+      await trainingSyllabusRepository.applyReinforcement({
+        db: txDb,
+        entryIds: input.syllabusReinforcement.entryIds,
+        passed: input.syllabusReinforcement.passed,
+        occurredAt: new Date(),
+      });
+    }
+
     if (input.completion) {
       await trainingAttemptRepository.saveAttempt({
         db: txDb,
@@ -360,58 +323,6 @@ export const workspaceTurnRepoLayer = (db: Database) =>
           },
         }),
       ),
-  });
-
-const commitRecallTurn = async ({
-  db,
-  input,
-}: {
-  db: Database;
-  input: WorkspaceRecallTurnCommit;
-}): Promise<{ assistantMessage: WorkspaceAiMessage }> =>
-  db.transaction(async (tx) => {
-    const txDb = tx as unknown as Database;
-    await assertWorkspaceTurnLease({
-      db: txDb,
-      sessionId: input.assistantMessage.sessionId,
-      turnId: input.turnId,
-      leaseId: input.turnLeaseId,
-    });
-
-    const userMessage = input.userMessage
-      ? await trainingOnboardingRepository.appendWorkspaceMessage({
-          db: txDb,
-          ...input.userMessage,
-        })
-      : null;
-    const assistantMessage =
-      await trainingOnboardingRepository.appendWorkspaceMessage({
-        db: txDb,
-        ...input.assistantMessage,
-      });
-    if (!assistantMessage) {
-      throw new Error("AI response could not be saved.");
-    }
-
-    await trainingCurriculumRepository.savePhaseResponse({
-      db: txDb,
-      ...input.phaseResponse,
-      sequence: input.phaseResponse.sequence ?? assistantMessage.sequence,
-    });
-    await trainingOnboardingRepository.touchSession({
-      db: txDb,
-      sessionId: input.touchSessionId,
-    });
-    await markWorkspaceTurnCompleted({
-      db: txDb,
-      sessionId: input.assistantMessage.sessionId,
-      turnId: input.turnId,
-      leaseId: input.turnLeaseId,
-      assistantMessage,
-      userMessage,
-    });
-
-    return { assistantMessage };
   });
 
 export const createWorkspaceTurnRepositoryDeps = (
@@ -465,8 +376,8 @@ export const createWorkspaceTurnRepositoryDeps = (
     }),
   getUnitByNodeId: (nodeId: string) =>
     trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),
-  commitRecallTurn: (input) => commitRecallTurn({ db, input }),
-  commitNextScenarioPrompt: (input) => commitNextScenarioPrompt({ db, input }),
+  listRecallCandidates: (planId: string) =>
+    trainingSyllabusRepository.listRecallCandidates({ db, planId }),
   markWorkspaceTurnFailed: (input) => markWorkspaceTurnFailed({ db, ...input }),
   listMemories: async (userId: string) => {
     const result = await memoryRepository.listByUserId({
@@ -478,24 +389,6 @@ export const createWorkspaceTurnRepositoryDeps = (
   },
   getUnitSyllabusContext: (unitNodeId: string) =>
     trainingSyllabusRepository.getUnitContext({ db, unitNodeId }),
-  prepareDifficultyDirective: ({
-    userId,
-    nodeId,
-    now,
-    bands,
-  }: {
-    userId: string;
-    nodeId: string;
-    now: Date;
-    bands?: readonly DifficultyBand[] | null;
-  }) =>
-    prepareScenarioDirective({
-      userId,
-      nodeId,
-      now,
-      bands,
-      deps: createTrainingRatingGoldilocksDeps(db),
-    }),
   resolveDifficultyDirective: ({
     userId,
     nodeId,
@@ -513,25 +406,6 @@ export const createWorkspaceTurnRepositoryDeps = (
       now,
       bands,
       deps: createTrainingRatingGoldilocksDeps(db),
-    }),
-  applyManualDifficultyNudge: ({
-    userId,
-    nodeId,
-    signal,
-    now,
-  }: {
-    userId: string;
-    nodeId: string;
-    signal: ManualDifficultySignal;
-    now: Date;
-  }) =>
-    trainingRatingRepository.applyManualDifficultyNudge({
-      db,
-      userId,
-      nodeId,
-      signal,
-      initialRatingState: createInitialRatingState(),
-      now,
     }),
   getScenarioAttempt: ({ scenarioAttemptId, userId, nodeId }) =>
     trainingRatingRepository.getOpenScenarioById({
