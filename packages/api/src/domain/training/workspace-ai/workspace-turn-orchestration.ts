@@ -1,4 +1,5 @@
 import type { ModelMessage } from "ai";
+import { Effect } from "effect";
 
 import type { Memory } from "../../memory/types";
 import type { UnitDifficultySnapshot } from "../education-unit/unit";
@@ -404,12 +405,14 @@ export const runEducationUnitTurn = async ({
     syllabus,
   });
 
-  const turnResult = await (deps.runUnitTurn ?? runUnitTurn)({
-    state: unitRun,
-    recipe,
-    contextBlock,
-    transcript: toModelMessages(loadedTranscript.transcript),
-  });
+  const turnResult = await Effect.runPromise(
+    (deps.runUnitTurn ?? runUnitTurn)({
+      state: unitRun,
+      recipe,
+      contextBlock,
+      transcript: toModelMessages(loadedTranscript.transcript),
+    }),
+  );
   // Check-offs ride the atomic turn commit (lease-guarded), never the outer
   // connection — a lost lease or failed commit must not leave phantom mastery.
   const syllabusCheckOff =

@@ -36,14 +36,16 @@ const runWithResult = (
   result: PhaseAgentResult<PhaseAgentOutput>,
   transcript: readonly ModelMessage[] = [],
 ) =>
-  runUnitTurn(
-    {
-      state,
-      recipe,
-      contextBlock: "## Context\nDeterministic test context",
-      transcript,
-    },
-    { runPhase: () => Effect.succeed(result) },
+  Effect.runPromise(
+    runUnitTurn(
+      {
+        state,
+        recipe,
+        contextBlock: "## Context\nDeterministic test context",
+        transcript,
+      },
+      { runPhase: () => Effect.succeed(result) },
+    ),
   );
 
 describe("runUnitTurn contract", () => {
@@ -141,14 +143,16 @@ describe("runUnitTurn contract", () => {
       Effect.succeed(phaseResult("Orient the learner.")),
     );
 
-    await runUnitTurn(
-      {
-        state: initialState("unit-1", "education-unit-v1"),
-        recipe,
-        contextBlock: "## Context\nFirst",
-        transcript,
-      },
-      { runPhase: runner },
+    await Effect.runPromise(
+      runUnitTurn(
+        {
+          state: initialState("unit-1", "education-unit-v1"),
+          recipe,
+          contextBlock: "## Context\nFirst",
+          transcript,
+        },
+        { runPhase: runner },
+      ),
     );
 
     expect(runner).toHaveBeenCalledOnce();
@@ -325,18 +329,20 @@ describe("runUnitTurn contract", () => {
   it("rejects a mastered unit before invoking the phase runner", async () => {
     const runner = vi.fn<UnitPhaseRunner>();
     await expect(
-      runUnitTurn(
-        {
-          state: {
-            ...initialState("unit-1", "education-unit-v1"),
-            phase: "mastered",
-            pass: 2,
+      Effect.runPromise(
+        runUnitTurn(
+          {
+            state: {
+              ...initialState("unit-1", "education-unit-v1"),
+              phase: "mastered",
+              pass: 2,
+            },
+            recipe,
+            contextBlock: "context",
+            transcript: [],
           },
-          recipe,
-          contextBlock: "context",
-          transcript: [],
-        },
-        { runPhase: runner },
+          { runPhase: runner },
+        ),
       ),
     ).rejects.toBeInstanceOf(EducationUnitContractError);
     expect(runner).not.toHaveBeenCalled();
@@ -350,14 +356,16 @@ describe("runUnitTurn contract", () => {
     const runner: UnitPhaseRunner = () => Effect.fail(failure);
 
     await expect(
-      runUnitTurn(
-        {
-          state: initialState("unit-1", "education-unit-v1"),
-          recipe,
-          contextBlock: "context",
-          transcript: [],
-        },
-        { runPhase: runner },
+      Effect.runPromise(
+        runUnitTurn(
+          {
+            state: initialState("unit-1", "education-unit-v1"),
+            recipe,
+            contextBlock: "context",
+            transcript: [],
+          },
+          { runPhase: runner },
+        ),
       ),
     ).rejects.toMatchObject({ _tag: failure._tag });
   });

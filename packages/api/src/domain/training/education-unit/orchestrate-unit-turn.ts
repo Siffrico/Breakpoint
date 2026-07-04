@@ -21,7 +21,6 @@ import {
   GradeSolutionInputSchema,
   toUnitEvent,
 } from "../workspace-ai/fsm-tools";
-import { ScenarioSpecSchema } from "./scenario-spec";
 import { CheckOffSyllabusInputSchema } from "./agents/check-off-syllabus.tool";
 import { runConnectAgent } from "./agents/connect-agent";
 import { runEvalAgent } from "./agents/eval-agent";
@@ -34,6 +33,7 @@ import {
   transition,
   writesGoldilocks,
 } from "./fsm";
+import { ScenarioSpecSchema } from "./scenario-spec";
 
 // A turn that cannot be interpreted because its output violates the current
 // phase contract. This is surfaced rather than guessing a learner outcome.
@@ -86,7 +86,10 @@ export interface UnitTurnResult {
 export type UnitPhaseRunner = (
   state: UnitState,
   messages: ModelMessage[],
-) => Effect.Effect<PhaseAgentResult<PhaseAgentOutput>, PhaseAgentError>;
+) => Effect.Effect<
+  PhaseAgentResult<PhaseAgentOutput>,
+  PhaseAgentError | EducationUnitContractError
+>;
 
 export interface UnitTurnDependencies {
   readonly runPhase: UnitPhaseRunner;
@@ -106,11 +109,13 @@ const runPhaseForState: UnitPhaseRunner = (
       // no rating). Pass 2 — the transfer pass — is the only scored moment, so
       // it is handed to the dedicated eval agent, whose gradeSolution score is
       // the one Goldilocks consumes (see writesGoldilocks / ratingWrite).
-      return state.pass === 2 ? runEvalAgent(messages) : runSolveAgent(messages);
+      return state.pass === 2
+        ? runEvalAgent(messages)
+        : runSolveAgent(messages);
     case "teach":
       return runTeachAgent(messages);
     case "mastered":
-      return Effect.die(
+      return Effect.fail(
         new EducationUnitContractError({
           message: "Unit is already mastered; no turn to run.",
         }),
@@ -136,14 +141,22 @@ const EVENT_TOOLS_BY_PHASE: Partial<
 const resolveEvent = (
   state: UnitState,
   result: PhaseAgentResult<PhaseAgentOutput>,
-): { event: UnitEvent; reasoning: string | null } => {
+): Effect.Effect<
+  { event: UnitEvent; reasoning: string | null },
+  EducationUnitContractError
+> => {
   if (state.phase === "orient" || state.phase === "teach") {
     if (result.toolCalls.length > 0) {
-      throw new EducationUnitContractError({
-        message: `The ${state.phase} agent returned an unexpected tool call.`,
-      });
+      return Effect.fail(
+        new EducationUnitContractError({
+          message: `The ${state.phase} agent returned an unexpected tool call.`,
+        }),
+      );
     }
-    return { event: { type: "teach_done" }, reasoning: null };
+    return Effect.succeed({
+      event: { type: "teach_done" },
+      reasoning: null,
+    });
   }
 
   const allowedTools = EVENT_TOOLS_BY_PHASE[state.phase] ?? [];
@@ -154,23 +167,29 @@ const resolveEvent = (
     (call) => call.toolName === "checkOffSyllabus",
   );
   if (phaseCalls.length !== 1 || checkOffCalls.length > 1) {
-    throw new EducationUnitContractError({
-      message: `The ${state.phase} agent must return exactly one phase event tool call.`,
-    });
+    return Effect.fail(
+      new EducationUnitContractError({
+        message: `The ${state.phase} agent must return exactly one phase event tool call.`,
+      }),
+    );
   }
 
   const call = phaseCalls[0];
   if (!call || !allowedTools.includes(call.toolName)) {
-    throw new EducationUnitContractError({
-      message: `The ${state.phase} agent returned an invalid phase event tool.`,
-    });
+    return Effect.fail(
+      new EducationUnitContractError({
+        message: `The ${state.phase} agent returned an invalid phase event tool.`,
+      }),
+    );
   }
 
   const event = toUnitEvent(call.toolName, call.input);
   if (!event) {
-    throw new EducationUnitContractError({
-      message: `The ${state.phase} agent called ${call.toolName} with invalid arguments.`,
-    });
+    return Effect.fail(
+      new EducationUnitContractError({
+        message: `The ${state.phase} agent called ${call.toolName} with invalid arguments.`,
+      }),
+    );
   }
 
   const input = call.input;
@@ -182,7 +201,7 @@ const resolveEvent = (
       ? input.reasoning
       : null;
 
-  return { event, reasoning };
+  return Effect.succeed({ event, reasoning });
 };
 
 const readSolveGrade = (
@@ -211,71 +230,79 @@ const readScenarioSpec = (
  * Takes a durable unit cursor and phase context, produces one validated turn
  * result, and fails only on a tagged model failure or phase-contract failure.
  */
-export const runUnitTurn = async (
+export const runUnitTurn = (
   input: UnitTurnInput,
   dependencies: UnitTurnDependencies = LIVE_DEPENDENCIES,
-): Promise<UnitTurnResult> => {
-  const { state, recipe, contextBlock, transcript } = input;
+): Effect.Effect<
+  UnitTurnResult,
+  PhaseAgentError | EducationUnitContractError
+> =>
+  Effect.gen(function* () {
+    const { state, recipe, contextBlock, transcript } = input;
 
-  if (state.phase === "mastered") {
-    throw new EducationUnitContractError({
-      message: "Unit is already mastered; no turn to run.",
-    });
-  }
+    if (state.phase === "mastered") {
+      return yield* Effect.fail(
+        new EducationUnitContractError({
+          message: "Unit is already mastered; no turn to run.",
+        }),
+      );
+    }
 
-  const messages: ModelMessage[] = [
-    { role: "user", content: contextBlock },
-    ...transcript,
-  ];
+    const messages: ModelMessage[] = [
+      { role: "user", content: contextBlock },
+      ...transcript,
+    ];
 
-  const result = await Effect.runPromise(
-    dependencies.runPhase(state, messages),
-  );
-  const parsedOutput = PhaseAgentOutputSchema.safeParse(result.object);
-  if (!parsedOutput.success) {
-    throw new EducationUnitContractError({
-      message: `The ${state.phase} agent returned an invalid learner-facing message.`,
-    });
-  }
-  const { event, reasoning } = resolveEvent(state, result);
+    const result = yield* dependencies.runPhase(state, messages);
+    const parsedOutput = PhaseAgentOutputSchema.safeParse(result.object);
+    if (!parsedOutput.success) {
+      return yield* Effect.fail(
+        new EducationUnitContractError({
+          message: `The ${state.phase} agent returned an invalid learner-facing message.`,
+        }),
+      );
+    }
+    const { event, reasoning } = yield* resolveEvent(state, result);
 
-  // Capture the force-advance signal BEFORE transition wipes connectGrills.
-  const forcedConnectAdvance =
-    event.type === "connection_graded" &&
-    shouldTeachMissedConnection(state, event, recipe.policy);
+    // Capture the force-advance signal BEFORE transition wipes connectGrills.
+    const forcedConnectAdvance =
+      event.type === "connection_graded" &&
+      shouldTeachMissedConnection(state, event, recipe.policy);
 
-  const nextState = transition(state, event, recipe.policy);
+    const nextState = transition(state, event, recipe.policy);
 
-  const shouldWriteRating = writesGoldilocks(state, event);
-  const ratingWrite = shouldWriteRating ? readSolveGrade(result) : null;
-  if (shouldWriteRating && !ratingWrite) {
-    throw new EducationUnitContractError({
-      message: "A scored Solve verdict is missing valid rating evidence.",
-    });
-  }
-  const checkOffCall = result.toolCalls.find(
-    (call) => call.toolName === "checkOffSyllabus",
-  );
-  const parsedCheckOff = CheckOffSyllabusInputSchema.safeParse(
-    checkOffCall?.input,
-  );
-  const syllabusCheckOff =
-    state.phase === "solve" &&
-    state.pass === 2 &&
-    event.type === "solution_graded" &&
-    event.passed &&
-    parsedCheckOff.success
-      ? parsedCheckOff.data
-      : null;
+    const shouldWriteRating = writesGoldilocks(state, event);
+    const ratingWrite = shouldWriteRating ? readSolveGrade(result) : null;
+    if (shouldWriteRating && !ratingWrite) {
+      return yield* Effect.fail(
+        new EducationUnitContractError({
+          message: "A scored Solve verdict is missing valid rating evidence.",
+        }),
+      );
+    }
+    const checkOffCall = result.toolCalls.find(
+      (call) => call.toolName === "checkOffSyllabus",
+    );
+    const parsedCheckOff = CheckOffSyllabusInputSchema.safeParse(
+      checkOffCall?.input,
+    );
+    const syllabusCheckOff =
+      state.phase === "solve" &&
+      state.pass === 2 &&
+      event.type === "solution_graded" &&
+      event.passed &&
+      parsedCheckOff.success
+        ? parsedCheckOff.data
+        : null;
 
-  return {
-    assistantMessage: parsedOutput.data.assistantMessage,
-    event,
-    nextState,
-    forcedConnectAdvance,
-    gradeReasoning: reasoning,
-    ratingWrite,
-    syllabusCheckOff,
-    scenarioSpec: readScenarioSpec(result),
-  };
-};
+    return {
+      assistantMessage: parsedOutput.data.assistantMessage,
+      event,
+      nextState,
+      forcedConnectAdvance,
+      gradeReasoning: reasoning,
+      ratingWrite,
+      syllabusCheckOff,
+      scenarioSpec: readScenarioSpec(result),
+    };
+  });

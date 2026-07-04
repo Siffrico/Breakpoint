@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { Effect } from "effect";
 import { test } from "vitest";
 
 import type { PersistedUnitRun } from "../education-unit/unit";
@@ -133,7 +134,7 @@ void test("an invalid education-unit result is never persisted", async () => {
     getWorkspaceSummary: () => Promise.resolve(null),
     upsertWorkspaceSummary: () => Promise.resolve(),
     listMemories: () => Promise.resolve([]),
-    runUnitTurn: () => Promise.reject(contractError),
+    runUnitTurn: () => Effect.fail(contractError),
     commitEducationTurn: () => {
       commitCalled = true;
       return fail("commitEducationTurn");
@@ -190,7 +191,7 @@ void test("an education turn returns the committed assistant message", async () 
     resolveDifficultyDirective: () => fail("resolveDifficultyDirective"),
     runUnitTurn: (input: { contextBlock: string }) => {
       modelContext = input.contextBlock;
-      return Promise.resolve({
+      return Effect.succeed({
         assistantMessage: assistantMessage.content,
         event: { type: "connection_graded" as const, passed: true },
         nextState: { ...unitRun, phase: "solve" as const },
