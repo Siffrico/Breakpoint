@@ -9,9 +9,11 @@ import {
   createInitialRatingState,
   expandSkillBands,
 } from "../domain/training/engine/rating";
+import type { JobRatingState } from "../domain/training/engine/rating";
 import { resolveScenarioDirective } from "../domain/training/orchestration/goldilocks";
 import { prepareUnitContent } from "../domain/training/unit-preparation/prepare-unit-content";
 import { queryWithClient } from "../effect/db";
+import { resolvePlanSeedRating } from "./plan-seed-rating";
 import { appendMintedUnitNode } from "./training-curriculum-node-writer";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
 import { createTrainingRatingGoldilocksDeps } from "./training-rating-goldilocks-deps";
@@ -30,7 +32,20 @@ export const createUnitMintingRepositoryDeps = ({
   db: Database;
   sessionId: string;
   userId: string;
-}): MintNextUnitDependencies<NodeRow> => ({
+}): MintNextUnitDependencies<NodeRow> => {
+  // One seed lookup per node, cached for the life of this deps factory, so a
+  // multi-touch mint pays for at most one extra query. Fail-closed: a null seed
+  // means the goldilocks engine uses its policy default.
+  const seedCache = new Map<string, Promise<JobRatingState | null>>();
+  const getSeed = (nodeId: string) => {
+    const cached = seedCache.get(nodeId);
+    if (cached) return cached;
+    const pending = resolvePlanSeedRating({ db, nodeId });
+    seedCache.set(nodeId, pending);
+    return pending;
+  };
+
+  return {
   loadSkill: (clusterNodeId) =>
     queryWithClient(db, "loadSkillForUnitMinting", async () => {
       const cluster = await db.query.TrainingCurriculumNode.findFirst({
@@ -78,6 +93,7 @@ export const createUnitMintingRepositoryDeps = ({
         bands:
           cluster.difficultyBands ??
           expandSkillBands(cluster.skillMap.bandRamp),
+        initialRatingState: (await getSeed(clusterNodeId)) ?? undefined,
         deps: createTrainingRatingGoldilocksDeps(db),
       });
     }),
@@ -97,7 +113,8 @@ export const createUnitMintingRepositoryDeps = ({
       sessionId,
       deps: createUnitPreparationRepositoryDeps(db),
     }).pipe(Effect.asVoid),
-});
+  };
+};
 
 /**
  * Load the mastery-progression inputs for a dynamic skill cluster. Returns null
@@ -117,13 +134,14 @@ export const loadSkillMasteryState = async ({
     where: eq(TrainingCurriculumNode.id, clusterNodeId),
   });
   if (!cluster?.skillMap) return null;
+  const seed = await resolvePlanSeedRating({ db, nodeId: clusterNodeId });
   const [entries, progress, simulation] = await Promise.all([
     trainingSyllabusRepository.listEntries({ db, clusterNodeId }),
     trainingRatingRepository.loadJobProgress({
       db,
       userId,
       nodeId: clusterNodeId,
-      initialRatingState: createInitialRatingState(),
+      initialRatingState: seed ?? createInitialRatingState(),
     }),
     db.query.TrainingCurriculumNode.findFirst({
       where: and(

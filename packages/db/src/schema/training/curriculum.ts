@@ -34,6 +34,17 @@ export const TrainingCurriculumPlan = pgTable(
       body: string;
     }>(),
     overviewGeneratedAt: t.timestamp({ mode: "date", withTimezone: true }),
+    // Glicko seed derived from the learner's onboarding starting point and
+    // stamped at build time. The workspace reads it as the initial rating state
+    // for fresh nodes. Null when no starting point was elicited. See
+    // @acme/validators SeedRating and engine/rating/seed.ts.
+    seedRating: t
+      .jsonb()
+      .$type<{
+        rating: number;
+        ratingDeviation: number;
+        volatility: number;
+      } | null>(),
     createdAt: t
       .timestamp({ mode: "date", withTimezone: true })
       .defaultNow()

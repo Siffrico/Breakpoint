@@ -1,4 +1,7 @@
+import type { SeedRating, StartingPointTier } from "@acme/validators";
+
 import type { Result } from "../../../lib/result";
+import { seedFromStartingPoint } from "../engine/rating";
 import type {
   CurriculumDesignerOutput,
   OnboardingPacket,
@@ -107,6 +110,13 @@ const STEP_ORDER: ProjectBuildStep[] = [
   "save",
 ];
 
+/** Plain-language phrasing of each tier for the curriculum placement note. */
+const STARTING_POINT_PHRASE: Record<StartingPointTier, string> = {
+  fundamentals: "starting from the fundamentals",
+  skip_basics: "skipping the basics",
+  advanced: "straight to the hard stuff",
+};
+
 const initialSteps = (): ProjectBuildStepState[] =>
   STEP_ORDER.map((id) => ({
     id,
@@ -123,6 +133,16 @@ export interface CreateProjectInput {
   targetIdentity: string;
   /** One line describing what they'll build, shown on the confirm card. */
   summary: string;
+  /** Verb-first capability titles shown on the confirm card and used as
+   *  cluster-title hints for the curriculum designer. Optional so resumed builds
+   *  from older checkpoints (which lack it) still typecheck. */
+  skills?: string[];
+  /** Where the learner is starting from, and why. Seeds the plan's rating.
+   *  Optional for the same resume-compatibility reason. */
+  startingPoint?: {
+    tier: StartingPointTier;
+    reason: string;
+  };
 }
 
 export type ProjectBuildReadiness =
@@ -238,6 +258,10 @@ export interface BuildProjectDeps {
     failureKind?: ArtifactFailureKind | null;
     attempts?: number;
   }) => Promise<unknown>;
+  /** The learner's persisted starting point (mid-chat tap or [change] override). */
+  getStartingPoint: (
+    sessionId: string,
+  ) => Promise<{ tier: StartingPointTier; label: string } | null>;
   /** Create (or return) the durable "generating" plan shell. Returns its id. */
   ensureShell: (input: {
     sessionId: string;
@@ -245,6 +269,7 @@ export interface BuildProjectDeps {
     title: string;
     summary: string;
     targetIdentity: string;
+    seedRating: SeedRating | null;
   }) => Promise<{ id: string }>;
   /**
    * One small transaction: upsert the profile version, link it to the plan, and
@@ -538,6 +563,27 @@ export const buildProjectFromOnboarding = async ({
     return err("Project build is already running.");
   }
 
+  // Resolve the learner's starting point: the persisted value (mid-chat tap or a
+  // [change] override) wins over whatever the createProject tool proposed. A
+  // non-null tier stamps a Glicko seed onto the plan shell and adds a placement
+  // note to the curriculum designer; null leaves the workspace on its defaults.
+  const persistedStartingPoint = await deps
+    .getStartingPoint(sessionId)
+    .catch(() => null);
+  const startingPointTier =
+    persistedStartingPoint?.tier ?? input.startingPoint?.tier ?? null;
+  const startingPointLabel =
+    persistedStartingPoint?.label ?? input.startingPoint?.reason ?? null;
+  const seedRating = startingPointTier
+    ? seedFromStartingPoint(startingPointTier)
+    : null;
+  const placementNote =
+    startingPointTier && seedRating
+      ? `Learner starting point: ${STARTING_POINT_PHRASE[startingPointTier]}${
+          startingPointLabel ? ` — ${startingPointLabel}` : ""
+        }; start each cluster's bandRamp near ${seedRating.rating}.`
+      : null;
+
   // 1 — name + shell: create the durable project home before any AI runs.
   setStep("name", "active");
   emit();
@@ -549,6 +595,7 @@ export const buildProjectFromOnboarding = async ({
       title: projectName,
       summary: input.summary.trim(),
       targetIdentity: input.targetIdentity.trim(),
+      seedRating,
     });
     planId = shell.id;
   } catch (error) {
@@ -708,6 +755,8 @@ export const buildProjectFromOnboarding = async ({
       design = await designCurriculum({
         packet,
         transcript,
+        skills: input.skills,
+        placementNote,
         options: {
           onPartial: curriculumPartialSink,
           seedPartial: seedFor(curriculumRecord) as

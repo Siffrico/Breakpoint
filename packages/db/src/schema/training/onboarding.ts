@@ -10,6 +10,12 @@ export const TrainingOnboardingSession = pgTable(
     userId: t.text().references(() => user.id, { onDelete: "set null" }),
     status: t.varchar({ length: 32 }).notNull().default("intro"),
     questionCount: t.integer().notNull().default(0),
+    // Where the learner is starting from in their target field, elicited once
+    // mid-consultation via the askStartingPoint tool. Tier maps to a Glicko seed
+    // (see engine/rating/seed.ts); label is the exact option text they tapped,
+    // shown back on the confirm card. See @acme/validators StartingPointTier.
+    startingPointTier: t.varchar({ length: 16 }),
+    startingPointLabel: t.text(),
     completedAt: t.timestamp({ mode: "date", withTimezone: true }),
     createdAt: t
       .timestamp({ mode: "date", withTimezone: true })

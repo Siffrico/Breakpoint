@@ -539,6 +539,29 @@ export const trainingOnboardingRepository = {
     return session ?? null;
   },
 
+  setStartingPoint: async ({
+    db,
+    sessionId,
+    tier,
+    label,
+  }: {
+    db: Database;
+    sessionId: string;
+    tier: string;
+    label: string;
+  }) => {
+    const [session] = await db
+      .update(TrainingOnboardingSession)
+      .set({
+        startingPointTier: tier,
+        startingPointLabel: label,
+      })
+      .where(eq(TrainingOnboardingSession.id, sessionId))
+      .returning();
+
+    return session ?? null;
+  },
+
   listMessages: async ({
     db,
     sessionId,

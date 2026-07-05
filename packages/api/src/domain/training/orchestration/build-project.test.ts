@@ -185,6 +185,9 @@ const makeDeps = (
     claim?: Awaited<ReturnType<BuildProjectDeps["claimRun"]>>;
     persistCurriculum?: BuildProjectDeps["persistCurriculum"];
     persistOverview?: BuildProjectDeps["persistOverview"];
+    startingPoint?: Awaited<
+      ReturnType<BuildProjectDeps["getStartingPoint"]>
+    > | null;
   } = {},
 ) => {
   const store = new Map<
@@ -226,6 +229,9 @@ const makeDeps = (
     ),
     getActivePlan: vi.fn<BuildProjectDeps["getActivePlan"]>(() =>
       Promise.resolve(planState.status === "active" ? plan : null),
+    ),
+    getStartingPoint: vi.fn<BuildProjectDeps["getStartingPoint"]>(() =>
+      Promise.resolve(opts.startingPoint ?? null),
     ),
     claimRun: vi.fn<BuildProjectDeps["claimRun"]>(() =>
       Promise.resolve(opts.claim ?? { status: "claimed" }),
@@ -651,5 +657,77 @@ describe("buildProjectFromOnboarding", () => {
     expect(mockPacket).toHaveBeenCalledOnce();
     expect(mockCurriculum).toHaveBeenCalledOnce();
     expect(mockOverview).toHaveBeenCalledOnce();
+  });
+
+  it("stamps the seed rating from the tool-proposed starting point", async () => {
+    mockPacket.mockResolvedValue(packet);
+    mockCurriculum.mockResolvedValue(curriculum);
+    mockOverview.mockResolvedValue(overview);
+    const { deps } = makeDeps();
+
+    const result = await buildProjectFromOnboarding({
+      sessionId: "session-id",
+      userId: "user-id",
+      transcript,
+      input: {
+        ...input,
+        skills: ["Architect Distributed Backend Systems"],
+        startingPoint: { tier: "skip_basics", reason: "you've shipped services" },
+      },
+      deps,
+      onProgress: vi.fn(),
+    });
+
+    expect(result.success).toBe(true);
+    // skip_basics → band-2 midpoint 1150, wide deviation.
+    const shellSeed = vi.mocked(deps.ensureShell).mock.calls[0]?.[0].seedRating;
+    expect(shellSeed?.rating).toBe(1150);
+    expect(shellSeed?.ratingDeviation).toBe(250);
+    // The placement note reaches the curriculum designer.
+    const curriculumArgs = mockCurriculum.mock.calls[0]?.[0];
+    expect(curriculumArgs?.skills).toEqual([
+      "Architect Distributed Backend Systems",
+    ]);
+    expect(curriculumArgs?.placementNote).toContain("1150");
+  });
+
+  it("lets the persisted starting point win over the tool input", async () => {
+    mockPacket.mockResolvedValue(packet);
+    mockCurriculum.mockResolvedValue(curriculum);
+    mockOverview.mockResolvedValue(overview);
+    const { deps } = makeDeps({
+      startingPoint: { tier: "advanced", label: "I ship these for a living" },
+    });
+
+    const result = await buildProjectFromOnboarding({
+      sessionId: "session-id",
+      userId: "user-id",
+      transcript,
+      input: {
+        ...input,
+        startingPoint: { tier: "fundamentals", reason: "brand new" },
+      },
+      deps,
+      onProgress: vi.fn(),
+    });
+
+    expect(result.success).toBe(true);
+    // Session override (advanced → 1350) beats the tool's fundamentals (950).
+    const shellSeed = vi.mocked(deps.ensureShell).mock.calls[0]?.[0].seedRating;
+    expect(shellSeed?.rating).toBe(1350);
+  });
+
+  it("stamps no seed and adds no placement note when there is no starting point", async () => {
+    mockPacket.mockResolvedValue(packet);
+    mockCurriculum.mockResolvedValue(curriculum);
+    mockOverview.mockResolvedValue(overview);
+    const { deps } = makeDeps();
+
+    // The shared `input` has no startingPoint, and getStartingPoint returns null.
+    const result = await run(deps);
+
+    expect(result.success).toBe(true);
+    expect(vi.mocked(deps.ensureShell).mock.calls[0]?.[0].seedRating).toBeNull();
+    expect(mockCurriculum.mock.calls[0]?.[0].placementNote).toBeNull();
   });
 });

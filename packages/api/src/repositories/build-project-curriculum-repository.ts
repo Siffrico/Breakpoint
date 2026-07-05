@@ -18,6 +18,7 @@ export const buildProjectCurriculumRepository = {
     title,
     summary,
     targetIdentity,
+    seedRating = null,
   }: {
     db: Database;
     sessionId: string;
@@ -25,6 +26,11 @@ export const buildProjectCurriculumRepository = {
     title: string;
     summary: string;
     targetIdentity: string;
+    seedRating?: {
+      rating: number;
+      ratingDeviation: number;
+      volatility: number;
+    } | null;
   }): Promise<typeof TrainingCurriculumPlan.$inferSelect> => {
     await db
       .insert(TrainingCurriculumPlan)
@@ -36,6 +42,7 @@ export const buildProjectCurriculumRepository = {
         title,
         summary,
         targetIdentity,
+        seedRating,
       })
       .onConflictDoNothing({
         target: TrainingCurriculumPlan.onboardingSessionId,
@@ -47,6 +54,16 @@ export const buildProjectCurriculumRepository = {
 
     if (!plan) {
       throw new Error("Failed to create the project plan shell.");
+    }
+
+    // Backfill the seed on a resume where the shell was created before the
+    // starting point was known (onConflictDoNothing skips the insert above).
+    if (seedRating && !plan.seedRating) {
+      await db
+        .update(TrainingCurriculumPlan)
+        .set({ seedRating })
+        .where(eq(TrainingCurriculumPlan.id, plan.id));
+      return { ...plan, seedRating };
     }
 
     return plan;

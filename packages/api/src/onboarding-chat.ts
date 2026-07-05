@@ -17,6 +17,8 @@ import type {
   ProjectBuildState,
 } from "./domain/training/orchestration/build-project";
 import {
+  AskStartingPointOutputSchema,
+  askStartingPointTool,
   createCreateProjectTool,
   ONBOARDING_CHAT_SYSTEM,
 } from "./domain/training/agents/onboarding-chat-agent";
@@ -64,6 +66,33 @@ const extractText = (message: UIMessage): string =>
     .map((part) => part.text)
     .join("\n")
     .trim();
+
+/**
+ * The newest answered `askStartingPoint` tool part across the transcript, if
+ * any. Rebuilt transcripts (transcriptToMessages) drop tool parts after a
+ * reload, so the model would otherwise forget the tap — we read it back here to
+ * persist and re-inject it. Scans newest-first so the latest answer wins.
+ */
+const findLatestStartingPointAnswer = (
+  messages: UIMessage[],
+): { tier: string; label: string } | null => {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const parts = messages[i]?.parts ?? [];
+    for (let j = parts.length - 1; j >= 0; j -= 1) {
+      const part = parts[j];
+      if (
+        part &&
+        part.type === "tool-askStartingPoint" &&
+        "output" in part &&
+        part.output !== undefined
+      ) {
+        const parsed = AskStartingPointOutputSchema.safeParse(part.output);
+        if (parsed.success) return parsed.data;
+      }
+    }
+  }
+  return null;
+};
 
 export const streamOnboardingChat = async ({
   db,
@@ -211,6 +240,28 @@ const runOnboardingChat = async ({
   const projectBuildReadiness = getProjectBuildReadiness(transcript);
   const modelMessages = await convertToModelMessages(messages);
 
+  // The learner's tapped starting point rides an execute-less tool result. It
+  // is dropped from rebuilt transcripts on reload, so persist it whenever it
+  // changes and re-inject it into the system prompt below.
+  const startingPointAnswer = findLatestStartingPointAnswer(messages);
+  if (
+    startingPointAnswer &&
+    startingPointAnswer.tier !== session.startingPointTier
+  ) {
+    await trainingOnboardingRepository.setStartingPoint({
+      db,
+      sessionId,
+      tier: startingPointAnswer.tier,
+      label: startingPointAnswer.label,
+    });
+  }
+  const storedTier = startingPointAnswer?.tier ?? session.startingPointTier;
+  const storedLabel = startingPointAnswer?.label ?? session.startingPointLabel;
+  const startingPointNote =
+    storedTier && storedLabel
+      ? `Learner starting point: ${storedTier} ("${storedLabel}").`
+      : "Starting point not yet asked — call askStartingPoint once the field is known, before suggesting projects.";
+
   const stream = createUIMessageStream<OnboardingChatUIMessage>({
     onError: () => "The onboarding chat hit an error.",
     execute: ({ writer }) => {
@@ -255,10 +306,12 @@ Runtime state: ${
           projectBuildReadiness.ready
             ? "The server has enough learner signal to request project confirmation, but only call createProject if the learner has explicitly chosen one of your suggested projects."
             : "Do not call createProject yet. Keep consulting with one short question; the server does not have enough concrete learner signal to create a project."
-        }`,
+        }
+${startingPointNote}`,
         messages: modelMessages,
         tools: {
           ...getSearchToolsForSelectedProvider("onboarding"),
+          askStartingPoint: askStartingPointTool,
           createProject: createCreateProjectTool({
             buildProject,
             getReadiness: () => projectBuildReadiness,

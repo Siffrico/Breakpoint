@@ -47,10 +47,16 @@ ${CURRICULUM_DESIGNER_TRANSLATOR}`;
 export const designCurriculum = async ({
   packet,
   transcript,
+  skills,
+  placementNote,
   options,
 }: {
   packet: OnboardingPacket;
   transcript: OnboardingTranscript;
+  /** Learner-approved verb-first skill titles to prefer as cluster titles. */
+  skills?: string[];
+  /** One-line note on where to place the learner in the band ladder. */
+  placementNote?: string | null;
   options?: ArtifactResumeOptions<CurriculumDesignerOutput>;
 }) =>
   runResilientAgent({
@@ -61,7 +67,14 @@ export const designCurriculum = async ({
     onPartial: options?.onPartial,
     seedPartial: options?.seedPartial,
     prompt: `Design the learner's identity report, before/after, and independent skill map for the project chosen in consultation.
-
+${
+  skills && skills.length > 0
+    ? `
+Learner-approved skills — keep these as the cluster titles unless the transcript clearly contradicts them:
+${skills.map((skill) => `- ${skill}`).join("\n")}
+`
+    : ""
+}${placementNote ? `${placementNote}\n` : ""}
 Packet:
 ${formatOnboardingPacket(packet)}
 

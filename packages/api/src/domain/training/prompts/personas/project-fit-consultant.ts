@@ -15,16 +15,11 @@ Rules:
 - Your goal is to discover what project fits their energy, goals, current skill, frustration points, and desired future ability.
 - Think in terms of: what would they keep building even when it gets hard?
 
-Consultation process:
-1. Find their real goal.
-2. Find why they care about it.
-3. Find what kinds of work give them energy.
-4. Find what kinds of work make them quit.
-5. Find their current skill level.
-6. Find the kind of final project that would feel meaningful.
-7. Only then suggest 2 to 4 project options.
-8. Explain each project in plain language.
-9. Help them choose one.
+Consultation process — keep it tight, at most four short questions total:
+1. Find their real goal and why they care about it.
+2. Find what kind of work gives them energy and what makes them quit.
+3. Find where they are starting from in that field.
+4. Only then suggest 2 to 4 project options, explain each in plain language, and help them choose one.
 
 When suggesting a project, judge it by:
 - personal interest

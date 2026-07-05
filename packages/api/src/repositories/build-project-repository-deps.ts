@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 
 import type { db as databaseClient } from "@acme/db/client";
+import { StartingPointTierSchema } from "@acme/validators";
 
 import type { BuildProjectDeps } from "../domain/training/orchestration/build-project";
 import { designSyllabus } from "../domain/training/agents/syllabus-designer";
@@ -212,12 +213,25 @@ export const createBuildProjectDeps = (db: Database): BuildProjectDeps => ({
       ...payload,
     }),
 
+  getStartingPoint: async (sessionId) => {
+    const session = await trainingOnboardingRepository.getSession({
+      db,
+      sessionId,
+    });
+    const parsed = StartingPointTierSchema.safeParse(
+      session?.startingPointTier,
+    );
+    if (!parsed.success || !session?.startingPointLabel) return null;
+    return { tier: parsed.data, label: session.startingPointLabel };
+  },
+
   ensureShell: async ({
     sessionId,
     userId,
     title,
     summary,
     targetIdentity,
+    seedRating,
   }) => {
     const plan = await buildProjectCurriculumRepository.upsertPlanShell({
       db,
@@ -226,6 +240,7 @@ export const createBuildProjectDeps = (db: Database): BuildProjectDeps => ({
       title,
       summary,
       targetIdentity,
+      seedRating,
     });
     return { id: plan.id };
   },

@@ -18,7 +18,10 @@ import { useMutation } from "@tanstack/react-query";
 import {
   DefaultChatTransport,
   lastAssistantMessageIsCompleteWithApprovalResponses,
+  lastAssistantMessageIsCompleteWithToolCalls,
 } from "ai";
+
+import type { StartingPointTier } from "@acme/validators";
 
 import type { RouterOutputs } from "@acme/api";
 import type {
@@ -48,6 +51,7 @@ import { useTRPC } from "~/trpc/react";
 import { AssistantRichText } from "./assistant-rich-text";
 import { CreateProjectConfirm } from "./onboarding/create-project-confirm";
 import { ProjectBuildCard } from "./onboarding/project-build-card";
+import { StartingPointCheck } from "./onboarding/starting-point-check";
 
 type OnboardingState = RouterOutputs["training"]["startOnboarding"];
 
@@ -169,6 +173,13 @@ export function OnboardingShell({
       onError: (error) => toast.error(error.message),
     }),
   );
+  const setStartingPoint = useMutation(
+    trpc.training.setStartingPoint.mutationOptions({
+      // Optimistic: the confirm card already updated its own local tier; a
+      // failure just surfaces a toast and the next build read falls back.
+      onError: (error) => toast.error(error.message),
+    }),
+  );
   useEffect(() => {
     if (preview || sessionId || startedRef.current) return;
     startedRef.current = true;
@@ -223,13 +234,17 @@ export function OnboardingShell({
     stop,
     regenerate,
     addToolApprovalResponse,
+    addToolResult,
   } = useChat<OnboardingChatUIMessage>({
     transport,
     messages: initialUiMessages,
     // Batch UI updates during streaming (SDK-native render throttling).
     experimental_throttle: 50,
-    // Auto-resume the run the moment the learner approves "Create project".
-    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
+    // Auto-resume the run when EITHER the learner approves "Create project"
+    // (approval response) OR taps a starting-point option (tool result).
+    sendAutomaticallyWhen: (options) =>
+      lastAssistantMessageIsCompleteWithApprovalResponses(options) ||
+      lastAssistantMessageIsCompleteWithToolCalls(options),
     onFinish: (finishState) => {
       if (!shouldClearSubmittedDraft(finishState)) return;
       clearSubmittedDraft(pendingDraftRef.current?.key ?? null);
@@ -585,6 +600,24 @@ export function OnboardingShell({
             </svg>
 
             {heroComposer}
+
+            {/* Example chips to kill blank-page paralysis: tapping one submits
+                it as the learner's first answer. Presentational otherwise. */}
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+              {["an ML engineer", "a systems programmer", "a quant"].map(
+                (example) => (
+                  <button
+                    key={example}
+                    type="button"
+                    disabled={!sessionReady || effectiveIsStreaming}
+                    onClick={() => submitText(example)}
+                    className="rounded-full border border-white/[0.08] bg-white/[0.02] px-3 py-1.5 text-[12.5px] text-[#9a9a9a] transition-colors hover:border-white/[0.16] hover:bg-white/[0.05] hover:text-[#d0d0d0] disabled:opacity-50"
+                  >
+                    {example}
+                  </button>
+                ),
+              )}
+            </div>
           </div>
         </div>
       </main>
@@ -677,6 +710,22 @@ export function OnboardingShell({
                           />
                         );
                       }
+                      if ((part.type as string) === "tool-askStartingPoint") {
+                        return (
+                          <StartingPointCheck
+                            key={`${message.id}-start-${partIndex}`}
+                            part={part}
+                            busy={isStreaming}
+                            onAnswer={({ toolCallId, tier, label }) =>
+                              void addToolResult({
+                                tool: "askStartingPoint",
+                                toolCallId,
+                                output: { tier, label },
+                              } as Parameters<typeof addToolResult>[0])
+                            }
+                          />
+                        );
+                      }
                       if ((part.type as string) === "tool-createProject") {
                         return (
                           <CreateProjectConfirm
@@ -694,6 +743,15 @@ export function OnboardingShell({
                                 id: approvalId,
                                 approved: false,
                               })
+                            }
+                            onChangeStartingPoint={
+                              sessionId
+                                ? (tier: StartingPointTier) =>
+                                    setStartingPoint.mutate({
+                                      sessionId,
+                                      tier,
+                                    })
+                                : undefined
                             }
                           />
                         );

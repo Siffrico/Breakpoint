@@ -88,6 +88,31 @@ export const DifficultyBandSchema = z.object({
 /** How scaffolded a scenario is when presented (4C/ID support axis). */
 export const SupportLevelSchema = z.enum(["worked_example", "guided", "none"]);
 
+/**
+ * Where a learner is starting from in their target field, elicited once during
+ * onboarding. This is the single source of truth shared by the DB column, the
+ * elicitation tool schema, the tRPC input, and the client. It maps to a seed
+ * rating (see engine/rating/seed.ts) — never surfaced to the learner as a level
+ * word; the client always shows the concrete option text they tapped.
+ */
+export const StartingPointTierSchema = z.enum([
+  "fundamentals",
+  "skip_basics",
+  "advanced",
+]);
+
+/**
+ * A Glicko seed stamped onto a curriculum plan at build time and read back by
+ * the workspace as the initial rating state. Mirrors the persisted shape of
+ * JobRatingState minus the never-seeded `lastRatedAt` (a fresh node has no
+ * last-rated timestamp, so decay never fires on it).
+ */
+export const SeedRatingSchema = z.object({
+  rating: z.number(),
+  ratingDeviation: z.number(),
+  volatility: z.number(),
+});
+
 /** The decision the Goldilocks ladder emits for the next scenario. */
 export const DirectiveIntentSchema = z.enum([
   "repair",
@@ -790,6 +815,8 @@ export type CurriculumNodeKind = z.infer<typeof CurriculumNodeKindSchema>;
 export type CurriculumNodeStatus = z.infer<typeof CurriculumNodeStatusSchema>;
 export type DifficultyBand = z.infer<typeof DifficultyBandSchema>;
 export type SupportLevel = z.infer<typeof SupportLevelSchema>;
+export type StartingPointTier = z.infer<typeof StartingPointTierSchema>;
+export type SeedRating = z.infer<typeof SeedRatingSchema>;
 export type DirectiveIntent = z.infer<typeof DirectiveIntentSchema>;
 export type JobProgressState = z.infer<typeof JobProgressStateSchema>;
 export type ScenarioDirective = z.infer<typeof ScenarioDirectiveSchema>;

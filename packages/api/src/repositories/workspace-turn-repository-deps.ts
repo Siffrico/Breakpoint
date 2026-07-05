@@ -8,12 +8,14 @@ import type { DifficultyBand } from "../domain/training/types/training.types";
 import type { WorkspaceAiMessage } from "../domain/training/workspace-ai/types";
 import type { WorkspaceTurnOrchestrationDependencies } from "../domain/training/workspace-ai/workspace-turn-orchestration";
 import type { WorkspaceEducationTurnCommit } from "../domain/training/workspace-ai/workspace-turn-persistence";
+import type { JobRatingState } from "../domain/training/engine/rating";
 import {
   recordEvaluation,
   resolveScenarioDirective,
 } from "../domain/training/orchestration/goldilocks";
 import { WorkspaceTurnRepo } from "../domain/training/workspace-ai/workspace-turn-repo";
 import { makeDbError } from "../effect/db";
+import { resolvePlanSeedRating } from "./plan-seed-rating";
 import { memoryRepository } from "./memory-repository";
 import { trainingAttemptRepository } from "./training-attempt-repository";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
@@ -227,9 +229,15 @@ const commitEducationTurn = async ({
       });
     }
     if (input.ratingEvaluation) {
+      // Fail-closed seed read: a null seed means the engine uses its default.
+      const seed = await resolvePlanSeedRating({
+        db: txDb,
+        nodeId: input.ratingEvaluation.nodeId,
+      });
       await recordEvaluation({
         ...input.ratingEvaluation,
         sidechatAskCount: 0,
+        initialRatingState: seed ?? undefined,
         deps: createTrainingRatingGoldilocksDeps(txDb),
       });
     }
@@ -327,7 +335,18 @@ export const workspaceTurnRepoLayer = (db: Database) =>
 
 export const createWorkspaceTurnRepositoryDeps = (
   db: Database,
-): WorkspaceTurnOrchestrationDependencies => ({
+): WorkspaceTurnOrchestrationDependencies => {
+  // Per-request seed cache: a multi-touch turn reads each node's seed once.
+  const seedCache = new Map<string, Promise<JobRatingState | null>>();
+  const getSeed = (nodeId: string) => {
+    const cached = seedCache.get(nodeId);
+    if (cached) return cached;
+    const pending = resolvePlanSeedRating({ db, nodeId });
+    seedCache.set(nodeId, pending);
+    return pending;
+  };
+
+  return {
   getActivePlan: (sessionId: string) =>
     trainingCurriculumRepository.getActivePlan({ db, sessionId }),
   listMessages: (sessionId: string, slot?: "education_unit" | "recall") =>
@@ -400,13 +419,16 @@ export const createWorkspaceTurnRepositoryDeps = (
     now: Date;
     bands?: readonly DifficultyBand[] | null;
   }) =>
-    resolveScenarioDirective({
-      userId,
-      nodeId,
-      now,
-      bands,
-      deps: createTrainingRatingGoldilocksDeps(db),
-    }),
+    getSeed(nodeId).then((seed) =>
+      resolveScenarioDirective({
+        userId,
+        nodeId,
+        now,
+        bands,
+        initialRatingState: seed ?? undefined,
+        deps: createTrainingRatingGoldilocksDeps(db),
+      }),
+    ),
   getScenarioAttempt: ({ scenarioAttemptId, userId, nodeId }) =>
     trainingRatingRepository.getOpenScenarioById({
       db,
@@ -414,4 +436,5 @@ export const createWorkspaceTurnRepositoryDeps = (
       userId,
       nodeId,
     }),
-});
+  };
+};

@@ -2,9 +2,9 @@ import type { TRPCRouterRecord } from "@trpc/server";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod/v4";
 
-import type { CurriculumNode } from "@acme/validators";
+import type { CurriculumNode, StartingPointTier } from "@acme/validators";
 import { sql } from "@acme/db";
-import { CapstoneSubmissionSchema } from "@acme/validators";
+import { CapstoneSubmissionSchema, StartingPointTierSchema } from "@acme/validators";
 
 import { deriveProvisionalProjectTitle } from "../domain/training/services/provisional-project-title";
 import { mintNextUnit } from "../domain/training/unit-minting/mint-next-unit";
@@ -49,6 +49,20 @@ import { protectedProcedure } from "../trpc";
 const SessionIdSchema = z.object({
   sessionId: z.string().uuid(),
 });
+
+const SetStartingPointSchema = z.object({
+  sessionId: z.string().uuid(),
+  tier: StartingPointTierSchema,
+});
+
+// Plain-language label the [change] control stamps when the learner overrides
+// the elicited tier. The mid-chat tap carries the learner's own tapped text; a
+// manual override has no tapped text, so we use these instead.
+const STARTING_POINT_OVERRIDE_LABEL: Record<StartingPointTier, string> = {
+  fundamentals: "starting from the fundamentals",
+  skip_basics: "skipping the basics",
+  advanced: "straight to the hard stuff",
+};
 
 const SubmitAiWorkspaceMessageSchema = z.object({
   sessionId: z.string().uuid(),
@@ -400,6 +414,24 @@ export const trainingRouter = {
       }
 
       return state;
+    }),
+
+  // Manual override for the confirm card's [change] control. The mid-chat tap
+  // needs no endpoint (it rides the tool result); this only exists so a learner
+  // can correct the elicited tier before approving the build.
+  setStartingPoint: protectedProcedure
+    .input(SetStartingPointSchema)
+    .mutation(async ({ ctx, input }) => {
+      await requireSessionOwner({ ctx, sessionId: input.sessionId });
+
+      await trainingOnboardingRepository.setStartingPoint({
+        db: ctx.db,
+        sessionId: input.sessionId,
+        tier: input.tier,
+        label: STARTING_POINT_OVERRIDE_LABEL[input.tier],
+      });
+
+      return { tier: input.tier };
     }),
 
   // Rehydrate the latest onboarding session, including its completed build
