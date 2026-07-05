@@ -181,7 +181,8 @@ export function ProjectBuildCard({
     <div
       className={cn(
         "border-border bg-card mt-2 w-full max-w-[68ch] rounded-lg border px-5 py-4",
-        isComplete && "animate-in fade-in zoom-in-95 duration-500",
+        isComplete &&
+          "animate-in fade-in zoom-in-95 duration-300 ease-[cubic-bezier(0.23,1,0.32,1)]",
       )}
     >
       <div className="flex items-start justify-between gap-4">

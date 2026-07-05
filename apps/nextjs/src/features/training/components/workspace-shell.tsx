@@ -331,7 +331,7 @@ export function WorkspaceShell({
       <div
         inert={sidebarCollapsed ? true : undefined}
         className={[
-          "hidden shrink-0 overflow-hidden transition-[width] duration-200 md:block",
+          "hidden shrink-0 overflow-hidden transition-[width] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] md:block",
           sidebarCollapsed ? "w-0" : "bg-sidebar w-[232px]",
         ].join(" ")}
       >
@@ -584,7 +584,7 @@ export function WorkspaceShell({
               {unitCoachOpen && liveUnit ? (
                 <div
                   className={[
-                    "min-w-0 transition-[width] duration-200",
+                    "min-w-0 transition-[width] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)]",
                     unitCoachFocused ? "w-full" : "w-[380px]",
                   ].join(" ")}
                 >

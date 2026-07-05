@@ -51,7 +51,7 @@ export function SlashCommandMenu<TId extends string>({
             }}
             onMouseEnter={() => onHoverIndex?.(index)}
             className={cn(
-              "flex w-full items-baseline gap-3 px-3 py-2 text-left transition-colors",
+              "flex w-full items-baseline gap-3 px-3 py-2 text-left",
               index === activeIndex ? "bg-foreground/[0.06]" : "bg-transparent",
             )}
           >
