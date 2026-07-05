@@ -327,6 +327,16 @@ export function OnboardingShell({
     [renderMessages],
   );
 
+  // Index of the newest user message. An unanswered starting-point card that
+  // sits before it was answered in prose instead of tapped — hide it so a
+  // stray late tap can't persist a tier and fire an extra model turn.
+  const lastUserMessageIndex = useMemo(() => {
+    for (let i = renderMessages.length - 1; i >= 0; i -= 1) {
+      if (renderMessages[i]?.role === "user") return i;
+    }
+    return -1;
+  }, [renderMessages]);
+
   useEffect(() => {
     onTurnCountChange?.(userTurnCount);
   }, [onTurnCountChange, userTurnCount]);
@@ -711,6 +721,15 @@ export function OnboardingShell({
                         );
                       }
                       if ((part.type as string) === "tool-askStartingPoint") {
+                        const answered =
+                          (part as { state?: string }).state ===
+                          "output-available";
+                        // Superseded: the learner typed past the question
+                        // instead of tapping. Keep the collapsed ✓ line when
+                        // answered; drop the interactive card otherwise.
+                        if (!answered && index < lastUserMessageIndex) {
+                          return null;
+                        }
                         return (
                           <StartingPointCheck
                             key={`${message.id}-start-${partIndex}`}

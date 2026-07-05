@@ -1,5 +1,5 @@
 import type { db as databaseClient } from "@acme/db/client";
-import type { BeforeAfterProfile } from "@acme/validators";
+import type { BeforeAfterProfile, StartingPointTier } from "@acme/validators";
 import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from "@acme/db";
 import {
   TrainingIdentityProfile,
@@ -547,7 +547,7 @@ export const trainingOnboardingRepository = {
   }: {
     db: Database;
     sessionId: string;
-    tier: string;
+    tier: StartingPointTier;
     label: string;
   }) => {
     const [session] = await db
@@ -557,6 +557,34 @@ export const trainingOnboardingRepository = {
         startingPointLabel: label,
       })
       .where(eq(TrainingOnboardingSession.id, sessionId))
+      .returning();
+
+    return session ?? null;
+  },
+
+  setInitialStartingPoint: async ({
+    db,
+    sessionId,
+    tier,
+    label,
+  }: {
+    db: Database;
+    sessionId: string;
+    tier: StartingPointTier;
+    label: string;
+  }) => {
+    const [session] = await db
+      .update(TrainingOnboardingSession)
+      .set({
+        startingPointTier: tier,
+        startingPointLabel: label,
+      })
+      .where(
+        and(
+          eq(TrainingOnboardingSession.id, sessionId),
+          isNull(TrainingOnboardingSession.startingPointTier),
+        ),
+      )
       .returning();
 
     return session ?? null;

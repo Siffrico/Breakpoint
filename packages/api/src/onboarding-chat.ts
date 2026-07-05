@@ -10,6 +10,7 @@ import {
 } from "ai";
 
 import type { db as databaseClient } from "@acme/db/client";
+import type { StartingPointTier } from "@acme/validators";
 
 import type { CreateProjectResult } from "./domain/training/agents/onboarding-chat-agent";
 import type {
@@ -75,7 +76,7 @@ const extractText = (message: UIMessage): string =>
  */
 const findLatestStartingPointAnswer = (
   messages: UIMessage[],
-): { tier: string; label: string } | null => {
+): { tier: StartingPointTier; label: string } | null => {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const parts = messages[i]?.parts ?? [];
     for (let j = parts.length - 1; j >= 0; j -= 1) {
@@ -111,7 +112,13 @@ export const streamOnboardingChat = async ({
   scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }): Promise<Response> =>
   withAiModelPreference(modelName, () =>
-    runOnboardingChat({ db, sessionId, userId, messages, scheduleBackgroundTask }),
+    runOnboardingChat({
+      db,
+      sessionId,
+      userId,
+      messages,
+      scheduleBackgroundTask,
+    }),
   );
 
 /**
@@ -238,25 +245,24 @@ const runOnboardingChat = async ({
     sessionId,
   });
   const projectBuildReadiness = getProjectBuildReadiness(transcript);
-  const modelMessages = await convertToModelMessages(messages);
+  const modelMessages = await convertToModelMessages(messages, {
+    ignoreIncompleteToolCalls: true,
+  });
 
   // The learner's tapped starting point rides an execute-less tool result. It
-  // is dropped from rebuilt transcripts on reload, so persist it whenever it
-  // changes and re-inject it into the system prompt below.
+  // initializes the persisted value atomically; later manual overrides remain
+  // authoritative when this old tool result is replayed on approval.
   const startingPointAnswer = findLatestStartingPointAnswer(messages);
-  if (
-    startingPointAnswer &&
-    startingPointAnswer.tier !== session.startingPointTier
-  ) {
-    await trainingOnboardingRepository.setStartingPoint({
+  if (startingPointAnswer) {
+    await trainingOnboardingRepository.setInitialStartingPoint({
       db,
       sessionId,
       tier: startingPointAnswer.tier,
       label: startingPointAnswer.label,
     });
   }
-  const storedTier = startingPointAnswer?.tier ?? session.startingPointTier;
-  const storedLabel = startingPointAnswer?.label ?? session.startingPointLabel;
+  const storedTier = session.startingPointTier ?? startingPointAnswer?.tier;
+  const storedLabel = session.startingPointLabel ?? startingPointAnswer?.label;
   const startingPointNote =
     storedTier && storedLabel
       ? `Learner starting point: ${storedTier} ("${storedLabel}").`

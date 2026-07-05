@@ -1,4 +1,5 @@
 import type { db as databaseClient } from "@acme/db/client";
+import type { SeedRating } from "@acme/validators";
 import { eq } from "@acme/db";
 import {
   TrainingCurriculumNode,
@@ -26,11 +27,7 @@ export const buildProjectCurriculumRepository = {
     title: string;
     summary: string;
     targetIdentity: string;
-    seedRating?: {
-      rating: number;
-      ratingDeviation: number;
-      volatility: number;
-    } | null;
+    seedRating?: SeedRating | null;
   }): Promise<typeof TrainingCurriculumPlan.$inferSelect> => {
     await db
       .insert(TrainingCurriculumPlan)
@@ -56,9 +53,12 @@ export const buildProjectCurriculumRepository = {
       throw new Error("Failed to create the project plan shell.");
     }
 
-    // Backfill the seed on a resume where the shell was created before the
-    // starting point was known (onConflictDoNothing skips the insert above).
-    if (seedRating && !plan.seedRating) {
+    const seedChanged =
+      seedRating &&
+      (plan.seedRating?.rating !== seedRating.rating ||
+        plan.seedRating.ratingDeviation !== seedRating.ratingDeviation ||
+        plan.seedRating.volatility !== seedRating.volatility);
+    if (seedChanged) {
       await db
         .update(TrainingCurriculumPlan)
         .set({ seedRating })

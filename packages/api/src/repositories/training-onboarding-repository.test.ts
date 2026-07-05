@@ -96,6 +96,30 @@ describe("trainingOnboardingRepository.setStartingPoint", () => {
   });
 });
 
+describe("trainingOnboardingRepository.setInitialStartingPoint", () => {
+  it("uses a guarded update and returns null when a starting point already exists", async () => {
+    const returning = vi.fn(() => Promise.resolve([]));
+    const where = vi.fn(() => ({ returning }));
+    const set = vi.fn(() => ({ where }));
+    const update = vi.fn(() => ({ set }));
+    const db = { update } as unknown as Parameters<
+      typeof trainingOnboardingRepository.setInitialStartingPoint
+    >[0]["db"];
+
+    await expect(
+      trainingOnboardingRepository.setInitialStartingPoint({
+        db,
+        sessionId: "s-1",
+        tier: "skip_basics",
+        label: "I've shipped a production service",
+      }),
+    ).resolves.toBeNull();
+
+    expect(where).toHaveBeenCalledOnce();
+    expect(returning).toHaveBeenCalledOnce();
+  });
+});
+
 describe("trainingOnboardingRepository.claimWorkspaceTurn", () => {
   const claimInput = {
     sessionId: "00000000-0000-0000-0000-000000000001",
