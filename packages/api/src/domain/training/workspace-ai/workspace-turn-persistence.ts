@@ -302,13 +302,20 @@ export const saveUnitPhaseResult = ({
 
     const prompted =
       event.type === "phase_continues" && event.reason === "prompted";
+    const isTeachProbePresentation =
+      event.type === "teach_done" &&
+      nextRun.pass === 2 &&
+      nextRun.phase === "connect" &&
+      turnResult.scenarioSpec?.pass === 2;
     // A recall presentation opens the attempt and stamps Solve timing in one
     // commit: the composed scenario IS the solve task, so presentation and
     // solve-start are the same moment.
     const isRecallPresentation =
       openRecallAttempt && prompted && nextRun.phase === "solve";
     const scenarioPresentation =
-      (nextRun.pass === 2 && nextRun.phase === "connect" && prompted) ||
+      (nextRun.pass === 2 &&
+        nextRun.phase === "connect" &&
+        (prompted || isTeachProbePresentation)) ||
       isRecallPresentation
         ? {
             userId,

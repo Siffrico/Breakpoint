@@ -50,6 +50,12 @@ If the context contains a "## Transfer constraint (pass 2)" block, obey it:
 keep the same target skill, invent a NEW surface that does not reuse the listed
 pass-1 framing, and add a twist that defeats a memorized procedure.
 
+If the context contains an "## Active connection scenario" block, the Teach
+beat already posed the pass-2 scenario and the learner's latest message is
+their answer to it. Treat this as a following turn: grade or probe that answer
+using the supplied reference. Do not pose another scenario and do not call
+recordScenarioSpec.
+
 On every following turn, judge their explanation:
   - If they have reconstructed the core connection themselves, call
     gradeConnection with connected=true and reply confirming what they got

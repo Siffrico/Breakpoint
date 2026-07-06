@@ -152,11 +152,29 @@ const resolveEvent = (
   { event: UnitEvent; reasoning: string | null },
   EducationUnitContractError
 > => {
-  if (state.phase === "orient" || state.phase === "teach") {
+  if (state.phase === "orient") {
     if (result.toolCalls.length > 0) {
       return Effect.fail(
         new EducationUnitContractError({
           message: `The ${state.phase} agent returned an unexpected tool call.`,
+        }),
+      );
+    }
+    return Effect.succeed({
+      event: { type: "teach_done" },
+      reasoning: null,
+    });
+  }
+
+  if (state.phase === "teach") {
+    const specCalls = result.toolCalls.filter(
+      (call) => call.toolName === "recordScenarioSpec",
+    );
+    if (result.toolCalls.length !== 1 || specCalls.length !== 1) {
+      return Effect.fail(
+        new EducationUnitContractError({
+          message:
+            "The teach agent must record exactly one pass-2 ScenarioSpec.",
         }),
       );
     }
@@ -272,7 +290,33 @@ export const runUnitTurn = (
       );
     }
     const { event, reasoning } = yield* resolveEvent(state, result);
-    const recordedSpec = readScenarioSpec(result, state.pass);
+    const scenarioPass = state.phase === "teach" ? 2 : state.pass;
+    const storedSpec = input.storedScenarioSpec ?? null;
+    const emittedSpec = readScenarioSpec(result, scenarioPass);
+    // The target skill is the cross-pass invariant. Teach chooses a new
+    // surface, but the durable pass-1 spec—not model wording—owns its identity.
+    const recordedSpec =
+      state.phase === "teach" && emittedSpec && storedSpec
+        ? { ...emittedSpec, targetSkill: storedSpec.targetSkill }
+        : emittedSpec;
+
+    if (state.phase === "teach") {
+      if (!recordedSpec || !storedSpec || (storedSpec.pass ?? 1) !== 1) {
+        return yield* Effect.fail(
+          new EducationUnitContractError({
+            message:
+              "Teach requires the pass-1 ScenarioSpec and must record one valid pass-2 ScenarioSpec.",
+          }),
+        );
+      }
+      if (recordedSpec.surface === storedSpec.surface) {
+        return yield* Effect.fail(
+          new EducationUnitContractError({
+            message: "Teach's pass-2 probe must use a new surface.",
+          }),
+        );
+      }
+    }
 
     // A "prompted" continue is the turn that presents a task. Two invariants
     // hang off that moment, enforced the same way a scored Solve verdict is —
@@ -284,6 +328,16 @@ export const runUnitTurn = (
     //     agent would grade against the wrong scenario's canonical answer.
     const posesTask =
       event.type === "phase_continues" && event.reason === "prompted";
+    const hasActiveTeachProbe =
+      state.phase === "connect" && state.pass === 2 && storedSpec?.pass === 2;
+    if (hasActiveTeachProbe && (posesTask || recordedSpec)) {
+      return yield* Effect.fail(
+        new EducationUnitContractError({
+          message:
+            "Pass-2 Connect must grade the active Teach probe instead of replacing it.",
+        }),
+      );
+    }
     if (state.phase === "connect" && posesTask && !recordedSpec) {
       return yield* Effect.fail(
         new EducationUnitContractError({
@@ -292,7 +346,6 @@ export const runUnitTurn = (
         }),
       );
     }
-    const storedSpec = input.storedScenarioSpec ?? null;
     const gradingSpec =
       recordedSpec ?? (storedSpec?.pass === 2 ? storedSpec : null);
     if (

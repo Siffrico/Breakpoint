@@ -81,13 +81,11 @@ describe("runUnitTurn contract", () => {
           input: { passed: true, score: 86, reasoning: "Correct mechanism." },
         },
       ]),
-      phaseResult("Teach the underlying concept."),
-      phaseResult("Here is a transfer scenario.", [
+      phaseResult("Teach the concept, then ask the transfer why-probe.", [
         {
           toolName: "recordScenarioSpec",
           input: specInput("A flaky churn dashboard"),
         },
-        { toolName: "continuePhase", input: { reason: "prompted" } },
       ]),
       phaseResult("The transfer connection is correct.", [
         {
@@ -120,7 +118,6 @@ describe("runUnitTurn contract", () => {
       ["solve", 1],
       ["teach", 1],
       ["connect", 2],
-      ["connect", 2],
       ["solve", 2],
       ["solve", 2],
       ["mastered", 2],
@@ -135,8 +132,11 @@ describe("runUnitTurn contract", () => {
       const [phase, pass] = expectedStates[index] ?? [];
       expect(turn.nextState).toMatchObject({ phase, pass });
       if (turn.scenarioSpec) {
-        // The orchestrator stamps the pass the spec was recorded on.
-        expect(turn.scenarioSpec.pass).toBe(state.pass);
+        // Teach's why-probe is the pass-2 scenario even though Teach itself
+        // is still represented by the pass-1 seam state.
+        expect(turn.scenarioSpec.pass).toBe(
+          state.phase === "teach" ? 2 : state.pass,
+        );
         storedSpec = turn.scenarioSpec;
       }
       expect(turn.assistantMessage).toBe(result.object.assistantMessage);
@@ -183,6 +183,33 @@ describe("runUnitTurn contract", () => {
       { role: "user", content: "## Context\nFirst" },
       ...transcript,
     ]);
+  });
+
+  it("keeps the canonical target skill when Teach paraphrases it", async () => {
+    const pass1Spec = { ...specInput("A slow release"), pass: 1 as const };
+    const turn = await runWithResult(
+      {
+        ...initialState("unit-1", "education-unit-v1"),
+        phase: "teach",
+      },
+      phaseResult("Teach, then ask the why-probe.", [
+        {
+          toolName: "recordScenarioSpec",
+          input: {
+            ...specInput("A flaky churn dashboard"),
+            targetSkill: "A model-generated paraphrase",
+          },
+        },
+      ]),
+      [],
+      pass1Spec,
+    );
+
+    expect(turn.scenarioSpec).toMatchObject({
+      pass: 2,
+      targetSkill: pass1Spec.targetSkill,
+      surface: "A flaky churn dashboard",
+    });
   });
 
   it("does not count a continuation as a failed attempt", async () => {
@@ -380,14 +407,41 @@ describe("runUnitTurn contract", () => {
         { toolName: "continuePhase", input: { reason: "prompted" } },
       ]),
     },
+    {
+      name: "Teach without a pass-2 scenario spec",
+      state: {
+        ...initialState("unit-1", "education-unit-v1"),
+        phase: "teach",
+      },
+      result: phaseResult("Teach without a why-probe contract."),
+    },
+    {
+      name: "pass-2 Connect replaces the active Teach probe",
+      state: {
+        ...initialState("unit-1", "education-unit-v1"),
+        phase: "connect",
+        pass: 2,
+      },
+      result: phaseResult("A replacement scenario.", [
+        {
+          toolName: "recordScenarioSpec",
+          input: specInput("A replacement surface"),
+        },
+        { toolName: "continuePhase", input: { reason: "prompted" } },
+      ]),
+    },
   ];
 
   it.each(invalidCases)(
     "rejects $name as a typed contract failure",
-    async ({ state, result }) => {
-      await expect(runWithResult(state, result)).rejects.toBeInstanceOf(
-        EducationUnitContractError,
-      );
+    async ({ state, result, name }) => {
+      const storedSpec =
+        name === "pass-2 Connect replaces the active Teach probe"
+          ? { ...specInput("The Teach probe"), pass: 2 as const }
+          : null;
+      await expect(
+        runWithResult(state, result, [], storedSpec),
+      ).rejects.toBeInstanceOf(EducationUnitContractError);
     },
   );
 

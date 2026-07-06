@@ -288,4 +288,46 @@ void test("saveUnitPhaseResult persists transitions and non-grading continuation
     difficultySnapshot,
   );
   assert.equal(presentationCommit.solvePresentation, null);
+
+  captured = null;
+  await runSave({
+    sessionId: "session-1",
+    userId: "user-1",
+    message: "Here is my pass-1 solution.",
+    state,
+    unit,
+    plan,
+    turnResult: {
+      ...continuationTurn,
+      assistantMessage:
+        "That works. Now explain why the same mechanism applies here.",
+      event: { type: "teach_done" },
+      nextState: { ...continuationTurn.nextState, pass: 2 },
+      scenarioSpec: {
+        targetSkill: "Separate correlation from causation",
+        surface: "A flaky churn dashboard",
+        canonicalAnswer: "Demand a discriminating prediction.",
+        reasoningPath: "Compare the hypotheses' predictions.",
+        rubric: "Names an observable that distinguishes the hypotheses.",
+        pass: 2,
+      },
+    },
+    ratingEvaluation: null,
+    difficultySnapshot,
+    scenarioAttemptId: null,
+    persistUserMessage: true,
+    phaseResponseSequence: 6,
+    turnId: "turn-4",
+    turnLeaseId: "lease-4",
+    deps,
+  });
+
+  assert.ok(captured);
+  const teachProbeCommit = captured as unknown as WorkspaceEducationTurnCommit;
+  assert.equal(teachProbeCommit.phaseResponse.metadata?.verdict, "teach_done");
+  assert.equal(
+    teachProbeCommit.scenarioPresentation?.snapshot,
+    difficultySnapshot,
+  );
+  assert.equal(teachProbeCommit.nextRun.scenarioSpec?.pass, 2);
 });

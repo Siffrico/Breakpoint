@@ -55,3 +55,14 @@ export const renderEvalRubricContext = (spec: ScenarioSpec): string =>
     `Reasoning path: ${spec.reasoningPath}`,
     `Rubric:\n${spec.rubric}`,
   ].join("\n");
+
+/** The grading reference for a Connect scenario that was posed by Teach. */
+export const renderConnectGradingContext = (spec: ScenarioSpec): string =>
+  [
+    "## Active connection scenario",
+    "The Teach beat already posed this pass-2 scenario. Grade the learner's latest answer; do not present another scenario.",
+    `Target skill: ${spec.targetSkill}`,
+    `Canonical answer: ${spec.canonicalAnswer}`,
+    `Reasoning path: ${spec.reasoningPath}`,
+    `Rubric:\n${spec.rubric}`,
+  ].join("\n");

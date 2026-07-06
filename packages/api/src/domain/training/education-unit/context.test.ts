@@ -126,11 +126,12 @@ describe("buildUnitTurnContext", () => {
       );
 
     // Pass-2 connect varies the surface off pass 1's spec (untagged legacy
-    // specs count as pass 1) — but never off its own recorded spec.
+    // specs count as pass 1), then grades the probe against its pass-2 spec.
     expect(at("connect", 1)).toContain("## Transfer constraint (pass 2)");
     expect(at("connect", undefined)).toContain(
       "## Transfer constraint (pass 2)",
     );
+    expect(at("connect", 2)).toContain("## Active connection scenario");
     expect(at("connect", 2)).not.toContain("## Transfer constraint (pass 2)");
 
     // Pass-2 solve grades only against pass 2's spec — pass 1's canonical
@@ -138,6 +139,17 @@ describe("buildUnitTurnContext", () => {
     expect(at("solve", 2)).toContain("## Grading reference");
     expect(at("solve", 1)).not.toContain("## Grading reference");
     expect(at("solve", undefined)).not.toContain("## Grading reference");
+
+    const teachContext = buildUnitTurnContext(
+      baseInput({
+        state: {
+          ...initialState("unit-1", "education-unit-v1"),
+          phase: "teach",
+        },
+        scenarioSpec: spec(1),
+      }),
+    );
+    expect(teachContext).toContain("## Transfer constraint (pass 2)");
   });
 
   it("renders the workflow, assumed knowledge, and exact targets", () => {
