@@ -1,7 +1,6 @@
 "use client";
 
 import type { CSSProperties, ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -19,6 +18,7 @@ import {
 import { useMutation } from "@tanstack/react-query";
 
 import type { RouterOutputs } from "@acme/api";
+import { DotmCircular17 } from "@acme/ui/dotm-circular-17";
 import {
   Menu,
   MenuGroup,
@@ -80,117 +80,6 @@ const SIDEBAR_FADE_STYLE = {
   maskImage:
     "linear-gradient(90deg, rgba(0,0,0,1) 0%, rgba(0,0,0,1) calc(100% - 18px), rgba(0,0,0,0) 100%)",
 } satisfies CSSProperties;
-
-const DOT_MATRIX_PATH: readonly number[] = [
-  1, 2, 3, 9, 14, 19, 23, 22, 21, 15, 10, 5,
-] as const;
-
-const DOT_MATRIX_TAIL = [1, 0.78, 0.56, 0.36, 0.22] as const;
-
-function usePrefersReducedMotion() {
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const update = () => setPrefersReducedMotion(mediaQuery.matches);
-
-    update();
-    mediaQuery.addEventListener("change", update);
-    return () => mediaQuery.removeEventListener("change", update);
-  }, []);
-
-  return prefersReducedMotion;
-}
-
-function DotMatrixCircularLoader({
-  size = 14,
-  dotSize = 2,
-}: {
-  size?: number;
-  dotSize?: number;
-}) {
-  const prefersReducedMotion = usePrefersReducedMotion();
-  const [step, setStep] = useState(0);
-  const pathLength = DOT_MATRIX_PATH.length;
-
-  useEffect(() => {
-    if (prefersReducedMotion) return;
-
-    const interval = window.setInterval(() => {
-      setStep((current) => (current + 1) % pathLength);
-    }, 95);
-
-    return () => window.clearInterval(interval);
-  }, [pathLength, prefersReducedMotion]);
-
-  const dots = useMemo(() => {
-    const leadA = step % pathLength;
-    const leadB = (leadA + Math.floor(pathLength / 2)) % pathLength;
-
-    return Array.from({ length: 25 }, (_, index) => {
-      const row = Math.floor(index / 5);
-      const col = index % 5;
-      const isCorner = (row === 0 || row === 4) && (col === 0 || col === 4);
-      const pathOrder = DOT_MATRIX_PATH.indexOf(index);
-      const isCore = row === 2 && col === 2;
-
-      if (isCorner) {
-        return { opacity: 0 };
-      }
-
-      if (pathOrder === -1) {
-        return { opacity: isCore ? 0.16 : 0.08 };
-      }
-
-      if (prefersReducedMotion) {
-        return { opacity: 0.2 + (pathOrder / (pathLength - 1)) * 0.56 };
-      }
-
-      let opacity = 0.08;
-
-      for (let tail = 0; tail < DOT_MATRIX_TAIL.length; tail += 1) {
-        const weight = DOT_MATRIX_TAIL[tail] ?? 0;
-        const tailA = (leadA - tail + pathLength) % pathLength;
-        const tailB = (leadB - tail + pathLength) % pathLength;
-
-        if (pathOrder === tailA) {
-          opacity = Math.max(opacity, weight);
-        }
-
-        if (pathOrder === tailB) {
-          opacity = Math.max(opacity, weight * 0.72);
-        }
-      }
-
-      return { opacity };
-    });
-  }, [pathLength, prefersReducedMotion, step]);
-
-  return (
-    <span
-      aria-hidden="true"
-      className="grid shrink-0 place-items-center"
-      style={{
-        width: size,
-        height: size,
-        gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
-        gridTemplateRows: "repeat(5, minmax(0, 1fr))",
-      }}
-    >
-      {dots.map((dot, index) => (
-        <span
-          key={index}
-          className="rounded-full bg-current"
-          style={{
-            width: dotSize,
-            height: dotSize,
-            opacity: dot.opacity,
-          }}
-        />
-      ))}
-    </span>
-  );
-}
 
 function FadeLabel({
   children,
@@ -354,7 +243,7 @@ function ChatRow({
         ].join(" ")}
       >
         {isRunning ? (
-          <DotMatrixCircularLoader size={13} dotSize={1.5} />
+          <DotmCircular17 size={13} dotSize={1.5} />
         ) : (
           <StatusDot state={dotState} />
         )}
@@ -443,7 +332,7 @@ function ProjectRow({
           className="text-foreground/32 hover:text-foreground/80 hover:bg-foreground/[0.05] pointer-events-none flex size-6 shrink-0 items-center justify-center rounded-[5px] opacity-0 transition-[color,background-color,opacity] outline-none group-hover/project:pointer-events-auto group-hover/project:opacity-100 focus:outline-none focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-0 group-hover/project:disabled:opacity-25"
         >
           {isContinuing ? (
-            <DotMatrixCircularLoader size={13} dotSize={1.5} />
+            <DotmCircular17 size={13} dotSize={1.5} />
           ) : (
             <NotePencil size={15} weight="regular" />
           )}

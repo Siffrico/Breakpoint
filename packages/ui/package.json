@@ -10,6 +10,7 @@
     "./chat": "./src/chat/index.ts",
     "./command": "./src/command.tsx",
     "./dropdown-menu": "./src/dropdown-menu.tsx",
+    "./dotm-circular-17": "./src/dotm-circular-17.tsx",
     "./field": "./src/field.tsx",
     "./input": "./src/input.tsx",
     "./label": "./src/label.tsx",
