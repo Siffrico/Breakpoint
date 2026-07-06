@@ -70,14 +70,6 @@ export function WorkspaceCommandPalette({
   // only appears on a genuinely slow network where idle warming hasn't landed.
   const [warm, setWarm] = useState(false);
   useEffect(() => {
-    const w = window as Window & {
-      requestIdleCallback?: (cb: () => void) => number;
-      cancelIdleCallback?: (id: number) => void;
-    };
-    if (w.requestIdleCallback) {
-      const id = w.requestIdleCallback(() => setWarm(true));
-      return () => w.cancelIdleCallback?.(id);
-    }
     const id = window.setTimeout(() => setWarm(true), 1500);
     return () => window.clearTimeout(id);
   }, []);

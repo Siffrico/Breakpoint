@@ -1,7 +1,7 @@
 "use client";
 
 import type { UIMessage } from "ai";
-import { useMemo, useRef, useState } from "react";
+import { useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { isTextUIPart } from "ai";
 
@@ -25,6 +25,14 @@ const CHUNK_MODES: { id: ChunkMode; label: string }[] = [
   { id: "word", label: "Word" },
   { id: "token", label: "Token" },
 ];
+
+const getDefaultFixture = () => {
+  const fixture = CHAT_FIXTURES[0];
+  if (!fixture) throw new Error("Chat Lab requires at least one fixture");
+  return fixture;
+};
+
+const DEFAULT_FIXTURE = getDefaultFixture();
 
 // The current site's rendering plus any experiments, in one flat list —
 // experiments are marked so it's obvious which one is production.
@@ -54,7 +62,7 @@ const getMessageReasoning = (message: UIMessage) => {
 
 export default function ChatLabPage() {
   const [designId, setDesignId] = useState(CURRENT_DESIGN.id);
-  const [fixtureId, setFixtureId] = useState(CHAT_FIXTURES[0]!.id);
+  const [fixtureId, setFixtureId] = useState(DEFAULT_FIXTURE.id);
   const [chunkMode, setChunkMode] = useState<ChunkMode>("word");
   const [delayMs, setDelayMs] = useState(30);
   const [reasoningOn, setReasoningOn] = useState(true);
@@ -64,25 +72,15 @@ export default function ChatLabPage() {
   const design =
     ALL_DESIGNS.find((d) => d.id === designId) ?? CURRENT_DESIGN;
   const fixture =
-    CHAT_FIXTURES.find((f) => f.id === fixtureId) ?? CHAT_FIXTURES[0]!;
+    CHAT_FIXTURES.find((f) => f.id === fixtureId) ?? DEFAULT_FIXTURE;
 
-  // The transport resolves options lazily so changing fixture/speed never
-  // recreates useChat.
-  const optionsRef = useRef<MockTransportOptions>({
-    text: fixture.text,
-    chunkMode,
-    delayMs,
-  });
-  optionsRef.current = {
-    text: fixture.text,
-    reasoningText: reasoningOn ? fixture.reasoning : undefined,
-    chunkMode,
-    delayMs,
-  };
-
-  const transport = useMemo(
-    () => new MockChatTransport<UIMessage>(() => optionsRef.current),
-    [],
+  const [transport] = useState(
+    () =>
+      new MockChatTransport<UIMessage>({
+        text: DEFAULT_FIXTURE.text,
+        chunkMode: "word",
+        delayMs: 30,
+      }),
   );
 
   const { messages, setMessages, sendMessage, status, stop } =
@@ -96,6 +94,13 @@ export default function ChatLabPage() {
   const assistantMessages = messages.filter((m) => m.role === "assistant");
 
   const stream = () => {
+    const options: MockTransportOptions = {
+      text: fixture.text,
+      reasoningText: reasoningOn ? fixture.reasoning : undefined,
+      chunkMode,
+      delayMs,
+    };
+    transport.setOptions(options);
     setMessages([]);
     void sendMessage({ text: fixture.label });
   };

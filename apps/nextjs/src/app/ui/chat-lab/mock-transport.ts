@@ -42,16 +42,18 @@ function splitIntoChunks(text: string, mode: ChunkMode): string[] {
 export class MockChatTransport<UI_MESSAGE extends UIMessage>
   implements ChatTransport<UI_MESSAGE>
 {
-  // Options are resolved lazily at send time so the page can change the active
-  // fixture, speed, or chunk mode between runs without recreating useChat.
-  constructor(private readonly getOptions: () => MockTransportOptions) {}
+  constructor(private options: MockTransportOptions) {}
+
+  setOptions(options: MockTransportOptions) {
+    this.options = options;
+  }
 
   sendMessages({
     abortSignal,
   }: Parameters<
     ChatTransport<UI_MESSAGE>["sendMessages"]
   >[0]): Promise<ReadableStream<UIMessageChunk>> {
-    const { text, reasoningText, chunkMode, delayMs } = this.getOptions();
+    const { text, reasoningText, chunkMode, delayMs } = this.options;
     const parts = splitIntoChunks(text, chunkMode);
     // Reasoning streams faster than answer text (real providers emit thinking
     // tokens in bursts), so halve the delay for the reasoning phase.
