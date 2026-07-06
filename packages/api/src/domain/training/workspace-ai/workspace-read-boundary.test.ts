@@ -108,6 +108,7 @@ const recallDeps = (entryIds: string[] = [recallCandidate.id]) => ({
     ),
   getUnitRun: () => Promise.resolve(null),
   getInFlightRecallRun: () => Promise.resolve(recallRun),
+  retireInFlightRecallRun: vi.fn().mockResolvedValue(undefined),
   getUnitByNodeId: (nodeId: string) =>
     Promise.resolve(nodeId === completedNode.id ? recallUnit : activeUnit),
   listRecallCandidates: () => Promise.resolve([recallCandidate]),
@@ -132,6 +133,7 @@ describe("workspace read preparation boundary", () => {
         getPhaseResponses: () => Promise.resolve([]),
         getUnitRun: () => Promise.resolve(null),
         getInFlightRecallRun: () => Promise.resolve(null),
+        retireInFlightRecallRun: () => Promise.resolve(),
         getUnitByNodeId: () => Promise.resolve(null),
         listRecallCandidates: () => Promise.resolve([]),
         getScenarioAttemptStartedAt: () => Promise.resolve(null),
@@ -164,6 +166,7 @@ describe("workspace read preparation boundary", () => {
           getPhaseResponses: () => Promise.resolve([]),
           getUnitRun: () => Promise.resolve(null),
           getInFlightRecallRun: () => Promise.resolve(null),
+          retireInFlightRecallRun: () => Promise.resolve(),
           getUnitByNodeId: () => Promise.resolve(null),
           listRecallCandidates: () => Promise.resolve([]),
           ...stalePreparationDeps,
@@ -190,6 +193,7 @@ describe("workspace read preparation boundary", () => {
         getPhaseResponses: () => Promise.resolve([]),
         getUnitRun: () => Promise.resolve(null),
         getInFlightRecallRun: () => Promise.resolve(null),
+        retireInFlightRecallRun: () => Promise.resolve(),
         getUnitByNodeId: () => Promise.resolve(unit),
         listRecallCandidates: () => Promise.resolve([]),
         ...{ upsertUnitRun },
@@ -249,9 +253,33 @@ describe("durable recall projection", () => {
   });
 
   it("falls through when a stale recall target cannot be reconstructed", async () => {
+    const deps = recallDeps(["deleted-entry"]);
     const turn = await resolveWorkspaceTurn({
       sessionId: "session-1",
-      deps: recallDeps(["deleted-entry"]),
+      deps,
+    });
+
+    expect(turn.state).toMatchObject({
+      activeUnitId: readyNode.id,
+      recallUnitId: null,
+      workflowId: "education-unit-v1",
+    });
+    expect(deps.retireInFlightRecallRun).toHaveBeenCalledWith(
+      "session-1",
+      recallRun.unitId,
+    );
+  });
+
+  it("still falls through when retiring the stale recall fails", async () => {
+    const deps = {
+      ...recallDeps(["deleted-entry"]),
+      retireInFlightRecallRun: vi
+        .fn()
+        .mockRejectedValue(new Error("db unavailable")),
+    };
+    const turn = await resolveWorkspaceTurn({
+      sessionId: "session-1",
+      deps,
     });
 
     expect(turn.state).toMatchObject({

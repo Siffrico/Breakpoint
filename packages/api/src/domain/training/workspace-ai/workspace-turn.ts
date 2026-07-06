@@ -271,6 +271,23 @@ const loadPlannedRecall = ({
         candidates,
       });
       if (resumed) return resumed;
+      yield* Effect.logWarning("Retiring a stale in-flight recall run.", {
+        sessionId,
+        unitContentId: inFlightRun.unitId,
+      });
+      // Best-effort self-healing: a failed retirement must not block the turn
+      // — the stale run simply gets retried on the next resolution.
+      yield* reader
+        .retireInFlightRecallRun(sessionId, inFlightRun.unitId)
+        .pipe(
+          Effect.catch((cause) =>
+            Effect.logError("Stale recall retirement failed.", {
+              cause,
+              sessionId,
+              unitContentId: inFlightRun.unitId,
+            }),
+          ),
+        );
     }
 
     if (

@@ -200,6 +200,8 @@ void test("saveUnitPhaseResult persists transitions and non-grading continuation
     scenarioAttemptId: "scenario-1",
     persistUserMessage: false,
     phaseResponseSequence: 3,
+    turnId: "turn-2",
+    turnLeaseId: "lease-2",
     deps,
   });
 

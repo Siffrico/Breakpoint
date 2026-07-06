@@ -268,6 +268,8 @@ void test("an education turn returns the committed assistant message", async () 
     metadata: null,
   };
   const deps = {
+    claimWorkspaceTurn: () => Promise.resolve({ status: "claimed" as const }),
+    markWorkspaceTurnFailed: () => Promise.resolve(),
     appendMessage: () =>
       Promise.resolve({
         ...assistantMessage,
@@ -309,8 +311,8 @@ void test("an education turn returns the committed assistant message", async () 
     runEducationUnitTurn({
       sessionId: unitRun.sessionId,
       userId: "user-1",
-      turnId: null,
-      turnLeaseId: null,
+      turnId: "turn-1",
+      turnLeaseId: "lease-1",
       message: "I would isolate one variable first.",
       turn,
       deps,

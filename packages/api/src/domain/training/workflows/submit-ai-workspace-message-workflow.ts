@@ -18,27 +18,24 @@ export const submitAiWorkspaceMessageWorkflow = async ({
   sessionId,
   userId,
   message,
-  turnId = null,
+  turnId,
   deps,
   workspaceTurnRepoLayer,
 }: {
   sessionId: string;
   userId: string;
   message: string;
-  turnId?: string | null;
+  turnId: string;
   deps: WorkspaceTurnOrchestrationDependencies;
   workspaceTurnRepoLayer: Layer.Layer<WorkspaceTurnRepo>;
 }): Promise<Result<WorkspaceAiTurnResult, Error | string>> => {
-  // Optionality ends at the transport boundary. Every internal turn is leased
-  // and idempotent, including clients that have not adopted turn IDs yet.
-  const normalizedTurnId = turnId ?? randomUUID();
   const turnLeaseId = randomUUID();
   try {
     return ok(
       await runOneStep({
         sessionId,
         userId,
-        turnId: normalizedTurnId,
+        turnId,
         turnLeaseId,
         message,
         deps,
@@ -46,14 +43,12 @@ export const submitAiWorkspaceMessageWorkflow = async ({
       }),
     );
   } catch (error) {
-    if (deps.markWorkspaceTurnFailed) {
-      await deps.markWorkspaceTurnFailed({
-        sessionId,
-        turnId: normalizedTurnId,
-        leaseId: turnLeaseId,
-        reason: error instanceof Error ? error.message : "unknown error",
-      });
-    }
+    await deps.markWorkspaceTurnFailed({
+      sessionId,
+      turnId,
+      leaseId: turnLeaseId,
+      reason: error instanceof Error ? error.message : "unknown error",
+    });
     if (error instanceof UnitNotReadyError) {
       throw error;
     }

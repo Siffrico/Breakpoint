@@ -105,6 +105,28 @@ export const trainingUnitRunRepository = {
     return row ? mapUnitRun(row) : null;
   },
 
+  retireInFlightRecallRun: async ({
+    db,
+    sessionId,
+    unitContentId,
+  }: {
+    db: Database;
+    sessionId: string;
+    unitContentId: string;
+  }): Promise<void> => {
+    await db
+      .update(TrainingUnitRun)
+      .set({ phase: "mastered" })
+      .where(
+        and(
+          eq(TrainingUnitRun.sessionId, sessionId),
+          eq(TrainingUnitRun.unitContentId, unitContentId),
+          eq(TrainingUnitRun.recipeVersion, RECALL_RECIPE_VERSION),
+          ne(TrainingUnitRun.phase, "mastered"),
+        ),
+      );
+  },
+
   upsertUnitRun: async ({
     db,
     run,
@@ -137,16 +159,18 @@ export const trainingUnitRunRepository = {
           pass: values.pass,
           connectGrills: values.connectGrills,
           solveRepairs: values.solveRepairs,
-          // Write-once WITHIN a recipe. A recipe change (a recall run resets
-          // a mastered education row, or vice versa) is a new run: the
-          // incoming snapshot replaces the old one wholesale.
-          difficultySnapshotJson: sql`case when ${TrainingUnitRun.recipeVersion} = excluded.recipe_version then coalesce(${TrainingUnitRun.difficultySnapshotJson}, excluded.difficulty_snapshot_json) else excluded.difficulty_snapshot_json end`,
+          // Write-once WITHIN a live run. A recipe change (a recall run resets
+          // a mastered education row, or vice versa) is a new run — and so is
+          // a fresh cursor over a mastered row on the SAME recipe (recall
+          // recurs on recall-v1; passed or retired, the old row is finished):
+          // the incoming snapshot replaces the old one wholesale.
+          difficultySnapshotJson: sql`case when ${TrainingUnitRun.recipeVersion} = excluded.recipe_version and ${TrainingUnitRun.phase} != 'mastered' then coalesce(${TrainingUnitRun.difficultySnapshotJson}, excluded.difficulty_snapshot_json) else excluded.difficulty_snapshot_json end`,
           // Replaceable, unlike difficulty (which is coalesced write-once): a
           // turn that produces a new spec overwrites; a turn that produces none
           // (null) preserves the stored one. So pass 2's connect replaces pass
           // 1's spec, but ordinary grill/solve turns never wipe it. A recipe
-          // change starts clean.
-          scenarioSpecJson: sql`case when ${TrainingUnitRun.recipeVersion} = excluded.recipe_version then coalesce(excluded.scenario_spec_json, ${TrainingUnitRun.scenarioSpecJson}) else excluded.scenario_spec_json end`,
+          // change — or a new run over a mastered row — starts clean.
+          scenarioSpecJson: sql`case when ${TrainingUnitRun.recipeVersion} = excluded.recipe_version and ${TrainingUnitRun.phase} != 'mastered' then coalesce(excluded.scenario_spec_json, ${TrainingUnitRun.scenarioSpecJson}) else excluded.scenario_spec_json end`,
         },
       })
       .returning();

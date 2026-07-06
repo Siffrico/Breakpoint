@@ -27,7 +27,6 @@ import { deriveServerAttemptTiming } from "./evaluation-plan";
 import {
   RatingEvidenceError,
   TurnLeaseConflictError,
-  TurnLeaseMissingError,
   WorkspaceInputError,
   WorkspacePersistenceError,
 } from "./workspace-errors";
@@ -153,15 +152,12 @@ const releaseClaimedTurn = ({
   deps,
 }: {
   sessionId: string;
-  turnId: string | null;
-  turnLeaseId: string | null;
+  turnId: string;
+  turnLeaseId: string;
   deps: WorkspaceTurnOrchestrationDependencies;
 }): Effect.Effect<void> => {
-  const markWorkspaceTurnFailed = deps.markWorkspaceTurnFailed;
-  if (!turnId || !turnLeaseId || !markWorkspaceTurnFailed) return Effect.void;
-
   return Effect.tryPromise(() =>
-    markWorkspaceTurnFailed({
+    deps.markWorkspaceTurnFailed({
       sessionId,
       turnId,
       leaseId: turnLeaseId,
@@ -191,77 +187,49 @@ const claimTurnAndLoadTranscript = ({
   sessionId: string;
   slot: "education_unit" | "recall";
   unitId: string;
-  turnId: string | null;
-  turnLeaseId: string | null;
+  turnId: string;
+  turnLeaseId: string;
   message: string;
   appendSyntheticUserMessage: boolean;
   deps: WorkspaceTurnOrchestrationDependencies;
 }): Effect.Effect<
   LoadedTurnTranscript,
-  TurnLeaseMissingError | TurnLeaseConflictError | WorkspacePersistenceError,
+  TurnLeaseConflictError | WorkspacePersistenceError,
   Scope.Scope
 > =>
   Effect.gen(function* () {
-    let claimedDurableTurn = false;
+    const claim = yield* persistPromise("claimWorkspaceTurn", () =>
+      deps.claimWorkspaceTurn({
+        sessionId,
+        action: "submit_answer",
+        content: message,
+        slot,
+        unitId,
+        turnId,
+        leaseId: turnLeaseId,
+      }),
+    );
 
-    const claimWorkspaceTurn = deps.claimWorkspaceTurn;
-    if (turnId && claimWorkspaceTurn) {
-      if (!turnLeaseId) {
-        return yield* new TurnLeaseMissingError({
-          message: "Workspace turn lease could not be created.",
-        });
-      }
-      const claim = yield* persistPromise("claimWorkspaceTurn", () =>
-        claimWorkspaceTurn({
-          sessionId,
-          action: "submit_answer",
-          content: message,
-          slot,
-          unitId,
-          turnId,
-          leaseId: turnLeaseId,
-        }),
+    if (claim.status === "completed") {
+      return {
+        kind: "cached",
+        assistantMessage: claim.assistantMessage,
+        messages: yield* persistPromise("listWorkspaceMessages", () =>
+          deps.listMessages(sessionId, slot),
+        ),
+      };
+    }
+    if (claim.status === "processing") {
+      return yield* new TurnLeaseConflictError({
+        message: "This turn is already being processed.",
+      });
+    }
+    if (slot === "education_unit") {
+      yield* Effect.addFinalizer((exit) =>
+        Exit.isFailure(exit)
+          ? releaseClaimedTurn({ sessionId, turnId, turnLeaseId, deps })
+          : Effect.void,
       );
-
-      if (claim.status === "completed") {
-        return {
-          kind: "cached",
-          assistantMessage: claim.assistantMessage,
-          messages: yield* persistPromise("listWorkspaceMessages", () =>
-            deps.listMessages(sessionId, slot),
-          ),
-        };
-      }
-      if (claim.status === "processing") {
-        return yield* new TurnLeaseConflictError({
-          message: "This turn is already being processed.",
-        });
-      }
-      claimedDurableTurn = true;
-      if (slot === "education_unit") {
-        yield* Effect.addFinalizer((exit) =>
-          Exit.isFailure(exit)
-            ? releaseClaimedTurn({ sessionId, turnId, turnLeaseId, deps })
-            : Effect.void,
-        );
-      }
-    } else if (appendSyntheticUserMessage) {
-      const userMessage = yield* persistPromise("appendWorkspaceMessage", () =>
-        deps.appendMessage({
-          sessionId,
-          role: "user",
-          content: message,
-          slot,
-          unitId,
-          turnId,
-        }),
-      );
-      if (!userMessage) {
-        return yield* new WorkspacePersistenceError({
-          message: "User message could not be saved.",
-          operation: "appendWorkspaceMessage",
-        });
-      }
     }
 
     const [persistedMessages, storedSummary] = yield* Effect.all(
@@ -276,7 +244,7 @@ const claimTurnAndLoadTranscript = ({
       { concurrency: 2 },
     );
     const messages =
-      claimedDurableTurn && appendSyntheticUserMessage
+      appendSyntheticUserMessage
         ? [
             ...persistedMessages,
             {
@@ -326,7 +294,7 @@ const claimTurnAndLoadTranscript = ({
       messages,
       transcript: compaction?.messages ?? messages,
       progressSummary: compaction?.summary ?? storedSummary?.summary ?? null,
-      claimedDurableTurn,
+      claimedDurableTurn: true,
     };
   });
 
@@ -362,8 +330,8 @@ export const runEducationUnitTurn = ({
 }: {
   sessionId: string;
   userId: string;
-  turnId: string | null;
-  turnLeaseId: string | null;
+  turnId: string;
+  turnLeaseId: string;
   message: string;
   turn: ResolvedWorkspaceTurn;
   deps: WorkspaceTurnOrchestrationDependencies;
@@ -575,7 +543,8 @@ export const runEducationUnitTurn = ({
       .reverse()
       .find(
         (response) =>
-          response.phase === "ai_education" && response.metadata?.recallEntryIds,
+          response.phase === "ai_education" &&
+          response.metadata?.recallEntryIds,
       )?.metadata?.recallEntryIds;
     const composedEntryIds = recallFocus
       ? [
@@ -633,16 +602,16 @@ export const runEducationUnitTurn = ({
 export const runOneStep = async ({
   sessionId,
   userId,
-  turnId = null,
-  turnLeaseId = null,
+  turnId,
+  turnLeaseId,
   message,
   deps,
   workspaceTurnRepoLayer,
 }: {
   sessionId: string;
   userId: string;
-  turnId?: string | null;
-  turnLeaseId?: string | null;
+  turnId: string;
+  turnLeaseId: string;
   message: string;
   deps: WorkspaceTurnOrchestrationDependencies;
   workspaceTurnRepoLayer: Layer.Layer<WorkspaceTurnRepo>;

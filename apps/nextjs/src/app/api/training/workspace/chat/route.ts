@@ -67,9 +67,16 @@ export const POST = async (req: NextRequest) => {
     return new Response("Invalid JSON", { status: 400 });
   }
 
-  const { sessionId } = body;
+  const { sessionId, turnId } = body;
   const submittedMessage = resolveSubmittedMessage(body);
-  if (!sessionId || typeof sessionId !== "string" || submittedMessage.length === 0) {
+  if (
+    !sessionId ||
+    typeof sessionId !== "string" ||
+    typeof turnId !== "string" ||
+    turnId.length === 0 ||
+    turnId.length > 96 ||
+    submittedMessage.length === 0
+  ) {
     return new Response("Invalid request body", { status: 400 });
   }
 
@@ -78,10 +85,7 @@ export const POST = async (req: NextRequest) => {
     sessionId,
     userId: session.user.id,
     message: submittedMessage,
-    turnId:
-      typeof body.turnId === "string" && body.turnId.length > 0
-        ? body.turnId.slice(0, 96)
-        : null,
+    turnId,
     modelName: resolveModelPreference(req, body.model),
     signal: req.signal,
   });

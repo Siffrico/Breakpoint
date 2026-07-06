@@ -1,10 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { UIMessage } from "ai";
 import { TRPCError } from "@trpc/server";
-import {
-  createUIMessageStream,
-  createUIMessageStreamResponse,
-} from "ai";
+import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { Effect } from "effect";
 
 import type { db as databaseClient } from "@acme/db/client";
@@ -76,7 +73,7 @@ export const streamWorkspaceChat = async ({
   sessionId,
   userId,
   message,
-  turnId = null,
+  turnId,
   modelName,
   signal,
 }: {
@@ -84,7 +81,7 @@ export const streamWorkspaceChat = async ({
   sessionId: string;
   userId: string;
   message: string;
-  turnId?: string | null;
+  turnId: string;
   modelName?: string | null;
   signal?: AbortSignal;
 }): Promise<Response> =>
@@ -111,13 +108,10 @@ const streamWorkspaceChatWithModelPreference = async ({
   sessionId: string;
   userId: string;
   message: string;
-  turnId: string | null;
+  turnId: string;
   signal?: AbortSignal;
 }) => {
   const trimmedMessage = message.trim();
-  // Optionality ends at the transport boundary. Every turn gets a stable
-  // idempotency key and a lease, including clients that omit a turn id.
-  const effectiveTurnId = turnId ?? randomUUID();
   const effectiveLeaseId = randomUUID();
   if (trimmedMessage.length < 2) {
     return new Response(
@@ -210,7 +204,7 @@ const streamWorkspaceChatWithModelPreference = async ({
         runEducationUnitTurn({
           sessionId,
           userId,
-          turnId: effectiveTurnId,
+          turnId,
           turnLeaseId: effectiveLeaseId,
           message,
           turn,

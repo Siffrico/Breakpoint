@@ -31,7 +31,7 @@ import { WorkspaceTurnRepo } from "./workspace-turn-repo";
 
 export interface WorkspaceTurnPersistenceDependencies
   extends Omit<WorkspaceTurnDependencies, "getActivePlan"> {
-  claimWorkspaceTurn?: (input: {
+  claimWorkspaceTurn: (input: {
     sessionId: string;
     action: "submit_answer";
     content: string;
@@ -60,7 +60,7 @@ export interface WorkspaceTurnPersistenceDependencies
     sessionId: string,
     slot?: "education_unit" | "recall",
   ) => Promise<WorkspaceAiMessage[]>;
-  markWorkspaceTurnFailed?: (input: {
+  markWorkspaceTurnFailed: (input: {
     sessionId: string;
     turnId: string;
     leaseId: string;
@@ -127,8 +127,8 @@ export interface WorkspacePhaseResponseCommit {
 }
 
 export interface WorkspaceEducationTurnCommit {
-  turnId?: string | null;
-  turnLeaseId?: string | null;
+  turnId: string;
+  turnLeaseId: string;
   userMessage: WorkspaceUserMessageCommit | null;
   assistantMessage: WorkspaceAssistantMessageCommit;
   contracts: WorkspaceOutputContractCommit | null;
@@ -268,8 +268,8 @@ export const saveUnitPhaseResult = ({
   difficultySnapshot: UnitDifficultySnapshot;
   scenarioAttemptId: string | null;
   difficultyDirectiveReason?: string | null;
-  turnId?: string | null;
-  turnLeaseId?: string | null;
+  turnId: string;
+  turnLeaseId: string;
   persistUserMessage: boolean;
   phaseResponseSequence: number;
   deps: WorkspaceTurnPersistenceDependencies;
@@ -308,9 +308,7 @@ export const saveUnitPhaseResult = ({
     const isRecallPresentation =
       openRecallAttempt && prompted && nextRun.phase === "solve";
     const scenarioPresentation =
-      (nextRun.pass === 2 &&
-        nextRun.phase === "connect" &&
-        prompted) ||
+      (nextRun.pass === 2 && nextRun.phase === "connect" && prompted) ||
       isRecallPresentation
         ? {
             userId,

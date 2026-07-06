@@ -22,12 +22,6 @@ export class WorkspaceInputError extends Data.TaggedError(
   readonly message: string;
 }> {}
 
-export class TurnLeaseMissingError extends Data.TaggedError(
-  "TurnLeaseMissingError",
-)<{
-  readonly message: string;
-}> {}
-
 export class TurnLeaseConflictError extends Data.TaggedError(
   "TurnLeaseConflictError",
 )<{
@@ -54,7 +48,6 @@ export type InteractivePhaseAgentError = PhaseAgentError;
 
 export type WorkspaceEducationTurnError =
   | WorkspaceInputError
-  | TurnLeaseMissingError
   | TurnLeaseConflictError
   | WorkspacePersistenceError
   | DbError

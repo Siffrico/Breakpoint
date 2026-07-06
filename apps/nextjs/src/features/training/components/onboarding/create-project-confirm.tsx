@@ -61,7 +61,7 @@ export function CreateProjectConfirm({
   onApprove: (approvalId: string) => void;
   onDeny: (approvalId: string) => void;
   /** Fires training.setStartingPoint when the learner overrides the tier. */
-  onChangeStartingPoint?: (tier: StartingPointTier) => void;
+  onChangeStartingPoint?: (tier: StartingPointTier) => Promise<unknown>;
 }) {
   const toolPart = part as CreateProjectToolPart;
   const approvalId = toolPart.approval?.id;
@@ -115,8 +115,11 @@ export function CreateProjectConfirm({
     const nextIndex =
       (TIER_CYCLE.indexOf(effectiveTier) + 1) % TIER_CYCLE.length;
     const next = TIER_CYCLE[nextIndex] ?? "fundamentals";
+    const previousOverride = tierOverride;
     setTierOverride(next);
-    onChangeStartingPoint?.(next);
+    void onChangeStartingPoint?.(next).catch(() => {
+      setTierOverride(previousOverride);
+    });
   };
 
   return (

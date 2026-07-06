@@ -4,19 +4,19 @@ import type { db as databaseClient } from "@acme/db/client";
 import { and, eq } from "@acme/db";
 import { TrainingUnitRun, TrainingWorkspaceTurn } from "@acme/db/schema";
 
+import type { JobRatingState } from "../domain/training/engine/rating";
 import type { DifficultyBand } from "../domain/training/types/training.types";
 import type { WorkspaceAiMessage } from "../domain/training/workspace-ai/types";
 import type { WorkspaceTurnOrchestrationDependencies } from "../domain/training/workspace-ai/workspace-turn-orchestration";
 import type { WorkspaceEducationTurnCommit } from "../domain/training/workspace-ai/workspace-turn-persistence";
-import type { JobRatingState } from "../domain/training/engine/rating";
 import {
   recordEvaluation,
   resolveScenarioDirective,
 } from "../domain/training/orchestration/goldilocks";
 import { WorkspaceTurnRepo } from "../domain/training/workspace-ai/workspace-turn-repo";
 import { makeDbError } from "../effect/db";
-import { resolvePlanSeedRating } from "./plan-seed-rating";
 import { memoryRepository } from "./memory-repository";
+import { resolvePlanSeedRating } from "./plan-seed-rating";
 import { trainingAttemptRepository } from "./training-attempt-repository";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
 import { trainingOnboardingRepository } from "./training-onboarding-repository";
@@ -36,14 +36,9 @@ const assertWorkspaceTurnLease = async ({
 }: {
   db: Database;
   sessionId: string;
-  turnId?: string | null;
-  leaseId?: string | null;
+  turnId: string;
+  leaseId: string;
 }) => {
-  if (!turnId) return;
-  if (!leaseId) {
-    throw new Error("Workspace turn lease is missing.");
-  }
-
   const [leasedTurn] = await db
     .update(TrainingWorkspaceTurn)
     .set({
@@ -74,15 +69,12 @@ const markWorkspaceTurnCompleted = async ({
 }: {
   db: Database;
   sessionId: string;
-  turnId?: string | null;
-  leaseId?: string | null;
+  turnId: string;
+  leaseId: string;
   assistantMessage: WorkspaceAiMessage;
   userMessage?: WorkspaceAiMessage | null;
 }) => {
-  if (!turnId || !assistantMessage.id) return;
-  if (!leaseId) {
-    throw new Error("Workspace turn lease is missing.");
-  }
+  if (!assistantMessage.id) return;
 
   await db
     .update(TrainingWorkspaceTurn)
@@ -185,9 +177,6 @@ const commitEducationTurn = async ({
 
     let presentedScenarioAttemptId: string | null = null;
     if (input.scenarioPresentation) {
-      if (!input.turnId) {
-        throw new Error("Scenario presentation requires a durable turn id.");
-      }
       const unitRun = await txDb.query.TrainingUnitRun.findFirst({
         where: and(
           eq(TrainingUnitRun.sessionId, input.nextRun.sessionId),
@@ -220,14 +209,12 @@ const commitEducationTurn = async ({
       const solveAttemptId =
         input.solvePresentation.scenarioAttemptId ?? presentedScenarioAttemptId;
       if (!solveAttemptId) {
-        throw new Error(
-          "Solve presentation has no scenario attempt to stamp.",
-        );
+        throw new Error("Solve presentation has no scenario attempt to stamp.");
       }
       await trainingRatingRepository.stampSolvePresentation({
         db: txDb,
         scenarioAttemptId: solveAttemptId,
-        solvePromptTurnId: input.turnId ?? null,
+        solvePromptTurnId: input.turnId,
         presentedAt: input.solvePresentation.presentedAt,
       });
     }
@@ -350,96 +337,106 @@ export const createWorkspaceTurnRepositoryDeps = (
   };
 
   return {
-  getActivePlan: (sessionId: string) =>
-    trainingCurriculumRepository.getActivePlan({ db, sessionId }),
-  listMessages: (sessionId: string, slot?: "education_unit" | "recall") =>
-    trainingOnboardingRepository.listWorkspaceMessages({
-      db,
-      sessionId,
-      slot,
-    }),
-  getWorkspaceSummary: (sessionId: string, slot: "education_unit" | "recall") =>
-    trainingOnboardingRepository.getWorkspaceSummary({
-      db,
-      sessionId,
-      slot,
-    }),
-  upsertWorkspaceSummary: (payload) =>
-    trainingOnboardingRepository.upsertWorkspaceSummary({
-      db,
-      ...payload,
-    }),
-  claimWorkspaceTurn: (payload) =>
-    trainingOnboardingRepository.claimWorkspaceTurn({
-      db,
-      ...payload,
-    }),
-  appendMessage: (payload) =>
-    trainingOnboardingRepository.appendWorkspaceMessage({
-      db,
-      ...payload,
-    }),
-  listPhaseResponsesBySession: (sessionId: string) =>
-    trainingCurriculumRepository.listPhaseResponsesBySession({
-      db,
-      sessionId,
-    }),
-  getPhaseResponses: (unitContentId: string, sessionId: string) =>
-    trainingCurriculumRepository.getPhaseResponses({
-      db,
-      unitContentId,
-      sessionId,
-    }),
-  getUnitRun: (sessionId: string, unitContentId: string) =>
-    trainingUnitRunRepository.getUnitRun({
-      db,
-      sessionId,
-      unitContentId,
-    }),
-  getInFlightRecallRun: (sessionId: string) =>
-    trainingUnitRunRepository.getInFlightRecallRun({ db, sessionId }),
-  getUnitByNodeId: (nodeId: string) =>
-    trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),
-  listRecallCandidates: (planId: string) =>
-    trainingSyllabusRepository.listRecallCandidates({ db, planId }),
-  markWorkspaceTurnFailed: (input) => markWorkspaceTurnFailed({ db, ...input }),
-  listMemories: async (userId: string) => {
-    const result = await memoryRepository.listByUserId({
-      db,
-      userId,
-    });
-
-    return result.success ? result.data : [];
-  },
-  getUnitSyllabusContext: (unitNodeId: string) =>
-    trainingSyllabusRepository.getUnitContext({ db, unitNodeId }),
-  resolveDifficultyDirective: ({
-    userId,
-    nodeId,
-    now,
-    bands,
-  }: {
-    userId: string;
-    nodeId: string;
-    now: Date;
-    bands?: readonly DifficultyBand[] | null;
-  }) =>
-    getSeed(nodeId).then((seed) =>
-      resolveScenarioDirective({
-        userId,
-        nodeId,
-        now,
-        bands,
-        initialRatingState: seed ?? undefined,
-        deps: createTrainingRatingGoldilocksDeps(db),
+    getActivePlan: (sessionId: string) =>
+      trainingCurriculumRepository.getActivePlan({ db, sessionId }),
+    listMessages: (sessionId: string, slot?: "education_unit" | "recall") =>
+      trainingOnboardingRepository.listWorkspaceMessages({
+        db,
+        sessionId,
+        slot,
       }),
-    ),
-  getScenarioAttempt: ({ scenarioAttemptId, userId, nodeId }) =>
-    trainingRatingRepository.getOpenScenarioById({
-      db,
-      scenarioAttemptId,
+    getWorkspaceSummary: (
+      sessionId: string,
+      slot: "education_unit" | "recall",
+    ) =>
+      trainingOnboardingRepository.getWorkspaceSummary({
+        db,
+        sessionId,
+        slot,
+      }),
+    upsertWorkspaceSummary: (payload) =>
+      trainingOnboardingRepository.upsertWorkspaceSummary({
+        db,
+        ...payload,
+      }),
+    claimWorkspaceTurn: (payload) =>
+      trainingOnboardingRepository.claimWorkspaceTurn({
+        db,
+        ...payload,
+      }),
+    appendMessage: (payload) =>
+      trainingOnboardingRepository.appendWorkspaceMessage({
+        db,
+        ...payload,
+      }),
+    listPhaseResponsesBySession: (sessionId: string) =>
+      trainingCurriculumRepository.listPhaseResponsesBySession({
+        db,
+        sessionId,
+      }),
+    getPhaseResponses: (unitContentId: string, sessionId: string) =>
+      trainingCurriculumRepository.getPhaseResponses({
+        db,
+        unitContentId,
+        sessionId,
+      }),
+    getUnitRun: (sessionId: string, unitContentId: string) =>
+      trainingUnitRunRepository.getUnitRun({
+        db,
+        sessionId,
+        unitContentId,
+      }),
+    getInFlightRecallRun: (sessionId: string) =>
+      trainingUnitRunRepository.getInFlightRecallRun({ db, sessionId }),
+    retireInFlightRecallRun: (sessionId: string, unitContentId: string) =>
+      trainingUnitRunRepository.retireInFlightRecallRun({
+        db,
+        sessionId,
+        unitContentId,
+      }),
+    getUnitByNodeId: (nodeId: string) =>
+      trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),
+    listRecallCandidates: (planId: string) =>
+      trainingSyllabusRepository.listRecallCandidates({ db, planId }),
+    markWorkspaceTurnFailed: (input) =>
+      markWorkspaceTurnFailed({ db, ...input }),
+    listMemories: async (userId: string) => {
+      const result = await memoryRepository.listByUserId({
+        db,
+        userId,
+      });
+
+      return result.success ? result.data : [];
+    },
+    getUnitSyllabusContext: (unitNodeId: string) =>
+      trainingSyllabusRepository.getUnitContext({ db, unitNodeId }),
+    resolveDifficultyDirective: ({
       userId,
       nodeId,
-    }),
+      now,
+      bands,
+    }: {
+      userId: string;
+      nodeId: string;
+      now: Date;
+      bands?: readonly DifficultyBand[] | null;
+    }) =>
+      getSeed(nodeId).then((seed) =>
+        resolveScenarioDirective({
+          userId,
+          nodeId,
+          now,
+          bands,
+          initialRatingState: seed ?? undefined,
+          deps: createTrainingRatingGoldilocksDeps(db),
+        }),
+      ),
+    getScenarioAttempt: ({ scenarioAttemptId, userId, nodeId }) =>
+      trainingRatingRepository.getOpenScenarioById({
+        db,
+        scenarioAttemptId,
+        userId,
+        nodeId,
+      }),
   };
 };

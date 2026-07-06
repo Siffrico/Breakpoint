@@ -4,7 +4,10 @@ import { z } from "zod/v4";
 
 import type { CurriculumNode, StartingPointTier } from "@acme/validators";
 import { sql } from "@acme/db";
-import { CapstoneSubmissionSchema, StartingPointTierSchema } from "@acme/validators";
+import {
+  CapstoneSubmissionSchema,
+  StartingPointTierSchema,
+} from "@acme/validators";
 
 import { deriveProvisionalProjectTitle } from "../domain/training/services/provisional-project-title";
 import { mintNextUnit } from "../domain/training/unit-minting/mint-next-unit";
@@ -67,7 +70,7 @@ const STARTING_POINT_OVERRIDE_LABEL: Record<StartingPointTier, string> = {
 const SubmitAiWorkspaceMessageSchema = z.object({
   sessionId: z.string().uuid(),
   message: z.string().min(1).max(8_000),
-  turnId: z.string().min(1).max(96).optional(),
+  turnId: z.string().min(1).max(96),
   attemptTiming: z
     .object({
       elapsedSeconds: z.number().int(),
@@ -695,6 +698,12 @@ export const trainingRouter = {
               db: ctx.db,
               sessionId,
             }),
+          retireInFlightRecallRun: (sessionId, unitContentId) =>
+            trainingUnitRunRepository.retireInFlightRecallRun({
+              db: ctx.db,
+              sessionId,
+              unitContentId,
+            }),
           getUnitByNodeId: (nodeId) =>
             trainingCurriculumRepository.getUnitByNodeId({
               db: ctx.db,
@@ -741,7 +750,7 @@ export const trainingRouter = {
           sessionId: input.sessionId,
           userId: ctx.session.user.id,
           message: input.message,
-          turnId: input.turnId ?? null,
+          turnId: input.turnId,
           deps: createWorkspaceTurnRepositoryDeps(ctx.db),
           workspaceTurnRepoLayer: workspaceTurnRepoLayer(ctx.db),
         });
@@ -980,34 +989,29 @@ export const trainingRouter = {
           sessionId: input.sessionId,
           deps: {
             getHomeState: async (sessionId) => {
-              const [
-                profile,
-                plan,
-                summary,
-                attemptHistory,
-                nodeScores,
-              ] = await Promise.all([
-                trainingOnboardingRepository.getProfileBySession({
-                  db: ctx.db,
-                  sessionId,
-                }),
-                trainingCurriculumRepository.getActivePlan({
-                  db: ctx.db,
-                  sessionId,
-                }),
-                trainingAttemptRepository.getHomeSummary({
-                  db: ctx.db,
-                  sessionId,
-                }),
-                trainingAttemptRepository.listAttemptHistory({
-                  db: ctx.db,
-                  sessionId,
-                }),
-                trainingAttemptRepository.listNodeScoresBySession({
-                  db: ctx.db,
-                  sessionId,
-                }),
-              ]);
+              const [profile, plan, summary, attemptHistory, nodeScores] =
+                await Promise.all([
+                  trainingOnboardingRepository.getProfileBySession({
+                    db: ctx.db,
+                    sessionId,
+                  }),
+                  trainingCurriculumRepository.getActivePlan({
+                    db: ctx.db,
+                    sessionId,
+                  }),
+                  trainingAttemptRepository.getHomeSummary({
+                    db: ctx.db,
+                    sessionId,
+                  }),
+                  trainingAttemptRepository.listAttemptHistory({
+                    db: ctx.db,
+                    sessionId,
+                  }),
+                  trainingAttemptRepository.listNodeScoresBySession({
+                    db: ctx.db,
+                    sessionId,
+                  }),
+                ]);
 
               if (!profile || !plan || !summary) {
                 return null;

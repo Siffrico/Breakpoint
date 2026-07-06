@@ -21,13 +21,12 @@ import {
   lastAssistantMessageIsCompleteWithToolCalls,
 } from "ai";
 
-import type { StartingPointTier } from "@acme/validators";
-
 import type { RouterOutputs } from "@acme/api";
 import type {
   OnboardingChatUIMessage,
   ProjectBuildState,
 } from "@acme/api/onboarding-chat";
+import type { StartingPointTier } from "@acme/validators";
 import { Button } from "@acme/ui/button";
 import {
   ChatComposer,
@@ -750,7 +749,7 @@ export function OnboardingShell({
                           <CreateProjectConfirm
                             key={`${message.id}-confirm-${partIndex}`}
                             part={part}
-                            busy={isStreaming}
+                            busy={isStreaming || setStartingPoint.isPending}
                             onApprove={(approvalId) =>
                               void addToolApprovalResponse({
                                 id: approvalId,
@@ -766,7 +765,7 @@ export function OnboardingShell({
                             onChangeStartingPoint={
                               sessionId
                                 ? (tier: StartingPointTier) =>
-                                    setStartingPoint.mutate({
+                                    setStartingPoint.mutateAsync({
                                       sessionId,
                                       tier,
                                     })
