@@ -8,7 +8,7 @@ import type {
   CurriculumPlan,
   UnitContent,
 } from "../types/training.types";
-import type { MintNextUnitError } from "../unit-minting/mint-next-unit";
+import type { CreateNextUnitError } from "../unit-creation/create-next-unit";
 import { err, ok } from "../../../lib/result";
 import { decideMasteryProgression } from "../engine/plan-progression";
 import { assertUnitCanAdvance } from "../workspace-ai/workspace-turn";
@@ -28,11 +28,11 @@ interface AdvanceCompletedUnitDependencies {
   withTransaction: <A>(
     run: (deps: AdvanceCompletedUnitTransactionDependencies) => Promise<A>,
   ) => Promise<A>;
-  mintUnit: (input: {
+  createUnit: (input: {
     clusterNodeId: string;
     sessionId: string;
     userId: string;
-  }) => Effect.Effect<unknown, MintNextUnitError>;
+  }) => Effect.Effect<unknown, CreateNextUnitError>;
   /** Resolves null when the cluster has no skill map (legacy/imported plans). */
   getMasteryState: (input: {
     clusterNodeId: string;
@@ -52,12 +52,12 @@ interface AdvanceCompletedUnitDependencies {
   /**
    * Keeps the serverless function alive until the task settles (Next.js
    * `after`). Without it the runtime freezes the instance once the response
-   * is sent, killing the mint mid-generation.
+   * is sent, killing the unit creation mid-generation.
    */
   scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }
 
-const isTransientMintFailure = (error: DbError | MintNextUnitError): boolean =>
+const isTransientUnitCreationFailure = (error: DbError | CreateNextUnitError): boolean =>
   error._tag === "DbError" ||
   error._tag === "UnitPersistError" ||
   (error._tag === "UnitScaffoldError" &&
@@ -99,7 +99,7 @@ export const advanceCompletedUnitWorkflow = async ({
 
   if (completed.node.kind === "unit" && completed.node.parentNodeId) {
     const clusterNodeId = completed.node.parentNodeId;
-    const mint = Effect.gen(function* () {
+    const createNextUnitTask = Effect.gen(function* () {
       const userId = completed.run.userId;
       if (!userId) {
         yield* Effect.logError("Unit run has no learner id.", {
@@ -112,11 +112,11 @@ export const advanceCompletedUnitWorkflow = async ({
         userId,
       });
       // Legacy plans have no skill map; completeNode already ran list
-      // advancement for them, so there is nothing to mint here.
+      // advancement for them, so there is nothing to create here.
       if (!state) return;
       const decision = decideMasteryProgression(state);
-      if (decision.intent === "mint") {
-        yield* deps.mintUnit({
+      if (decision.intent === "create_unit") {
+        yield* deps.createUnit({
           clusterNodeId,
           sessionId,
           userId,
@@ -130,10 +130,10 @@ export const advanceCompletedUnitWorkflow = async ({
           Schedule.jittered,
         ),
         times: 3,
-        while: isTransientMintFailure,
+        while: isTransientUnitCreationFailure,
       }),
       Effect.tapCause((cause) =>
-        Effect.logError("mint failed permanently", {
+        Effect.logError("unit creation failed permanently", {
           clusterNodeId,
           cause,
         }),
@@ -142,11 +142,11 @@ export const advanceCompletedUnitWorkflow = async ({
 
     // Failures are already logged via tapCause; ignore them here so the
     // background runner never rejects.
-    const runMint = () => Effect.runPromise(Effect.ignore(mint));
+    const runUnitCreation = () => Effect.runPromise(Effect.ignore(createNextUnitTask));
     if (deps.scheduleBackgroundTask) {
-      deps.scheduleBackgroundTask(runMint);
+      deps.scheduleBackgroundTask(runUnitCreation);
     } else {
-      void runMint();
+      void runUnitCreation();
     }
   }
 

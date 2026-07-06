@@ -10,7 +10,7 @@ import {
 } from "@acme/validators";
 
 import { deriveProvisionalProjectTitle } from "../domain/training/services/provisional-project-title";
-import { mintNextUnit } from "../domain/training/unit-minting/mint-next-unit";
+import { createNextUnit } from "../domain/training/unit-creation/create-next-unit";
 import { UnitNotReadyError } from "../domain/training/unit-preparation/errors";
 import { raiseUnitPreparationError } from "../domain/training/unit-preparation/prepare-unit-edge";
 import { advanceCompletedUnitWorkflow } from "../domain/training/workflows/advance-completed-unit-workflow";
@@ -38,10 +38,10 @@ import { trainingRatingRepository } from "../repositories/training-rating-reposi
 import { trainingSyllabusRepository } from "../repositories/training-syllabus-repository";
 import { trainingUnitRunRepository } from "../repositories/training-unit-run-repository";
 import {
-  createUnitMintingRepositoryDeps,
+  createUnitCreationRepositoryDeps,
   loadSkillMasteryState,
   openSkillSimulation,
-} from "../repositories/unit-minting-repository-deps";
+} from "../repositories/unit-creation-repository-deps";
 import { createUnitPreparationRepositoryDeps } from "../repositories/unit-preparation-repository-deps";
 import {
   createWorkspaceTurnRepositoryDeps,
@@ -536,7 +536,7 @@ export const trainingRouter = {
       if (!title) return [];
 
       const planNodes = projectNodesBySessionId.get(session.id) ?? [];
-      // Newest-first, like a chat history: the most recently minted unit is the
+      // Newest-first, like a chat history: the most recently created unit is the
       // live one, so it must be inside the default window. Capped at 10 — the
       // sidebar's "Show more" ceiling.
       const learningNodes = planNodes
@@ -915,10 +915,10 @@ export const trainingRouter = {
                     }),
                 });
               }),
-            mintUnit: ({ clusterNodeId, sessionId, userId }) =>
-              mintNextUnit({
+            createUnit: ({ clusterNodeId, sessionId, userId }) =>
+              createNextUnit({
                 clusterNodeId,
-                deps: createUnitMintingRepositoryDeps({
+                deps: createUnitCreationRepositoryDeps({
                   db: ctx.db,
                   sessionId,
                   userId,

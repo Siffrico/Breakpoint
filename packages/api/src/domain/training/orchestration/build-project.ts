@@ -301,7 +301,7 @@ export interface BuildProjectDeps {
     clusterNodeId: string;
     targetIdentity: string;
   }) => Promise<unknown>;
-  mintSkillUnit: (input: {
+  createSkillUnit: (input: {
     clusterNodeId: string;
     sessionId: string;
     userId: string;
@@ -988,7 +988,7 @@ export const buildProjectFromOnboarding = async ({
           targetIdentity: plan.targetIdentity,
         });
         if (userId) {
-          await deps.mintSkillUnit({
+          await deps.createSkillUnit({
             clusterNodeId: skill.id,
             sessionId,
             userId,

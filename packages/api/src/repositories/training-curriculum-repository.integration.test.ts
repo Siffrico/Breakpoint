@@ -15,7 +15,7 @@ import {
   TrainingUnitContent,
 } from "@acme/db/schema";
 
-import { appendMintedUnitNode } from "./training-curriculum-node-writer";
+import { appendDynamicUnitNode } from "./training-curriculum-node-writer";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
 import { trainingSyllabusRepository } from "./training-syllabus-repository";
 
@@ -235,7 +235,7 @@ describe("trainingSyllabusRepository persistence", () => {
 
       const target = first[0];
       if (!target) throw new Error("Expected a syllabus entry.");
-      const minted = await appendMintedUnitNode({
+      const created = await appendDynamicUnitNode({
         db,
         clusterNodeId: cluster.id,
         title: target.label,
@@ -248,15 +248,15 @@ describe("trainingSyllabusRepository persistence", () => {
         ],
         targetEntryIds: [target.id],
       });
-      expect(minted.created).toBe(true);
-      expect(minted.node.parentNodeId).toBe(cluster.id);
+      expect(created.created).toBe(true);
+      expect(created.node.parentNodeId).toBe(cluster.id);
 
       const result = await trainingSyllabusRepository.checkOffEntries({
         db,
         clusterNodeId: cluster.id,
         requestedEntryIds: [target.id, "00000000-0000-0000-0000-000000000000"],
         targetedEntryIds: [target.id],
-        evidenceNodeId: minted.node.id,
+        evidenceNodeId: created.node.id,
       });
       expect(result.checked).toEqual([target.id]);
       expect(result.deferred).toEqual(["00000000-0000-0000-0000-000000000000"]);
@@ -265,7 +265,7 @@ describe("trainingSyllabusRepository persistence", () => {
         where: eq(TrainingSyllabusEntry.id, target.id),
       });
       expect(persisted?.status).toBe("checked");
-      expect(persisted?.evidenceNodeId).toBe(minted.node.id);
+      expect(persisted?.evidenceNodeId).toBe(created.node.id);
     },
     20_000,
   );

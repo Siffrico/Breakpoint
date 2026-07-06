@@ -6,25 +6,25 @@ import {
   planAdvancement,
   planCompletion,
   rollUpParentStatus,
-  usesMintedMasteryLoop,
+  usesDynamicMasteryLoop,
 } from "./plan-progression";
 
-describe("usesMintedMasteryLoop", () => {
+describe("usesDynamicMasteryLoop", () => {
   it("keeps legacy and imported units on list advancement", () => {
     expect(
-      usesMintedMasteryLoop({ nodeKind: "unit", parentHasSkillMap: false }),
+      usesDynamicMasteryLoop({ nodeKind: "unit", parentHasSkillMap: false }),
     ).toBe(false);
   });
 
-  it("routes dynamic skill units through minting", () => {
+  it("routes dynamic skill units through the creation loop", () => {
     expect(
-      usesMintedMasteryLoop({ nodeKind: "unit", parentHasSkillMap: true }),
+      usesDynamicMasteryLoop({ nodeKind: "unit", parentHasSkillMap: true }),
     ).toBe(true);
   });
 
   it("keeps legacy simulations on list advancement", () => {
     expect(
-      usesMintedMasteryLoop({
+      usesDynamicMasteryLoop({
         nodeKind: "simulation",
         parentHasSkillMap: false,
       }),
@@ -33,7 +33,7 @@ describe("usesMintedMasteryLoop", () => {
 
   it("routes dynamic skill simulations through the mastery loop", () => {
     expect(
-      usesMintedMasteryLoop({
+      usesDynamicMasteryLoop({
         nodeKind: "simulation",
         parentHasSkillMap: true,
       }),
@@ -42,7 +42,7 @@ describe("usesMintedMasteryLoop", () => {
 });
 
 describe("decideMasteryProgression", () => {
-  it("keeps minting while knowledge remains unchecked", () => {
+  it("keeps creating units while knowledge remains unchecked", () => {
     expect(
       decideMasteryProgression({
         uncheckedEntryCount: 1,
@@ -51,10 +51,10 @@ describe("decideMasteryProgression", () => {
         peakRating: 1600,
         simulationPassed: false,
       }),
-    ).toEqual({ intent: "mint" });
+    ).toEqual({ intent: "create_unit" });
   });
 
-  it("keeps minting until peak performance is stable", () => {
+  it("keeps creating units until peak performance is stable", () => {
     expect(
       decideMasteryProgression({
         uncheckedEntryCount: 0,
@@ -63,7 +63,7 @@ describe("decideMasteryProgression", () => {
         peakRating: 1600,
         simulationPassed: false,
       }),
-    ).toEqual({ intent: "mint" });
+    ).toEqual({ intent: "create_unit" });
   });
 
   it("opens the simulation only after syllabus and rating gates pass", () => {

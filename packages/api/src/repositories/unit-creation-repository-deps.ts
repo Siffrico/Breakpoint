@@ -4,7 +4,7 @@ import type { db as databaseClient } from "@acme/db/client";
 import { and, desc, eq, ne } from "@acme/db";
 import { TrainingCurriculumNode } from "@acme/db/schema";
 
-import type { MintNextUnitDependencies } from "../domain/training/unit-minting/mint-next-unit";
+import type { CreateNextUnitDependencies } from "../domain/training/unit-creation/create-next-unit";
 import {
   createInitialRatingState,
   expandSkillBands,
@@ -14,7 +14,7 @@ import { resolveScenarioDirective } from "../domain/training/orchestration/goldi
 import { prepareUnitContent } from "../domain/training/unit-preparation/prepare-unit-content";
 import { queryWithClient } from "../effect/db";
 import { resolvePlanSeedRating } from "./plan-seed-rating";
-import { appendMintedUnitNode } from "./training-curriculum-node-writer";
+import { appendDynamicUnitNode } from "./training-curriculum-node-writer";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
 import { createTrainingRatingGoldilocksDeps } from "./training-rating-goldilocks-deps";
 import { trainingRatingRepository } from "./training-rating-repository";
@@ -24,7 +24,7 @@ import { createUnitPreparationRepositoryDeps } from "./unit-preparation-reposito
 type Database = typeof databaseClient;
 type NodeRow = typeof TrainingCurriculumNode.$inferSelect;
 
-export const createUnitMintingRepositoryDeps = ({
+export const createUnitCreationRepositoryDeps = ({
   db,
   sessionId,
   userId,
@@ -32,9 +32,9 @@ export const createUnitMintingRepositoryDeps = ({
   db: Database;
   sessionId: string;
   userId: string;
-}): MintNextUnitDependencies<NodeRow> => {
+}): CreateNextUnitDependencies<NodeRow> => {
   // One seed lookup per node, cached for the life of this deps factory, so a
-  // multi-touch mint pays for at most one extra query. Fail-closed: a null seed
+  // multi-touch unit creation pays for at most one extra query. Fail-closed: a null seed
   // means the goldilocks engine uses its policy default.
   const seedCache = new Map<string, Promise<JobRatingState | null>>();
   const getSeed = (nodeId: string) => {
@@ -47,7 +47,7 @@ export const createUnitMintingRepositoryDeps = ({
 
   return {
   loadSkill: (clusterNodeId) =>
-    queryWithClient(db, "loadSkillForUnitMinting", async () => {
+    queryWithClient(db, "loadSkillForUnitCreation", async () => {
       const cluster = await db.query.TrainingCurriculumNode.findFirst({
         where: eq(TrainingCurriculumNode.id, clusterNodeId),
       });
@@ -81,7 +81,7 @@ export const createUnitMintingRepositoryDeps = ({
       };
     }),
   resolveDirective: (clusterNodeId) =>
-    queryWithClient(db, "resolveUnitMintingDirective", async () => {
+    queryWithClient(db, "resolveUnitCreationDirective", async () => {
       const cluster = await db.query.TrainingCurriculumNode.findFirst({
         where: eq(TrainingCurriculumNode.id, clusterNodeId),
       });
@@ -98,11 +98,11 @@ export const createUnitMintingRepositoryDeps = ({
       });
     }),
   appendUnit: (input) =>
-    queryWithClient(db, "appendMintedUnit", () =>
-      appendMintedUnitNode({ db, ...input }),
+    queryWithClient(db, "appendDynamicUnit", () =>
+      appendDynamicUnitNode({ db, ...input }),
     ),
   hasUnitContent: (nodeId) =>
-    queryWithClient(db, "hasMintedUnitContent", async () =>
+    queryWithClient(db, "hasDynamicUnitContent", async () =>
       Boolean(
         await trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),
       ),

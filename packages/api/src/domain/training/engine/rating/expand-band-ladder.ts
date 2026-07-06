@@ -84,7 +84,7 @@ const BAND_LABELS = [
   "Adversarial · transfer case",
 ] as const;
 
-/** One canonical ladder for a dynamically minted skill and all of its units. */
+/** One canonical ladder for a dynamically created skill and all of its units. */
 export const expandSkillBands = (ramp: BandRamp): DifficultyBand[] => {
   if (ramp.peakRating <= ramp.startRating) {
     throw new RangeError(

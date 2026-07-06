@@ -51,10 +51,10 @@ const masteredRun = {
 } satisfies PersistedUnitRun;
 
 describe("advanceCompletedUnitWorkflow", () => {
-  it("commits immediately and mints the next unit in the background", async () => {
+  it("commits immediately and creates the next unit in the background", async () => {
     const events: string[] = [];
-    const mintUnit = vi.fn(() => {
-      events.push("mint");
+    const createUnit = vi.fn(() => {
+      events.push("create_unit");
       return Effect.void;
     });
 
@@ -77,7 +77,7 @@ describe("advanceCompletedUnitWorkflow", () => {
           events.push("transaction:commit");
           return value;
         },
-        mintUnit,
+        createUnit,
         getMasteryState: () =>
           Effect.succeed({
             uncheckedEntryCount: 3,
@@ -90,25 +90,25 @@ describe("advanceCompletedUnitWorkflow", () => {
       },
     });
 
-    await vi.waitFor(() => expect(mintUnit).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(createUnit).toHaveBeenCalledOnce());
 
     expect(result).toEqual({
       success: true,
       data: { advanced: true, nextReadyNode: null },
     });
-    expect(mintUnit).toHaveBeenCalledWith({
+    expect(createUnit).toHaveBeenCalledWith({
       clusterNodeId: "cluster-1",
       sessionId: "session-1",
       userId: "user-1",
     });
-    expect(events).toEqual(["transaction:start", "transaction:commit", "mint"]);
+    expect(events).toEqual(["transaction:start", "transaction:commit", "create_unit"]);
   });
 
   it("skips the mastery loop quietly for legacy plans without a skill map", async () => {
     const consoleError = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
-    const mintUnit = vi.fn(() => Effect.void);
+    const createUnit = vi.fn(() => Effect.void);
     const openSimulation = vi.fn(() => Effect.void);
 
     const result = await advanceCompletedUnitWorkflow({
@@ -126,7 +126,7 @@ describe("advanceCompletedUnitWorkflow", () => {
             completeNode: () => Promise.resolve(nextNode),
             touchSession: () => Promise.resolve(),
           }),
-        mintUnit,
+        createUnit,
         getMasteryState: () => Effect.succeed(null),
         openSimulation,
       },
@@ -135,7 +135,7 @@ describe("advanceCompletedUnitWorkflow", () => {
     await vi.waitFor(() => expect(consoleError).not.toHaveBeenCalled());
 
     expect(result.success).toBe(true);
-    expect(mintUnit).not.toHaveBeenCalled();
+    expect(createUnit).not.toHaveBeenCalled();
     expect(openSimulation).not.toHaveBeenCalled();
     expect(consoleError).not.toHaveBeenCalled();
     consoleError.mockRestore();

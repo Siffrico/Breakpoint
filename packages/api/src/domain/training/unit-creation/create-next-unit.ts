@@ -20,7 +20,7 @@ export const sliceSyllabusFrontier = (
     .filter((entry) => entry.status === "unchecked")
     .slice(0, complexityBudget);
 
-const selectMintTargets = (
+const selectCreationTargets = (
   entries: readonly FrontierEntry[],
   complexityBudget: 1 | 2 | 3,
 ) => {
@@ -34,11 +34,11 @@ const selectMintTargets = (
 /**
  * Fallback-only. Rating reads resolve bands from the parent skill cluster
  * first (see `resolveRatingScope`), and every dynamic cluster is written with
- * bands at plan-build time, so this local ±180 ladder on the minted unit node
+ * bands at plan-build time, so this local ±180 ladder on the dynamically created unit node
  * is only consulted if a cluster somehow loses its bands. It is not the live
  * difficulty config — tune `expandSkillBands` / the cluster bands instead.
  */
-export const buildMintedDifficultyBands = (
+export const buildDynamicUnitDifficultyBands = (
   directive: Pick<ScenarioDirective, "targetItemRating">,
 ) => {
   const center = directive.targetItemRating;
@@ -64,7 +64,7 @@ export const buildMintedDifficultyBands = (
   ];
 };
 
-export interface MintNextUnitDependencies<TNode> {
+export interface CreateNextUnitDependencies<TNode> {
   loadSkill: (clusterNodeId: string) => Effect.Effect<
     {
       title: string;
@@ -86,7 +86,7 @@ export interface MintNextUnitDependencies<TNode> {
     title: string;
     summary: string;
     whyItMatters: string;
-    difficultyBands: ReturnType<typeof buildMintedDifficultyBands>;
+    difficultyBands: ReturnType<typeof buildDynamicUnitDifficultyBands>;
     targetEntryIds: string[];
   }) => Effect.Effect<{ node: TNode; created: boolean }, DbError>;
   hasUnitContent: (nodeId: string) => Effect.Effect<boolean, DbError>;
@@ -99,24 +99,24 @@ export class SkillClusterNotFoundError extends Data.TaggedError(
   "SkillClusterNotFoundError",
 )<{ readonly clusterNodeId: string }> {}
 
-export type MintNextUnitError =
+export type CreateNextUnitError =
   | DbError
   | UnitPreparationError
   | SkillClusterNotFoundError;
 
 /**
- * Takes a skill frontier, produces its open or newly minted unit, and fails
+ * Takes a skill frontier, produces its open or newly created unit, and fails
  * only when the skill is missing or its database/scaffold preparation fails.
  */
-export const mintNextUnit = <TNode extends { id: string }>({
+export const createNextUnit = <TNode extends { id: string }>({
   clusterNodeId,
   complexityBudget = 2,
   deps,
 }: {
   clusterNodeId: string;
   complexityBudget?: 1 | 2 | 3;
-  deps: MintNextUnitDependencies<TNode>;
-}): Effect.Effect<TNode | null, MintNextUnitError> =>
+  deps: CreateNextUnitDependencies<TNode>;
+}): Effect.Effect<TNode | null, CreateNextUnitError> =>
   Effect.gen(function* () {
     const skill = yield* deps.loadSkill(clusterNodeId);
     if (!skill) {
@@ -128,7 +128,7 @@ export const mintNextUnit = <TNode extends { id: string }>({
       return skill.openUnit;
     }
 
-    const targets = selectMintTargets(skill.entries, complexityBudget);
+    const targets = selectCreationTargets(skill.entries, complexityBudget);
     if (targets.length === 0) return null;
     const calibrated = yield* deps.resolveDirective(clusterNodeId);
     const persisted = yield* deps.appendUnit({
@@ -136,7 +136,7 @@ export const mintNextUnit = <TNode extends { id: string }>({
       title: `Practice ${targets.map((entry) => entry.label).join(" and ")}`,
       summary: `Practice ${targets.map((entry) => entry.gloss).join(" ")}`,
       whyItMatters: skill.whyItMatters,
-      difficultyBands: buildMintedDifficultyBands(calibrated.directive),
+      difficultyBands: buildDynamicUnitDifficultyBands(calibrated.directive),
       targetEntryIds: targets.map((entry) => entry.id),
     });
     if (persisted.created) yield* deps.prepareUnitEffect(persisted.node);

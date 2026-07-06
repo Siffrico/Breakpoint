@@ -29,7 +29,7 @@ Difficulty and pedagogy:
 
 Critical output constraint:
 - Do not enumerate, outline, title, or imply education units.
-- Units are minted downstream from a search-grounded syllabus and current Goldilocks difficulty state.
+- Units are created downstream from a search-grounded syllabus and current Goldilocks difficulty state.
 - Do not emit integration layers. Cross-skill integration belongs in later orchestration, not this skill map.
 
 Identity and before/after:

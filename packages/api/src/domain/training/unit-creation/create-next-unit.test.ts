@@ -2,10 +2,10 @@ import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  buildMintedDifficultyBands,
-  mintNextUnit,
+  buildDynamicUnitDifficultyBands,
+  createNextUnit,
   sliceSyllabusFrontier,
-} from "./mint-next-unit";
+} from "./create-next-unit";
 
 const entry = (id: string, status = "unchecked") => ({
   id,
@@ -26,9 +26,9 @@ describe("sliceSyllabusFrontier", () => {
   });
 });
 
-describe("buildMintedDifficultyBands", () => {
+describe("buildDynamicUnitDifficultyBands", () => {
   it("centers the unit ladder on the Goldilocks directive", () => {
-    expect(buildMintedDifficultyBands({ targetItemRating: 1200 })[1]).toEqual({
+    expect(buildDynamicUnitDifficultyBands({ targetItemRating: 1200 })[1]).toEqual({
       order: 1,
       minRating: 1140,
       maxRating: 1260,
@@ -46,13 +46,13 @@ const openSkill = {
   openUnit,
 };
 
-describe("mintNextUnit", () => {
+describe("createNextUnit", () => {
   it("resumes preparation when an open unit has no content", async () => {
     const prepareUnitEffect = vi.fn(() => Effect.void);
     const appendUnit = vi.fn();
 
     const result = await Effect.runPromise(
-      mintNextUnit({
+      createNextUnit({
         clusterNodeId: "cluster-1",
         deps: {
           loadSkill: () => Effect.succeed(openSkill),
@@ -74,7 +74,7 @@ describe("mintNextUnit", () => {
     const prepareUnitEffect = vi.fn(() => Effect.void);
 
     const result = await Effect.runPromise(
-      mintNextUnit({
+      createNextUnit({
         clusterNodeId: "cluster-1",
         deps: {
           loadSkill: () => Effect.succeed(openSkill),

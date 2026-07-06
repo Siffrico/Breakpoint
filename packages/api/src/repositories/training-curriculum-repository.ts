@@ -26,7 +26,7 @@ import type {
 import {
   planAdvancement,
   planCompletion,
-  usesMintedMasteryLoop,
+  usesDynamicMasteryLoop,
 } from "../domain/training/engine/plan-progression";
 import { insertBlueprintNodes } from "./training-curriculum-node-writer";
 
@@ -943,7 +943,7 @@ export const trainingCurriculumRepository = {
       : null;
     if (
       node &&
-      usesMintedMasteryLoop({
+      usesDynamicMasteryLoop({
         nodeKind: node.kind as CurriculumNodeKind,
         parentHasSkillMap: Boolean(parent?.skillMap),
       })

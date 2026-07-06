@@ -7,7 +7,7 @@ import type { BuildProjectDeps } from "../domain/training/orchestration/build-pr
 import { designSyllabus } from "../domain/training/agents/syllabus-designer";
 import { decideMasteryProgression } from "../domain/training/engine/plan-progression";
 import { ArtifactBuildError } from "../domain/training/orchestration/agent-runtime";
-import { mintNextUnit } from "../domain/training/unit-minting/mint-next-unit";
+import { createNextUnit } from "../domain/training/unit-creation/create-next-unit";
 import { runPrepareUnit } from "../domain/training/unit-preparation/prepare-unit-edge";
 import { buildProjectCheckpointRepository } from "./build-project-checkpoint-repository";
 import { buildProjectCurriculumRepository } from "./build-project-curriculum-repository";
@@ -16,10 +16,10 @@ import { trainingCurriculumRepository } from "./training-curriculum-repository";
 import { trainingOnboardingRepository } from "./training-onboarding-repository";
 import { trainingSyllabusRepository } from "./training-syllabus-repository";
 import {
-  createUnitMintingRepositoryDeps,
+  createUnitCreationRepositoryDeps,
   loadSkillMasteryState,
   openSkillSimulation,
-} from "./unit-minting-repository-deps";
+} from "./unit-creation-repository-deps";
 import { createUnitPreparationRepositoryDeps } from "./unit-preparation-repository-deps";
 
 type Database = typeof databaseClient;
@@ -69,9 +69,9 @@ export const ensureSkillUnit = async ({
   userId: string;
 }) =>
   Effect.runPromise(
-    mintNextUnit({
+    createNextUnit({
       clusterNodeId,
-      deps: createUnitMintingRepositoryDeps({ db, sessionId, userId }),
+      deps: createUnitCreationRepositoryDeps({ db, sessionId, userId }),
     }),
   );
 
@@ -136,7 +136,7 @@ export const recoverSkillUnits = async ({
     const mastery = await loadSkillMasteryState({ db, clusterNodeId, userId });
     if (!mastery) return;
     const decision = decideMasteryProgression(mastery);
-    if (decision.intent === "mint") {
+    if (decision.intent === "create_unit") {
       await ensureSkillUnit({ db, clusterNodeId, sessionId, userId });
     } else if (decision.intent === "simulation") {
       await openSkillSimulation({ db, clusterNodeId });
@@ -318,6 +318,6 @@ export const createBuildProjectDeps = (db: Database): BuildProjectDeps => ({
       deps: createUnitPreparationRepositoryDeps(db),
     }),
   ensureSkillSyllabus: (input) => ensureSkillSyllabus({ db, ...input }),
-  mintSkillUnit: ({ clusterNodeId, sessionId, userId }) =>
+  createSkillUnit: ({ clusterNodeId, sessionId, userId }) =>
     ensureSkillUnit({ db, clusterNodeId, sessionId, userId }),
 });

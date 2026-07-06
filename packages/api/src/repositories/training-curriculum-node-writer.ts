@@ -60,7 +60,7 @@ export const insertBlueprintNodes = async ({
   return insertedNodes;
 };
 
-export const appendMintedUnitNode = async ({
+export const appendDynamicUnitNode = async ({
   db,
   clusterNodeId,
   title,
@@ -92,7 +92,7 @@ export const appendMintedUnitNode = async ({
     });
     if (!cluster) throw new Error("Skill cluster was not found.");
     await transactionDb.execute(
-      sql`select pg_advisory_xact_lock(hashtext(${cluster.planId}), hashtext('mint-unit-order'))`,
+      sql`select pg_advisory_xact_lock(hashtext(${cluster.planId}), hashtext('create-unit-order'))`,
     );
 
     const open = await transactionDb.query.TrainingCurriculumNode.findFirst({
@@ -131,7 +131,7 @@ export const appendMintedUnitNode = async ({
         positionRow: Math.max(latestSibling?.positionRow ?? 1, 1) + 1,
       })
       .returning();
-    if (!node) throw new Error("Minted unit could not be persisted.");
+    if (!node) throw new Error("Dynamic unit could not be persisted.");
 
     await transactionDb
       .update(TrainingSyllabusEntry)

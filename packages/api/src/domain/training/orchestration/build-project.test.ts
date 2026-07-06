@@ -269,7 +269,7 @@ const makeDeps = (
     ensureSkillSyllabus: vi.fn<BuildProjectDeps["ensureSkillSyllabus"]>(() =>
       Promise.resolve(),
     ),
-    mintSkillUnit: vi.fn<BuildProjectDeps["mintSkillUnit"]>(() =>
+    createSkillUnit: vi.fn<BuildProjectDeps["createSkillUnit"]>(() =>
       Promise.resolve(),
     ),
   };
@@ -325,8 +325,8 @@ describe("buildProjectFromOnboarding", () => {
 
     expect(result.success).toBe(true);
     expect(deps.ensureSkillSyllabus).toHaveBeenCalledTimes(skills.length);
-    expect(deps.mintSkillUnit).toHaveBeenCalledTimes(skills.length);
-    expect(deps.mintSkillUnit).toHaveBeenCalledWith({
+    expect(deps.createSkillUnit).toHaveBeenCalledTimes(skills.length);
+    expect(deps.createSkillUnit).toHaveBeenCalledWith({
       clusterNodeId: "skill-3",
       sessionId: "session-id",
       userId: "user-id",
