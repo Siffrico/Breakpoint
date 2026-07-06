@@ -16,11 +16,19 @@
 
 // The canonical schema lives in @acme/validators (shared with the DB column's
 // .$type<>()), so the persisted contract and the agent contract cannot drift.
-import type { UnitScenarioSpec } from "@acme/validators";
+// Two shapes: ScenarioSpec is what the agent emits through recordScenarioSpec
+// (no pass — the model never decides which pass it is on); ScenarioSpecRecord
+// is the persisted form with the pass stamped by the orchestrator, so the
+// context builder can tell pass 1's spec from pass 2's.
+import type {
+  UnitScenarioSpec,
+  UnitScenarioSpecRecord,
+} from "@acme/validators";
 import { UnitScenarioSpecSchema } from "@acme/validators";
 
 export const ScenarioSpecSchema = UnitScenarioSpecSchema;
 export type ScenarioSpec = UnitScenarioSpec;
+export type ScenarioSpecRecord = UnitScenarioSpecRecord;
 
 /**
  * Renders a prior-pass spec into the "avoid these dimensions" constraint block

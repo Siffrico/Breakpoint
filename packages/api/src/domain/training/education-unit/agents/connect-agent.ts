@@ -42,6 +42,9 @@ On this opening turn, call recordScenarioSpec once with the target skill (the
 transferable reasoning ability, not the surface topic), the surface (this
 scenario's disposable framing), the canonical answer, the concise reasoning
 path, and the grading rubric. Then call continuePhase with reason="prompted".
+This pairing is a hard rule for BOTH passes: any turn where you call
+continuePhase with reason="prompted" (you are presenting a scenario) must also
+call recordScenarioSpec for that scenario in the same turn.
 
 If the context contains a "## Transfer constraint (pass 2)" block, obey it:
 keep the same target skill, invent a NEW surface that does not reuse the listed

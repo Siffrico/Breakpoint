@@ -154,6 +154,18 @@ export const UnitScenarioSpecSchema = z.object({
   rubric: z.string().min(1),
 });
 
+/**
+ * The persisted form of a ScenarioSpec: the agent-emitted spec plus the pass
+ * it was recorded on, stamped by the orchestrator (never by the model). The
+ * pass tag lets the context builder tell "pass 1's spec — render the pass-2
+ * transfer constraint" apart from "pass 2's own spec — render the grading
+ * reference". Optional only for rows written before the tag existed; an
+ * untagged spec is treated as pass 1's.
+ */
+export const UnitScenarioSpecRecordSchema = UnitScenarioSpecSchema.extend({
+  pass: z.union([z.literal(1), z.literal(2)]).optional(),
+});
+
 /** The calibrated-difficulty snapshot stored on a unit run. */
 export const UnitDifficultySnapshotSchema = z.object({
   nodeId: z.string(),
@@ -824,6 +836,9 @@ export type UnitDifficultySnapshot = z.infer<
   typeof UnitDifficultySnapshotSchema
 >;
 export type UnitScenarioSpec = z.infer<typeof UnitScenarioSpecSchema>;
+export type UnitScenarioSpecRecord = z.infer<
+  typeof UnitScenarioSpecRecordSchema
+>;
 export type CurriculumNode = z.infer<typeof CurriculumNodeSchema>;
 export type ProjectOverview = z.infer<typeof ProjectOverviewSchema>;
 export type ProjectOverviewSummary = z.infer<

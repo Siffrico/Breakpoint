@@ -15,7 +15,7 @@ import { Data, Effect } from "effect";
 import type { PhaseAgentError } from "./agents/errors";
 import type { PhaseAgentOutput } from "./agents/output-schema";
 import type { PhaseAgentResult } from "./agents/run-phase-agent";
-import type { ScenarioSpec } from "./scenario-spec";
+import type { ScenarioSpecRecord } from "./scenario-spec";
 import type { UnitEvent, UnitRecipe, UnitState } from "./unit";
 import {
   GradeSolutionInputSchema,
@@ -51,6 +51,12 @@ export interface UnitTurnInput {
   contextBlock: string;
   /** Prior conversation for this unit, oldest first. */
   transcript: readonly ModelMessage[];
+  /**
+   * The spec already stored on the run, pass-tagged. Used only to enforce
+   * that a pass-2 Solve is never presented without a grading spec: either
+   * one recorded this turn or a stored pass-2 one. Defaults to null.
+   */
+  storedScenarioSpec?: ScenarioSpecRecord | null;
 }
 
 export interface UnitTurnResult {
@@ -76,11 +82,12 @@ export interface UnitTurnResult {
   ratingWrite: { score: number; errorCodes: readonly string[] } | null;
   syllabusCheckOff: { entryIds: string[]; evidence: string } | null;
   /**
-   * The ScenarioSpec the connect agent reverse-engineered when it posed the
-   * scenario. Null on every turn that doesn't record one — persistence
-   * coalesces null onto the stored spec, so it is preserved, not wiped.
+   * The ScenarioSpec the posing agent reverse-engineered this turn, stamped
+   * with the pass it was recorded on. Null on every turn that doesn't record
+   * one — persistence coalesces null onto the stored spec, so it is
+   * preserved, not wiped.
    */
-  scenarioSpec: ScenarioSpec | null;
+  scenarioSpec: ScenarioSpecRecord | null;
 }
 
 export type UnitPhaseRunner = (
@@ -217,13 +224,15 @@ const readSolveGrade = (
 
 const readScenarioSpec = (
   result: PhaseAgentResult<PhaseAgentOutput>,
-): ScenarioSpec | null => {
+  pass: UnitState["pass"],
+): ScenarioSpecRecord | null => {
   const call = result.toolCalls.find(
     (c) => c.toolName === "recordScenarioSpec",
   );
   if (!call) return null;
   const parsed = ScenarioSpecSchema.safeParse(call.input);
-  return parsed.success ? parsed.data : null;
+  // The pass is stamped here, from durable state — the model never sets it.
+  return parsed.success ? { ...parsed.data, pass } : null;
 };
 
 /**
@@ -263,6 +272,42 @@ export const runUnitTurn = (
       );
     }
     const { event, reasoning } = yield* resolveEvent(state, result);
+    const recordedSpec = readScenarioSpec(result, state.pass);
+
+    // A "prompted" continue is the turn that presents a task. Two invariants
+    // hang off that moment, enforced the same way a scored Solve verdict is —
+    // failing loudly instead of silently degrading a later pass:
+    //   - Connect posing a scenario MUST record its ScenarioSpec: pass 1's is
+    //     pass 2's transfer constraint, pass 2's is the eval answer key.
+    //   - A pass-2 Solve MUST have a pass-2 grading spec (recorded this turn
+    //     on recall, or already stored by pass-2 Connect) — otherwise the eval
+    //     agent would grade against the wrong scenario's canonical answer.
+    const posesTask =
+      event.type === "phase_continues" && event.reason === "prompted";
+    if (state.phase === "connect" && posesTask && !recordedSpec) {
+      return yield* Effect.fail(
+        new EducationUnitContractError({
+          message:
+            "The connect agent posed a scenario without recording a valid ScenarioSpec.",
+        }),
+      );
+    }
+    const storedSpec = input.storedScenarioSpec ?? null;
+    const gradingSpec =
+      recordedSpec ?? (storedSpec?.pass === 2 ? storedSpec : null);
+    if (
+      state.phase === "solve" &&
+      state.pass === 2 &&
+      posesTask &&
+      !gradingSpec
+    ) {
+      return yield* Effect.fail(
+        new EducationUnitContractError({
+          message:
+            "A pass-2 Solve was presented without a pass-2 ScenarioSpec to grade against.",
+        }),
+      );
+    }
 
     // Capture the force-advance signal BEFORE transition wipes connectGrills.
     const forcedConnectAdvance =
@@ -303,6 +348,6 @@ export const runUnitTurn = (
       gradeReasoning: reasoning,
       ratingWrite,
       syllabusCheckOff,
-      scenarioSpec: readScenarioSpec(result),
+      scenarioSpec: recordedSpec,
     };
   });

@@ -1,8 +1,9 @@
+import { index, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
+
 import type {
   UnitDifficultySnapshot,
-  UnitScenarioSpec,
+  UnitScenarioSpecRecord,
 } from "@acme/validators";
-import { index, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
 
 import { user } from "../../auth-schema";
 import { TrainingCurriculumNode } from "./curriculum";
@@ -16,7 +17,7 @@ import { TrainingOnboardingSession } from "./onboarding";
 export type TrainingUnitDifficultySnapshotJson = UnitDifficultySnapshot;
 
 /** The persisted ScenarioSpec column type; canonical schema in @acme/validators. */
-export type TrainingUnitScenarioSpecJson = UnitScenarioSpec;
+export type TrainingUnitScenarioSpecJson = UnitScenarioSpecRecord;
 
 export interface TrainingUnitMasteryContractJson {
   version: 1;

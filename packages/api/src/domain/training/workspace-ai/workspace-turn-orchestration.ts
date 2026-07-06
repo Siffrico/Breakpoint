@@ -243,25 +243,22 @@ const claimTurnAndLoadTranscript = ({
       ],
       { concurrency: 2 },
     );
-    const messages =
-      appendSyntheticUserMessage
-        ? [
-            ...persistedMessages,
-            {
-              role: "user" as const,
-              content: message,
-              sequence:
-                Math.max(
-                  -1,
-                  ...persistedMessages.map((item) => item.sequence),
-                ) + 1,
-              slot,
-              unitId,
-              turnId,
-              metadata: null,
-            },
-          ]
-        : persistedMessages;
+    const messages = appendSyntheticUserMessage
+      ? [
+          ...persistedMessages,
+          {
+            role: "user" as const,
+            content: message,
+            sequence:
+              Math.max(-1, ...persistedMessages.map((item) => item.sequence)) +
+              1,
+            slot,
+            unitId,
+            turnId,
+            metadata: null,
+          },
+        ]
+      : persistedMessages;
     const summarizeModel = getAiModelForPurpose("recall");
     const compaction = summarizeModel
       ? yield* persistPromise("compactWorkspaceTranscript", () =>
@@ -459,6 +456,7 @@ export const runEducationUnitTurn = ({
       recipe,
       contextBlock,
       transcript: toModelMessages(loadedTranscript.transcript),
+      storedScenarioSpec: unitRun.scenarioSpec,
     });
     // Check-offs ride the atomic turn commit (lease-guarded), never the outer
     // connection — a lost lease or failed commit must not leave phantom mastery.

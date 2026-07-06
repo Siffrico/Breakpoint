@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { PhaseAgentOutput } from "./agents/output-schema";
 import type { PhaseAgentResult } from "./agents/run-phase-agent";
-import type { UnitPhaseRunner } from "./orchestrate-unit-turn";
+import type { UnitPhaseRunner, UnitTurnInput } from "./orchestrate-unit-turn";
 import type { UnitState } from "./unit";
 import {
   AgentProviderRejectedError,
@@ -31,10 +31,19 @@ const phaseResult = (
   toolCalls,
 });
 
+const specInput = (surface: string) => ({
+  targetSkill: "Separate correlation from causation",
+  surface,
+  canonicalAnswer: "Demand a discriminating prediction.",
+  reasoningPath: "Name both hypotheses, find the differing observable.",
+  rubric: "Passes when the answer cites a discriminating observable.",
+});
+
 const runWithResult = (
   state: UnitState,
   result: PhaseAgentResult<PhaseAgentOutput>,
   transcript: readonly ModelMessage[] = [],
+  storedScenarioSpec: UnitTurnInput["storedScenarioSpec"] = null,
 ) =>
   Effect.runPromise(
     runUnitTurn(
@@ -43,6 +52,7 @@ const runWithResult = (
         recipe,
         contextBlock: "## Context\nDeterministic test context",
         transcript,
+        storedScenarioSpec,
       },
       { runPhase: () => Effect.succeed(result) },
     ),
@@ -53,6 +63,7 @@ describe("runUnitTurn contract", () => {
     const script = [
       phaseResult("Orient the learner."),
       phaseResult("Here is the connection scenario.", [
+        { toolName: "recordScenarioSpec", input: specInput("A slow release") },
         { toolName: "continuePhase", input: { reason: "prompted" } },
       ]),
       phaseResult("You reconstructed the connection.", [
@@ -72,6 +83,10 @@ describe("runUnitTurn contract", () => {
       ]),
       phaseResult("Teach the underlying concept."),
       phaseResult("Here is a transfer scenario.", [
+        {
+          toolName: "recordScenarioSpec",
+          input: specInput("A flaky churn dashboard"),
+        },
         { toolName: "continuePhase", input: { reason: "prompted" } },
       ]),
       phaseResult("The transfer connection is correct.", [
@@ -111,11 +126,19 @@ describe("runUnitTurn contract", () => {
       ["mastered", 2],
     ] as const;
 
+    // Mirrors persistence: a recorded spec overwrites, null coalesces onto
+    // the stored one.
+    let storedSpec: UnitTurnInput["storedScenarioSpec"] = null;
     let state = initialState("unit-1", "education-unit-v1");
     for (const [index, result] of script.entries()) {
-      const turn = await runWithResult(state, result);
+      const turn = await runWithResult(state, result, [], storedSpec);
       const [phase, pass] = expectedStates[index] ?? [];
       expect(turn.nextState).toMatchObject({ phase, pass });
+      if (turn.scenarioSpec) {
+        // The orchestrator stamps the pass the spec was recorded on.
+        expect(turn.scenarioSpec.pass).toBe(state.pass);
+        storedSpec = turn.scenarioSpec;
+      }
       expect(turn.assistantMessage).toBe(result.object.assistantMessage);
       expect(turn.ratingWrite).toEqual(
         index === script.length - 1 ? { score: 93, errorCodes: [] } : null,
@@ -248,6 +271,59 @@ describe("runUnitTurn contract", () => {
       score: 64,
       errorCodes: ["poor_problem_representation"],
     });
+  });
+
+  it("rejects a Connect scenario posed without a recorded ScenarioSpec", async () => {
+    await expect(
+      runWithResult(
+        { ...initialState("unit-1", "education-unit-v1"), phase: "connect" },
+        phaseResult("Here is the scenario.", [
+          { toolName: "continuePhase", input: { reason: "prompted" } },
+        ]),
+      ),
+    ).rejects.toBeInstanceOf(EducationUnitContractError);
+  });
+
+  it("rejects a pass-2 Solve presented without a pass-2 grading spec", async () => {
+    const state: UnitState = {
+      ...initialState("unit-1", "education-unit-v1"),
+      phase: "solve",
+      pass: 2,
+    };
+    const posing = phaseResult("Solve the transfer case.", [
+      { toolName: "continuePhase", input: { reason: "prompted" } },
+    ]);
+
+    // No spec stored at all.
+    await expect(runWithResult(state, posing)).rejects.toBeInstanceOf(
+      EducationUnitContractError,
+    );
+
+    // Only pass 1's spec stored — the wrong answer key, so still rejected.
+    await expect(
+      runWithResult(state, posing, [], {
+        ...specInput("A slow release"),
+        pass: 1,
+      }),
+    ).rejects.toBeInstanceOf(EducationUnitContractError);
+
+    // A stored pass-2 spec (the normal flow) is accepted.
+    const normal = await runWithResult(state, posing, [], {
+      ...specInput("A flaky churn dashboard"),
+      pass: 2,
+    });
+    expect(normal.nextState).toMatchObject({ phase: "solve", pass: 2 });
+
+    // A spec recorded on the posing turn itself (the recall opening) is
+    // accepted and comes back stamped with pass 2.
+    const recall = await runWithResult(
+      { ...state, recipeVersion: "recall-v1" },
+      phaseResult("Recall checkpoint scenario.", [
+        { toolName: "recordScenarioSpec", input: specInput("A recall case") },
+        { toolName: "continuePhase", input: { reason: "prompted" } },
+      ]),
+    );
+    expect(recall.scenarioSpec).toMatchObject({ pass: 2 });
   });
 
   const invalidCases: {

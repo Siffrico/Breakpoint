@@ -14,7 +14,7 @@
 //     signal forward as `pendingConnectTeach`.
 
 import type { UnitContent } from "../types/training.types";
-import type { ScenarioSpec } from "./scenario-spec";
+import type { ScenarioSpecRecord } from "./scenario-spec";
 import type { LoopPolicy, UnitState } from "./unit";
 import {
   renderEvalRubricContext,
@@ -50,11 +50,12 @@ export interface UnitTurnContextInput {
    */
   pendingConnectTeach: boolean;
   /**
-   * The spec stored on the run (pass 1's, when we are in pass 2). Drives the
-   * pass-2 transfer constraint (connect) and the eval rubric (solve). Null on
-   * pass 1 or before any spec has been recorded.
+   * The spec stored on the run, tagged with the pass it was recorded on
+   * (untagged legacy rows count as pass 1). Drives the pass-2 transfer
+   * constraint (connect, pass-1 spec only) and the eval grading reference
+   * (solve, pass-2 spec only). Null before any spec has been recorded.
    */
-  scenarioSpec: ScenarioSpec | null;
+  scenarioSpec: ScenarioSpecRecord | null;
   syllabus: {
     workflow: { name: string; steps: readonly string[] };
     checked: readonly { label: string; gloss: string }[];
@@ -162,12 +163,18 @@ export const buildUnitTurnContext = (input: UnitTurnContextInput): string => {
     );
   }
 
-  // Pass-2 reuse of pass-1's spec: the connect agent must vary the surface off
-  // the recorded one; the eval agent (pass-2 solve) grades against its rubric.
+  // Pass-2 use of the recorded spec, gated on WHICH pass recorded it:
+  //   - connect only sees pass 1's spec as a "vary the surface" constraint.
+  //     Once pass-2 connect records its own spec, the constraint disappears —
+  //     rendering it would ban the very surface the agent is grilling on.
+  //   - solve (the eval agent) only grades against pass 2's spec. Pass 1's
+  //     canonical answer belongs to a different scenario; grading against it
+  //     would score the learner on the wrong answer key, so it is never shown.
   if (state.pass === 2 && input.scenarioSpec) {
-    if (state.phase === "connect") {
+    const specPass = input.scenarioSpec.pass ?? 1;
+    if (state.phase === "connect" && specPass === 1) {
       sections.push(renderPriorSurfaceConstraint(input.scenarioSpec));
-    } else if (state.phase === "solve") {
+    } else if (state.phase === "solve" && specPass === 2) {
       sections.push(renderEvalRubricContext(input.scenarioSpec));
     }
   }

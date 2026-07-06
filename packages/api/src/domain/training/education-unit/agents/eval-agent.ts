@@ -22,7 +22,11 @@ import type { PhaseAgentError } from "./errors";
 import type { PhaseAgentOutput } from "./output-schema";
 import type { PhaseAgentResult } from "./run-phase-agent";
 import { ERROR_CLASSIFICATION_PROTOCOL } from "../../prompts/shared-instructions";
-import { continuePhase, gradeSolution } from "../../workspace-ai/fsm-tools";
+import {
+  continuePhase,
+  gradeSolution,
+  recordScenarioSpec,
+} from "../../workspace-ai/fsm-tools";
 import { checkOffSyllabus } from "./check-off-syllabus.tool";
 import { PhaseAgentOutputSchema } from "./output-schema";
 import { runPhaseAgent } from "./run-phase-agent";
@@ -40,6 +44,17 @@ pass at best, because this pass exists to prove transfer of the skill.
 
 If the learner has not yet been asked to produce the transfer solution, pose it
 and call continuePhase with reason="prompted".
+
+If the context contains a "## Recall focus" block and NO "## Grading reference"
+block, you are opening a spaced-recall checkpoint: no Connect ran, so no spec
+exists yet. On that opening turn, first reverse-engineer the scenario from the
+answer outward — decide the canonical answer, the concise reasoning path, and
+the grading rubric for the recall focus skill — and call recordScenarioSpec
+once with them (targetSkill = the recall focus skill, surface = this scenario's
+disposable framing). Then pose the scenario and call continuePhase with
+reason="prompted". Every later grading turn will receive that spec back as the
+"## Grading reference" block — grade against it, never against a standard you
+invent fresh mid-conversation.
 
 On an answer:
   - Correct AND the reasoning demonstrates the target skill: call gradeSolution
@@ -72,6 +87,11 @@ export const runEvalAgent = (
     messages,
     schema: PhaseAgentOutputSchema,
     schemaName: "eval_output",
-    tools: { continuePhase, gradeSolution, checkOffSyllabus },
+    tools: {
+      continuePhase,
+      gradeSolution,
+      checkOffSyllabus,
+      recordScenarioSpec,
+    },
     errorMessage: "Failed to run the Eval step.",
   });

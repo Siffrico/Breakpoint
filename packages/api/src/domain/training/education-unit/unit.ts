@@ -12,7 +12,11 @@
 //
 // Pass 1 READS difficulty from Goldilocks. Pass 2 READS and WRITES it.
 
-import type { UnitDifficultySnapshot, UnitScenarioSpec } from "@acme/validators";
+import type {
+  UnitDifficultySnapshot,
+  UnitScenarioSpecRecord,
+} from "@acme/validators";
+
 import type { RatingScope } from "../orchestration/rating-scope";
 
 // The calibrated-difficulty snapshot persisted on a unit run. Canonical
@@ -76,10 +80,13 @@ export type PersistedUnitRun = UnitState & {
   /** Set once by the first committed turn and reused for both passes. */
   difficultySnapshot: UnitDifficultySnapshot | null;
   /**
-   * The active ScenarioSpec. Replaceable — pass 1's spec is stored, then pass 2
-   * overwrites it after reading pass 1's as its "new surface" constraint.
+   * The active ScenarioSpec, tagged with the pass it was recorded on.
+   * Replaceable — pass 1's spec is stored, then pass 2 overwrites it after
+   * reading pass 1's as its "new surface" constraint. The pass tag is what
+   * stops pass 2's own spec from being re-rendered as a "do not reuse this
+   * surface" constraint against itself (see context.ts).
    */
-  scenarioSpec: UnitScenarioSpec | null;
+  scenarioSpec: UnitScenarioSpecRecord | null;
 };
 
 /**

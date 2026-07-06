@@ -104,6 +104,42 @@ describe("buildUnitTurnContext", () => {
     expect(atThreshold).toContain("MICRO-TEACH");
   });
 
+  it("gates the pass-2 spec blocks on which pass recorded the spec", () => {
+    const spec = (pass: 1 | 2 | undefined) => ({
+      targetSkill: "Separate correlation from causation",
+      surface: "A slow release",
+      canonicalAnswer: "Demand a discriminating prediction.",
+      reasoningPath: "Find the differing observable.",
+      rubric: "Cites a discriminating observable.",
+      pass,
+    });
+    const at = (phase: "connect" | "solve", specPass: 1 | 2 | undefined) =>
+      buildUnitTurnContext(
+        baseInput({
+          state: {
+            ...initialState("unit-1", "education-unit-v1"),
+            phase,
+            pass: 2,
+          },
+          scenarioSpec: spec(specPass),
+        }),
+      );
+
+    // Pass-2 connect varies the surface off pass 1's spec (untagged legacy
+    // specs count as pass 1) — but never off its own recorded spec.
+    expect(at("connect", 1)).toContain("## Transfer constraint (pass 2)");
+    expect(at("connect", undefined)).toContain(
+      "## Transfer constraint (pass 2)",
+    );
+    expect(at("connect", 2)).not.toContain("## Transfer constraint (pass 2)");
+
+    // Pass-2 solve grades only against pass 2's spec — pass 1's canonical
+    // answer belongs to a different scenario.
+    expect(at("solve", 2)).toContain("## Grading reference");
+    expect(at("solve", 1)).not.toContain("## Grading reference");
+    expect(at("solve", undefined)).not.toContain("## Grading reference");
+  });
+
   it("renders the workflow, assumed knowledge, and exact targets", () => {
     const context = buildUnitTurnContext(
       baseInput({
