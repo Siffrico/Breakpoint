@@ -1,5 +1,5 @@
 import type { db as databaseClient } from "@acme/db/client";
-import { and, eq } from "@acme/db";
+import { and, desc, eq, ne, sql } from "@acme/db";
 import { TrainingUnitRun } from "@acme/db/schema";
 
 import type {
@@ -7,7 +7,7 @@ import type {
   PersistedUnitRun,
   UnitPhase,
 } from "../domain/training/education-unit/unit";
-import { sql } from "@acme/db";
+import { RECALL_RECIPE_VERSION } from "../domain/training/education-unit/unit";
 
 type Database = typeof databaseClient;
 
@@ -86,6 +86,25 @@ export const trainingUnitRunRepository = {
     return row ? mapUnitRun(row) : null;
   },
 
+  getInFlightRecallRun: async ({
+    db,
+    sessionId,
+  }: {
+    db: Database;
+    sessionId: string;
+  }): Promise<PersistedUnitRun | null> => {
+    const row = await db.query.TrainingUnitRun.findFirst({
+      where: and(
+        eq(TrainingUnitRun.sessionId, sessionId),
+        eq(TrainingUnitRun.recipeVersion, RECALL_RECIPE_VERSION),
+        ne(TrainingUnitRun.phase, "mastered"),
+      ),
+      orderBy: [desc(TrainingUnitRun.updatedAt)],
+    });
+
+    return row ? mapUnitRun(row) : null;
+  },
+
   upsertUnitRun: async ({
     db,
     run,
@@ -135,8 +154,6 @@ export const trainingUnitRunRepository = {
     if (!row) {
       throw new Error("Unit run could not be saved.");
     }
-
-
     if (
       run.difficultySnapshot &&
       canonicalJson(row.difficultySnapshotJson) !==

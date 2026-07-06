@@ -185,6 +185,9 @@ const commitEducationTurn = async ({
 
     let presentedScenarioAttemptId: string | null = null;
     if (input.scenarioPresentation) {
+      if (!input.turnId) {
+        throw new Error("Scenario presentation requires a durable turn id.");
+      }
       const unitRun = await txDb.query.TrainingUnitRun.findFirst({
         where: and(
           eq(TrainingUnitRun.sessionId, input.nextRun.sessionId),
@@ -201,7 +204,7 @@ const commitEducationTurn = async ({
         await trainingRatingRepository.openEducationScenarioAttempt({
           db: txDb,
           unitRunId: unitRun.id,
-          originTurnId: input.turnId ?? null,
+          originTurnId: input.turnId,
           userId: presentation.userId,
           nodeId: presentation.nodeId,
           directive: presentation.snapshot.directive,
@@ -393,6 +396,8 @@ export const createWorkspaceTurnRepositoryDeps = (
       sessionId,
       unitContentId,
     }),
+  getInFlightRecallRun: (sessionId: string) =>
+    trainingUnitRunRepository.getInFlightRecallRun({ db, sessionId }),
   getUnitByNodeId: (nodeId: string) =>
     trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),
   listRecallCandidates: (planId: string) =>

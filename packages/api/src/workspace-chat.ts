@@ -112,9 +112,10 @@ const streamWorkspaceChatWithModelPreference = async ({
   signal?: AbortSignal;
 }) => {
   const trimmedMessage = message.trim();
-  // This layer owns the lease id; the education turn claims it and its
-  // finalizer releases it on failure. Pre-claim failures have nothing to free.
-  const effectiveLeaseId = turnId ? randomUUID() : null;
+  // Optionality ends at the transport boundary. Every turn gets a stable
+  // idempotency key and a lease, including clients that omit a turn id.
+  const effectiveTurnId = turnId ?? randomUUID();
+  const effectiveLeaseId = randomUUID();
   if (trimmedMessage.length < 2) {
     return new Response(
       "Write a fuller message so the AI can respond usefully.",
@@ -206,7 +207,7 @@ const streamWorkspaceChatWithModelPreference = async ({
         runEducationUnitTurn({
           sessionId,
           userId,
-          turnId,
+          turnId: effectiveTurnId,
           turnLeaseId: effectiveLeaseId,
           message,
           turn,

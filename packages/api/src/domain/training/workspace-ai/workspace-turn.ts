@@ -3,7 +3,10 @@ import { Cause, Effect, Exit } from "effect";
 
 import type { DbError } from "../../../effect/errors";
 import type { PersistedUnitRun } from "../education-unit/unit";
-import type { RecallTarget } from "../policies/recall-decay";
+import type {
+  RecallCandidateEntry,
+  RecallTarget,
+} from "../policies/recall-decay";
 import type {
   CurriculumNode,
   CurriculumPlan,
@@ -42,6 +45,13 @@ export interface ResolvedWorkspaceTurn {
   unitResponses: PhaseResponseRecord[];
   /** Set when this turn is a recall interlude: the skills to compose. */
   recallFocus: RecallTarget | null;
+}
+
+interface PlannedRecall {
+  target: RecallTarget;
+  node: CurriculumNode;
+  /** Present only when resuming the durable recall cursor. */
+  run: PersistedUnitRun | null;
 }
 
 export const getNextReadyLearningNode = (nodes: CurriculumNode[]) =>
@@ -174,6 +184,113 @@ export const resolvePlannedRecall = ({
   return node?.status === "completed" ? { target, node } : null;
 };
 
+const rehydrateRecallTarget = ({
+  entryIds,
+  candidates,
+}: {
+  entryIds: readonly string[];
+  candidates: readonly RecallCandidateEntry[];
+}): RecallTarget | null => {
+  const [primaryId, companionId, ...unexpectedIds] = entryIds;
+  if (!primaryId || unexpectedIds.length > 0) return null;
+
+  const primary = candidates.find((entry) => entry.id === primaryId);
+  const companion = companionId
+    ? (candidates.find((entry) => entry.id === companionId) ?? null)
+    : null;
+  if (!primary?.evidenceNodeId || (companionId && !companion)) return null;
+  if (companion && companion.clusterNodeId !== primary.clusterNodeId)
+    return null;
+
+  return {
+    clusterNodeId: primary.clusterNodeId,
+    evidenceNodeId: primary.evidenceNodeId,
+    primary,
+    companion,
+  };
+};
+
+const resolvePersistedRecall = ({
+  plan,
+  run,
+  responses,
+  candidates,
+}: {
+  plan: CurriculumPlan;
+  run: PersistedUnitRun;
+  responses: readonly PhaseResponseRecord[];
+  candidates: readonly RecallCandidateEntry[];
+}): PlannedRecall | null => {
+  const entryIds = [...responses]
+    .reverse()
+    .find((response) => response.metadata?.recallEntryIds)
+    ?.metadata?.recallEntryIds;
+  const target = entryIds
+    ? rehydrateRecallTarget({ entryIds, candidates })
+    : null;
+  if (!target) return null;
+
+  const node = plan.nodes.find((item) => item.id === target.evidenceNodeId);
+  return node?.status === "completed" ? { target, node, run } : null;
+};
+
+const loadPlannedRecall = ({
+  sessionId,
+  plan,
+  active,
+  inFlightRun,
+}: {
+  sessionId: string;
+  plan: CurriculumPlan;
+  active: NextReadyUnitProjection;
+  inFlightRun: PersistedUnitRun | null;
+}): EffectType.Effect<
+  PlannedRecall | null,
+  DbError,
+  WorkspaceProjectionReader
+> =>
+  Effect.gen(function* () {
+    const reader = yield* WorkspaceProjectionReader;
+    let candidates: Awaited<
+      ReturnType<WorkspaceProjectionReaderSource["listRecallCandidates"]>
+    > | null = null;
+
+    if (inFlightRun) {
+      const loaded = yield* Effect.all(
+        [
+          reader.getPhaseResponses(inFlightRun.unitId, sessionId),
+          reader.listRecallCandidates(plan.id),
+        ],
+        { concurrency: 2 },
+      );
+      candidates = loaded[1];
+      const resumed = resolvePersistedRecall({
+        plan,
+        run: inFlightRun,
+        responses: loaded[0],
+        candidates,
+      });
+      if (resumed) return resumed;
+    }
+
+    if (
+      isUnitMidFlight({
+        activeUnitResponses: active.responses,
+        activeUnitRun: active.run,
+      })
+    ) {
+      return null;
+    }
+
+    candidates ??= yield* reader.listRecallCandidates(plan.id);
+    const scheduled = resolvePlannedRecall({
+      plan,
+      candidates,
+      now: new Date(),
+    });
+    return scheduled ? { ...scheduled, run: null } : null;
+  });
+
 /**
  * Produces a run projection without materializing it. The first claimed-turn
  * commit owns creation of a missing durable run row.
@@ -282,10 +399,13 @@ export const resolveWorkspaceTurnEffect = ({
       });
     }
 
-    const active = yield* loadNextReadyUnitProjection({
-      sessionId,
-      nodes: plan.nodes,
-    });
+    const [active, inFlightRun] = yield* Effect.all(
+      [
+        loadNextReadyUnitProjection({ sessionId, nodes: plan.nodes }),
+        reader.getInFlightRecallRun(sessionId),
+      ],
+      { concurrency: 2 },
+    );
     if (active.node && !active.unit) {
       return yield* new UnitNotReadyError({
         message: "UNIT_PREPARING",
@@ -293,18 +413,12 @@ export const resolveWorkspaceTurnEffect = ({
       });
     }
 
-    // The decay query runs only at a unit boundary — mid-FSM turns never
-    // consider recall, so they never pay for the candidate read.
-    const plannedRecall = isUnitMidFlight({
-      activeUnitResponses: active.responses,
-      activeUnitRun: active.run,
-    })
-      ? null
-      : resolvePlannedRecall({
-          plan,
-          candidates: yield* reader.listRecallCandidates(plan.id),
-          now: new Date(),
-        });
+    const plannedRecall = yield* loadPlannedRecall({
+      sessionId,
+      plan,
+      active,
+      inFlightRun,
+    });
 
     const state = planWorkspaceTurn({
       nodes: plan.nodes,
@@ -344,7 +458,7 @@ export const resolveWorkspaceTurnEffect = ({
       ? resolveRecallRunProjection({
           sessionId,
           unit,
-          existing: yield* reader.getUnitRun(sessionId, unit.id),
+          existing: plannedRecall?.run ?? null,
         })
       : unit.id === active.unit?.id && active.run
         ? active.run
@@ -408,23 +522,20 @@ export const planNextWorkspaceTurn = async ({
   const exit = await Effect.runPromiseExit(
     Effect.gen(function* () {
       const reader = yield* WorkspaceProjectionReader;
-      const [allResponses, active] = yield* Effect.all(
+      const [allResponses, active, inFlightRun] = yield* Effect.all(
         [
           reader.listPhaseResponsesBySession(sessionId),
           loadNextReadyUnitProjection({ sessionId, nodes: plan.nodes }),
+          reader.getInFlightRecallRun(sessionId),
         ],
-        { concurrency: 2 },
+        { concurrency: 3 },
       );
-      const plannedRecall = isUnitMidFlight({
-        activeUnitResponses: active.responses,
-        activeUnitRun: active.run,
-      })
-        ? null
-        : resolvePlannedRecall({
-            plan,
-            candidates: yield* reader.listRecallCandidates(plan.id),
-            now: new Date(),
-          });
+      const plannedRecall = yield* loadPlannedRecall({
+        sessionId,
+        plan,
+        active,
+        inFlightRun,
+      });
       return planWorkspaceTurn({
         nodes: plan.nodes,
         allResponses,

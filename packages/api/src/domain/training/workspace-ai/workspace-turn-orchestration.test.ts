@@ -111,6 +111,7 @@ void test("a claimed, in-flight education turn is rejected before running the mo
     listPhaseResponsesBySession: () => fail("listPhaseResponsesBySession"),
     getPhaseResponses: () => fail("getPhaseResponses"),
     getUnitRun: () => fail("getUnitRun"),
+    getInFlightRecallRun: () => fail("getInFlightRecallRun"),
     upsertUnitRun: () => fail("upsertUnitRun"),
     getUnitByNodeId: () => fail("getUnitByNodeId"),
     listRecallCandidates: () => Promise.resolve([]),
@@ -300,6 +301,7 @@ void test("an education turn returns the committed assistant message", async () 
     listRecallCandidates: () => Promise.resolve([]),
     getPhaseResponses: () => Promise.resolve([]),
     getUnitRun: () => Promise.resolve(unitRun),
+    getInFlightRecallRun: () => Promise.resolve(null),
     upsertUnitRun: () => Promise.resolve(unitRun),
   } as unknown as WorkspaceTurnOrchestrationDependencies;
 

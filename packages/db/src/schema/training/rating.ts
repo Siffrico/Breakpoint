@@ -1,5 +1,6 @@
-import type { ScenarioDirective, SupportLevel } from "@acme/validators";
 import { index, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
+
+import type { ScenarioDirective, SupportLevel } from "@acme/validators";
 
 import { user } from "../../auth-schema";
 import { TrainingCurriculumNode } from "./curriculum";
@@ -167,7 +168,7 @@ export const TrainingScenarioAttempt = pgTable(
     itemRating: t.doublePrecision().notNull(),
     targetMisconceptionCode: t.varchar({ length: 160 }),
     supportLevel: t.varchar({ length: 32 }).notNull(),
-    /** Present only for education-unit attempts; one measured attempt per run. */
+    /** Present only for education-unit and recall attempts. */
     unitRunId: t
       .uuid()
       .references(() => TrainingUnitRun.id, { onDelete: "cascade" }),
@@ -188,8 +189,9 @@ export const TrainingScenarioAttempt = pgTable(
       table.status,
       table.createdAt,
     ),
-    uniqueIndex("becoming_training_scenario_attempt_unit_run_idx").on(
+    uniqueIndex("becoming_training_scenario_attempt_run_turn_idx").on(
       table.unitRunId,
+      table.originTurnId,
     ),
   ],
 );

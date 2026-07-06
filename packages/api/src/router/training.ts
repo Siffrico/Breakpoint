@@ -690,6 +690,11 @@ export const trainingRouter = {
               sessionId,
               unitContentId,
             }),
+          getInFlightRecallRun: (sessionId) =>
+            trainingUnitRunRepository.getInFlightRecallRun({
+              db: ctx.db,
+              sessionId,
+            }),
           getUnitByNodeId: (nodeId) =>
             trainingCurriculumRepository.getUnitByNodeId({
               db: ctx.db,

@@ -123,6 +123,7 @@ void test("saveUnitPhaseResult persists transitions and non-grading continuation
     listPhaseResponsesBySession: () => Promise.resolve([]),
     listMessages: () => Promise.resolve([]),
     getUnitRun: () => Promise.resolve(null),
+    getInFlightRecallRun: () => Promise.resolve(null),
     upsertUnitRun: legacyDirectRunWrite,
     getUnitByNodeId: () => Promise.resolve(unit),
     listRecallCandidates: () => Promise.resolve([]),

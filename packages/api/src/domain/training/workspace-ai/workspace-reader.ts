@@ -31,6 +31,9 @@ export interface WorkspaceProjectionReaderSource {
     sessionId: string,
     unitContentId: string,
   ) => Promise<PersistedUnitRun | null>;
+  readonly getInFlightRecallRun: (
+    sessionId: string,
+  ) => Promise<PersistedUnitRun | null>;
   readonly getUnitByNodeId: (nodeId: string) => Promise<UnitContent | null>;
   readonly listRecallCandidates: (
     planId: string,
@@ -51,6 +54,9 @@ export interface WorkspaceProjectionReaderShape {
   readonly getUnitRun: (
     sessionId: string,
     unitContentId: string,
+  ) => Effect.Effect<PersistedUnitRun | null, DbError>;
+  readonly getInFlightRecallRun: (
+    sessionId: string,
   ) => Effect.Effect<PersistedUnitRun | null, DbError>;
   readonly getUnitByNodeId: (
     nodeId: string,
@@ -80,6 +86,8 @@ export const makeWorkspaceProjectionReader = (
     ),
   getUnitRun: (sessionId, unitContentId) =>
     read("getUnitRun", () => source.getUnitRun(sessionId, unitContentId)),
+  getInFlightRecallRun: (sessionId) =>
+    read("getInFlightRecallRun", () => source.getInFlightRecallRun(sessionId)),
   getUnitByNodeId: (nodeId) =>
     read("getUnitByNodeId", () => source.getUnitByNodeId(nodeId)),
   listRecallCandidates: (planId) =>

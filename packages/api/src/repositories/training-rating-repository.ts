@@ -246,7 +246,7 @@ export const trainingRatingRepository = {
   }: {
     db: Database;
     unitRunId: string;
-    originTurnId: string | null;
+    originTurnId: string;
     userId: string;
     nodeId: string;
     directive: ScenarioDirective;
@@ -269,7 +269,12 @@ export const trainingRatingRepository = {
         scenarioPrompt,
         presentedAt,
       })
-      .onConflictDoNothing({ target: TrainingScenarioAttempt.unitRunId })
+      .onConflictDoNothing({
+        target: [
+          TrainingScenarioAttempt.unitRunId,
+          TrainingScenarioAttempt.originTurnId,
+        ],
+      })
       .returning();
 
     if (inserted) return inserted;
@@ -277,6 +282,7 @@ export const trainingRatingRepository = {
     const existing = await db.query.TrainingScenarioAttempt.findFirst({
       where: and(
         eq(TrainingScenarioAttempt.unitRunId, unitRunId),
+        eq(TrainingScenarioAttempt.originTurnId, originTurnId),
         eq(TrainingScenarioAttempt.userId, userId),
         eq(TrainingScenarioAttempt.nodeId, nodeId),
       ),
@@ -312,7 +318,9 @@ export const trainingRatingRepository = {
       .update(TrainingScenarioAttempt)
       .set({
         solvePresentedAt: sql<Date>`coalesce(${TrainingScenarioAttempt.solvePresentedAt}, ${presentedAt})`,
-        solvePromptTurnId: sql<string | null>`case when ${TrainingScenarioAttempt.solvePresentedAt} is null then ${solvePromptTurnId} else ${TrainingScenarioAttempt.solvePromptTurnId} end`,
+        solvePromptTurnId: sql<
+          string | null
+        >`case when ${TrainingScenarioAttempt.solvePresentedAt} is null then ${solvePromptTurnId} else ${TrainingScenarioAttempt.solvePromptTurnId} end`,
       })
       .where(
         and(
