@@ -5,6 +5,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { cn } from "@acme/ui";
 
+import { DotmCircular17 } from "../dotm-circular-17";
+
 const TEXT_RENDER_PACE_MS = 24;
 const TEXT_RENDER_SNAP = /[\s.,!?;:)\]]/;
 
@@ -12,8 +14,8 @@ function StreamingAnimationStyles() {
   return (
     <style>{`
       @keyframes bp-text-shimmer {
-        0% { background-position: 100% 0, 0 0; }
-        100% { background-position: 0% 0, 0 0; }
+        from { background-position: 200% 0; }
+        to { background-position: -200% 0; }
       }
     `}</style>
   );
@@ -126,40 +128,39 @@ export function TextShimmer({
   active?: boolean;
   className?: string;
 }) {
+  const reducedMotion = usePrefersReducedMotion();
+
+  // Inline text-clipping (not Tailwind classes) so the gradient is guaranteed
+  // to paint inside the glyphs. `-webkit-text-fill-color` hides the base fill
+  // while leaving the `color` property intact, so `currentColor` in the
+  // gradient still resolves to the surrounding theme color.
   return (
     <span
       className={cn(
-        "relative inline-grid whitespace-pre align-baseline font-[inherit] leading-[inherit]",
+        "select-none whitespace-pre align-baseline font-[inherit] leading-[inherit]",
         className,
       )}
       aria-label={text}
     >
       <StreamingAnimationStyles />
-      <span
-        aria-hidden="true"
-        className={cn(
-          "col-start-1 row-start-1 transition-opacity duration-200",
-          active ? "opacity-0 motion-reduce:opacity-100" : "opacity-100",
-        )}
-      >
-        {text}
-      </span>
-      <span
-        aria-hidden="true"
-        style={{
-          backgroundImage:
-            "linear-gradient(90deg, transparent 30%, currentColor 50%, transparent 70%), linear-gradient(currentColor, currentColor)",
-          backgroundSize: "360% 100%, 100% 100%",
-        }}
-        className={cn(
-          "col-start-1 row-start-1 bg-clip-text text-transparent transition-opacity duration-200 [-webkit-text-fill-color:transparent] motion-reduce:animate-none motion-reduce:bg-none motion-reduce:text-current motion-reduce:[-webkit-text-fill-color:currentColor]",
-          active
-            ? "animate-[bp-text-shimmer_1.2s_linear_infinite] opacity-100"
-            : "opacity-0",
-        )}
-      >
-        {text}
-      </span>
+      {active && !reducedMotion ? (
+        <span
+          aria-hidden="true"
+          style={{
+            backgroundImage:
+              "linear-gradient(90deg, color-mix(in srgb, currentColor 45%, transparent) 42%, currentColor 50%, color-mix(in srgb, currentColor 45%, transparent) 58%)",
+            backgroundSize: "200% 100%",
+            WebkitBackgroundClip: "text",
+            backgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+            animation: "bp-text-shimmer 1.6s linear infinite",
+          }}
+        >
+          {text}
+        </span>
+      ) : (
+        <span aria-hidden="true">{text}</span>
+      )}
     </span>
   );
 }
@@ -263,31 +264,31 @@ export function WorkspaceStatusLine({
       role="status"
       aria-live="polite"
       className={cn(
-        "text-foreground/42 flex items-center gap-3 text-[14px] tracking-[-0.01em]",
+        "text-foreground/42 flex select-none items-center gap-2.5 text-[14.7px] tracking-[-0.01em]",
         className,
       )}
     >
       <StreamingAnimationStyles />
-      <span
-        aria-hidden="true"
-        className="border-foreground/18 border-t-foreground/55 size-4 animate-spin rounded-full border motion-reduce:animate-pulse"
-      />
-      <span className="relative min-w-0">
-        <TextReveal
-          text={label}
-          className={cn(
-            "max-w-full",
-            active && "opacity-0 motion-reduce:opacity-100",
-          )}
-        />
+      <StatusSpinner />
+      <span className="min-w-0">
         {active ? (
-          <TextShimmer
-            text={label}
-            className="absolute inset-y-0 left-0 max-w-full motion-reduce:hidden"
-          />
-        ) : null}
+          <TextShimmer text={label} className="max-w-full" />
+        ) : (
+          <TextReveal text={label} className="max-w-full" />
+        )}
       </span>
       <span className="sr-only">{active ? label : "Complete"}</span>
     </div>
+  );
+}
+
+export function StatusSpinner() {
+  return (
+    <span
+      aria-hidden="true"
+      className="inline-flex size-3.5 shrink-0 -translate-y-px items-center justify-center"
+    >
+      <DotmCircular17 size={14} dotSize={2} />
+    </span>
   );
 }

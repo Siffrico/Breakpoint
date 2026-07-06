@@ -15,5 +15,6 @@ export {
   PacedAssistantText,
   TextReveal,
   TextShimmer,
+  StatusSpinner,
   WorkspaceStatusLine,
 } from "./streaming-animations";

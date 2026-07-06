@@ -52,19 +52,22 @@ const getEducationTurnLabel = (
   stage: WorkspaceAiEducationStage | null,
   isRecall: boolean,
 ): string => {
-  if (isRecall) return "Running a quick checkpoint";
+  // Only three labels, by what the learner is about to receive: a scenario,
+  // a concept, or feedback on what they wrote. A recall interlude poses a
+  // checkpoint scenario, so it reads as scenario creation.
+  if (isRecall) return "Creating scenario";
   switch (stage) {
     case "orient":
-      return "Setting up this unit";
+      return "Creating scenario";
     case "connect":
-      return "Checking your reasoning";
+      return "Giving feedback";
     case "solve":
-      return "Reviewing your solution";
+      return "Giving feedback";
     case "teach":
-      return "Preparing the next concept";
+      return "Explaining concept";
     case "mastered":
     case null:
-      return "Preparing feedback";
+      return "Giving feedback";
   }
 };
 

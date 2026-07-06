@@ -44,6 +44,12 @@ const previews = [
     label: "Courses",
     description: "Outcome-based course catalog and discovery.",
   },
+  {
+    href: "/ui/chat-lab",
+    label: "Chat Lab",
+    description:
+      "Mock-streamed text, LaTeX, and mermaid across chat designs — real useChat, faked transport.",
+  },
 ];
 
 export default function UiPreviewIndexPage() {
