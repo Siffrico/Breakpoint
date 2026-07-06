@@ -1,8 +1,16 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowUDownLeft, Plus } from "@phosphor-icons/react";
+import {
+  ArrowDown,
+  ArrowUDownLeft,
+  ArrowUp,
+  CaretDown,
+  NotePencil,
+  Plus,
+} from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 
 import {
@@ -25,42 +33,53 @@ import {
 import { useTRPC } from "~/trpc/react";
 
 interface ChatEntry {
+  kind: "chat";
   value: string;
   label: string;
-  status: string;
   href: string;
   keywords: string[];
 }
 
-interface ProjectGroup {
+interface ShowMoreEntry {
+  kind: "show-more";
   value: string;
-  items: ChatEntry[];
+  label: string;
+  projectId: string;
+  remaining: number;
+  keywords: string[];
 }
 
-const STATUS_LABELS: Record<string, string> = {
-  ready: "ready",
-  completed: "done",
-  planned: "planned",
-};
+type ProjectItem = ChatEntry | ShowMoreEntry;
 
-function statusLabel(status: string): string | null {
-  if (!status) return null;
-  return STATUS_LABELS[status] ?? status;
+interface ProjectGroup {
+  id: string;
+  value: string;
+  items: ProjectItem[];
 }
+
+const COLLAPSED_CHAT_COUNT = 3;
 
 export function WorkspaceCommandPalette({
   open,
   onOpenChange,
   onNewTopic,
+  onContinueProject,
+  workspaceTheme = "warm",
   preview = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onNewTopic?: () => void;
+  onContinueProject?: (sessionId: string) => void;
+  workspaceTheme?: "light" | "dark" | "warm";
   preview?: boolean;
 }) {
   const router = useRouter();
   const trpc = useTRPC();
+  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [searchValue, setSearchValue] = useState("");
 
   // Warm the index during idle time after the workspace settles, so the *first*
   // ⌘K open renders instantly instead of paying a cold round-trip and showing
@@ -90,31 +109,54 @@ export function WorkspaceCommandPalette({
         : `/workspace?session=${project.sessionId}`;
 
       const chats: ChatEntry[] = project.chats.map((chat) => ({
+        kind: "chat",
         value: chat.id,
         label: chat.title,
-        status: chat.status,
-        href: projectHref,
+        href: preview
+          ? projectHref
+          : `${projectHref}&chat=${encodeURIComponent(chat.id)}`,
         keywords: [project.title],
       }));
 
       // Projects without chats yet (still onboarding/generating) stay visible
       // and openable via a single fallback row.
-      const items =
+      const allItems: ChatEntry[] =
         chats.length > 0
           ? chats
           : [
               {
+                kind: "chat",
                 value: project.sessionId,
-                label: "Open workspace",
-                status: "",
+                label: "Start a chat",
                 href: projectHref,
                 keywords: [project.title],
               },
             ];
 
-      return { value: project.title, items };
+      const isExpanded =
+        expandedProjects.has(project.sessionId) || searchValue.length > 0;
+      const visibleChats = isExpanded
+        ? allItems
+        : allItems.slice(0, COLLAPSED_CHAT_COUNT);
+      const remaining = allItems.length - visibleChats.length;
+      const items: ProjectItem[] =
+        remaining > 0
+          ? [
+              ...visibleChats,
+              {
+                kind: "show-more",
+                value: `show-more-${project.sessionId}`,
+                label: "Show more",
+                projectId: project.sessionId,
+                remaining,
+                keywords: [project.title],
+              },
+            ]
+          : visibleChats;
+
+      return { id: project.sessionId, value: project.title, items };
     });
-  }, [data, preview]);
+  }, [data, expandedProjects, preview, searchValue]);
 
   const handleSelect = (href: string) => {
     onOpenChange(false);
@@ -126,18 +168,34 @@ export function WorkspaceCommandPalette({
     onNewTopic?.();
   };
 
+  const handleShowMore = (projectId: string) => {
+    setExpandedProjects((current) => new Set(current).add(projectId));
+  };
+
+  const handleContinueProject = (projectId: string) => {
+    onOpenChange(false);
+    onContinueProject?.(projectId);
+  };
+
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange}>
-      <CommandDialogPopup className="bg-secondary text-secondary-foreground">
+      <CommandDialogPopup
+        className="bp-workspace-theme border-border bg-popover text-popover-foreground"
+        data-workspace-theme={workspaceTheme}
+      >
         <Command
           items={groups}
           itemToStringValue={(item) => {
-            const entry = item as ChatEntry;
+            const entry = item as ProjectItem;
             return `${entry.label} ${entry.keywords.join(" ")}`;
           }}
         >
-          <CommandInput placeholder="Search projects and chats…" />
-          <CommandPanel className="bg-secondary">
+          <CommandInput
+            placeholder="Search projects and chats…"
+            value={searchValue}
+            onChange={(event) => setSearchValue(event.currentTarget.value)}
+          />
+          <CommandPanel className="border-border bg-background">
             <CommandEmpty>
               {isLoading ? (
                 <div
@@ -162,24 +220,48 @@ export function WorkspaceCommandPalette({
             </CommandEmpty>
             <CommandList>
               {(group: ProjectGroup) => (
-                <Fragment key={group.value}>
-                  <CommandGroup items={group.items}>
-                    <CommandGroupLabel>{group.value}</CommandGroupLabel>
+                <Fragment key={group.id}>
+                  <CommandGroup items={group.items} className="group/project">
+                    <CommandGroupLabel className="flex items-center gap-2 px-2 py-1.5">
+                      <span className="min-w-0 flex-1 truncate">
+                        {group.value}
+                      </span>
+                      <button
+                        type="button"
+                        aria-label={`Continue ${group.value}`}
+                        title={`Continue ${group.value}`}
+                        onClick={() => handleContinueProject(group.id)}
+                        className="text-muted-foreground hover:bg-accent hover:text-accent-foreground flex size-6 items-center justify-center rounded-md opacity-0 transition-[color,background-color,opacity] group-hover/project:opacity-100 focus-visible:opacity-100"
+                      >
+                        <NotePencil size={15} aria-hidden="true" />
+                      </button>
+                    </CommandGroupLabel>
                     <CommandCollection>
-                      {(item: ChatEntry) => (
+                      {(item: ProjectItem) => (
                         <CommandItem
                           key={item.value}
                           value={item.value}
-                          onClick={() => handleSelect(item.href)}
+                          onClick={() =>
+                            item.kind === "chat"
+                              ? handleSelect(item.href)
+                              : handleShowMore(item.projectId)
+                          }
                         >
-                          <span className="min-w-0 flex-1 truncate">
-                            {item.label}
-                          </span>
-                          {statusLabel(item.status) ? (
-                            <CommandShortcut>
-                              {statusLabel(item.status)}
-                            </CommandShortcut>
-                          ) : null}
+                          {item.kind === "chat" ? (
+                            <>
+                              <span className="min-w-0 flex-1 truncate">
+                                {item.label}
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <CaretDown size={14} aria-hidden="true" />
+                              <span>{item.label}</span>
+                              <CommandShortcut>
+                                {item.remaining} more
+                              </CommandShortcut>
+                            </>
+                          )}
                         </CommandItem>
                       )}
                     </CommandCollection>
@@ -189,23 +271,56 @@ export function WorkspaceCommandPalette({
               )}
             </CommandList>
           </CommandPanel>
-          <CommandFooter>
-            <span className="flex items-center gap-1.5">
-              <ArrowUDownLeft size={13} aria-hidden="true" />
-              open
-            </span>
-            <button
-              type="button"
-              onClick={handleNewTopic}
-              className="hover:text-foreground flex items-center gap-1.5 transition-colors"
-            >
-              <Plus size={13} aria-hidden="true" />
-              New topic
-              <CommandShortcut>⌘N</CommandShortcut>
-            </button>
+          <CommandFooter className="border-border text-muted-foreground px-5 py-3">
+            <div className="flex items-center gap-5">
+              <span className="flex items-center gap-2">
+                <span className="flex gap-1">
+                  <FooterKey>
+                    <ArrowUp size={13} aria-hidden="true" />
+                  </FooterKey>
+                  <FooterKey>
+                    <ArrowDown size={13} aria-hidden="true" />
+                  </FooterKey>
+                </span>
+                Navigate
+              </span>
+              <span className="flex items-center gap-2">
+                <FooterKey>
+                  <ArrowUDownLeft size={13} aria-hidden="true" />
+                </FooterKey>
+                Open
+              </span>
+            </div>
+            <div className="flex items-center gap-4">
+              <button
+                type="button"
+                onClick={handleNewTopic}
+                className="text-foreground hover:text-foreground/80 flex items-center gap-1.5 transition-colors"
+              >
+                <Plus size={13} aria-hidden="true" />
+                New topic
+                <FooterKey>⌘N</FooterKey>
+              </button>
+              <button
+                type="button"
+                onClick={() => onOpenChange(false)}
+                className="text-foreground hover:text-foreground/80 flex items-center gap-2 transition-colors"
+              >
+                <FooterKey>Esc</FooterKey>
+                Close
+              </button>
+            </div>
           </CommandFooter>
         </Command>
       </CommandDialogPopup>
     </CommandDialog>
+  );
+}
+
+function FooterKey({ children }: { children: ReactNode }) {
+  return (
+    <kbd className="border-border bg-accent text-accent-foreground flex min-w-7 items-center justify-center rounded-md border px-1.5 py-1 font-sans text-[11px] shadow-sm">
+      {children}
+    </kbd>
   );
 }

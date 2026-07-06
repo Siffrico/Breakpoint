@@ -537,6 +537,10 @@ export function CurriculumSidebar({
       open={paletteOpen}
       onOpenChange={setPaletteOpen}
       onNewTopic={handleNewProject}
+      onContinueProject={(sessionId) => {
+        if (!preview) continueProject.mutate({ sessionId });
+      }}
+      workspaceTheme={workspaceTheme}
       preview={preview}
     />
   );
@@ -678,7 +682,6 @@ export function CurriculumSidebar({
             );
           })}
         </div>
-
       </div>
 
       {/* Footer: user */}

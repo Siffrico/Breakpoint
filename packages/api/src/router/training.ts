@@ -580,7 +580,9 @@ export const trainingRouter = {
   // conversation). Ownership is enforced before any message read, and the node
   // must belong to the session's own plan.
   chatHistory: protectedProcedure
-    .input(z.object({ sessionId: z.string().uuid(), nodeId: z.string().uuid() }))
+    .input(
+      z.object({ sessionId: z.string().uuid(), nodeId: z.string().uuid() }),
+    )
     .query(async ({ ctx, input }) => {
       await requireSessionOwner({ ctx, sessionId: input.sessionId });
 
@@ -643,6 +645,16 @@ export const trainingRouter = {
         },
         listPlansBySessionIds: (sessionIds) =>
           trainingCurriculumRepository.listPlansBySessionIds({
+            db: ctx.db,
+            sessionIds,
+          }),
+        listFirstUserMessagesBySessionIds: (sessionIds) =>
+          trainingOnboardingRepository.listFirstUserMessagesBySessionIds({
+            db: ctx.db,
+            sessionIds,
+          }),
+        listChatUnitIdsBySessionIds: (sessionIds) =>
+          trainingOnboardingRepository.listChatUnitIdsBySessionIds({
             db: ctx.db,
             sessionIds,
           }),

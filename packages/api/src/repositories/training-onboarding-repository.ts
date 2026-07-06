@@ -636,6 +636,34 @@ export const trainingOnboardingRepository = {
     return messages.map(mapWorkspaceMessage).filter(isTranscriptVisibleMessage);
   },
 
+  listChatUnitIdsBySessionIds: async ({
+    db,
+    sessionIds,
+  }: {
+    db: Database;
+    sessionIds: string[];
+  }) => {
+    if (sessionIds.length === 0) return [];
+
+    const rows = await db
+      .selectDistinct({
+        sessionId: TrainingOnboardingMessage.sessionId,
+        unitId: TrainingOnboardingMessage.unitId,
+      })
+      .from(TrainingOnboardingMessage)
+      .where(
+        and(
+          inArray(TrainingOnboardingMessage.sessionId, sessionIds),
+          sql`${TrainingOnboardingMessage.unitId} is not null`,
+          sql`${TrainingOnboardingMessage.metadata}->>'hiddenFromTranscript' is distinct from 'true'`,
+        ),
+      );
+
+    return rows.flatMap((row) =>
+      row.unitId ? [{ sessionId: row.sessionId, unitId: row.unitId }] : [],
+    );
+  },
+
   listWorkspaceMessagesByUnit: async ({
     db,
     sessionId,
