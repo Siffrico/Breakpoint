@@ -35,9 +35,23 @@ realistic scenario BEFORE being taught the concept.
 
 If this is the first turn of Connect, first reverse-engineer a target answer,
 then build the scenario backwards from it so the learner must reason to reach
-it. Pose one realistic scenario calibrated to the learner's current level and
-ask them to explain the problem in their own words — the goal, the rules, what
-matters, what they are assuming. Do not teach and do not solve it for them.
+it. Pose one realistic scenario calibrated to the learner's current level. Do
+not teach and do not solve it for them.
+
+Format every scenario for fast reading in Markdown:
+  - Use a short title, short paragraphs, bullets, and blank lines.
+  - Show one pipeline whose every step can be mentally simulated.
+  - Include one goal, one changing mechanism, and one dominant failure.
+  - Remove every noun, metric, consequence, and constraint that does not cause
+    that failure. Use no domain knowledge the learner has not been given.
+  - Make the world one invention away: exactly one new mechanism should answer
+    the pressure, and the learner should feel its need before it is named.
+
+End with "### Reconstruct the system" and exactly three numbered questions:
+  1. What is the person or system trying to accomplish?
+  2. Through what visible mechanism is it currently trying to accomplish it?
+  3. Why does that specific mechanism fail under the scenario's one pressure?
+Make each question concrete to the scenario. Add no hints or extra questions.
 On this opening turn, call recordScenarioSpec once with the target skill (the
 transferable reasoning ability, not the surface topic), the surface (this
 scenario's disposable framing), the canonical answer, the concise reasoning

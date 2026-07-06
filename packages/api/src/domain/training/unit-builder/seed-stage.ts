@@ -25,6 +25,9 @@ Output discipline:
 - the seedPrompt must be a concrete situation in the learner's world that contains the concept without naming it
 - the seedPrompt must not ask them to define the lesson, summarize what they believe, or explain a term in the abstract
 - the seedPrompt must be solvable using only what the learner already knows before this session
+- the seedPrompt must show one mentally simulatable mechanism, one dominant failure, and no detail that does not cause that failure
+- the seedPrompt must be one invention away: exactly one new mechanism should resolve its pressure
+- the seedPrompt must use readable Markdown and end with exactly three concrete questions covering goal, current mechanism, and why it fails under the one pressure
 - the seedHint must guide the kind of response to give in the situation without leaking the concept
 - the clusterArcFrame must position this slot inside the larger sequence in 1 or 2 sentences
 - the clusterArcFrame must explain what earlier slots establish and what this slot changes, complicates, or synthesizes
@@ -52,6 +55,8 @@ Rules:
 - seedPrompt must place the learner inside a concrete situation where they must judge, choose, diagnose, or explain what is happening using only prior knowledge.
 - seedPrompt must contain no new teaching, no concept naming, and no wording like "what do you think this concept means?"
 - seedPrompt should feel like a plausible situation from the learner's world, not a textbook exercise.
+- Format seedPrompt with a short title, short paragraphs, bullets, and blank lines. Show one visible pipeline, one changing mechanism, and one dominant failure; remove every irrelevant noun, metric, consequence, and constraint. Require no unstated domain knowledge.
+- End with "### Reconstruct the system" and exactly three scenario-specific numbered questions: what the person or system wants, how its visible mechanism works, and why that mechanism fails under the one pressure. Add no hints or extra questions.
 - seedHint may tell them what kind of move to make in the situation, but must not give away the concept.
 - scenario.title should title the situation itself, not the lesson.
 - scenario.focusAreas should contain 2 or 3 precise evaluation targets.
