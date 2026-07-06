@@ -33,6 +33,9 @@ const OnboardingShell = dynamic(() =>
 const UnitCoachPanel = dynamic(() =>
   import("./unit-coach-panel").then((mod) => mod.UnitCoachPanel),
 );
+const ChatHistoryView = dynamic(() =>
+  import("./chat-history-view").then((mod) => mod.ChatHistoryView),
+);
 
 type WorkspaceState = RouterOutputs["training"]["home"];
 type PlanState = RouterOutputs["training"]["activePlan"];
@@ -42,6 +45,7 @@ type AiWorkspace = RouterOutputs["training"]["aiWorkspace"];
 type EvaluationPlan = NonNullable<AiWorkspace["evaluationPlan"]>;
 type LearningProject =
   RouterOutputs["training"]["listLearningProjects"][number];
+type ChatHistory = RouterOutputs["training"]["chatHistory"];
 
 const LAST_SESSION_COOKIE = "bp-last-learning-session";
 const EMPTY_PROJECTS: LearningProject[] = [];
@@ -59,7 +63,7 @@ const isUnitPreparingError = (error: unknown) => {
   );
 };
 
-type WorkspaceMode = "onboarding" | "unit" | "idle";
+type WorkspaceMode = "history" | "onboarding" | "unit" | "idle";
 type WorkspaceTheme = "light" | "dark" | "warm";
 const formatTimerSeconds = (seconds: number) => {
   const sign = seconds < 0 ? "-" : "";
@@ -80,6 +84,7 @@ export function WorkspaceShell({
   sessionId,
   preview = false,
   userName,
+  chatHistory = null,
 }: {
   workspace: WorkspaceState | null;
   plan: PlanState | null;
@@ -90,6 +95,7 @@ export function WorkspaceShell({
   sessionId: string;
   preview?: boolean;
   userName?: string;
+  chatHistory?: ChatHistory | null;
 }) {
   const router = useRouter();
   const trpc = useTRPC();
@@ -126,7 +132,9 @@ export function WorkspaceShell({
     trpc.training.aiWorkspace.queryOptions(
       { sessionId },
       {
-        enabled: !preview,
+        // History views are static reads; polling would re-trigger server-side
+        // unit generation for no reason.
+        enabled: !preview && !chatHistory,
         initialData: aiWorkspace ?? undefined,
         // Keep polling while the unit is being prepared: every retry that
         // still misses re-triggers generation server-side, so this loop is
@@ -165,11 +173,13 @@ export function WorkspaceShell({
     setLiveUnit(unit);
   }, [unit]);
 
-  const mode: WorkspaceMode = onboardingState
-    ? "onboarding"
-    : liveUnit
-      ? "unit"
-      : "idle";
+  const mode: WorkspaceMode = chatHistory
+    ? "history"
+    : onboardingState
+      ? "onboarding"
+      : liveUnit
+        ? "unit"
+        : "idle";
   // Education units are not timed under the v4 FSM — the server never emits an
   // evaluationPlan for them — so this resolves to null and the timer stays
   // dormant. Sourced from the server field (rather than a literal null) so the
@@ -245,12 +255,14 @@ export function WorkspaceShell({
       : null;
 
   const shellTitle =
-    mode === "onboarding"
-      ? (onboardingState?.activeQuestion?.prompt ??
-        "Start a new learning track")
-      : (liveUnit?.title ??
-        workspace?.nextUnitTitle ??
-        "Preparing your next unit");
+    mode === "history"
+      ? (chatHistory?.node.title ?? "Chat history")
+      : mode === "onboarding"
+        ? (onboardingState?.activeQuestion?.prompt ??
+          "Start a new learning track")
+        : (liveUnit?.title ??
+          workspace?.nextUnitTitle ??
+          "Preparing your next unit");
 
   const closeUnitCoach = () => {
     setUnitCoachFocused(false);
@@ -343,7 +355,7 @@ export function WorkspaceShell({
             collapsed={false}
             onToggleCollapsed={toggleSidebar}
             userName={userName}
-            activeLessonId={liveUnit?.nodeId ?? null}
+            activeLessonId={chatHistory?.node.id ?? liveUnit?.nodeId ?? null}
             isSessionRunning={isSessionRunning}
             workspaceTheme={workspaceTheme}
             onWorkspaceThemeChange={setWorkspaceTheme}
@@ -374,7 +386,7 @@ export function WorkspaceShell({
               collapsed={false}
               onToggleCollapsed={() => setMobileSidebarOpen(false)}
               userName={userName}
-              activeLessonId={liveUnit?.nodeId ?? null}
+              activeLessonId={chatHistory?.node.id ?? liveUnit?.nodeId ?? null}
               isSessionRunning={isSessionRunning}
               workspaceTheme={workspaceTheme}
               onWorkspaceThemeChange={setWorkspaceTheme}
@@ -524,11 +536,22 @@ export function WorkspaceShell({
                     className={
                       mode === "onboarding"
                         ? "flex min-h-0 w-full flex-1 flex-col"
-                        : mode === "unit"
+                        : mode === "unit" || mode === "history"
                           ? "flex min-h-full flex-col"
                           : "bp-prose flex min-h-full flex-col"
                     }
                   >
+                    {mode === "history" && chatHistory ? (
+                      <ChatHistoryView
+                        messages={chatHistory.messages}
+                        currentChatHref={
+                          preview
+                            ? "/ui/workspace"
+                            : `/workspace?session=${encodeURIComponent(sessionId)}`
+                        }
+                      />
+                    ) : null}
+
                     {mode === "onboarding" && onboardingState ? (
                       <OnboardingShell
                         embedded

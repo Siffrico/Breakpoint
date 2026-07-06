@@ -75,6 +75,17 @@ export const getProfileState = async (sessionId: string) => {
   return caller.training.profile({ sessionId });
 };
 
+export const getChatHistory = async ({
+  nodeId,
+  sessionId,
+}: {
+  nodeId: string;
+  sessionId: string;
+}) => {
+  const caller = await createCaller();
+  return caller.training.chatHistory({ nodeId, sessionId });
+};
+
 export const getEducationUnit = async ({
   nodeId,
   sessionId,

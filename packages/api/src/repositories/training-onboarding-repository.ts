@@ -636,6 +636,26 @@ export const trainingOnboardingRepository = {
     return messages.map(mapWorkspaceMessage).filter(isTranscriptVisibleMessage);
   },
 
+  listWorkspaceMessagesByUnit: async ({
+    db,
+    sessionId,
+    unitId,
+  }: {
+    db: Database;
+    sessionId: string;
+    unitId: string;
+  }) => {
+    const messages = await db.query.TrainingOnboardingMessage.findMany({
+      where: and(
+        eq(TrainingOnboardingMessage.sessionId, sessionId),
+        eq(TrainingOnboardingMessage.unitId, unitId),
+      ),
+      orderBy: asc(TrainingOnboardingMessage.sequence),
+    });
+
+    return messages.map(mapWorkspaceMessage).filter(isTranscriptVisibleMessage);
+  },
+
   listWorkspaceMessagesByTurnId: async ({
     db,
     sessionId,

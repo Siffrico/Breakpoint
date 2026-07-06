@@ -576,6 +576,50 @@ export const trainingRouter = {
     });
   }),
 
+  // Read-only transcript of one past chat (a unit's slice of the workspace
+  // conversation). Ownership is enforced before any message read, and the node
+  // must belong to the session's own plan.
+  chatHistory: protectedProcedure
+    .input(z.object({ sessionId: z.string().uuid(), nodeId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      await requireSessionOwner({ ctx, sessionId: input.sessionId });
+
+      const nodes =
+        (await trainingCurriculumRepository.getPlanNodesBySession({
+          db: ctx.db,
+          sessionId: input.sessionId,
+        })) ?? [];
+      const node = nodes.find((candidate) => candidate.id === input.nodeId);
+      if (!node) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "This chat does not belong to the project.",
+        });
+      }
+
+      const messages =
+        await trainingOnboardingRepository.listWorkspaceMessagesByUnit({
+          db: ctx.db,
+          sessionId: input.sessionId,
+          unitId: input.nodeId,
+        });
+
+      return {
+        node: {
+          id: node.id,
+          title: node.title,
+          status: node.status,
+          kind: node.kind,
+        },
+        messages: messages.map((message) => ({
+          id: message.id,
+          role: message.role,
+          content: message.content,
+          sequence: message.sequence,
+        })),
+      };
+    }),
+
   // Backs the workspace command palette (⌘K): every project with its full chat
   // list. Ownership is enforced by scoping the session lookup to the caller.
   listWorkspaceIndex: protectedProcedure.query(async ({ ctx }) =>

@@ -271,6 +271,7 @@ function ProjectRow({
   onToggle,
   onContinue,
   isContinuing,
+  preview = false,
 }: {
   project: LearningProject;
   href: string;
@@ -283,6 +284,7 @@ function ProjectRow({
   onToggle: () => void;
   onContinue: () => void;
   isContinuing: boolean;
+  preview?: boolean;
 }) {
   // Server sends newest-first, capped at 10. Default to a 3-row window; the
   // learner can widen it per project when more chats actually exist.
@@ -361,7 +363,12 @@ function ProjectRow({
               key={lesson.id}
               title={lesson.title}
               status={lesson.status}
-              href={href}
+              // The workspace resolves the live chat back to the plain URL, so
+              // deep-linking every row is safe: past chats open read-only
+              // history, the live one opens the normal workspace.
+              href={
+                preview ? href : `${href}&chat=${encodeURIComponent(lesson.id)}`
+              }
               isActive={isCurrent && lesson.id === activeLessonId}
               isRunning={
                 Boolean(isSessionRunning && isCurrent) &&
@@ -666,6 +673,7 @@ export function CurriculumSidebar({
                   continueProject.isPending &&
                   continueProject.variables.sessionId === project.sessionId
                 }
+                preview={preview}
               />
             );
           })}

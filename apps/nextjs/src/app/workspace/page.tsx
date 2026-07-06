@@ -6,6 +6,7 @@ import { getSession } from "~/auth/server";
 import { WorkspaceShell } from "~/features/training/components/workspace-shell";
 import {
   getActivePlan,
+  getChatHistory,
   getEducationUnit,
   getInitialAiWorkspace,
   getOnboardingState,
@@ -22,9 +23,9 @@ export const metadata: Metadata = {
 const LAST_SESSION_COOKIE = "bp-last-learning-session";
 
 export default async function WorkspacePage(props: {
-  searchParams: Promise<{ session?: string }>;
+  searchParams: Promise<{ session?: string; chat?: string }>;
 }) {
-  const [{ session }, authSession, cookieStore] = await Promise.all([
+  const [{ session, chat }, authSession, cookieStore] = await Promise.all([
     props.searchParams,
     getSession(),
     cookies(),
@@ -86,8 +87,19 @@ export default async function WorkspacePage(props: {
     ? (plan.nodes.find((node) => node.id === activeNodeId) ?? null)
     : null;
 
+  // A `chat` param that points at anything other than the live node opens that
+  // chat's read-only transcript. The live node (or a bad id) falls through to
+  // the normal workspace so the plain URL stays the single live view.
+  const chatHistory =
+    chat && chat !== activeNodeId
+      ? await getChatHistory({
+          nodeId: chat,
+          sessionId: resolvedSessionId,
+        }).catch(() => null)
+      : null;
+
   const unit =
-    aiWorkspace && activeNode && activeNode.kind !== "simulation"
+    !chatHistory && aiWorkspace && activeNode && activeNode.kind !== "simulation"
       ? await getEducationUnit({
           nodeId: activeNode.id,
           sessionId: resolvedSessionId,
@@ -101,9 +113,10 @@ export default async function WorkspacePage(props: {
         plan={plan}
         unit={unit}
         onboardingState={null}
-        aiWorkspace={aiWorkspace}
+        aiWorkspace={chatHistory ? null : aiWorkspace}
         projects={projects}
         sessionId={resolvedSessionId}
+        chatHistory={chatHistory}
       />
     </TRPCReactProvider>
   );
