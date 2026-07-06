@@ -514,6 +514,10 @@ export const trainingRouter = {
       }
     }
 
+    // Sessions arrive newest-first. Only the newest still-onboarding session is
+    // resumable navigation; older abandoned onboarding starts would render as
+    // ghost projects, so they are dropped.
+    let onboardingProjectEmitted = false;
     return sessions.flatMap((session) => {
       const profile = profileBySessionId.get(session.id) ?? null;
       const plan = planBySessionId.get(session.id) ?? null;
@@ -532,15 +536,31 @@ export const trainingRouter = {
       if (!title) return [];
 
       const planNodes = projectNodesBySessionId.get(session.id) ?? [];
-      const lessonPreview = planNodes
+      // Newest-first, like a chat history: the most recently minted unit is the
+      // live one, so it must be inside the default window. Capped at 10 — the
+      // sidebar's "Show more" ceiling.
+      const learningNodes = planNodes
         .filter((node) => node.kind === "unit" || node.kind === "integration")
-        .sort((left, right) => left.orderIndex - right.orderIndex)
-        .slice(0, 3)
-        .map((node) => ({
-          id: node.id,
-          title: node.title,
-          status: node.status,
-        }));
+        .sort((left, right) => right.orderIndex - left.orderIndex);
+      const lessonPreview = learningNodes.slice(0, 10).map((node) => ({
+        id: node.id,
+        title: node.title,
+        status: node.status,
+      }));
+
+      const status =
+        plan?.status === "active"
+          ? "active"
+          : plan // a "generating" shell exists but isn't finished yet
+            ? "building"
+            : session.status === "ready_for_generation" ||
+                session.status === "complete"
+              ? "building"
+              : "onboarding";
+      if (status === "onboarding") {
+        if (onboardingProjectEmitted) return [];
+        onboardingProjectEmitted = true;
+      }
 
       return [
         {
@@ -548,15 +568,7 @@ export const trainingRouter = {
           title,
           headline:
             profile?.headline ?? plan?.summary ?? "Interview in progress.",
-          status:
-            plan?.status === "active"
-              ? "active"
-              : plan // a "generating" shell exists but isn't finished yet
-                ? "building"
-                : session.status === "ready_for_generation" ||
-                    session.status === "complete"
-                  ? "building"
-                  : "onboarding",
+          status,
           lessonPreview,
           updatedAt: session.updatedAt ?? session.createdAt,
         },

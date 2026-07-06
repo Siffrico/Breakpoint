@@ -1,6 +1,7 @@
 "use client";
 
 import type { CSSProperties, ReactNode } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -210,11 +211,13 @@ function ChatRow({
   status,
   href,
   isRunning = false,
+  isActive = false,
 }: {
   title: string;
   status?: string;
   href: string;
   isRunning?: boolean;
+  isActive?: boolean;
 }) {
   const isReady = status === "ready";
   const isCompleted = status === "completed";
@@ -227,13 +230,16 @@ function ChatRow({
   return (
     <Link
       href={href}
+      aria-current={isActive ? "true" : undefined}
       className={[
         "group hover:bg-foreground/[0.035] flex w-full items-center gap-2.5 rounded-[6px] px-2 py-[6px] text-left text-[13px] transition-colors outline-none focus:outline-none focus-visible:outline-none",
-        isReady
-          ? "text-foreground/86"
-          : isCompleted
-            ? "text-foreground/40"
-            : "text-foreground/56",
+        isActive
+          ? "bg-foreground/[0.045] text-foreground/92"
+          : isReady
+            ? "text-foreground/86"
+            : isCompleted
+              ? "text-foreground/40"
+              : "text-foreground/56",
       ].join(" ")}
     >
       <span
@@ -278,9 +284,13 @@ function ProjectRow({
   onContinue: () => void;
   isContinuing: boolean;
 }) {
-  const lessons = project.lessonPreview.slice(0, 3);
-  const runningLessonId =
-    activeLessonId ?? lessons.find((lesson) => lesson.status === "ready")?.id;
+  // Server sends newest-first, capped at 10. Default to a 3-row window; the
+  // learner can widen it per project when more chats actually exist.
+  const [showAllChats, setShowAllChats] = useState(false);
+  const lessons = showAllChats
+    ? project.lessonPreview
+    : project.lessonPreview.slice(0, 3);
+  const hasMoreChats = project.lessonPreview.length > 3;
 
   return (
     <div>
@@ -352,12 +362,24 @@ function ProjectRow({
               title={lesson.title}
               status={lesson.status}
               href={href}
+              isActive={isCurrent && lesson.id === activeLessonId}
               isRunning={
                 Boolean(isSessionRunning && isCurrent) &&
-                lesson.id === runningLessonId
+                lesson.id === activeLessonId
               }
             />
           ))}
+          {hasMoreChats ? (
+            <button
+              type="button"
+              onClick={() => setShowAllChats((prev) => !prev)}
+              className="text-foreground/36 hover:text-foreground/64 flex w-full items-center rounded-[6px] px-2 py-[5px] text-left text-[12px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
+            >
+              <FadeLabel className="min-w-0 flex-1 leading-[16px]">
+                {showAllChats ? "Show less" : "Show more"}
+              </FadeLabel>
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -478,6 +500,20 @@ export function CurriculumSidebar({
     "bp-sidebar-expanded",
     {},
   );
+
+  // Drop expansion state for projects that no longer exist so the stored map
+  // doesn't accumulate stale session ids forever.
+  useEffect(() => {
+    if (preview || projects.length === 0) return;
+    const liveIds = new Set(projects.map((project) => project.sessionId));
+    setExpanded((prev) => {
+      const staleKeys = Object.keys(prev).filter((key) => !liveIds.has(key));
+      if (staleKeys.length === 0) return prev;
+      const next = { ...prev };
+      for (const key of staleKeys) delete next[key];
+      return next;
+    });
+  }, [preview, projects, setExpanded]);
 
   const toggleProject = (sessionId: string, currentDefault: boolean) => {
     setExpanded((prev) => {
@@ -635,17 +671,6 @@ export function CurriculumSidebar({
           })}
         </div>
 
-        {projects.length > 5 ? (
-          <button
-            type="button"
-            className="text-foreground/40 hover:text-foreground/72 hover:bg-foreground/[0.035] mt-2 flex w-full items-center gap-2.5 rounded-[6px] px-2 py-[7px] text-left transition-colors"
-          >
-            <DotsThree size={15} className="shrink-0" />
-            <FadeLabel className="min-w-0 flex-1 text-[13px] font-normal">
-              More
-            </FadeLabel>
-          </button>
-        ) : null}
       </div>
 
       {/* Footer: user */}
