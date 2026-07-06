@@ -18,6 +18,14 @@ describe("classifyFailure", () => {
     expect(classifyFailure(error, false)).toBe("schema");
   });
 
+  it("classifies a wrapped provider error from its preserved cause", () => {
+    const cause = new Error("bad shape");
+    cause.name = "AI_TypeValidationError";
+    const error = new Error("Failed to generate the seed stage.", { cause });
+
+    expect(classifyFailure(error, false)).toBe("schema");
+  });
+
   it("maps an abort/timeout error to timeout", () => {
     const error = new Error("aborted");
     error.name = "AbortError";

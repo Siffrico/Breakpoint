@@ -58,6 +58,7 @@ export const runAgent = async <TSchema extends z.ZodTypeAny>({
       error instanceof Error && error.message
         ? `${errorMessage} ${error.message}`
         : errorMessage,
+      { cause: error },
     );
   }
 };
@@ -137,6 +138,10 @@ export const classifyFailure = (
       return "timeout";
     }
     return "provider";
+  }
+
+  if (error instanceof Error && error.cause !== undefined) {
+    return classifyFailure(error.cause, hasPartial);
   }
 
   if (

@@ -36,7 +36,9 @@ export type UnitPreparationError =
 
 export const isRetryable = (error: UnitPreparationError): boolean =>
   error._tag === "UnitScaffoldError" &&
-  (error.kind === "provider" || error.kind === "timeout");
+  (error.kind === "provider" ||
+    error.kind === "timeout" ||
+    error.kind === "schema");
 
 export const classifyUnitScaffoldFailure = (
   error: unknown,
