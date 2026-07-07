@@ -1,6 +1,6 @@
 "use client";
 
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, MouseEvent, ReactNode } from "react";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -212,12 +212,16 @@ function ChatRow({
   href,
   isRunning = false,
   isActive = false,
+  onNavigate,
+  onPrefetch,
 }: {
   title: string;
   status?: string;
   href: string;
   isRunning?: boolean;
   isActive?: boolean;
+  onNavigate?: (event: MouseEvent<HTMLAnchorElement>) => void;
+  onPrefetch?: () => void;
 }) {
   const isReady = status === "ready";
   const isCompleted = status === "completed";
@@ -230,6 +234,9 @@ function ChatRow({
   return (
     <Link
       href={href}
+      onClick={onNavigate}
+      onMouseEnter={onPrefetch}
+      onFocus={onPrefetch}
       aria-current={isActive ? "true" : undefined}
       className={[
         "group hover:bg-foreground/[0.035] flex w-full items-center gap-2.5 rounded-[6px] px-2 py-[6px] text-left text-[13px] transition-colors outline-none focus:outline-none focus-visible:outline-none",
@@ -270,6 +277,10 @@ function ProjectRow({
   isSessionRunning,
   onToggle,
   onContinue,
+  onNavigate,
+  onPrefetch,
+  onNavigateChat,
+  onPrefetchChat,
   isContinuing,
   preview = false,
 }: {
@@ -283,6 +294,13 @@ function ProjectRow({
   isSessionRunning?: boolean;
   onToggle: () => void;
   onContinue: () => void;
+  onNavigate: (event: MouseEvent<HTMLAnchorElement>) => void;
+  onPrefetch: () => void;
+  onNavigateChat: (
+    event: MouseEvent<HTMLAnchorElement>,
+    lessonId: string,
+  ) => void;
+  onPrefetchChat: (lessonId: string) => void;
   isContinuing: boolean;
   preview?: boolean;
 }) {
@@ -324,6 +342,9 @@ function ProjectRow({
 
         <Link
           href={href}
+          onClick={onNavigate}
+          onMouseEnter={onPrefetch}
+          onFocus={onPrefetch}
           className="hover:text-foreground/92 flex min-w-0 flex-1 py-[6px] pr-1 text-left text-[13px] font-normal transition-colors outline-none focus:outline-none focus-visible:outline-none"
         >
           <FadeLabel className="min-w-0 flex-1 leading-[18px]">
@@ -374,6 +395,8 @@ function ProjectRow({
                 Boolean(isSessionRunning && isCurrent) &&
                 lesson.id === activeLessonId
               }
+              onNavigate={(event) => onNavigateChat(event, lesson.id)}
+              onPrefetch={() => onPrefetchChat(lesson.id)}
             />
           ))}
           {hasMoreChats ? (
@@ -454,6 +477,10 @@ export function CurriculumSidebar({
   workspaceTheme = "warm",
   onWorkspaceThemeChange,
   onNavigate,
+  onSelectProject,
+  onPrefetchProject,
+  onSelectChat,
+  onPrefetchChat,
 }: {
   projects?: LearningProject[];
   currentSessionId: string;
@@ -467,6 +494,17 @@ export function CurriculumSidebar({
   workspaceTheme?: WorkspaceTheme;
   onWorkspaceThemeChange?: (theme: WorkspaceTheme) => void;
   onNavigate?: () => void;
+  onSelectProject?: (
+    event: MouseEvent<HTMLAnchorElement>,
+    sessionId: string,
+  ) => void;
+  onPrefetchProject?: (sessionId: string) => void;
+  onSelectChat?: (
+    event: MouseEvent<HTMLAnchorElement>,
+    sessionId: string,
+    nodeId: string,
+  ) => void;
+  onPrefetchChat?: (sessionId: string, nodeId: string) => void;
 }) {
   const router = useRouter();
   const trpc = useTRPC();
@@ -673,6 +711,16 @@ export function CurriculumSidebar({
                   }
                   continueProject.mutate({ sessionId: project.sessionId });
                 }}
+                onNavigate={(event) =>
+                  onSelectProject?.(event, project.sessionId)
+                }
+                onPrefetch={() => onPrefetchProject?.(project.sessionId)}
+                onNavigateChat={(event, nodeId) =>
+                  onSelectChat?.(event, project.sessionId, nodeId)
+                }
+                onPrefetchChat={(nodeId) =>
+                  onPrefetchChat?.(project.sessionId, nodeId)
+                }
                 isContinuing={
                   continueProject.isPending &&
                   continueProject.variables.sessionId === project.sessionId

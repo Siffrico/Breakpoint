@@ -1,5 +1,6 @@
 "use client";
 
+import type { MouseEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -91,6 +92,7 @@ export function WorkspaceShell({
   preview = false,
   userName,
   chatHistory = null,
+  initialActiveNodeId = null,
 }: {
   workspace: WorkspaceState | null;
   plan: PlanState | null;
@@ -102,10 +104,15 @@ export function WorkspaceShell({
   preview?: boolean;
   userName?: string;
   chatHistory?: ChatHistory | null;
+  initialActiveNodeId?: string | null;
 }) {
   const router = useRouter();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  const [selectedSessionId, setSelectedSessionId] = useState(sessionId);
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(
+    chatHistory?.node.id ?? null,
+  );
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
@@ -127,7 +134,10 @@ export function WorkspaceShell({
   const [unitCoachFocused, setUnitCoachFocused] = useState(false);
   const [unitCoachTrigger, setUnitCoachTrigger] =
     useState<UnitCoachTrigger | null>(null);
-  const [liveUnit, setLiveUnit] = useState(unit);
+  const [liveUnitState, setLiveUnitState] = useState({
+    sessionId,
+    unit,
+  });
   const [isSessionRunning, setIsSessionRunning] = useState(false);
   const [onboardingTurnCount, setOnboardingTurnCount] = useState(0);
   const [timerNow, setTimerNow] = useState(() => Date.now());
@@ -135,14 +145,70 @@ export function WorkspaceShell({
     "bp-workspace-theme",
     "warm",
   );
+  const selectedProject = projects.find(
+    (project) => project.sessionId === selectedSessionId,
+  );
+  const isInitialSession = selectedSessionId === sessionId;
+  const isOnboardingProject = Boolean(
+    selectedProject && selectedProject.status !== "active",
+  );
+  const planQuery = useQuery(
+    trpc.training.activePlan.queryOptions(
+      { sessionId: selectedSessionId },
+      {
+        enabled: !preview && !isInitialSession && !isOnboardingProject,
+        retry: false,
+      },
+    ),
+  );
+  const workspaceQuery = useQuery(
+    trpc.training.home.queryOptions(
+      { sessionId: selectedSessionId },
+      {
+        enabled: !preview && !isInitialSession && !isOnboardingProject,
+        retry: false,
+      },
+    ),
+  );
+  const onboardingQuery = useQuery(
+    trpc.training.onboardingState.queryOptions(
+      { sessionId: selectedSessionId },
+      {
+        enabled: !preview && !isInitialSession && isOnboardingProject,
+        retry: false,
+      },
+    ),
+  );
+  const resolvedPlan = isInitialSession ? _plan : (planQuery.data ?? null);
+  const resolvedWorkspace = isInitialSession
+    ? workspace
+    : (workspaceQuery.data ?? null);
+  const resolvedOnboardingState = isInitialSession
+    ? onboardingState
+    : (onboardingQuery.data ?? null);
+
+  // History classification must not depend on the aiWorkspace query below —
+  // fetching aiWorkspace can trigger server-side unit generation, so it has to
+  // stay disabled while a read-only transcript is open. The initial session
+  // uses the server's exact classification (which did consult aiWorkspace);
+  // client-navigated projects fall back to plan/home reads, which misses only
+  // the active-recall edge (that chat renders as a transcript instead of live).
+  const fallbackActiveNodeId =
+    (isInitialSession ? initialActiveNodeId : null) ??
+    resolvedWorkspace?.nextUnitId ??
+    resolvedPlan?.nextUnitId ??
+    null;
+  const isHistorySelected = Boolean(
+    selectedChatId && selectedChatId !== fallbackActiveNodeId,
+  );
   const aiWorkspaceQuery = useQuery(
     trpc.training.aiWorkspace.queryOptions(
-      { sessionId },
+      { sessionId: selectedSessionId },
       {
-        // History views are static reads; polling would re-trigger server-side
-        // unit generation for no reason.
-        enabled: !preview && !chatHistory,
-        initialData: aiWorkspace ?? undefined,
+        // History views are static reads; fetching (or UNIT_PREPARING polling)
+        // would re-trigger server-side unit generation for no reason.
+        enabled: !preview && !isOnboardingProject && !isHistorySelected,
+        initialData: isInitialSession && aiWorkspace ? aiWorkspace : undefined,
         staleTime: Number.POSITIVE_INFINITY,
         refetchOnWindowFocus: false,
         retry: false,
@@ -151,22 +217,71 @@ export function WorkspaceShell({
       },
     ),
   );
-  const resolvedAiWorkspace = aiWorkspaceQuery.data ?? aiWorkspace ?? null;
+  const resolvedAiWorkspace =
+    aiWorkspaceQuery.data ?? (isInitialSession ? aiWorkspace : null) ?? null;
+  const activeNodeId =
+    resolvedAiWorkspace?.state?.recallUnitId ??
+    resolvedAiWorkspace?.state?.activeUnitId ??
+    fallbackActiveNodeId;
+  const activeNode = activeNodeId
+    ? (resolvedPlan?.nodes.find((node) => node.id === activeNodeId) ?? null)
+    : null;
+  const chatHistoryQuery = useQuery(
+    trpc.training.chatHistory.queryOptions(
+      { sessionId: selectedSessionId, nodeId: selectedChatId ?? "" },
+      {
+        enabled: !preview && isHistorySelected,
+        initialData:
+          isInitialSession && chatHistory?.node.id === selectedChatId
+            ? chatHistory
+            : undefined,
+        staleTime: Number.POSITIVE_INFINITY,
+        refetchOnWindowFocus: false,
+        retry: false,
+      },
+    ),
+  );
+  const resolvedChatHistory = isHistorySelected
+    ? (chatHistoryQuery.data ?? null)
+    : null;
+  const unitQuery = useQuery(
+    trpc.training.unit.queryOptions(
+      { sessionId: selectedSessionId, nodeId: activeNode?.id ?? "" },
+      {
+        enabled:
+          !preview &&
+          !isHistorySelected &&
+          Boolean(activeNode && activeNode.kind !== "simulation"),
+        initialData:
+          isInitialSession && unit?.nodeId === activeNode?.id
+            ? (unit ?? undefined)
+            : undefined,
+        retry: false,
+      },
+    ),
+  );
+  const fetchedUnit = unitQuery.data ?? (isInitialSession ? unit : null);
+  const liveUnit =
+    liveUnitState.sessionId === selectedSessionId &&
+    liveUnitState.unit?.nodeId === fetchedUnit?.nodeId
+      ? liveUnitState.unit
+      : fetchedUnit;
   const workspaceError =
     aiWorkspaceQuery.failureReason ?? aiWorkspaceQuery.error;
   const unitPreparing = isUnitPreparingError(workspaceError);
   const preparingNodeId = getUnitPreparingNodeId(workspaceError);
-  const refreshedPreparedUnitRef = useRef(false);
-
   useEffect(() => {
-    if (!unitPreparing || !preparingNodeId || preview || chatHistory) return;
+    if (!unitPreparing || !preparingNodeId || preview || isHistorySelected)
+      return;
 
     const events = new EventSource(
-      `/api/workspace/events?sessionId=${encodeURIComponent(sessionId)}&nodeId=${encodeURIComponent(preparingNodeId)}`,
+      `/api/workspace/events?sessionId=${encodeURIComponent(selectedSessionId)}&nodeId=${encodeURIComponent(preparingNodeId)}`,
     );
     const handleUnitReady = () => {
       void queryClient.invalidateQueries({
-        queryKey: trpc.training.aiWorkspace.queryKey({ sessionId }),
+        queryKey: trpc.training.aiWorkspace.queryKey({
+          sessionId: selectedSessionId,
+        }),
       });
     };
     events.addEventListener("unit_ready", handleUnitReady);
@@ -176,39 +291,22 @@ export function WorkspaceShell({
       events.close();
     };
   }, [
-    chatHistory,
+    isHistorySelected,
     preview,
     preparingNodeId,
     queryClient,
-    sessionId,
+    selectedSessionId,
     trpc.training.aiWorkspace,
     unitPreparing,
   ]);
 
   useEffect(() => {
-    if (
-      preview ||
-      unit ||
-      !aiWorkspaceQuery.data ||
-      refreshedPreparedUnitRef.current
-    ) {
-      return;
-    }
-    refreshedPreparedUnitRef.current = true;
-    router.refresh();
-  }, [aiWorkspaceQuery.data, preview, router, unit]);
+    document.cookie = `${LAST_SESSION_COOKIE}=${selectedSessionId}; path=/; SameSite=Lax`;
+  }, [selectedSessionId]);
 
-  useEffect(() => {
-    document.cookie = `${LAST_SESSION_COOKIE}=${sessionId}; path=/; SameSite=Lax`;
-  }, [sessionId]);
-
-  useEffect(() => {
-    setLiveUnit(unit);
-  }, [unit]);
-
-  const mode: WorkspaceMode = chatHistory
+  const mode: WorkspaceMode = isHistorySelected
     ? "history"
-    : onboardingState
+    : resolvedOnboardingState
       ? "onboarding"
       : liveUnit
         ? "unit"
@@ -232,7 +330,9 @@ export function WorkspaceShell({
         // never overwrites a populated cache — without this invalidation the
         // workspace would keep showing the finished unit forever.
         void queryClient.invalidateQueries({
-          queryKey: trpc.training.aiWorkspace.queryKey({ sessionId }),
+          queryKey: trpc.training.aiWorkspace.queryKey({
+            sessionId: selectedSessionId,
+          }),
         });
         router.refresh();
       },
@@ -248,7 +348,7 @@ export function WorkspaceShell({
 
   useEffect(() => {
     setIsSessionRunning(false);
-  }, [mode, sessionId]);
+  }, [mode, selectedSessionId]);
 
   useEffect(() => {
     if (!timerIsActive || attemptStartedAt == null) {
@@ -281,7 +381,7 @@ export function WorkspaceShell({
   // header doesn't display a stale count between sessions.
   useEffect(() => {
     setOnboardingTurnCount(0);
-  }, [mode, sessionId]);
+  }, [mode, selectedSessionId]);
 
   const handleExitOnboarding = () => {
     router.push("/");
@@ -291,17 +391,21 @@ export function WorkspaceShell({
     mode === "onboarding"
       ? preview
         ? "/ui/profile"
-        : `/settings/topics?session=${encodeURIComponent(sessionId)}`
+        : `/settings/topics?session=${encodeURIComponent(selectedSessionId)}`
       : null;
 
   const shellTitle =
     mode === "history"
-      ? (chatHistory?.node.title ?? "Chat history")
+      ? (resolvedChatHistory?.node.title ??
+        selectedProject?.lessonPreview.find(
+          (lesson) => lesson.id === selectedChatId,
+        )?.title ??
+        "Chat history")
       : mode === "onboarding"
-        ? (onboardingState?.activeQuestion?.prompt ??
+        ? (resolvedOnboardingState?.activeQuestion?.prompt ??
           "Start a new learning track")
         : (liveUnit?.title ??
-          workspace?.nextUnitTitle ??
+          resolvedWorkspace?.nextUnitTitle ??
           "Preparing your next unit");
 
   const closeUnitCoach = () => {
@@ -354,10 +458,104 @@ export function WorkspaceShell({
     }
 
     advanceCompletedUnit.mutate({
-      sessionId,
+      sessionId: selectedSessionId,
       nodeId: unitAdvanceGate.unitId,
     });
   };
+
+  const navigateWorkspace = (
+    nextSessionId: string,
+    nextChatId: string | null,
+  ) => {
+    setSelectedSessionId(nextSessionId);
+    setSelectedChatId(nextChatId);
+    setMobileSidebarOpen(false);
+
+    const params = new URLSearchParams({ session: nextSessionId });
+    if (nextChatId) params.set("chat", nextChatId);
+    window.history.pushState(null, "", `/workspace?${params.toString()}`);
+  };
+
+  const handleWorkspaceLink = (
+    event: MouseEvent<HTMLAnchorElement>,
+    nextSessionId: string,
+    nextChatId: string | null,
+  ) => {
+    if (
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    navigateWorkspace(nextSessionId, nextChatId);
+  };
+
+  const prefetchChat = (nextSessionId: string, nodeId: string) => {
+    if (nextSessionId === selectedSessionId && nodeId === activeNodeId) return;
+
+    void queryClient.prefetchQuery(
+      trpc.training.chatHistory.queryOptions(
+        { sessionId: nextSessionId, nodeId },
+        { staleTime: Number.POSITIVE_INFINITY },
+      ),
+    );
+  };
+
+  const prefetchProject = (nextSessionId: string) => {
+    if (nextSessionId === selectedSessionId) return;
+    const project = projects.find(
+      (candidate) => candidate.sessionId === nextSessionId,
+    );
+    if (project?.status !== "active") {
+      void queryClient.prefetchQuery(
+        trpc.training.onboardingState.queryOptions({
+          sessionId: nextSessionId,
+        }),
+      );
+      return;
+    }
+
+    // aiWorkspace is deliberately not prefetched: fetching it can trigger
+    // server-side unit generation, which a mere hover must not do. Plan and
+    // home are read-only.
+    void Promise.all([
+      queryClient.prefetchQuery(
+        trpc.training.activePlan.queryOptions({ sessionId: nextSessionId }),
+      ),
+      queryClient.prefetchQuery(
+        trpc.training.home.queryOptions({ sessionId: nextSessionId }),
+      ),
+    ]);
+  };
+
+  const handleSelectChat = (
+    event: MouseEvent<HTMLAnchorElement>,
+    nextSessionId: string,
+    nodeId: string,
+  ) => {
+    const nextChatId =
+      nextSessionId === selectedSessionId && nodeId === activeNodeId
+        ? null
+        : nodeId;
+    handleWorkspaceLink(event, nextSessionId, nextChatId);
+  };
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      setSelectedSessionId(params.get("session") ?? sessionId);
+      setSelectedChatId(params.get("chat"));
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [sessionId]);
+
   const elapsedSeconds =
     attemptStartedAt == null
       ? 0
@@ -390,15 +588,25 @@ export function WorkspaceShell({
         <div className="h-full w-[232px]">
           <CurriculumSidebar
             projects={projects}
-            currentSessionId={sessionId}
+            currentSessionId={selectedSessionId}
             preview={preview}
             collapsed={false}
             onToggleCollapsed={toggleSidebar}
             userName={userName}
-            activeLessonId={chatHistory?.node.id ?? liveUnit?.nodeId ?? null}
+            activeLessonId={
+              resolvedChatHistory?.node.id ?? liveUnit?.nodeId ?? null
+            }
             isSessionRunning={isSessionRunning}
             workspaceTheme={workspaceTheme}
             onWorkspaceThemeChange={setWorkspaceTheme}
+            onSelectProject={(event, nextSessionId) =>
+              handleWorkspaceLink(event, nextSessionId, null)
+            }
+            onPrefetchProject={prefetchProject}
+            onSelectChat={(event, nextSessionId, nodeId) =>
+              handleSelectChat(event, nextSessionId, nodeId)
+            }
+            onPrefetchChat={prefetchChat}
           />
         </div>
       </div>
@@ -421,16 +629,26 @@ export function WorkspaceShell({
           >
             <CurriculumSidebar
               projects={projects}
-              currentSessionId={sessionId}
+              currentSessionId={selectedSessionId}
               preview={preview}
               collapsed={false}
               onToggleCollapsed={() => setMobileSidebarOpen(false)}
               userName={userName}
-              activeLessonId={chatHistory?.node.id ?? liveUnit?.nodeId ?? null}
+              activeLessonId={
+                resolvedChatHistory?.node.id ?? liveUnit?.nodeId ?? null
+              }
               isSessionRunning={isSessionRunning}
               workspaceTheme={workspaceTheme}
               onWorkspaceThemeChange={setWorkspaceTheme}
               onNavigate={() => setMobileSidebarOpen(false)}
+              onSelectProject={(event, nextSessionId) =>
+                handleWorkspaceLink(event, nextSessionId, null)
+              }
+              onPrefetchProject={prefetchProject}
+              onSelectChat={(event, nextSessionId, nodeId) =>
+                handleSelectChat(event, nextSessionId, nodeId)
+              }
+              onPrefetchChat={prefetchChat}
             />
           </div>
         </div>
@@ -581,23 +799,39 @@ export function WorkspaceShell({
                           : "bp-prose flex min-h-full flex-col"
                     }
                   >
-                    {mode === "history" && chatHistory ? (
+                    {mode === "history" && resolvedChatHistory ? (
                       <ChatHistoryView
-                        messages={chatHistory.messages}
+                        messages={resolvedChatHistory.messages}
                         currentChatHref={
                           preview
                             ? "/ui/workspace"
-                            : `/workspace?session=${encodeURIComponent(sessionId)}`
+                            : `/workspace?session=${encodeURIComponent(selectedSessionId)}`
+                        }
+                        onBackToCurrentChat={(event) =>
+                          handleWorkspaceLink(event, selectedSessionId, null)
                         }
                       />
                     ) : null}
 
-                    {mode === "onboarding" && onboardingState ? (
+                    {mode === "history" && !resolvedChatHistory ? (
+                      <div className="text-foreground/48 py-16 text-center text-[13px]">
+                        {chatHistoryQuery.isError
+                          ? chatHistoryQuery.error.message
+                          : "Loading chat..."}
+                      </div>
+                    ) : null}
+
+                    {mode === "onboarding" && resolvedOnboardingState ? (
                       <OnboardingShell
+                        // OnboardingShell seeds its session id and transcript
+                        // from props on mount only; without the key, switching
+                        // between two onboarding projects would keep chatting
+                        // against the previous session.
+                        key={selectedSessionId}
                         embedded
                         variant="landscape"
-                        initialState={onboardingState}
-                        sessionId={sessionId}
+                        initialState={resolvedOnboardingState}
+                        sessionId={selectedSessionId}
                         onRunningChange={setIsSessionRunning}
                         onTurnCountChange={setOnboardingTurnCount}
                       />
@@ -605,12 +839,21 @@ export function WorkspaceShell({
 
                     {mode === "unit" && liveUnit ? (
                       <EducationUnitWorkspace
+                        // Remount on session switch so refs (pending turn ids,
+                        // drafts) never leak across projects, matching the old
+                        // full-page-navigation semantics.
+                        key={selectedSessionId}
                         unit={liveUnit}
-                        sessionId={sessionId}
+                        sessionId={selectedSessionId}
                         preview={preview}
                         embedded
                         aiWorkspace={resolvedAiWorkspace}
-                        onStateChange={setLiveUnit}
+                        onStateChange={(nextUnit) =>
+                          setLiveUnitState({
+                            sessionId: selectedSessionId,
+                            unit: nextUnit,
+                          })
+                        }
                         onRunningChange={setIsSessionRunning}
                         onRunCommand={openUnitCoachWithCommand}
                         onAskCoachAboutAnswer={openUnitCoachForAnswer}
@@ -623,7 +866,7 @@ export function WorkspaceShell({
                           <h2 className="font-display text-foreground text-base font-semibold tracking-[-0.02em]">
                             <AssistantRichText
                               content={
-                                workspace?.nextUnitTitle ??
+                                resolvedWorkspace?.nextUnitTitle ??
                                 "Preparing your next unit"
                               }
                             />
@@ -652,9 +895,9 @@ export function WorkspaceShell({
                   ].join(" ")}
                 >
                   <UnitCoachPanel
-                    key={`${sessionId}:${liveUnit.nodeId}`}
+                    key={`${selectedSessionId}:${liveUnit.nodeId}`}
                     unit={liveUnit}
-                    sessionId={sessionId}
+                    sessionId={selectedSessionId}
                     trigger={unitCoachTrigger}
                     preview={preview}
                     isFocused={unitCoachFocused}

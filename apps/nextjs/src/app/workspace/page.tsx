@@ -118,6 +118,7 @@ export default async function WorkspacePage(props: {
         projects={projects}
         sessionId={resolvedSessionId}
         chatHistory={chatHistory}
+        initialActiveNodeId={activeNodeId ?? null}
       />
     </TRPCReactProvider>
   );

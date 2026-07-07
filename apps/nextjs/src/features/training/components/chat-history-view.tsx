@@ -1,5 +1,6 @@
 "use client";
 
+import type { MouseEvent } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "@phosphor-icons/react";
 
@@ -20,9 +21,11 @@ interface ChatHistoryMessage {
 export function ChatHistoryView({
   messages,
   currentChatHref,
+  onBackToCurrentChat,
 }: {
   messages: ChatHistoryMessage[];
   currentChatHref: string;
+  onBackToCurrentChat?: (event: MouseEvent<HTMLAnchorElement>) => void;
 }) {
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col pb-10">
@@ -32,6 +35,7 @@ export function ChatHistoryView({
         </p>
         <Link
           href={currentChatHref}
+          onClick={onBackToCurrentChat}
           className="text-foreground/72 hover:text-foreground flex shrink-0 items-center gap-1.5 text-[12px] font-medium transition-colors"
         >
           <ArrowLeft size={13} />
@@ -63,7 +67,6 @@ export function ChatHistoryView({
           )}
         </div>
       )}
-
     </div>
   );
 }
