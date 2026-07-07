@@ -47,6 +47,7 @@ type EvaluationPlan = NonNullable<AiWorkspace["evaluationPlan"]>;
 type LearningProject =
   RouterOutputs["training"]["listLearningProjects"][number];
 type ChatHistory = RouterOutputs["training"]["chatHistory"];
+type WorkspaceBootstrap = RouterOutputs["training"]["workspaceBootstrap"];
 
 const LAST_SESSION_COOKIE = "bp-last-learning-session";
 const EMPTY_PROJECTS: LearningProject[] = [];
@@ -113,6 +114,9 @@ export function WorkspaceShell({
   const [selectedChatId, setSelectedChatId] = useState<string | null>(
     chatHistory?.node.id ?? null,
   );
+  const [pendingBootstrapSessionId, setPendingBootstrapSessionId] = useState<
+    string | null
+  >(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
@@ -152,11 +156,27 @@ export function WorkspaceShell({
   const isOnboardingProject = Boolean(
     selectedProject && selectedProject.status !== "active",
   );
+  const bootstrapQuery = useQuery(
+    trpc.training.workspaceBootstrap.queryOptions(
+      { sessionId: selectedSessionId },
+      { enabled: false, retry: false },
+    ),
+  );
+  const selectedBootstrap =
+    bootstrapQuery.data?.kind !== "needs-onboarding" &&
+    bootstrapQuery.data?.sessionId === selectedSessionId
+      ? bootstrapQuery.data
+      : null;
+  const bootstrapPending = pendingBootstrapSessionId === selectedSessionId;
   const planQuery = useQuery(
     trpc.training.activePlan.queryOptions(
       { sessionId: selectedSessionId },
       {
-        enabled: !preview && !isInitialSession && !isOnboardingProject,
+        enabled:
+          !preview &&
+          !isInitialSession &&
+          !isOnboardingProject &&
+          !bootstrapPending,
         retry: false,
       },
     ),
@@ -165,7 +185,11 @@ export function WorkspaceShell({
     trpc.training.home.queryOptions(
       { sessionId: selectedSessionId },
       {
-        enabled: !preview && !isInitialSession && !isOnboardingProject,
+        enabled:
+          !preview &&
+          !isInitialSession &&
+          !isOnboardingProject &&
+          !bootstrapPending,
         retry: false,
       },
     ),
@@ -174,7 +198,11 @@ export function WorkspaceShell({
     trpc.training.onboardingState.queryOptions(
       { sessionId: selectedSessionId },
       {
-        enabled: !preview && !isInitialSession && isOnboardingProject,
+        enabled:
+          !preview &&
+          !isInitialSession &&
+          isOnboardingProject &&
+          !bootstrapPending,
         retry: false,
       },
     ),
@@ -195,6 +223,9 @@ export function WorkspaceShell({
   // the active-recall edge (that chat renders as a transcript instead of live).
   const fallbackActiveNodeId =
     (isInitialSession ? initialActiveNodeId : null) ??
+    (selectedBootstrap?.kind === "workspace"
+      ? selectedBootstrap.activeNodeId
+      : null) ??
     resolvedWorkspace?.nextUnitId ??
     resolvedPlan?.nextUnitId ??
     null;
@@ -207,7 +238,11 @@ export function WorkspaceShell({
       {
         // History views are static reads; fetching (or UNIT_PREPARING polling)
         // would re-trigger server-side unit generation for no reason.
-        enabled: !preview && !isOnboardingProject && !isHistorySelected,
+        enabled:
+          !preview &&
+          !isOnboardingProject &&
+          !isHistorySelected &&
+          !bootstrapPending,
         initialData: isInitialSession && aiWorkspace ? aiWorkspace : undefined,
         staleTime: Number.POSITIVE_INFINITY,
         refetchOnWindowFocus: false,
@@ -251,6 +286,7 @@ export function WorkspaceShell({
         enabled:
           !preview &&
           !isHistorySelected &&
+          !bootstrapPending &&
           Boolean(activeNode && activeNode.kind !== "simulation"),
         initialData:
           isInitialSession && unit?.nodeId === activeNode?.id
@@ -302,6 +338,11 @@ export function WorkspaceShell({
 
   useEffect(() => {
     document.cookie = `${LAST_SESSION_COOKIE}=${selectedSessionId}; path=/; SameSite=Lax`;
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has("session")) {
+      params.set("session", selectedSessionId);
+      window.history.replaceState(null, "", `/workspace?${params.toString()}`);
+    }
   }, [selectedSessionId]);
 
   const mode: WorkspaceMode = isHistorySelected
@@ -463,10 +504,85 @@ export function WorkspaceShell({
     });
   };
 
+  const seedWorkspaceCaches = (bootstrap: WorkspaceBootstrap) => {
+    queryClient.setQueryData(
+      trpc.training.listLearningProjects.queryKey(),
+      bootstrap.projects,
+    );
+    if (bootstrap.kind === "needs-onboarding") return;
+    if (bootstrap.kind === "onboarding") {
+      queryClient.setQueryData(
+        trpc.training.onboardingState.queryKey({
+          sessionId: bootstrap.sessionId,
+        }),
+        bootstrap.onboardingState,
+      );
+      return;
+    }
+
+    const input = { sessionId: bootstrap.sessionId };
+    queryClient.setQueryData(
+      trpc.training.activePlan.queryKey(input),
+      bootstrap.plan,
+    );
+    queryClient.setQueryData(
+      trpc.training.home.queryKey(input),
+      bootstrap.workspace,
+    );
+    if (bootstrap.aiWorkspace) {
+      queryClient.setQueryData(
+        trpc.training.aiWorkspace.queryKey(input),
+        bootstrap.aiWorkspace,
+      );
+    }
+    if (bootstrap.unit) {
+      queryClient.setQueryData(
+        trpc.training.unit.queryKey({
+          sessionId: bootstrap.sessionId,
+          nodeId: bootstrap.unit.nodeId,
+        }),
+        bootstrap.unit,
+      );
+    }
+  };
+
+  const loadWorkspaceSession = async (nextSessionId: string) => {
+    if (nextSessionId === sessionId) return;
+    setPendingBootstrapSessionId(nextSessionId);
+    try {
+      const bootstrap = await queryClient.fetchQuery(
+        trpc.training.workspaceBootstrap.queryOptions(
+          { sessionId: nextSessionId },
+          // fetchQuery does not inherit the useQuery retry setting; without
+          // this a failed switch backs off through three retries before the
+          // error toast appears.
+          { retry: false },
+        ),
+      );
+      seedWorkspaceCaches(bootstrap);
+      if (bootstrap.kind === "needs-onboarding") {
+        router.push("/onboarding");
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "The learning project could not be opened.",
+      );
+    } finally {
+      setPendingBootstrapSessionId((current) =>
+        current === nextSessionId ? null : current,
+      );
+    }
+  };
+
   const navigateWorkspace = (
     nextSessionId: string,
     nextChatId: string | null,
   ) => {
+    if (nextSessionId !== selectedSessionId) {
+      void loadWorkspaceSession(nextSessionId);
+    }
     setSelectedSessionId(nextSessionId);
     setSelectedChatId(nextChatId);
     setMobileSidebarOpen(false);

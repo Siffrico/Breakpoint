@@ -16,7 +16,7 @@ import { createAssistantTextStreamer } from "./domain/training/workspace-ai/assi
 import { resolveWorkspaceTurn } from "./domain/training/workspace-ai/workspace-turn";
 import { runWorkspaceTurn } from "./domain/training/workspace-ai/workspace-turn-edge";
 import { runEducationUnitTurn } from "./domain/training/workspace-ai/workspace-turn-orchestration";
-import { trainingOnboardingRepository } from "./repositories/training-onboarding-repository";
+import { trainingCurriculumRepository } from "./repositories/training-curriculum-repository";
 import {
   createWorkspaceTurnRepositoryDeps,
   workspaceTurnRepoLayer,
@@ -137,15 +137,13 @@ const streamWorkspaceChatWithModelPreference = async ({
     );
   }
 
-  const session = await trainingOnboardingRepository.getSession({
+  const plan = await trainingCurriculumRepository.getOwnedActivePlan({
     db,
     sessionId,
+    userId,
   });
-  if (!session) {
-    return new Response("Onboarding session not found.", { status: 404 });
-  }
-  if (session.userId !== userId) {
-    return new Response("Forbidden.", { status: 403 });
+  if (!plan) {
+    return new Response("Learning project not found.", { status: 404 });
   }
 
   const stream = createUIMessageStream<WorkspaceChatUIMessage>({
@@ -177,6 +175,7 @@ const streamWorkspaceChatWithModelPreference = async ({
 
       const turn = await resolveWorkspaceTurn({
         sessionId,
+        authorizedPlan: plan,
         deps: turnDeps,
       });
 

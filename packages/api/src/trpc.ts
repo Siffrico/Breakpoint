@@ -37,11 +37,29 @@ export const createTRPCContext = async (opts: {
    * fall back to a detached promise.
    */
   scheduleBackgroundTask?: (task: () => Promise<void>) => void;
+  /**
+   * Receives Better Auth's response headers so the caller can forward the
+   * session cookie-cache refresh (Set-Cookie). Only HTTP route handlers can
+   * do this — RSC callers must omit it. Without at least one forwarding
+   * caller the cookie cache expires after its maxAge and every request falls
+   * back to a DB session read.
+   */
+  onAuthResponseHeaders?: (headers: Headers) => void;
 }) => {
   const authApi = opts.auth.api;
-  const session = await authApi.getSession({
-    headers: opts.headers,
-  });
+  let session: Awaited<ReturnType<typeof authApi.getSession>>;
+  if (opts.onAuthResponseHeaders) {
+    const result = await authApi.getSession({
+      headers: opts.headers,
+      returnHeaders: true,
+    });
+    opts.onAuthResponseHeaders(result.headers);
+    session = result.response;
+  } else {
+    session = await authApi.getSession({
+      headers: opts.headers,
+    });
+  }
   return {
     authApi,
     session,

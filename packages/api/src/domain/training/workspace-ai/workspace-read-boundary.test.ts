@@ -219,6 +219,31 @@ describe("workspace read preparation boundary", () => {
     });
     expect(upsertUnitRun).not.toHaveBeenCalled();
   });
+
+  it("reuses an authorized plan without reading it again", async () => {
+    const getActivePlan = vi.fn();
+    const unit = {
+      id: "unit-content-1",
+      nodeId: readyNode.id,
+    } as UnitContent;
+
+    await resolveWorkspaceTurn({
+      sessionId: "session-1",
+      authorizedPlan: plan,
+      deps: {
+        getActivePlan,
+        listPhaseResponsesBySession: () => Promise.resolve([]),
+        getPhaseResponses: () => Promise.resolve([]),
+        getUnitRun: () => Promise.resolve(null),
+        getInFlightRecallRun: () => Promise.resolve(null),
+        retireInFlightRecallRun: () => Promise.resolve(),
+        getUnitByNodeId: () => Promise.resolve(unit),
+        listRecallCandidates: () => Promise.resolve([]),
+      },
+    });
+
+    expect(getActivePlan).not.toHaveBeenCalled();
+  });
 });
 
 describe("durable recall projection", () => {

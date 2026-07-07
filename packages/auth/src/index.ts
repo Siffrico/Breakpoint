@@ -38,6 +38,12 @@ export function initAuth<
     emailAndPassword: {
       enabled: true,
     },
+    session: {
+      cookieCache: {
+        enabled: true,
+        maxAge: 300,
+      },
+    },
     socialProviders: {
       discord: {
         clientId: options.discordClientId,

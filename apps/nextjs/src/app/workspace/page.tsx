@@ -1,17 +1,13 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { z } from "zod/v4";
 
 import { getSession } from "~/auth/server";
 import { WorkspaceShell } from "~/features/training/components/workspace-shell";
 import {
-  getActivePlan,
   getChatHistory,
-  getEducationUnit,
-  getInitialAiWorkspace,
-  getOnboardingState,
-  getWorkspaceState,
-  listLearningProjects,
+  getWorkspaceBootstrap,
 } from "~/features/training/server/training-queries";
 import { TRPCReactProvider } from "~/trpc/react";
 
@@ -22,6 +18,16 @@ export const metadata: Metadata = {
 export const preferredRegion = "iad1";
 
 const LAST_SESSION_COOKIE = "bp-last-learning-session";
+
+// The search param is user-editable and the cookie can be stale or corrupt.
+// The bootstrap input schema rejects non-UUIDs with a request error, so bad
+// candidates are dropped here to preserve the fall-through to the newest
+// project (or onboarding) instead of surfacing an error page.
+const SessionCandidateSchema = z.string().uuid();
+const asSessionCandidate = (value: string | undefined) =>
+  value !== undefined && SessionCandidateSchema.safeParse(value).success
+    ? value
+    : undefined;
 
 export default async function WorkspacePage(props: {
   searchParams: Promise<{ session?: string; chat?: string }>;
@@ -36,89 +42,54 @@ export default async function WorkspacePage(props: {
     redirect("/");
   }
 
-  const projects = await listLearningProjects().catch(() => []);
-  const cookieSessionId = cookieStore.get(LAST_SESSION_COOKIE)?.value;
-  const resolvedSessionId =
-    session ?? cookieSessionId ?? projects[0]?.sessionId ?? null;
-
-  if (!resolvedSessionId) {
+  const bootstrap = await getWorkspaceBootstrap({
+    sessionId: asSessionCandidate(session),
+    cookieSessionId: asSessionCandidate(
+      cookieStore.get(LAST_SESSION_COOKIE)?.value,
+    ),
+  });
+  if (bootstrap.kind === "needs-onboarding") {
     redirect("/onboarding");
   }
-
-  if (!session && resolvedSessionId) {
-    redirect(`/workspace?session=${resolvedSessionId}`);
-  }
-
-  const plan = await getActivePlan(resolvedSessionId).catch(() => null);
-
-  if (!plan) {
-    const onboardingState = await getOnboardingState(resolvedSessionId).catch(
-      () => null,
-    );
-
-    if (!onboardingState) {
-      redirect("/onboarding");
-    }
-
+  if (bootstrap.kind === "onboarding") {
     return (
       <TRPCReactProvider>
         <WorkspaceShell
           workspace={null}
           plan={null}
           unit={null}
-          onboardingState={onboardingState}
-          projects={projects}
-          sessionId={resolvedSessionId}
+          onboardingState={bootstrap.onboardingState}
+          projects={bootstrap.projects}
+          sessionId={bootstrap.sessionId}
           userName={authSession.user.name}
         />
       </TRPCReactProvider>
     );
   }
 
-  const [workspace, aiWorkspace] = await Promise.all([
-    getWorkspaceState(resolvedSessionId),
-    getInitialAiWorkspace(resolvedSessionId),
-  ]);
-  const activeNodeId =
-    aiWorkspace?.state?.recallUnitId ??
-    aiWorkspace?.state?.activeUnitId ??
-    workspace.nextUnitId ??
-    plan.nextUnitId;
-  const activeNode = activeNodeId
-    ? (plan.nodes.find((node) => node.id === activeNodeId) ?? null)
-    : null;
-
   // A `chat` param that points at anything other than the live node opens that
   // chat's read-only transcript. The live node (or a bad id) falls through to
   // the normal workspace so the plain URL stays the single live view.
   const chatHistory =
-    chat && chat !== activeNodeId
+    chat && chat !== bootstrap.activeNodeId
       ? await getChatHistory({
           nodeId: chat,
-          sessionId: resolvedSessionId,
-        }).catch(() => null)
-      : null;
-
-  const unit =
-    !chatHistory && aiWorkspace && activeNode && activeNode.kind !== "simulation"
-      ? await getEducationUnit({
-          nodeId: activeNode.id,
-          sessionId: resolvedSessionId,
+          sessionId: bootstrap.sessionId,
         }).catch(() => null)
       : null;
 
   return (
     <TRPCReactProvider>
       <WorkspaceShell
-        workspace={workspace}
-        plan={plan}
-        unit={unit}
+        workspace={bootstrap.workspace}
+        plan={bootstrap.plan}
+        unit={chatHistory ? null : bootstrap.unit}
         onboardingState={null}
-        aiWorkspace={chatHistory ? null : aiWorkspace}
-        projects={projects}
-        sessionId={resolvedSessionId}
+        aiWorkspace={chatHistory ? null : bootstrap.aiWorkspace}
+        projects={bootstrap.projects}
+        sessionId={bootstrap.sessionId}
         chatHistory={chatHistory}
-        initialActiveNodeId={activeNodeId ?? null}
+        initialActiveNodeId={bootstrap.activeNodeId}
       />
     </TRPCReactProvider>
   );

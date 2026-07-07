@@ -277,17 +277,15 @@ const loadPlannedRecall = ({
       });
       // Best-effort self-healing: a failed retirement must not block the turn
       // — the stale run simply gets retried on the next resolution.
-      yield* reader
-        .retireInFlightRecallRun(sessionId, inFlightRun.unitId)
-        .pipe(
-          Effect.catch((cause) =>
-            Effect.logError("Stale recall retirement failed.", {
-              cause,
-              sessionId,
-              unitContentId: inFlightRun.unitId,
-            }),
-          ),
-        );
+      yield* reader.retireInFlightRecallRun(sessionId, inFlightRun.unitId).pipe(
+        Effect.catch((cause) =>
+          Effect.logError("Stale recall retirement failed.", {
+            cause,
+            sessionId,
+            unitContentId: inFlightRun.unitId,
+          }),
+        ),
+      );
     }
 
     if (
@@ -390,8 +388,10 @@ export const loadNextReadyUnitProjection = ({
  */
 export const resolveWorkspaceTurnEffect = ({
   sessionId,
+  authorizedPlan,
 }: {
   sessionId: string;
+  authorizedPlan?: CurriculumPlan;
 }): EffectType.Effect<
   ResolvedWorkspaceTurn,
   | DbError
@@ -404,7 +404,9 @@ export const resolveWorkspaceTurnEffect = ({
     const reader = yield* WorkspaceProjectionReader;
     const [plan, allResponses] = yield* Effect.all(
       [
-        reader.getActivePlan(sessionId),
+        authorizedPlan
+          ? Effect.succeed(authorizedPlan)
+          : reader.getActivePlan(sessionId),
         reader.listPhaseResponsesBySession(sessionId),
       ],
       { concurrency: 2 },
@@ -505,13 +507,15 @@ export const resolveWorkspaceTurnEffect = ({
 
 export const resolveWorkspaceTurn = async ({
   sessionId,
+  authorizedPlan,
   deps,
 }: {
   sessionId: string;
+  authorizedPlan?: CurriculumPlan;
   deps: WorkspaceProjectionReaderSource;
 }): Promise<ResolvedWorkspaceTurn> => {
   const exit = await Effect.runPromiseExit(
-    resolveWorkspaceTurnEffect({ sessionId }).pipe(
+    resolveWorkspaceTurnEffect({ sessionId, authorizedPlan }).pipe(
       Effect.provideService(
         WorkspaceProjectionReader,
         makeWorkspaceProjectionReader(deps),

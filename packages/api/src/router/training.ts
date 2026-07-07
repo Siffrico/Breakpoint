@@ -2,14 +2,14 @@ import type { TRPCRouterRecord } from "@trpc/server";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod/v4";
 
-import type { CurriculumNode, StartingPointTier } from "@acme/validators";
+import type { StartingPointTier } from "@acme/validators";
 import { sql } from "@acme/db";
 import {
   CapstoneSubmissionSchema,
   StartingPointTierSchema,
+  WorkspaceBootstrapInputSchema,
 } from "@acme/validators";
 
-import { deriveProvisionalProjectTitle } from "../domain/training/services/provisional-project-title";
 import { createNextUnit } from "../domain/training/unit-creation/create-next-unit";
 import { UnitNotReadyError } from "../domain/training/unit-preparation/errors";
 import { raiseUnitPreparationError } from "../domain/training/unit-preparation/prepare-unit-edge";
@@ -24,6 +24,7 @@ import { getHomeStateWorkflow } from "../domain/training/workflows/get-home-stat
 import { getProfileWorkflow } from "../domain/training/workflows/get-profile-workflow";
 import { getProjectTopicWorkflow } from "../domain/training/workflows/get-project-topic-workflow";
 import { getUnitWorkflow } from "../domain/training/workflows/get-unit-workflow";
+import { getWorkspaceBootstrapWorkflow } from "../domain/training/workflows/get-workspace-bootstrap-workflow";
 import { getWorkspaceIndexWorkflow } from "../domain/training/workflows/get-workspace-index-workflow";
 import { prepareUnitWorkflow } from "../domain/training/workflows/prepare-unit-workflow";
 import { startOnboardingWorkflow } from "../domain/training/workflows/start-onboarding-workflow";
@@ -36,8 +37,8 @@ import { trainingCapstoneRepository } from "../repositories/training-capstone-re
 import { trainingCurriculumRepository } from "../repositories/training-curriculum-repository";
 import { trainingOnboardingRepository } from "../repositories/training-onboarding-repository";
 import { trainingRatingRepository } from "../repositories/training-rating-repository";
-import { trainingSyllabusRepository } from "../repositories/training-syllabus-repository";
 import { trainingUnitRunRepository } from "../repositories/training-unit-run-repository";
+import { trainingWorkspaceReadRepository } from "../repositories/training-workspace-read-repository";
 import {
   createUnitCreationRepositoryDeps,
   loadSkillMasteryState,
@@ -261,6 +262,25 @@ const getErrorCode = (message: string) => {
   return "INTERNAL_SERVER_ERROR" as const;
 };
 
+const createGetAiWorkspaceDependencies = (db: Database, userId: string) => ({
+  ...createWorkspaceTurnRepositoryDeps(db),
+  getScenarioAttemptStartedAt: async ({
+    scenarioAttemptId,
+    nodeId,
+  }: {
+    scenarioAttemptId: string;
+    nodeId: string;
+  }) => {
+    const attempt = await trainingRatingRepository.getOpenScenarioById({
+      db,
+      scenarioAttemptId,
+      userId,
+      nodeId,
+    });
+    return attempt?.presentedAt ?? null;
+  },
+});
+
 const throwOnFailure = <T>(result: {
   success: boolean;
   data?: T;
@@ -455,127 +475,74 @@ export const trainingRouter = {
     });
   }),
 
-  listLearningProjects: protectedProcedure.query(async ({ ctx }) => {
-    const sessions = await trainingOnboardingRepository.listSessionsByUser({
+  listLearningProjects: protectedProcedure.query(({ ctx }) =>
+    trainingWorkspaceReadRepository.listLearningProjectsForUser({
       db: ctx.db,
       userId: ctx.session.user.id,
-    });
-    const sessionIds = sessions.map((session) => session.id);
-    const [profiles, plans, firstUserMessages] = await Promise.all([
-      trainingOnboardingRepository.listProfilesBySessionIds({
-        db: ctx.db,
-        sessionIds,
-      }),
-      trainingCurriculumRepository.listPlansBySessionIds({
-        db: ctx.db,
-        sessionIds,
-      }),
-      trainingOnboardingRepository.listFirstUserMessagesBySessionIds({
-        db: ctx.db,
-        sessionIds,
-      }),
-    ]);
+    }),
+  ),
 
-    const profileBySessionId = new Map(
-      profiles.map(({ profile, version }) => [
-        profile.onboardingSessionId,
-        {
-          targetIdentity: version.targetIdentity,
-          headline: version.headline,
+  workspaceBootstrap: protectedProcedure
+    .input(WorkspaceBootstrapInputSchema)
+    .query(async ({ ctx, input }) => {
+      const result = await getWorkspaceBootstrapWorkflow({
+        sessionId: input.sessionId,
+        cookieSessionId: input.cookieSessionId,
+        deps: {
+          listProjects: () =>
+            trainingWorkspaceReadRepository.listLearningProjectsForUser({
+              db: ctx.db,
+              userId: ctx.session.user.id,
+            }),
+          ownsSession: async (sessionId) => {
+            const session = await trainingOnboardingRepository.getSession({
+              db: ctx.db,
+              sessionId,
+            });
+            return session?.userId === ctx.session.user.id;
+          },
+          getActivePlan: (sessionId) =>
+            trainingCurriculumRepository.getActivePlan({
+              db: ctx.db,
+              sessionId,
+            }),
+          getHomeState: (sessionId) =>
+            trainingWorkspaceReadRepository.getHomeState({
+              db: ctx.db,
+              sessionId,
+            }),
+          getAiWorkspace: (sessionId) =>
+            getAiWorkspaceWorkflow({
+              sessionId,
+              deps: createGetAiWorkspaceDependencies(
+                ctx.db,
+                ctx.session.user.id,
+              ),
+            }),
+          getOnboardingState: (sessionId) =>
+            trainingOnboardingRepository.getOnboardingState({
+              db: ctx.db,
+              sessionId,
+            }),
+          getUnit: (sessionId, nodeId) =>
+            getUnitWorkflow({
+              sessionId,
+              nodeId,
+              deps: createGetUnitDependencies(ctx.db),
+            }),
         },
-      ]),
-    );
-    const planBySessionId = new Map(
-      plans.map((plan) => [plan.onboardingSessionId, plan]),
-    );
-    const firstUserMessageBySessionId = new Map(
-      firstUserMessages.map((message) => [message.sessionId, message.content]),
-    );
-
-    const nodes = await trainingCurriculumRepository.listNodesByPlanIds({
-      db: ctx.db,
-      planIds: plans.map((plan) => plan.id),
-    });
-    const sessionIdByPlanId = new Map(
-      plans.map((plan) => [plan.id, plan.onboardingSessionId]),
-    );
-    const projectNodesBySessionId = new Map<string, typeof nodes>();
-
-    for (const node of nodes) {
-      const sessionId = sessionIdByPlanId.get(node.planId);
-      if (!sessionId) {
-        continue;
+      });
+      if (!result.success) {
+        if (result.error instanceof UnitNotReadyError) {
+          return raiseUnitPreparationError(result.error);
+        }
+        return throwOnFailure<never>({
+          success: false,
+          error: result.error,
+        });
       }
-
-      const existing = projectNodesBySessionId.get(sessionId);
-      if (existing) {
-        existing.push(node);
-      } else {
-        projectNodesBySessionId.set(sessionId, [node]);
-      }
-    }
-
-    // Sessions arrive newest-first. Only the newest still-onboarding session is
-    // resumable navigation; older abandoned onboarding starts would render as
-    // ghost projects, so they are dropped.
-    let onboardingProjectEmitted = false;
-    return sessions.flatMap((session) => {
-      const profile = profileBySessionId.get(session.id) ?? null;
-      const plan = planBySessionId.get(session.id) ?? null;
-      // `||` (not `??`) is deliberate: a blank title should fall through.
-      const planTitle = plan?.title.trim() ?? "";
-      const identityTitle = profile?.targetIdentity.trim() ?? "";
-      const title =
-        planTitle ||
-        identityTitle ||
-        deriveProvisionalProjectTitle(
-          firstUserMessageBySessionId.get(session.id) ?? "",
-        );
-
-      // An untouched onboarding session has no learner intent to distinguish it
-      // from other abandoned starts, so it should not occupy navigation space.
-      if (!title) return [];
-
-      const planNodes = projectNodesBySessionId.get(session.id) ?? [];
-      // Newest-first, like a chat history: the most recently created unit is the
-      // live one, so it must be inside the default window. Capped at 10 — the
-      // sidebar's "Show more" ceiling.
-      const learningNodes = planNodes
-        .filter((node) => node.kind === "unit" || node.kind === "integration")
-        .sort((left, right) => right.orderIndex - left.orderIndex);
-      const lessonPreview = learningNodes.slice(0, 10).map((node) => ({
-        id: node.id,
-        title: node.title,
-        status: node.status,
-      }));
-
-      const status =
-        plan?.status === "active"
-          ? "active"
-          : plan // a "generating" shell exists but isn't finished yet
-            ? "building"
-            : session.status === "ready_for_generation" ||
-                session.status === "complete"
-              ? "building"
-              : "onboarding";
-      if (status === "onboarding") {
-        if (onboardingProjectEmitted) return [];
-        onboardingProjectEmitted = true;
-      }
-
-      return [
-        {
-          sessionId: session.id,
-          title,
-          headline:
-            profile?.headline ?? plan?.summary ?? "Interview in progress.",
-          status,
-          lessonPreview,
-          updatedAt: session.updatedAt ?? session.createdAt,
-        },
-      ];
-    });
-  }),
+      return result.data;
+    }),
 
   // Read-only transcript of one past chat (a unit's slice of the workspace
   // conversation). Ownership is enforced before any message read, and the node
@@ -764,71 +731,7 @@ export const trainingRouter = {
       const [result] = await Promise.all([
         getAiWorkspaceWorkflow({
           sessionId: input.sessionId,
-          deps: {
-            getActivePlan: (sessionId) =>
-              trainingCurriculumRepository.getActivePlan({
-                db: ctx.db,
-                sessionId,
-              }),
-            listMessages: (sessionId, slot) =>
-              trainingOnboardingRepository.listWorkspaceMessages({
-                db: ctx.db,
-                sessionId,
-                slot,
-              }),
-            listPhaseResponsesBySession: (sessionId) =>
-              trainingCurriculumRepository.listPhaseResponsesBySession({
-                db: ctx.db,
-                sessionId,
-              }),
-            getPhaseResponses: (unitContentId, sessionId) =>
-              trainingCurriculumRepository.getPhaseResponses({
-                db: ctx.db,
-                unitContentId,
-                sessionId,
-              }),
-            getUnitRun: (sessionId, unitContentId) =>
-              trainingUnitRunRepository.getUnitRun({
-                db: ctx.db,
-                sessionId,
-                unitContentId,
-              }),
-            getInFlightRecallRun: (sessionId) =>
-              trainingUnitRunRepository.getInFlightRecallRun({
-                db: ctx.db,
-                sessionId,
-              }),
-            retireInFlightRecallRun: (sessionId, unitContentId) =>
-              trainingUnitRunRepository.retireInFlightRecallRun({
-                db: ctx.db,
-                sessionId,
-                unitContentId,
-              }),
-            getUnitByNodeId: (nodeId) =>
-              trainingCurriculumRepository.getUnitByNodeId({
-                db: ctx.db,
-                nodeId,
-              }),
-            listRecallCandidates: (planId) =>
-              trainingSyllabusRepository.listRecallCandidates({
-                db: ctx.db,
-                planId,
-              }),
-            getScenarioAttemptStartedAt: async ({
-              scenarioAttemptId,
-              nodeId,
-            }) => {
-              const attempt =
-                await trainingRatingRepository.getOpenScenarioById({
-                  db: ctx.db,
-                  scenarioAttemptId,
-                  userId: ctx.session.user.id,
-                  nodeId,
-                });
-
-              return attempt?.presentedAt ?? null;
-            },
-          },
+          deps: createGetAiWorkspaceDependencies(ctx.db, ctx.session.user.id),
         }),
         requireSessionOwner({ ctx, sessionId: input.sessionId }),
       ]);
@@ -1091,100 +994,11 @@ export const trainingRouter = {
         await getHomeStateWorkflow({
           sessionId: input.sessionId,
           deps: {
-            getHomeState: async (sessionId) => {
-              const [profile, plan, summary, attemptHistory, nodeScores] =
-                await Promise.all([
-                  trainingOnboardingRepository.getProfileBySession({
-                    db: ctx.db,
-                    sessionId,
-                  }),
-                  trainingCurriculumRepository.getActivePlan({
-                    db: ctx.db,
-                    sessionId,
-                  }),
-                  trainingAttemptRepository.getHomeSummary({
-                    db: ctx.db,
-                    sessionId,
-                  }),
-                  trainingAttemptRepository.listAttemptHistory({
-                    db: ctx.db,
-                    sessionId,
-                  }),
-                  trainingAttemptRepository.listNodeScoresBySession({
-                    db: ctx.db,
-                    sessionId,
-                  }),
-                ]);
-
-              if (!profile || !plan || !summary) {
-                return null;
-              }
-
-              const totalUnits = plan.nodes.filter(
-                (node: CurriculumNode) =>
-                  node.kind === "unit" || node.kind === "integration",
-              ).length;
-              const completedUnits = plan.nodes.filter(
-                (node: CurriculumNode) =>
-                  (node.kind === "unit" || node.kind === "integration") &&
-                  node.status === "completed",
-              ).length;
-              const nextNode = plan.nodes.find(
-                (node: CurriculumNode) => node.id === plan.nextUnitId,
-              );
-
-              const lastAttempt =
-                attemptHistory.length > 0
-                  ? attemptHistory[attemptHistory.length - 1]
-                  : null;
-
-              const recentDimensions = attemptHistory
-                .slice(-10)
-                .flatMap((a) => a.growthDimensions ?? []);
-              const seen = new Set<string>();
-              const demonstratedCapabilities: string[] = [];
-              for (const dim of [...recentDimensions].reverse()) {
-                if (!seen.has(dim)) {
-                  seen.add(dim);
-                  demonstratedCapabilities.unshift(dim);
-                }
-                if (demonstratedCapabilities.length >= 3) break;
-              }
-
-              return {
-                targetIdentity: profile.version.targetIdentity,
-                headline: profile.version.headline,
-                planTitle: plan.title,
-                planSummary: plan.summary,
-                completedUnits,
-                totalUnits,
-                nextUnitId: plan.nextUnitId,
-                nextUnitTitle:
-                  summary.currentUnit?.title ??
-                  (nextNode
-                    ? nextNode.kind === "integration"
-                      ? "Integration unit ready"
-                      : nextNode.kind === "simulation"
-                        ? "Cluster capstone ready"
-                        : "Next unit ready"
-                    : null),
-                blockingSignals:
-                  summary.recentFailureTags.length > 0
-                    ? summary.recentFailureTags
-                    : profile.version.confidenceFlags.length > 0
-                      ? profile.version.confidenceFlags
-                      : profile.version.behaviorSignals.slice(0, 3),
-                lastCompletedUnit: lastAttempt
-                  ? {
-                      title: lastAttempt.title,
-                      score: lastAttempt.score,
-                      failureTags: lastAttempt.failureTags,
-                    }
-                  : null,
-                demonstratedCapabilities,
-                nodeScores,
-              };
-            },
+            getHomeState: (sessionId) =>
+              trainingWorkspaceReadRepository.getHomeState({
+                db: ctx.db,
+                sessionId,
+              }),
           },
         }),
       );

@@ -1,5 +1,10 @@
 import { z } from "zod/v4";
 
+export const WorkspaceBootstrapInputSchema = z.object({
+  sessionId: z.string().uuid().optional(),
+  cookieSessionId: z.string().uuid().optional(),
+});
+
 export const OnboardingSlotSchema = z.enum([
   "target_identity",
   "hard_moments",

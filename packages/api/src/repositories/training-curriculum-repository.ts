@@ -4,6 +4,7 @@ import {
   TrainingCurriculumNode,
   TrainingCurriculumPlan,
   TrainingIdentityProfileVersion,
+  TrainingOnboardingSession,
   TrainingUnitContent,
   TrainingUnitPhaseResponse,
 } from "@acme/db/schema";
@@ -44,6 +45,30 @@ const toIsoString = (value: Date | string | null | undefined) => {
 
 const DEFAULT_SEED_HINT =
   "Start with your best guess. Name the distinction, mechanism, or real example you think matters most, even if you're not fully sure yet.";
+
+interface ActivePlanState {
+  plan: typeof TrainingCurriculumPlan.$inferSelect;
+  beforeAfter: BeforeAfterProfile;
+  nodes: CurriculumNode[];
+  nextUnitId: string | null;
+}
+
+const toCurriculumPlan = (state: ActivePlanState): CurriculumPlan => ({
+  id: state.plan.id,
+  title: state.plan.title,
+  summary: state.plan.summary,
+  targetIdentity: state.plan.targetIdentity,
+  overview: state.plan.overview
+    ? {
+        title: state.plan.overview.title,
+        summary: state.plan.overview.summary,
+        generatedAt: toIsoString(state.plan.overviewGeneratedAt),
+      }
+    : null,
+  beforeAfter: state.beforeAfter,
+  nodes: state.nodes,
+  nextUnitId: state.nextUnitId,
+});
 
 const buildFallbackBeforeAfter = ({
   targetIdentity,
@@ -215,18 +240,35 @@ export const trainingCurriculumRepository = {
   getActivePlanWithNodes: async ({
     db,
     sessionId,
+    userId,
   }: {
     db: Database;
     sessionId: string;
-  }): Promise<{
-    plan: typeof TrainingCurriculumPlan.$inferSelect;
-    beforeAfter: BeforeAfterProfile;
-    nodes: CurriculumNode[];
-    nextUnitId: string | null;
-  } | null> => {
-    const plan = await db.query.TrainingCurriculumPlan.findFirst({
-      where: eq(TrainingCurriculumPlan.onboardingSessionId, sessionId),
-    });
+    userId?: string;
+  }): Promise<ActivePlanState | null> => {
+    const plan = userId
+      ? (
+          await db
+            .select({ plan: TrainingCurriculumPlan })
+            .from(TrainingCurriculumPlan)
+            .innerJoin(
+              TrainingOnboardingSession,
+              eq(
+                TrainingOnboardingSession.id,
+                TrainingCurriculumPlan.onboardingSessionId,
+              ),
+            )
+            .where(
+              and(
+                eq(TrainingCurriculumPlan.onboardingSessionId, sessionId),
+                eq(TrainingOnboardingSession.userId, userId),
+              ),
+            )
+            .limit(1)
+        )[0]?.plan
+      : await db.query.TrainingCurriculumPlan.findFirst({
+          where: eq(TrainingCurriculumPlan.onboardingSessionId, sessionId),
+        });
 
     // A "generating" shell has no profile version linked yet — it is not a
     // loadable active plan, so the orchestrator's idempotency check sees null.
@@ -319,22 +361,22 @@ export const trainingCurriculumRepository = {
       return null;
     }
 
-    return {
-      id: planState.plan.id,
-      title: planState.plan.title,
-      summary: planState.plan.summary,
-      targetIdentity: planState.plan.targetIdentity,
-      overview: planState.plan.overview
-        ? {
-            title: planState.plan.overview.title,
-            summary: planState.plan.overview.summary,
-            generatedAt: toIsoString(planState.plan.overviewGeneratedAt),
-          }
-        : null,
-      beforeAfter: planState.beforeAfter,
-      nodes: planState.nodes,
-      nextUnitId: planState.nextUnitId,
-    };
+    return toCurriculumPlan(planState);
+  },
+
+  getOwnedActivePlan: async ({
+    db,
+    sessionId,
+    userId,
+  }: {
+    db: Database;
+    sessionId: string;
+    userId: string;
+  }): Promise<CurriculumPlan | null> => {
+    const planState = await trainingCurriculumRepository.getActivePlanWithNodes(
+      { db, sessionId, userId },
+    );
+    return planState ? toCurriculumPlan(planState) : null;
   },
 
   getProjectOverview: async ({

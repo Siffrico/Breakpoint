@@ -55,17 +55,27 @@ const resolveSubmittedMessage = (body: WorkspaceChatRequestBody) => {
 };
 
 export const POST = async (req: NextRequest) => {
-  const session = await requireSession(req);
+  const [session, bodyResult] = await Promise.all([
+    requireSession(req),
+    req
+      .json()
+      .then((body: unknown) => ({ success: true as const, body }))
+      .catch(() => ({ success: false as const })),
+  ]);
   if (!session) {
     return new Response("Unauthorized", { status: 401 });
   }
-
-  let body: WorkspaceChatRequestBody;
-  try {
-    body = (await req.json()) as WorkspaceChatRequestBody;
-  } catch {
+  if (!bodyResult.success) {
     return new Response("Invalid JSON", { status: 400 });
   }
+  if (
+    bodyResult.body == null ||
+    typeof bodyResult.body !== "object" ||
+    Array.isArray(bodyResult.body)
+  ) {
+    return new Response("Invalid request body", { status: 400 });
+  }
+  const body = bodyResult.body as WorkspaceChatRequestBody;
 
   const { sessionId, turnId } = body;
   const submittedMessage = resolveSubmittedMessage(body);
