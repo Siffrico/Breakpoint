@@ -78,7 +78,7 @@ describe("runUnitTurn contract", () => {
       phaseResult("The first solution works.", [
         {
           toolName: "gradeSolution",
-          input: { passed: true, score: 86, reasoning: "Correct mechanism." },
+          input: { score: 86, reasoning: "Correct mechanism." },
         },
       ]),
       phaseResult("Teach the concept, then ask the transfer why-probe.", [
@@ -99,7 +99,7 @@ describe("runUnitTurn contract", () => {
       phaseResult("Mastered.", [
         {
           toolName: "gradeSolution",
-          input: { passed: true, score: 93, reasoning: "Clear transfer." },
+          input: { score: 93, reasoning: "Clear transfer." },
         },
         {
           toolName: "checkOffSyllabus",
@@ -284,7 +284,6 @@ describe("runUnitTurn contract", () => {
         {
           toolName: "gradeSolution",
           input: {
-            passed: false,
             score: 64,
             reasoning: "Constraint omitted.",
             errorCodes: ["poor_problem_representation"],
@@ -375,7 +374,7 @@ describe("runUnitTurn contract", () => {
       result: phaseResult("Wrong tool.", [
         {
           toolName: "gradeSolution",
-          input: { passed: true, score: 90, reasoning: "Wrong phase." },
+          input: { score: 90, reasoning: "Wrong phase." },
         },
       ]),
     },
@@ -386,7 +385,7 @@ describe("runUnitTurn contract", () => {
         { toolName: "continuePhase", input: { reason: "needs_more_work" } },
         {
           toolName: "gradeSolution",
-          input: { passed: false, score: 50, reasoning: "Also graded." },
+          input: { score: 50, reasoning: "Also graded.", errorCodes: ["weak_definition"] },
         },
       ]),
     },

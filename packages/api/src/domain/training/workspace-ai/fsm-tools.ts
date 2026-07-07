@@ -28,41 +28,31 @@ export const GradeConnectionInputSchema = z.object({
     ),
 });
 
-export const GradeSolutionInputSchema = z
-  .object({
-    passed: z
-      .boolean()
-      .describe("True only if the solution is correct AND clearly explained."),
-    score: z.number().min(0).max(100),
-    reasoning: z
-      .string()
-      .min(1)
-      .describe("One sentence: what made this a pass or a fail."),
-    errorCodes: z
-      .array(z.enum(ERROR_CLASSIFICATION_CODES))
-      .max(1)
-      .optional()
-      .describe(
-        "On a failed verdict: the primary ERROR_CLASSIFICATION code. Omit on a pass.",
-      ),
-  })
-  .superRefine((grade, context) => {
-    const errorCodeCount = grade.errorCodes?.length ?? 0;
-    if (!grade.passed && errorCodeCount !== 1) {
-      context.addIssue({
-        code: "custom",
-        path: ["errorCodes"],
-        message: "A failed verdict requires exactly one primary error code.",
-      });
-    }
-    if (grade.passed && errorCodeCount !== 0) {
-      context.addIssue({
-        code: "custom",
-        path: ["errorCodes"],
-        message: "A passing verdict must not include error codes.",
-      });
-    }
-  });
+// The model reports a score; it never declares pass/fail. The verdict is
+// derived in toUnitEvent from the recipe's pass bar (recipe.grade.passAt), so
+// mastery and the Goldilocks rating always agree on one number. The
+// score-vs-errorCodes coherence check also lives there — the bar is runtime
+// recipe data this static schema cannot see.
+export const GradeSolutionInputSchema = z.object({
+  score: z
+    .number()
+    .min(0)
+    .max(100)
+    .describe(
+      "0-100. The server derives the pass/fail verdict from this score against the unit's pass bar.",
+    ),
+  reasoning: z
+    .string()
+    .min(1)
+    .describe("One sentence: what the score rewards or penalizes."),
+  errorCodes: z
+    .array(z.enum(ERROR_CLASSIFICATION_CODES))
+    .max(1)
+    .optional()
+    .describe(
+      "On a score below the pass bar: the primary ERROR_CLASSIFICATION code. Omit at or above the bar.",
+    ),
+});
 
 export const ContinuePhaseInputSchema = z.object({
   reason: z
@@ -124,12 +114,15 @@ export type ContinuePhaseInput = z.infer<typeof ContinuePhaseInputSchema>;
 
 /**
  * The one place a tool call's validated args become a UnitEvent. Returns null
- * for a tool name it doesn't recognize (the caller decides how to treat a
- * missing/unexpected signal — this function never guesses).
+ * for a tool name it doesn't recognize or arguments that violate the grading
+ * contract (the caller decides how to treat a missing/unexpected signal —
+ * this function never guesses). `grade` is the recipe's pass bar: the solve
+ * verdict is derived here, from the score, never taken from the model.
  */
 export const toUnitEvent = (
   toolName: string,
   args: unknown,
+  grade: { passAt: number },
 ): UnitEvent | null => {
   switch (toolName) {
     case "continuePhase": {
@@ -146,9 +139,20 @@ export const toUnitEvent = (
     }
     case "gradeSolution": {
       const parsed = GradeSolutionInputSchema.safeParse(args);
-      return parsed.success
-        ? { type: "solution_graded", passed: parsed.data.passed }
-        : null;
+      if (!parsed.success) return null;
+      const passed = parsed.data.score >= grade.passAt;
+      const errorCodes = parsed.data.errorCodes ?? [];
+      // A failing score needs exactly one primary error code (it feeds the
+      // rating evidence); a passing score must not carry any.
+      if (passed ? errorCodes.length !== 0 : errorCodes.length !== 1) {
+        return null;
+      }
+      return {
+        type: "solution_graded",
+        passed,
+        score: parsed.data.score,
+        errorCodes,
+      };
     }
     default:
       return null;

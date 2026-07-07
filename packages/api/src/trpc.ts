@@ -13,6 +13,8 @@ import { z, ZodError } from "zod/v4";
 import type { Auth } from "@acme/auth";
 import { db } from "@acme/db/client";
 
+import { UnitNotReadyError } from "./domain/training/unit-preparation/errors";
+
 /**
  * 1. CONTEXT
  *
@@ -62,6 +64,10 @@ const t = initTRPC.context<typeof createTRPCContext>().create({
       zodError:
         error.cause instanceof ZodError
           ? z.flattenError(error.cause as ZodError<Record<string, unknown>>)
+          : null,
+      unitNodeId:
+        error.cause instanceof UnitNotReadyError
+          ? (error.cause.nodeId ?? null)
           : null,
     },
   }),

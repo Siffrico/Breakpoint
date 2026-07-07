@@ -70,7 +70,7 @@ describe("transition", () => {
   it("solve -> teach on a pass-1 pass", () => {
     const next = transition(
       state({ phase: "solve", pass: 1 }),
-      { type: "solution_graded", passed: true },
+      { type: "solution_graded", passed: true, score: 90, errorCodes: [] },
       policy,
     );
     expect(next).toMatchObject({ phase: "teach", pass: 1 });
@@ -79,7 +79,7 @@ describe("transition", () => {
   it("solve -> mastered on a pass-2 pass", () => {
     const next = transition(
       state({ phase: "solve", pass: 2 }),
-      { type: "solution_graded", passed: true },
+      { type: "solution_graded", passed: true, score: 90, errorCodes: [] },
       policy,
     );
     expect(next).toMatchObject({ phase: "mastered", pass: 2 });
@@ -88,7 +88,7 @@ describe("transition", () => {
   it("solve loops on itself forever on repeated failure (no FSM-driven escape)", () => {
     let cur = state({ phase: "solve", pass: 1, solveRepairs: 0 });
     for (let i = 1; i <= 5; i++) {
-      cur = transition(cur, { type: "solution_graded", passed: false }, policy);
+      cur = transition(cur, { type: "solution_graded", passed: false, score: 40, errorCodes: ["weak_definition"] }, policy);
       expect(cur).toMatchObject({ phase: "solve", pass: 1, solveRepairs: i });
     }
   });
@@ -146,6 +146,8 @@ describe("writesGoldilocks", () => {
       writesGoldilocks(state({ phase: "solve", pass: 2 }), {
         type: "solution_graded",
         passed: true,
+        score: 90,
+        errorCodes: [],
       }),
     ).toBe(true);
   });
@@ -155,6 +157,8 @@ describe("writesGoldilocks", () => {
       writesGoldilocks(state({ phase: "solve", pass: 1 }), {
         type: "solution_graded",
         passed: true,
+        score: 90,
+        errorCodes: [],
       }),
     ).toBe(false);
   });
@@ -164,6 +168,8 @@ describe("writesGoldilocks", () => {
       writesGoldilocks(state({ phase: "solve", pass: 2 }), {
         type: "solution_graded",
         passed: false,
+        score: 40,
+        errorCodes: ["weak_definition"],
       }),
     ).toBe(true);
   });
@@ -208,21 +214,21 @@ describe("shouldMicroTeach", () => {
   it("is false while under the repair limit", () => {
     const s = state({ phase: "solve", solveRepairs: 0 });
     expect(
-      shouldMicroTeach(s, { type: "solution_graded", passed: false }, policy),
+      shouldMicroTeach(s, { type: "solution_graded", passed: false, score: 40, errorCodes: ["weak_definition"] }, policy),
     ).toBe(false);
   });
 
   it("is true the moment the repair limit is about to be exhausted", () => {
     const s = state({ phase: "solve", solveRepairs: 1 });
     expect(
-      shouldMicroTeach(s, { type: "solution_graded", passed: false }, policy),
+      shouldMicroTeach(s, { type: "solution_graded", passed: false, score: 40, errorCodes: ["weak_definition"] }, policy),
     ).toBe(true);
   });
 
   it("is false when the solve actually passed", () => {
     const s = state({ phase: "solve", solveRepairs: 1 });
     expect(
-      shouldMicroTeach(s, { type: "solution_graded", passed: true }, policy),
+      shouldMicroTeach(s, { type: "solution_graded", passed: true, score: 90, errorCodes: [] }, policy),
     ).toBe(false);
   });
 });

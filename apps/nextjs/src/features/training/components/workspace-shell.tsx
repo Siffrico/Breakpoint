@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Lightbulb, SidebarSimple } from "@phosphor-icons/react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { RouterOutputs } from "@acme/api";
 import { Button } from "@acme/ui/button";
@@ -63,6 +63,12 @@ const isUnitPreparingError = (error: unknown) => {
   );
 };
 
+const getUnitPreparingNodeId = (error: unknown) => {
+  if (!isUnitPreparingError(error)) return null;
+  const candidate = error as { data?: { unitNodeId?: string | null } };
+  return candidate.data?.unitNodeId ?? null;
+};
+
 type WorkspaceMode = "history" | "onboarding" | "unit" | "idle";
 type WorkspaceTheme = "light" | "dark" | "warm";
 const formatTimerSeconds = (seconds: number) => {
@@ -99,6 +105,7 @@ export function WorkspaceShell({
 }) {
   const router = useRouter();
   const trpc = useTRPC();
+  const queryClient = useQueryClient();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
@@ -136,23 +143,47 @@ export function WorkspaceShell({
         // unit generation for no reason.
         enabled: !preview && !chatHistory,
         initialData: aiWorkspace ?? undefined,
-        staleTime: 30_000,
+        staleTime: Number.POSITIVE_INFINITY,
         refetchOnWindowFocus: false,
-        // Keep polling while the unit is being prepared: every retry that
-        // still misses re-triggers generation server-side, so this loop is
-        // what heals a prewarm that died (e.g. a frozen serverless instance).
-        // Any other error stops retrying and surfaces normally.
-        retry: (_failureCount, error) => isUnitPreparingError(error),
-        retryDelay: (attemptIndex) =>
-          Math.min(2 ** attemptIndex * 1_500, 15_000),
+        retry: false,
+        refetchInterval: (query) =>
+          isUnitPreparingError(query.state.error) ? 60_000 : false,
       },
     ),
   );
   const resolvedAiWorkspace = aiWorkspaceQuery.data ?? aiWorkspace ?? null;
-  const unitPreparing = isUnitPreparingError(
-    aiWorkspaceQuery.failureReason ?? aiWorkspaceQuery.error,
-  );
+  const workspaceError =
+    aiWorkspaceQuery.failureReason ?? aiWorkspaceQuery.error;
+  const unitPreparing = isUnitPreparingError(workspaceError);
+  const preparingNodeId = getUnitPreparingNodeId(workspaceError);
   const refreshedPreparedUnitRef = useRef(false);
+
+  useEffect(() => {
+    if (!unitPreparing || !preparingNodeId || preview || chatHistory) return;
+
+    const events = new EventSource(
+      `/api/workspace/events?sessionId=${encodeURIComponent(sessionId)}&nodeId=${encodeURIComponent(preparingNodeId)}`,
+    );
+    const handleUnitReady = () => {
+      void queryClient.invalidateQueries({
+        queryKey: trpc.training.aiWorkspace.queryKey({ sessionId }),
+      });
+    };
+    events.addEventListener("unit_ready", handleUnitReady);
+
+    return () => {
+      events.removeEventListener("unit_ready", handleUnitReady);
+      events.close();
+    };
+  }, [
+    chatHistory,
+    preview,
+    preparingNodeId,
+    queryClient,
+    sessionId,
+    trpc.training.aiWorkspace,
+    unitPreparing,
+  ]);
 
   useEffect(() => {
     if (
@@ -196,6 +227,13 @@ export function WorkspaceShell({
   const advanceCompletedUnit = useMutation(
     trpc.training.advanceCompletedUnit.mutationOptions({
       onSuccess: () => {
+        // router.refresh() re-renders the RSC (new `unit` prop), but the
+        // aiWorkspace query is frozen at staleTime: Infinity and initialData
+        // never overwrites a populated cache — without this invalidation the
+        // workspace would keep showing the finished unit forever.
+        void queryClient.invalidateQueries({
+          queryKey: trpc.training.aiWorkspace.queryKey({ sessionId }),
+        });
         router.refresh();
       },
       onError: (error) => toast.error(error.message),

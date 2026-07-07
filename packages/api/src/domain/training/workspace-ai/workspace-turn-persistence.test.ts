@@ -68,7 +68,7 @@ const state = {
 
 const masteredTurn: UnitTurnResult = {
   assistantMessage: "That's a correct, well-explained solution.",
-  event: { type: "solution_graded", passed: true },
+  event: { type: "solution_graded", passed: true, score: 90, errorCodes: [] },
   nextState: {
     unitId: "unit-content-1",
     recipeVersion: "education-unit-v1",

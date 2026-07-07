@@ -6,10 +6,13 @@ import { Effect } from "effect";
 
 import type { db as databaseClient } from "@acme/db/client";
 
-import type { WorkspaceAiEducationStage } from "./domain/training/workspace-ai/types";
+import type {
+  WorkspaceAiEducationStage,
+  WorkspaceAiState,
+} from "./domain/training/workspace-ai/types";
 import { withAiModelPreference } from "./domain/training/engine/model-router";
-import { createAssistantTextStreamer } from "./domain/training/workspace-ai/assistant-text-streamer";
 import { WorkspaceUserError } from "./domain/training/errors";
+import { createAssistantTextStreamer } from "./domain/training/workspace-ai/assistant-text-streamer";
 import { resolveWorkspaceTurn } from "./domain/training/workspace-ai/workspace-turn";
 import { runWorkspaceTurn } from "./domain/training/workspace-ai/workspace-turn-edge";
 import { runEducationUnitTurn } from "./domain/training/workspace-ai/workspace-turn-orchestration";
@@ -40,6 +43,9 @@ interface WorkspaceChatDataParts extends Record<string, unknown> {
    */
   "workspace-final-text": {
     text: string;
+  };
+  "workspace-turn-state": {
+    state: WorkspaceAiState;
   };
 }
 
@@ -181,7 +187,7 @@ const streamWorkspaceChatWithModelPreference = async ({
           turn.state.recallUnitId !== null,
         ),
       );
-      await runWorkspaceTurn(
+      const result = await runWorkspaceTurn(
         runEducationUnitTurn({
           sessionId,
           userId,
@@ -200,6 +206,11 @@ const streamWorkspaceChatWithModelPreference = async ({
         { signal },
       );
       assistantText.close();
+      writer.write({
+        type: "data-workspace-turn-state",
+        id: "workspace-turn-state",
+        data: { state: result.state },
+      });
       writeStatus("complete", "Complete");
       writer.write({ type: "finish", finishReason: "stop" });
     },

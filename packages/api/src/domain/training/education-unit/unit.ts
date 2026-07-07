@@ -53,7 +53,15 @@ export type UnitEvent =
       reason: "prompted" | "needs_more_work";
     } // Connect/Solve produced a learner prompt without grading an attempt
   | { type: "connection_graded"; connected: boolean } // result of a Connect check
-  | { type: "solution_graded"; passed: boolean }; // result of a Solve check (grade >= threshold)
+  | {
+      type: "solution_graded";
+      /** Derived in toUnitEvent: score >= recipe.grade.passAt. Never model-declared. */
+      passed: boolean;
+      /** The grading tool's 0-100 score — the one number mastery and Goldilocks share. */
+      score: number;
+      /** Exactly one primary code when failed, empty when passed (enforced in toUnitEvent). */
+      errorCodes: readonly string[];
+    };
 
 /**
  * The durable cursor for one unit run. This is the typed view of the `UnitRun`
@@ -98,7 +106,11 @@ export interface LoopPolicy {
   maxRepairsBeforeMicroTeach: number; // solve: after N failed repairs, micro-teach, then retry
 }
 
-/** The pass/fail bar for a solve. `evaluationGrade` is 0–100; clearing `passAt` passes. */
+/**
+ * The pass/fail bar for a solve: a gradeSolution score (0-100) clearing
+ * `passAt` passes. Applied in toUnitEvent — the model reports the score, the
+ * server owns the verdict.
+ */
 export interface GradeThreshold {
   passAt: number; // e.g. 80
   /**

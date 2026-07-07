@@ -17,10 +17,7 @@ import type { PhaseAgentOutput } from "./agents/output-schema";
 import type { PhaseAgentResult } from "./agents/run-phase-agent";
 import type { ScenarioSpecRecord } from "./scenario-spec";
 import type { UnitEvent, UnitRecipe, UnitState } from "./unit";
-import {
-  GradeSolutionInputSchema,
-  toUnitEvent,
-} from "../workspace-ai/fsm-tools";
+import { toUnitEvent } from "../workspace-ai/fsm-tools";
 import { CheckOffSyllabusInputSchema } from "./agents/check-off-syllabus.tool";
 import { runConnectAgent } from "./agents/connect-agent";
 import { runEvalAgent } from "./agents/eval-agent";
@@ -151,6 +148,7 @@ const EVENT_TOOLS_BY_PHASE: Partial<
 const resolveEvent = (
   state: UnitState,
   result: PhaseAgentResult<PhaseAgentOutput>,
+  grade: { passAt: number },
 ): Effect.Effect<
   { event: UnitEvent; reasoning: string | null },
   EducationUnitContractError
@@ -211,7 +209,7 @@ const resolveEvent = (
     );
   }
 
-  const event = toUnitEvent(call.toolName, call.input);
+  const event = toUnitEvent(call.toolName, call.input, grade);
   if (!event) {
     return Effect.fail(
       new EducationUnitContractError({
@@ -230,17 +228,6 @@ const resolveEvent = (
       : null;
 
   return Effect.succeed({ event, reasoning });
-};
-
-const readSolveGrade = (
-  result: PhaseAgentResult<PhaseAgentOutput>,
-): { score: number; errorCodes: readonly string[] } | null => {
-  const call = result.toolCalls.find((c) => c.toolName === "gradeSolution");
-  if (!call) return null;
-  const parsed = GradeSolutionInputSchema.safeParse(call.input);
-  return parsed.success
-    ? { score: parsed.data.score, errorCodes: parsed.data.errorCodes ?? [] }
-    : null;
 };
 
 const readScenarioSpec = (
@@ -296,7 +283,11 @@ export const runUnitTurn = (
         }),
       );
     }
-    const { event, reasoning } = yield* resolveEvent(state, result);
+    const { event, reasoning } = yield* resolveEvent(
+      state,
+      result,
+      recipe.grade,
+    );
     const scenarioPass = state.phase === "teach" ? 2 : state.pass;
     const storedSpec = input.storedScenarioSpec ?? null;
     const emittedSpec = readScenarioSpec(result, scenarioPass);
@@ -376,15 +367,12 @@ export const runUnitTurn = (
 
     const nextState = transition(state, event, recipe.policy);
 
-    const shouldWriteRating = writesGoldilocks(state, event);
-    const ratingWrite = shouldWriteRating ? readSolveGrade(result) : null;
-    if (shouldWriteRating && !ratingWrite) {
-      return yield* Effect.fail(
-        new EducationUnitContractError({
-          message: "A scored Solve verdict is missing valid rating evidence.",
-        }),
-      );
-    }
+    // The rating evidence IS the event: toUnitEvent already validated the
+    // score and error codes, so a scored pass-2 Solve can never lack evidence.
+    const ratingWrite =
+      writesGoldilocks(state, event) && event.type === "solution_graded"
+        ? { score: event.score, errorCodes: event.errorCodes }
+        : null;
     const checkOffCall = result.toolCalls.find(
       (call) => call.toolName === "checkOffSyllabus",
     );

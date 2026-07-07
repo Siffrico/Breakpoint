@@ -2,8 +2,8 @@
 
 import type { UIMessage } from "ai";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   CaretDown,
   CaretRight,
@@ -20,6 +20,7 @@ import { toast } from "@acme/ui/toast";
 
 import type { UnitCoachCommandIntent } from "~/features/training/lib/unit-coach-commands";
 import { AssistantRichText } from "~/features/training/components/assistant-rich-text";
+import { useTRPC } from "~/trpc/react";
 import {
   educationUnitResponseDraftKey,
   shouldClearSubmittedDraft,
@@ -54,11 +55,16 @@ interface WorkspaceChatData extends Record<string, unknown> {
   // The committed assistant reply when it diverged from the streamed text
   // (a restarted model attempt); rendered instead of the text parts.
   "workspace-final-text": { text: string };
+  "workspace-turn-state": {
+    state: NonNullable<AiWorkspace["state"]>;
+  };
 }
 interface WorkspaceChatMetadata {
   action?: "submit_answer";
   synthetic?: boolean;
   difficultyDirectiveReason?: string;
+  failed?: boolean;
+  turnId?: string;
 }
 type WorkspaceChatMessage = UIMessage<WorkspaceChatMetadata, WorkspaceChatData>;
 
@@ -172,14 +178,18 @@ const countWords = (text: string) =>
 function SubmittedAnswerReceipt({
   text,
   pending = false,
+  failed = false,
   canRevise,
   onRevise,
+  onRetry,
   onAskCoach,
 }: {
   text: string;
   pending?: boolean;
+  failed?: boolean;
   canRevise: boolean;
   onRevise: () => void;
+  onRetry?: () => void;
   onAskCoach?: () => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -219,6 +229,9 @@ function SubmittedAnswerReceipt({
               {pending ? (
                 <span className="text-foreground/38">Submitting...</span>
               ) : null}
+              {failed ? (
+                <span className="text-destructive/80">Failed to send</span>
+              ) : null}
             </span>
             <span className="text-foreground/38 shrink-0">{wordLabel}</span>
           </button>
@@ -241,6 +254,17 @@ function SubmittedAnswerReceipt({
                   <Copy size={13} />
                   Copy
                 </Button>
+                {failed && onRetry ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    onClick={onRetry}
+                    className="text-destructive/80 hover:text-destructive h-7 border-0 px-2 text-[11px] shadow-none before:hidden"
+                  >
+                    Retry
+                  </Button>
+                ) : null}
                 <Button
                   type="button"
                   variant="ghost"
@@ -402,7 +426,8 @@ export function EducationUnitWorkspace({
   onRunCommand?: (intent: UnitCoachCommandIntent) => void;
   onAskCoachAboutAnswer?: (answer: string) => void;
 }) {
-  const router = useRouter();
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
   const [isExpanded, setIsExpanded] = useState(false);
   const [previewIsRunning, setPreviewIsRunning] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -412,6 +437,7 @@ export function EducationUnitWorkspace({
   const pendingSubmissionRef = useRef<string | null>(null);
   const pendingDraftKeyRef = useRef<string | null>(null);
   const errorHandledRef = useRef(false);
+  const pendingTurnIdRef = useRef<string | null>(null);
   const initialChatMessages = useMemo(
     () => transcriptToChatMessages(aiWorkspace, sessionId),
     [aiWorkspace, sessionId],
@@ -444,7 +470,6 @@ export function EducationUnitWorkspace({
       clearSubmittedDraft(pendingDraftKeyRef.current);
       pendingDraftKeyRef.current = null;
       pendingSubmissionRef.current = null;
-      router.refresh();
     },
   });
   const isRunning = status === "submitted" || status === "streaming";
@@ -462,10 +487,67 @@ export function EducationUnitWorkspace({
     onStateChange?.(unit);
   }, [onStateChange, unit]);
 
+  // Reconcile the chat with the server transcript only while no turn is
+  // running — a mid-stream rebase would wipe live streaming messages. Failed
+  // optimistic sends were never persisted, so they survive the rebase
+  // explicitly; dropping them would silently discard the retry affordance.
   useEffect(() => {
     if (effectiveIsRunning) return;
-    setMessages(initialChatMessages);
+    setMessages((current) => {
+      const failedSends = current.filter(
+        (message) => message.role === "user" && message.metadata?.failed,
+      );
+      return failedSends.length > 0
+        ? [...initialChatMessages, ...failedSends]
+        : initialChatMessages;
+    });
   }, [effectiveIsRunning, initialChatMessages, setMessages]);
+
+  const streamState = useMemo(() => {
+    for (
+      let messageIndex = chatMessages.length - 1;
+      messageIndex >= 0;
+      messageIndex -= 1
+    ) {
+      const message = chatMessages[messageIndex];
+      if (!message) continue;
+      for (const part of message.parts) {
+        if (part.type !== "data-workspace-turn-state") continue;
+        const data = part.data;
+        if (typeof data === "object" && data != null && "state" in data) {
+          return data.state as NonNullable<AiWorkspace["state"]>;
+        }
+      }
+    }
+    return aiWorkspace?.state ?? null;
+  }, [aiWorkspace?.state, chatMessages]);
+
+  // One refetch per unit, at the moment the stream reports it mastered: the
+  // shell's Next Unit gate lives in the aiWorkspace query, which is otherwise
+  // bootstrap-only (staleTime: Infinity) — without this the button never
+  // enables. Skipped when bootstrap already knew (page loaded post-mastery).
+  const masteredInvalidatedRef = useRef(false);
+  useEffect(() => {
+    masteredInvalidatedRef.current = false;
+  }, [unit.nodeId]);
+  useEffect(() => {
+    if (preview || effectiveIsRunning) return;
+    if (streamState?.educationStage !== "mastered") return;
+    if (aiWorkspace?.unitAdvanceGate.status === "enabled") return;
+    if (masteredInvalidatedRef.current) return;
+    masteredInvalidatedRef.current = true;
+    void queryClient.invalidateQueries({
+      queryKey: trpc.training.aiWorkspace.queryKey({ sessionId }),
+    });
+  }, [
+    aiWorkspace?.unitAdvanceGate.status,
+    effectiveIsRunning,
+    preview,
+    queryClient,
+    sessionId,
+    streamState?.educationStage,
+    trpc.training.aiWorkspace,
+  ]);
 
   useEffect(() => {
     const updateAutoFollow = () => {
@@ -531,7 +613,9 @@ export function EducationUnitWorkspace({
     enabled: !preview,
     storageKey: responseDraftKey,
   });
-  const awaitingUnitAdvance = aiWorkspace?.unitAdvanceGate.status === "enabled";
+  const awaitingUnitAdvance =
+    aiWorkspace?.unitAdvanceGate.status === "enabled" ||
+    streamState?.educationStage === "mastered";
   const workspaceUnavailable = !preview && aiWorkspace == null;
   const missingTranscriptForResumedUnit =
     !preview &&
@@ -571,12 +655,19 @@ export function EducationUnitWorkspace({
       }
       pendingDraftKeyRef.current = null;
       pendingSubmissionRef.current = null;
-      setMessages(initialChatMessages);
+      const failedTurnId = pendingTurnIdRef.current;
+      setMessages((current) =>
+        current.map((message) =>
+          message.role === "user" && message.metadata?.turnId === failedTurnId
+            ? { ...message, metadata: { ...message.metadata, failed: true } }
+            : message,
+        ),
+      );
       toast.error("AI feedback could not be prepared.");
     }, 0);
 
     return () => window.clearTimeout(errorTimer);
-  }, [error, initialChatMessages, restoreSubmittedDraft, setMessages, status]);
+  }, [error, restoreSubmittedDraft, setMessages, status]);
 
   useEffect(() => {
     if (status !== "error") {
@@ -584,7 +675,7 @@ export function EducationUnitWorkspace({
     }
   }, [status]);
 
-  const handleSubmit = async (override?: string) => {
+  const handleSubmit = async (override?: string, retryTurnId?: string) => {
     const message = (override ?? response).trim();
     if (!message || effectiveIsRunning) {
       return;
@@ -615,13 +706,22 @@ export function EducationUnitWorkspace({
     pendingSubmissionRef.current = message;
     pendingDraftKeyRef.current = markSubmitted();
     setIsExpanded(false);
-    const turnId = createWorkspaceTurnId();
+    const turnId = retryTurnId ?? createWorkspaceTurnId();
+    pendingTurnIdRef.current = turnId;
+    if (retryTurnId) {
+      setMessages((current) =>
+        current.filter(
+          (item) =>
+            !(item.role === "user" && item.metadata?.turnId === retryTurnId),
+        ),
+      );
+    }
 
     try {
       await sendMessage(
         {
           text: message,
-          metadata: { action: "submit_answer" },
+          metadata: { action: "submit_answer", turnId },
         },
         {
           body: {
@@ -639,7 +739,13 @@ export function EducationUnitWorkspace({
         pendingSubmissionRef.current = null;
         pendingDraftKeyRef.current = null;
         restoreSubmittedDraft(pendingDraftKey, message);
-        setMessages(initialChatMessages);
+        setMessages((current) =>
+          current.map((item) =>
+            item.role === "user" && item.metadata?.turnId === turnId
+              ? { ...item, metadata: { ...item.metadata, failed: true } }
+              : item,
+          ),
+        );
         toast.error("AI feedback could not be prepared.");
       }
     }
@@ -734,8 +840,14 @@ export function EducationUnitWorkspace({
                   effectiveIsRunning &&
                   message.id === latestVisibleUserMessageId
                 }
+                failed={message.metadata?.failed === true}
                 canRevise={canCompose && !effectiveIsRunning}
                 onRevise={() => startAnswerRevision(content)}
+                onRetry={
+                  message.metadata?.failed && message.metadata.turnId
+                    ? () => void handleSubmit(content, message.metadata?.turnId)
+                    : undefined
+                }
                 onAskCoach={
                   onAskCoachAboutAnswer
                     ? () => onAskCoachAboutAnswer(content)

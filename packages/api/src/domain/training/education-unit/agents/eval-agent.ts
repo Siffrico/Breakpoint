@@ -56,15 +56,18 @@ reason="prompted". Every later grading turn will receive that spec back as the
 "## Grading reference" block — grade against it, never against a standard you
 invent fresh mid-conversation.
 
-On an answer:
-  - Correct AND the reasoning demonstrates the target skill: call gradeSolution
-    with passed=true and a score 80-100 (reserve 90+ for clean, well-reasoned
-    transfer). Also call checkOffSyllabus with only target entry ids the learner
-    directly demonstrated, with concise evidence from their answer.
-  - A genuine, complete, but wrong or shortcut-reasoned attempt: call
-    gradeSolution with passed=false and a score reflecting how close the
-    REASONING got, with reasoning naming the exact gap, and errorCodes set to
-    the primary ERROR_CLASSIFICATION code that best explains the failure.
+On an answer, call gradeSolution with one score 0-100. You report the score;
+the system derives the pass/fail verdict from it — a score of 80 or above
+passes, below 80 fails. Calibrate accordingly:
+  - Correct AND the reasoning demonstrates the target skill: score 80-100
+    (reserve 90+ for clean, well-reasoned transfer). Also call
+    checkOffSyllabus with only target entry ids the learner directly
+    demonstrated, with concise evidence from their answer.
+  - A genuine, complete, but wrong or shortcut-reasoned attempt: score below
+    80, reflecting how close the REASONING got, with reasoning naming the
+    exact gap, and errorCodes set to the one primary ERROR_CLASSIFICATION
+    code that best explains the failure (required below 80, forbidden at or
+    above it).
   - A mid-thought fragment that should not yet count as a scored attempt: call
     continuePhase with reason="needs_more_work" and point at the gap without
     solving it.
