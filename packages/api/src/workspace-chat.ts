@@ -8,6 +8,7 @@ import type { db as databaseClient } from "@acme/db/client";
 
 import type { WorkspaceAiEducationStage } from "./domain/training/workspace-ai/types";
 import { withAiModelPreference } from "./domain/training/engine/model-router";
+import { createAssistantTextStreamer } from "./domain/training/workspace-ai/assistant-text-streamer";
 import { WorkspaceUserError } from "./domain/training/errors";
 import { resolveWorkspaceTurn } from "./domain/training/workspace-ai/workspace-turn";
 import { runWorkspaceTurn } from "./domain/training/workspace-ai/workspace-turn-edge";
@@ -27,14 +28,22 @@ type WorkspaceStreamStatus =
   | "saving"
   | "complete";
 
-interface WorkspaceStatusData extends Record<string, unknown> {
+interface WorkspaceChatDataParts extends Record<string, unknown> {
   "workspace-status": {
     status: WorkspaceStreamStatus;
     label: string;
   };
+  /**
+   * The committed assistant reply, sent only when it diverged from the
+   * speculative streamed text (a restarted model attempt). The client renders
+   * this instead of the message's text parts.
+   */
+  "workspace-final-text": {
+    text: string;
+  };
 }
 
-type WorkspaceChatUIMessage = UIMessage<unknown, WorkspaceStatusData>;
+type WorkspaceChatUIMessage = UIMessage<unknown, WorkspaceChatDataParts>;
 
 const WORKSPACE_ASSISTANT_TEXT_PART_ID = "workspace-assistant";
 
@@ -141,8 +150,6 @@ const streamWorkspaceChatWithModelPreference = async ({
     execute: async ({ writer }) => {
       writer.write({ type: "start" });
 
-      let textPartStarted = false;
-      let streamedAssistantMessage = "";
       const writeStatus = (status: WorkspaceStreamStatus, label: string) => {
         writer.write({
           type: "data-workspace-status",
@@ -150,40 +157,14 @@ const streamWorkspaceChatWithModelPreference = async ({
           data: { status, label },
         });
       };
-      const streamAssistantDelta = (nextAssistantMessage: string) => {
-        if (
-          nextAssistantMessage.length <= streamedAssistantMessage.length ||
-          !nextAssistantMessage.startsWith(streamedAssistantMessage)
-        ) {
-          return;
-        }
-
-        const delta = nextAssistantMessage.slice(
-          streamedAssistantMessage.length,
-        );
-        if (!delta) return;
-
-        if (!textPartStarted) {
-          writer.write({
-            type: "text-start",
-            id: WORKSPACE_ASSISTANT_TEXT_PART_ID,
-          });
-          textPartStarted = true;
-        }
-        streamedAssistantMessage = nextAssistantMessage;
-        writer.write({
-          type: "text-delta",
-          id: WORKSPACE_ASSISTANT_TEXT_PART_ID,
-          delta,
-        });
-      };
-      const endAssistantText = () => {
-        if (!textPartStarted) return;
-        writer.write({
-          type: "text-end",
-          id: WORKSPACE_ASSISTANT_TEXT_PART_ID,
-        });
-      };
+      // Partials are speculative — they stream before the turn's transactional
+      // writes commit, so a failed commit can orphan text the learner already
+      // read (the repair turn replays the committed reply). Only finalize()
+      // carries durable truth and always reaches the client.
+      const assistantText = createAssistantTextStreamer({
+        writer,
+        partId: WORKSPACE_ASSISTANT_TEXT_PART_ID,
+      });
 
       const turnDeps = createWorkspaceTurnRepositoryDeps(db);
       writeStatus("preparing", "Preparing feedback");
@@ -210,14 +191,15 @@ const streamWorkspaceChatWithModelPreference = async ({
           turn,
           deps: turnDeps,
           onAssistantMessage: (content) => {
-            streamAssistantDelta(content);
-            endAssistantText();
-            // Education replies are emitted only after their transactional
-            // message, FSM, and Goldilocks writes have committed.
+            assistantText.finalize(content);
+          },
+          onPartialAssistantMessage: (content) => {
+            assistantText.pushPartial(content);
           },
         }).pipe(Effect.provide(workspaceTurnRepoLayer(db))),
         { signal },
       );
+      assistantText.close();
       writeStatus("complete", "Complete");
       writer.write({ type: "finish", finishReason: "stop" });
     },

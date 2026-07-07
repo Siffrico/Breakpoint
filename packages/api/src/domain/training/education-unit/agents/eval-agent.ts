@@ -79,6 +79,7 @@ const SYSTEM = buildPhaseSystemPrompt(EVAL_INSTRUCTION);
 
 export const runEvalAgent = (
   messages: ModelMessage[],
+  onPartialAssistantMessage?: (content: string) => void,
 ): Effect.Effect<PhaseAgentResult<PhaseAgentOutput>, PhaseAgentError> =>
   runPhaseAgent({
     purpose: "education",
@@ -94,4 +95,5 @@ export const runEvalAgent = (
       recordScenarioSpec,
     },
     errorMessage: "Failed to run the Eval step.",
+    onPartialAssistantMessage,
   });

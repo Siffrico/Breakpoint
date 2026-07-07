@@ -324,6 +324,7 @@ export const runEducationUnitTurn = ({
   turn,
   deps,
   onAssistantMessage,
+  onPartialAssistantMessage,
 }: {
   sessionId: string;
   userId: string;
@@ -332,7 +333,10 @@ export const runEducationUnitTurn = ({
   message: string;
   turn: ResolvedWorkspaceTurn;
   deps: WorkspaceTurnOrchestrationDependencies;
+  /** Fires once, with the committed reply. */
   onAssistantMessage?: (content: string) => void;
+  /** Speculative model snapshots; a restarted attempt may contradict them. */
+  onPartialAssistantMessage?: (content: string) => void;
 }): Effect.Effect<
   WorkspaceAiTurnResult,
   WorkspaceEducationTurnError,
@@ -457,6 +461,7 @@ export const runEducationUnitTurn = ({
       contextBlock,
       transcript: toModelMessages(loadedTranscript.transcript),
       storedScenarioSpec: unitRun.scenarioSpec,
+      onPartialAssistantMessage,
     });
     // Check-offs ride the atomic turn commit (lease-guarded), never the outer
     // connection — a lost lease or failed commit must not leave phantom mastery.

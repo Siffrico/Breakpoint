@@ -57,6 +57,7 @@ export interface UnitTurnInput {
    * one recorded this turn or a stored pass-2 one. Defaults to null.
    */
   storedScenarioSpec?: ScenarioSpecRecord | null;
+  onPartialAssistantMessage?: (content: string) => void;
 }
 
 export interface UnitTurnResult {
@@ -93,6 +94,7 @@ export interface UnitTurnResult {
 export type UnitPhaseRunner = (
   state: UnitState,
   messages: ModelMessage[],
+  onPartialAssistantMessage?: (content: string) => void,
 ) => Effect.Effect<
   PhaseAgentResult<PhaseAgentOutput>,
   PhaseAgentError | EducationUnitContractError
@@ -105,22 +107,23 @@ export interface UnitTurnDependencies {
 const runPhaseForState: UnitPhaseRunner = (
   state: UnitState,
   messages: ModelMessage[],
+  onPartialAssistantMessage,
 ) => {
   switch (state.phase) {
     case "orient":
-      return runOrientAgent(messages);
+      return runOrientAgent(messages, onPartialAssistantMessage);
     case "connect":
-      return runConnectAgent(messages);
+      return runConnectAgent(messages, onPartialAssistantMessage);
     case "solve":
       // Pass 1's Solve is graded inline by the scenario/solve agent (formative,
       // no rating). Pass 2 — the transfer pass — is the only scored moment, so
       // it is handed to the dedicated eval agent, whose gradeSolution score is
       // the one Goldilocks consumes (see writesGoldilocks / ratingWrite).
       return state.pass === 2
-        ? runEvalAgent(messages)
-        : runSolveAgent(messages);
+        ? runEvalAgent(messages, onPartialAssistantMessage)
+        : runSolveAgent(messages, onPartialAssistantMessage);
     case "teach":
-      return runTeachAgent(messages);
+      return runTeachAgent(messages, onPartialAssistantMessage);
     case "mastered":
       return Effect.fail(
         new EducationUnitContractError({
@@ -280,7 +283,11 @@ export const runUnitTurn = (
       ...transcript,
     ];
 
-    const result = yield* dependencies.runPhase(state, messages);
+    const result = yield* dependencies.runPhase(
+      state,
+      messages,
+      input.onPartialAssistantMessage,
+    );
     const parsedOutput = PhaseAgentOutputSchema.safeParse(result.object);
     if (!parsedOutput.success) {
       return yield* Effect.fail(

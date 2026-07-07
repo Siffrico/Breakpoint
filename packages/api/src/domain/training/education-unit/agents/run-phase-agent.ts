@@ -34,6 +34,7 @@ export interface RunPhaseAgentInput<TSchema extends z.ZodTypeAny> {
   /** Omit for phases (orient/teach) that don't grade anything. */
   readonly tools?: ToolSet;
   readonly errorMessage: string;
+  readonly onPartialAssistantMessage?: (content: string) => void;
 }
 
 const MAX_RESTARTS = 2;
@@ -60,9 +61,31 @@ const callModel = async <TSchema extends z.ZodTypeAny>(
     abortSignal,
   });
 
+  const partialOutput = (async () => {
+    const onPartial = input.onPartialAssistantMessage;
+    if (!onPartial) return;
+    const partials: AsyncIterable<unknown> = result.partialOutputStream;
+    for await (const partial of partials) {
+      // A timed-out attempt can keep draining while its retry is already
+      // running; its signal is aborted, so its snapshots must not reach the
+      // UI and interleave with the new attempt's.
+      if (abortSignal.aborted) return;
+      const assistantMessage =
+        typeof partial === "object" &&
+        partial !== null &&
+        "assistantMessage" in partial
+          ? partial.assistantMessage
+          : undefined;
+      if (typeof assistantMessage === "string") {
+        onPartial(assistantMessage);
+      }
+    }
+  })();
+
   const [object, toolCalls] = await Promise.all([
     result.output,
     result.toolCalls,
+    partialOutput,
   ]);
 
   return {

@@ -96,6 +96,7 @@ const SYSTEM = buildPhaseSystemPrompt(CONNECT_INSTRUCTION);
 
 export const runConnectAgent = (
   messages: ModelMessage[],
+  onPartialAssistantMessage?: (content: string) => void,
 ): Effect.Effect<PhaseAgentResult<PhaseAgentOutput>, PhaseAgentError> =>
   runPhaseAgent({
     purpose: "education",
@@ -106,4 +107,5 @@ export const runConnectAgent = (
     schemaName: "connect_output",
     tools: { continuePhase, gradeConnection, recordScenarioSpec },
     errorMessage: "Failed to run the Connect step.",
+    onPartialAssistantMessage,
   });

@@ -33,6 +33,7 @@ const SYSTEM = buildPhaseSystemPrompt(ORIENT_INSTRUCTION);
 
 export const runOrientAgent = (
   messages: ModelMessage[],
+  onPartialAssistantMessage?: (content: string) => void,
 ): Effect.Effect<PhaseAgentResult<PhaseAgentOutput>, PhaseAgentError> =>
   runPhaseAgent({
     purpose: "education",
@@ -42,4 +43,5 @@ export const runOrientAgent = (
     schema: PhaseAgentOutputSchema,
     schemaName: "orient_output",
     errorMessage: "Failed to run the Orient step.",
+    onPartialAssistantMessage,
   });

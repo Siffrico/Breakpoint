@@ -48,6 +48,7 @@ const SYSTEM = buildPhaseSystemPrompt(SOLVE_INSTRUCTION);
 
 export const runSolveAgent = (
   messages: ModelMessage[],
+  onPartialAssistantMessage?: (content: string) => void,
 ): Effect.Effect<PhaseAgentResult<PhaseAgentOutput>, PhaseAgentError> =>
   runPhaseAgent({
     purpose: "education",
@@ -58,4 +59,5 @@ export const runSolveAgent = (
     schemaName: "solve_output",
     tools: { continuePhase, gradeSolution, checkOffSyllabus },
     errorMessage: "Failed to run the Solve step.",
+    onPartialAssistantMessage,
   });

@@ -51,6 +51,9 @@ interface WorkspaceStatusData {
 }
 interface WorkspaceChatData extends Record<string, unknown> {
   "workspace-status": WorkspaceStatusData;
+  // The committed assistant reply when it diverged from the streamed text
+  // (a restarted model attempt); rendered instead of the text parts.
+  "workspace-final-text": { text: string };
 }
 interface WorkspaceChatMetadata {
   action?: "submit_answer";
@@ -335,11 +338,27 @@ const transcriptToChatMessages = (
     parts: [{ type: "text", text: message.content }],
   }));
 
-const getChatMessageText = (message: WorkspaceChatMessage) =>
-  message.parts
+const getChatMessageText = (message: WorkspaceChatMessage) => {
+  // A workspace-final-text part supersedes the streamed text: the server
+  // sends it when a restarted model attempt committed a different reply than
+  // the partials already on screen.
+  for (const part of message.parts) {
+    if (
+      part.type === "data-workspace-final-text" &&
+      typeof part.data === "object" &&
+      part.data != null &&
+      "text" in part.data &&
+      typeof part.data.text === "string"
+    ) {
+      return part.data.text;
+    }
+  }
+
+  return message.parts
     .filter(isTextUIPart)
     .map((part) => part.text)
     .join("");
+};
 
 const getWorkspaceStatus = (
   message: WorkspaceChatMessage,

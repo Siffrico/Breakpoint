@@ -48,6 +48,7 @@ const SYSTEM = buildPhaseSystemPrompt(TEACH_INSTRUCTION);
 
 export const runTeachAgent = (
   messages: ModelMessage[],
+  onPartialAssistantMessage?: (content: string) => void,
 ): Effect.Effect<PhaseAgentResult<PhaseAgentOutput>, PhaseAgentError> =>
   runPhaseAgent({
     purpose: "education",
@@ -58,4 +59,5 @@ export const runTeachAgent = (
     schemaName: "teach_output",
     tools: { recordScenarioSpec },
     errorMessage: "Failed to run the Teach step.",
+    onPartialAssistantMessage,
   });
