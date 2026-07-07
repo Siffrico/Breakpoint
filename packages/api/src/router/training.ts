@@ -728,75 +728,77 @@ export const trainingRouter = {
   aiWorkspace: protectedProcedure
     .input(SessionIdSchema)
     .query(async ({ ctx, input }) => {
-      await requireSessionOwner({ ctx, sessionId: input.sessionId });
-
-      const result = await getAiWorkspaceWorkflow({
-        sessionId: input.sessionId,
-        deps: {
-          getActivePlan: (sessionId) =>
-            trainingCurriculumRepository.getActivePlan({
-              db: ctx.db,
-              sessionId,
-            }),
-          listMessages: (sessionId, slot) =>
-            trainingOnboardingRepository.listWorkspaceMessages({
-              db: ctx.db,
-              sessionId,
-              slot,
-            }),
-          listPhaseResponsesBySession: (sessionId) =>
-            trainingCurriculumRepository.listPhaseResponsesBySession({
-              db: ctx.db,
-              sessionId,
-            }),
-          getPhaseResponses: (unitContentId, sessionId) =>
-            trainingCurriculumRepository.getPhaseResponses({
-              db: ctx.db,
-              unitContentId,
-              sessionId,
-            }),
-          getUnitRun: (sessionId, unitContentId) =>
-            trainingUnitRunRepository.getUnitRun({
-              db: ctx.db,
-              sessionId,
-              unitContentId,
-            }),
-          getInFlightRecallRun: (sessionId) =>
-            trainingUnitRunRepository.getInFlightRecallRun({
-              db: ctx.db,
-              sessionId,
-            }),
-          retireInFlightRecallRun: (sessionId, unitContentId) =>
-            trainingUnitRunRepository.retireInFlightRecallRun({
-              db: ctx.db,
-              sessionId,
-              unitContentId,
-            }),
-          getUnitByNodeId: (nodeId) =>
-            trainingCurriculumRepository.getUnitByNodeId({
-              db: ctx.db,
-              nodeId,
-            }),
-          listRecallCandidates: (planId) =>
-            trainingSyllabusRepository.listRecallCandidates({
-              db: ctx.db,
-              planId,
-            }),
-          getScenarioAttemptStartedAt: async ({
-            scenarioAttemptId,
-            nodeId,
-          }) => {
-            const attempt = await trainingRatingRepository.getOpenScenarioById({
-              db: ctx.db,
+      const [result] = await Promise.all([
+        getAiWorkspaceWorkflow({
+          sessionId: input.sessionId,
+          deps: {
+            getActivePlan: (sessionId) =>
+              trainingCurriculumRepository.getActivePlan({
+                db: ctx.db,
+                sessionId,
+              }),
+            listMessages: (sessionId, slot) =>
+              trainingOnboardingRepository.listWorkspaceMessages({
+                db: ctx.db,
+                sessionId,
+                slot,
+              }),
+            listPhaseResponsesBySession: (sessionId) =>
+              trainingCurriculumRepository.listPhaseResponsesBySession({
+                db: ctx.db,
+                sessionId,
+              }),
+            getPhaseResponses: (unitContentId, sessionId) =>
+              trainingCurriculumRepository.getPhaseResponses({
+                db: ctx.db,
+                unitContentId,
+                sessionId,
+              }),
+            getUnitRun: (sessionId, unitContentId) =>
+              trainingUnitRunRepository.getUnitRun({
+                db: ctx.db,
+                sessionId,
+                unitContentId,
+              }),
+            getInFlightRecallRun: (sessionId) =>
+              trainingUnitRunRepository.getInFlightRecallRun({
+                db: ctx.db,
+                sessionId,
+              }),
+            retireInFlightRecallRun: (sessionId, unitContentId) =>
+              trainingUnitRunRepository.retireInFlightRecallRun({
+                db: ctx.db,
+                sessionId,
+                unitContentId,
+              }),
+            getUnitByNodeId: (nodeId) =>
+              trainingCurriculumRepository.getUnitByNodeId({
+                db: ctx.db,
+                nodeId,
+              }),
+            listRecallCandidates: (planId) =>
+              trainingSyllabusRepository.listRecallCandidates({
+                db: ctx.db,
+                planId,
+              }),
+            getScenarioAttemptStartedAt: async ({
               scenarioAttemptId,
-              userId: ctx.session.user.id,
               nodeId,
-            });
+            }) => {
+              const attempt =
+                await trainingRatingRepository.getOpenScenarioById({
+                  db: ctx.db,
+                  scenarioAttemptId,
+                  userId: ctx.session.user.id,
+                  nodeId,
+                });
 
-            return attempt?.presentedAt ?? null;
+              return attempt?.presentedAt ?? null;
+            },
           },
-        },
-      });
+        }),
+        requireSessionOwner({ ctx, sessionId: input.sessionId }),
+      ]);
       if (!result.success) {
         const failure = result.error;
         if (failure instanceof UnitNotReadyError) {

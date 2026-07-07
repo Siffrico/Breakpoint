@@ -80,26 +80,18 @@ const t = initTRPC.context<typeof createTRPCContext>().create({
  */
 export const createTRPCRouter = t.router;
 
-/**
- * Middleware for timing procedure execution and adding an articifial delay in development.
- *
- * You can remove this if you don't like it, but it can help catch unwanted waterfalls by simulating
- * network latency that would occur in production but not in local development.
- */
+const SLOW_PROCEDURE_THRESHOLD_MS = 200;
+
 const timingMiddleware = t.middleware(async ({ next, path }) => {
   const start = Date.now();
-
-  if (t._config.isDev) {
-    // artificial delay in dev 100-500ms
-    const waitMs = Math.floor(Math.random() * 400) + 100;
-    await new Promise((resolve) => setTimeout(resolve, waitMs));
+  try {
+    return await next();
+  } finally {
+    const durationMs = Date.now() - start;
+    if (durationMs >= SLOW_PROCEDURE_THRESHOLD_MS) {
+      console.warn("[trpc] slow procedure", { path, durationMs });
+    }
   }
-
-  const result = await next();
-  void path;
-  void start;
-
-  return result;
 });
 
 /**

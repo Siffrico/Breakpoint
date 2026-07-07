@@ -66,14 +66,16 @@ export const getAiWorkspaceWorkflowEffect = ({
   Effect.gen(function* () {
     const projectionReader = yield* WorkspaceProjectionReader;
     const displayReader = yield* AiWorkspaceReader;
-    const [plan, messages, allResponses] = yield* Effect.all(
-      [
-        projectionReader.getActivePlan(sessionId),
-        displayReader.listMessages(sessionId),
-        projectionReader.listPhaseResponsesBySession(sessionId),
-      ],
-      { concurrency: 3 },
-    );
+    const [plan, messages, educationUnitMessages, allResponses] =
+      yield* Effect.all(
+        [
+          projectionReader.getActivePlan(sessionId),
+          displayReader.listMessages(sessionId),
+          displayReader.listMessages(sessionId, "education_unit"),
+          projectionReader.listPhaseResponsesBySession(sessionId),
+        ],
+        { concurrency: 4 },
+      );
 
     if (!plan) {
       return yield* new CurriculumNotReadyError({
@@ -114,9 +116,7 @@ export const getAiWorkspaceWorkflowEffect = ({
       }
     }
 
-    const activeMessages = state
-      ? yield* displayReader.listMessages(sessionId, "education_unit")
-      : messages;
+    const activeMessages = state ? educationUnitMessages : messages;
     const evaluationProgress = getEvaluationProgress(active.responses);
     const activeScenarioAttemptId = active.responses
       .slice()

@@ -19,6 +19,7 @@ export const metadata: Metadata = {
   title: "Workspace",
   description: "Work through your Breakpoint learning workspace.",
 };
+export const preferredRegion = "iad1";
 
 const LAST_SESSION_COOKIE = "bp-last-learning-session";
 

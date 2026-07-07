@@ -136,6 +136,8 @@ export function WorkspaceShell({
         // unit generation for no reason.
         enabled: !preview && !chatHistory,
         initialData: aiWorkspace ?? undefined,
+        staleTime: 30_000,
+        refetchOnWindowFocus: false,
         // Keep polling while the unit is being prepared: every retry that
         // still misses re-triggers generation server-side, so this loop is
         // what heals a prewarm that died (e.g. a frozen serverless instance).

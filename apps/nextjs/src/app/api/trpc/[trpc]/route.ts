@@ -7,6 +7,8 @@ import { appRouter, createTRPCContext } from "@acme/api";
 import { auth } from "~/auth/server";
 import { env } from "~/env";
 
+export const preferredRegion = "iad1";
+
 const allowedOrigins = new Set(
   [
     "http://localhost:3000",
