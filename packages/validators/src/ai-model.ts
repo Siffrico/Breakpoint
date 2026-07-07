@@ -1,25 +1,40 @@
 import { z } from "zod/v4";
 
 export const AiModelPreferenceSchema = z.enum([
-  "gemini-3.1-flash-lite",
+  "glm-5.2",
+  "deepseek-v4-pro",
+  "gpt-5.5",
   "gemini-3.5-flash",
 ]);
 
+export type AiModelPreference = z.infer<typeof AiModelPreferenceSchema>;
+
+/** The model every learner gets until they pick another on the Teachers page. */
+export const DEFAULT_AI_MODEL: AiModelPreference = "glm-5.2";
+
 export const AI_MODEL_OPTIONS = [
   {
-    value: "gemini-3.1-flash-lite",
-    label: "Gemini 3.1 Flash-Lite",
-    description: "Lower-latency, lighter model for faster turns.",
+    value: "glm-5.2",
+    label: "GLM 5.2",
+    description: "Default. Balanced reasoning for teaching and grading.",
+  },
+  {
+    value: "deepseek-v4-pro",
+    label: "DeepSeek V4 Pro",
+    description: "Deeper reasoning for hard curriculum and evaluation work.",
+  },
+  {
+    value: "gpt-5.5",
+    label: "GPT 5.5",
+    description: "OpenAI's frontier model for high-capability turns.",
   },
   {
     value: "gemini-3.5-flash",
     label: "Gemini 3.5 Flash",
-    description: "Higher-capability model for curriculum and tutor work.",
+    description: "Low-latency Google model for fast turns.",
   },
 ] as const satisfies readonly {
   value: AiModelPreference;
   label: string;
   description: string;
 }[];
-
-export type AiModelPreference = z.infer<typeof AiModelPreferenceSchema>;

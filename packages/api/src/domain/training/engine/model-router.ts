@@ -1,37 +1,60 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { LanguageModel, ToolSet } from "ai";
 import { createGoogleGenerativeAI, google } from "@ai-sdk/google";
 import { createOpenAI, openai } from "@ai-sdk/openai";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 
 import type { AiModelPreference } from "@acme/validators";
-import { AiModelPreferenceSchema } from "@acme/validators";
+import { AiModelPreferenceSchema, DEFAULT_AI_MODEL } from "@acme/validators";
 
 import type { ModelTier } from "../prompts/types";
 import { getRunProfile } from "./run-profiles";
 
 type AiProvider = "google" | "openai" | "openrouter";
-type CodeDefaultAiStack = "openai-gpt-5.5" | "openrouter-glm-5.2";
 
-const CODE_DEFAULT_AI_STACK: CodeDefaultAiStack = "openrouter-glm-5.2";
+interface ModelStack {
+  provider: AiProvider;
+  models: Record<ModelTier, string>;
+}
 
-const CODE_DEFAULT_PROVIDER: Record<CodeDefaultAiStack, AiProvider> = {
-  "openai-gpt-5.5": "openai",
-  "openrouter-glm-5.2": "openrouter",
+/**
+ * Resolves each learner-selectable model to the provider and per-tier model ids
+ * the router instantiates. `critical` runs high-stakes turns (curriculum,
+ * grading); `standard` runs cheaper turns (recall, tutor). Only GPT ships a
+ * distinct standard tier; the others reuse one model across both tiers.
+ */
+const PREFERENCE_STACKS: Record<AiModelPreference, ModelStack> = {
+  "glm-5.2": {
+    provider: "openrouter",
+    models: { critical: "z-ai/glm-5.2", standard: "z-ai/glm-5.2" },
+  },
+  "deepseek-v4-pro": {
+    provider: "openrouter",
+    models: {
+      critical: "deepseek/deepseek-v4-pro",
+      standard: "deepseek/deepseek-v4-pro",
+    },
+  },
+  "gpt-5.5": {
+    provider: "openai",
+    models: { critical: "gpt-5.5", standard: "gpt-5.5-mini" },
+  },
+  "gemini-3.5-flash": {
+    provider: "google",
+    models: { critical: "gemini-3.5-flash", standard: "gemini-3.5-flash" },
+  },
 };
 
-const CODE_DEFAULT_TIER_MODELS: Record<
-  CodeDefaultAiStack,
-  Record<ModelTier, string>
-> = {
-  "openai-gpt-5.5": {
-    critical: "gpt-5.5",
-    standard: "gpt-5.5-mini",
-  },
-  "openrouter-glm-5.2": {
-    critical: "z-ai/glm-5.2",
-    standard: "z-ai/glm-5.2",
-  },
-};
+/**
+ * The learner's model choice for the current request, set by
+ * `withAiModelPreference` around each streaming turn. Background jobs run
+ * outside any wrapper, so `getStore()` is undefined and routing falls back to
+ * DEFAULT_AI_MODEL.
+ */
+const preferenceStore = new AsyncLocalStorage<AiModelPreference>();
+
+const getActiveStack = (): ModelStack =>
+  PREFERENCE_STACKS[preferenceStore.getStore() ?? DEFAULT_AI_MODEL];
 
 export type AiModelPurpose =
   | "onboarding"
@@ -75,8 +98,10 @@ const isEnabled = (name: string): boolean => {
   return value === "1" || value === "true" || value === "yes";
 };
 
-const getSelectedProvider = (): AiProvider =>
-  CODE_DEFAULT_PROVIDER[CODE_DEFAULT_AI_STACK];
+const getSelectedProvider = (): AiProvider => getActiveStack().provider;
+
+const resolveModelName = (tier: ModelTier): string =>
+  getActiveStack().models[tier];
 
 const PROVIDER_API_KEY_ENV: Record<AiProvider, string> = {
   google: "GOOGLE_GENERATIVE_AI_API_KEY",
@@ -91,15 +116,6 @@ const getProviderMissingKeyMessage = (
   provider: AiProvider,
   context: string,
 ): string => `${PROVIDER_API_KEY_ENV[provider]} is required for ${context}.`;
-
-const resolveModelName = ({
-  tier,
-}: {
-  tier: ModelTier;
-  modelName?: string;
-}): string => {
-  return CODE_DEFAULT_TIER_MODELS[CODE_DEFAULT_AI_STACK][tier];
-};
 
 const createModel = ({
   provider,
@@ -121,20 +137,21 @@ const createModel = ({
   return createOpenAI({ apiKey })(modelName);
 };
 
-export const getAiProvider = (): AiProvider => getSelectedProvider();
-
-export const parseAiModelPreference = (
-  modelName?: string | null,
-): AiModelPreference | null => {
-  const parsed = AiModelPreferenceSchema.safeParse(modelName);
-  return parsed.success ? parsed.data : null;
-};
-
-export const withAiModelPreference = async <T>(
-  _modelName: string | null | undefined,
+/**
+ * Runs `callback` with the learner's model preference bound for its entire async
+ * lifetime. `createUIMessageStream` invokes its `execute` synchronously, so the
+ * bound store propagates into the streamed model calls even though this resolves
+ * before the stream is consumed. Falls through unchanged when no valid
+ * preference is supplied.
+ */
+export const withAiModelPreference = <T>(
+  modelName: string | null | undefined,
   callback: () => Promise<T>,
 ): Promise<T> => {
-  return callback();
+  const parsed = AiModelPreferenceSchema.safeParse(modelName);
+  return parsed.success
+    ? preferenceStore.run(parsed.data, callback)
+    : callback();
 };
 
 export const getSearchToolsForSelectedProvider = (
@@ -175,38 +192,22 @@ export const getAiModelForTier = (tier: ModelTier): LanguageModel | null => {
   const apiKey = getProviderApiKey(provider);
   if (!apiKey) return null;
 
-  return createModel({
-    provider,
-    apiKey,
-    modelName: resolveModelName({ tier }),
-  });
+  return createModel({ provider, apiKey, modelName: resolveModelName(tier) });
 };
 
 export const getAiModelForPurpose = (
   purpose: AiModelPurpose,
-  modelName?: string,
-): LanguageModel | null => {
-  const provider = getSelectedProvider();
-  const apiKey = getProviderApiKey(provider);
-  if (!apiKey) return null;
-
-  const tier = PURPOSE_TIER[purpose];
-  return createModel({
-    provider,
-    apiKey,
-    modelName: resolveModelName({ tier, modelName }),
-  });
-};
+): LanguageModel | null => getAiModelForTier(PURPOSE_TIER[purpose]);
 
 export const requireAiModelForPurpose = (
   purpose: AiModelPurpose,
   context: string,
-  modelName?: string,
 ): LanguageModel => {
-  const provider = getSelectedProvider();
-  const model = getAiModelForPurpose(purpose, modelName);
+  const model = getAiModelForPurpose(purpose);
   if (!model) {
-    throw new Error(getProviderMissingKeyMessage(provider, context));
+    throw new Error(
+      getProviderMissingKeyMessage(getSelectedProvider(), context),
+    );
   }
 
   return model;
@@ -216,6 +217,3 @@ export const getMissingAiKeyMessage = (context: string): string =>
   getProviderMissingKeyMessage(getSelectedProvider(), context);
 
 export const getModelForTier = getAiModelForTier;
-
-export const getModelByName = (modelName?: string): LanguageModel | null =>
-  getAiModelForPurpose("default", modelName);

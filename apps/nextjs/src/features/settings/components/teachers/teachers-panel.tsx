@@ -8,6 +8,7 @@ import { Button } from "@acme/ui/button";
 import { Textarea } from "@acme/ui/textarea";
 
 import { SettingsPageHeader } from "~/features/settings/components/settings-shell";
+import { ModelSwitcherCard } from "~/features/settings/components/teachers/model-switcher-card";
 
 interface TeacherAgent {
   id: string;
@@ -118,6 +119,10 @@ export function TeachersPanel() {
         <Badge variant="warning" className="mt-1 shrink-0">
           Work in progress
         </Badge>
+      </div>
+
+      <div className="mt-6">
+        <ModelSwitcherCard />
       </div>
 
       <div className="border-warning/25 bg-warning/8 text-warning-foreground mt-6 border px-4 py-3 text-[12px] leading-5">

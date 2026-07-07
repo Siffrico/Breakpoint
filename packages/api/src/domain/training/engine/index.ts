@@ -2,9 +2,7 @@ export { executePrompt } from "./execute";
 export {
   getAiModelForPurpose,
   getAiModelForTier,
-  getAiProvider,
   getMissingAiKeyMessage,
-  getModelByName,
   getModelForTier,
   requireAiModelForPurpose,
 } from "./model-router";

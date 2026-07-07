@@ -17,6 +17,7 @@
     "./menu": "./src/menu.tsx",
     "./scroll-area": "./src/scroll-area.tsx",
     "./separator": "./src/separator.tsx",
+    "./select": "./src/select.tsx",
     "./spinner": "./src/spinner.tsx",
     "./surface": "./src/surface.tsx",
     "./textarea": "./src/textarea.tsx",
