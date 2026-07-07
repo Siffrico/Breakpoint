@@ -431,10 +431,10 @@ export function OnboardingShell({
   // first user turn lands, then the regular transcript + docked composer.
   const showHero = userTurnCount === 0 && !projectReady;
   const manualSetupHref = preview
-    ? "/ui/profile/projects"
+    ? "/ui/profile"
     : sessionId
-      ? `/profile/projects?session=${encodeURIComponent(sessionId)}`
-      : "/profile/projects";
+      ? `/settings/topics?session=${encodeURIComponent(sessionId)}`
+      : "/settings/topics";
 
   const manualSetupAction = !embedded ? (
     <div className="absolute top-4 right-4 z-10">

@@ -22,6 +22,7 @@ import { getAiWorkspaceWorkflow } from "../domain/training/workflows/get-ai-work
 import { getCapstoneWorkflow } from "../domain/training/workflows/get-capstone-workflow";
 import { getHomeStateWorkflow } from "../domain/training/workflows/get-home-state-workflow";
 import { getProfileWorkflow } from "../domain/training/workflows/get-profile-workflow";
+import { getProjectTopicWorkflow } from "../domain/training/workflows/get-project-topic-workflow";
 import { getUnitWorkflow } from "../domain/training/workflows/get-unit-workflow";
 import { getWorkspaceIndexWorkflow } from "../domain/training/workflows/get-workspace-index-workflow";
 import { prepareUnitWorkflow } from "../domain/training/workflows/prepare-unit-workflow";
@@ -723,6 +724,38 @@ export const trainingRouter = {
       }
 
       return overview;
+    }),
+
+  // Per-topic standing: skill clusters joined to their live Glicko rating, plus
+  // the generated overview. Backs the settings Topics detail page.
+  projectTopic: protectedProcedure
+    .input(SessionIdSchema)
+    .query(async ({ ctx, input }) => {
+      await requireSessionOwner({ ctx, sessionId: input.sessionId });
+
+      return throwOnFailure(
+        await getProjectTopicWorkflow({
+          sessionId: input.sessionId,
+          deps: {
+            getActivePlan: (sessionId) =>
+              trainingCurriculumRepository.getActivePlan({
+                db: ctx.db,
+                sessionId,
+              }),
+            getProjectOverview: (sessionId) =>
+              trainingCurriculumRepository.getProjectOverview({
+                db: ctx.db,
+                sessionId,
+              }),
+            getJobProgress: (nodeIds) =>
+              trainingRatingRepository.listJobProgressByNodeIds({
+                db: ctx.db,
+                userId: ctx.session.user.id,
+                nodeIds,
+              }),
+          },
+        }),
+      );
     }),
 
   aiWorkspace: protectedProcedure

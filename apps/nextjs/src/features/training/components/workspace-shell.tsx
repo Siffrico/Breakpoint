@@ -290,8 +290,8 @@ export function WorkspaceShell({
   const manualSetupHref =
     mode === "onboarding"
       ? preview
-        ? "/ui/profile/projects"
-        : `/profile/projects?session=${encodeURIComponent(sessionId)}`
+        ? "/ui/profile"
+        : `/settings/topics?session=${encodeURIComponent(sessionId)}`
       : null;
 
   const shellTitle =

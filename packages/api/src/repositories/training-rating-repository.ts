@@ -5,7 +5,7 @@ import type {
   ScenarioEvaluationContract,
   SupportLevel,
 } from "@acme/validators";
-import { and, asc, desc, eq, sql } from "@acme/db";
+import { and, asc, desc, eq, inArray, sql } from "@acme/db";
 import {
   TrainingJobProgress,
   TrainingMisconception,
@@ -198,6 +198,44 @@ export const trainingRatingRepository = {
     });
 
     return rows.reverse().map(toRatingPredictionRecord);
+  },
+
+  // Batch-read the learner's live Glicko state for a set of nodes (skill
+  // clusters). Nodes with no attempt yet simply have no row — the caller renders
+  // those as "not yet rated" rather than substituting a default rating.
+  listJobProgressByNodeIds: async ({
+    db,
+    userId,
+    nodeIds,
+  }: {
+    db: Database;
+    userId: string;
+    nodeIds: string[];
+  }): Promise<
+    {
+      nodeId: string;
+      rating: number;
+      ratingDeviation: number;
+      lastRatedAt: Date | null;
+    }[]
+  > => {
+    if (nodeIds.length === 0) {
+      return [];
+    }
+
+    const rows = await db.query.TrainingJobProgress.findMany({
+      where: and(
+        eq(TrainingJobProgress.userId, userId),
+        inArray(TrainingJobProgress.nodeId, nodeIds),
+      ),
+    });
+
+    return rows.map((row) => ({
+      nodeId: row.nodeId,
+      rating: row.rating,
+      ratingDeviation: row.ratingDeviation,
+      lastRatedAt: row.lastRatedAt,
+    }));
   },
 
   openScenarioAttempt: async ({

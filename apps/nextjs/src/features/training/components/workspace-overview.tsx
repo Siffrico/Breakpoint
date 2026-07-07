@@ -22,7 +22,7 @@ export function WorkspaceOverview({
     ? "/ui/train"
     : `/workspace?session=${sessionId}`;
   const planHref = preview ? "/ui/plan" : `/plan?session=${sessionId}`;
-  const profileHref = preview ? "/ui/profile" : `/profile?session=${sessionId}`;
+  const profileHref = preview ? "/ui/profile" : `/settings?session=${sessionId}`;
 
   return (
     <main className="min-h-dvh bg-background text-foreground">

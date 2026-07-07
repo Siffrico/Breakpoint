@@ -1,26 +1,18 @@
 import type { Metadata } from "next";
 
+import { GeneralPanel } from "~/features/settings/components/general/general-panel";
+import { SettingsShell } from "~/features/settings/components/settings-shell";
+import { previewMemories } from "~/features/settings/lib/preview-data";
+
 export const metadata: Metadata = {
-  title: "General profile preview",
-  description: "Preview general profile settings.",
+  title: "Settings · General preview",
+  description: "Preview interface preferences and memory.",
 };
 
-import { GeneralTab } from "~/features/profile/components/general/general-tab";
-import { ProfileShell } from "~/features/profile/components/profile-shell";
-import {
-  previewProfileAccount,
-  previewProfileBilling,
-  previewProfileGeneral,
-} from "~/features/profile/lib/preview-data";
-
-export default function UiPreviewProfileGeneralPage() {
+export default function UiPreviewSettingsGeneralPage() {
   return (
-    <ProfileShell basePath="/ui/profile" activeTab="general">
-      <GeneralTab
-        initialGeneral={previewProfileGeneral}
-        account={previewProfileAccount}
-        billing={previewProfileBilling}
-      />
-    </ProfileShell>
+    <SettingsShell basePath="/ui/profile" activeTab="general">
+      <GeneralPanel initialMemories={previewMemories} />
+    </SettingsShell>
   );
 }

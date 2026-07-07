@@ -18,6 +18,13 @@ const config = {
 
   /** We already do linting and typechecking as separate tasks in CI */
   typescript: { ignoreBuildErrors: true },
+
+  /** Allow remote avatar hosts used by OAuth providers */
+  images: {
+    remotePatterns: [
+      { protocol: "https", hostname: "cdn.discordapp.com" },
+    ],
+  },
 };
 
 export default config;

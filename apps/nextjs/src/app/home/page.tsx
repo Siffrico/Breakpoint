@@ -15,7 +15,7 @@ const NAV = [
   { label: "Home", href: "/home", active: true },
   { label: "Curriculum", href: "/curriculum" },
   { label: "Research", href: "/overview" },
-  { label: "Profile", href: "/profile" },
+  { label: "Settings", href: "/settings" },
   { label: "Contact", href: "mailto:hello@breakpoint.dev" },
 ];
 

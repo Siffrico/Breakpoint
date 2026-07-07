@@ -472,7 +472,7 @@ export function CurriculumSidebar({
   const trpc = useTRPC();
   const profileHref = preview
     ? "/ui/profile"
-    : `/profile?session=${currentSessionId}`;
+    : `/settings?session=${currentSessionId}`;
 
   const handleNewProject = () => {
     if (preview) return;
