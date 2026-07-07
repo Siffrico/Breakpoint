@@ -257,7 +257,7 @@ export function MemoryPanel({ initialMemories }: { initialMemories: Memory[] }) 
           label="Copy this prompt"
           description="Paste it into ChatGPT to export what it knows about you."
         >
-          <div className="border-foreground/[0.06] bg-foreground/[0.03] text-foreground/66 whitespace-pre-wrap border p-3 font-mono text-[11px] leading-5">
+          <div className="border-foreground/[0.06] bg-foreground/[0.03] text-foreground/66 whitespace-pre-wrap rounded-lg border p-3 font-mono text-[11px] leading-5">
             {CHATGPT_MEMORY_IMPORT_PROMPT}
           </div>
           <div className="mt-3 flex justify-end">

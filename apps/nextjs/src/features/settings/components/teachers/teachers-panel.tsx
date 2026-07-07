@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { ChalkboardTeacher } from "@phosphor-icons/react";
+import { CaretDown } from "@phosphor-icons/react";
 
+import { cn } from "@acme/ui";
 import { Badge } from "@acme/ui/badge";
 import { Button } from "@acme/ui/button";
 import { Textarea } from "@acme/ui/textarea";
@@ -14,125 +15,150 @@ interface TeacherAgent {
   id: string;
   name: string;
   role: string;
-  systemPrompt: string;
+  defaultPrompt: string;
 }
 
-// The live teaching agents that shape a learner's path. Prompts shown here are
-// starter scaffolds — the running agents compose their instructions
-// dynamically. Editing is intentionally unwired until the prompt-registry write
-// path lands.
+// The four agents that drive a learner's unit loop, in the order they run:
+// Scenario sets the problem, Teach runs the turn, Eval grades it, Ask/Explain
+// answers on demand. Prompts here are the editable starting scaffolds.
 const TEACHER_AGENTS: readonly TeacherAgent[] = [
   {
-    id: "onboarding-interviewer",
-    name: "Onboarding interviewer",
-    role: "Elicits the target identity, motivation, and starting point.",
-    systemPrompt:
-      "You interview a new learner to uncover who they are trying to become. Ask one sharp question at a time. Surface the hard moments where their current default breaks.",
+    id: "scenario",
+    name: "Scenario",
+    role: "Designs each unit's scenario and the contract you're graded against.",
+    defaultPrompt:
+      "You design the scenario and success contract for a single unit. Present a realistic situation that forces the target skill, and spell out the exact criteria a correct solve must satisfy. Never reveal the solution.",
   },
   {
-    id: "curriculum-designer",
-    name: "Curriculum designer",
-    role: "Turns the identity report into a skill-cluster plan.",
-    systemPrompt:
-      "You design a curriculum as a tree of skill clusters. Each cluster must map to a demonstrable capability the target identity requires, ordered by dependency.",
+    id: "teach",
+    name: "Teach",
+    role: "Runs the live teaching turn — connect, solve, then diagnose.",
+    defaultPrompt:
+      "You teach one unit at a time. Connect the idea to what the learner already knows, have them attempt the solve, then diagnose the weak reasoning. Never hand over the answer before they try.",
   },
   {
-    id: "syllabus-designer",
-    name: "Syllabus designer",
-    role: "Expands each cluster into concrete syllabus entries.",
-    systemPrompt:
-      "You break a skill cluster into the specific ideas, moves, and failure modes a learner must master, each with a one-line gloss.",
+    id: "eval",
+    name: "Eval",
+    role: "Scores every attempt and updates your rating.",
+    defaultPrompt:
+      "You grade a learner's attempt against the scenario contract. Identify misconceptions precisely by naming the exact reasoning that failed, then output a calibrated score — not encouragement.",
   },
   {
-    id: "workspace-tutor",
-    name: "Workspace tutor",
-    role: "Runs the live teaching turn inside a unit.",
-    systemPrompt:
-      "You teach one unit at a time. Connect, then have the learner solve, then diagnose weak reasoning. Never hand over the answer before they attempt it.",
-  },
-  {
-    id: "evaluator",
-    name: "Evaluator",
-    role: "Scores attempts and updates the learner's rating.",
-    systemPrompt:
-      "You grade a learner's solve against the scenario contract. Identify misconceptions by code. Output a calibrated score, not encouragement.",
-  },
-  {
-    id: "capstone-examiner",
-    name: "Capstone examiner",
-    role: "Runs the cluster capstone simulation.",
-    systemPrompt:
-      "You run a multi-round capstone that proves cluster mastery under realistic pressure. Escalate difficulty as the learner holds up.",
+    id: "ask-explain",
+    name: "Ask / Explain",
+    role: "Answers questions and explains concepts on demand.",
+    defaultPrompt:
+      "You answer the learner's questions and explain concepts on demand. Clarify and build intuition, but never hand over the solve for the unit they are actively working.",
   },
 ];
 
-function TeacherCard({ agent }: { agent: TeacherAgent }) {
-  const [prompt, setPrompt] = useState(agent.systemPrompt);
-  const isDirty = prompt !== agent.systemPrompt;
+function TeacherAccordionItem({
+  agent,
+  isOpen,
+  onToggle,
+}: {
+  agent: TeacherAgent;
+  isOpen: boolean;
+  onToggle: () => void;
+}) {
+  const [draft, setDraft] = useState(agent.defaultPrompt);
+  const [saved, setSaved] = useState(agent.defaultPrompt);
+  const isDirty = draft !== saved;
+  const isCustomized = saved !== agent.defaultPrompt;
 
   return (
-    <div className="border-border bg-card border p-5">
-      <div className="flex items-start gap-3">
-        <div className="border-border/70 bg-background text-foreground/70 flex size-8 shrink-0 items-center justify-center rounded-full border">
-          <ChalkboardTeacher size={16} weight="regular" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="text-foreground text-[13.5px] font-medium">
-            {agent.name}
+    <div>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={isOpen}
+        className="hover:bg-foreground/[0.02] flex w-full items-start justify-between gap-3 px-4 py-3.5 text-left outline-none transition-colors focus:outline-none focus-visible:outline-none"
+      >
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-foreground text-[13px] font-medium">
+              {agent.name}
+            </span>
+            {isCustomized ? (
+              <span className="text-foreground/40 text-[10px] font-medium tracking-[0.04em] uppercase">
+                Edited
+              </span>
+            ) : null}
           </div>
           <div className="text-foreground/50 mt-0.5 text-[12px] leading-5">
             {agent.role}
           </div>
         </div>
-      </div>
-
-      <div className="mt-3">
-        <label className="text-foreground/60 mb-1.5 block text-[11px] font-medium tracking-[0.02em]">
-          System prompt
-        </label>
-        <Textarea
-          value={prompt}
-          onChange={(event) => setPrompt(event.target.value)}
-          rows={4}
-          className="text-[12.5px]"
+        <CaretDown
+          size={14}
+          weight="bold"
+          className={cn(
+            "text-foreground/40 mt-1 shrink-0 transition-transform duration-200",
+            isOpen && "rotate-180",
+          )}
         />
-      </div>
+      </button>
 
-      <div className="mt-3 flex items-center justify-end">
-        {/* Unwired until the prompt-registry write path exists. */}
-        <Button size="sm" variant="outline" disabled title="Coming soon">
-          {isDirty ? "Save (coming soon)" : "Save"}
-        </Button>
-      </div>
+      {isOpen ? (
+        <div className="px-4 pb-4">
+          <label className="text-foreground/55 mb-1.5 block text-[11px] font-medium tracking-[0.02em]">
+            System prompt
+          </label>
+          <Textarea
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            rows={6}
+            className="text-[12.5px] leading-5"
+          />
+          <div className="mt-2.5 flex items-center justify-end gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={draft === agent.defaultPrompt}
+              onClick={() => setDraft(agent.defaultPrompt)}
+            >
+              Reset to default
+            </Button>
+            <Button
+              size="sm"
+              disabled={!isDirty}
+              onClick={() => setSaved(draft)}
+            >
+              Save
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
 
 export function TeachersPanel() {
+  const [openId, setOpenId] = useState<string | null>(null);
+
   return (
     <div>
       <div className="flex items-center gap-3">
-        <SettingsPageHeader
-          title="Teachers"
-          description="The agents that interview, plan, teach, and grade your path."
-        />
-        <Badge variant="warning" className="mt-1 shrink-0">
+        <SettingsPageHeader title="Teachers" />
+        <Badge variant="warning" className="shrink-0">
           Work in progress
         </Badge>
       </div>
 
-      <div className="mt-6">
+      <div className="mt-4">
         <ModelSwitcherCard />
       </div>
 
-      <div className="border-warning/25 bg-warning/8 text-warning-foreground mt-6 border px-4 py-3 text-[12px] leading-5">
-        Editing system prompts is a preview. Changes are not saved yet — the
-        write path is still being built.
-      </div>
-
-      <div className="mt-6 grid gap-4 sm:grid-cols-2">
+      <div className="divide-border/60 border-border/50 bg-secondary mt-4 divide-y overflow-hidden rounded-xl border">
         {TEACHER_AGENTS.map((agent) => (
-          <TeacherCard key={agent.id} agent={agent} />
+          <TeacherAccordionItem
+            key={agent.id}
+            agent={agent}
+            isOpen={openId === agent.id}
+            onToggle={() =>
+              setOpenId((current) => (current === agent.id ? null : agent.id))
+            }
+          />
         ))}
       </div>
     </div>

@@ -20,10 +20,7 @@ const formatPlan = (plan: string) =>
 export function BillingPanel({ billing }: { billing: BillingState }) {
   return (
     <div>
-      <SettingsPageHeader
-        title="Billing"
-        description="Manage your plan and payment details."
-      />
+      <SettingsPageHeader title="Billing" />
 
       <SettingsSection title="Plan">
         <SettingRow

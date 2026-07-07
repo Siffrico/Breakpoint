@@ -79,24 +79,18 @@ function SettingsSidebarContent({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="px-4 pt-5 pb-3">
+      <div className="px-2 pt-4 pb-1">
         <Link
           href={backHref}
-          className="text-foreground/48 hover:text-foreground/82 inline-flex items-center gap-1.5 text-[12px] outline-none transition-colors focus:outline-none focus-visible:outline-none"
+          className="text-foreground/50 hover:bg-foreground/[0.04] hover:text-foreground/82 flex h-8 items-center gap-2 rounded-lg px-2.5 text-[12.5px] outline-none transition-colors focus:outline-none focus-visible:outline-none"
         >
-          <ArrowLeft size={13} weight="regular" />
-          Back to app
+          <ArrowLeft size={15} weight="regular" />
+          Back
         </Link>
-        <div className="font-display text-foreground mt-3 text-[15px] font-semibold tracking-[-0.01em]">
-          Settings
-        </div>
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 pb-6">
-        <div className="text-foreground/40 px-2.5 pt-2 pb-1 text-[11px] font-medium">
-          Account
-        </div>
-        <div className="space-y-px">
+        <div className="space-y-0.5 pt-1">
           {accountTabs.map(({ key, label, icon: Icon, wip }) => {
             const href = `${basePath}/${key}${query}`;
             const isActive =
@@ -109,14 +103,14 @@ function SettingsSidebarContent({
                 key={key}
                 href={href}
                 className={cn(
-                  "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[12.5px] outline-none transition-colors focus:outline-none focus-visible:outline-none",
+                  "flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-[13px] outline-none transition-colors focus:outline-none focus-visible:outline-none",
                   isActive
-                    ? "bg-foreground/[0.06] text-foreground"
-                    : "text-foreground/62 hover:text-foreground/92",
+                    ? "bg-foreground/10 text-foreground font-medium"
+                    : "text-foreground/62 hover:bg-foreground/[0.05] hover:text-foreground/92",
                 )}
               >
                 <Icon
-                  size={14}
+                  size={16}
                   weight="regular"
                   className={
                     isActive ? "text-foreground/84" : "text-foreground/52"
@@ -134,9 +128,9 @@ function SettingsSidebarContent({
         </div>
 
         {topics.length > 0 ? (
-          <div className="mt-6">
-            <div className="flex items-center justify-between px-2.5 pb-1">
-              <span className="text-foreground/40 text-[11px] font-medium">
+          <div className="mt-4">
+            <div className="flex items-center justify-between px-2.5 pt-3 pb-1">
+              <span className="text-foreground/42 text-[11px] font-medium">
                 Topics
               </span>
               <Link
@@ -168,7 +162,7 @@ function TopicsTree({
   topics: TopicNavItem[];
 }) {
   return (
-    <div className="border-border/70 mt-0.5 ml-3.5 border-l pl-1.5">
+    <div className="border-border/50 mt-0.5 ml-3.5 border-l pl-1.5">
       {topics.map((topic) => {
         const href = `${basePath}/topics/${topic.sessionId}`;
         const isActive = pathname === href;
@@ -179,18 +173,18 @@ function TopicsTree({
             href={href}
             title={topic.title}
             className={cn(
-              "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[12.5px] outline-none transition-colors focus:outline-none focus-visible:outline-none",
+              "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[12.5px] outline-none transition-colors focus:outline-none focus-visible:outline-none",
               isActive
-                ? "bg-foreground/[0.06] text-foreground"
-                : "text-foreground/62 hover:text-foreground/92",
+                ? "bg-foreground/[0.06] text-foreground font-medium"
+                : "text-foreground/60 hover:bg-foreground/[0.04] hover:text-foreground/90",
             )}
           >
             <span
               className={cn(
-                "size-1.5 shrink-0 rounded-full",
+                "size-1 shrink-0 rounded-full",
                 topic.status === "active"
                   ? "bg-foreground/44"
-                  : "bg-foreground/20",
+                  : "bg-foreground/24",
               )}
             />
             <span className="min-w-0 flex-1 truncate">{topic.title}</span>

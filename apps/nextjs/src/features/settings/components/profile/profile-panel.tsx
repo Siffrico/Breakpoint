@@ -106,10 +106,7 @@ export function ProfilePanel({
 
   return (
     <div>
-      <SettingsPageHeader
-        title="Profile"
-        description="Your account and what this learning path is training toward."
-      />
+      <SettingsPageHeader title="Profile" />
 
       <SettingsSection title="Account">
         <div className="flex items-center gap-3 px-5 py-4">
@@ -169,7 +166,7 @@ export function ProfilePanel({
                       key={moment}
                       type="button"
                       onClick={() => removeHardMoment(moment)}
-                      className="group border-foreground/12 bg-foreground/[0.04] hover:border-foreground/28 text-foreground/88 inline-flex items-center gap-2 border px-2.5 py-1 text-[12px] transition-colors"
+                      className="group border-foreground/12 bg-foreground/[0.04] hover:border-foreground/28 text-foreground/88 inline-flex items-center gap-2 rounded-md border px-2.5 py-1 text-[12px] transition-colors"
                     >
                       <span>{moment}</span>
                       <span className="text-foreground/44 group-hover:text-foreground/88 text-[13px] leading-none transition-colors">

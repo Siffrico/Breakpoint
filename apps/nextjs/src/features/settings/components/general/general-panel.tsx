@@ -13,10 +13,7 @@ export function GeneralPanel({
 }) {
   return (
     <div>
-      <SettingsPageHeader
-        title="General"
-        description="Interface preferences and what Breakpoint remembers about you."
-      />
+      <SettingsPageHeader title="General" />
       <ThemePreferenceCard />
       <MemoryPanel initialMemories={initialMemories} />
     </div>

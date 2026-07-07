@@ -2,11 +2,10 @@
 
 import { Suspense } from "react";
 
-import type { SettingsTabKey, TopicNavItem } from "./settings-nav";
-import { useLocalStorage } from "~/hooks/use-local-storage";
-import { SettingsSidebar } from "./settings-nav";
+import { useTheme } from "@acme/ui/theme";
 
-type WorkspaceTheme = "light" | "dark" | "warm";
+import type { SettingsTabKey, TopicNavItem } from "./settings-nav";
+import { SettingsSidebar } from "./settings-nav";
 
 export function SettingsShell({
   basePath = "/settings",
@@ -19,17 +18,17 @@ export function SettingsShell({
   topics?: TopicNavItem[];
   children: React.ReactNode;
 }) {
-  const [workspaceTheme] = useLocalStorage<WorkspaceTheme>(
-    "bp-workspace-theme",
-    "warm",
-  );
+  // Settings surfaces are painted via `data-workspace-theme`. Drive it from the
+  // global theme the "Interface theme" card writes so light/dark actually flips
+  // here instead of staying pinned to the stale `bp-workspace-theme` value.
+  const { resolvedTheme } = useTheme();
 
   return (
     <div
       className="bp-workspace-theme bg-background text-foreground flex h-dvh overflow-hidden"
-      data-workspace-theme={workspaceTheme}
+      data-workspace-theme={resolvedTheme}
     >
-      <aside className="border-sidebar-border bg-sidebar hidden w-[240px] shrink-0 flex-col border-r md:flex">
+      <aside className="border-sidebar-border bg-sidebar hidden w-[216px] shrink-0 flex-col border-r md:flex">
         <Suspense fallback={null}>
           <SettingsSidebar
             basePath={basePath}
@@ -41,7 +40,7 @@ export function SettingsShell({
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <div className="flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-3xl px-8 pt-12 pb-20 sm:px-12">
+          <div className="mx-auto w-full max-w-3xl px-8 pt-8 pb-20 sm:px-12">
             {children}
           </div>
         </div>
@@ -59,11 +58,11 @@ export function SettingsPageHeader({
 }) {
   return (
     <div>
-      <h1 className="font-display text-foreground text-[22px] font-semibold tracking-[-0.02em]">
+      <h1 className="font-display text-foreground text-[20px] font-semibold tracking-[-0.02em]">
         {title}
       </h1>
       {description ? (
-        <p className="text-foreground/52 mt-1 text-[13px] leading-6">
+        <p className="text-foreground/48 mt-1 text-[13px] leading-6">
           {description}
         </p>
       ) : null}
@@ -81,11 +80,11 @@ export function SettingsSection({
   className?: string;
 }) {
   return (
-    <section className={["mt-10", className].filter(Boolean).join(" ")}>
-      <h2 className="font-display text-foreground/84 mb-3 text-[13px] font-semibold">
-        {title}
-      </h2>
-      <div className="divide-border border-border bg-card divide-y border">
+    <section
+      aria-label={title}
+      className={["mt-4", className].filter(Boolean).join(" ")}
+    >
+      <div className="divide-border/60 border-border/50 bg-secondary divide-y overflow-hidden rounded-xl border">
         {children}
       </div>
     </section>
