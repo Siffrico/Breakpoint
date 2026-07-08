@@ -60,6 +60,11 @@ export interface WorkspaceTurnPersistenceDependencies
     sessionId: string,
     slot?: "education_unit" | "recall",
   ) => Promise<WorkspaceAiMessage[]>;
+  /** The active unit's transcript only — each unit is its own chat. */
+  listUnitMessages: (
+    sessionId: string,
+    unitId: string,
+  ) => Promise<WorkspaceAiMessage[]>;
   markWorkspaceTurnFailed: (input: {
     sessionId: string;
     turnId: string;
@@ -425,7 +430,7 @@ export const saveUnitPhaseResult = ({
     });
 
     const messages = yield* Effect.tryPromise({
-      try: () => deps.listMessages(sessionId, "education_unit"),
+      try: () => deps.listUnitMessages(sessionId, unit.nodeId),
       catch: (cause) =>
         new WorkspacePersistenceError({
           message: "Workspace messages could not be loaded.",

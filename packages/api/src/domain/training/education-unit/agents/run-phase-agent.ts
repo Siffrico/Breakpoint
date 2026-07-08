@@ -58,6 +58,10 @@ const callModel = async <TSchema extends z.ZodTypeAny>(
     // is one more. 3 covers "call the grading tool, then answer" without
     // giving the model room to loop.
     maxSteps: 3,
+    // Word-pace the partial reveal server-side so the learner-facing reply
+    // unfurls steadily instead of arriving in JSON-parse-sized bursts. This is
+    // the interactive tutor path, so smoothing is always on here.
+    smoothPartials: true,
     abortSignal,
   });
 

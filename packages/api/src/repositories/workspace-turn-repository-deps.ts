@@ -345,19 +345,11 @@ export const createWorkspaceTurnRepositoryDeps = (
         sessionId,
         slot,
       }),
-    getWorkspaceSummary: (
-      sessionId: string,
-      slot: "education_unit" | "recall",
-    ) =>
-      trainingOnboardingRepository.getWorkspaceSummary({
+    listUnitMessages: (sessionId: string, unitId: string) =>
+      trainingOnboardingRepository.listWorkspaceMessagesByUnit({
         db,
         sessionId,
-        slot,
-      }),
-    upsertWorkspaceSummary: (payload) =>
-      trainingOnboardingRepository.upsertWorkspaceSummary({
-        db,
-        ...payload,
+        unitId,
       }),
     claimWorkspaceTurn: (payload) =>
       trainingOnboardingRepository.claimWorkspaceTurn({

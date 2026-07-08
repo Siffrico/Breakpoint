@@ -6,7 +6,6 @@ import {
   TrainingIdentityProfileVersion,
   TrainingOnboardingMessage,
   TrainingOnboardingSession,
-  TrainingWorkspaceSummary,
   TrainingWorkspaceTurn,
 } from "@acme/db/schema";
 
@@ -702,72 +701,6 @@ export const trainingOnboardingRepository = {
     });
 
     return messages.map(mapWorkspaceMessage);
-  },
-
-  getWorkspaceSummary: async ({
-    db,
-    sessionId,
-    slot,
-  }: {
-    db: Database;
-    sessionId: string;
-    slot: string;
-  }): Promise<{
-    summary: string;
-    coveredThroughUnitId: string | null;
-    coveredThroughSequence: number | null;
-  } | null> => {
-    const row = await db.query.TrainingWorkspaceSummary.findFirst({
-      where: and(
-        eq(TrainingWorkspaceSummary.sessionId, sessionId),
-        eq(TrainingWorkspaceSummary.slot, slot),
-      ),
-    });
-
-    if (!row) return null;
-    return {
-      summary: row.summary,
-      coveredThroughUnitId: row.coveredThroughUnitId,
-      coveredThroughSequence: row.coveredThroughSequence,
-    };
-  },
-
-  upsertWorkspaceSummary: async ({
-    db,
-    sessionId,
-    slot,
-    summary,
-    coveredThroughUnitId,
-    coveredThroughSequence,
-  }: {
-    db: Database;
-    sessionId: string;
-    slot: string;
-    summary: string;
-    coveredThroughUnitId: string | null;
-    coveredThroughSequence: number | null;
-  }): Promise<void> => {
-    await db
-      .insert(TrainingWorkspaceSummary)
-      .values({
-        sessionId,
-        slot,
-        summary,
-        coveredThroughUnitId,
-        coveredThroughSequence,
-      })
-      .onConflictDoUpdate({
-        target: [
-          TrainingWorkspaceSummary.sessionId,
-          TrainingWorkspaceSummary.slot,
-        ],
-        set: {
-          summary,
-          coveredThroughUnitId,
-          coveredThroughSequence,
-          updatedAt: new Date(),
-        },
-      });
   },
 
   getOnboardingState: async ({

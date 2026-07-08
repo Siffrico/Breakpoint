@@ -1,43 +1,29 @@
 /**
- * Compaction policy — the ONE file you edit to retune how a project chat is
- * condensed as it grows across units.
+ * Transcript-bounding policy — the ONE file you edit to retune how a single
+ * unit's transcript is capped before it is handed to a model.
  *
- * The model: one chat lives for the whole project. Its transcript is a stream
- * of units. We keep the most recent `keepRecentUnits` verbatim and fold every
- * older unit into a single rolling "progress" summary that is merged forward
- * (anchored) each time a unit ages out. Token limits are only an emergency
- * backstop — units, not tokens, are the primary compaction boundary.
- *
- * Nothing here knows about the AI SDK, the database, or HTTP. Change a number,
- * change behaviour. Add a knob here, read it in the pure functions in
- * `compaction.ts`.
+ * Since each unit is its own chat, there is no cross-unit summary anymore: a
+ * unit's turn count is bounded by the FSM, and these limits are only a safety
+ * net against a pathologically long single message. Change a number, change
+ * behaviour; the pure functions in `compaction.ts` read these.
  */
 export interface CompactionPolicy {
   /**
-   * How many of the most recent units stay verbatim in the prompt. Everything
-   * older is represented only by the rolling summary. Bump this if you want the
-   * model to "remember" more recent units word-for-word.
-   */
-  readonly keepRecentUnits: number;
-
-  /**
-   * Soft cap (characters) on a single recent message kept verbatim. Longer
-   * messages are middle-truncated so one giant turn can't dominate the window.
-   * Set to `Infinity` to disable.
+   * Soft cap (characters) on a single message kept verbatim. Longer messages
+   * are middle-truncated so one giant turn can't dominate the window. Set to
+   * `Infinity` to disable.
    */
   readonly maxVerbatimMessageChars: number;
 
   /**
-   * Emergency backstop only: if the summary + verbatim recent units still
-   * exceed this character budget (rare — would mean a few units are enormous),
-   * the oldest recent messages are dropped until it fits. This is a safety net,
-   * not the normal path; tune `keepRecentUnits` first.
+   * Emergency backstop: if the bounded messages still exceed this character
+   * budget, the oldest messages are dropped until they fit. Rare — would mean a
+   * single unit ran unusually long.
    */
   readonly maxVerbatimTotalChars: number;
 }
 
 export const DEFAULT_COMPACTION_POLICY: CompactionPolicy = {
-  keepRecentUnits: 3,
   maxVerbatimMessageChars: 6_000,
   maxVerbatimTotalChars: 80_000,
 };

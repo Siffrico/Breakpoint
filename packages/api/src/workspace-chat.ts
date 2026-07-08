@@ -54,32 +54,49 @@ type WorkspaceChatUIMessage = UIMessage<unknown, WorkspaceChatDataParts>;
 const WORKSPACE_ASSISTANT_TEXT_PART_ID = "workspace-assistant";
 
 /**
- * Education phase agents emit their complete reply as one block. This label is
- * what the learner sees while the model is working. The exhaustive switch (no
- * default) forces a copy decision whenever a phase is added or renamed.
- * A recall interlude arrives as a solve-phase education turn with
- * recallUnitId set, so it gets its own checkpoint framing.
+ * Status copy for an education turn, in two beats. The WORKING label is shown
+ * while the model reads the submission and decides; the WRITING label replaces
+ * it the instant the learner-facing reply starts streaming — so the status
+ * narrates the turn (reading → writing) instead of holding one frozen line
+ * through the whole wait. Both switches are exhaustive (no default) so a new
+ * phase forces a copy decision. A recall interlude arrives as an education turn
+ * with recallUnitId set, so it gets its own checkpoint framing.
  */
-const getEducationTurnLabel = (
+const getEducationWorkingLabel = (
   stage: WorkspaceAiEducationStage | null,
   isRecall: boolean,
 ): string => {
-  // Only three labels, by what the learner is about to receive: a scenario,
-  // a concept, or feedback on what they wrote. A recall interlude poses a
-  // checkpoint scenario, so it reads as scenario creation.
-  if (isRecall) return "Creating scenario";
+  if (isRecall) return "Designing a checkpoint";
   switch (stage) {
     case "orient":
-      return "Creating scenario";
+      return "Designing your scenario";
     case "connect":
-      return "Giving feedback";
     case "solve":
-      return "Giving feedback";
+      return "Reading your answer";
     case "teach":
-      return "Explaining concept";
+      return "Preparing the explanation";
     case "mastered":
     case null:
-      return "Giving feedback";
+      return "Reading your answer";
+  }
+};
+
+const getEducationWritingLabel = (
+  stage: WorkspaceAiEducationStage | null,
+  isRecall: boolean,
+): string => {
+  if (isRecall) return "Writing the checkpoint";
+  switch (stage) {
+    case "orient":
+      return "Writing the scenario";
+    case "connect":
+    case "solve":
+      return "Writing feedback";
+    case "teach":
+      return "Explaining the concept";
+    case "mastered":
+    case null:
+      return "Writing feedback";
   }
 };
 
@@ -179,13 +196,18 @@ const streamWorkspaceChatWithModelPreference = async ({
         deps: turnDeps,
       });
 
+      const educationStage = turn.state.educationStage;
+      const isRecallTurn = turn.state.recallUnitId !== null;
       writeStatus(
         "thinking",
-        getEducationTurnLabel(
-          turn.state.educationStage,
-          turn.state.recallUnitId !== null,
-        ),
+        getEducationWorkingLabel(educationStage, isRecallTurn),
       );
+
+      // Flip to the "writing" label the moment the reply starts streaming. The
+      // partial callback fires only once the assistantMessage field is being
+      // produced (see run-phase-agent), so this transition is truthful: the
+      // model is done reading and is now writing.
+      let startedWriting = false;
       const result = await runWorkspaceTurn(
         runEducationUnitTurn({
           sessionId,
@@ -199,6 +221,13 @@ const streamWorkspaceChatWithModelPreference = async ({
             assistantText.finalize(content);
           },
           onPartialAssistantMessage: (content) => {
+            if (!startedWriting) {
+              startedWriting = true;
+              writeStatus(
+                "thinking",
+                getEducationWritingLabel(educationStage, isRecallTurn),
+              );
+            }
             assistantText.pushPartial(content);
           },
         }).pipe(Effect.provide(workspaceTurnRepoLayer(db))),

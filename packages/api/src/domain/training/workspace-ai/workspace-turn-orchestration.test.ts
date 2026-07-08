@@ -104,9 +104,7 @@ void test("a claimed, in-flight education turn is rejected before running the mo
     claimWorkspaceTurn: () =>
       Promise.resolve({ status: "processing" as const }),
     getActivePlan: () => fail("getActivePlan"),
-    listMessages: () => fail("listMessages"),
-    getWorkspaceSummary: () => fail("getWorkspaceSummary"),
-    upsertWorkspaceSummary: () => fail("upsertWorkspaceSummary"),
+    listUnitMessages: () => fail("listUnitMessages"),
     appendMessage: () => fail("appendMessage"),
     listPhaseResponsesBySession: () => fail("listPhaseResponsesBySession"),
     getPhaseResponses: () => fail("getPhaseResponses"),
@@ -145,9 +143,7 @@ void test("an invalid education-unit result is never persisted", async () => {
 
   const deps = {
     claimWorkspaceTurn: () => Promise.resolve({ status: "claimed" as const }),
-    listMessages: () => Promise.resolve([]),
-    getWorkspaceSummary: () => Promise.resolve(null),
-    upsertWorkspaceSummary: () => Promise.resolve(),
+    listUnitMessages: () => Promise.resolve([]),
     listMemories: () => Promise.resolve([]),
     runUnitTurn: () => Effect.fail(contractError),
     commitEducationTurn: () => {
@@ -188,9 +184,7 @@ void test("interrupting a claimed education turn releases its owned lease", asyn
   const runUnitTurn = vi.fn(() => Effect.never);
   const deps = {
     claimWorkspaceTurn: () => Promise.resolve({ status: "claimed" as const }),
-    listMessages: () => Promise.resolve([]),
-    getWorkspaceSummary: () => Promise.resolve(null),
-    upsertWorkspaceSummary: () => Promise.resolve(),
+    listUnitMessages: () => Promise.resolve([]),
     listMemories: () => Promise.resolve([]),
     runUnitTurn,
     markWorkspaceTurnFailed,
@@ -229,9 +223,7 @@ void test("a post-claim transcript load failure releases the lease", async () =>
   const markWorkspaceTurnFailed = vi.fn(() => Promise.resolve());
   const deps = {
     claimWorkspaceTurn: () => Promise.resolve({ status: "claimed" as const }),
-    listMessages: () => Promise.reject(new Error("message read failed")),
-    getWorkspaceSummary: () => Promise.resolve(null),
-    upsertWorkspaceSummary: () => Promise.resolve(),
+    listUnitMessages: () => Promise.reject(new Error("message read failed")),
     markWorkspaceTurnFailed,
   } as unknown as WorkspaceTurnOrchestrationDependencies;
 
@@ -278,9 +270,7 @@ void test("an education turn returns the committed assistant message", async () 
         content: "I would isolate one variable first.",
         sequence: 1,
       }),
-    listMessages: () => Promise.resolve([]),
-    getWorkspaceSummary: () => Promise.resolve(null),
-    upsertWorkspaceSummary: () => Promise.resolve(),
+    listUnitMessages: () => Promise.resolve([]),
     listMemories: () => Promise.resolve([]),
     resolveDifficultyDirective: () => fail("resolveDifficultyDirective"),
     runUnitTurn: (input: { contextBlock: string }) => {

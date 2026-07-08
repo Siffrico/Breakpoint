@@ -19,7 +19,6 @@ const baseInput = (
   state: initialState("unit-1", "education-unit-v1"),
   policy: { maxGrillsBeforeTeach: 2, maxRepairsBeforeMicroTeach: 2 },
   memories: [],
-  progressSummary: null,
   difficultyLine: null,
   pendingConnectTeach: false,
   scenarioSpec: null,
@@ -28,7 +27,7 @@ const baseInput = (
 });
 
 describe("buildUnitTurnContext", () => {
-  it("renders phase, difficulty, progress, and memories deterministically", () => {
+  it("renders phase, difficulty, and memories deterministically", () => {
     const context = buildUnitTurnContext(
       baseInput({
         state: {
@@ -37,7 +36,6 @@ describe("buildUnitTurnContext", () => {
           pass: 2,
         },
         difficultyLine: "Target the learner at rating 1200.",
-        progressSummary: "The learner distinguishes evidence from guesses.",
         memories: [
           { content: "They over-index on the first visible symptom." },
         ],
@@ -46,9 +44,6 @@ describe("buildUnitTurnContext", () => {
 
     expect(context).toContain("Phase: connect (pass 2 of 2)");
     expect(context).toContain("Target the learner at rating 1200.");
-    expect(context).toContain(
-      "The learner distinguishes evidence from guesses.",
-    );
     expect(context).toContain("They over-index on the first visible symptom.");
   });
 

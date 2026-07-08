@@ -37,8 +37,6 @@ export interface UnitTurnContextInput {
   policy: LoopPolicy;
   /** Learner memories, most-relevant first; only `content` is rendered. */
   memories: readonly { content: string }[];
-  /** Compacted running summary of earlier turns, or null on the first turn. */
-  progressSummary: string | null;
   /**
    * Difficulty guidance resolved from Goldilocks by the orchestrator (both
    * passes READ difficulty). Null when no rating exists yet.
@@ -108,7 +106,7 @@ const buildOutputContract = (input: UnitTurnContextInput): string | null => {
  * always produce the same block, so it is trivially unit-testable.
  */
 export const buildUnitTurnContext = (input: UnitTurnContextInput): string => {
-  const { unit, state, memories, progressSummary, difficultyLine } = input;
+  const { unit, state, memories, difficultyLine } = input;
 
   const sections: string[] = [
     `## Unit\nSkill: ${unit.title}\nLearning goal: ${unit.learningGoal}\nWhy it matters: ${unit.whyItMatters}`,
@@ -150,10 +148,6 @@ export const buildUnitTurnContext = (input: UnitTurnContextInput): string => {
 
   if (difficultyLine) {
     sections.push(`## Difficulty\n${difficultyLine}`);
-  }
-
-  if (progressSummary) {
-    sections.push(`## Progress so far\n${progressSummary}`);
   }
 
   if (memories.length > 0) {

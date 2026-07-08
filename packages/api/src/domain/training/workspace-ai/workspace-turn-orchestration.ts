@@ -20,8 +20,7 @@ import type { WorkspaceTurnRepo } from "./workspace-turn-repo";
 import { buildUnitTurnContext } from "../education-unit/context";
 import { runUnitTurn } from "../education-unit/orchestrate-unit-turn";
 import { getUnitRecipe } from "../education-unit/unit";
-import { compactTranscript, createSummarizer } from "../engine/compaction";
-import { getAiModelForPurpose } from "../engine/model-router";
+import { boundTranscript } from "../engine/compaction";
 import { resolveRatingScope } from "../orchestration/rating-scope";
 import { deriveServerAttemptTiming } from "./evaluation-plan";
 import {
@@ -56,21 +55,6 @@ interface OpenScenarioResult {
 export interface WorkspaceTurnOrchestrationDependencies
   extends WorkspaceTurnDependencies,
     WorkspaceTurnPersistenceDependencies {
-  getWorkspaceSummary: (
-    sessionId: string,
-    slot: "education_unit" | "recall",
-  ) => Promise<{
-    summary: string;
-    coveredThroughUnitId: string | null;
-    coveredThroughSequence: number | null;
-  } | null>;
-  upsertWorkspaceSummary: (input: {
-    sessionId: string;
-    slot: "education_unit" | "recall";
-    summary: string;
-    coveredThroughUnitId: string | null;
-    coveredThroughSequence: number | null;
-  }) => Promise<void>;
   listMemories: (userId: string) => Promise<Memory[]>;
   getUnitSyllabusContext?: (unitNodeId: string) => Promise<{
     clusterNodeId: string;
@@ -113,7 +97,6 @@ type LoadedTurnTranscript =
       kind: "claimed";
       messages: WorkspaceAiMessage[];
       transcript: WorkspaceAiMessage[];
-      progressSummary: string | null;
       claimedDurableTurn: boolean;
     };
 
@@ -215,7 +198,7 @@ const claimTurnAndLoadTranscript = ({
         kind: "cached",
         assistantMessage: claim.assistantMessage,
         messages: yield* persistPromise("listWorkspaceMessages", () =>
-          deps.listMessages(sessionId, slot),
+          deps.listUnitMessages(sessionId, unitId),
         ),
       };
     }
@@ -232,16 +215,13 @@ const claimTurnAndLoadTranscript = ({
       );
     }
 
-    const [persistedMessages, storedSummary] = yield* Effect.all(
-      [
-        persistPromise("listWorkspaceMessages", () =>
-          deps.listMessages(sessionId, slot),
-        ),
-        persistPromise("getWorkspaceSummary", () =>
-          deps.getWorkspaceSummary(sessionId, slot),
-        ),
-      ],
-      { concurrency: 2 },
+    // Each unit is its own chat: load only the active unit's transcript. There
+    // is no cross-unit rolling summary to fetch or fold — a unit's turn count
+    // is bounded by the FSM, so boundTranscript is a pure safety net (clamp one
+    // marathon answer), not a summarizer on the hot path.
+    const persistedMessages = yield* persistPromise(
+      "listWorkspaceMessages",
+      () => deps.listUnitMessages(sessionId, unitId),
     );
     const messages = appendSyntheticUserMessage
       ? [
@@ -259,38 +239,11 @@ const claimTurnAndLoadTranscript = ({
           },
         ]
       : persistedMessages;
-    const summarizeModel = getAiModelForPurpose("recall");
-    const compaction = summarizeModel
-      ? yield* persistPromise("compactWorkspaceTranscript", () =>
-          compactTranscript({
-            messages,
-            previousSummary: storedSummary?.summary ?? null,
-            previousCoverage: storedSummary?.coveredThroughUnitId ?? null,
-            previousCoverageSequence:
-              storedSummary?.coveredThroughSequence ?? null,
-            summarize: createSummarizer(summarizeModel),
-          }),
-        )
-      : null;
-
-    if (compaction?.summaryChanged && compaction.summary) {
-      const summary = compaction.summary;
-      yield* persistPromise("upsertWorkspaceSummary", () =>
-        deps.upsertWorkspaceSummary({
-          sessionId,
-          slot,
-          summary,
-          coveredThroughUnitId: compaction.coverage,
-          coveredThroughSequence: compaction.coverageSequence,
-        }),
-      );
-    }
 
     return {
       kind: "claimed",
       messages,
-      transcript: compaction?.messages ?? messages,
-      progressSummary: compaction?.summary ?? storedSummary?.summary ?? null,
+      transcript: boundTranscript(messages),
       claimedDurableTurn: true,
     };
   });
@@ -380,8 +333,20 @@ export const runEducationUnitTurn = ({
       };
     }
     const ratingScope = resolveRatingScope({ unit, planNodes: plan.nodes });
+    const recallFocus = turn.recallFocus;
+    // Syllabus context depends only on the unit id (recall interludes skip it
+    // — they reinforce old entries, never check off new ones), so it loads in
+    // parallel with memories and the difficulty directive instead of waiting
+    // for them, saving a DB round-trip on every non-recall education turn.
+    const getUnitSyllabusContext = deps.getUnitSyllabusContext;
+    const loadSyllabus =
+      !recallFocus && getUnitSyllabusContext
+        ? persistPromise("getUnitSyllabusContext", () =>
+            getUnitSyllabusContext(unit.nodeId),
+          )
+        : Effect.succeed(null);
 
-    const [memories, resolvedDifficulty] = yield* Effect.all(
+    const [memories, resolvedDifficulty, syllabus] = yield* Effect.all(
       [
         persistPromise("listMemories", () => deps.listMemories(userId)),
         unitRun.difficultySnapshot
@@ -394,8 +359,9 @@ export const runEducationUnitTurn = ({
                 bands: ratingScope.bands,
               }),
             ),
+        loadSyllabus,
       ],
-      { concurrency: 2 },
+      { concurrency: 3 },
     );
     let difficultySnapshot: UnitDifficultySnapshot | null =
       unitRun.difficultySnapshot;
@@ -415,26 +381,15 @@ export const runEducationUnitTurn = ({
     }
 
     const recipe = getUnitRecipe(unitRun.recipeVersion, ratingScope);
-    const recallFocus = turn.recallFocus;
     // A fresh recall run has no difficulty snapshot yet; its first prompted
     // commit is the presentation that opens the measured attempt.
     const isFreshRecallPresentation =
       recallFocus !== null && unitRun.difficultySnapshot === null;
-    // Recall interludes replace the syllabus targets block with the recall
-    // focus: they reinforce old entries, never check off new ones.
-    const getUnitSyllabusContext = deps.getUnitSyllabusContext;
-    const syllabus =
-      !recallFocus && getUnitSyllabusContext
-        ? yield* persistPromise("getUnitSyllabusContext", () =>
-            getUnitSyllabusContext(unit.nodeId),
-          )
-        : null;
     const contextBlock = buildUnitTurnContext({
       unit,
       state: unitRun,
       policy: recipe.policy,
       memories,
-      progressSummary: loadedTranscript.progressSummary,
       difficultyLine: difficultySnapshot.promptBlock,
       pendingConnectTeach: readPendingConnectTeach(unitResponses),
       scenarioSpec: unitRun.scenarioSpec,

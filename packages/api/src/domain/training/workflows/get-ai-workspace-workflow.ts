@@ -116,7 +116,22 @@ export const getAiWorkspaceWorkflowEffect = ({
       }
     }
 
-    const activeMessages = state ? educationUnitMessages : messages;
+    // Each unit is its own chat: show only the live unit's transcript (the
+    // recall interlude, or the active unit). Earlier units live in the sidebar
+    // as read-only history, not in the live scroll.
+    // Same precedence findWorkspaceTurnNode uses to pick the unit messages are
+    // written under (exactly one of the two is ever set — see orchestrator.ts),
+    // so this filter matches the transcript the live turn appends to.
+    const liveUnitId = state
+      ? (state.activeUnitId ?? state.recallUnitId)
+      : null;
+    const activeMessages = !state
+      ? messages
+      : liveUnitId
+        ? educationUnitMessages.filter(
+            (message) => message.unitId === liveUnitId,
+          )
+        : educationUnitMessages;
     const evaluationProgress = getEvaluationProgress(active.responses);
     const activeScenarioAttemptId = active.responses
       .slice()
