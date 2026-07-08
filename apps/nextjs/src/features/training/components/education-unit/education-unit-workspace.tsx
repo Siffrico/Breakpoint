@@ -1,9 +1,8 @@
 "use client";
 
 import type { UIMessage } from "ai";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
-import { useQueryClient } from "@tanstack/react-query";
 import {
   CaretDown,
   CaretRight,
@@ -11,6 +10,7 @@ import {
   Copy,
   PencilSimple,
 } from "@phosphor-icons/react";
+import { useQueryClient } from "@tanstack/react-query";
 import { DefaultChatTransport, isTextUIPart } from "ai";
 
 import type { RouterOutputs } from "@acme/api";
@@ -20,12 +20,12 @@ import { toast } from "@acme/ui/toast";
 
 import type { UnitCoachCommandIntent } from "~/features/training/lib/unit-coach-commands";
 import { AssistantRichText } from "~/features/training/components/assistant-rich-text";
-import { useTRPC } from "~/trpc/react";
 import {
   educationUnitResponseDraftKey,
   shouldClearSubmittedDraft,
   useAutosavedResponseDraft,
 } from "~/features/training/hooks/use-autosaved-response-draft";
+import { useTRPC } from "~/trpc/react";
 import { NotionComposer } from "./notion-composer";
 import { WorkspaceComposerInput } from "./workspace-composer-input";
 
@@ -405,7 +405,7 @@ const getWorkspaceStatus = (
   return status;
 };
 
-export function EducationUnitWorkspace({
+function EducationUnitWorkspaceComponent({
   unit,
   sessionId,
   preview = false,
@@ -935,3 +935,5 @@ export function EducationUnitWorkspace({
     </>
   );
 }
+
+export const EducationUnitWorkspace = memo(EducationUnitWorkspaceComponent);

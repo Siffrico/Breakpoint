@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import {
   ArrowLeft,
@@ -136,7 +136,7 @@ const prepareUnitCoachRequest = ({
 const ASSISTANT_PROSE_CLASS =
   "[&_h2]:mt-0 [&_h2]:!mb-3 [&_h2]:text-[17px] [&_h2]:font-semibold [&_li]:my-1 [&_li]:leading-7 [&_ol]:!my-3 [&_ol]:list-decimal [&_ol]:pl-6 [&_p]:!my-3 [&_strong]:font-semibold [&_ul]:!my-3 [&_ul]:list-disc [&_ul]:pl-6 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0";
 
-export function UnitCoachPanel({
+function UnitCoachPanelComponent({
   unit,
   sessionId,
   trigger,
@@ -348,3 +348,5 @@ export function UnitCoachPanel({
     </aside>
   );
 }
+
+export const UnitCoachPanel = memo(UnitCoachPanelComponent);

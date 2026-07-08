@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties, MouseEvent, ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -464,7 +464,7 @@ function ProjectActionsMenu({
   );
 }
 
-export function CurriculumSidebar({
+function CurriculumSidebarComponent({
   projects = EMPTY_PROJECTS,
   currentSessionId,
   preview = false,
@@ -756,3 +756,5 @@ export function CurriculumSidebar({
     </aside>
   );
 }
+
+export const CurriculumSidebar = memo(CurriculumSidebarComponent);
