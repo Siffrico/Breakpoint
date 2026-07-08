@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PersistedUnitRun } from "../education-unit/unit";
 import type { RecallCandidateEntry } from "../policies/recall-decay";
@@ -247,6 +247,15 @@ describe("workspace read preparation boundary", () => {
 });
 
 describe("durable recall projection", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-06T00:00:00Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("resumes a failed recall even after its decay clock was reset", async () => {
     const turn = await resolveWorkspaceTurn({
       sessionId: "session-1",
