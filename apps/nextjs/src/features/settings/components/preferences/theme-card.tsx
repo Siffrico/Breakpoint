@@ -22,7 +22,6 @@ export function ThemePreferenceCard() {
     <SettingsSection title="Interface and theme">
       <SettingRow
         label="Interface theme"
-        description="How Breakpoint renders across the app."
         control={
           <div className="border-foreground/[0.08] inline-flex overflow-hidden rounded-lg border">
             {themeOptions.map((option) => {

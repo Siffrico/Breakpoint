@@ -106,14 +106,14 @@ function SettingsSidebarContent({
                   "flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-[13px] outline-none transition-colors focus:outline-none focus-visible:outline-none",
                   isActive
                     ? "bg-foreground/10 text-foreground font-medium"
-                    : "text-foreground/62 hover:bg-foreground/[0.05] hover:text-foreground/92",
+                    : "text-foreground/68 hover:bg-foreground/[0.05] hover:text-foreground/94",
                 )}
               >
                 <Icon
                   size={16}
                   weight="regular"
                   className={
-                    isActive ? "text-foreground/84" : "text-foreground/52"
+                    isActive ? "text-foreground/88" : "text-foreground/58"
                   }
                 />
                 <span className="min-w-0 flex-1 truncate">{label}</span>

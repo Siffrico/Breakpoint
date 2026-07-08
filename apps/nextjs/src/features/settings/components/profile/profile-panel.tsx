@@ -135,7 +135,6 @@ export function ProfilePanel({
           <>
             <SettingRow
               label="Target identity"
-              description="What the learning path should train toward."
               control={
                 <Input
                   value={targetIdentity}
@@ -145,20 +144,14 @@ export function ProfilePanel({
                 />
               }
             />
-            <SettingField
-              label="Motivation"
-              description="Why this identity matters right now."
-            >
+            <SettingField label="Motivation">
               <Textarea
                 value={motivation}
                 onChange={(event) => setMotivation(event.target.value)}
                 placeholder="Why this identity matters right now."
               />
             </SettingField>
-            <SettingField
-              label="Hard moments"
-              description="Situations that break your current default."
-            >
+            <SettingField label="Hard moments">
               <div className="flex flex-wrap gap-2">
                 {hardMoments.length > 0 ? (
                   hardMoments.map((moment) => (

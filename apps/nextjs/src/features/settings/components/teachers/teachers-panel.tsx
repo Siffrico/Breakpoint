@@ -14,7 +14,6 @@ import { ModelSwitcherCard } from "~/features/settings/components/teachers/model
 interface TeacherAgent {
   id: string;
   name: string;
-  role: string;
   defaultPrompt: string;
 }
 
@@ -25,28 +24,24 @@ const TEACHER_AGENTS: readonly TeacherAgent[] = [
   {
     id: "scenario",
     name: "Scenario",
-    role: "Designs each unit's scenario and the contract you're graded against.",
     defaultPrompt:
       "You design the scenario and success contract for a single unit. Present a realistic situation that forces the target skill, and spell out the exact criteria a correct solve must satisfy. Never reveal the solution.",
   },
   {
     id: "teach",
     name: "Teach",
-    role: "Runs the live teaching turn — connect, solve, then diagnose.",
     defaultPrompt:
       "You teach one unit at a time. Connect the idea to what the learner already knows, have them attempt the solve, then diagnose the weak reasoning. Never hand over the answer before they try.",
   },
   {
     id: "eval",
     name: "Eval",
-    role: "Scores every attempt and updates your rating.",
     defaultPrompt:
       "You grade a learner's attempt against the scenario contract. Identify misconceptions precisely by naming the exact reasoning that failed, then output a calibrated score — not encouragement.",
   },
   {
     id: "ask-explain",
     name: "Ask / Explain",
-    role: "Answers questions and explains concepts on demand.",
     defaultPrompt:
       "You answer the learner's questions and explain concepts on demand. Clarify and build intuition, but never hand over the solve for the unit they are actively working.",
   },
@@ -84,9 +79,6 @@ function TeacherAccordionItem({
                 Edited
               </span>
             ) : null}
-          </div>
-          <div className="text-foreground/50 mt-0.5 text-[12px] leading-5">
-            {agent.role}
           </div>
         </div>
         <CaretDown
@@ -145,11 +137,11 @@ export function TeachersPanel() {
         </Badge>
       </div>
 
-      <div className="mt-4">
+      <div className="mt-6">
         <ModelSwitcherCard />
       </div>
 
-      <div className="divide-border/60 border-border/50 bg-secondary mt-4 divide-y overflow-hidden rounded-xl border">
+      <div className="divide-border/60 border-border/50 bg-secondary mt-6 divide-y overflow-hidden rounded-xl border">
         {TEACHER_AGENTS.map((agent) => (
           <TeacherAccordionItem
             key={agent.id}

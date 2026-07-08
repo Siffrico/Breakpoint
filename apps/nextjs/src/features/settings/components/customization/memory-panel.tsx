@@ -208,20 +208,14 @@ export function MemoryPanel({ initialMemories }: { initialMemories: Memory[] }) 
   return (
     <div>
       <SettingsSection title="Add memory">
-        <SettingField
-          label="New entry"
-          description="What Breakpoint should remember about you across sessions."
-        >
+        <SettingField label="New entry">
           <Textarea
             value={manualContent}
             onChange={(event) => setManualContent(event.target.value)}
             placeholder="Paste or type a memory..."
           />
         </SettingField>
-        <SettingField
-          label="Import from file"
-          description="Upload plain text or Markdown under 200 KB."
-        >
+        <SettingField label="Import from file">
           <Input
             ref={fileInputRef}
             type="file"
@@ -253,10 +247,7 @@ export function MemoryPanel({ initialMemories }: { initialMemories: Memory[] }) 
       </SettingsSection>
 
       <SettingsSection title="Import from ChatGPT">
-        <SettingField
-          label="Copy this prompt"
-          description="Paste it into ChatGPT to export what it knows about you."
-        >
+        <SettingField label="Copy this prompt">
           <div className="border-foreground/[0.06] bg-foreground/[0.03] text-foreground/66 whitespace-pre-wrap rounded-lg border p-3 font-mono text-[11px] leading-5">
             {CHATGPT_MEMORY_IMPORT_PROMPT}
           </div>
@@ -275,10 +266,7 @@ export function MemoryPanel({ initialMemories }: { initialMemories: Memory[] }) 
             </Button>
           </div>
         </SettingField>
-        <SettingField
-          label="Paste result"
-          description="Paste the export ChatGPT returns."
-        >
+        <SettingField label="Paste result">
           <Textarea
             value={chatGptPaste}
             onChange={(event) => setChatGptPaste(event.target.value)}
