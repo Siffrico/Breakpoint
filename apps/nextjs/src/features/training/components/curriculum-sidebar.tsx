@@ -1,7 +1,7 @@
 "use client";
 
-import type { CSSProperties, ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import type { CSSProperties, MouseEvent, ReactNode } from "react";
+import { memo, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -19,6 +19,7 @@ import {
 import { useMutation } from "@tanstack/react-query";
 
 import type { RouterOutputs } from "@acme/api";
+import { DotmCircular17 } from "@acme/ui/dotm-circular-17";
 import {
   Menu,
   MenuGroup,
@@ -80,117 +81,6 @@ const SIDEBAR_FADE_STYLE = {
   maskImage:
     "linear-gradient(90deg, rgba(0,0,0,1) 0%, rgba(0,0,0,1) calc(100% - 18px), rgba(0,0,0,0) 100%)",
 } satisfies CSSProperties;
-
-const DOT_MATRIX_PATH: readonly number[] = [
-  1, 2, 3, 9, 14, 19, 23, 22, 21, 15, 10, 5,
-] as const;
-
-const DOT_MATRIX_TAIL = [1, 0.78, 0.56, 0.36, 0.22] as const;
-
-function usePrefersReducedMotion() {
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const update = () => setPrefersReducedMotion(mediaQuery.matches);
-
-    update();
-    mediaQuery.addEventListener("change", update);
-    return () => mediaQuery.removeEventListener("change", update);
-  }, []);
-
-  return prefersReducedMotion;
-}
-
-function DotMatrixCircularLoader({
-  size = 14,
-  dotSize = 2,
-}: {
-  size?: number;
-  dotSize?: number;
-}) {
-  const prefersReducedMotion = usePrefersReducedMotion();
-  const [step, setStep] = useState(0);
-  const pathLength = DOT_MATRIX_PATH.length;
-
-  useEffect(() => {
-    if (prefersReducedMotion) return;
-
-    const interval = window.setInterval(() => {
-      setStep((current) => (current + 1) % pathLength);
-    }, 95);
-
-    return () => window.clearInterval(interval);
-  }, [pathLength, prefersReducedMotion]);
-
-  const dots = useMemo(() => {
-    const leadA = step % pathLength;
-    const leadB = (leadA + Math.floor(pathLength / 2)) % pathLength;
-
-    return Array.from({ length: 25 }, (_, index) => {
-      const row = Math.floor(index / 5);
-      const col = index % 5;
-      const isCorner = (row === 0 || row === 4) && (col === 0 || col === 4);
-      const pathOrder = DOT_MATRIX_PATH.indexOf(index);
-      const isCore = row === 2 && col === 2;
-
-      if (isCorner) {
-        return { opacity: 0 };
-      }
-
-      if (pathOrder === -1) {
-        return { opacity: isCore ? 0.16 : 0.08 };
-      }
-
-      if (prefersReducedMotion) {
-        return { opacity: 0.2 + (pathOrder / (pathLength - 1)) * 0.56 };
-      }
-
-      let opacity = 0.08;
-
-      for (let tail = 0; tail < DOT_MATRIX_TAIL.length; tail += 1) {
-        const weight = DOT_MATRIX_TAIL[tail] ?? 0;
-        const tailA = (leadA - tail + pathLength) % pathLength;
-        const tailB = (leadB - tail + pathLength) % pathLength;
-
-        if (pathOrder === tailA) {
-          opacity = Math.max(opacity, weight);
-        }
-
-        if (pathOrder === tailB) {
-          opacity = Math.max(opacity, weight * 0.72);
-        }
-      }
-
-      return { opacity };
-    });
-  }, [pathLength, prefersReducedMotion, step]);
-
-  return (
-    <span
-      aria-hidden="true"
-      className="grid shrink-0 place-items-center"
-      style={{
-        width: size,
-        height: size,
-        gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
-        gridTemplateRows: "repeat(5, minmax(0, 1fr))",
-      }}
-    >
-      {dots.map((dot, index) => (
-        <span
-          key={index}
-          className="rounded-full bg-current"
-          style={{
-            width: dotSize,
-            height: dotSize,
-            opacity: dot.opacity,
-          }}
-        />
-      ))}
-    </span>
-  );
-}
 
 function FadeLabel({
   children,
@@ -321,11 +211,17 @@ function ChatRow({
   status,
   href,
   isRunning = false,
+  isActive = false,
+  onNavigate,
+  onPrefetch,
 }: {
   title: string;
   status?: string;
   href: string;
   isRunning?: boolean;
+  isActive?: boolean;
+  onNavigate?: (event: MouseEvent<HTMLAnchorElement>) => void;
+  onPrefetch?: () => void;
 }) {
   const isReady = status === "ready";
   const isCompleted = status === "completed";
@@ -338,13 +234,19 @@ function ChatRow({
   return (
     <Link
       href={href}
+      onClick={onNavigate}
+      onMouseEnter={onPrefetch}
+      onFocus={onPrefetch}
+      aria-current={isActive ? "true" : undefined}
       className={[
         "group hover:bg-foreground/[0.035] flex w-full items-center gap-2.5 rounded-[6px] px-2 py-[6px] text-left text-[13px] transition-colors outline-none focus:outline-none focus-visible:outline-none",
-        isReady
-          ? "text-foreground/86"
-          : isCompleted
-            ? "text-foreground/40"
-            : "text-foreground/56",
+        isActive
+          ? "bg-foreground/[0.045] text-foreground/92"
+          : isReady
+            ? "text-foreground/86"
+            : isCompleted
+              ? "text-foreground/40"
+              : "text-foreground/56",
       ].join(" ")}
     >
       <span
@@ -354,7 +256,7 @@ function ChatRow({
         ].join(" ")}
       >
         {isRunning ? (
-          <DotMatrixCircularLoader size={13} dotSize={1.5} />
+          <DotmCircular17 size={13} dotSize={1.5} />
         ) : (
           <StatusDot state={dotState} />
         )}
@@ -375,7 +277,12 @@ function ProjectRow({
   isSessionRunning,
   onToggle,
   onContinue,
+  onNavigate,
+  onPrefetch,
+  onNavigateChat,
+  onPrefetchChat,
   isContinuing,
+  preview = false,
 }: {
   project: LearningProject;
   href: string;
@@ -387,11 +294,23 @@ function ProjectRow({
   isSessionRunning?: boolean;
   onToggle: () => void;
   onContinue: () => void;
+  onNavigate: (event: MouseEvent<HTMLAnchorElement>) => void;
+  onPrefetch: () => void;
+  onNavigateChat: (
+    event: MouseEvent<HTMLAnchorElement>,
+    lessonId: string,
+  ) => void;
+  onPrefetchChat: (lessonId: string) => void;
   isContinuing: boolean;
+  preview?: boolean;
 }) {
-  const lessons = project.lessonPreview.slice(0, 3);
-  const runningLessonId =
-    activeLessonId ?? lessons.find((lesson) => lesson.status === "ready")?.id;
+  // Server sends newest-first, capped at 10. Default to a 3-row window; the
+  // learner can widen it per project when more chats actually exist.
+  const [showAllChats, setShowAllChats] = useState(false);
+  const lessons = showAllChats
+    ? project.lessonPreview
+    : project.lessonPreview.slice(0, 3);
+  const hasMoreChats = project.lessonPreview.length > 3;
 
   return (
     <div>
@@ -423,6 +342,9 @@ function ProjectRow({
 
         <Link
           href={href}
+          onClick={onNavigate}
+          onMouseEnter={onPrefetch}
+          onFocus={onPrefetch}
           className="hover:text-foreground/92 flex min-w-0 flex-1 py-[6px] pr-1 text-left text-[13px] font-normal transition-colors outline-none focus:outline-none focus-visible:outline-none"
         >
           <FadeLabel className="min-w-0 flex-1 leading-[18px]">
@@ -443,7 +365,7 @@ function ProjectRow({
           className="text-foreground/32 hover:text-foreground/80 hover:bg-foreground/[0.05] pointer-events-none flex size-6 shrink-0 items-center justify-center rounded-[5px] opacity-0 transition-[color,background-color,opacity] outline-none group-hover/project:pointer-events-auto group-hover/project:opacity-100 focus:outline-none focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-0 group-hover/project:disabled:opacity-25"
         >
           {isContinuing ? (
-            <DotMatrixCircularLoader size={13} dotSize={1.5} />
+            <DotmCircular17 size={13} dotSize={1.5} />
           ) : (
             <NotePencil size={15} weight="regular" />
           )}
@@ -462,13 +384,32 @@ function ProjectRow({
               key={lesson.id}
               title={lesson.title}
               status={lesson.status}
-              href={href}
+              // The workspace resolves the live chat back to the plain URL, so
+              // deep-linking every row is safe: past chats open read-only
+              // history, the live one opens the normal workspace.
+              href={
+                preview ? href : `${href}&chat=${encodeURIComponent(lesson.id)}`
+              }
+              isActive={isCurrent && lesson.id === activeLessonId}
               isRunning={
                 Boolean(isSessionRunning && isCurrent) &&
-                lesson.id === runningLessonId
+                lesson.id === activeLessonId
               }
+              onNavigate={(event) => onNavigateChat(event, lesson.id)}
+              onPrefetch={() => onPrefetchChat(lesson.id)}
             />
           ))}
+          {hasMoreChats ? (
+            <button
+              type="button"
+              onClick={() => setShowAllChats((prev) => !prev)}
+              className="text-foreground/36 hover:text-foreground/64 flex w-full items-center rounded-[6px] px-2 py-[5px] text-left text-[12px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
+            >
+              <FadeLabel className="min-w-0 flex-1 leading-[16px]">
+                {showAllChats ? "Show less" : "Show more"}
+              </FadeLabel>
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -523,7 +464,7 @@ function ProjectActionsMenu({
   );
 }
 
-export function CurriculumSidebar({
+function CurriculumSidebarComponent({
   projects = EMPTY_PROJECTS,
   currentSessionId,
   preview = false,
@@ -536,6 +477,10 @@ export function CurriculumSidebar({
   workspaceTheme = "warm",
   onWorkspaceThemeChange,
   onNavigate,
+  onSelectProject,
+  onPrefetchProject,
+  onSelectChat,
+  onPrefetchChat,
 }: {
   projects?: LearningProject[];
   currentSessionId: string;
@@ -549,12 +494,23 @@ export function CurriculumSidebar({
   workspaceTheme?: WorkspaceTheme;
   onWorkspaceThemeChange?: (theme: WorkspaceTheme) => void;
   onNavigate?: () => void;
+  onSelectProject?: (
+    event: MouseEvent<HTMLAnchorElement>,
+    sessionId: string,
+  ) => void;
+  onPrefetchProject?: (sessionId: string) => void;
+  onSelectChat?: (
+    event: MouseEvent<HTMLAnchorElement>,
+    sessionId: string,
+    nodeId: string,
+  ) => void;
+  onPrefetchChat?: (sessionId: string, nodeId: string) => void;
 }) {
   const router = useRouter();
   const trpc = useTRPC();
   const profileHref = preview
     ? "/ui/profile"
-    : `/profile?session=${currentSessionId}`;
+    : `/settings?session=${currentSessionId}`;
 
   const handleNewProject = () => {
     if (preview) return;
@@ -590,6 +546,20 @@ export function CurriculumSidebar({
     {},
   );
 
+  // Drop expansion state for projects that no longer exist so the stored map
+  // doesn't accumulate stale session ids forever.
+  useEffect(() => {
+    if (preview || projects.length === 0) return;
+    const liveIds = new Set(projects.map((project) => project.sessionId));
+    setExpanded((prev) => {
+      const staleKeys = Object.keys(prev).filter((key) => !liveIds.has(key));
+      if (staleKeys.length === 0) return prev;
+      const next = { ...prev };
+      for (const key of staleKeys) delete next[key];
+      return next;
+    });
+  }, [preview, projects, setExpanded]);
+
   const toggleProject = (sessionId: string, currentDefault: boolean) => {
     setExpanded((prev) => {
       const isOpen = prev[sessionId] ?? currentDefault;
@@ -605,6 +575,10 @@ export function CurriculumSidebar({
       open={paletteOpen}
       onOpenChange={setPaletteOpen}
       onNewTopic={handleNewProject}
+      onContinueProject={(sessionId) => {
+        if (!preview) continueProject.mutate({ sessionId });
+      }}
+      workspaceTheme={workspaceTheme}
       preview={preview}
     />
   );
@@ -737,26 +711,25 @@ export function CurriculumSidebar({
                   }
                   continueProject.mutate({ sessionId: project.sessionId });
                 }}
+                onNavigate={(event) =>
+                  onSelectProject?.(event, project.sessionId)
+                }
+                onPrefetch={() => onPrefetchProject?.(project.sessionId)}
+                onNavigateChat={(event, nodeId) =>
+                  onSelectChat?.(event, project.sessionId, nodeId)
+                }
+                onPrefetchChat={(nodeId) =>
+                  onPrefetchChat?.(project.sessionId, nodeId)
+                }
                 isContinuing={
                   continueProject.isPending &&
                   continueProject.variables.sessionId === project.sessionId
                 }
+                preview={preview}
               />
             );
           })}
         </div>
-
-        {projects.length > 5 ? (
-          <button
-            type="button"
-            className="text-foreground/40 hover:text-foreground/72 hover:bg-foreground/[0.035] mt-2 flex w-full items-center gap-2.5 rounded-[6px] px-2 py-[7px] text-left transition-colors"
-          >
-            <DotsThree size={15} className="shrink-0" />
-            <FadeLabel className="min-w-0 flex-1 text-[13px] font-normal">
-              More
-            </FadeLabel>
-          </button>
-        ) : null}
       </div>
 
       {/* Footer: user */}
@@ -783,3 +756,5 @@ export function CurriculumSidebar({
     </aside>
   );
 }
+
+export const CurriculumSidebar = memo(CurriculumSidebarComponent);

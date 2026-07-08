@@ -1,7 +1,9 @@
+import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
 import type { WorkspaceEducationTurnCommit } from "../domain/training/workspace-ai/workspace-turn-persistence";
-import { createWorkspaceTurnRepositoryDeps } from "./workspace-turn-repository-deps";
+import { WorkspaceTurnRepo } from "../domain/training/workspace-ai/workspace-turn-repo";
+import { workspaceTurnRepoLayer } from "./workspace-turn-repository-deps";
 
 describe("workspace turn lease fencing", () => {
   it("rejects a stale worker before committing turn side effects", async () => {
@@ -13,9 +15,8 @@ describe("workspace turn lease fencing", () => {
       callback({ update }),
     );
     const db = { transaction } as unknown as Parameters<
-      typeof createWorkspaceTurnRepositoryDeps
+      typeof workspaceTurnRepoLayer
     >[0];
-    const deps = createWorkspaceTurnRepositoryDeps(db);
     const commit = {
       turnId: "turn-1",
       turnLeaseId: "00000000-0000-0000-0000-000000000099",
@@ -36,6 +37,9 @@ describe("workspace turn lease fencing", () => {
         userResponse: "Answer",
       },
       ratingEvaluation: null,
+      syllabusCheckOff: null,
+      scenarioPresentation: null,
+      solvePresentation: null,
       nextRun: {
         unitId: "00000000-0000-0000-0000-000000000003",
         sessionId: "00000000-0000-0000-0000-000000000001",
@@ -45,14 +49,22 @@ describe("workspace turn lease fencing", () => {
         pass: 1,
         connectGrills: 0,
         solveRepairs: 0,
+        scenarioSpec: null,
+        difficultySnapshot: null,
       },
       completion: null,
       touchSessionId: "00000000-0000-0000-0000-000000000001",
     } satisfies WorkspaceEducationTurnCommit;
 
-    await expect(deps.commitEducationTurn(commit)).rejects.toThrow(
-      "Workspace turn lease is no longer valid.",
-    );
+    const program = Effect.gen(function* () {
+      const repo = yield* WorkspaceTurnRepo;
+      return yield* repo.commitEducationTurn(commit);
+    }).pipe(Effect.provide(workspaceTurnRepoLayer(db)));
+
+    await expect(Effect.runPromise(program)).rejects.toMatchObject({
+      _tag: "DbError",
+      operation: "commitEducationTurn",
+    });
     expect(update).toHaveBeenCalledTimes(1);
   });
 });

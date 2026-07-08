@@ -1,10 +1,13 @@
 import type { NextRequest } from "next/server";
+import { after } from "next/server";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 
 import { appRouter, createTRPCContext } from "@acme/api";
 
 import { auth } from "~/auth/server";
 import { env } from "~/env";
+
+export const preferredRegion = "iad1";
 
 const allowedOrigins = new Set(
   [
@@ -50,6 +53,10 @@ export const OPTIONS = (req: NextRequest) => {
 };
 
 const handler = async (req: NextRequest) => {
+  // Better Auth refreshes the session cookie cache only where Set-Cookie can
+  // be sent. This endpoint is hit constantly, so forwarding the refresh here
+  // keeps the cache warm for every other consumer (RSC, chat routes, SSE).
+  let authCookies: string[] = [];
   const response = await fetchRequestHandler({
     endpoint: "/api/trpc",
     router: appRouter,
@@ -58,12 +65,19 @@ const handler = async (req: NextRequest) => {
       createTRPCContext({
         auth: auth,
         headers: req.headers,
+        scheduleBackgroundTask: (task) => after(task),
+        onAuthResponseHeaders: (headers) => {
+          authCookies = headers.getSetCookie();
+        },
       }),
     onError({ error, path }) {
       console.error(`>>> tRPC Error on '${path}'`, error);
     },
   });
 
+  for (const cookie of authCookies) {
+    response.headers.append("set-cookie", cookie);
+  }
   setCorsHeaders(response, req);
   return response;
 };

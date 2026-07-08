@@ -1,4 +1,5 @@
 import type { db as databaseClient } from "@acme/db/client";
+import type { SeedRating } from "@acme/validators";
 import { eq } from "@acme/db";
 import {
   TrainingCurriculumNode,
@@ -18,6 +19,7 @@ export const buildProjectCurriculumRepository = {
     title,
     summary,
     targetIdentity,
+    seedRating = null,
   }: {
     db: Database;
     sessionId: string;
@@ -25,6 +27,7 @@ export const buildProjectCurriculumRepository = {
     title: string;
     summary: string;
     targetIdentity: string;
+    seedRating?: SeedRating | null;
   }): Promise<typeof TrainingCurriculumPlan.$inferSelect> => {
     await db
       .insert(TrainingCurriculumPlan)
@@ -36,6 +39,7 @@ export const buildProjectCurriculumRepository = {
         title,
         summary,
         targetIdentity,
+        seedRating,
       })
       .onConflictDoNothing({
         target: TrainingCurriculumPlan.onboardingSessionId,
@@ -47,6 +51,19 @@ export const buildProjectCurriculumRepository = {
 
     if (!plan) {
       throw new Error("Failed to create the project plan shell.");
+    }
+
+    const seedChanged =
+      seedRating &&
+      (plan.seedRating?.rating !== seedRating.rating ||
+        plan.seedRating.ratingDeviation !== seedRating.ratingDeviation ||
+        plan.seedRating.volatility !== seedRating.volatility);
+    if (seedChanged) {
+      await db
+        .update(TrainingCurriculumPlan)
+        .set({ seedRating })
+        .where(eq(TrainingCurriculumPlan.id, plan.id));
+      return { ...plan, seedRating };
     }
 
     return plan;

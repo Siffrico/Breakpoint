@@ -1,11 +1,12 @@
 // Builds the searchable index that powers the workspace command palette (⌘K):
-// every learning project the user owns, each with the full list of its training
-// chats (unit + integration nodes). Kept separate from `listLearningProjects`
-// so the sidebar's lightweight preview (3 lessons) is not bloated with the full
-// chat list this palette needs.
+// every learning project the user owns, with only the curriculum units that
+// have an actual persisted conversation.
+
+import { deriveProvisionalProjectTitle } from "../services/provisional-project-title";
 
 interface WorkspaceIndexSession {
   id: string;
+  status: string;
   updatedAt: Date | null;
   createdAt: Date;
 }
@@ -14,6 +15,7 @@ interface WorkspaceIndexPlan {
   id: string;
   onboardingSessionId: string;
   title: string | null;
+  status: string;
 }
 
 interface WorkspaceIndexProfile {
@@ -33,7 +35,6 @@ interface WorkspaceIndexNode {
 export interface WorkspaceIndexChat {
   id: string;
   title: string;
-  status: string;
 }
 
 export interface WorkspaceIndexProject {
@@ -50,6 +51,12 @@ export interface WorkspaceIndexDependencies {
   listPlansBySessionIds: (
     sessionIds: string[],
   ) => Promise<WorkspaceIndexPlan[]>;
+  listFirstUserMessagesBySessionIds: (
+    sessionIds: string[],
+  ) => Promise<{ sessionId: string; content: string }[]>;
+  listChatUnitIdsBySessionIds: (
+    sessionIds: string[],
+  ) => Promise<{ sessionId: string; unitId: string }[]>;
   listNodesByPlanIds: (planIds: string[]) => Promise<WorkspaceIndexNode[]>;
 }
 
@@ -67,9 +74,11 @@ export const getWorkspaceIndexWorkflow = async ({
   }
 
   const sessionIds = sessions.map((session) => session.id);
-  const [profiles, plans] = await Promise.all([
+  const [profiles, plans, firstUserMessages, chatUnits] = await Promise.all([
     deps.listProfilesBySessionIds(sessionIds),
     deps.listPlansBySessionIds(sessionIds),
+    deps.listFirstUserMessagesBySessionIds(sessionIds),
+    deps.listChatUnitIdsBySessionIds(sessionIds),
   ]);
 
   const nodes = await deps.listNodesByPlanIds(plans.map((plan) => plan.id));
@@ -83,12 +92,29 @@ export const getWorkspaceIndexWorkflow = async ({
   const planBySessionId = new Map(
     plans.map((plan) => [plan.onboardingSessionId, plan]),
   );
+  const firstUserMessageBySessionId = new Map(
+    firstUserMessages.map((message) => [message.sessionId, message.content]),
+  );
   const sessionIdByPlanId = new Map(
     plans.map((plan) => [plan.id, plan.onboardingSessionId]),
   );
+  const chatUnitIdsBySessionId = new Map<string, Set<string>>();
+  for (const chatUnit of chatUnits) {
+    const unitIds = chatUnitIdsBySessionId.get(chatUnit.sessionId);
+    if (unitIds) {
+      unitIds.add(chatUnit.unitId);
+    } else {
+      chatUnitIdsBySessionId.set(
+        chatUnit.sessionId,
+        new Set([chatUnit.unitId]),
+      );
+    }
+  }
 
   const chatsBySessionId = new Map<string, WorkspaceIndexChat[]>();
-  for (const node of nodes) {
+  for (const node of nodes.sort(
+    (left, right) => right.orderIndex - left.orderIndex,
+  )) {
     if (!isChatNode(node)) {
       continue;
     }
@@ -97,12 +123,14 @@ export const getWorkspaceIndexWorkflow = async ({
     if (!sessionId) {
       continue;
     }
+    if (!chatUnitIdsBySessionId.get(sessionId)?.has(node.id)) {
+      continue;
+    }
 
     const existing = chatsBySessionId.get(sessionId);
     const chat: WorkspaceIndexChat = {
       id: node.id,
       title: node.title,
-      status: node.status,
     };
     if (existing) {
       existing.push(chat);
@@ -111,15 +139,40 @@ export const getWorkspaceIndexWorkflow = async ({
     }
   }
 
-  return sessions.map((session) => {
+  let onboardingProjectEmitted = false;
+  return sessions.flatMap((session) => {
     const plan = planBySessionId.get(session.id) ?? null;
-    return {
-      sessionId: session.id,
-      title:
-        plan?.title ??
-        targetIdentityBySessionId.get(session.id) ??
-        "New learning track",
-      chats: chatsBySessionId.get(session.id) ?? [],
-    };
+    const planTitle = plan?.title?.trim() ?? "";
+    const identityTitle =
+      targetIdentityBySessionId.get(session.id)?.trim() ?? "";
+    const title =
+      planTitle ||
+      identityTitle ||
+      deriveProvisionalProjectTitle(
+        firstUserMessageBySessionId.get(session.id) ?? "",
+      );
+
+    if (!title) return [];
+
+    const status =
+      plan?.status === "active"
+        ? "active"
+        : plan ||
+            session.status === "ready_for_generation" ||
+            session.status === "complete"
+          ? "building"
+          : "onboarding";
+    if (status === "onboarding") {
+      if (onboardingProjectEmitted) return [];
+      onboardingProjectEmitted = true;
+    }
+
+    return [
+      {
+        sessionId: session.id,
+        title,
+        chats: chatsBySessionId.get(session.id) ?? [],
+      },
+    ];
   });
 };

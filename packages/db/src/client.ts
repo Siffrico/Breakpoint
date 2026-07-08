@@ -11,7 +11,7 @@ if (!connectionString) {
 
 const client = postgres(connectionString, {
   connect_timeout: 10,
-  idle_timeout: 20,
+  idle_timeout: process.env.NODE_ENV === "development" ? 300 : 20,
   max: Number(process.env.POSTGRES_MAX_CONNECTIONS ?? 5),
   prepare: false,
   ssl: "require",

@@ -5,13 +5,13 @@
 // directly, so the retry policy stays in exactly one place.
 
 import type { ModelMessage, ToolSet } from "ai";
-import { Output, stepCountIs, streamText } from "ai";
-import { Duration, Effect, Schedule } from "effect";
 import type { z } from "zod/v4";
+import { Duration, Effect, Schedule } from "effect";
 
 import type { AiModelPurpose } from "../../engine/model-router";
-import { requireAiModelForPurpose } from "../../engine/model-router";
 import type { PhaseAgentError } from "./errors";
+import { invokeStructuredModel } from "../../engine/invoke-structured-model";
+import { requireAiModelForPurpose } from "../../engine/model-router";
 import { classifyPhaseAgentFailure, isRetryable } from "./errors";
 
 export interface PhaseAgentToolCall {
@@ -26,6 +26,7 @@ export interface PhaseAgentResult<T> {
 
 export interface RunPhaseAgentInput<TSchema extends z.ZodTypeAny> {
   readonly purpose: AiModelPurpose;
+  readonly phase: "orient" | "connect" | "solve" | "teach";
   readonly system: string;
   readonly messages: ModelMessage[];
   readonly schema: TSchema;
@@ -33,31 +34,62 @@ export interface RunPhaseAgentInput<TSchema extends z.ZodTypeAny> {
   /** Omit for phases (orient/teach) that don't grade anything. */
   readonly tools?: ToolSet;
   readonly errorMessage: string;
+  readonly onPartialAssistantMessage?: (content: string) => void;
 }
 
 const MAX_RESTARTS = 2;
 const MAX_SCHEMA_REPAIRS = 1;
+const PHASE_AGENT_TIMEOUT_MS = 45_000;
 
 const callModel = async <TSchema extends z.ZodTypeAny>(
   input: RunPhaseAgentInput<TSchema>,
+  abortSignal: AbortSignal,
 ): Promise<PhaseAgentResult<z.infer<TSchema>>> => {
   const model = requireAiModelForPurpose(input.purpose, input.errorMessage);
 
-  const result = streamText({
+  const result = invokeStructuredModel({
     model,
-    output: Output.object({ schema: input.schema, name: input.schemaName }),
+    schema: input.schema,
+    schemaName: input.schemaName,
     system: input.system,
     prompt: input.messages,
     tools: input.tools,
     // A tool call + its result is a step; the structured reply that follows
     // is one more. 3 covers "call the grading tool, then answer" without
     // giving the model room to loop.
-    stopWhen: stepCountIs(3),
+    maxSteps: 3,
+    // Word-pace the partial reveal server-side so the learner-facing reply
+    // unfurls steadily instead of arriving in JSON-parse-sized bursts. This is
+    // the interactive tutor path, so smoothing is always on here.
+    smoothPartials: true,
+    abortSignal,
   });
+
+  const partialOutput = (async () => {
+    const onPartial = input.onPartialAssistantMessage;
+    if (!onPartial) return;
+    const partials: AsyncIterable<unknown> = result.partialOutputStream;
+    for await (const partial of partials) {
+      // A timed-out attempt can keep draining while its retry is already
+      // running; its signal is aborted, so its snapshots must not reach the
+      // UI and interleave with the new attempt's.
+      if (abortSignal.aborted) return;
+      const assistantMessage =
+        typeof partial === "object" &&
+        partial !== null &&
+        "assistantMessage" in partial
+          ? partial.assistantMessage
+          : undefined;
+      if (typeof assistantMessage === "string") {
+        onPartial(assistantMessage);
+      }
+    }
+  })();
 
   const [object, toolCalls] = await Promise.all([
     result.output,
     result.toolCalls,
+    partialOutput,
   ]);
 
   return {
@@ -73,12 +105,34 @@ const attempt = <TSchema extends z.ZodTypeAny>(
   input: RunPhaseAgentInput<TSchema>,
 ): Effect.Effect<PhaseAgentResult<z.infer<TSchema>>, PhaseAgentError> =>
   Effect.tryPromise({
-    try: () => callModel(input),
+    try: (signal) =>
+      callModel(
+        input,
+        AbortSignal.any([signal, AbortSignal.timeout(PHASE_AGENT_TIMEOUT_MS)]),
+      ),
     catch: classifyPhaseAgentFailure,
   });
 
+const tracedAttempt = <TSchema extends z.ZodTypeAny>(
+  input: RunPhaseAgentInput<TSchema>,
+  attemptNumber: number,
+) =>
+  attempt(input).pipe(
+    Effect.tap(() => Effect.annotateCurrentSpan({ outcome: "success" })),
+    Effect.tapError((error) =>
+      Effect.annotateCurrentSpan({ outcome: error._tag }),
+    ),
+    Effect.withSpan("phase-agent.attempt", {
+      attributes: {
+        purpose: input.purpose,
+        phase: input.phase,
+        attempt: attemptNumber,
+      },
+    }),
+  );
+
 // Exponential backoff capped at MAX_RESTARTS attempts — only ever applied to
-// AgentTimeoutError/AgentProviderError (see isRetryable); a call that just
+// AgentTimeoutError/AgentTransientProviderError (see isRetryable); a call that just
 // didn't land is worth retrying unmodified, unlike a schema failure.
 // v4 renamed Schedule.intersect -> Schedule.both (same "continue only while
 // both recur, take the max delay" semantics). The tuple output it now emits is
@@ -103,14 +157,12 @@ const withRepairInstruction = <TSchema extends z.ZodTypeAny>(
 
 /**
  * Runs one phase-agent model call with typed, tag-driven retry:
- *   - AgentTimeoutError / AgentProviderError -> restart with the same input,
+ *   - AgentTimeoutError / AgentTransientProviderError -> restart with the same input,
  *     up to MAX_RESTARTS times with exponential backoff (the call just didn't
  *     land — nothing about the input was wrong).
  *   - AgentSchemaError -> one repair pass with a corrective instruction
  *     appended to the transcript (the model answered, just not validly).
- *   - AgentPartialOutputError -> not retried here. Phase-agent turns are
- *     short, single-shot structured calls, not a resumable long-form
- *     generation like the artifact agents in orchestration/agent-runtime.ts.
+ *   - AgentProviderRejectedError -> not retried here.
  * Exhausting a budget fails with the tagged error; the caller decides the
  * turn-failed UX, this function never guesses a fallback response.
  */
@@ -118,13 +170,19 @@ export const runPhaseAgent = <TSchema extends z.ZodTypeAny>(
   input: RunPhaseAgentInput<TSchema>,
   repairsLeft = MAX_SCHEMA_REPAIRS,
 ): Effect.Effect<PhaseAgentResult<z.infer<TSchema>>, PhaseAgentError> =>
-  Effect.retry(attempt(input), {
-    schedule: RESTART_SCHEDULE,
-    while: isRetryable,
-  }).pipe(
-    Effect.catchTag("AgentSchemaError", (error) =>
-      repairsLeft > 0
-        ? runPhaseAgent(withRepairInstruction(input, error), repairsLeft - 1)
-        : Effect.fail(error),
-    ),
-  );
+  Effect.suspend(() => {
+    let attemptNumber = 0;
+    return Effect.retry(
+      Effect.suspend(() => tracedAttempt(input, ++attemptNumber)),
+      {
+        schedule: RESTART_SCHEDULE,
+        while: isRetryable,
+      },
+    ).pipe(
+      Effect.catchTag("AgentSchemaError", (error) =>
+        repairsLeft > 0
+          ? runPhaseAgent(withRepairInstruction(input, error), repairsLeft - 1)
+          : Effect.fail(error),
+      ),
+    );
+  });

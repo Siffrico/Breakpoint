@@ -35,6 +35,53 @@ export interface AdvanceResult {
   changes: StatusChange[];
 }
 
+export type MasteryProgressionDecision =
+  | { intent: "create_unit" }
+  | { intent: "simulation" }
+  | { intent: "cluster_complete" };
+
+/**
+ * Whether a completed node's progression is owned by the dynamic mastery loop
+ * (create_unit/simulation decisions) instead of list advancement. Only nodes inside a
+ * dynamic skill cluster (parent has a skill map) qualify — legacy and imported
+ * plans have no skill map, so their units *and* simulations keep advancing via
+ * {@link planAdvancement}.
+ */
+export const usesDynamicMasteryLoop = ({
+  nodeKind,
+  parentHasSkillMap,
+}: {
+  nodeKind: CurriculumNodeKind;
+  parentHasSkillMap: boolean;
+}): boolean =>
+  (nodeKind === "simulation" || nodeKind === "unit") && parentHasSkillMap;
+
+export const decideMasteryProgression = ({
+  uncheckedEntryCount,
+  learnerRating,
+  ratingDeviation,
+  peakRating,
+  simulationPassed,
+  maxRatingDeviation = 80,
+}: {
+  uncheckedEntryCount: number;
+  learnerRating: number;
+  ratingDeviation: number;
+  peakRating: number;
+  simulationPassed: boolean;
+  maxRatingDeviation?: number;
+}): MasteryProgressionDecision => {
+  if (simulationPassed) return { intent: "cluster_complete" };
+  if (
+    uncheckedEntryCount === 0 &&
+    learnerRating >= peakRating &&
+    ratingDeviation <= maxRatingDeviation
+  ) {
+    return { intent: "simulation" };
+  }
+  return { intent: "create_unit" };
+};
+
 /**
  * Roll a parent's status up from its children: `completed` when every child is,
  * `ready` when any child is ready-or-completed, otherwise `planned`. Returns
@@ -77,7 +124,7 @@ const parentRollup = (
   const status = rollUpParentStatus(
     children.map((child) => ({ status: overrides[child.id] ?? child.status })),
   );
-  if (!status || (parent && parent.status === status)) {
+  if (!status || parent?.status === status) {
     return null;
   }
   return { nodeId: parentNodeId, status };
@@ -96,7 +143,9 @@ export const planCompletion = (
     return [];
   }
   const changes: StatusChange[] = [{ nodeId, status: "completed" }];
-  const rollup = parentRollup(nodes, node.parentNodeId, { [nodeId]: "completed" });
+  const rollup = parentRollup(nodes, node.parentNodeId, {
+    [nodeId]: "completed",
+  });
   if (rollup) {
     changes.push(rollup);
   }
@@ -126,7 +175,10 @@ export const planAdvancement = (
   const statusOf = (node: ProgressionNode): CurriculumNodeStatus =>
     node.id === completedNodeId ? "completed" : node.status;
 
-  const unlock = (nodeId: string, parentNodeId: string | null): AdvanceResult => {
+  const unlock = (
+    nodeId: string,
+    parentNodeId: string | null,
+  ): AdvanceResult => {
     const changes: StatusChange[] = [{ nodeId, status: "ready" }];
     const rollup = parentRollup(nodes, parentNodeId, {
       [completedNodeId]: "completed",

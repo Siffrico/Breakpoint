@@ -5,8 +5,8 @@ import type { ScenarioDirective } from "../engine/rating";
 import { createInitialRatingState } from "../engine/rating";
 import {
   deriveDefaultBands,
-  prepareScenarioDirective,
   recordEvaluation,
+  resolveScenarioDirective,
 } from "./goldilocks";
 
 const progress = {
@@ -22,8 +22,8 @@ const jobProgress = () => ({
   masteredAt: null,
 });
 
-void test("prepared difficulty carries the opened scenario attempt id", async () => {
-  const result = await prepareScenarioDirective({
+void test("resolving difficulty is read-only", async () => {
+  const result = await resolveScenarioDirective({
     userId: "user-1",
     nodeId: "cluster-1",
     now: new Date("2026-01-01T00:00:00.000Z"),
@@ -31,12 +31,62 @@ void test("prepared difficulty carries the opened scenario attempt id", async ()
     deps: {
       loadJobProgress: () => Promise.resolve(jobProgress()),
       listRecentPredictions: () => Promise.resolve([]),
-      openScenarioAttempt: () => Promise.resolve({ id: "scenario-1" }),
     },
   });
 
-  assert.equal(result.scenarioAttemptId, "scenario-1");
   assert.equal(result.learnerRating, createInitialRatingState().rating);
+  assert.match(result.promptBlock, /Difficulty directive/);
+});
+
+void test("defaults the initial rating state when no seed is supplied", async () => {
+  let seenInitial: number | null = null;
+  await resolveScenarioDirective({
+    userId: "user-1",
+    nodeId: "cluster-1",
+    now: new Date("2026-01-01T00:00:00.000Z"),
+    bands: deriveDefaultBands(),
+    deps: {
+      loadJobProgress: ({ initialRatingState }) => {
+        seenInitial = initialRatingState.rating;
+        return Promise.resolve(jobProgress());
+      },
+      listRecentPredictions: () => Promise.resolve([]),
+    },
+  });
+
+  assert.equal(seenInitial, createInitialRatingState().rating);
+});
+
+void test("passes a supplied seed as the initial rating state", async () => {
+  const seed = {
+    rating: 1_150,
+    ratingDeviation: 250,
+    volatility: 0.06,
+    lastRatedAt: null,
+  };
+  let seenInitial: number | null = null;
+  await resolveScenarioDirective({
+    userId: "user-1",
+    nodeId: "cluster-1",
+    now: new Date("2026-01-01T00:00:00.000Z"),
+    bands: deriveDefaultBands(),
+    initialRatingState: seed,
+    deps: {
+      loadJobProgress: ({ initialRatingState }) => {
+        seenInitial = initialRatingState.rating;
+        return Promise.resolve({
+          ratingState: seed,
+          progress,
+          misconceptions: [],
+          recentAttempts: [],
+          masteredAt: null,
+        });
+      },
+      listRecentPredictions: () => Promise.resolve([]),
+    },
+  });
+
+  assert.equal(seenInitial, 1_150);
 });
 
 void test("rating evaluation addresses the exact scenario attempt", async () => {

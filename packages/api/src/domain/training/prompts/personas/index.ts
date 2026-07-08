@@ -24,7 +24,3 @@ export {
   debateEvaluatorPersona,
   teachEvaluatorPersona,
 } from "./capstone-evaluators";
-export {
-  recallProbeDesignerPersona,
-  recallProbeGradingPersona,
-} from "./recall";

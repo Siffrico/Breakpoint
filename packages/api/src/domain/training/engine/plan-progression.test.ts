@@ -2,12 +2,98 @@ import { describe, expect, it } from "vitest";
 
 import type { ProgressionNode } from "./plan-progression";
 import {
+  decideMasteryProgression,
   planAdvancement,
   planCompletion,
   rollUpParentStatus,
+  usesDynamicMasteryLoop,
 } from "./plan-progression";
 
-const node = (overrides: Partial<ProgressionNode> & { id: string }): ProgressionNode => ({
+describe("usesDynamicMasteryLoop", () => {
+  it("keeps legacy and imported units on list advancement", () => {
+    expect(
+      usesDynamicMasteryLoop({ nodeKind: "unit", parentHasSkillMap: false }),
+    ).toBe(false);
+  });
+
+  it("routes dynamic skill units through the creation loop", () => {
+    expect(
+      usesDynamicMasteryLoop({ nodeKind: "unit", parentHasSkillMap: true }),
+    ).toBe(true);
+  });
+
+  it("keeps legacy simulations on list advancement", () => {
+    expect(
+      usesDynamicMasteryLoop({
+        nodeKind: "simulation",
+        parentHasSkillMap: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("routes dynamic skill simulations through the mastery loop", () => {
+    expect(
+      usesDynamicMasteryLoop({
+        nodeKind: "simulation",
+        parentHasSkillMap: true,
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("decideMasteryProgression", () => {
+  it("keeps creating units while knowledge remains unchecked", () => {
+    expect(
+      decideMasteryProgression({
+        uncheckedEntryCount: 1,
+        learnerRating: 1700,
+        ratingDeviation: 40,
+        peakRating: 1600,
+        simulationPassed: false,
+      }),
+    ).toEqual({ intent: "create_unit" });
+  });
+
+  it("keeps creating units until peak performance is stable", () => {
+    expect(
+      decideMasteryProgression({
+        uncheckedEntryCount: 0,
+        learnerRating: 1600,
+        ratingDeviation: 120,
+        peakRating: 1600,
+        simulationPassed: false,
+      }),
+    ).toEqual({ intent: "create_unit" });
+  });
+
+  it("opens the simulation only after syllabus and rating gates pass", () => {
+    expect(
+      decideMasteryProgression({
+        uncheckedEntryCount: 0,
+        learnerRating: 1650,
+        ratingDeviation: 60,
+        peakRating: 1600,
+        simulationPassed: false,
+      }),
+    ).toEqual({ intent: "simulation" });
+  });
+
+  it("completes the cluster after the simulation passes", () => {
+    expect(
+      decideMasteryProgression({
+        uncheckedEntryCount: 0,
+        learnerRating: 1650,
+        ratingDeviation: 60,
+        peakRating: 1600,
+        simulationPassed: true,
+      }),
+    ).toEqual({ intent: "cluster_complete" });
+  });
+});
+
+const node = (
+  overrides: Partial<ProgressionNode> & { id: string },
+): ProgressionNode => ({
   parentNodeId: null,
   kind: "unit",
   status: "planned",
@@ -26,11 +112,37 @@ const buildPlan = (statuses: {
   cluster?: ProgressionNode["status"];
   integration?: ProgressionNode["status"];
 }): ProgressionNode[] => [
-  node({ id: "cluster", kind: "skill_cluster", status: statuses.cluster ?? "ready", orderIndex: 1 }),
-  node({ id: "unitA", parentNodeId: "cluster", status: statuses.unitA ?? "ready", orderIndex: 2 }),
-  node({ id: "unitB", parentNodeId: "cluster", status: statuses.unitB ?? "planned", orderIndex: 3 }),
-  node({ id: "simulation", parentNodeId: "cluster", kind: "simulation", status: statuses.simulation ?? "planned", orderIndex: 4 }),
-  node({ id: "integration", kind: "integration", status: statuses.integration ?? "planned", orderIndex: 5 }),
+  node({
+    id: "cluster",
+    kind: "skill_cluster",
+    status: statuses.cluster ?? "ready",
+    orderIndex: 1,
+  }),
+  node({
+    id: "unitA",
+    parentNodeId: "cluster",
+    status: statuses.unitA ?? "ready",
+    orderIndex: 2,
+  }),
+  node({
+    id: "unitB",
+    parentNodeId: "cluster",
+    status: statuses.unitB ?? "planned",
+    orderIndex: 3,
+  }),
+  node({
+    id: "simulation",
+    parentNodeId: "cluster",
+    kind: "simulation",
+    status: statuses.simulation ?? "planned",
+    orderIndex: 4,
+  }),
+  node({
+    id: "integration",
+    kind: "integration",
+    status: statuses.integration ?? "planned",
+    orderIndex: 5,
+  }),
 ];
 
 describe("rollUpParentStatus", () => {
@@ -70,7 +182,11 @@ describe("planCompletion", () => {
 
   it("rolls the parent up to completed once its last child completes", () => {
     const changes = planCompletion(
-      buildPlan({ unitA: "completed", unitB: "ready", simulation: "completed" }),
+      buildPlan({
+        unitA: "completed",
+        unitB: "ready",
+        simulation: "completed",
+      }),
       "unitB",
     );
 
@@ -82,7 +198,10 @@ describe("planCompletion", () => {
   });
 
   it("omits a no-op parent write when the parent already has the rolled-up status", () => {
-    const changes = planCompletion(buildPlan({ unitA: "ready", cluster: "ready" }), "unitA");
+    const changes = planCompletion(
+      buildPlan({ unitA: "ready", cluster: "ready" }),
+      "unitA",
+    );
 
     expect(changes).toEqual([{ nodeId: "unitA", status: "completed" }]);
   });
@@ -95,7 +214,10 @@ describe("planAdvancement", () => {
     const result = planAdvancement(plan, "unitB");
 
     expect(result.advancedNodeId).toBe("simulation");
-    expect(result.changes).toContainEqual({ nodeId: "simulation", status: "ready" });
+    expect(result.changes).toContainEqual({
+      nodeId: "simulation",
+      status: "ready",
+    });
   });
 
   it("unlocks the next planned unit while units remain", () => {
@@ -122,7 +244,11 @@ describe("planAdvancement", () => {
   it("does not advance while a unit is still in progress and nothing is unlockable", () => {
     // unitB is `ready` (in progress, not planned), so no planned unit remains to
     // unlock and the integration gate is still closed.
-    const plan = buildPlan({ unitA: "completed", unitB: "ready", simulation: "planned" });
+    const plan = buildPlan({
+      unitA: "completed",
+      unitB: "ready",
+      simulation: "planned",
+    });
 
     const result = planAdvancement(plan, "unitA");
 

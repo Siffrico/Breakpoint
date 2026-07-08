@@ -1,33 +1,22 @@
 import type { z } from "zod/v4";
-import {
-  APICallError,
-  NoObjectGeneratedError,
-  Output,
-  smoothStream,
-  stepCountIs,
-  streamText,
-} from "ai";
+import { APICallError, NoObjectGeneratedError } from "ai";
 
 import type { AiModelPurpose } from "../engine/model-router";
+import { invokeStructuredModel } from "../engine/invoke-structured-model";
 import {
   getSearchToolsForSelectedProvider,
   requireAiModelForPurpose,
 } from "../engine/model-router";
+import { getRunProfile } from "../engine/run-profiles";
 
 const PURPOSE_BY_AGENT = {
   onboarding: "onboarding",
   curriculumDesigner: "curriculum",
+  syllabusDesigner: "syllabus",
   buildContent: "buildContent",
   failureIsolation: "failure",
   ghostReplay: "ghost",
   projectOverview: "projectOverview",
-} as const;
-
-const REASONING_PROVIDER_OPTIONS = {
-  openai: { reasoningEffort: "high", reasoningSummary: "auto" },
-  // Gemini 3.x models use `thinkingLevel`; `thinkingBudget` is the Gemini 2.5
-  // knob and is ignored by 3.x. See @ai-sdk/google provider options.
-  google: { thinkingConfig: { thinkingLevel: "high", includeThoughts: true } },
 } as const;
 
 export const runAgent = async <TSchema extends z.ZodTypeAny>({
@@ -36,33 +25,30 @@ export const runAgent = async <TSchema extends z.ZodTypeAny>({
   prompt,
   schema,
   errorMessage,
-  reasoning = false,
 }: {
   agent: keyof typeof PURPOSE_BY_AGENT;
   system: string;
   prompt: string;
   schema: TSchema;
   errorMessage: string;
-  reasoning?: boolean;
 }): Promise<z.infer<TSchema>> => {
   const purpose = PURPOSE_BY_AGENT[agent] as AiModelPurpose;
+  const profile = getRunProfile(purpose);
   const model = requireAiModelForPurpose(
     purpose,
     "AI-generated training workflows",
   );
 
   try {
-    const result = streamText({
+    const result = invokeStructuredModel({
       model,
-      output: Output.object({
-        schema,
-        name: `${agent}_output`,
-      }),
+      schema,
+      schemaName: `${agent}_output`,
       system,
       prompt,
       tools: getSearchToolsForSelectedProvider(purpose),
-      stopWhen: stepCountIs(4),
-      ...(reasoning ? { providerOptions: REASONING_PROVIDER_OPTIONS } : {}),
+      maxSteps: profile.maxSteps,
+      profile,
     });
     const object = await result.output;
 
@@ -72,6 +58,7 @@ export const runAgent = async <TSchema extends z.ZodTypeAny>({
       error instanceof Error && error.message
         ? `${errorMessage} ${error.message}`
         : errorMessage,
+      { cause: error },
     );
   }
 };
@@ -153,6 +140,10 @@ export const classifyFailure = (
     return "provider";
   }
 
+  if (error instanceof Error && error.cause !== undefined) {
+    return classifyFailure(error.cause, hasPartial);
+  }
+
   if (
     error instanceof Error &&
     (error.name === "AbortError" || error.name === "TimeoutError")
@@ -228,7 +219,6 @@ export const runResilientAgent = async <TSchema extends z.ZodTypeAny>({
   prompt,
   schema,
   errorMessage,
-  reasoning = false,
   continuation,
   onPartial,
   seedPartial,
@@ -238,7 +228,6 @@ export const runResilientAgent = async <TSchema extends z.ZodTypeAny>({
   prompt: string;
   schema: TSchema;
   errorMessage: string;
-  reasoning?: boolean;
   continuation?: ContinuationConfig<z.infer<TSchema>>;
   /** Throttled, fire-and-forget partial sink for mid-stream checkpointing. */
   onPartial?: (partial: Partial<z.infer<TSchema>>) => void;
@@ -247,6 +236,7 @@ export const runResilientAgent = async <TSchema extends z.ZodTypeAny>({
 }): Promise<z.infer<TSchema>> => {
   type T = z.infer<TSchema>;
   const purpose = PURPOSE_BY_AGENT[agent] as AiModelPurpose;
+  const profile = getRunProfile(purpose);
   const model = requireAiModelForPurpose(
     purpose,
     "AI-generated training workflows",
@@ -268,17 +258,18 @@ export const runResilientAgent = async <TSchema extends z.ZodTypeAny>({
 
   while (true) {
     try {
-      const result = streamText({
+      const result = invokeStructuredModel({
         model,
-        output: Output.object({ schema, name: `${agent}_output` }),
+        schema,
+        schemaName: `${agent}_output`,
         system,
         prompt: activePrompt,
         tools: getSearchToolsForSelectedProvider(purpose),
         // Pace the structured-output text deltas so onPartial flushes feel like
         // a steady stream rather than chunky bursts.
-        experimental_transform: smoothStream({ delayInMs: 15, chunking: "word" }),
-        stopWhen: stepCountIs(4),
-        ...(reasoning ? { providerOptions: REASONING_PROVIDER_OPTIONS } : {}),
+        smoothPartials: true,
+        maxSteps: profile.maxSteps,
+        profile,
       });
 
       for await (const next of result.partialOutputStream) {

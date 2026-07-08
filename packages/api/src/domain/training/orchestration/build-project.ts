@@ -1,4 +1,7 @@
+import type { SeedRating, StartingPointTier } from "@acme/validators";
+
 import type { Result } from "../../../lib/result";
+import { seedFromStartingPoint } from "../engine/rating";
 import type {
   CurriculumDesignerOutput,
   OnboardingPacket,
@@ -76,7 +79,7 @@ export interface ProjectBuildState {
   /** Display name (human-readable), resolved in the `name` step. */
   projectName: string;
   steps: ProjectBuildStepState[];
-  /** Unit titles, revealed once the curriculum agent returns. */
+  /** Skill titles, revealed once the curriculum agent returns. */
   modules: string[];
   moduleCount: number;
   // Populated as soon as the shell exists (before AI runs), so the library and
@@ -107,6 +110,13 @@ const STEP_ORDER: ProjectBuildStep[] = [
   "save",
 ];
 
+/** Plain-language phrasing of each tier for the curriculum placement note. */
+const STARTING_POINT_PHRASE: Record<StartingPointTier, string> = {
+  fundamentals: "starting from the fundamentals",
+  skip_basics: "skipping the basics",
+  advanced: "straight to the hard stuff",
+};
+
 const initialSteps = (): ProjectBuildStepState[] =>
   STEP_ORDER.map((id) => ({
     id,
@@ -123,6 +133,16 @@ export interface CreateProjectInput {
   targetIdentity: string;
   /** One line describing what they'll build, shown on the confirm card. */
   summary: string;
+  /** Verb-first capability titles shown on the confirm card and used as
+   *  cluster-title hints for the curriculum designer. Optional so resumed builds
+   *  from older checkpoints (which lack it) still typecheck. */
+  skills?: string[];
+  /** Where the learner is starting from, and why. Seeds the plan's rating.
+   *  Optional for the same resume-compatibility reason. */
+  startingPoint?: {
+    tier: StartingPointTier;
+    reason: string;
+  };
 }
 
 export type ProjectBuildReadiness =
@@ -238,6 +258,10 @@ export interface BuildProjectDeps {
     failureKind?: ArtifactFailureKind | null;
     attempts?: number;
   }) => Promise<unknown>;
+  /** The learner's persisted starting point (mid-chat tap or [change] override). */
+  getStartingPoint: (
+    sessionId: string,
+  ) => Promise<{ tier: StartingPointTier; label: string } | null>;
   /** Create (or return) the durable "generating" plan shell. Returns its id. */
   ensureShell: (input: {
     sessionId: string;
@@ -245,6 +269,7 @@ export interface BuildProjectDeps {
     title: string;
     summary: string;
     targetIdentity: string;
+    seedRating: SeedRating | null;
   }) => Promise<{ id: string }>;
   /**
    * One small transaction: upsert the profile version, link it to the plan, and
@@ -268,16 +293,27 @@ export interface BuildProjectDeps {
     sessionId: string;
     planId: string;
   }) => Promise<CurriculumPlan | null>;
+  prepareUnit: (input: {
+    node: CurriculumPlan["nodes"][number];
+    sessionId: string;
+  }) => Promise<unknown>;
+  ensureSkillSyllabus: (input: {
+    clusterNodeId: string;
+    targetIdentity: string;
+  }) => Promise<unknown>;
+  createSkillUnit: (input: {
+    clusterNodeId: string;
+    sessionId: string;
+    userId: string;
+  }) => Promise<unknown>;
 }
 
 const countModules = (plan: CurriculumPlan): number =>
-  plan.nodes.filter(
-    (node) => node.kind === "unit" || node.kind === "integration",
-  ).length;
+  plan.nodes.filter((node) => node.kind === "skill_cluster").length;
 
 const moduleTitles = (blueprint: CurriculumBlueprint): string[] =>
   blueprint.nodes
-    .filter((node) => node.kind === "unit" || node.kind === "integration")
+    .filter((node) => node.kind === "skill_cluster")
     .map((node) => node.title);
 
 const getProjectBuildSourceKey = (input: CreateProjectInput) =>
@@ -334,6 +370,7 @@ export const buildProjectFromOnboarding = async ({
   input,
   deps,
   onProgress,
+  scheduleBackgroundTask,
 }: {
   sessionId: string;
   userId: string | null;
@@ -341,6 +378,11 @@ export const buildProjectFromOnboarding = async ({
   input: CreateProjectInput;
   deps: BuildProjectDeps;
   onProgress: (state: ProjectBuildState) => void;
+  /**
+   * Keeps the first-unit prewarm alive past the response on serverless hosts
+   * (Next.js `after`). Falls back to a detached promise.
+   */
+  scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }): Promise<
   Result<{
     sessionId: string;
@@ -493,7 +535,7 @@ export const buildProjectFromOnboarding = async ({
       state.phase = "complete";
       state.projectName = existingPlan.title || projectName;
       state.modules = existingPlan.nodes
-        .filter((node) => node.kind === "unit" || node.kind === "integration")
+        .filter((node) => node.kind === "skill_cluster")
         .map((node) => node.title);
       state.moduleCount = countModules(existingPlan);
       state.planId = existingPlan.id;
@@ -521,6 +563,27 @@ export const buildProjectFromOnboarding = async ({
     return err("Project build is already running.");
   }
 
+  // Resolve the learner's starting point: the persisted value (mid-chat tap or a
+  // [change] override) wins over whatever the createProject tool proposed. A
+  // non-null tier stamps a Glicko seed onto the plan shell and adds a placement
+  // note to the curriculum designer; null leaves the workspace on its defaults.
+  const persistedStartingPoint = await deps
+    .getStartingPoint(sessionId)
+    .catch(() => null);
+  const startingPointTier =
+    persistedStartingPoint?.tier ?? input.startingPoint?.tier ?? null;
+  const startingPointLabel =
+    persistedStartingPoint?.label ?? input.startingPoint?.reason ?? null;
+  const seedRating = startingPointTier
+    ? seedFromStartingPoint(startingPointTier)
+    : null;
+  const placementNote =
+    startingPointTier && seedRating
+      ? `Learner starting point: ${STARTING_POINT_PHRASE[startingPointTier]}${
+          startingPointLabel ? ` — ${startingPointLabel}` : ""
+        }; start each cluster's bandRamp near ${seedRating.rating}.`
+      : null;
+
   // 1 — name + shell: create the durable project home before any AI runs.
   setStep("name", "active");
   emit();
@@ -532,6 +595,7 @@ export const buildProjectFromOnboarding = async ({
       title: projectName,
       summary: input.summary.trim(),
       targetIdentity: input.targetIdentity.trim(),
+      seedRating,
     });
     planId = shell.id;
   } catch (error) {
@@ -691,6 +755,8 @@ export const buildProjectFromOnboarding = async ({
       design = await designCurriculum({
         packet,
         transcript,
+        skills: input.skills,
+        placementNote,
         options: {
           onPartial: curriculumPartialSink,
           seedPartial: seedFor(curriculumRecord) as
@@ -881,7 +947,7 @@ export const buildProjectFromOnboarding = async ({
   state.projectName = plan.title || projectName;
   state.moduleCount = countModules(plan);
   state.modules = plan.nodes
-    .filter((node) => node.kind === "unit" || node.kind === "integration")
+    .filter((node) => node.kind === "skill_cluster")
     .map((node) => node.title);
   state.planId = plan.id;
   state.firstUnitId = plan.nextUnitId;
@@ -889,6 +955,55 @@ export const buildProjectFromOnboarding = async ({
   state.gaps = gaps.length > 0 ? gaps : undefined;
   emit();
   await updateRun("complete");
+
+  const firstReadyUnit = plan.nodes.find(
+    (node) =>
+      (node.kind === "unit" || node.kind === "integration") &&
+      node.status === "ready",
+  );
+  if (firstReadyUnit) {
+    const prewarmFirstUnit = () =>
+      deps.prepareUnit({ node: firstReadyUnit, sessionId }).then(
+        () => undefined,
+        (error: unknown) => {
+          console.error("First workspace unit prewarm failed", {
+            nodeId: firstReadyUnit.id,
+            error,
+          });
+        },
+      );
+    if (scheduleBackgroundTask) {
+      scheduleBackgroundTask(prewarmFirstUnit);
+    } else {
+      void prewarmFirstUnit();
+    }
+  }
+
+  const skills = plan.nodes.filter((node) => node.kind === "skill_cluster");
+  for (const skill of skills) {
+    const prepareSkill = async () => {
+      try {
+        await deps.ensureSkillSyllabus({
+          clusterNodeId: skill.id,
+          targetIdentity: plan.targetIdentity,
+        });
+        if (userId) {
+          await deps.createSkillUnit({
+            clusterNodeId: skill.id,
+            sessionId,
+            userId,
+          });
+        }
+      } catch (error) {
+        console.error("Skill syllabus prewarm failed", {
+          clusterNodeId: skill.id,
+          error,
+        });
+      }
+    };
+    if (scheduleBackgroundTask) scheduleBackgroundTask(prepareSkill);
+    else void prepareSkill();
+  }
 
   return ok({
     sessionId,

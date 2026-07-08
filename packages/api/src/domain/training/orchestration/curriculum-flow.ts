@@ -1,24 +1,13 @@
 import type { designCurriculum } from "../agents/curriculum-designer";
 import type { CurriculumNodeBlueprint } from "../types/training.types";
-
-import { expandUnitBands } from "../engine/rating";
+import { expandSkillBands } from "../engine/rating";
 
 export const buildCurriculumNodes = (
   draft: Awaited<ReturnType<typeof designCurriculum>>["planDraft"],
   targetIdentity: string,
   headline: string,
 ): CurriculumNodeBlueprint[] => {
-  const maxUnitsPerCluster = Math.max(
-    ...draft.clusters.map((cluster) => cluster.units.length),
-    1,
-  );
-  const clusterSpan = maxUnitsPerCluster + 2;
-  const totalClusterWidth = Math.max(
-    draft.clusters.length * clusterSpan - 1,
-    1,
-  );
-  const integrationStartColumn = totalClusterWidth + 2;
-
+  const centerColumn = Math.floor((draft.clusters.length - 1) / 2);
   const nodes: CurriculumNodeBlueprint[] = [
     {
       parentOrderIndex: null,
@@ -29,63 +18,38 @@ export const buildCurriculumNodes = (
       whyItMatters:
         "This path exists because of the operator the learner wants to become.",
       learningGoal:
-        "Use this path to turn the target identity into observable decisions and execution. Each unit should make one part of that operator behavior easier to perform under pressure.",
+        "Use this path to turn the target identity into observable decisions and execution.",
       orderIndex: 0,
       depth: 0,
-      positionColumn: Math.floor(totalClusterWidth / 2),
+      positionColumn: centerColumn,
       positionRow: 0,
       difficultyBands: null,
+      skillMap: null,
     },
   ];
 
   let orderIndex = 1;
-  let unitNumber = 0;
-
-  draft.clusters.forEach((cluster, clusterIndex) => {
+  for (const [clusterIndex, cluster] of draft.clusters.entries()) {
     const clusterOrderIndex = orderIndex++;
-    const baseColumn = clusterIndex * clusterSpan;
-    const clusterCenter =
-      baseColumn + Math.floor((cluster.units.length - 1) / 2);
-    const clusterHasInitiallyReadyUnit = unitNumber < 1;
-
     nodes.push({
       parentOrderIndex: 0,
       kind: "skill_cluster",
-      status: clusterHasInitiallyReadyUnit ? "ready" : "planned",
+      status: "ready",
       title: cluster.title,
       summary: cluster.summary,
       whyItMatters: cluster.whyItMatters,
-      learningGoal:
-        "Use this cluster to build the core operating pattern behind this capability. By the end, the learner should handle the cluster's pressure test without relying on surface explanations.",
+      learningGoal: cluster.masteryContract.exitCriteria.join(" "),
       orderIndex: clusterOrderIndex,
       depth: 1,
-      positionColumn: clusterCenter,
+      positionColumn: clusterIndex,
       positionRow: 1,
-      difficultyBands: null,
+      difficultyBands: expandSkillBands(cluster.bandRamp),
+      skillMap: {
+        workflow: cluster.workflow,
+        bandRamp: cluster.bandRamp,
+        masteryContract: cluster.masteryContract,
+      },
     });
-
-    cluster.units.forEach((unit, unitIndex) => {
-      unitNumber += 1;
-      nodes.push({
-        parentOrderIndex: clusterOrderIndex,
-        kind: "unit",
-        status: unitNumber <= 1 ? "ready" : "planned",
-        title: unit.title,
-        summary: unit.learningGoal,
-        whyItMatters: cluster.whyItMatters,
-        learningGoal: unit.learningGoal,
-        orderIndex: orderIndex++,
-        depth: 2,
-        positionColumn: baseColumn + unitIndex,
-        positionRow: 2,
-        difficultyBands: expandUnitBands(
-          unitIndex,
-          cluster.units.length,
-          cluster.bandRamp,
-        ),
-      });
-    });
-
     nodes.push({
       parentOrderIndex: clusterOrderIndex,
       kind: "simulation",
@@ -93,56 +57,15 @@ export const buildCurriculumNodes = (
       title: cluster.simulation.title,
       summary: cluster.simulation.summary,
       whyItMatters: cluster.simulation.whyItMatters,
-      learningGoal:
-        "Use this simulation to prove the learner can combine the cluster's units in one demanding situation. Passing means they can choose and execute the right moves without being told which concept applies.",
+      learningGoal: cluster.masteryContract.exitCriteria.join(" "),
       orderIndex: orderIndex++,
-      depth: 3,
-      positionColumn: clusterCenter,
-      positionRow: 3,
+      depth: 2,
+      positionColumn: clusterIndex,
+      positionRow: 2,
       difficultyBands: null,
+      skillMap: null,
     });
-  });
-
-  draft.integrationLayers.forEach((layer, layerIndex) => {
-    const layerOrderIndex = orderIndex++;
-
-    nodes.push({
-      parentOrderIndex: 0,
-      kind: "skill_cluster",
-      status: "planned",
-      title: layer.title,
-      summary: layer.summary,
-      whyItMatters: `${layer.whyItMatters} Combines ${layer.clusterSynthesis.join(", ")}.`,
-      learningGoal:
-        "Use this integration layer to combine separate clusters into one operating system. The learner should be able to decide which prior tools matter and coordinate them without treating them as isolated lessons.",
-      orderIndex: layerOrderIndex,
-      depth: 1,
-      positionColumn: integrationStartColumn + layerIndex,
-      positionRow: 1,
-      difficultyBands: null,
-    });
-
-    layer.units.forEach((unit, slotIndex) => {
-      nodes.push({
-        parentOrderIndex: layerOrderIndex,
-        kind: "integration",
-        status: "planned",
-        title: unit.title,
-        summary: unit.learningGoal,
-        whyItMatters: layer.whyItMatters,
-        learningGoal: unit.learningGoal,
-        orderIndex: orderIndex++,
-        depth: 2,
-        positionColumn: integrationStartColumn + layerIndex,
-        positionRow: 2 + slotIndex,
-        difficultyBands: expandUnitBands(
-          slotIndex,
-          layer.units.length,
-          layer.bandRamp,
-        ),
-      });
-    });
-  });
+  }
 
   return nodes;
 };

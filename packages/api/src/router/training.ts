@@ -2,11 +2,17 @@ import type { TRPCRouterRecord } from "@trpc/server";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod/v4";
 
-import type { CurriculumNode } from "@acme/validators";
+import type { StartingPointTier } from "@acme/validators";
 import { sql } from "@acme/db";
-import { CapstoneSubmissionSchema } from "@acme/validators";
+import {
+  CapstoneSubmissionSchema,
+  StartingPointTierSchema,
+  WorkspaceBootstrapInputSchema,
+} from "@acme/validators";
 
-import { deriveProvisionalProjectTitle } from "../domain/training/services/provisional-project-title";
+import { createNextUnit } from "../domain/training/unit-creation/create-next-unit";
+import { UnitNotReadyError } from "../domain/training/unit-preparation/errors";
+import { raiseUnitPreparationError } from "../domain/training/unit-preparation/prepare-unit-edge";
 import { advanceCompletedUnitWorkflow } from "../domain/training/workflows/advance-completed-unit-workflow";
 import { continueLearningProjectWorkflow } from "../domain/training/workflows/continue-learning-project-workflow";
 import { createLearningProjectWorkflow } from "../domain/training/workflows/create-learning-project-workflow";
@@ -16,29 +22,57 @@ import { getAiWorkspaceWorkflow } from "../domain/training/workflows/get-ai-work
 import { getCapstoneWorkflow } from "../domain/training/workflows/get-capstone-workflow";
 import { getHomeStateWorkflow } from "../domain/training/workflows/get-home-state-workflow";
 import { getProfileWorkflow } from "../domain/training/workflows/get-profile-workflow";
+import { getProjectTopicWorkflow } from "../domain/training/workflows/get-project-topic-workflow";
 import { getUnitWorkflow } from "../domain/training/workflows/get-unit-workflow";
+import { getWorkspaceBootstrapWorkflow } from "../domain/training/workflows/get-workspace-bootstrap-workflow";
 import { getWorkspaceIndexWorkflow } from "../domain/training/workflows/get-workspace-index-workflow";
+import { prepareUnitWorkflow } from "../domain/training/workflows/prepare-unit-workflow";
 import { startOnboardingWorkflow } from "../domain/training/workflows/start-onboarding-workflow";
 import { submitAiWorkspaceMessageWorkflow } from "../domain/training/workflows/submit-ai-workspace-message-workflow";
 import { submitCapstoneMessageWorkflow } from "../domain/training/workflows/submit-capstone-message-workflow";
+import { queryWithClient } from "../effect/db";
+import { recoverSkillUnits } from "../repositories/build-project-repository-deps";
 import { trainingAttemptRepository } from "../repositories/training-attempt-repository";
 import { trainingCapstoneRepository } from "../repositories/training-capstone-repository";
 import { trainingCurriculumRepository } from "../repositories/training-curriculum-repository";
 import { trainingOnboardingRepository } from "../repositories/training-onboarding-repository";
 import { trainingRatingRepository } from "../repositories/training-rating-repository";
-import { trainingRecallRepository } from "../repositories/training-recall-repository";
 import { trainingUnitRunRepository } from "../repositories/training-unit-run-repository";
-import { createWorkspaceTurnRepositoryDeps } from "../repositories/workspace-turn-repository-deps";
+import { trainingWorkspaceReadRepository } from "../repositories/training-workspace-read-repository";
+import {
+  createUnitCreationRepositoryDeps,
+  loadSkillMasteryState,
+  openSkillSimulation,
+} from "../repositories/unit-creation-repository-deps";
+import { createUnitPreparationRepositoryDeps } from "../repositories/unit-preparation-repository-deps";
+import {
+  createWorkspaceTurnRepositoryDeps,
+  workspaceTurnRepoLayer,
+} from "../repositories/workspace-turn-repository-deps";
 import { protectedProcedure } from "../trpc";
 
 const SessionIdSchema = z.object({
   sessionId: z.string().uuid(),
 });
 
+const SetStartingPointSchema = z.object({
+  sessionId: z.string().uuid(),
+  tier: StartingPointTierSchema,
+});
+
+// Plain-language label the [change] control stamps when the learner overrides
+// the elicited tier. The mid-chat tap carries the learner's own tapped text; a
+// manual override has no tapped text, so we use these instead.
+const STARTING_POINT_OVERRIDE_LABEL: Record<StartingPointTier, string> = {
+  fundamentals: "starting from the fundamentals",
+  skip_basics: "skipping the basics",
+  advanced: "straight to the hard stuff",
+};
+
 const SubmitAiWorkspaceMessageSchema = z.object({
   sessionId: z.string().uuid(),
   message: z.string().min(1).max(8_000),
-  turnId: z.string().min(1).max(96).optional(),
+  turnId: z.string().min(1).max(96),
   attemptTiming: z
     .object({
       elapsedSeconds: z.number().int(),
@@ -80,18 +114,6 @@ const lockCapstoneNode = async ({
 }) => {
   await db.execute(
     sql`select pg_advisory_xact_lock(hashtext(${sessionId}), hashtext(${nodeId}))`,
-  );
-};
-
-const lockProjectContinuation = async ({
-  db,
-  sessionId,
-}: {
-  db: Database;
-  sessionId: string;
-}) => {
-  await db.execute(
-    sql`select pg_advisory_xact_lock(hashtext(${sessionId}), hashtext('continue-learning-project'))`,
   );
 };
 
@@ -221,10 +243,8 @@ const getErrorCode = (message: string) => {
     message.includes("more specific") ||
     message.includes("fuller") ||
     message.includes("before") ||
-    message.includes("Pass") ||
     message.includes("limit") ||
     message.includes("unlock") ||
-    message.includes("unit is complete") ||
     message.includes("complete yet") ||
     message.includes("not active")
   ) {
@@ -241,6 +261,25 @@ const getErrorCode = (message: string) => {
 
   return "INTERNAL_SERVER_ERROR" as const;
 };
+
+const createGetAiWorkspaceDependencies = (db: Database, userId: string) => ({
+  ...createWorkspaceTurnRepositoryDeps(db),
+  getScenarioAttemptStartedAt: async ({
+    scenarioAttemptId,
+    nodeId,
+  }: {
+    scenarioAttemptId: string;
+    nodeId: string;
+  }) => {
+    const attempt = await trainingRatingRepository.getOpenScenarioById({
+      db,
+      scenarioAttemptId,
+      userId,
+      nodeId,
+    });
+    return attempt?.presentedAt ?? null;
+  },
+});
 
 const throwOnFailure = <T>(result: {
   success: boolean;
@@ -301,6 +340,8 @@ const requireSessionOwner = async ({
 const createGetUnitDependencies = (
   db: Database,
 ): Parameters<typeof getUnitWorkflow>[0]["deps"] => ({
+  getPlanNodesBySession: (sessionId) =>
+    trainingCurriculumRepository.getPlanNodesBySession({ db, sessionId }),
   getUnitByNodeId: (nodeId) =>
     trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),
   getPhaseResponses: (unitContentId, sessionId) =>
@@ -309,20 +350,18 @@ const createGetUnitDependencies = (
       unitContentId,
       sessionId,
     }),
-  getPlanNodesBySession: (sessionId) =>
-    trainingCurriculumRepository.getPlanNodesBySession({ db, sessionId }),
-  getTargetIdentity: async (sessionId) => {
-    const profile = await trainingOnboardingRepository.getProfileBySession({
-      db,
-      sessionId,
-    });
+});
 
-    return profile?.version.targetIdentity ?? null;
-  },
-  listAttemptHistory: (sessionId) =>
-    trainingAttemptRepository.listAttemptHistory({ db, sessionId }),
-  createUnitContent: (payload) =>
-    trainingCurriculumRepository.createUnitContent({ db, ...payload }),
+const createPrepareUnitDependencies = (
+  db: Database,
+): Parameters<typeof prepareUnitWorkflow>[0]["deps"] => ({
+  ...createUnitPreparationRepositoryDeps(db),
+  getPhaseResponses: (unitContentId, sessionId) =>
+    trainingCurriculumRepository.getPhaseResponses({
+      db,
+      unitContentId,
+      sessionId,
+    }),
   saveNodeBriefing: (payload) =>
     trainingCurriculumRepository.saveNodeBriefing({ db, ...payload }),
 });
@@ -401,6 +440,24 @@ export const trainingRouter = {
       return state;
     }),
 
+  // Manual override for the confirm card's [change] control. The mid-chat tap
+  // needs no endpoint (it rides the tool result); this only exists so a learner
+  // can correct the elicited tier before approving the build.
+  setStartingPoint: protectedProcedure
+    .input(SetStartingPointSchema)
+    .mutation(async ({ ctx, input }) => {
+      await requireSessionOwner({ ctx, sessionId: input.sessionId });
+
+      await trainingOnboardingRepository.setStartingPoint({
+        db: ctx.db,
+        sessionId: input.sessionId,
+        tier: input.tier,
+        label: STARTING_POINT_OVERRIDE_LABEL[input.tier],
+      });
+
+      return { tier: input.tier };
+    }),
+
   // Rehydrate the latest onboarding session, including its completed build
   // card. Starting a new project is an explicit route state and bypasses this
   // query, so reload and "new project" no longer have ambiguous semantics.
@@ -418,112 +475,120 @@ export const trainingRouter = {
     });
   }),
 
-  listLearningProjects: protectedProcedure.query(async ({ ctx }) => {
-    const sessions = await trainingOnboardingRepository.listSessionsByUser({
+  listLearningProjects: protectedProcedure.query(({ ctx }) =>
+    trainingWorkspaceReadRepository.listLearningProjectsForUser({
       db: ctx.db,
       userId: ctx.session.user.id,
-    });
-    const sessionIds = sessions.map((session) => session.id);
-    const [profiles, plans, firstUserMessages] = await Promise.all([
-      trainingOnboardingRepository.listProfilesBySessionIds({
-        db: ctx.db,
-        sessionIds,
-      }),
-      trainingCurriculumRepository.listPlansBySessionIds({
-        db: ctx.db,
-        sessionIds,
-      }),
-      trainingOnboardingRepository.listFirstUserMessagesBySessionIds({
-        db: ctx.db,
-        sessionIds,
-      }),
-    ]);
+    }),
+  ),
 
-    const profileBySessionId = new Map(
-      profiles.map(({ profile, version }) => [
-        profile.onboardingSessionId,
-        {
-          targetIdentity: version.targetIdentity,
-          headline: version.headline,
+  workspaceBootstrap: protectedProcedure
+    .input(WorkspaceBootstrapInputSchema)
+    .query(async ({ ctx, input }) => {
+      const result = await getWorkspaceBootstrapWorkflow({
+        sessionId: input.sessionId,
+        cookieSessionId: input.cookieSessionId,
+        deps: {
+          listProjects: () =>
+            trainingWorkspaceReadRepository.listLearningProjectsForUser({
+              db: ctx.db,
+              userId: ctx.session.user.id,
+            }),
+          ownsSession: async (sessionId) => {
+            const session = await trainingOnboardingRepository.getSession({
+              db: ctx.db,
+              sessionId,
+            });
+            return session?.userId === ctx.session.user.id;
+          },
+          getActivePlan: (sessionId) =>
+            trainingCurriculumRepository.getActivePlan({
+              db: ctx.db,
+              sessionId,
+            }),
+          getHomeState: (sessionId) =>
+            trainingWorkspaceReadRepository.getHomeState({
+              db: ctx.db,
+              sessionId,
+            }),
+          getAiWorkspace: (sessionId) =>
+            getAiWorkspaceWorkflow({
+              sessionId,
+              deps: createGetAiWorkspaceDependencies(
+                ctx.db,
+                ctx.session.user.id,
+              ),
+            }),
+          getOnboardingState: (sessionId) =>
+            trainingOnboardingRepository.getOnboardingState({
+              db: ctx.db,
+              sessionId,
+            }),
+          getUnit: (sessionId, nodeId) =>
+            getUnitWorkflow({
+              sessionId,
+              nodeId,
+              deps: createGetUnitDependencies(ctx.db),
+            }),
         },
-      ]),
-    );
-    const planBySessionId = new Map(
-      plans.map((plan) => [plan.onboardingSessionId, plan]),
-    );
-    const firstUserMessageBySessionId = new Map(
-      firstUserMessages.map((message) => [message.sessionId, message.content]),
-    );
+      });
+      if (!result.success) {
+        if (result.error instanceof UnitNotReadyError) {
+          return raiseUnitPreparationError(result.error);
+        }
+        return throwOnFailure<never>({
+          success: false,
+          error: result.error,
+        });
+      }
+      return result.data;
+    }),
 
-    const nodes = await trainingCurriculumRepository.listNodesByPlanIds({
-      db: ctx.db,
-      planIds: plans.map((plan) => plan.id),
-    });
-    const sessionIdByPlanId = new Map(
-      plans.map((plan) => [plan.id, plan.onboardingSessionId]),
-    );
-    const projectNodesBySessionId = new Map<string, typeof nodes>();
+  // Read-only transcript of one past chat (a unit's slice of the workspace
+  // conversation). Ownership is enforced before any message read, and the node
+  // must belong to the session's own plan.
+  chatHistory: protectedProcedure
+    .input(
+      z.object({ sessionId: z.string().uuid(), nodeId: z.string().uuid() }),
+    )
+    .query(async ({ ctx, input }) => {
+      await requireSessionOwner({ ctx, sessionId: input.sessionId });
 
-    for (const node of nodes) {
-      const sessionId = sessionIdByPlanId.get(node.planId);
-      if (!sessionId) {
-        continue;
+      const nodes =
+        (await trainingCurriculumRepository.getPlanNodesBySession({
+          db: ctx.db,
+          sessionId: input.sessionId,
+        })) ?? [];
+      const node = nodes.find((candidate) => candidate.id === input.nodeId);
+      if (!node) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "This chat does not belong to the project.",
+        });
       }
 
-      const existing = projectNodesBySessionId.get(sessionId);
-      if (existing) {
-        existing.push(node);
-      } else {
-        projectNodesBySessionId.set(sessionId, [node]);
-      }
-    }
+      const messages =
+        await trainingOnboardingRepository.listWorkspaceMessagesByUnit({
+          db: ctx.db,
+          sessionId: input.sessionId,
+          unitId: input.nodeId,
+        });
 
-    return sessions.flatMap((session) => {
-      const profile = profileBySessionId.get(session.id) ?? null;
-      const plan = planBySessionId.get(session.id) ?? null;
-      const title =
-        plan?.title?.trim() ||
-        profile?.targetIdentity?.trim() ||
-        deriveProvisionalProjectTitle(
-          firstUserMessageBySessionId.get(session.id) ?? "",
-        );
-
-      // An untouched onboarding session has no learner intent to distinguish it
-      // from other abandoned starts, so it should not occupy navigation space.
-      if (!title) return [];
-
-      const planNodes = projectNodesBySessionId.get(session.id) ?? [];
-      const lessonPreview = planNodes
-        .filter((node) => node.kind === "unit" || node.kind === "integration")
-        .sort((left, right) => left.orderIndex - right.orderIndex)
-        .slice(0, 3)
-        .map((node) => ({
+      return {
+        node: {
           id: node.id,
           title: node.title,
           status: node.status,
-        }));
-
-      return [
-        {
-          sessionId: session.id,
-          title,
-          headline:
-            profile?.headline ?? plan?.summary ?? "Interview in progress.",
-          status:
-            plan?.status === "active"
-              ? "active"
-              : plan // a "generating" shell exists but isn't finished yet
-                ? "building"
-                : session.status === "ready_for_generation" ||
-                    session.status === "complete"
-                  ? "building"
-                  : "onboarding",
-          lessonPreview,
-          updatedAt: session.updatedAt ?? session.createdAt,
+          kind: node.kind,
         },
-      ];
-    });
-  }),
+        messages: messages.map((message) => ({
+          id: message.id,
+          role: message.role,
+          content: message.content,
+          sequence: message.sequence,
+        })),
+      };
+    }),
 
   // Backs the workspace command palette (⌘K): every project with its full chat
   // list. Ownership is enforced by scoping the session lookup to the caller.
@@ -548,6 +613,16 @@ export const trainingRouter = {
         },
         listPlansBySessionIds: (sessionIds) =>
           trainingCurriculumRepository.listPlansBySessionIds({
+            db: ctx.db,
+            sessionIds,
+          }),
+        listFirstUserMessagesBySessionIds: (sessionIds) =>
+          trainingOnboardingRepository.listFirstUserMessagesBySessionIds({
+            db: ctx.db,
+            sessionIds,
+          }),
+        listChatUnitIdsBySessionIds: (sessionIds) =>
+          trainingOnboardingRepository.listChatUnitIdsBySessionIds({
             db: ctx.db,
             sessionIds,
           }),
@@ -618,13 +693,15 @@ export const trainingRouter = {
       return overview;
     }),
 
-  aiWorkspace: protectedProcedure
+  // Per-topic standing: skill clusters joined to their live Glicko rating, plus
+  // the generated overview. Backs the settings Topics detail page.
+  projectTopic: protectedProcedure
     .input(SessionIdSchema)
     .query(async ({ ctx, input }) => {
       await requireSessionOwner({ ctx, sessionId: input.sessionId });
 
       return throwOnFailure(
-        await getAiWorkspaceWorkflow({
+        await getProjectTopicWorkflow({
           sessionId: input.sessionId,
           deps: {
             getActivePlan: (sessionId) =>
@@ -632,61 +709,41 @@ export const trainingRouter = {
                 db: ctx.db,
                 sessionId,
               }),
-            listMessages: (sessionId, slot) =>
-              trainingOnboardingRepository.listWorkspaceMessages({
-                db: ctx.db,
-                sessionId,
-                slot,
-              }),
-            listPhaseResponsesBySession: (sessionId) =>
-              trainingCurriculumRepository.listPhaseResponsesBySession({
+            getProjectOverview: (sessionId) =>
+              trainingCurriculumRepository.getProjectOverview({
                 db: ctx.db,
                 sessionId,
               }),
-            getPhaseResponses: (unitContentId, sessionId) =>
-              trainingCurriculumRepository.getPhaseResponses({
+            getJobProgress: (nodeIds) =>
+              trainingRatingRepository.listJobProgressByNodeIds({
                 db: ctx.db,
-                unitContentId,
-                sessionId,
+                userId: ctx.session.user.id,
+                nodeIds,
               }),
-            getUnitRun: (sessionId, unitContentId) =>
-              trainingUnitRunRepository.getUnitRun({
-                db: ctx.db,
-                sessionId,
-                unitContentId,
-              }),
-            upsertUnitRun: (run) =>
-              trainingUnitRunRepository.upsertUnitRun({
-                db: ctx.db,
-                run,
-              }),
-            getUnitByNodeId: (nodeId) =>
-              trainingCurriculumRepository.getUnitByNodeId({
-                db: ctx.db,
-                nodeId,
-              }),
-            createUnitContent: (payload) =>
-              trainingCurriculumRepository.createUnitContent({
-                db: ctx.db,
-                ...payload,
-              }),
-            getScenarioAttemptStartedAt: async ({
-              scenarioAttemptId,
-              nodeId,
-            }) => {
-              const attempt =
-                await trainingRatingRepository.getOpenScenarioById({
-                  db: ctx.db,
-                  scenarioAttemptId,
-                  userId: ctx.session.user.id,
-                  nodeId,
-                });
-
-              return attempt?.presentedAt ?? null;
-            },
           },
         }),
       );
+    }),
+
+  aiWorkspace: protectedProcedure
+    .input(SessionIdSchema)
+    .query(async ({ ctx, input }) => {
+      const [result] = await Promise.all([
+        getAiWorkspaceWorkflow({
+          sessionId: input.sessionId,
+          deps: createGetAiWorkspaceDependencies(ctx.db, ctx.session.user.id),
+        }),
+        requireSessionOwner({ ctx, sessionId: input.sessionId }),
+      ]);
+      if (!result.success) {
+        const failure = result.error;
+        if (failure instanceof UnitNotReadyError) {
+          return raiseUnitPreparationError(failure);
+        }
+        // `success: false` always throws; <never> keeps the return type sound.
+        return throwOnFailure<never>({ success: false, error: failure });
+      }
+      return result.data;
     }),
 
   submitAiWorkspaceMessage: protectedProcedure
@@ -694,44 +751,77 @@ export const trainingRouter = {
     .mutation(async ({ ctx, input }) => {
       await requireSessionOwner({ ctx, sessionId: input.sessionId });
 
-      return throwOnFailure(
-        await submitAiWorkspaceMessageWorkflow({
+      try {
+        const result = await submitAiWorkspaceMessageWorkflow({
           sessionId: input.sessionId,
           userId: ctx.session.user.id,
           message: input.message,
-          turnId: input.turnId ?? null,
-          attemptTiming: input.attemptTiming ?? null,
+          turnId: input.turnId,
           deps: createWorkspaceTurnRepositoryDeps(ctx.db),
-        }),
-      );
+          workspaceTurnRepoLayer: workspaceTurnRepoLayer(ctx.db),
+        });
+        if (result.success) return result.data;
+        if (result.error instanceof TRPCError) throw result.error;
+        return throwOnFailure<never>({
+          success: false,
+          error:
+            typeof result.error === "string"
+              ? result.error
+              : result.error.message,
+        });
+      } catch (error) {
+        if (error instanceof UnitNotReadyError) {
+          return raiseUnitPreparationError(error);
+        }
+        throw error;
+      }
     }),
 
   continueLearningProject: protectedProcedure
     .input(SessionIdSchema)
-    .mutation(async ({ ctx, input }) =>
-      ctx.db.transaction(async (tx) => {
-        await requireSessionOwner({ ctx, sessionId: input.sessionId });
+    .mutation(async ({ ctx, input }) => {
+      await requireSessionOwner({ ctx, sessionId: input.sessionId });
 
-        const db = tx as unknown as Database;
-        await lockProjectContinuation({ db, sessionId: input.sessionId });
+      return throwOnFailure(
+        await continueLearningProjectWorkflow({
+          sessionId: input.sessionId,
+          deps: {
+            getActivePlan: (sessionId) =>
+              trainingCurriculumRepository.getActivePlan({
+                db: ctx.db,
+                sessionId,
+              }),
+            recoverSkillUnits: () =>
+              recoverSkillUnits({
+                db: ctx.db,
+                sessionId: input.sessionId,
+                userId: ctx.session.user.id,
+                scheduleBackgroundTask: ctx.scheduleBackgroundTask,
+              }),
+            prepareUnit: ({ nodeId, sessionId }) =>
+              prepareUnitWorkflow({
+                nodeId,
+                sessionId,
+                deps: createPrepareUnitDependencies(ctx.db),
+              }),
+          },
+        }),
+      );
+    }),
 
-        return throwOnFailure(
-          await continueLearningProjectWorkflow({
-            sessionId: input.sessionId,
-            deps: {
-              getActivePlan: (sessionId) =>
-                trainingCurriculumRepository.getActivePlan({ db, sessionId }),
-              prepareUnit: ({ nodeId, sessionId }) =>
-                getUnitWorkflow({
-                  nodeId,
-                  sessionId,
-                  deps: createGetUnitDependencies(db),
-                }),
-            },
-          }),
-        );
-      }),
-    ),
+  prepareUnit: protectedProcedure
+    .input(NodeSessionSchema)
+    .mutation(async ({ ctx, input }) => {
+      await requireSessionOwner({ ctx, sessionId: input.sessionId });
+
+      return throwOnFailure(
+        await prepareUnitWorkflow({
+          nodeId: input.nodeId,
+          sessionId: input.sessionId,
+          deps: createPrepareUnitDependencies(ctx.db),
+        }),
+      );
+    }),
 
   advanceCompletedUnit: protectedProcedure
     .input(NodeSessionSchema)
@@ -742,7 +832,62 @@ export const trainingRouter = {
         await advanceCompletedUnitWorkflow({
           sessionId: input.sessionId,
           nodeId: input.nodeId,
-          deps: createWorkspaceTurnRepositoryDeps(ctx.db),
+          deps: {
+            withTransaction: (run) =>
+              ctx.db.transaction(async (tx) => {
+                const db = tx as unknown as Database;
+                await db.execute(
+                  sql`select pg_advisory_xact_lock(hashtext(${input.sessionId}), hashtext('advance-completed-unit'))`,
+                );
+                return run({
+                  getActivePlan: (sessionId) =>
+                    trainingCurriculumRepository.getActivePlan({
+                      db,
+                      sessionId,
+                    }),
+                  getUnitByNodeId: (nodeId) =>
+                    trainingCurriculumRepository.getUnitByNodeId({
+                      db,
+                      nodeId,
+                    }),
+                  getUnitRun: (sessionId, unitContentId) =>
+                    trainingUnitRunRepository.getUnitRun({
+                      db,
+                      sessionId,
+                      unitContentId,
+                    }),
+                  completeNode: (nodeId) =>
+                    trainingCurriculumRepository.completeNode({ db, nodeId }),
+                  touchSession: (sessionId) =>
+                    trainingOnboardingRepository.touchSession({
+                      db,
+                      sessionId,
+                    }),
+                });
+              }),
+            createUnit: ({ clusterNodeId, sessionId, userId }) =>
+              createNextUnit({
+                clusterNodeId,
+                deps: createUnitCreationRepositoryDeps({
+                  db: ctx.db,
+                  sessionId,
+                  userId,
+                }),
+              }),
+            getMasteryState: ({ clusterNodeId, userId }) =>
+              queryWithClient(ctx.db, "loadSkillMasteryState", () =>
+                loadSkillMasteryState({
+                  db: ctx.db,
+                  clusterNodeId,
+                  userId,
+                }),
+              ),
+            openSimulation: (clusterNodeId) =>
+              queryWithClient(ctx.db, "openSkillSimulation", () =>
+                openSkillSimulation({ db: ctx.db, clusterNodeId }),
+              ),
+            scheduleBackgroundTask: ctx.scheduleBackgroundTask,
+          },
         }),
       );
     }),
@@ -849,111 +994,11 @@ export const trainingRouter = {
         await getHomeStateWorkflow({
           sessionId: input.sessionId,
           deps: {
-            getHomeState: async (sessionId) => {
-              const [
-                profile,
-                plan,
-                summary,
-                activeRecallGate,
-                attemptHistory,
-                nodeScores,
-              ] = await Promise.all([
-                trainingOnboardingRepository.getProfileBySession({
-                  db: ctx.db,
-                  sessionId,
-                }),
-                trainingCurriculumRepository.getActivePlan({
-                  db: ctx.db,
-                  sessionId,
-                }),
-                trainingAttemptRepository.getHomeSummary({
-                  db: ctx.db,
-                  sessionId,
-                }),
-                trainingRecallRepository.getActiveGateSummaryBySession({
-                  db: ctx.db,
-                  sessionId,
-                }),
-                trainingAttemptRepository.listAttemptHistory({
-                  db: ctx.db,
-                  sessionId,
-                }),
-                trainingAttemptRepository.listNodeScoresBySession({
-                  db: ctx.db,
-                  sessionId,
-                }),
-              ]);
-
-              if (!profile || !plan || !summary) {
-                return null;
-              }
-
-              const totalUnits = plan.nodes.filter(
-                (node: CurriculumNode) =>
-                  node.kind === "unit" || node.kind === "integration",
-              ).length;
-              const completedUnits = plan.nodes.filter(
-                (node: CurriculumNode) =>
-                  (node.kind === "unit" || node.kind === "integration") &&
-                  node.status === "completed",
-              ).length;
-              const nextNode = plan.nodes.find(
-                (node: CurriculumNode) => node.id === plan.nextUnitId,
-              );
-
-              const lastAttempt =
-                attemptHistory.length > 0
-                  ? attemptHistory[attemptHistory.length - 1]
-                  : null;
-
-              const recentDimensions = attemptHistory
-                .slice(-10)
-                .flatMap((a) => a.growthDimensions ?? []);
-              const seen = new Set<string>();
-              const demonstratedCapabilities: string[] = [];
-              for (const dim of [...recentDimensions].reverse()) {
-                if (!seen.has(dim)) {
-                  seen.add(dim);
-                  demonstratedCapabilities.unshift(dim);
-                }
-                if (demonstratedCapabilities.length >= 3) break;
-              }
-
-              return {
-                targetIdentity: profile.version.targetIdentity,
-                headline: profile.version.headline,
-                planTitle: plan.title,
-                planSummary: plan.summary,
-                completedUnits,
-                totalUnits,
-                nextUnitId: plan.nextUnitId,
-                nextUnitTitle:
-                  summary.currentUnit?.title ??
-                  (nextNode
-                    ? nextNode.kind === "integration"
-                      ? "Integration unit ready"
-                      : nextNode.kind === "simulation"
-                        ? "Cluster capstone ready"
-                        : "Next unit ready"
-                    : null),
-                activeRecallGate,
-                blockingSignals:
-                  summary.recentFailureTags.length > 0
-                    ? summary.recentFailureTags
-                    : profile.version.confidenceFlags.length > 0
-                      ? profile.version.confidenceFlags
-                      : profile.version.behaviorSignals.slice(0, 3),
-                lastCompletedUnit: lastAttempt
-                  ? {
-                      title: lastAttempt.title,
-                      score: lastAttempt.score,
-                      failureTags: lastAttempt.failureTags,
-                    }
-                  : null,
-                demonstratedCapabilities,
-                nodeScores,
-              };
-            },
+            getHomeState: (sessionId) =>
+              trainingWorkspaceReadRepository.getHomeState({
+                db: ctx.db,
+                sessionId,
+              }),
           },
         }),
       );

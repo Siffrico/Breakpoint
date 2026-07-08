@@ -2,7 +2,7 @@
 //
 // The unit turn engine — the ONLY module outside fsm.ts that applies a
 // transition. It picks the phase agent for the current phase, runs its single
-// model call, maps the emitted grading tool call into a UnitEvent, applies
+// model call, maps the emitted phase-event tool call into a UnitEvent, applies
 // fsm.transition(), and reports what the persistence layer needs to commit.
 //
 // It is pure over its inputs except for the one model call (run through the
@@ -10,31 +10,35 @@
 // (workspace-turn-orchestration) owns all of that.
 
 import type { ModelMessage } from "ai";
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 
+import type { PhaseAgentError } from "./agents/errors";
+import type { PhaseAgentOutput } from "./agents/output-schema";
+import type { PhaseAgentResult } from "./agents/run-phase-agent";
+import type { ScenarioSpecRecord } from "./scenario-spec";
+import type { UnitEvent, UnitRecipe, UnitState } from "./unit";
+import { toUnitEvent } from "../workspace-ai/fsm-tools";
+import { CheckOffSyllabusInputSchema } from "./agents/check-off-syllabus.tool";
 import { runConnectAgent } from "./agents/connect-agent";
+import { runEvalAgent } from "./agents/eval-agent";
 import { runOrientAgent } from "./agents/orient-agent";
+import { PhaseAgentOutputSchema } from "./agents/output-schema";
 import { runSolveAgent } from "./agents/solve-agent";
 import { runTeachAgent } from "./agents/teach-agent";
-import type { PhaseAgentError } from "./agents/errors";
-import type { PhaseAgentResult } from "./agents/run-phase-agent";
-import type { PhaseAgentOutput } from "./agents/output-schema";
-import { transition, writesGoldilocks } from "./fsm";
-import type { UnitEvent, UnitRecipe, UnitState } from "./unit";
 import {
-  GradeSolutionInputSchema,
-  toUnitEvent,
-} from "../workspace-ai/fsm-tools";
+  shouldTeachMissedConnection,
+  transition,
+  writesGoldilocks,
+} from "./fsm";
+import { ScenarioSpecSchema } from "./scenario-spec";
 
-// A turn that cannot be interpreted — the graded phase agent returned no
-// grading tool call, or the args it sent don't validate. This is surfaced to
-// the caller (which fails the turn cleanly) rather than guessing a verdict.
-export class EducationUnitTurnError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "EducationUnitTurnError";
-  }
-}
+// A turn that cannot be interpreted because its output violates the current
+// phase contract. This is surfaced rather than guessing a learner outcome.
+export class EducationUnitContractError extends Data.TaggedError(
+  "EducationUnitContractError",
+)<{
+  readonly message: string;
+}> {}
 
 export interface UnitTurnInput {
   /** The durable cursor BEFORE this turn. */
@@ -44,6 +48,13 @@ export interface UnitTurnInput {
   contextBlock: string;
   /** Prior conversation for this unit, oldest first. */
   transcript: readonly ModelMessage[];
+  /**
+   * The spec already stored on the run, pass-tagged. Used only to enforce
+   * that a pass-2 Solve is never presented without a grading spec: either
+   * one recorded this turn or a stored pass-2 one. Defaults to null.
+   */
+  storedScenarioSpec?: ScenarioSpecRecord | null;
+  onPartialAssistantMessage?: (content: string) => void;
 }
 
 export interface UnitTurnResult {
@@ -63,63 +74,147 @@ export interface UnitTurnResult {
   /** The grader's one-sentence reasoning, for persistence metadata. */
   gradeReasoning: string | null;
   /**
-   * Present only on a passing pass-2 solve (writesGoldilocks). The score to
-   * feed the rating system; null on every other turn.
+   * Present on a scored pass-2 solve. The persistence boundary applies the
+   * exactly-once guard before feeding this score to Goldilocks.
    */
-  ratingWrite: { score: number } | null;
+  ratingWrite: { score: number; errorCodes: readonly string[] } | null;
+  syllabusCheckOff: { entryIds: string[]; evidence: string } | null;
+  /**
+   * The ScenarioSpec the posing agent reverse-engineered this turn, stamped
+   * with the pass it was recorded on. Null on every turn that doesn't record
+   * one — persistence coalesces null onto the stored spec, so it is
+   * preserved, not wiped.
+   */
+  scenarioSpec: ScenarioSpecRecord | null;
 }
 
-const runPhaseForState = (
+export type UnitPhaseRunner = (
   state: UnitState,
   messages: ModelMessage[],
-): Effect.Effect<PhaseAgentResult<PhaseAgentOutput>, PhaseAgentError> => {
+  onPartialAssistantMessage?: (content: string) => void,
+) => Effect.Effect<
+  PhaseAgentResult<PhaseAgentOutput>,
+  PhaseAgentError | EducationUnitContractError
+>;
+
+export interface UnitTurnDependencies {
+  readonly runPhase: UnitPhaseRunner;
+}
+
+const runPhaseForState: UnitPhaseRunner = (
+  state: UnitState,
+  messages: ModelMessage[],
+  onPartialAssistantMessage,
+) => {
   switch (state.phase) {
     case "orient":
-      return runOrientAgent(messages);
+      return runOrientAgent(messages, onPartialAssistantMessage);
     case "connect":
-      return runConnectAgent(messages);
+      return runConnectAgent(messages, onPartialAssistantMessage);
     case "solve":
-      return runSolveAgent(messages);
+      // Pass 1's Solve is graded inline by the scenario/solve agent (formative,
+      // no rating). Pass 2 — the transfer pass — is the only scored moment, so
+      // it is handed to the dedicated eval agent, whose gradeSolution score is
+      // the one Goldilocks consumes (see writesGoldilocks / ratingWrite).
+      return state.pass === 2
+        ? runEvalAgent(messages, onPartialAssistantMessage)
+        : runSolveAgent(messages, onPartialAssistantMessage);
     case "teach":
-      return runTeachAgent(messages);
+      return runTeachAgent(messages, onPartialAssistantMessage);
     case "mastered":
-      return Effect.die(
-        new EducationUnitTurnError(
-          "Unit is already mastered; no turn to run.",
-        ),
+      return Effect.fail(
+        new EducationUnitContractError({
+          message: "Unit is already mastered; no turn to run.",
+        }),
       );
   }
 };
 
-const GRADING_TOOL_BY_PHASE: Partial<Record<UnitState["phase"], string>> = {
-  connect: "gradeConnection",
-  solve: "gradeSolution",
+const LIVE_DEPENDENCIES: UnitTurnDependencies = {
+  runPhase: runPhaseForState,
+};
+
+const EVENT_TOOLS_BY_PHASE: Partial<
+  Record<UnitState["phase"], readonly string[]>
+> = {
+  connect: ["continuePhase", "gradeConnection"],
+  solve: ["continuePhase", "gradeSolution"],
 };
 
 /**
- * Reads the single grading tool call the connect/solve agents emit and maps it
- * to a UnitEvent. orient/teach never grade — they auto-fire teach_done.
+ * Takes one validated phase-agent result, produces exactly one UnitEvent, and
+ * fails only when the result violates the phase's tool contract.
  */
 const resolveEvent = (
   state: UnitState,
   result: PhaseAgentResult<PhaseAgentOutput>,
-): { event: UnitEvent; reasoning: string | null } => {
-  if (state.phase === "orient" || state.phase === "teach") {
-    return { event: { type: "teach_done" }, reasoning: null };
+  grade: { passAt: number },
+): Effect.Effect<
+  { event: UnitEvent; reasoning: string | null },
+  EducationUnitContractError
+> => {
+  if (state.phase === "orient") {
+    if (result.toolCalls.length > 0) {
+      return Effect.fail(
+        new EducationUnitContractError({
+          message: `The ${state.phase} agent returned an unexpected tool call.`,
+        }),
+      );
+    }
+    return Effect.succeed({
+      event: { type: "teach_done" },
+      reasoning: null,
+    });
   }
 
-  const expectedTool = GRADING_TOOL_BY_PHASE[state.phase];
-  const call = result.toolCalls.find((c) => c.toolName === expectedTool);
-  if (!call) {
-    throw new EducationUnitTurnError(
-      `The ${state.phase} agent did not return a verdict (${expectedTool} was not called).`,
+  if (state.phase === "teach") {
+    const specCalls = result.toolCalls.filter(
+      (call) => call.toolName === "recordScenarioSpec",
+    );
+    if (result.toolCalls.length !== 1 || specCalls.length !== 1) {
+      return Effect.fail(
+        new EducationUnitContractError({
+          message:
+            "The teach agent must record exactly one pass-2 ScenarioSpec.",
+        }),
+      );
+    }
+    return Effect.succeed({
+      event: { type: "teach_done" },
+      reasoning: null,
+    });
+  }
+
+  const allowedTools = EVENT_TOOLS_BY_PHASE[state.phase] ?? [];
+  const phaseCalls = result.toolCalls.filter((call) =>
+    allowedTools.includes(call.toolName),
+  );
+  const checkOffCalls = result.toolCalls.filter(
+    (call) => call.toolName === "checkOffSyllabus",
+  );
+  if (phaseCalls.length !== 1 || checkOffCalls.length > 1) {
+    return Effect.fail(
+      new EducationUnitContractError({
+        message: `The ${state.phase} agent must return exactly one phase event tool call.`,
+      }),
     );
   }
 
-  const event = toUnitEvent(call.toolName, call.input);
+  const call = phaseCalls[0];
+  if (!call || !allowedTools.includes(call.toolName)) {
+    return Effect.fail(
+      new EducationUnitContractError({
+        message: `The ${state.phase} agent returned an invalid phase event tool.`,
+      }),
+    );
+  }
+
+  const event = toUnitEvent(call.toolName, call.input, grade);
   if (!event) {
-    throw new EducationUnitTurnError(
-      `The ${state.phase} agent called ${call.toolName} with invalid arguments.`,
+    return Effect.fail(
+      new EducationUnitContractError({
+        message: `The ${state.phase} agent called ${call.toolName} with invalid arguments.`,
+      }),
     );
   }
 
@@ -132,56 +227,175 @@ const resolveEvent = (
       ? input.reasoning
       : null;
 
-  return { event, reasoning };
+  return Effect.succeed({ event, reasoning });
 };
 
-const readSolveScore = (
+const readScenarioSpec = (
   result: PhaseAgentResult<PhaseAgentOutput>,
-): number | null => {
-  const call = result.toolCalls.find((c) => c.toolName === "gradeSolution");
+  pass: UnitState["pass"],
+): ScenarioSpecRecord | null => {
+  const call = result.toolCalls.find(
+    (c) => c.toolName === "recordScenarioSpec",
+  );
   if (!call) return null;
-  const parsed = GradeSolutionInputSchema.safeParse(call.input);
-  return parsed.success ? parsed.data.score : null;
+  const parsed = ScenarioSpecSchema.safeParse(call.input);
+  // The pass is stamped here, from durable state — the model never sets it.
+  return parsed.success ? { ...parsed.data, pass } : null;
 };
 
 /**
- * Runs one unit turn end to end (model call -> event -> transition) and
- * returns everything the caller must persist. Rejects with
- * EducationUnitTurnError when a graded phase produced no usable verdict, and
- * with the phase agent's own tagged error when the model call itself failed.
+ * Takes a durable unit cursor and phase context, produces one validated turn
+ * result, and fails only on a tagged model failure or phase-contract failure.
  */
-export const runUnitTurn = async (
+export const runUnitTurn = (
   input: UnitTurnInput,
-): Promise<UnitTurnResult> => {
-  const { state, recipe, contextBlock, transcript } = input;
+  dependencies: UnitTurnDependencies = LIVE_DEPENDENCIES,
+): Effect.Effect<
+  UnitTurnResult,
+  PhaseAgentError | EducationUnitContractError
+> =>
+  Effect.gen(function* () {
+    const { state, recipe, contextBlock, transcript } = input;
 
-  const messages: ModelMessage[] = [
-    { role: "user", content: contextBlock },
-    ...transcript,
-  ];
+    if (state.phase === "mastered") {
+      return yield* Effect.fail(
+        new EducationUnitContractError({
+          message: "Unit is already mastered; no turn to run.",
+        }),
+      );
+    }
 
-  const result = await Effect.runPromise(runPhaseForState(state, messages));
-  const { event, reasoning } = resolveEvent(state, result);
+    const messages: ModelMessage[] = [
+      { role: "user", content: contextBlock },
+      ...transcript,
+    ];
 
-  // Capture the force-advance signal BEFORE transition wipes connectGrills.
-  const forcedConnectAdvance =
-    state.phase === "connect" &&
-    event.type === "connection_graded" &&
-    !event.connected &&
-    state.connectGrills + 1 >= recipe.policy.maxGrillsBeforeTeach;
+    const result = yield* dependencies.runPhase(
+      state,
+      messages,
+      input.onPartialAssistantMessage,
+    );
+    const parsedOutput = PhaseAgentOutputSchema.safeParse(result.object);
+    if (!parsedOutput.success) {
+      return yield* Effect.fail(
+        new EducationUnitContractError({
+          message: `The ${state.phase} agent returned an invalid learner-facing message.`,
+        }),
+      );
+    }
+    const { event, reasoning } = yield* resolveEvent(
+      state,
+      result,
+      recipe.grade,
+    );
+    const scenarioPass = state.phase === "teach" ? 2 : state.pass;
+    const storedSpec = input.storedScenarioSpec ?? null;
+    const emittedSpec = readScenarioSpec(result, scenarioPass);
+    // The target skill is the cross-pass invariant. Teach chooses a new
+    // surface, but the durable pass-1 spec—not model wording—owns its identity.
+    const recordedSpec =
+      state.phase === "teach" && emittedSpec && storedSpec
+        ? { ...emittedSpec, targetSkill: storedSpec.targetSkill }
+        : emittedSpec;
 
-  const nextState = transition(state, event, recipe.policy);
+    if (state.phase === "teach") {
+      if (!recordedSpec || !storedSpec || (storedSpec.pass ?? 1) !== 1) {
+        return yield* Effect.fail(
+          new EducationUnitContractError({
+            message:
+              "Teach requires the pass-1 ScenarioSpec and must record one valid pass-2 ScenarioSpec.",
+          }),
+        );
+      }
+      if (recordedSpec.surface === storedSpec.surface) {
+        return yield* Effect.fail(
+          new EducationUnitContractError({
+            message: "Teach's pass-2 probe must use a new surface.",
+          }),
+        );
+      }
+    }
 
-  const ratingWrite = writesGoldilocks(state, event)
-    ? { score: readSolveScore(result) ?? recipe.grade.passAt }
-    : null;
+    // A "prompted" continue is the turn that presents a task. Two invariants
+    // hang off that moment, enforced the same way a scored Solve verdict is —
+    // failing loudly instead of silently degrading a later pass:
+    //   - Connect posing a scenario MUST record its ScenarioSpec: pass 1's is
+    //     pass 2's transfer constraint, pass 2's is the eval answer key.
+    //   - A pass-2 Solve MUST have a pass-2 grading spec (recorded this turn
+    //     on recall, or already stored by pass-2 Connect) — otherwise the eval
+    //     agent would grade against the wrong scenario's canonical answer.
+    const posesTask =
+      event.type === "phase_continues" && event.reason === "prompted";
+    const hasActiveTeachProbe =
+      state.phase === "connect" && state.pass === 2 && storedSpec?.pass === 2;
+    if (hasActiveTeachProbe && (posesTask || recordedSpec)) {
+      return yield* Effect.fail(
+        new EducationUnitContractError({
+          message:
+            "Pass-2 Connect must grade the active Teach probe instead of replacing it.",
+        }),
+      );
+    }
+    if (state.phase === "connect" && posesTask && !recordedSpec) {
+      return yield* Effect.fail(
+        new EducationUnitContractError({
+          message:
+            "The connect agent posed a scenario without recording a valid ScenarioSpec.",
+        }),
+      );
+    }
+    const gradingSpec =
+      recordedSpec ?? (storedSpec?.pass === 2 ? storedSpec : null);
+    if (
+      state.phase === "solve" &&
+      state.pass === 2 &&
+      posesTask &&
+      !gradingSpec
+    ) {
+      return yield* Effect.fail(
+        new EducationUnitContractError({
+          message:
+            "A pass-2 Solve was presented without a pass-2 ScenarioSpec to grade against.",
+        }),
+      );
+    }
 
-  return {
-    assistantMessage: result.object.assistantMessage,
-    event,
-    nextState,
-    forcedConnectAdvance,
-    gradeReasoning: reasoning,
-    ratingWrite,
-  };
-};
+    // Capture the force-advance signal BEFORE transition wipes connectGrills.
+    const forcedConnectAdvance =
+      event.type === "connection_graded" &&
+      shouldTeachMissedConnection(state, event, recipe.policy);
+
+    const nextState = transition(state, event, recipe.policy);
+
+    // The rating evidence IS the event: toUnitEvent already validated the
+    // score and error codes, so a scored pass-2 Solve can never lack evidence.
+    const ratingWrite =
+      writesGoldilocks(state, event) && event.type === "solution_graded"
+        ? { score: event.score, errorCodes: event.errorCodes }
+        : null;
+    const checkOffCall = result.toolCalls.find(
+      (call) => call.toolName === "checkOffSyllabus",
+    );
+    const parsedCheckOff = CheckOffSyllabusInputSchema.safeParse(
+      checkOffCall?.input,
+    );
+    const syllabusCheckOff =
+      state.phase === "solve" &&
+      state.pass === 2 &&
+      event.type === "solution_graded" &&
+      event.passed &&
+      parsedCheckOff.success
+        ? parsedCheckOff.data
+        : null;
+
+    return {
+      assistantMessage: parsedOutput.data.assistantMessage,
+      event,
+      nextState,
+      forcedConnectAdvance,
+      gradeReasoning: reasoning,
+      ratingWrite,
+      syllabusCheckOff,
+      scenarioSpec: recordedSpec,
+    };
+  });

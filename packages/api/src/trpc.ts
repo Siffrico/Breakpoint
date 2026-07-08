@@ -13,6 +13,8 @@ import { z, ZodError } from "zod/v4";
 import type { Auth } from "@acme/auth";
 import { db } from "@acme/db/client";
 
+import { UnitNotReadyError } from "./domain/training/unit-preparation/errors";
+
 /**
  * 1. CONTEXT
  *
@@ -29,15 +31,40 @@ import { db } from "@acme/db/client";
 export const createTRPCContext = async (opts: {
   headers: Headers;
   auth: Auth;
+  /**
+   * Keeps a fire-and-forget task alive past the response on serverless hosts
+   * (Next.js `after`). Absent in environments without such a hook; callers
+   * fall back to a detached promise.
+   */
+  scheduleBackgroundTask?: (task: () => Promise<void>) => void;
+  /**
+   * Receives Better Auth's response headers so the caller can forward the
+   * session cookie-cache refresh (Set-Cookie). Only HTTP route handlers can
+   * do this — RSC callers must omit it. Without at least one forwarding
+   * caller the cookie cache expires after its maxAge and every request falls
+   * back to a DB session read.
+   */
+  onAuthResponseHeaders?: (headers: Headers) => void;
 }) => {
   const authApi = opts.auth.api;
-  const session = await authApi.getSession({
-    headers: opts.headers,
-  });
+  let session: Awaited<ReturnType<typeof authApi.getSession>>;
+  if (opts.onAuthResponseHeaders) {
+    const result = await authApi.getSession({
+      headers: opts.headers,
+      returnHeaders: true,
+    });
+    opts.onAuthResponseHeaders(result.headers);
+    session = result.response;
+  } else {
+    session = await authApi.getSession({
+      headers: opts.headers,
+    });
+  }
   return {
     authApi,
     session,
     db,
+    scheduleBackgroundTask: opts.scheduleBackgroundTask,
   };
 };
 /**
@@ -56,6 +83,10 @@ const t = initTRPC.context<typeof createTRPCContext>().create({
         error.cause instanceof ZodError
           ? z.flattenError(error.cause as ZodError<Record<string, unknown>>)
           : null,
+      unitNodeId:
+        error.cause instanceof UnitNotReadyError
+          ? (error.cause.nodeId ?? null)
+          : null,
     },
   }),
 });
@@ -73,26 +104,18 @@ const t = initTRPC.context<typeof createTRPCContext>().create({
  */
 export const createTRPCRouter = t.router;
 
-/**
- * Middleware for timing procedure execution and adding an articifial delay in development.
- *
- * You can remove this if you don't like it, but it can help catch unwanted waterfalls by simulating
- * network latency that would occur in production but not in local development.
- */
+const SLOW_PROCEDURE_THRESHOLD_MS = 200;
+
 const timingMiddleware = t.middleware(async ({ next, path }) => {
   const start = Date.now();
-
-  if (t._config.isDev) {
-    // artificial delay in dev 100-500ms
-    const waitMs = Math.floor(Math.random() * 400) + 100;
-    await new Promise((resolve) => setTimeout(resolve, waitMs));
+  try {
+    return await next();
+  } finally {
+    const durationMs = Date.now() - start;
+    if (durationMs >= SLOW_PROCEDURE_THRESHOLD_MS) {
+      console.warn("[trpc] slow procedure", { path, durationMs });
+    }
   }
-
-  const result = await next();
-  void path;
-  void start;
-
-  return result;
 });
 
 /**

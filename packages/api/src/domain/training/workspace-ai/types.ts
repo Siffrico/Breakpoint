@@ -10,13 +10,12 @@ import {
 export const WorkspaceAiPromptKindSchema = z.enum([
   "onboarding_curriculum",
   "education_unit",
-  "recall",
   "evaluate_feedback",
 ]);
 
 export const WorkspaceAiEducationStageSchema = WorkspaceEducationStageSchema;
 
-export const WorkspaceAiTurnModeSchema = z.enum(["education_unit", "recall"]);
+export const WorkspaceAiTurnModeSchema = z.literal("education_unit");
 
 export const EvaluationModeSchema = z.enum([
   "intuition_sprint",
@@ -105,15 +104,6 @@ export const WorkspaceAiEvaluationOutputSchema =
     dimensionResults: z.array(EvaluationDimensionResultSchema).min(1).max(4),
   });
 
-export const WorkspaceAiRecallOutputSchema = z.object({
-  assistantMessage: z.string().min(1),
-  estimatedItemRating: z.number().int().nullable().optional(),
-  recallComplete: z.boolean(),
-  score: z.number().int().min(0).max(100).nullable(),
-  strengths: z.array(z.string().min(1)).max(4),
-  improvements: z.array(z.string().min(1)).max(4),
-});
-
 export const WorkspaceAiTurnResultSchema = z.object({
   state: WorkspaceAiStateSchema,
   messages: z.array(WorkspaceAiMessageSchema),
@@ -135,8 +125,5 @@ export type WorkspaceAiEducationOutput = z.infer<
 >;
 export type WorkspaceAiEvaluationOutput = z.infer<
   typeof WorkspaceAiEvaluationOutputSchema
->;
-export type WorkspaceAiRecallOutput = z.infer<
-  typeof WorkspaceAiRecallOutputSchema
 >;
 export type WorkspaceAiTurnResult = z.infer<typeof WorkspaceAiTurnResultSchema>;

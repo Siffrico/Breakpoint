@@ -31,10 +31,9 @@ describe("previewProjectBuildArtifact", () => {
         payload: {
           planDraft: {
             clusters: [undefined, { title: "Failure diagnosis" }],
-            integrationLayers: [],
           },
         },
       }).body,
-    ).toBe("Clusters: Failure diagnosis");
+    ).toBe("Skills: Failure diagnosis");
   });
 });

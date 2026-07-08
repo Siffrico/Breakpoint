@@ -17,12 +17,12 @@ export function WorkspaceOverview({
   const progress = workspace.totalUnits > 0
     ? Math.round((workspace.completedUnits / workspace.totalUnits) * 100)
     : 0;
-  const activeUnitId = workspace.activeRecallGate?.triggerAfterUnitNodeId ?? workspace.nextUnitId;
+  const activeUnitId = workspace.nextUnitId;
   const trainHref = preview
     ? "/ui/train"
     : `/workspace?session=${sessionId}`;
   const planHref = preview ? "/ui/plan" : `/plan?session=${sessionId}`;
-  const profileHref = preview ? "/ui/profile" : `/profile?session=${sessionId}`;
+  const profileHref = preview ? "/ui/profile" : `/settings?session=${sessionId}`;
 
   return (
     <main className="min-h-dvh bg-background text-foreground">
@@ -47,14 +47,10 @@ export function WorkspaceOverview({
 
         <section className="border-b border-border p-6">
           <h2 className="font-display text-lg tracking-[-0.03em]">
-            {workspace.activeRecallGate
-              ? "Recall gate active"
-              : (workspace.nextUnitTitle ?? "Path generated")}
+            {workspace.nextUnitTitle ?? "Path generated"}
           </h2>
           <p className="mt-3 text-sm leading-6 text-muted-foreground">
-            {workspace.activeRecallGate
-              ? "Before the next unit unlocks, you need to prove earlier concepts are still live."
-              : workspace.planSummary}
+            {workspace.planSummary}
           </p>
           <div className="mt-5">
             {activeUnitId ? (
@@ -62,7 +58,7 @@ export function WorkspaceOverview({
                 render={<Link href={trainHref} />}
                 className="h-10 rounded-none bg-white px-5 text-black hover:bg-white/90"
               >
-                {workspace.activeRecallGate ? "Open recall gate" : "Continue training"}
+                Continue training
               </Button>
             ) : null}
           </div>

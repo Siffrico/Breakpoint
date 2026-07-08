@@ -1,13 +1,18 @@
 import type { db as databaseClient } from "@acme/db/client";
-import { and, asc, desc, eq, inArray } from "@acme/db";
+import { and, asc, desc, eq, inArray, sql } from "@acme/db";
 import {
   TrainingCurriculumNode,
   TrainingCurriculumPlan,
   TrainingIdentityProfileVersion,
+  TrainingOnboardingSession,
   TrainingUnitContent,
   TrainingUnitPhaseResponse,
 } from "@acme/db/schema";
 
+import type {
+  ProgressionNode,
+  StatusChange,
+} from "../domain/training/engine/plan-progression";
 import type {
   BeforeAfterProfile,
   CurriculumBlueprint,
@@ -19,13 +24,10 @@ import type {
   UnitContent,
   UpdateUnitContentInput,
 } from "../domain/training/types/training.types";
-import type {
-  ProgressionNode,
-  StatusChange,
-} from "../domain/training/engine/plan-progression";
 import {
   planAdvancement,
   planCompletion,
+  usesDynamicMasteryLoop,
 } from "../domain/training/engine/plan-progression";
 import { insertBlueprintNodes } from "./training-curriculum-node-writer";
 
@@ -43,6 +45,30 @@ const toIsoString = (value: Date | string | null | undefined) => {
 
 const DEFAULT_SEED_HINT =
   "Start with your best guess. Name the distinction, mechanism, or real example you think matters most, even if you're not fully sure yet.";
+
+interface ActivePlanState {
+  plan: typeof TrainingCurriculumPlan.$inferSelect;
+  beforeAfter: BeforeAfterProfile;
+  nodes: CurriculumNode[];
+  nextUnitId: string | null;
+}
+
+const toCurriculumPlan = (state: ActivePlanState): CurriculumPlan => ({
+  id: state.plan.id,
+  title: state.plan.title,
+  summary: state.plan.summary,
+  targetIdentity: state.plan.targetIdentity,
+  overview: state.plan.overview
+    ? {
+        title: state.plan.overview.title,
+        summary: state.plan.overview.summary,
+        generatedAt: toIsoString(state.plan.overviewGeneratedAt),
+      }
+    : null,
+  beforeAfter: state.beforeAfter,
+  nodes: state.nodes,
+  nextUnitId: state.nextUnitId,
+});
 
 const buildFallbackBeforeAfter = ({
   targetIdentity,
@@ -109,7 +135,10 @@ type CurriculumNodeRow = typeof TrainingCurriculumNode.$inferSelect;
 const loadPlanNodes = async (
   db: Database,
   nodeId: string,
-): Promise<{ target: CurriculumNodeRow; planNodes: CurriculumNodeRow[] } | null> => {
+): Promise<{
+  target: CurriculumNodeRow;
+  planNodes: CurriculumNodeRow[];
+} | null> => {
   const target = await db.query.TrainingCurriculumNode.findFirst({
     where: eq(TrainingCurriculumNode.id, nodeId),
   });
@@ -211,18 +240,35 @@ export const trainingCurriculumRepository = {
   getActivePlanWithNodes: async ({
     db,
     sessionId,
+    userId,
   }: {
     db: Database;
     sessionId: string;
-  }): Promise<{
-    plan: typeof TrainingCurriculumPlan.$inferSelect;
-    beforeAfter: BeforeAfterProfile;
-    nodes: CurriculumNode[];
-    nextUnitId: string | null;
-  } | null> => {
-    const plan = await db.query.TrainingCurriculumPlan.findFirst({
-      where: eq(TrainingCurriculumPlan.onboardingSessionId, sessionId),
-    });
+    userId?: string;
+  }): Promise<ActivePlanState | null> => {
+    const plan = userId
+      ? (
+          await db
+            .select({ plan: TrainingCurriculumPlan })
+            .from(TrainingCurriculumPlan)
+            .innerJoin(
+              TrainingOnboardingSession,
+              eq(
+                TrainingOnboardingSession.id,
+                TrainingCurriculumPlan.onboardingSessionId,
+              ),
+            )
+            .where(
+              and(
+                eq(TrainingCurriculumPlan.onboardingSessionId, sessionId),
+                eq(TrainingOnboardingSession.userId, userId),
+              ),
+            )
+            .limit(1)
+        )[0]?.plan
+      : await db.query.TrainingCurriculumPlan.findFirst({
+          where: eq(TrainingCurriculumPlan.onboardingSessionId, sessionId),
+        });
 
     // A "generating" shell has no profile version linked yet — it is not a
     // loadable active plan, so the orchestrator's idempotency check sees null.
@@ -315,22 +361,22 @@ export const trainingCurriculumRepository = {
       return null;
     }
 
-    return {
-      id: planState.plan.id,
-      title: planState.plan.title,
-      summary: planState.plan.summary,
-      targetIdentity: planState.plan.targetIdentity,
-      overview: planState.plan.overview
-        ? {
-            title: planState.plan.overview.title,
-            summary: planState.plan.overview.summary,
-            generatedAt: toIsoString(planState.plan.overviewGeneratedAt),
-          }
-        : null,
-      beforeAfter: planState.beforeAfter,
-      nodes: planState.nodes,
-      nextUnitId: planState.nextUnitId,
-    };
+    return toCurriculumPlan(planState);
+  },
+
+  getOwnedActivePlan: async ({
+    db,
+    sessionId,
+    userId,
+  }: {
+    db: Database;
+    sessionId: string;
+    userId: string;
+  }): Promise<CurriculumPlan | null> => {
+    const planState = await trainingCurriculumRepository.getActivePlanWithNodes(
+      { db, sessionId, userId },
+    );
+    return planState ? toCurriculumPlan(planState) : null;
   },
 
   getProjectOverview: async ({
@@ -500,7 +546,7 @@ export const trainingCurriculumRepository = {
     });
   },
 
-  createUnitContent: async ({
+  createUnitContentIfAbsent: async ({
     db,
     nodeId,
     title,
@@ -523,63 +569,79 @@ export const trainingCurriculumRepository = {
     scenario: UnitContent["scenario"];
     unitMasteryContract?: UnitContent["unitMasteryContract"];
   }): Promise<UnitContent | null> => {
-    const [unit] = await db
-      .insert(TrainingUnitContent)
-      .values({
-        nodeId,
-        title,
-        seedPrompt,
-        seedHint,
-        clusterArcFrame,
-        complexityBudget,
-        buildContent: null,
-        practicePrompts: null,
-        contentGeneratedAt: null,
-        teachbackSetup,
-        scenarioTitle: scenario.title,
-        scenarioFocusAreas: scenario.focusAreas,
-        unitMasteryContractJson: unitMasteryContract,
-      })
-      .onConflictDoUpdate({
-        target: [TrainingUnitContent.nodeId],
-        set: {
+    return db.transaction(async (tx) => {
+      const transactionDb = tx as unknown as Database;
+      await transactionDb.execute(
+        sql`select pg_advisory_xact_lock(hashtext(${nodeId}), hashtext('prepare-unit-content'))`,
+      );
+      await transactionDb
+        .insert(TrainingUnitContent)
+        .values({
+          nodeId,
           title,
           seedPrompt,
           seedHint,
           clusterArcFrame,
           complexityBudget,
+          buildContent: null,
+          practicePrompts: null,
+          contentGeneratedAt: null,
           teachbackSetup,
           scenarioTitle: scenario.title,
           scenarioFocusAreas: scenario.focusAreas,
           unitMasteryContractJson: unitMasteryContract,
-        },
-      })
-      .returning();
-
-    if (!unit) {
-      return null;
-    }
-
-    const node = await db.query.TrainingCurriculumNode.findFirst({
-      where: eq(TrainingCurriculumNode.id, nodeId),
-    });
-
-    if (!node) {
-      return null;
-    }
-
-    const parentNode = node.parentNodeId
-      ? await db.query.TrainingCurriculumNode.findFirst({
-          where: eq(TrainingCurriculumNode.id, node.parentNodeId),
         })
-      : null;
+        .onConflictDoNothing({ target: [TrainingUnitContent.nodeId] });
 
-    return mapUnitContent({
-      node,
-      unit,
-      clusterBriefing: (parentNode?.briefing ??
-        null) as UnitContent["clusterBriefing"],
+      return trainingCurriculumRepository.getUnitByNodeId({
+        db: transactionDb,
+        nodeId,
+      });
     });
+  },
+
+  replaceUnitContent: async ({
+    db,
+    nodeId,
+    title,
+    seedPrompt,
+    seedHint,
+    clusterArcFrame,
+    complexityBudget,
+    teachbackSetup,
+    scenario,
+    unitMasteryContract = null,
+  }: {
+    db: Database;
+    nodeId: string;
+    title: string;
+    seedPrompt: string;
+    seedHint: string;
+    clusterArcFrame: string;
+    complexityBudget: UnitContent["complexityBudget"];
+    teachbackSetup: UnitContent["teachbackSetup"];
+    scenario: UnitContent["scenario"];
+    unitMasteryContract?: UnitContent["unitMasteryContract"];
+  }): Promise<UnitContent | null> => {
+    const [replaced] = await db
+      .update(TrainingUnitContent)
+      .set({
+        title,
+        seedPrompt,
+        seedHint,
+        clusterArcFrame,
+        complexityBudget,
+        teachbackSetup,
+        scenarioTitle: scenario.title,
+        scenarioFocusAreas: scenario.focusAreas,
+        unitMasteryContractJson: unitMasteryContract,
+      })
+      .where(eq(TrainingUnitContent.nodeId, nodeId))
+      .returning({ id: TrainingUnitContent.id });
+
+    return replaced
+      ? trainingCurriculumRepository.getUnitByNodeId({ db, nodeId })
+      : null;
   },
 
   updateUnitMasteryContract: async ({
@@ -910,11 +972,26 @@ export const trainingCurriculumRepository = {
   },
 
   completeNode: async ({ db, nodeId }: { db: Database; nodeId: string }) => {
+    const node = await trainingCurriculumRepository.getNodeById({ db, nodeId });
     await trainingCurriculumRepository.markNodeCompleted({
       db,
       nodeId,
     });
-
+    const parent = node?.parentNodeId
+      ? await trainingCurriculumRepository.getNodeById({
+          db,
+          nodeId: node.parentNodeId,
+        })
+      : null;
+    if (
+      node &&
+      usesDynamicMasteryLoop({
+        nodeKind: node.kind as CurriculumNodeKind,
+        parentHasSkillMap: Boolean(parent?.skillMap),
+      })
+    ) {
+      return node;
+    }
     return trainingCurriculumRepository.advancePlanAfterCompletion({
       db,
       nodeId,

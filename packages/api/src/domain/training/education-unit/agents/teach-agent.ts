@@ -2,16 +2,18 @@
 //
 // Teach: the concept teach between the two connect->solve passes, delivered
 // after the learner has struggled through pass 1. Single-shot: no grading
-// tool, no verdict. The orchestrator fires fsm's teach_done event
-// automatically once this response lands.
+// verdict. It records the pass-2 scenario carried by its final why-probe, and
+// the orchestrator fires fsm's teach_done event automatically once this
+// response lands.
 
 import type { ModelMessage } from "ai";
 import type { Effect } from "effect";
 
-import { ERROR_CLASSIFICATION_PROTOCOL } from "../../prompts/shared-instructions";
 import type { PhaseAgentError } from "./errors";
-import type { PhaseAgentResult } from "./run-phase-agent";
 import type { PhaseAgentOutput } from "./output-schema";
+import type { PhaseAgentResult } from "./run-phase-agent";
+import { ERROR_CLASSIFICATION_PROTOCOL } from "../../prompts/shared-instructions";
+import { recordScenarioSpec } from "../../workspace-ai/fsm-tools";
 import { PhaseAgentOutputSchema } from "./output-schema";
 import { runPhaseAgent } from "./run-phase-agent";
 import { buildPhaseSystemPrompt } from "./system-prompt";
@@ -31,7 +33,14 @@ In one response:
   - End with a why-probe that asks them to generate the mechanism in their
     own words on a slightly varied case. Never a definition recall.
 
-This is a single response. There is nothing to grade here.
+The why-probe IS the pass-2 Connect scenario. Reverse-engineer its target
+answer before writing it, vary the pass-1 surface, and add a twist that defeats
+mere repetition. Call recordScenarioSpec exactly once with the probe's target
+skill, new surface, canonical answer, concise reasoning path, and grading
+rubric. The learner's next message will be graded against this spec; do not add
+a second scenario or ask whether they understand.
+
+This is a single response. There is nothing to grade yet.
 
 ${ERROR_CLASSIFICATION_PROTOCOL}`;
 
@@ -39,12 +48,16 @@ const SYSTEM = buildPhaseSystemPrompt(TEACH_INSTRUCTION);
 
 export const runTeachAgent = (
   messages: ModelMessage[],
+  onPartialAssistantMessage?: (content: string) => void,
 ): Effect.Effect<PhaseAgentResult<PhaseAgentOutput>, PhaseAgentError> =>
   runPhaseAgent({
     purpose: "education",
+    phase: "teach",
     system: SYSTEM,
     messages,
     schema: PhaseAgentOutputSchema,
     schemaName: "teach_output",
+    tools: { recordScenarioSpec },
     errorMessage: "Failed to run the Teach step.",
+    onPartialAssistantMessage,
   });

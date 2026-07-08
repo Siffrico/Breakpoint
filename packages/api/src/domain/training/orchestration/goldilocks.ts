@@ -20,7 +20,6 @@ import {
 } from "../engine/rating";
 
 export interface GoldilocksDirectiveResult {
-  scenarioAttemptId: string;
   directive: ScenarioDirective;
   promptBlock: string;
   ratingSnapshot: string;
@@ -41,7 +40,7 @@ interface GoldilocksOpenScenario {
   itemRating: number;
 }
 
-export interface PrepareScenarioDirectiveDependencies {
+export interface ResolveScenarioDirectiveDependencies {
   loadJobProgress: (input: {
     userId: string;
     nodeId: string;
@@ -51,12 +50,6 @@ export interface PrepareScenarioDirectiveDependencies {
     userId: string;
     nodeId: string;
   }) => Promise<RatingPredictionRecord[]>;
-  openScenarioAttempt: (input: {
-    userId: string;
-    nodeId: string;
-    directive: ScenarioDirective;
-    itemRating: number;
-  }) => Promise<{ id: string }>;
 }
 
 export interface RecordEvaluationDependencies {
@@ -165,25 +158,34 @@ export const clampClaimedItemRating = ({
   return Math.min(target + window, Math.max(target - window, value));
 };
 
-export const prepareScenarioDirective = async ({
+/**
+ * Reads rating evidence and produces the next calibrated directive. This is a
+ * deliberately read-only operation: presenting a scenario is the transaction
+ * boundary that owns opening an attempt.
+ */
+export const resolveScenarioDirective = async ({
   userId,
   nodeId,
   now,
   bands,
+  initialRatingState,
   deps,
 }: {
   userId: string;
   nodeId: string;
   now: Date;
   bands?: readonly DifficultyBand[] | null;
-  deps: PrepareScenarioDirectiveDependencies;
+  /** Seed for a learner who has no rating on this job yet (from the plan's
+   *  onboarding starting point). Falls back to the policy default. */
+  initialRatingState?: JobRatingState;
+  deps: ResolveScenarioDirectiveDependencies;
 }): Promise<GoldilocksDirectiveResult> => {
   const resolvedBands = resolveBands({ bands, nodeId });
   const [loaded, predictions] = await Promise.all([
     deps.loadJobProgress({
       userId,
       nodeId,
-      initialRatingState: createInitialRatingState(),
+      initialRatingState: initialRatingState ?? createInitialRatingState(),
     }),
     deps.listRecentPredictions({ userId, nodeId }),
   ]);
@@ -204,15 +206,7 @@ export const prepareScenarioDirective = async ({
 
   const calibration = buildGeneratorCalibrationNote(predictions);
   const promptBlock = renderScenarioDirective(directive, band, calibration);
-  const scenarioAttempt = await deps.openScenarioAttempt({
-    userId,
-    nodeId,
-    directive,
-    itemRating: directive.targetItemRating,
-  });
-
   return {
-    scenarioAttemptId: scenarioAttempt.id,
     directive,
     promptBlock,
     learnerRating: Math.round(rating.rating),
@@ -235,6 +229,7 @@ export const recordEvaluation = async ({
   wasOverTime = false,
   occurredAt,
   bands,
+  initialRatingState,
   deps,
 }: {
   scenarioAttemptId: string;
@@ -246,6 +241,8 @@ export const recordEvaluation = async ({
   wasOverTime?: boolean;
   occurredAt: Date;
   bands?: readonly DifficultyBand[] | null;
+  /** Seed for a learner with no prior rating on this job. Falls back to default. */
+  initialRatingState?: JobRatingState;
   deps: RecordEvaluationDependencies;
 }): Promise<void> => {
   const scenario = await deps.getScenarioAttempt({
@@ -262,7 +259,7 @@ export const recordEvaluation = async ({
   const loaded = await deps.loadJobProgress({
     userId,
     nodeId,
-    initialRatingState: createInitialRatingState(),
+    initialRatingState: initialRatingState ?? createInitialRatingState(),
   });
   const directive = scenario.directiveJson;
   const evaluation: EvaluatedAttempt = {

@@ -14,7 +14,13 @@
 //     signal forward as `pendingConnectTeach`.
 
 import type { UnitContent } from "../types/training.types";
+import type { ScenarioSpecRecord } from "./scenario-spec";
 import type { LoopPolicy, UnitState } from "./unit";
+import {
+  renderConnectGradingContext,
+  renderEvalRubricContext,
+  renderPriorSurfaceConstraint,
+} from "./scenario-spec";
 
 export interface UnitTurnContextInput {
   unit: Pick<
@@ -31,8 +37,6 @@ export interface UnitTurnContextInput {
   policy: LoopPolicy;
   /** Learner memories, most-relevant first; only `content` is rendered. */
   memories: readonly { content: string }[];
-  /** Compacted running summary of earlier turns, or null on the first turn. */
-  progressSummary: string | null;
   /**
    * Difficulty guidance resolved from Goldilocks by the orchestrator (both
    * passes READ difficulty). Null when no rating exists yet.
@@ -44,6 +48,28 @@ export interface UnitTurnContextInput {
    * the problem. Only meaningful on a solve turn.
    */
   pendingConnectTeach: boolean;
+  /**
+   * The spec stored on the run, tagged with the pass it was recorded on
+   * (untagged legacy rows count as pass 1). Drives the pass-2 transfer
+   * constraint (teach/connect, pass-1 spec only), the active Connect grading
+   * reference, and the eval grading reference. Null before a spec is recorded.
+   */
+  scenarioSpec: ScenarioSpecRecord | null;
+  syllabus: {
+    workflow: { name: string; steps: readonly string[] };
+    checked: readonly { label: string; gloss: string }[];
+    targets: readonly { id: string; label: string; gloss: string }[];
+  } | null;
+  /**
+   * Set on recall interludes: the decayed skill this scenario must make the
+   * learner retrieve and apply, plus an optional well-known companion skill
+   * to compose with it. Recall never re-teaches — it poses one realistic
+   * problem where the primary skill is load-bearing.
+   */
+  recallFocus?: {
+    primary: { label: string; gloss: string };
+    companion: { label: string; gloss: string } | null;
+  } | null;
 }
 
 const bullet = (lines: readonly string[]): string =>
@@ -80,7 +106,7 @@ const buildOutputContract = (input: UnitTurnContextInput): string | null => {
  * always produce the same block, so it is trivially unit-testable.
  */
 export const buildUnitTurnContext = (input: UnitTurnContextInput): string => {
-  const { unit, state, memories, progressSummary, difficultyLine } = input;
+  const { unit, state, memories, difficultyLine } = input;
 
   const sections: string[] = [
     `## Unit\nSkill: ${unit.title}\nLearning goal: ${unit.learningGoal}\nWhy it matters: ${unit.whyItMatters}`,
@@ -92,12 +118,36 @@ export const buildUnitTurnContext = (input: UnitTurnContextInput): string => {
     sections.push(`## How this unit fits\n${unit.clusterArcFrame}`);
   }
 
-  if (difficultyLine) {
-    sections.push(`## Difficulty\n${difficultyLine}`);
+  if (input.syllabus) {
+    const checked =
+      input.syllabus.checked.length > 0
+        ? bullet(
+            input.syllabus.checked.map(
+              (entry) => `${entry.label}: ${entry.gloss}`,
+            ),
+          )
+        : "- None yet";
+    const targets = bullet(
+      input.syllabus.targets.map(
+        (entry) => `${entry.id} — ${entry.label}: ${entry.gloss}`,
+      ),
+    );
+    sections.push(
+      `## Syllabus\nWorkflow: ${input.syllabus.workflow.name}\nSpine:\n${bullet(input.syllabus.workflow.steps)}\n\nAlready checked (assume known; build on these):\n${checked}\n\nThis unit must land:\n${targets}`,
+    );
   }
 
-  if (progressSummary) {
-    sections.push(`## Progress so far\n${progressSummary}`);
+  if (input.recallFocus) {
+    const companion = input.recallFocus.companion
+      ? `\nCompose it with this well-known skill (assume solid; no review needed): ${input.recallFocus.companion.label} — ${input.recallFocus.companion.gloss}`
+      : "";
+    sections.push(
+      `## Recall focus\nThis is a spaced-recall checkpoint, not a lesson. Pose ONE realistic scenario in which the learner must retrieve and apply: ${input.recallFocus.primary.label} — ${input.recallFocus.primary.gloss}${companion}\nDo not re-teach the skill before they attempt it. Frame it briefly as a quick checkpoint before their next unit.`,
+    );
+  }
+
+  if (difficultyLine) {
+    sections.push(`## Difficulty\n${difficultyLine}`);
   }
 
   if (memories.length > 0) {
@@ -106,6 +156,33 @@ export const buildUnitTurnContext = (input: UnitTurnContextInput): string => {
         memories.map((memory) => memory.content),
       )}`,
     );
+  }
+
+  // Pass-2 use of the recorded spec, gated on WHICH pass recorded it:
+  //   - connect sees pass 1's spec as a "vary the surface" constraint, or its
+  //     pass-2 spec as the grading reference for the probe Teach already posed.
+  //   - solve (the eval agent) only grades against pass 2's spec. Pass 1's
+  //     canonical answer belongs to a different scenario; grading against it
+  //     would score the learner on the wrong answer key, so it is never shown.
+  if (input.scenarioSpec) {
+    const specPass = input.scenarioSpec.pass ?? 1;
+    if (state.phase === "teach" && specPass === 1) {
+      sections.push(renderPriorSurfaceConstraint(input.scenarioSpec));
+    } else if (
+      state.pass === 2 &&
+      state.phase === "connect" &&
+      specPass === 1
+    ) {
+      sections.push(renderPriorSurfaceConstraint(input.scenarioSpec));
+    } else if (
+      state.pass === 2 &&
+      state.phase === "connect" &&
+      specPass === 2
+    ) {
+      sections.push(renderConnectGradingContext(input.scenarioSpec));
+    } else if (state.pass === 2 && state.phase === "solve" && specPass === 2) {
+      sections.push(renderEvalRubricContext(input.scenarioSpec));
+    }
   }
 
   const outputContract = buildOutputContract(input);

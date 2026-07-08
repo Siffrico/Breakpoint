@@ -134,6 +134,7 @@ export function ProjectBuildCard({
   onSeeOverview,
   onRetry,
   onRegenerateOverview,
+  startPending = false,
 }: {
   state: ProjectBuildState;
   preview?: boolean;
@@ -141,6 +142,7 @@ export function ProjectBuildCard({
   onSeeOverview: () => void;
   onRetry?: () => void;
   onRegenerateOverview?: () => void;
+  startPending?: boolean;
 }) {
   const [expanded, setExpanded] = useState<
     Partial<Record<ProjectBuildStep, boolean>>
@@ -170,7 +172,7 @@ export function ProjectBuildCard({
       };
     }, [state]);
 
-  const moduleLabel = state.moduleCount === 1 ? "module" : "modules";
+  const skillLabel = state.moduleCount === 1 ? "skill" : "skills";
   const overviewMissing = state.gaps?.includes("overview") ?? false;
   const isComplete = state.phase === "complete";
   const isError = state.phase === "error";
@@ -179,7 +181,8 @@ export function ProjectBuildCard({
     <div
       className={cn(
         "border-border bg-card mt-2 w-full max-w-[68ch] rounded-lg border px-5 py-4",
-        isComplete && "animate-in fade-in zoom-in-95 duration-500",
+        isComplete &&
+          "animate-in fade-in zoom-in-95 duration-300 ease-[cubic-bezier(0.23,1,0.32,1)]",
       )}
     >
       <div className="flex items-start justify-between gap-4">
@@ -206,7 +209,7 @@ export function ProjectBuildCard({
         <div className="text-muted-foreground mt-2 flex items-center justify-between gap-3 text-[12px] leading-5">
           <span>
             {isComplete
-              ? `${state.moduleCount} ${moduleLabel} ready`
+              ? `${state.moduleCount} ${skillLabel} mapped`
               : activeStep
                 ? `${activeStep.label} · ${
                     activeHasOutput
@@ -318,10 +321,10 @@ export function ProjectBuildCard({
           <Button
             type="button"
             size="sm"
-            disabled={preview || !state.sessionId}
+            disabled={preview || !state.sessionId || startPending}
             onClick={onStartLearning}
           >
-            Start learning
+            {startPending ? "Preparing first unit" : "Start learning"}
             <ArrowRight size={14} weight="bold" className="ml-1" />
           </Button>
           <Button

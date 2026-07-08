@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import type { MouseEvent } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Lightbulb, SidebarSimple } from "@phosphor-icons/react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { RouterOutputs } from "@acme/api";
 import { Button } from "@acme/ui/button";
@@ -18,6 +19,7 @@ import type {
 import { useLocalStorage } from "~/hooks/use-local-storage";
 import { useTRPC } from "~/trpc/react";
 import { AssistantRichText } from "./assistant-rich-text";
+import { WorkspaceHeaderTimer } from "./workspace-header-timer";
 
 const CurriculumSidebar = dynamic(() =>
   import("./curriculum-sidebar").then((mod) => mod.CurriculumSidebar),
@@ -33,6 +35,9 @@ const OnboardingShell = dynamic(() =>
 const UnitCoachPanel = dynamic(() =>
   import("./unit-coach-panel").then((mod) => mod.UnitCoachPanel),
 );
+const ChatHistoryView = dynamic(() =>
+  import("./chat-history-view").then((mod) => mod.ChatHistoryView),
+);
 
 type WorkspaceState = RouterOutputs["training"]["home"];
 type PlanState = RouterOutputs["training"]["activePlan"];
@@ -42,21 +47,33 @@ type AiWorkspace = RouterOutputs["training"]["aiWorkspace"];
 type EvaluationPlan = NonNullable<AiWorkspace["evaluationPlan"]>;
 type LearningProject =
   RouterOutputs["training"]["listLearningProjects"][number];
+type ChatHistory = RouterOutputs["training"]["chatHistory"];
+type WorkspaceBootstrap = RouterOutputs["training"]["workspaceBootstrap"];
 
 const LAST_SESSION_COOKIE = "bp-last-learning-session";
 const EMPTY_PROJECTS: LearningProject[] = [];
 const MAX_COACH_ANSWER_CHARS = 3_200;
 
-type WorkspaceMode = "onboarding" | "unit" | "idle";
-type WorkspaceTheme = "light" | "dark" | "warm";
-const formatTimerSeconds = (seconds: number) => {
-  const sign = seconds < 0 ? "-" : "";
-  const absolute = Math.abs(seconds);
-  const minutes = Math.floor(absolute / 60);
-  const remainder = absolute % 60;
-
-  return `${sign}${minutes}:${remainder.toString().padStart(2, "0")}`;
+const isUnitPreparingError = (error: unknown) => {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as {
+    message?: string;
+    data?: { code?: string };
+  };
+  return (
+    candidate.data?.code === "PRECONDITION_FAILED" &&
+    candidate.message === "UNIT_PREPARING"
+  );
 };
+
+const getUnitPreparingNodeId = (error: unknown) => {
+  if (!isUnitPreparingError(error)) return null;
+  const candidate = error as { data?: { unitNodeId?: string | null } };
+  return candidate.data?.unitNodeId ?? null;
+};
+
+type WorkspaceMode = "history" | "onboarding" | "unit" | "idle";
+type WorkspaceTheme = "light" | "dark" | "warm";
 
 export function WorkspaceShell({
   workspace,
@@ -68,6 +85,8 @@ export function WorkspaceShell({
   sessionId,
   preview = false,
   userName,
+  chatHistory = null,
+  initialActiveNodeId = null,
 }: {
   workspace: WorkspaceState | null;
   plan: PlanState | null;
@@ -78,15 +97,29 @@ export function WorkspaceShell({
   sessionId: string;
   preview?: boolean;
   userName?: string;
+  chatHistory?: ChatHistory | null;
+  initialActiveNodeId?: string | null;
 }) {
   const router = useRouter();
   const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  const [selectedSessionId, setSelectedSessionId] = useState(sessionId);
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(
+    chatHistory?.node.id ?? null,
+  );
+  const [pendingBootstrapSessionId, setPendingBootstrapSessionId] = useState<
+    string | null
+  >(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
-  const toggleSidebar = () => {
+  const toggleSidebar = useCallback(() => {
     setSidebarCollapsed((prev) => !prev);
-  };
+  }, []);
+
+  const closeMobileSidebar = useCallback(() => {
+    setMobileSidebarOpen(false);
+  }, []);
 
   useEffect(() => {
     if (!mobileSidebarOpen) return;
@@ -102,69 +135,257 @@ export function WorkspaceShell({
   const [unitCoachFocused, setUnitCoachFocused] = useState(false);
   const [unitCoachTrigger, setUnitCoachTrigger] =
     useState<UnitCoachTrigger | null>(null);
-  const [liveUnit, setLiveUnit] = useState(unit);
+  const [liveUnitState, setLiveUnitState] = useState({
+    sessionId,
+    unit,
+  });
   const [isSessionRunning, setIsSessionRunning] = useState(false);
   const [onboardingTurnCount, setOnboardingTurnCount] = useState(0);
-  const [timerNow, setTimerNow] = useState(() => Date.now());
   const [workspaceTheme, setWorkspaceTheme] = useLocalStorage<WorkspaceTheme>(
     "bp-workspace-theme",
     "warm",
   );
+  const selectedProject = projects.find(
+    (project) => project.sessionId === selectedSessionId,
+  );
+  const isInitialSession = selectedSessionId === sessionId;
+  const isOnboardingProject = Boolean(
+    selectedProject && selectedProject.status !== "active",
+  );
+  const bootstrapQuery = useQuery(
+    trpc.training.workspaceBootstrap.queryOptions(
+      { sessionId: selectedSessionId },
+      { enabled: false, retry: false },
+    ),
+  );
+  const selectedBootstrap =
+    bootstrapQuery.data?.kind !== "needs-onboarding" &&
+    bootstrapQuery.data?.sessionId === selectedSessionId
+      ? bootstrapQuery.data
+      : null;
+  const bootstrapPending = pendingBootstrapSessionId === selectedSessionId;
+  const planQuery = useQuery(
+    trpc.training.activePlan.queryOptions(
+      { sessionId: selectedSessionId },
+      {
+        enabled:
+          !preview &&
+          !isInitialSession &&
+          !isOnboardingProject &&
+          !bootstrapPending,
+        retry: false,
+      },
+    ),
+  );
+  const workspaceQuery = useQuery(
+    trpc.training.home.queryOptions(
+      { sessionId: selectedSessionId },
+      {
+        enabled:
+          !preview &&
+          !isInitialSession &&
+          !isOnboardingProject &&
+          !bootstrapPending,
+        retry: false,
+      },
+    ),
+  );
+  const onboardingQuery = useQuery(
+    trpc.training.onboardingState.queryOptions(
+      { sessionId: selectedSessionId },
+      {
+        enabled:
+          !preview &&
+          !isInitialSession &&
+          isOnboardingProject &&
+          !bootstrapPending,
+        retry: false,
+      },
+    ),
+  );
+  const resolvedPlan = isInitialSession ? _plan : (planQuery.data ?? null);
+  const resolvedWorkspace = isInitialSession
+    ? workspace
+    : (workspaceQuery.data ?? null);
+  const resolvedOnboardingState = isInitialSession
+    ? onboardingState
+    : (onboardingQuery.data ?? null);
+
+  // History classification must not depend on the aiWorkspace query below —
+  // fetching aiWorkspace can trigger server-side unit generation, so it has to
+  // stay disabled while a read-only transcript is open. The initial session
+  // uses the server's exact classification (which did consult aiWorkspace);
+  // client-navigated projects fall back to plan/home reads, which misses only
+  // the active-recall edge (that chat renders as a transcript instead of live).
+  const fallbackActiveNodeId =
+    (isInitialSession ? initialActiveNodeId : null) ??
+    (selectedBootstrap?.kind === "workspace"
+      ? selectedBootstrap.activeNodeId
+      : null) ??
+    resolvedWorkspace?.nextUnitId ??
+    resolvedPlan?.nextUnitId ??
+    null;
+  const isHistorySelected = Boolean(
+    selectedChatId && selectedChatId !== fallbackActiveNodeId,
+  );
+  const aiWorkspaceQuery = useQuery(
+    trpc.training.aiWorkspace.queryOptions(
+      { sessionId: selectedSessionId },
+      {
+        // History views are static reads; fetching (or UNIT_PREPARING polling)
+        // would re-trigger server-side unit generation for no reason.
+        enabled:
+          !preview &&
+          !isOnboardingProject &&
+          !isHistorySelected &&
+          !bootstrapPending,
+        initialData: isInitialSession && aiWorkspace ? aiWorkspace : undefined,
+        staleTime: Number.POSITIVE_INFINITY,
+        refetchOnWindowFocus: false,
+        retry: false,
+        refetchInterval: (query) =>
+          isUnitPreparingError(query.state.error) ? 60_000 : false,
+      },
+    ),
+  );
+  const resolvedAiWorkspace =
+    aiWorkspaceQuery.data ?? (isInitialSession ? aiWorkspace : null) ?? null;
+  const activeNodeId =
+    resolvedAiWorkspace?.state?.recallUnitId ??
+    resolvedAiWorkspace?.state?.activeUnitId ??
+    fallbackActiveNodeId;
+  const activeNode = activeNodeId
+    ? (resolvedPlan?.nodes.find((node) => node.id === activeNodeId) ?? null)
+    : null;
+  const chatHistoryQuery = useQuery(
+    trpc.training.chatHistory.queryOptions(
+      { sessionId: selectedSessionId, nodeId: selectedChatId ?? "" },
+      {
+        enabled: !preview && isHistorySelected,
+        initialData:
+          isInitialSession && chatHistory?.node.id === selectedChatId
+            ? chatHistory
+            : undefined,
+        staleTime: Number.POSITIVE_INFINITY,
+        refetchOnWindowFocus: false,
+        retry: false,
+      },
+    ),
+  );
+  const resolvedChatHistory = isHistorySelected
+    ? (chatHistoryQuery.data ?? null)
+    : null;
+  const unitQuery = useQuery(
+    trpc.training.unit.queryOptions(
+      { sessionId: selectedSessionId, nodeId: activeNode?.id ?? "" },
+      {
+        enabled:
+          !preview &&
+          !isHistorySelected &&
+          !bootstrapPending &&
+          Boolean(activeNode && activeNode.kind !== "simulation"),
+        initialData:
+          isInitialSession && unit?.nodeId === activeNode?.id
+            ? (unit ?? undefined)
+            : undefined,
+        retry: false,
+      },
+    ),
+  );
+  const fetchedUnit = unitQuery.data ?? (isInitialSession ? unit : null);
+  const liveUnit =
+    liveUnitState.sessionId === selectedSessionId &&
+    liveUnitState.unit?.nodeId === fetchedUnit?.nodeId
+      ? liveUnitState.unit
+      : fetchedUnit;
+  const workspaceError =
+    aiWorkspaceQuery.failureReason ?? aiWorkspaceQuery.error;
+  const unitPreparing = isUnitPreparingError(workspaceError);
+  const preparingNodeId = getUnitPreparingNodeId(workspaceError);
+  useEffect(() => {
+    if (!unitPreparing || !preparingNodeId || preview || isHistorySelected)
+      return;
+
+    const events = new EventSource(
+      `/api/workspace/events?sessionId=${encodeURIComponent(selectedSessionId)}&nodeId=${encodeURIComponent(preparingNodeId)}`,
+    );
+    const handleUnitReady = () => {
+      void queryClient.invalidateQueries({
+        queryKey: trpc.training.aiWorkspace.queryKey({
+          sessionId: selectedSessionId,
+        }),
+      });
+    };
+    events.addEventListener("unit_ready", handleUnitReady);
+
+    return () => {
+      events.removeEventListener("unit_ready", handleUnitReady);
+      events.close();
+    };
+  }, [
+    isHistorySelected,
+    preview,
+    preparingNodeId,
+    queryClient,
+    selectedSessionId,
+    trpc.training.aiWorkspace,
+    unitPreparing,
+  ]);
 
   useEffect(() => {
-    document.cookie = `${LAST_SESSION_COOKIE}=${sessionId}; path=/; SameSite=Lax`;
-  }, [sessionId]);
+    document.cookie = `${LAST_SESSION_COOKIE}=${selectedSessionId}; path=/; SameSite=Lax`;
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has("session")) {
+      params.set("session", selectedSessionId);
+      window.history.replaceState(null, "", `/workspace?${params.toString()}`);
+    }
+  }, [selectedSessionId]);
 
-  useEffect(() => {
-    setLiveUnit(unit);
-  }, [unit]);
-
-  const mode: WorkspaceMode = onboardingState
-    ? "onboarding"
-    : liveUnit
-      ? "unit"
-      : "idle";
+  const mode: WorkspaceMode = isHistorySelected
+    ? "history"
+    : resolvedOnboardingState
+      ? "onboarding"
+      : liveUnit
+        ? "unit"
+        : "idle";
   // Education units are not timed under the v4 FSM — the server never emits an
   // evaluationPlan for them — so this resolves to null and the timer stays
   // dormant. Sourced from the server field (rather than a literal null) so the
   // timer code paths remain type-valid if timed scenarios are reintroduced.
   const activeEvaluationPlan: EvaluationPlan | null =
-    aiWorkspace?.evaluationPlan ?? null;
-  const canRequestNextScenario =
-    aiWorkspace?.evaluationProgress?.canRequestNextScenario ?? false;
-  const unitAdvanceGate = aiWorkspace?.unitAdvanceGate ?? { status: "locked" };
+    resolvedAiWorkspace?.evaluationPlan ?? null;
+  const unitAdvanceGate = resolvedAiWorkspace?.unitAdvanceGate ?? {
+    status: "locked",
+  };
   const canAdvanceUnit =
     mode === "unit" && unitAdvanceGate.status === "enabled";
   const advanceCompletedUnit = useMutation(
     trpc.training.advanceCompletedUnit.mutationOptions({
       onSuccess: () => {
+        // router.refresh() re-renders the RSC (new `unit` prop), but the
+        // aiWorkspace query is frozen at staleTime: Infinity and initialData
+        // never overwrites a populated cache — without this invalidation the
+        // workspace would keep showing the finished unit forever.
+        void queryClient.invalidateQueries({
+          queryKey: trpc.training.aiWorkspace.queryKey({
+            sessionId: selectedSessionId,
+          }),
+        });
         router.refresh();
       },
       onError: (error) => toast.error(error.message),
     }),
   );
-  const timerIsActive = activeEvaluationPlan != null && !canRequestNextScenario;
+  const timerIsActive = activeEvaluationPlan != null;
   const attemptStartedAt =
-    aiWorkspace?.evaluationProgress?.attemptStartedAt?.getTime() ?? null;
+    resolvedAiWorkspace?.evaluationProgress?.attemptStartedAt?.getTime() ??
+    null;
   const runningEvaluationPlan =
     timerIsActive && attemptStartedAt != null ? activeEvaluationPlan : null;
 
   useEffect(() => {
     setIsSessionRunning(false);
-  }, [mode, sessionId]);
-
-  useEffect(() => {
-    if (!timerIsActive || attemptStartedAt == null) {
-      return;
-    }
-
-    setTimerNow(Date.now());
-    const intervalId = window.setInterval(() => {
-      setTimerNow(Date.now());
-    }, 250);
-
-    return () => window.clearInterval(intervalId);
-  }, [timerIsActive, attemptStartedAt]);
+  }, [mode, selectedSessionId]);
 
   // Auto-collapse the sidebar to a rail when entering onboarding for a new
   // topic, and auto-expand once the curriculum is ready and we move on.
@@ -184,7 +405,7 @@ export function WorkspaceShell({
   // header doesn't display a stale count between sessions.
   useEffect(() => {
     setOnboardingTurnCount(0);
-  }, [mode, sessionId]);
+  }, [mode, selectedSessionId]);
 
   const handleExitOnboarding = () => {
     router.push("/");
@@ -193,51 +414,67 @@ export function WorkspaceShell({
   const manualSetupHref =
     mode === "onboarding"
       ? preview
-        ? "/ui/profile/projects"
-        : `/profile/projects?session=${encodeURIComponent(sessionId)}`
+        ? "/ui/profile"
+        : `/settings/topics?session=${encodeURIComponent(selectedSessionId)}`
       : null;
 
   const shellTitle =
-    mode === "onboarding"
-      ? (onboardingState?.activeQuestion?.prompt ??
-        "Start a new learning track")
-      : (liveUnit?.title ??
-        workspace?.nextUnitTitle ??
-        "Preparing your next unit");
+    mode === "history"
+      ? (resolvedChatHistory?.node.title ??
+        selectedProject?.lessonPreview.find(
+          (lesson) => lesson.id === selectedChatId,
+        )?.title ??
+        "Chat history")
+      : mode === "onboarding"
+        ? (resolvedOnboardingState?.activeQuestion?.prompt ??
+          "Start a new learning track")
+        : (liveUnit?.title ??
+          resolvedWorkspace?.nextUnitTitle ??
+          "Preparing your next unit");
 
-  const closeUnitCoach = () => {
+  const closeUnitCoach = useCallback(() => {
     setUnitCoachFocused(false);
     setUnitCoachOpen(false);
     setUnitCoachTrigger(null);
-  };
+  }, []);
 
-  const toggleUnitCoachFocus = () => {
+  const returnToUnit = useCallback(() => {
+    setUnitCoachFocused(false);
+  }, []);
+
+  const toggleUnitCoachFocus = useCallback(() => {
     setUnitCoachOpen(true);
     setUnitCoachFocused((focused) => !focused);
-  };
+  }, []);
 
-  const openUnitCoachWithCommand = (intent: UnitCoachCommandIntent) => {
-    if (!liveUnit) return;
-    setUnitCoachOpen(true);
-    setUnitCoachTrigger((previous) => ({
-      intent,
-      nonce: (previous?.nonce ?? 0) + 1,
-      unitId: liveUnit.nodeId,
-    }));
-  };
+  const openUnitCoachWithCommand = useCallback(
+    (intent: UnitCoachCommandIntent) => {
+      if (!liveUnit) return;
+      setUnitCoachOpen(true);
+      setUnitCoachTrigger((previous) => ({
+        intent,
+        nonce: (previous?.nonce ?? 0) + 1,
+        unitId: liveUnit.nodeId,
+      }));
+    },
+    [liveUnit],
+  );
 
-  const openUnitCoachForAnswer = (answer: string) => {
-    if (!liveUnit) return;
+  const openUnitCoachForAnswer = useCallback(
+    (answer: string) => {
+      if (!liveUnit) return;
 
-    const excerpt = answer.trim().slice(0, MAX_COACH_ANSWER_CHARS);
-    setUnitCoachOpen(true);
-    setUnitCoachTrigger((previous) => ({
-      intent: "freeform",
-      message: `Help me improve this submitted answer without rewriting it for me. Identify the weakest reasoning, then ask one focused question.\n\nSubmitted answer:\n${excerpt}`,
-      nonce: (previous?.nonce ?? 0) + 1,
-      unitId: liveUnit.nodeId,
-    }));
-  };
+      const excerpt = answer.trim().slice(0, MAX_COACH_ANSWER_CHARS);
+      setUnitCoachOpen(true);
+      setUnitCoachTrigger((previous) => ({
+        intent: "freeform",
+        message: `Help me improve this submitted answer without rewriting it for me. Identify the weakest reasoning, then ask one focused question.\n\nSubmitted answer:\n${excerpt}`,
+        nonce: (previous?.nonce ?? 0) + 1,
+        unitId: liveUnit.nodeId,
+      }));
+    },
+    [liveUnit],
+  );
 
   const toggleUnitCoach = () => {
     setUnitCoachTrigger(null);
@@ -255,17 +492,211 @@ export function WorkspaceShell({
     }
 
     advanceCompletedUnit.mutate({
-      sessionId,
+      sessionId: selectedSessionId,
       nodeId: unitAdvanceGate.unitId,
     });
   };
-  const elapsedSeconds =
-    attemptStartedAt == null
-      ? 0
-      : Math.max(0, Math.floor((timerNow - attemptStartedAt) / 1000));
-  const remainingSeconds = runningEvaluationPlan
-    ? runningEvaluationPlan.timeLimitSeconds - elapsedSeconds
-    : 0;
+
+  const handleUnitStateChange = useCallback(
+    (nextUnit: EducationUnit) => {
+      setLiveUnitState({ sessionId: selectedSessionId, unit: nextUnit });
+    },
+    [selectedSessionId],
+  );
+
+  const seedWorkspaceCaches = useCallback(
+    (bootstrap: WorkspaceBootstrap) => {
+      queryClient.setQueryData(
+        trpc.training.listLearningProjects.queryKey(),
+        bootstrap.projects,
+      );
+      if (bootstrap.kind === "needs-onboarding") return;
+      if (bootstrap.kind === "onboarding") {
+        queryClient.setQueryData(
+          trpc.training.onboardingState.queryKey({
+            sessionId: bootstrap.sessionId,
+          }),
+          bootstrap.onboardingState,
+        );
+        return;
+      }
+
+      const input = { sessionId: bootstrap.sessionId };
+      queryClient.setQueryData(
+        trpc.training.activePlan.queryKey(input),
+        bootstrap.plan,
+      );
+      queryClient.setQueryData(
+        trpc.training.home.queryKey(input),
+        bootstrap.workspace,
+      );
+      if (bootstrap.aiWorkspace) {
+        queryClient.setQueryData(
+          trpc.training.aiWorkspace.queryKey(input),
+          bootstrap.aiWorkspace,
+        );
+      }
+      if (bootstrap.unit) {
+        queryClient.setQueryData(
+          trpc.training.unit.queryKey({
+            sessionId: bootstrap.sessionId,
+            nodeId: bootstrap.unit.nodeId,
+          }),
+          bootstrap.unit,
+        );
+      }
+    },
+    [queryClient, trpc],
+  );
+
+  const loadWorkspaceSession = useCallback(
+    async (nextSessionId: string) => {
+      if (nextSessionId === sessionId) return;
+      setPendingBootstrapSessionId(nextSessionId);
+      try {
+        const bootstrap = await queryClient.fetchQuery(
+          trpc.training.workspaceBootstrap.queryOptions(
+            { sessionId: nextSessionId },
+            // fetchQuery does not inherit the useQuery retry setting; without
+            // this a failed switch backs off through three retries before the
+            // error toast appears.
+            { retry: false },
+          ),
+        );
+        seedWorkspaceCaches(bootstrap);
+        if (bootstrap.kind === "needs-onboarding") {
+          router.push("/onboarding");
+        }
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "The learning project could not be opened.",
+        );
+      } finally {
+        setPendingBootstrapSessionId((current) =>
+          current === nextSessionId ? null : current,
+        );
+      }
+    },
+    [queryClient, router, seedWorkspaceCaches, sessionId, trpc],
+  );
+
+  const navigateWorkspace = useCallback(
+    (nextSessionId: string, nextChatId: string | null) => {
+      if (nextSessionId !== selectedSessionId) {
+        void loadWorkspaceSession(nextSessionId);
+      }
+      setSelectedSessionId(nextSessionId);
+      setSelectedChatId(nextChatId);
+      setMobileSidebarOpen(false);
+
+      const params = new URLSearchParams({ session: nextSessionId });
+      if (nextChatId) params.set("chat", nextChatId);
+      window.history.pushState(null, "", `/workspace?${params.toString()}`);
+    },
+    [loadWorkspaceSession, selectedSessionId],
+  );
+
+  const handleWorkspaceLink = useCallback(
+    (
+      event: MouseEvent<HTMLAnchorElement>,
+      nextSessionId: string,
+      nextChatId: string | null,
+    ) => {
+      if (
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      navigateWorkspace(nextSessionId, nextChatId);
+    },
+    [navigateWorkspace],
+  );
+
+  const handleSelectProject = useCallback(
+    (event: MouseEvent<HTMLAnchorElement>, nextSessionId: string) => {
+      handleWorkspaceLink(event, nextSessionId, null);
+    },
+    [handleWorkspaceLink],
+  );
+
+  const prefetchChat = useCallback(
+    (nextSessionId: string, nodeId: string) => {
+      if (nextSessionId === selectedSessionId && nodeId === activeNodeId)
+        return;
+
+      void queryClient.prefetchQuery(
+        trpc.training.chatHistory.queryOptions(
+          { sessionId: nextSessionId, nodeId },
+          { staleTime: Number.POSITIVE_INFINITY },
+        ),
+      );
+    },
+    [activeNodeId, queryClient, selectedSessionId, trpc],
+  );
+
+  const prefetchProject = useCallback(
+    (nextSessionId: string) => {
+      if (nextSessionId === selectedSessionId) return;
+      const project = projects.find(
+        (candidate) => candidate.sessionId === nextSessionId,
+      );
+      if (project?.status !== "active") {
+        void queryClient.prefetchQuery(
+          trpc.training.onboardingState.queryOptions({
+            sessionId: nextSessionId,
+          }),
+        );
+        return;
+      }
+
+      // aiWorkspace is deliberately not prefetched: fetching it can trigger
+      // server-side unit generation, which a mere hover must not do. Plan and
+      // home are read-only.
+      void Promise.all([
+        queryClient.prefetchQuery(
+          trpc.training.activePlan.queryOptions({ sessionId: nextSessionId }),
+        ),
+        queryClient.prefetchQuery(
+          trpc.training.home.queryOptions({ sessionId: nextSessionId }),
+        ),
+      ]);
+    },
+    [projects, queryClient, selectedSessionId, trpc],
+  );
+
+  const handleSelectChat = useCallback(
+    (
+      event: MouseEvent<HTMLAnchorElement>,
+      nextSessionId: string,
+      nodeId: string,
+    ) => {
+      const nextChatId =
+        nextSessionId === selectedSessionId && nodeId === activeNodeId
+          ? null
+          : nodeId;
+      handleWorkspaceLink(event, nextSessionId, nextChatId);
+    },
+    [activeNodeId, handleWorkspaceLink, selectedSessionId],
+  );
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      setSelectedSessionId(params.get("session") ?? sessionId);
+      setSelectedChatId(params.get("chat"));
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [sessionId]);
 
   // Flat Mac/T3 toolbar control: a real filled *material* (subtle surface +
   // soft border + theme-specific shadow), not a transparent bordered box.
@@ -284,22 +715,28 @@ export function WorkspaceShell({
       <div
         inert={sidebarCollapsed ? true : undefined}
         className={[
-          "hidden shrink-0 overflow-hidden transition-[width] duration-200 md:block",
+          "hidden shrink-0 overflow-hidden transition-[width] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] md:block",
           sidebarCollapsed ? "w-0" : "bg-sidebar w-[232px]",
         ].join(" ")}
       >
         <div className="h-full w-[232px]">
           <CurriculumSidebar
             projects={projects}
-            currentSessionId={sessionId}
+            currentSessionId={selectedSessionId}
             preview={preview}
             collapsed={false}
             onToggleCollapsed={toggleSidebar}
             userName={userName}
-            activeLessonId={liveUnit?.nodeId ?? null}
+            activeLessonId={
+              resolvedChatHistory?.node.id ?? liveUnit?.nodeId ?? null
+            }
             isSessionRunning={isSessionRunning}
             workspaceTheme={workspaceTheme}
             onWorkspaceThemeChange={setWorkspaceTheme}
+            onSelectProject={handleSelectProject}
+            onPrefetchProject={prefetchProject}
+            onSelectChat={handleSelectChat}
+            onPrefetchChat={prefetchChat}
           />
         </div>
       </div>
@@ -310,7 +747,7 @@ export function WorkspaceShell({
             type="button"
             aria-label="Close sidebar"
             className="bg-foreground/20 absolute inset-0 backdrop-blur-[1px]"
-            onClick={() => setMobileSidebarOpen(false)}
+            onClick={closeMobileSidebar}
           />
           <div
             className="bg-sidebar relative h-full w-[min(86vw,320px)] shadow-2xl"
@@ -322,16 +759,22 @@ export function WorkspaceShell({
           >
             <CurriculumSidebar
               projects={projects}
-              currentSessionId={sessionId}
+              currentSessionId={selectedSessionId}
               preview={preview}
               collapsed={false}
-              onToggleCollapsed={() => setMobileSidebarOpen(false)}
+              onToggleCollapsed={closeMobileSidebar}
               userName={userName}
-              activeLessonId={liveUnit?.nodeId ?? null}
+              activeLessonId={
+                resolvedChatHistory?.node.id ?? liveUnit?.nodeId ?? null
+              }
               isSessionRunning={isSessionRunning}
               workspaceTheme={workspaceTheme}
               onWorkspaceThemeChange={setWorkspaceTheme}
-              onNavigate={() => setMobileSidebarOpen(false)}
+              onNavigate={closeMobileSidebar}
+              onSelectProject={handleSelectProject}
+              onPrefetchProject={prefetchProject}
+              onSelectChat={handleSelectChat}
+              onPrefetchChat={prefetchChat}
             />
           </div>
         </div>
@@ -384,18 +827,11 @@ export function WorkspaceShell({
             )}
           </div>
 
-          {runningEvaluationPlan ? (
-            <div
-              className="text-foreground/76 absolute left-1/2 flex -translate-x-1/2 items-center gap-2 font-mono text-[13px] tabular-nums"
-              title="Continuous timer: leaving or reloading does not pause it."
-            >
-              <span aria-live="polite">
-                {formatTimerSeconds(remainingSeconds)}
-              </span>
-              <span className="text-foreground/38 font-sans text-[10px] tracking-wide uppercase">
-                No pause
-              </span>
-            </div>
+          {runningEvaluationPlan && attemptStartedAt != null ? (
+            <WorkspaceHeaderTimer
+              plan={runningEvaluationPlan}
+              attemptStartedAt={attemptStartedAt}
+            />
           ) : null}
 
           {mode === "onboarding" && manualSetupHref ? (
@@ -477,17 +913,44 @@ export function WorkspaceShell({
                     className={
                       mode === "onboarding"
                         ? "flex min-h-0 w-full flex-1 flex-col"
-                        : mode === "unit"
+                        : mode === "unit" || mode === "history"
                           ? "flex min-h-full flex-col"
                           : "bp-prose flex min-h-full flex-col"
                     }
                   >
-                    {mode === "onboarding" && onboardingState ? (
+                    {mode === "history" && resolvedChatHistory ? (
+                      <ChatHistoryView
+                        messages={resolvedChatHistory.messages}
+                        currentChatHref={
+                          preview
+                            ? "/ui/workspace"
+                            : `/workspace?session=${encodeURIComponent(selectedSessionId)}`
+                        }
+                        onBackToCurrentChat={(event) =>
+                          handleWorkspaceLink(event, selectedSessionId, null)
+                        }
+                      />
+                    ) : null}
+
+                    {mode === "history" && !resolvedChatHistory ? (
+                      <div className="text-foreground/48 py-16 text-center text-[13px]">
+                        {chatHistoryQuery.isError
+                          ? chatHistoryQuery.error.message
+                          : "Loading chat..."}
+                      </div>
+                    ) : null}
+
+                    {mode === "onboarding" && resolvedOnboardingState ? (
                       <OnboardingShell
+                        // OnboardingShell seeds its session id and transcript
+                        // from props on mount only; without the key, switching
+                        // between two onboarding projects would keep chatting
+                        // against the previous session.
+                        key={selectedSessionId}
                         embedded
                         variant="landscape"
-                        initialState={onboardingState}
-                        sessionId={sessionId}
+                        initialState={resolvedOnboardingState}
+                        sessionId={selectedSessionId}
                         onRunningChange={setIsSessionRunning}
                         onTurnCountChange={setOnboardingTurnCount}
                       />
@@ -495,13 +958,16 @@ export function WorkspaceShell({
 
                     {mode === "unit" && liveUnit ? (
                       <EducationUnitWorkspace
+                        // Remount on session switch so refs (pending turn ids,
+                        // drafts) never leak across projects, matching the old
+                        // full-page-navigation semantics.
+                        key={selectedSessionId}
                         unit={liveUnit}
-                        sessionId={sessionId}
+                        sessionId={selectedSessionId}
                         preview={preview}
                         embedded
-                        aiWorkspace={aiWorkspace ?? null}
-                        canRequestNextScenario={canRequestNextScenario}
-                        onStateChange={setLiveUnit}
+                        aiWorkspace={resolvedAiWorkspace}
+                        onStateChange={handleUnitStateChange}
                         onRunningChange={setIsSessionRunning}
                         onRunCommand={openUnitCoachWithCommand}
                         onAskCoachAboutAnswer={openUnitCoachForAnswer}
@@ -514,13 +980,19 @@ export function WorkspaceShell({
                           <h2 className="font-display text-foreground text-base font-semibold tracking-[-0.02em]">
                             <AssistantRichText
                               content={
-                                workspace?.nextUnitTitle ??
+                                resolvedWorkspace?.nextUnitTitle ??
                                 "Preparing your next unit"
                               }
                             />
                           </h2>
                           <div className="text-foreground/52 mt-3 text-[13px] leading-6">
-                            <AssistantRichText content="Your next learning step is being prepared." />
+                            <AssistantRichText
+                              content={
+                                unitPreparing
+                                  ? "Your next learning step is being prepared. This page will continue automatically."
+                                  : "Your next learning step is being prepared."
+                              }
+                            />
                           </div>
                         </div>
                       </div>
@@ -532,20 +1004,20 @@ export function WorkspaceShell({
               {unitCoachOpen && liveUnit ? (
                 <div
                   className={[
-                    "min-w-0 transition-[width] duration-200",
+                    "min-w-0 transition-[width] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)]",
                     unitCoachFocused ? "w-full" : "w-[380px]",
                   ].join(" ")}
                 >
                   <UnitCoachPanel
-                    key={`${sessionId}:${liveUnit.nodeId}`}
+                    key={`${selectedSessionId}:${liveUnit.nodeId}`}
                     unit={liveUnit}
-                    sessionId={sessionId}
+                    sessionId={selectedSessionId}
                     trigger={unitCoachTrigger}
                     preview={preview}
                     isFocused={unitCoachFocused}
                     onClose={closeUnitCoach}
                     onToggleFocus={toggleUnitCoachFocus}
-                    onReturnToUnit={() => setUnitCoachFocused(false)}
+                    onReturnToUnit={returnToUnit}
                   />
                 </div>
               ) : null}

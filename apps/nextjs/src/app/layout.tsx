@@ -74,6 +74,10 @@ const playwrite = Playwrite_GB_J_Guides({
   weight: "400",
   style: "normal",
   display: "swap",
+  // No font-metrics data ships for this face, so Next can't compute fallback
+  // override values — opt out to silence the "Failed to find font override
+  // values" warning. Safe here: it's a display-only wordmark, not body copy.
+  adjustFontFallback: false,
 });
 
 export default function RootLayout(props: { children: React.ReactNode }) {

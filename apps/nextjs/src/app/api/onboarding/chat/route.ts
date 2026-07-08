@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import type { UIMessage } from "ai";
+import { after } from "next/server";
 
 import {
   streamOnboardingChat,
@@ -64,6 +65,7 @@ export const POST = async (req: NextRequest) => {
       sessionId,
       userId,
       modelName: resolveModelPreference(req, body.model),
+      scheduleBackgroundTask: (task) => after(task),
     });
   }
 
@@ -77,5 +79,6 @@ export const POST = async (req: NextRequest) => {
     userId,
     messages,
     modelName: resolveModelPreference(req, body.model),
+    scheduleBackgroundTask: (task) => after(task),
   });
 };

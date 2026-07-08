@@ -1,37 +1,28 @@
+import { Effect, Layer } from "effect";
+
 import type { db as databaseClient } from "@acme/db/client";
 import { and, eq } from "@acme/db";
-import { TrainingWorkspaceTurn } from "@acme/db/schema";
+import { TrainingUnitRun, TrainingWorkspaceTurn } from "@acme/db/schema";
 
-import type {
-  CurriculumNode,
-  DifficultyBand,
-  UnitContent,
-} from "../domain/training/types/training.types";
-import type {
-  WorkspaceAiEducationOutput,
-  WorkspaceAiMessage,
-} from "../domain/training/workspace-ai/types";
-import type {
-  ManualDifficultySignal,
-  WorkspaceTurnOrchestrationDependencies,
-} from "../domain/training/workspace-ai/workspace-turn-orchestration";
-import type {
-  WorkspaceEducationTurnCommit,
-  WorkspaceNextScenarioCommit,
-  WorkspaceRecallTurnCommit,
-} from "../domain/training/workspace-ai/workspace-turn-persistence";
-import { createInitialRatingState } from "../domain/training/engine/rating";
+import type { JobRatingState } from "../domain/training/engine/rating";
+import type { DifficultyBand } from "../domain/training/types/training.types";
+import type { WorkspaceAiMessage } from "../domain/training/workspace-ai/types";
+import type { WorkspaceTurnOrchestrationDependencies } from "../domain/training/workspace-ai/workspace-turn-orchestration";
+import type { WorkspaceEducationTurnCommit } from "../domain/training/workspace-ai/workspace-turn-persistence";
 import {
-  prepareScenarioDirective,
   recordEvaluation,
+  resolveScenarioDirective,
 } from "../domain/training/orchestration/goldilocks";
-import { ensureWorkspaceUnit } from "../domain/training/workflows/get-ai-workspace-workflow";
+import { WorkspaceTurnRepo } from "../domain/training/workspace-ai/workspace-turn-repo";
+import { makeDbError } from "../effect/db";
 import { memoryRepository } from "./memory-repository";
+import { resolvePlanSeedRating } from "./plan-seed-rating";
 import { trainingAttemptRepository } from "./training-attempt-repository";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
 import { trainingOnboardingRepository } from "./training-onboarding-repository";
 import { createTrainingRatingGoldilocksDeps } from "./training-rating-goldilocks-deps";
 import { trainingRatingRepository } from "./training-rating-repository";
+import { trainingSyllabusRepository } from "./training-syllabus-repository";
 import { trainingUnitRunRepository } from "./training-unit-run-repository";
 
 type Database = typeof databaseClient;
@@ -45,14 +36,9 @@ const assertWorkspaceTurnLease = async ({
 }: {
   db: Database;
   sessionId: string;
-  turnId?: string | null;
-  leaseId?: string | null;
+  turnId: string;
+  leaseId: string;
 }) => {
-  if (!turnId) return;
-  if (!leaseId) {
-    throw new Error("Workspace turn lease is missing.");
-  }
-
   const [leasedTurn] = await db
     .update(TrainingWorkspaceTurn)
     .set({
@@ -73,27 +59,6 @@ const assertWorkspaceTurnLease = async ({
   }
 };
 
-const toCurriculumNode = (
-  node: Awaited<ReturnType<typeof trainingCurriculumRepository.completeNode>>,
-): CurriculumNode | null =>
-  node
-    ? ({
-        id: node.id,
-        parentNodeId: node.parentNodeId,
-        kind: node.kind as CurriculumNode["kind"],
-        title: node.title,
-        summary: node.summary,
-        whyItMatters: node.whyItMatters,
-        learningGoal: node.summary,
-        orderIndex: node.orderIndex,
-        depth: node.depth,
-        positionColumn: node.positionColumn,
-        positionRow: node.positionRow,
-        status: node.status as CurriculumNode["status"],
-        difficultyBands: node.difficultyBands ?? null,
-      } satisfies CurriculumNode)
-    : null;
-
 const markWorkspaceTurnCompleted = async ({
   db,
   sessionId,
@@ -104,15 +69,12 @@ const markWorkspaceTurnCompleted = async ({
 }: {
   db: Database;
   sessionId: string;
-  turnId?: string | null;
-  leaseId?: string | null;
+  turnId: string;
+  leaseId: string;
   assistantMessage: WorkspaceAiMessage;
   userMessage?: WorkspaceAiMessage | null;
 }) => {
-  if (!turnId || !assistantMessage.id) return;
-  if (!leaseId) {
-    throw new Error("Workspace turn lease is missing.");
-  }
+  if (!assistantMessage.id) return;
 
   await db
     .update(TrainingWorkspaceTurn)
@@ -194,52 +156,6 @@ const applyContracts = async ({
   }
 };
 
-const commitNextScenarioPrompt = async ({
-  db,
-  input,
-}: {
-  db: Database;
-  input: WorkspaceNextScenarioCommit;
-}): Promise<{ assistantMessage: WorkspaceAiMessage }> =>
-  db.transaction(async (tx) => {
-    const txDb = tx as unknown as Database;
-    await assertWorkspaceTurnLease({
-      db: txDb,
-      sessionId: input.assistantMessage.sessionId,
-      turnId: input.turnId,
-      leaseId: input.turnLeaseId,
-    });
-    await applyContracts({ db: txDb, contracts: input.contracts });
-
-    const assistantMessage =
-      await trainingOnboardingRepository.appendWorkspaceMessage({
-        db: txDb,
-        ...input.assistantMessage,
-      });
-    if (!assistantMessage) {
-      throw new Error("AI response could not be saved.");
-    }
-
-    await trainingCurriculumRepository.savePhaseResponse({
-      db: txDb,
-      ...input.phaseResponse,
-      sequence: input.phaseResponse.sequence ?? assistantMessage.sequence,
-    });
-    await trainingOnboardingRepository.touchSession({
-      db: txDb,
-      sessionId: input.touchSessionId,
-    });
-    await markWorkspaceTurnCompleted({
-      db: txDb,
-      sessionId: input.assistantMessage.sessionId,
-      turnId: input.turnId,
-      leaseId: input.turnLeaseId,
-      assistantMessage,
-    });
-
-    return { assistantMessage };
-  });
-
 const commitEducationTurn = async ({
   db,
   input,
@@ -248,7 +164,6 @@ const commitEducationTurn = async ({
   input: WorkspaceEducationTurnCommit;
 }): Promise<{
   assistantMessage: WorkspaceAiMessage;
-  nextReadyNode: CurriculumNode | null;
 }> =>
   db.transaction(async (tx) => {
     const txDb = tx as unknown as Database;
@@ -259,10 +174,60 @@ const commitEducationTurn = async ({
       leaseId: input.turnLeaseId,
     });
     await applyContracts({ db: txDb, contracts: input.contracts });
+
+    let presentedScenarioAttemptId: string | null = null;
+    if (input.scenarioPresentation) {
+      const unitRun = await txDb.query.TrainingUnitRun.findFirst({
+        where: and(
+          eq(TrainingUnitRun.sessionId, input.nextRun.sessionId),
+          eq(TrainingUnitRun.unitContentId, input.nextRun.unitId),
+        ),
+      });
+      if (!unitRun) {
+        throw new Error(
+          "Pass-2 scenario presentation requires a durable unit run.",
+        );
+      }
+      const presentation = input.scenarioPresentation;
+      const attempt =
+        await trainingRatingRepository.openEducationScenarioAttempt({
+          db: txDb,
+          unitRunId: unitRun.id,
+          originTurnId: input.turnId,
+          userId: presentation.userId,
+          nodeId: presentation.nodeId,
+          directive: presentation.snapshot.directive,
+          itemRating: presentation.snapshot.directive.targetItemRating,
+          scenarioPrompt: input.assistantMessage.content,
+          presentedAt: presentation.presentedAt,
+        });
+      presentedScenarioAttemptId = attempt.id;
+    }
+    if (input.solvePresentation) {
+      // A recall presentation opens its attempt in this same commit and
+      // stamps it directly; education stamps the attempt opened at Connect.
+      const solveAttemptId =
+        input.solvePresentation.scenarioAttemptId ?? presentedScenarioAttemptId;
+      if (!solveAttemptId) {
+        throw new Error("Solve presentation has no scenario attempt to stamp.");
+      }
+      await trainingRatingRepository.stampSolvePresentation({
+        db: txDb,
+        scenarioAttemptId: solveAttemptId,
+        solvePromptTurnId: input.turnId,
+        presentedAt: input.solvePresentation.presentedAt,
+      });
+    }
     if (input.ratingEvaluation) {
+      // Fail-closed seed read: a null seed means the engine uses its default.
+      const seed = await resolvePlanSeedRating({
+        db: txDb,
+        nodeId: input.ratingEvaluation.nodeId,
+      });
       await recordEvaluation({
         ...input.ratingEvaluation,
         sidechatAskCount: 0,
+        initialRatingState: seed ?? undefined,
         deps: createTrainingRatingGoldilocksDeps(txDb),
       });
     }
@@ -285,6 +250,12 @@ const commitEducationTurn = async ({
     await trainingCurriculumRepository.savePhaseResponse({
       db: txDb,
       ...input.phaseResponse,
+      metadata: presentedScenarioAttemptId
+        ? {
+            ...input.phaseResponse.metadata,
+            scenarioAttemptId: presentedScenarioAttemptId,
+          }
+        : input.phaseResponse.metadata,
       sequence: input.phaseResponse.sequence ?? assistantMessage.sequence,
     });
     await trainingUnitRunRepository.upsertUnitRun({
@@ -292,7 +263,22 @@ const commitEducationTurn = async ({
       run: input.nextRun,
     });
 
-    const nextReadyNode: CurriculumNode | null = null;
+    if (input.syllabusCheckOff) {
+      await trainingSyllabusRepository.checkOffEntries({
+        db: txDb,
+        ...input.syllabusCheckOff,
+      });
+    }
+
+    if (input.syllabusReinforcement) {
+      await trainingSyllabusRepository.applyReinforcement({
+        db: txDb,
+        entryIds: input.syllabusReinforcement.entryIds,
+        passed: input.syllabusReinforcement.passed,
+        occurredAt: new Date(),
+      });
+    }
+
     if (input.completion) {
       await trainingAttemptRepository.saveAttempt({
         db: txDb,
@@ -313,235 +299,136 @@ const commitEducationTurn = async ({
       userMessage,
     });
 
-    return { assistantMessage, nextReadyNode };
+    return { assistantMessage };
   });
 
-const commitRecallTurn = async ({
-  db,
-  input,
-}: {
-  db: Database;
-  input: WorkspaceRecallTurnCommit;
-}): Promise<{ assistantMessage: WorkspaceAiMessage }> =>
-  db.transaction(async (tx) => {
-    const txDb = tx as unknown as Database;
-    await assertWorkspaceTurnLease({
-      db: txDb,
-      sessionId: input.assistantMessage.sessionId,
-      turnId: input.turnId,
-      leaseId: input.turnLeaseId,
-    });
-
-    const userMessage = input.userMessage
-      ? await trainingOnboardingRepository.appendWorkspaceMessage({
-          db: txDb,
-          ...input.userMessage,
-        })
-      : null;
-    const assistantMessage =
-      await trainingOnboardingRepository.appendWorkspaceMessage({
-        db: txDb,
-        ...input.assistantMessage,
-      });
-    if (!assistantMessage) {
-      throw new Error("AI response could not be saved.");
-    }
-
-    await trainingCurriculumRepository.savePhaseResponse({
-      db: txDb,
-      ...input.phaseResponse,
-      sequence: input.phaseResponse.sequence ?? assistantMessage.sequence,
-    });
-    await trainingOnboardingRepository.touchSession({
-      db: txDb,
-      sessionId: input.touchSessionId,
-    });
-    await markWorkspaceTurnCompleted({
-      db: txDb,
-      sessionId: input.assistantMessage.sessionId,
-      turnId: input.turnId,
-      leaseId: input.turnLeaseId,
-      assistantMessage,
-      userMessage,
-    });
-
-    return { assistantMessage };
+export const workspaceTurnRepoLayer = (db: Database) =>
+  Layer.succeed(WorkspaceTurnRepo, {
+    commitEducationTurn: (input) =>
+      Effect.tryPromise({
+        try: () => commitEducationTurn({ db, input }),
+        catch: (cause) => makeDbError("commitEducationTurn", cause),
+      }).pipe(
+        Effect.tap(() => Effect.annotateCurrentSpan({ outcome: "success" })),
+        Effect.tapError((error) =>
+          Effect.annotateCurrentSpan({ outcome: error.kind }),
+        ),
+        Effect.withSpan("workspace-turn.commit", {
+          attributes: {
+            purpose: "education",
+            phase: input.nextRun.phase,
+            attempt: 1,
+          },
+        }),
+      ),
   });
 
 export const createWorkspaceTurnRepositoryDeps = (
   db: Database,
-): WorkspaceTurnOrchestrationDependencies => ({
-  getActivePlan: (sessionId: string) =>
-    trainingCurriculumRepository.getActivePlan({ db, sessionId }),
-  listMessages: (sessionId: string, slot?: "education_unit" | "recall") =>
-    trainingOnboardingRepository.listWorkspaceMessages({
-      db,
-      sessionId,
-      slot,
-    }),
-  getWorkspaceSummary: (sessionId: string, slot: "education_unit" | "recall") =>
-    trainingOnboardingRepository.getWorkspaceSummary({
-      db,
-      sessionId,
-      slot,
-    }),
-  upsertWorkspaceSummary: (payload) =>
-    trainingOnboardingRepository.upsertWorkspaceSummary({
-      db,
-      ...payload,
-    }),
-  claimWorkspaceTurn: (payload) =>
-    trainingOnboardingRepository.claimWorkspaceTurn({
-      db,
-      ...payload,
-    }),
-  appendMessage: (payload) =>
-    trainingOnboardingRepository.appendWorkspaceMessage({
-      db,
-      ...payload,
-    }),
-  listMessagesByTurnId: (sessionId: string, turnId: string) =>
-    trainingOnboardingRepository.listWorkspaceMessagesByTurnId({
-      db,
-      sessionId,
-      turnId,
-    }),
-  listPhaseResponsesBySession: (sessionId: string) =>
-    trainingCurriculumRepository.listPhaseResponsesBySession({
-      db,
-      sessionId,
-    }),
-  getPhaseResponses: (unitContentId: string, sessionId: string) =>
-    trainingCurriculumRepository.getPhaseResponses({
-      db,
-      unitContentId,
-      sessionId,
-    }),
-  getUnitRun: (sessionId: string, unitContentId: string) =>
-    trainingUnitRunRepository.getUnitRun({
-      db,
-      sessionId,
-      unitContentId,
-    }),
-  upsertUnitRun: (run) =>
-    trainingUnitRunRepository.upsertUnitRun({
-      db,
-      run,
-    }),
-  getUnitByNodeId: (nodeId: string) =>
-    trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),
-  createUnitContent: (payload: {
-    nodeId: string;
-    title: string;
-    seedPrompt: string;
-    seedHint: string;
-    clusterArcFrame: string;
-    complexityBudget: UnitContent["complexityBudget"];
-    teachbackSetup: UnitContent["teachbackSetup"];
-    scenario: UnitContent["scenario"];
-    unitMasteryContract?: UnitContent["unitMasteryContract"];
-  }) =>
-    trainingCurriculumRepository.createUnitContent({
-      db,
-      ...payload,
-    }),
-  savePhaseResponse: (payload) =>
-    trainingCurriculumRepository.savePhaseResponse({
-      db,
-      ...payload,
-    }),
-  updateUnitMasteryContract: (payload) =>
-    trainingCurriculumRepository.updateUnitMasteryContract({
-      db,
-      ...payload,
-    }),
-  updateScenarioContract: (payload: {
-    scenarioAttemptId: string;
-    scenarioPrompt: string;
-    scenarioContract: NonNullable<
-      WorkspaceAiEducationOutput["scenarioEvaluationContract"]
-    >;
-  }) =>
-    trainingRatingRepository.updateScenarioContract({
-      db,
-      ...payload,
-    }),
-  saveAttempt: (payload) =>
-    trainingAttemptRepository.saveAttempt({
-      db,
-      ...payload,
-    }),
-  completeNode: async (nodeId: string) => {
-    const node = await trainingCurriculumRepository.completeNode({
-      db,
-      nodeId,
-    });
-    return toCurriculumNode(node);
-  },
-  commitEducationTurn: (input) => commitEducationTurn({ db, input }),
-  commitRecallTurn: (input) => commitRecallTurn({ db, input }),
-  commitNextScenarioPrompt: (input) => commitNextScenarioPrompt({ db, input }),
-  markWorkspaceTurnFailed: (input) => markWorkspaceTurnFailed({ db, ...input }),
-  prewarmWorkspaceUnit: (node: CurriculumNode) =>
-    ensureWorkspaceUnit({ node, deps: createWorkspaceTurnRepositoryDeps(db) }),
-  touchSession: (sessionId: string) =>
-    trainingOnboardingRepository.touchSession({ db, sessionId }),
-  listMemories: async (userId: string) => {
-    const result = await memoryRepository.listByUserId({
-      db,
-      userId,
-    });
+): WorkspaceTurnOrchestrationDependencies => {
+  // Per-request seed cache: a multi-touch turn reads each node's seed once.
+  const seedCache = new Map<string, Promise<JobRatingState | null>>();
+  const getSeed = (nodeId: string) => {
+    const cached = seedCache.get(nodeId);
+    if (cached) return cached;
+    const pending = resolvePlanSeedRating({ db, nodeId });
+    seedCache.set(nodeId, pending);
+    return pending;
+  };
 
-    return result.success ? result.data : [];
-  },
-  prepareDifficultyDirective: ({
-    userId,
-    nodeId,
-    now,
-    bands,
-  }: {
-    userId: string;
-    nodeId: string;
-    now: Date;
-    bands?: readonly DifficultyBand[] | null;
-  }) =>
-    prepareScenarioDirective({
+  return {
+    getActivePlan: (sessionId: string) =>
+      trainingCurriculumRepository.getActivePlan({ db, sessionId }),
+    listMessages: (sessionId: string, slot?: "education_unit" | "recall") =>
+      trainingOnboardingRepository.listWorkspaceMessages({
+        db,
+        sessionId,
+        slot,
+      }),
+    listUnitMessages: (sessionId: string, unitId: string) =>
+      trainingOnboardingRepository.listWorkspaceMessagesByUnit({
+        db,
+        sessionId,
+        unitId,
+      }),
+    claimWorkspaceTurn: (payload) =>
+      trainingOnboardingRepository.claimWorkspaceTurn({
+        db,
+        ...payload,
+      }),
+    appendMessage: (payload) =>
+      trainingOnboardingRepository.appendWorkspaceMessage({
+        db,
+        ...payload,
+      }),
+    listPhaseResponsesBySession: (sessionId: string) =>
+      trainingCurriculumRepository.listPhaseResponsesBySession({
+        db,
+        sessionId,
+      }),
+    getPhaseResponses: (unitContentId: string, sessionId: string) =>
+      trainingCurriculumRepository.getPhaseResponses({
+        db,
+        unitContentId,
+        sessionId,
+      }),
+    getUnitRun: (sessionId: string, unitContentId: string) =>
+      trainingUnitRunRepository.getUnitRun({
+        db,
+        sessionId,
+        unitContentId,
+      }),
+    getInFlightRecallRun: (sessionId: string) =>
+      trainingUnitRunRepository.getInFlightRecallRun({ db, sessionId }),
+    retireInFlightRecallRun: (sessionId: string, unitContentId: string) =>
+      trainingUnitRunRepository.retireInFlightRecallRun({
+        db,
+        sessionId,
+        unitContentId,
+      }),
+    getUnitByNodeId: (nodeId: string) =>
+      trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),
+    listRecallCandidates: (planId: string) =>
+      trainingSyllabusRepository.listRecallCandidates({ db, planId }),
+    markWorkspaceTurnFailed: (input) =>
+      markWorkspaceTurnFailed({ db, ...input }),
+    listMemories: async (userId: string) => {
+      const result = await memoryRepository.listByUserId({
+        db,
+        userId,
+      });
+
+      return result.success ? result.data : [];
+    },
+    getUnitSyllabusContext: (unitNodeId: string) =>
+      trainingSyllabusRepository.getUnitContext({ db, unitNodeId }),
+    resolveDifficultyDirective: ({
       userId,
       nodeId,
       now,
       bands,
-      deps: createTrainingRatingGoldilocksDeps(db),
-    }),
-  applyManualDifficultyNudge: ({
-    userId,
-    nodeId,
-    signal,
-    now,
-  }: {
-    userId: string;
-    nodeId: string;
-    signal: ManualDifficultySignal;
-    now: Date;
-  }) =>
-    trainingRatingRepository.applyManualDifficultyNudge({
-      db,
-      userId,
-      nodeId,
-      signal,
-      initialRatingState: createInitialRatingState(),
-      now,
-    }),
-  getScenarioAttempt: ({ scenarioAttemptId, userId, nodeId }) =>
-    trainingRatingRepository.getOpenScenarioById({
-      db,
-      scenarioAttemptId,
-      userId,
-      nodeId,
-    }),
-  updateScenarioItemRating: ({ scenarioAttemptId, itemRating }) =>
-    trainingRatingRepository.updateScenarioItemRating({
-      db,
-      scenarioAttemptId,
-      itemRating,
-    }),
-});
+    }: {
+      userId: string;
+      nodeId: string;
+      now: Date;
+      bands?: readonly DifficultyBand[] | null;
+    }) =>
+      getSeed(nodeId).then((seed) =>
+        resolveScenarioDirective({
+          userId,
+          nodeId,
+          now,
+          bands,
+          initialRatingState: seed ?? undefined,
+          deps: createTrainingRatingGoldilocksDeps(db),
+        }),
+      ),
+    getScenarioAttempt: ({ scenarioAttemptId, userId, nodeId }) =>
+      trainingRatingRepository.getOpenScenarioById({
+        db,
+        scenarioAttemptId,
+        userId,
+        nodeId,
+      }),
+  };
+};

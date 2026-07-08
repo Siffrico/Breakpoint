@@ -1,12 +1,11 @@
 import type { db as databaseClient } from "@acme/db/client";
-import type { BeforeAfterProfile } from "@acme/validators";
+import type { BeforeAfterProfile, StartingPointTier } from "@acme/validators";
 import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from "@acme/db";
 import {
   TrainingIdentityProfile,
   TrainingIdentityProfileVersion,
   TrainingOnboardingMessage,
   TrainingOnboardingSession,
-  TrainingWorkspaceSummary,
   TrainingWorkspaceTurn,
 } from "@acme/db/schema";
 
@@ -75,10 +74,7 @@ const mapWorkspaceMessage = (
 
 type WorkspaceMessage = ReturnType<typeof mapWorkspaceMessage>;
 
-type WorkspaceTurnAction =
-  | "submit_answer"
-  | "next_scenario"
-  | "adjust_difficulty";
+type WorkspaceTurnAction = "submit_answer";
 
 const getMessageByTurnRole = async ({
   db,
@@ -542,6 +538,57 @@ export const trainingOnboardingRepository = {
     return session ?? null;
   },
 
+  setStartingPoint: async ({
+    db,
+    sessionId,
+    tier,
+    label,
+  }: {
+    db: Database;
+    sessionId: string;
+    tier: StartingPointTier;
+    label: string;
+  }) => {
+    const [session] = await db
+      .update(TrainingOnboardingSession)
+      .set({
+        startingPointTier: tier,
+        startingPointLabel: label,
+      })
+      .where(eq(TrainingOnboardingSession.id, sessionId))
+      .returning();
+
+    return session ?? null;
+  },
+
+  setInitialStartingPoint: async ({
+    db,
+    sessionId,
+    tier,
+    label,
+  }: {
+    db: Database;
+    sessionId: string;
+    tier: StartingPointTier;
+    label: string;
+  }) => {
+    const [session] = await db
+      .update(TrainingOnboardingSession)
+      .set({
+        startingPointTier: tier,
+        startingPointLabel: label,
+      })
+      .where(
+        and(
+          eq(TrainingOnboardingSession.id, sessionId),
+          isNull(TrainingOnboardingSession.startingPointTier),
+        ),
+      )
+      .returning();
+
+    return session ?? null;
+  },
+
   listMessages: async ({
     db,
     sessionId,
@@ -588,6 +635,54 @@ export const trainingOnboardingRepository = {
     return messages.map(mapWorkspaceMessage).filter(isTranscriptVisibleMessage);
   },
 
+  listChatUnitIdsBySessionIds: async ({
+    db,
+    sessionIds,
+  }: {
+    db: Database;
+    sessionIds: string[];
+  }) => {
+    if (sessionIds.length === 0) return [];
+
+    const rows = await db
+      .selectDistinct({
+        sessionId: TrainingOnboardingMessage.sessionId,
+        unitId: TrainingOnboardingMessage.unitId,
+      })
+      .from(TrainingOnboardingMessage)
+      .where(
+        and(
+          inArray(TrainingOnboardingMessage.sessionId, sessionIds),
+          sql`${TrainingOnboardingMessage.unitId} is not null`,
+          sql`${TrainingOnboardingMessage.metadata}->>'hiddenFromTranscript' is distinct from 'true'`,
+        ),
+      );
+
+    return rows.flatMap((row) =>
+      row.unitId ? [{ sessionId: row.sessionId, unitId: row.unitId }] : [],
+    );
+  },
+
+  listWorkspaceMessagesByUnit: async ({
+    db,
+    sessionId,
+    unitId,
+  }: {
+    db: Database;
+    sessionId: string;
+    unitId: string;
+  }) => {
+    const messages = await db.query.TrainingOnboardingMessage.findMany({
+      where: and(
+        eq(TrainingOnboardingMessage.sessionId, sessionId),
+        eq(TrainingOnboardingMessage.unitId, unitId),
+      ),
+      orderBy: asc(TrainingOnboardingMessage.sequence),
+    });
+
+    return messages.map(mapWorkspaceMessage).filter(isTranscriptVisibleMessage);
+  },
+
   listWorkspaceMessagesByTurnId: async ({
     db,
     sessionId,
@@ -606,72 +701,6 @@ export const trainingOnboardingRepository = {
     });
 
     return messages.map(mapWorkspaceMessage);
-  },
-
-  getWorkspaceSummary: async ({
-    db,
-    sessionId,
-    slot,
-  }: {
-    db: Database;
-    sessionId: string;
-    slot: string;
-  }): Promise<{
-    summary: string;
-    coveredThroughUnitId: string | null;
-    coveredThroughSequence: number | null;
-  } | null> => {
-    const row = await db.query.TrainingWorkspaceSummary.findFirst({
-      where: and(
-        eq(TrainingWorkspaceSummary.sessionId, sessionId),
-        eq(TrainingWorkspaceSummary.slot, slot),
-      ),
-    });
-
-    if (!row) return null;
-    return {
-      summary: row.summary,
-      coveredThroughUnitId: row.coveredThroughUnitId,
-      coveredThroughSequence: row.coveredThroughSequence,
-    };
-  },
-
-  upsertWorkspaceSummary: async ({
-    db,
-    sessionId,
-    slot,
-    summary,
-    coveredThroughUnitId,
-    coveredThroughSequence,
-  }: {
-    db: Database;
-    sessionId: string;
-    slot: string;
-    summary: string;
-    coveredThroughUnitId: string | null;
-    coveredThroughSequence: number | null;
-  }): Promise<void> => {
-    await db
-      .insert(TrainingWorkspaceSummary)
-      .values({
-        sessionId,
-        slot,
-        summary,
-        coveredThroughUnitId,
-        coveredThroughSequence,
-      })
-      .onConflictDoUpdate({
-        target: [
-          TrainingWorkspaceSummary.sessionId,
-          TrainingWorkspaceSummary.slot,
-        ],
-        set: {
-          summary,
-          coveredThroughUnitId,
-          coveredThroughSequence,
-          updatedAt: new Date(),
-        },
-      });
   },
 
   getOnboardingState: async ({

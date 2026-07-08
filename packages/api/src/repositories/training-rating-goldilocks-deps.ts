@@ -1,7 +1,7 @@
 import type { db as databaseClient } from "@acme/db/client";
 
 import type {
-  PrepareScenarioDirectiveDependencies,
+  ResolveScenarioDirectiveDependencies,
   RecordEvaluationDependencies,
 } from "../domain/training/orchestration/goldilocks";
 import { trainingRatingRepository } from "./training-rating-repository";
@@ -10,7 +10,7 @@ type Database = typeof databaseClient;
 
 export const createTrainingRatingGoldilocksDeps = (
   db: Database,
-): PrepareScenarioDirectiveDependencies & RecordEvaluationDependencies => ({
+): ResolveScenarioDirectiveDependencies & RecordEvaluationDependencies => ({
   loadJobProgress: ({ userId, nodeId, initialRatingState }) =>
     trainingRatingRepository.loadJobProgress({
       db,
@@ -23,14 +23,6 @@ export const createTrainingRatingGoldilocksDeps = (
       db,
       userId,
       nodeId,
-    }),
-  openScenarioAttempt: ({ userId, nodeId, directive, itemRating }) =>
-    trainingRatingRepository.openScenarioAttempt({
-      db,
-      userId,
-      nodeId,
-      directive,
-      itemRating,
     }),
   getScenarioAttempt: ({ scenarioAttemptId, userId, nodeId }) =>
     trainingRatingRepository.getOpenScenarioById({

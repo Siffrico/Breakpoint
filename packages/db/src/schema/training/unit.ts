@@ -1,8 +1,23 @@
 import { index, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
 
+import type {
+  UnitDifficultySnapshot,
+  UnitScenarioSpecRecord,
+} from "@acme/validators";
+
 import { user } from "../../auth-schema";
 import { TrainingCurriculumNode } from "./curriculum";
 import { TrainingOnboardingSession } from "./onboarding";
+
+/**
+ * @deprecated Use `UnitDifficultySnapshot` from `@acme/validators` directly.
+ * Kept as an alias so the persisted contract has one canonical definition and
+ * cannot drift from the API engine's rating model.
+ */
+export type TrainingUnitDifficultySnapshotJson = UnitDifficultySnapshot;
+
+/** The persisted ScenarioSpec column type; canonical schema in @acme/validators. */
+export type TrainingUnitScenarioSpecJson = UnitScenarioSpecRecord;
 
 export interface TrainingUnitMasteryContractJson {
   version: 1;
@@ -130,9 +145,11 @@ export const TrainingUnitPhaseResponse = pgTable(
         pausedSeconds?: number;
       };
       scenarioAttemptId?: string;
+      recallEntryIds?: string[];
       nextScenarioPrompt?: boolean;
       manualDifficultySignal?: "too_easy" | "too_hard";
       difficultyDirectiveReason?: string;
+      goldilocksUpdated?: boolean;
       estimatedItemRating?: number;
       assessmentStatus?: "pass" | "retry_concept" | "retry_application";
       gap?: {
@@ -195,6 +212,14 @@ export const TrainingUnitRun = pgTable(
     pass: t.integer().notNull().default(1),
     connectGrills: t.integer().notNull().default(0),
     solveRepairs: t.integer().notNull().default(0),
+    difficultySnapshotJson: t
+      .jsonb()
+      .$type<TrainingUnitDifficultySnapshotJson | null>(),
+    // The active ScenarioSpec (see education-unit/scenario-spec.ts). Rides the
+    // same row read as the FSM cursor — no extra query. Unlike difficulty, it is
+    // REPLACEABLE: pass 1's spec is stored, then pass 2's connect overwrites it
+    // (after reading pass 1's as its "new surface" constraint).
+    scenarioSpecJson: t.jsonb().$type<TrainingUnitScenarioSpecJson | null>(),
     createdAt: t
       .timestamp({ mode: "date", withTimezone: true })
       .defaultNow()

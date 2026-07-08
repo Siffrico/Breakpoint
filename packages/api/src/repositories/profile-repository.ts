@@ -20,13 +20,15 @@ export const ProfileRepoLive = Layer.effect(
   ProfileRepo,
   Effect.gen(function* () {
     const { client } = yield* Db;
-    const query = <A>(run: (client: DatabaseClient) => Promise<A>) =>
-      queryWithClient(client, run);
+    const query = <A>(
+      operation: string,
+      run: (client: DatabaseClient) => Promise<A>,
+    ) => queryWithClient(client, operation, run);
 
     return {
       getGeneralBySession: (sessionId) =>
         Effect.gen(function* () {
-          const profile = yield* query((client) =>
+          const profile = yield* query("getGeneralProfile", (client) =>
             client.query.TrainingIdentityProfile.findFirst({
               where: eq(TrainingIdentityProfile.onboardingSessionId, sessionId),
             }),
@@ -36,7 +38,7 @@ export const ProfileRepoLive = Layer.effect(
           // closure below, but keeps it for a local const.
           const currentVersionId = profile.currentVersionId;
 
-          const version = yield* query((client) =>
+          const version = yield* query("getGeneralProfileVersion", (client) =>
             client.query.TrainingIdentityProfileVersion.findFirst({
               where: eq(TrainingIdentityProfileVersion.id, currentVersionId),
             }),
@@ -53,7 +55,7 @@ export const ProfileRepoLive = Layer.effect(
 
       updateGeneralBySession: (input) =>
         Effect.gen(function* () {
-          const profile = yield* query((client) =>
+          const profile = yield* query("getProfileForGeneralUpdate", (client) =>
             client.query.TrainingIdentityProfile.findFirst({
               where: eq(
                 TrainingIdentityProfile.onboardingSessionId,
@@ -68,16 +70,18 @@ export const ProfileRepoLive = Layer.effect(
           }
           const currentVersionId = profile.currentVersionId;
 
-          const [version] = yield* query((client) =>
-            client
-              .update(TrainingIdentityProfileVersion)
-              .set({
-                targetIdentity: input.targetIdentity,
-                motivation: input.motivation,
-                hardMoments: input.hardMoments,
-              })
-              .where(eq(TrainingIdentityProfileVersion.id, currentVersionId))
-              .returning(),
+          const [version] = yield* query(
+            "updateGeneralProfileVersion",
+            (client) =>
+              client
+                .update(TrainingIdentityProfileVersion)
+                .set({
+                  targetIdentity: input.targetIdentity,
+                  motivation: input.motivation,
+                  hardMoments: input.hardMoments,
+                })
+                .where(eq(TrainingIdentityProfileVersion.id, currentVersionId))
+                .returning(),
           );
           if (!version) {
             return yield* new ProfileNotFoundError({
@@ -85,7 +89,7 @@ export const ProfileRepoLive = Layer.effect(
             });
           }
 
-          yield* query((client) =>
+          yield* query("updateGeneralProfile", (client) =>
             client
               .update(TrainingIdentityProfile)
               .set({
@@ -95,7 +99,7 @@ export const ProfileRepoLive = Layer.effect(
               .where(eq(TrainingIdentityProfile.id, profile.id)),
           );
 
-          yield* query((client) =>
+          yield* query("updateCurriculumTargetIdentity", (client) =>
             client
               .update(TrainingCurriculumPlan)
               .set({
@@ -117,13 +121,15 @@ export const ProfileRepoLive = Layer.effect(
 
       getAccountByUserId: (userId) =>
         Effect.gen(function* () {
-          const [userRecord, accountRecord] = yield* query((client) =>
-            Promise.all([
-              client.query.user.findFirst({ where: eq(user.id, userId) }),
-              client.query.account.findFirst({
-                where: eq(account.userId, userId),
-              }),
-            ]),
+          const [userRecord, accountRecord] = yield* query(
+            "getProfileAccount",
+            (client) =>
+              Promise.all([
+                client.query.user.findFirst({ where: eq(user.id, userId) }),
+                client.query.account.findFirst({
+                  where: eq(account.userId, userId),
+                }),
+              ]),
           );
           if (!userRecord) {
             return yield* new ProfileNotFoundError({

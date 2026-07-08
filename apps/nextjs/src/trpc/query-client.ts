@@ -7,6 +7,8 @@ import {
 import { TRPCClientError } from "@trpc/client";
 import SuperJSON from "superjson";
 
+import type { AppRouter } from "@acme/api";
+
 // On the client, any UNAUTHORIZED tRPC error means the session is missing or
 // expired. Send the user to the auth page once instead of letting queries fail
 // silently. Guarded against running on the server (no redirect during SSR) and
@@ -14,7 +16,8 @@ import SuperJSON from "superjson";
 const redirectToAuthOnUnauthorized = (error: unknown) => {
   if (typeof window === "undefined") return;
   if (!(error instanceof TRPCClientError)) return;
-  if (error.data?.code !== "UNAUTHORIZED") return;
+  const trpcError = error as TRPCClientError<AppRouter>;
+  if (trpcError.data?.code !== "UNAUTHORIZED") return;
   if (window.location.pathname === "/auth") return;
   window.location.href = "/auth";
 };

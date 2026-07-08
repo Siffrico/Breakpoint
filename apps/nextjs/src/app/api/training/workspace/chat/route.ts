@@ -1,6 +1,5 @@
 import type { UIMessage } from "ai";
 import type { NextRequest } from "next/server";
-import { after } from "next/server";
 import { isTextUIPart } from "ai";
 
 import { streamWorkspaceChat } from "@acme/api/workspace-chat";
@@ -12,8 +11,6 @@ import { requireSession } from "~/app/api/_lib/require-session";
 export const runtime = "nodejs";
 
 interface WorkspaceChatRequestBody {
-  action?: "submit_answer" | "next_scenario" | "adjust_difficulty";
-  manualDifficultySignal?: "too_easy" | "too_hard";
   message?: string;
   messages?: UIMessage[];
   model?: string;
@@ -58,36 +55,37 @@ const resolveSubmittedMessage = (body: WorkspaceChatRequestBody) => {
 };
 
 export const POST = async (req: NextRequest) => {
-  const session = await requireSession(req);
+  const [session, bodyResult] = await Promise.all([
+    requireSession(req),
+    req
+      .json()
+      .then((body: unknown) => ({ success: true as const, body }))
+      .catch(() => ({ success: false as const })),
+  ]);
   if (!session) {
     return new Response("Unauthorized", { status: 401 });
   }
-
-  let body: WorkspaceChatRequestBody;
-  try {
-    body = (await req.json()) as WorkspaceChatRequestBody;
-  } catch {
+  if (!bodyResult.success) {
     return new Response("Invalid JSON", { status: 400 });
   }
+  if (
+    bodyResult.body == null ||
+    typeof bodyResult.body !== "object" ||
+    Array.isArray(bodyResult.body)
+  ) {
+    return new Response("Invalid request body", { status: 400 });
+  }
+  const body = bodyResult.body as WorkspaceChatRequestBody;
 
-  const { sessionId } = body;
-  const action =
-    body.action === "next_scenario" || body.action === "adjust_difficulty"
-      ? body.action
-      : "submit_answer";
-  const submittedMessage =
-    action === "next_scenario"
-      ? "Next scenario"
-      : action === "adjust_difficulty"
-        ? `Difficulty adjustment: ${body.manualDifficultySignal ?? "unknown"}`
-        : resolveSubmittedMessage(body);
+  const { sessionId, turnId } = body;
+  const submittedMessage = resolveSubmittedMessage(body);
   if (
     !sessionId ||
     typeof sessionId !== "string" ||
-    (action === "submit_answer" && submittedMessage.length === 0) ||
-    (action === "adjust_difficulty" &&
-      body.manualDifficultySignal !== "too_easy" &&
-      body.manualDifficultySignal !== "too_hard")
+    typeof turnId !== "string" ||
+    turnId.length === 0 ||
+    turnId.length > 96 ||
+    submittedMessage.length === 0
   ) {
     return new Response("Invalid request body", { status: 400 });
   }
@@ -97,13 +95,8 @@ export const POST = async (req: NextRequest) => {
     sessionId,
     userId: session.user.id,
     message: submittedMessage,
-    action,
-    turnId:
-      typeof body.turnId === "string" && body.turnId.length > 0
-        ? body.turnId.slice(0, 96)
-        : null,
-    manualDifficultySignal: body.manualDifficultySignal ?? null,
+    turnId,
     modelName: resolveModelPreference(req, body.model),
-    scheduleBackgroundTask: (task) => after(task),
+    signal: req.signal,
   });
 };

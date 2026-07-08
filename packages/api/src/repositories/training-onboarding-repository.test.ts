@@ -51,6 +51,75 @@ describe("trainingOnboardingRepository.getLatestOnboardingSession", () => {
   });
 });
 
+describe("trainingOnboardingRepository.setStartingPoint", () => {
+  const createSetDb = (returnedRows: unknown[]) => {
+    const returning = vi.fn(() => Promise.resolve(returnedRows));
+    const where = vi.fn(() => ({ returning }));
+    const set = vi.fn((_values: Record<string, unknown>) => ({ where }));
+    const update = vi.fn(() => ({ set }));
+    const db = { update } as unknown as Parameters<
+      typeof trainingOnboardingRepository.setStartingPoint
+    >[0]["db"];
+    return { db, set, where };
+  };
+
+  it("writes both the tier and label columns", async () => {
+    const session = { id: "s-1", startingPointTier: "skip_basics" };
+    const { db, set } = createSetDb([session]);
+
+    const result = await trainingOnboardingRepository.setStartingPoint({
+      db,
+      sessionId: "s-1",
+      tier: "skip_basics",
+      label: "I've deployed models to production",
+    });
+
+    expect(result).toBe(session);
+    const written = set.mock.calls[0]?.[0];
+    expect(written?.startingPointTier).toBe("skip_basics");
+    expect(written?.startingPointLabel).toBe(
+      "I've deployed models to production",
+    );
+  });
+
+  it("returns null when no session row matches", async () => {
+    const { db } = createSetDb([]);
+
+    const result = await trainingOnboardingRepository.setStartingPoint({
+      db,
+      sessionId: "missing",
+      tier: "fundamentals",
+      label: "Starting from zero",
+    });
+
+    expect(result).toBeNull();
+  });
+});
+
+describe("trainingOnboardingRepository.setInitialStartingPoint", () => {
+  it("uses a guarded update and returns null when a starting point already exists", async () => {
+    const returning = vi.fn(() => Promise.resolve([]));
+    const where = vi.fn(() => ({ returning }));
+    const set = vi.fn(() => ({ where }));
+    const update = vi.fn(() => ({ set }));
+    const db = { update } as unknown as Parameters<
+      typeof trainingOnboardingRepository.setInitialStartingPoint
+    >[0]["db"];
+
+    await expect(
+      trainingOnboardingRepository.setInitialStartingPoint({
+        db,
+        sessionId: "s-1",
+        tier: "skip_basics",
+        label: "I've shipped a production service",
+      }),
+    ).resolves.toBeNull();
+
+    expect(where).toHaveBeenCalledOnce();
+    expect(returning).toHaveBeenCalledOnce();
+  });
+});
+
 describe("trainingOnboardingRepository.claimWorkspaceTurn", () => {
   const claimInput = {
     sessionId: "00000000-0000-0000-0000-000000000001",

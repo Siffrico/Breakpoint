@@ -19,19 +19,24 @@ const previews = [
     description: "Main workspace shell with local preview data.",
   },
   {
+    href: "/ui/profile/profile",
+    label: "Settings · Profile",
+    description: "Account identity and training profile.",
+  },
+  {
     href: "/ui/profile/general",
-    label: "Profile · General",
-    description: "Training, account, and billing surfaces.",
+    label: "Settings · General",
+    description: "Theme, model, and memory surfaces.",
   },
   {
-    href: "/ui/profile/preferences",
-    label: "Profile · Preferences",
-    description: "Theme selection card.",
+    href: "/ui/profile/teachers",
+    label: "Settings · Teachers",
+    description: "Teacher agents and system prompts (WIP).",
   },
   {
-    href: "/ui/profile/customization",
-    label: "Profile · Customization",
-    description: "Memory entry, file upload, and ChatGPT import flow.",
+    href: "/ui/profile/billing",
+    label: "Settings · Billing",
+    description: "Plan and subscription management.",
   },
   {
     href: "/ui/train",
@@ -43,6 +48,12 @@ const previews = [
     href: "/ui/courses",
     label: "Courses",
     description: "Outcome-based course catalog and discovery.",
+  },
+  {
+    href: "/ui/chat-lab",
+    label: "Chat Lab",
+    description:
+      "Mock-streamed text, LaTeX, and mermaid across chat designs — real useChat, faked transport.",
   },
 ];
 

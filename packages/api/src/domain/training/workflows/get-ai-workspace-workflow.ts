@@ -1,59 +1,37 @@
+import type { Effect as EffectType } from "effect";
+import { Cause, Effect, Exit } from "effect";
+
+import type { DbError } from "../../../effect/errors";
 import type { Result } from "../../../lib/result";
-import type {
-  CurriculumNode,
-  CurriculumPlan,
-  PhaseResponseRecord,
-  UnitContent,
-} from "../types/training.types";
+import type { CurriculumPlan } from "../types/training.types";
 import type {
   EvaluationPlan,
   WorkspaceAiMessage,
   WorkspaceAiState,
 } from "../workspace-ai/types";
-import type { PersistedUnitRun } from "../education-unit/unit";
+import type {
+  AiWorkspaceReaderSource,
+  WorkspaceProjectionReaderSource,
+} from "../workspace-ai/workspace-reader";
 import { err, ok } from "../../../lib/result";
+import { UnitNotReadyError } from "../unit-preparation/errors";
 import { getEvaluationProgress } from "../workspace-ai/evaluation-plan";
 import { planWorkspaceTurn } from "../workspace-ai/orchestrator";
+import { CurriculumNotReadyError } from "../workspace-ai/workspace-errors";
+import {
+  AiWorkspaceReader,
+  makeAiWorkspaceReader,
+  makeWorkspaceProjectionReader,
+  WorkspaceProjectionReader,
+} from "../workspace-ai/workspace-reader";
 import {
   getUnitAdvanceGate,
-  resolveUnitRunProjection,
+  loadNextReadyUnitProjection,
 } from "../workspace-ai/workspace-turn";
 
-interface GetAiWorkspaceDependencies {
-  getActivePlan: (sessionId: string) => Promise<CurriculumPlan | null>;
-  listMessages: (
-    sessionId: string,
-    slot?: "education_unit" | "recall",
-  ) => Promise<WorkspaceAiMessage[]>;
-  listPhaseResponsesBySession: (
-    sessionId: string,
-  ) => Promise<PhaseResponseRecord[]>;
-  getPhaseResponses: (
-    unitContentId: string,
-    sessionId: string,
-  ) => Promise<PhaseResponseRecord[]>;
-  getUnitRun: (
-    sessionId: string,
-    unitContentId: string,
-  ) => Promise<PersistedUnitRun | null>;
-  upsertUnitRun: (run: PersistedUnitRun) => Promise<PersistedUnitRun>;
-  getUnitByNodeId: (nodeId: string) => Promise<UnitContent | null>;
-  createUnitContent: (input: {
-    nodeId: string;
-    title: string;
-    seedPrompt: string;
-    seedHint: string;
-    clusterArcFrame: string;
-    complexityBudget: UnitContent["complexityBudget"];
-    teachbackSetup: UnitContent["teachbackSetup"];
-    scenario: UnitContent["scenario"];
-    unitMasteryContract?: UnitContent["unitMasteryContract"];
-  }) => Promise<UnitContent | null>;
-  getScenarioAttemptStartedAt: (input: {
-    scenarioAttemptId: string;
-    nodeId: string;
-  }) => Promise<Date | null>;
-}
+interface GetAiWorkspaceDependencies
+  extends WorkspaceProjectionReaderSource,
+    AiWorkspaceReaderSource {}
 
 export interface AiWorkspaceView {
   plan: CurriculumPlan;
@@ -67,7 +45,6 @@ export interface AiWorkspaceView {
   evaluationProgress: {
     completedAttempts: number;
     scenarioCount: number;
-    canRequestNextScenario: boolean;
     attemptStartedAt: Date | null;
   } | null;
   unitAdvanceGate: ReturnType<typeof getUnitAdvanceGate>;
@@ -75,125 +52,163 @@ export interface AiWorkspaceView {
 
 /**
  * Takes a learning session id; produces the current AI workspace view; fails
- * only when the curriculum does not exist or the active unit cannot be prepared.
+ * only when the curriculum does not exist or the active unit is not ready.
  */
+export const getAiWorkspaceWorkflowEffect = ({
+  sessionId,
+}: {
+  sessionId: string;
+}): EffectType.Effect<
+  AiWorkspaceView,
+  DbError | CurriculumNotReadyError | UnitNotReadyError,
+  WorkspaceProjectionReader | AiWorkspaceReader
+> =>
+  Effect.gen(function* () {
+    const projectionReader = yield* WorkspaceProjectionReader;
+    const displayReader = yield* AiWorkspaceReader;
+    const [plan, messages, educationUnitMessages, allResponses] =
+      yield* Effect.all(
+        [
+          projectionReader.getActivePlan(sessionId),
+          displayReader.listMessages(sessionId),
+          displayReader.listMessages(sessionId, "education_unit"),
+          projectionReader.listPhaseResponsesBySession(sessionId),
+        ],
+        { concurrency: 4 },
+      );
+
+    if (!plan) {
+      return yield* new CurriculumNotReadyError({
+        message: "Curriculum is not ready yet.",
+      });
+    }
+
+    const active = yield* loadNextReadyUnitProjection({
+      sessionId,
+      nodes: plan.nodes,
+    });
+    if (active.node && !active.unit) {
+      return yield* new UnitNotReadyError({
+        message: "UNIT_PREPARING",
+        nodeId: active.node.id,
+      });
+    }
+
+    const state = planWorkspaceTurn({
+      nodes: plan.nodes,
+      allResponses,
+      activeUnitResponses: active.responses,
+      activeUnitRun: active.run,
+    });
+
+    if (state?.recallUnitId) {
+      const recallNode = plan.nodes.find(
+        (node) => node.id === state.recallUnitId,
+      );
+      const unit = recallNode
+        ? yield* projectionReader.getUnitByNodeId(recallNode.id)
+        : null;
+      if (!unit) {
+        return yield* new UnitNotReadyError({
+          message: "UNIT_PREPARING",
+          nodeId: recallNode?.id,
+        });
+      }
+    }
+
+    // Each unit is its own chat: show only the live unit's transcript (the
+    // recall interlude, or the active unit). Earlier units live in the sidebar
+    // as read-only history, not in the live scroll.
+    // Same precedence findWorkspaceTurnNode uses to pick the unit messages are
+    // written under (exactly one of the two is ever set — see orchestrator.ts),
+    // so this filter matches the transcript the live turn appends to.
+    const liveUnitId = state
+      ? (state.activeUnitId ?? state.recallUnitId)
+      : null;
+    const activeMessages = !state
+      ? messages
+      : liveUnitId
+        ? educationUnitMessages.filter(
+            (message) => message.unitId === liveUnitId,
+          )
+        : educationUnitMessages;
+    const evaluationProgress = getEvaluationProgress(active.responses);
+    const activeScenarioAttemptId = active.responses
+      .slice()
+      .reverse()
+      .find((response) => response.metadata?.scenarioAttemptId)
+      ?.metadata?.scenarioAttemptId;
+    const attemptStartedAt =
+      active.unit && activeScenarioAttemptId
+        ? yield* displayReader.getScenarioAttemptStartedAt({
+            scenarioAttemptId: activeScenarioAttemptId,
+            nodeId: active.unit.nodeId,
+          })
+        : null;
+    const activeNode = active.node;
+    const nextLearningNode =
+      activeNode == null
+        ? null
+        : (plan.nodes.find(
+            (node) =>
+              (node.kind === "unit" || node.kind === "integration") &&
+              node.orderIndex > activeNode.orderIndex,
+          ) ?? null);
+
+    return {
+      plan,
+      state,
+      messages: activeMessages,
+      evaluationPlan:
+        state?.mode === "education_unit" ? evaluationProgress.latestPlan : null,
+      evaluationProgress:
+        state?.mode === "education_unit" && evaluationProgress.latestPlan
+          ? {
+              completedAttempts: evaluationProgress.completedAttempts,
+              scenarioCount: evaluationProgress.latestPlan.scenarioCount,
+              attemptStartedAt,
+            }
+          : null,
+      unitAdvanceGate: getUnitAdvanceGate({
+        node: active.node,
+        run: active.run,
+        nextNode: nextLearningNode,
+      }),
+      introMessage: buildWorkspaceIntroMessage({
+        plan,
+        state,
+      }),
+    };
+  });
+
 export const getAiWorkspaceWorkflow = async ({
   sessionId,
   deps,
 }: {
   sessionId: string;
   deps: GetAiWorkspaceDependencies;
-}): Promise<Result<AiWorkspaceView>> => {
-  const [plan, messages, allResponses] = await Promise.all([
-    deps.getActivePlan(sessionId),
-    deps.listMessages(sessionId),
-    deps.listPhaseResponsesBySession(sessionId),
-  ]);
+}): Promise<Result<AiWorkspaceView, string | UnitNotReadyError>> => {
+  const exit = await Effect.runPromiseExit(
+    getAiWorkspaceWorkflowEffect({ sessionId }).pipe(
+      Effect.provideService(
+        WorkspaceProjectionReader,
+        makeWorkspaceProjectionReader(deps),
+      ),
+      Effect.provideService(AiWorkspaceReader, makeAiWorkspaceReader(deps)),
+    ),
+  );
 
-  if (!plan) {
-    return err("Curriculum is not ready yet.");
+  if (Exit.isSuccess(exit)) return ok(exit.value);
+
+  const failure = Cause.squash(exit.cause);
+  if (failure instanceof CurriculumNotReadyError) {
+    return err(failure.message);
   }
-
-  const activeUnitNode = getNextReadyLearningNode(plan.nodes);
-  const activeUnit = activeUnitNode
-    ? await ensureWorkspaceUnit({
-        node: activeUnitNode,
-        deps,
-      })
-    : null;
-  const activeUnitResponses = activeUnit
-    ? await deps.getPhaseResponses(activeUnit.id, sessionId)
-    : [];
-  const activeUnitRun = activeUnit
-    ? await resolveUnitRunProjection({
-        sessionId,
-        unit: activeUnit,
-        deps,
-      })
-    : null;
-
-  const state = planWorkspaceTurn({
-    nodes: plan.nodes,
-    allResponses,
-    activeUnitResponses,
-    activeUnitRun,
-  });
-
-  if (state?.activeUnitId && !activeUnit) {
-    return err("Active education unit could not be prepared.");
+  if (failure instanceof UnitNotReadyError) {
+    return err(failure);
   }
-
-  if (state?.recallUnitId) {
-    const unit = await ensureWorkspaceUnit({
-      node: plan.nodes.find((node) => node.id === state.recallUnitId) ?? null,
-      deps,
-    });
-    if (!unit) {
-      return err("Recall unit could not be prepared.");
-    }
-  }
-
-  const activeMessages = state
-    ? await deps.listMessages(sessionId, getWorkspaceMessageSlot(state.mode))
-    : messages;
-  const evaluationProgress = getEvaluationProgress(activeUnitResponses);
-  const activeScenarioAttemptId = activeUnitResponses
-    .slice()
-    .reverse()
-    .find((response) => response.metadata?.scenarioAttemptId)
-    ?.metadata?.scenarioAttemptId;
-  const attemptStartedAt =
-    activeUnit && activeScenarioAttemptId
-      ? await deps.getScenarioAttemptStartedAt({
-          scenarioAttemptId: activeScenarioAttemptId,
-          nodeId: activeUnit.nodeId,
-        })
-      : null;
-  const nextLearningNode =
-    activeUnitNode == null
-      ? null
-      : (plan.nodes.find(
-          (node) =>
-            (node.kind === "unit" || node.kind === "integration") &&
-            node.orderIndex > activeUnitNode.orderIndex,
-        ) ?? null);
-
-  return ok({
-    plan,
-    state,
-    messages: activeMessages,
-    evaluationPlan:
-      state?.mode === "education_unit" ? evaluationProgress.latestPlan : null,
-    evaluationProgress:
-      state?.mode === "education_unit" && evaluationProgress.latestPlan
-        ? {
-            completedAttempts: evaluationProgress.completedAttempts,
-            scenarioCount: evaluationProgress.latestPlan.scenarioCount,
-            canRequestNextScenario: evaluationProgress.canRequestNextScenario,
-            attemptStartedAt,
-          }
-        : null,
-    unitAdvanceGate: getUnitAdvanceGate({
-      node: activeUnitNode,
-      run: activeUnitRun,
-      nextNode: nextLearningNode,
-    }),
-    introMessage: buildWorkspaceIntroMessage({
-      plan,
-      state,
-    }),
-  });
+  throw failure;
 };
-
-const getNextReadyLearningNode = (nodes: CurriculumNode[]) =>
-  nodes.find(
-    (node) =>
-      (node.kind === "unit" || node.kind === "integration") &&
-      node.status === "ready",
-  ) ?? null;
-
-const getWorkspaceMessageSlot = (mode: WorkspaceAiState["mode"]) =>
-  mode === "recall" ? "recall" : "education_unit";
 
 export const buildWorkspaceIntroMessage = ({
   plan,
@@ -202,7 +217,7 @@ export const buildWorkspaceIntroMessage = ({
   plan: CurriculumPlan;
   state: WorkspaceAiState | null;
 }) => {
-  if (state?.mode !== "recall" || !state.recallUnitId) {
+  if (!state?.recallUnitId) {
     return null;
   }
 
@@ -215,62 +230,4 @@ export const buildWorkspaceIntroMessage = ({
     helper: "Recall",
     prompt: `Return to ${recallUnit.title}. Reconstruct the key distinction, mechanism, or procedure from memory before you move on.`,
   };
-};
-
-export const ensureWorkspaceUnit = async ({
-  node,
-  deps,
-}: {
-  node: CurriculumNode | null;
-  deps: Pick<
-    GetAiWorkspaceDependencies,
-    "getUnitByNodeId" | "createUnitContent"
-  >;
-}) => {
-  if (!node) {
-    return null;
-  }
-
-  const existingUnit = await deps.getUnitByNodeId(node.id);
-  if (existingUnit) {
-    return existingUnit;
-  }
-
-  return deps.createUnitContent({
-    nodeId: node.id,
-    title: node.title,
-    seedPrompt: `You are in a real situation where ${node.summary} matters. What would you do first, and what would you watch for?`,
-    seedHint:
-      "Answer with the concrete move you would make, the reason for it, and the signal that would tell you whether it is working.",
-    clusterArcFrame: node.whyItMatters,
-    complexityBudget: 1,
-    teachbackSetup: {
-      studentPersona: "A skeptical peer who needs the idea made practical.",
-      openingMisconception:
-        "The learner can describe the topic but has not yet shown reliable transfer.",
-      roundLadder: [
-        {
-          round: 1,
-          objection: "Why does this matter in a real case?",
-          objective: "Test practical grounding.",
-        },
-        {
-          round: 2,
-          objection: "What would break if you applied it too simply?",
-          objective: "Test boundaries.",
-        },
-        {
-          round: 3,
-          objection: "How would you explain the tradeoff under pressure?",
-          objective: "Test transfer.",
-        },
-      ],
-      passSignals: ["Names the mechanism", "Applies it in context"],
-      failureModes: ["Stays abstract", "Misses the boundary condition"],
-    },
-    scenario: {
-      title: node.title,
-      focusAreas: [node.summary, node.whyItMatters].filter(Boolean).slice(0, 2),
-    },
-  });
 };

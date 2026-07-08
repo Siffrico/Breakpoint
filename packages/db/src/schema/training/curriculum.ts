@@ -34,6 +34,17 @@ export const TrainingCurriculumPlan = pgTable(
       body: string;
     }>(),
     overviewGeneratedAt: t.timestamp({ mode: "date", withTimezone: true }),
+    // Glicko seed derived from the learner's onboarding starting point and
+    // stamped at build time. The workspace reads it as the initial rating state
+    // for fresh nodes. Null when no starting point was elicited. See
+    // @acme/validators SeedRating and engine/rating/seed.ts.
+    seedRating: t
+      .jsonb()
+      .$type<{
+        rating: number;
+        ratingDeviation: number;
+        volatility: number;
+      } | null>(),
     createdAt: t
       .timestamp({ mode: "date", withTimezone: true })
       .defaultNow()
@@ -78,6 +89,14 @@ export const TrainingCurriculumNode = pgTable(
         label?: string;
       }[]
     >(),
+    skillMap: t.jsonb().$type<{
+      workflow: { name: string; steps: string[] };
+      bandRamp: { startRating: number; peakRating: number };
+      masteryContract: {
+        exitCriteria: string[];
+        maxRatingDeviation?: number;
+      };
+    }>(),
     orderIndex: t.integer().notNull(),
     depth: t.integer().notNull(),
     positionColumn: t.integer().notNull(),
@@ -96,5 +115,41 @@ export const TrainingCurriculumNode = pgTable(
       table.parentNodeId,
       table.orderIndex,
     ),
+  ],
+);
+
+export const TrainingSyllabusEntry = pgTable(
+  "becoming_training_syllabus_entry",
+  (t) => ({
+    id: t.uuid().notNull().primaryKey().defaultRandom(),
+    clusterNodeId: t
+      .uuid()
+      .notNull()
+      .references(() => TrainingCurriculumNode.id, { onDelete: "cascade" }),
+    orderIndex: t.integer().notNull(),
+    label: t.text().notNull(),
+    kind: t.varchar({ length: 32 }).notNull(),
+    gloss: t.text().notNull(),
+    status: t.varchar({ length: 32 }).notNull().default("unchecked"),
+    checkedAt: t.timestamp({ mode: "date", withTimezone: true }),
+    // Spaced-reinforcement state: how many consecutive scored recalls this
+    // entry has survived, and when it last earned (or lost) one. checkedAt is
+    // the anchor until the first reinforcement. See policies/recall-decay.ts.
+    strength: t.integer().notNull().default(0),
+    lastReinforcedAt: t.timestamp({ mode: "date", withTimezone: true }),
+    evidenceNodeId: t
+      .uuid()
+      .references(() => TrainingCurriculumNode.id, { onDelete: "set null" }),
+    createdAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  }),
+  (table) => [
+    uniqueIndex("becoming_syllabus_cluster_order_idx").on(
+      table.clusterNodeId,
+      table.orderIndex,
+    ),
+    index("becoming_syllabus_evidence_node_idx").on(table.evidenceNodeId),
   ],
 );

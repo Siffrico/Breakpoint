@@ -18,6 +18,7 @@ import { useMutation } from "@tanstack/react-query";
 import {
   DefaultChatTransport,
   lastAssistantMessageIsCompleteWithApprovalResponses,
+  lastAssistantMessageIsCompleteWithToolCalls,
 } from "ai";
 
 import type { RouterOutputs } from "@acme/api";
@@ -25,6 +26,7 @@ import type {
   OnboardingChatUIMessage,
   ProjectBuildState,
 } from "@acme/api/onboarding-chat";
+import type { StartingPointTier } from "@acme/validators";
 import { Button } from "@acme/ui/button";
 import {
   ChatComposer,
@@ -48,6 +50,7 @@ import { useTRPC } from "~/trpc/react";
 import { AssistantRichText } from "./assistant-rich-text";
 import { CreateProjectConfirm } from "./onboarding/create-project-confirm";
 import { ProjectBuildCard } from "./onboarding/project-build-card";
+import { StartingPointCheck } from "./onboarding/starting-point-check";
 
 type OnboardingState = RouterOutputs["training"]["startOnboarding"];
 
@@ -160,6 +163,22 @@ export function OnboardingShell({
       onError: (error) => toast.error(error.message),
     }),
   );
+  const continueLearning = useMutation(
+    trpc.training.continueLearningProject.mutationOptions({
+      onSuccess: (destination) => {
+        router.replace(destination.href);
+        router.refresh();
+      },
+      onError: (error) => toast.error(error.message),
+    }),
+  );
+  const setStartingPoint = useMutation(
+    trpc.training.setStartingPoint.mutationOptions({
+      // Optimistic: the confirm card already updated its own local tier; a
+      // failure just surfaces a toast and the next build read falls back.
+      onError: (error) => toast.error(error.message),
+    }),
+  );
   useEffect(() => {
     if (preview || sessionId || startedRef.current) return;
     startedRef.current = true;
@@ -214,13 +233,17 @@ export function OnboardingShell({
     stop,
     regenerate,
     addToolApprovalResponse,
+    addToolResult,
   } = useChat<OnboardingChatUIMessage>({
     transport,
     messages: initialUiMessages,
     // Batch UI updates during streaming (SDK-native render throttling).
     experimental_throttle: 50,
-    // Auto-resume the run the moment the learner approves "Create project".
-    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
+    // Auto-resume the run when EITHER the learner approves "Create project"
+    // (approval response) OR taps a starting-point option (tool result).
+    sendAutomaticallyWhen: (options) =>
+      lastAssistantMessageIsCompleteWithApprovalResponses(options) ||
+      lastAssistantMessageIsCompleteWithToolCalls(options),
     onFinish: (finishState) => {
       if (!shouldClearSubmittedDraft(finishState)) return;
       clearSubmittedDraft(pendingDraftRef.current?.key ?? null);
@@ -302,6 +325,16 @@ export function OnboardingShell({
     () => renderMessages.filter((m) => m.role === "user").length,
     [renderMessages],
   );
+
+  // Index of the newest user message. An unanswered starting-point card that
+  // sits before it was answered in prose instead of tapped — hide it so a
+  // stray late tap can't persist a tier and fire an extra model turn.
+  const lastUserMessageIndex = useMemo(() => {
+    for (let i = renderMessages.length - 1; i >= 0; i -= 1) {
+      if (renderMessages[i]?.role === "user") return i;
+    }
+    return -1;
+  }, [renderMessages]);
 
   useEffect(() => {
     onTurnCountChange?.(userTurnCount);
@@ -398,10 +431,10 @@ export function OnboardingShell({
   // first user turn lands, then the regular transcript + docked composer.
   const showHero = userTurnCount === 0 && !projectReady;
   const manualSetupHref = preview
-    ? "/ui/profile/projects"
+    ? "/ui/profile"
     : sessionId
-      ? `/profile/projects?session=${encodeURIComponent(sessionId)}`
-      : "/profile/projects";
+      ? `/settings/topics?session=${encodeURIComponent(sessionId)}`
+      : "/settings/topics";
 
   const manualSetupAction = !embedded ? (
     <div className="absolute top-4 right-4 z-10">
@@ -576,6 +609,24 @@ export function OnboardingShell({
             </svg>
 
             {heroComposer}
+
+            {/* Example chips to kill blank-page paralysis: tapping one submits
+                it as the learner's first answer. Presentational otherwise. */}
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+              {["an ML engineer", "a systems programmer", "a quant"].map(
+                (example) => (
+                  <button
+                    key={example}
+                    type="button"
+                    disabled={!sessionReady || effectiveIsStreaming}
+                    onClick={() => submitText(example)}
+                    className="rounded-full border border-white/[0.08] bg-white/[0.02] px-3 py-1.5 text-[12.5px] text-[#9a9a9a] transition-colors hover:border-white/[0.16] hover:bg-white/[0.05] hover:text-[#d0d0d0] disabled:opacity-50"
+                  >
+                    {example}
+                  </button>
+                ),
+              )}
+            </div>
           </div>
         </div>
       </main>
@@ -634,12 +685,12 @@ export function OnboardingShell({
                             key={`${message.id}-build-${partIndex}`}
                             state={build}
                             preview={preview}
+                            startPending={continueLearning.isPending}
                             onStartLearning={() => {
                               if (preview || !build.sessionId) return;
-                              router.replace(
-                                `/workspace?session=${encodeURIComponent(build.sessionId)}`,
-                              );
-                              router.refresh();
+                              continueLearning.mutate({
+                                sessionId: build.sessionId,
+                              });
                             }}
                             onSeeOverview={() => {
                               if (preview || !build.sessionId) return;
@@ -668,12 +719,37 @@ export function OnboardingShell({
                           />
                         );
                       }
+                      if ((part.type as string) === "tool-askStartingPoint") {
+                        const answered =
+                          (part as { state?: string }).state ===
+                          "output-available";
+                        // Superseded: the learner typed past the question
+                        // instead of tapping. Keep the collapsed ✓ line when
+                        // answered; drop the interactive card otherwise.
+                        if (!answered && index < lastUserMessageIndex) {
+                          return null;
+                        }
+                        return (
+                          <StartingPointCheck
+                            key={`${message.id}-start-${partIndex}`}
+                            part={part}
+                            busy={isStreaming}
+                            onAnswer={({ toolCallId, tier, label }) =>
+                              void addToolResult({
+                                tool: "askStartingPoint",
+                                toolCallId,
+                                output: { tier, label },
+                              } as Parameters<typeof addToolResult>[0])
+                            }
+                          />
+                        );
+                      }
                       if ((part.type as string) === "tool-createProject") {
                         return (
                           <CreateProjectConfirm
                             key={`${message.id}-confirm-${partIndex}`}
                             part={part}
-                            busy={isStreaming}
+                            busy={isStreaming || setStartingPoint.isPending}
                             onApprove={(approvalId) =>
                               void addToolApprovalResponse({
                                 id: approvalId,
@@ -685,6 +761,15 @@ export function OnboardingShell({
                                 id: approvalId,
                                 approved: false,
                               })
+                            }
+                            onChangeStartingPoint={
+                              sessionId
+                                ? (tier: StartingPointTier) =>
+                                    setStartingPoint.mutateAsync({
+                                      sessionId,
+                                      tier,
+                                    })
+                                : undefined
                             }
                           />
                         );

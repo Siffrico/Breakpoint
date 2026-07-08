@@ -1,5 +1,4 @@
 import type { DifficultyBand } from "./decide";
-
 import { validateDifficultyBands } from "./decide";
 
 /**
@@ -84,3 +83,21 @@ const BAND_LABELS = [
   "Realistic · messy case",
   "Adversarial · transfer case",
 ] as const;
+
+/** One canonical ladder for a dynamically created skill and all of its units. */
+export const expandSkillBands = (ramp: BandRamp): DifficultyBand[] => {
+  if (ramp.peakRating <= ramp.startRating) {
+    throw new RangeError(
+      `band ramp peakRating (${ramp.peakRating}) must be greater than startRating (${ramp.startRating})`,
+    );
+  }
+  const floor = ramp.startRating - BAND_WIDTH;
+  const width = Math.max(Math.round((ramp.peakRating - floor) / 3), 1);
+  const bands = [0, 1, 2].map((order) => ({
+    order,
+    minRating: floor + order * width,
+    maxRating: order === 2 ? ramp.peakRating : floor + (order + 1) * width,
+    label: BAND_LABELS[order],
+  }));
+  return [...validateDifficultyBands(bands)];
+};

@@ -1,19 +1,10 @@
-import type { Metadata } from "next";
-
-export const metadata: Metadata = {
-  title: "Profile",
-  description: "Manage your Breakpoint profile.",
-};
-
 import { redirect } from "next/navigation";
 
-export default async function ProfilePage(props: {
+// Settings moved from /profile to /settings. Preserve any session query so deep
+// links and bookmarks continue to resolve.
+export default async function LegacyProfileRedirect(props: {
   searchParams: Promise<{ session?: string }>;
 }) {
-  const searchParams = await props.searchParams;
-  redirect(
-    searchParams.session
-      ? `/profile/general?session=${searchParams.session}`
-      : "/profile/general",
-  );
+  const { session } = await props.searchParams;
+  redirect(session ? `/settings?session=${session}` : "/settings");
 }

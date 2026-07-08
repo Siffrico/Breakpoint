@@ -82,10 +82,23 @@ const packet: OnboardingPacket = {
   confidenceFlags: [],
 };
 
-const buildUnit = (index: number) => ({
-  title: `Unit ${index + 1}`,
-  learningGoal:
-    "Given a concrete replicated-service failure, identify the causal mechanism and choose the next operational move.",
+const buildSkill = (index: number) => ({
+  title: `Diagnose replicated-service failure ${index + 1}`,
+  summary: "Trace reads, writes, lag, and acknowledgement boundaries.",
+  whyItMatters: "Reliability claims fail here first.",
+  workflow: {
+    name: "Diagnose a replicated-service failure",
+    steps: ["Collect evidence", "Trace message flow", "Choose the next probe"],
+  },
+  bandRamp: { startRating: 1000, peakRating: 1600 },
+  simulation: {
+    title: `Checkout under replica lag ${index + 1}`,
+    summary: "Diagnose stale inventory during a live incident.",
+    whyItMatters: "It combines user impact and consistency mechanics.",
+  },
+  masteryContract: {
+    exitCriteria: ["Diagnoses the causal mechanism from incomplete evidence."],
+  },
 });
 
 const curriculum: CurriculumDesignerOutput = {
@@ -119,21 +132,7 @@ const curriculum: CurriculumDesignerOutput = {
     title: "Distributed systems",
     summary: "Practice operational judgment for replicated services.",
     targetIdentity: "backend engineer",
-    clusters: [
-      {
-        title: "Diagnose replicated-service failures",
-        summary: "Trace reads, writes, lag, and acknowledgement boundaries.",
-        whyItMatters: "Reliability claims fail here first.",
-        units: Array.from({ length: 20 }, (_, index) => buildUnit(index)),
-        bandRamp: { startRating: 1000, peakRating: 1600 },
-        simulation: {
-          title: "Checkout under replica lag",
-          summary: "Diagnose stale inventory during a live incident.",
-          whyItMatters: "It combines user impact and consistency mechanics.",
-        },
-      },
-    ],
-    integrationLayers: [],
+    clusters: Array.from({ length: 3 }, (_, index) => buildSkill(index)),
   },
 };
 
@@ -186,6 +185,9 @@ const makeDeps = (
     claim?: Awaited<ReturnType<BuildProjectDeps["claimRun"]>>;
     persistCurriculum?: BuildProjectDeps["persistCurriculum"];
     persistOverview?: BuildProjectDeps["persistOverview"];
+    startingPoint?: Awaited<
+      ReturnType<BuildProjectDeps["getStartingPoint"]>
+    > | null;
   } = {},
 ) => {
   const store = new Map<
@@ -228,6 +230,9 @@ const makeDeps = (
     getActivePlan: vi.fn<BuildProjectDeps["getActivePlan"]>(() =>
       Promise.resolve(planState.status === "active" ? plan : null),
     ),
+    getStartingPoint: vi.fn<BuildProjectDeps["getStartingPoint"]>(() =>
+      Promise.resolve(opts.startingPoint ?? null),
+    ),
     claimRun: vi.fn<BuildProjectDeps["claimRun"]>(() =>
       Promise.resolve(opts.claim ?? { status: "claimed" }),
     ),
@@ -258,12 +263,25 @@ const makeDeps = (
       planState.status = "active";
       return Promise.resolve(plan);
     }),
+    prepareUnit: vi.fn<BuildProjectDeps["prepareUnit"]>(() =>
+      Promise.resolve(),
+    ),
+    ensureSkillSyllabus: vi.fn<BuildProjectDeps["ensureSkillSyllabus"]>(() =>
+      Promise.resolve(),
+    ),
+    createSkillUnit: vi.fn<BuildProjectDeps["createSkillUnit"]>(() =>
+      Promise.resolve(),
+    ),
   };
 
   return { deps, store, updateRunCalls };
 };
 
-const run = (deps: BuildProjectDeps, onProgress = vi.fn()) =>
+const run = (
+  deps: BuildProjectDeps,
+  onProgress = vi.fn(),
+  scheduleBackgroundTask?: (task: () => Promise<void>) => void,
+) =>
   buildProjectFromOnboarding({
     sessionId: "session-id",
     userId: "user-id",
@@ -271,9 +289,50 @@ const run = (deps: BuildProjectDeps, onProgress = vi.fn()) =>
     input,
     deps,
     onProgress,
+    scheduleBackgroundTask,
   });
 
 describe("buildProjectFromOnboarding", () => {
+  it("prewarms a syllabus and first unit for every independent skill", async () => {
+    mockPacket.mockResolvedValue(packet);
+    mockCurriculum.mockResolvedValue(curriculum);
+    mockOverview.mockResolvedValue(overview);
+    const { deps } = makeDeps();
+    const skills = curriculum.planDraft.clusters.map((cluster, index) => ({
+      id: `skill-${index + 1}`,
+      parentNodeId: null,
+      kind: "skill_cluster" as const,
+      title: cluster.title,
+      summary: cluster.summary,
+      whyItMatters: cluster.whyItMatters,
+      learningGoal: cluster.masteryContract.exitCriteria.join(" "),
+      orderIndex: index,
+      depth: 1,
+      positionColumn: index,
+      positionRow: 1,
+      status: "ready" as const,
+      difficultyBands: null,
+    }));
+    deps.finalize = vi.fn(() =>
+      Promise.resolve({ ...plan, nodes: skills, nextUnitId: null }),
+    );
+    const tasks: Promise<void>[] = [];
+
+    const result = await run(deps, vi.fn(), (task) => {
+      tasks.push(task());
+    });
+    await Promise.all(tasks);
+
+    expect(result.success).toBe(true);
+    expect(deps.ensureSkillSyllabus).toHaveBeenCalledTimes(skills.length);
+    expect(deps.createSkillUnit).toHaveBeenCalledTimes(skills.length);
+    expect(deps.createSkillUnit).toHaveBeenCalledWith({
+      clusterNodeId: "skill-3",
+      sessionId: "session-id",
+      userId: "user-id",
+    });
+  });
+
   it("does not generate or persist while a build is already running", async () => {
     const processing: Awaited<ReturnType<BuildProjectDeps["claimRun"]>> = {
       status: "processing",
@@ -598,5 +657,77 @@ describe("buildProjectFromOnboarding", () => {
     expect(mockPacket).toHaveBeenCalledOnce();
     expect(mockCurriculum).toHaveBeenCalledOnce();
     expect(mockOverview).toHaveBeenCalledOnce();
+  });
+
+  it("stamps the seed rating from the tool-proposed starting point", async () => {
+    mockPacket.mockResolvedValue(packet);
+    mockCurriculum.mockResolvedValue(curriculum);
+    mockOverview.mockResolvedValue(overview);
+    const { deps } = makeDeps();
+
+    const result = await buildProjectFromOnboarding({
+      sessionId: "session-id",
+      userId: "user-id",
+      transcript,
+      input: {
+        ...input,
+        skills: ["Architect Distributed Backend Systems"],
+        startingPoint: { tier: "skip_basics", reason: "you've shipped services" },
+      },
+      deps,
+      onProgress: vi.fn(),
+    });
+
+    expect(result.success).toBe(true);
+    // skip_basics → band-2 midpoint 1150, wide deviation.
+    const shellSeed = vi.mocked(deps.ensureShell).mock.calls[0]?.[0].seedRating;
+    expect(shellSeed?.rating).toBe(1150);
+    expect(shellSeed?.ratingDeviation).toBe(250);
+    // The placement note reaches the curriculum designer.
+    const curriculumArgs = mockCurriculum.mock.calls[0]?.[0];
+    expect(curriculumArgs?.skills).toEqual([
+      "Architect Distributed Backend Systems",
+    ]);
+    expect(curriculumArgs?.placementNote).toContain("1150");
+  });
+
+  it("lets the persisted starting point win over the tool input", async () => {
+    mockPacket.mockResolvedValue(packet);
+    mockCurriculum.mockResolvedValue(curriculum);
+    mockOverview.mockResolvedValue(overview);
+    const { deps } = makeDeps({
+      startingPoint: { tier: "advanced", label: "I ship these for a living" },
+    });
+
+    const result = await buildProjectFromOnboarding({
+      sessionId: "session-id",
+      userId: "user-id",
+      transcript,
+      input: {
+        ...input,
+        startingPoint: { tier: "fundamentals", reason: "brand new" },
+      },
+      deps,
+      onProgress: vi.fn(),
+    });
+
+    expect(result.success).toBe(true);
+    // Session override (advanced → 1350) beats the tool's fundamentals (950).
+    const shellSeed = vi.mocked(deps.ensureShell).mock.calls[0]?.[0].seedRating;
+    expect(shellSeed?.rating).toBe(1350);
+  });
+
+  it("stamps no seed and adds no placement note when there is no starting point", async () => {
+    mockPacket.mockResolvedValue(packet);
+    mockCurriculum.mockResolvedValue(curriculum);
+    mockOverview.mockResolvedValue(overview);
+    const { deps } = makeDeps();
+
+    // The shared `input` has no startingPoint, and getStartingPoint returns null.
+    const result = await run(deps);
+
+    expect(result.success).toBe(true);
+    expect(vi.mocked(deps.ensureShell).mock.calls[0]?.[0].seedRating).toBeNull();
+    expect(mockCurriculum.mock.calls[0]?.[0].placementNote).toBeNull();
   });
 });

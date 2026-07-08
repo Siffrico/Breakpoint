@@ -35,7 +35,7 @@ const DEFAULT_STEP_DETAILS: Record<ProjectBuildStep, ProjectBuildStepDetail> = {
   },
   curriculum: {
     title: "Curriculum draft",
-    body: "Drafting the identity profile, module sequence, and unit plan.",
+    body: "Drafting the identity profile and independent skill map.",
   },
   overview: {
     title: "Overview draft",
@@ -112,7 +112,6 @@ const previewCurriculum = (
 ): ProjectBuildStepDetail => {
   const plan = payload.planDraft;
   const clusters = titledItems(plan?.clusters);
-  const integrations = titledItems(plan?.integrationLayers);
 
   return detailFrom(
     "Curriculum draft",
@@ -121,8 +120,7 @@ const previewCurriculum = (
       line("Headline", payload.identityReport?.headline),
       line("Plan", plan?.title),
       line("Summary", plan?.summary),
-      listLine("Clusters", clusters),
-      listLine("Integration layers", integrations),
+      listLine("Skills", clusters),
     ]),
   );
 };

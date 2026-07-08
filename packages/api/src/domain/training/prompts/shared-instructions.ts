@@ -27,6 +27,24 @@ evidence_a_learner_has_it pattern from the response, the dimension has not been
 demonstrated regardless of how fluent the response sounded.
 `.trim();
 
+/**
+ * The closed error taxonomy. `GradeSolutionInputSchema.errorCodes` and the
+ * misconception ledger (see engine/rating/misconceptions.ts) both key off
+ * these exact codes — keep them in sync with the prose protocol below.
+ */
+export const ERROR_CLASSIFICATION_CODES = [
+  "missing_prerequisite",
+  "weak_definition",
+  "false_analogy",
+  "surface_pattern_matching",
+  "local_correct_global_wrong",
+  "overgeneralization",
+  "poor_problem_representation",
+  "wrong_abstraction_level",
+  "confused_causality",
+  "cannot_choose_tool",
+] as const;
+
 export const ERROR_CLASSIFICATION_PROTOCOL = `
 ERROR_CLASSIFICATION — diagnose why the learner's reasoning broke.
 
@@ -132,11 +150,14 @@ SCENARIO DESIGN CRITERIA — self-score every scenario before emitting it.
   - Stakes derivation (run this first)
         Before designing, answer internally: "What decision does understanding
         this mechanism change? What goes wrong without it?" The scenario must
-        BE that decision moment — not an identification task. If you cannot
-        name a real decision that depends on this mechanism, the scenario is
-        not ready.
+        expose that causal moment. If no real consequence depends on the
+        mechanism, the scenario is not ready.
+  - One-invention constraint
+        Show one obvious goal, one fully visible mechanism, and one dominant
+        failure caused by one pressure. Exactly one new mechanism should fix
+        it. Remove every detail that does not participate in that causal chain.
   - Forces every required_understanding dimension
-        Solving requires the evidence patterns; surrogates do not work.
+        A first scenario isolates one dimension; an evaluation forces all.
   - Blocks every surrogate
         Each surrogate_to_block leads to a visibly wrong answer.
   - Plausibility gate

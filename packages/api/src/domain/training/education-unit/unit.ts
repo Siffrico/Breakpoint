@@ -12,7 +12,17 @@
 //
 // Pass 1 READS difficulty from Goldilocks. Pass 2 READS and WRITES it.
 
+import type {
+  UnitDifficultySnapshot,
+  UnitScenarioSpecRecord,
+} from "@acme/validators";
+
 import type { RatingScope } from "../orchestration/rating-scope";
+
+// The calibrated-difficulty snapshot persisted on a unit run. Canonical
+// definition lives in `@acme/validators` (shared with the DB `.$type<>()`
+// column) so the API and database contracts cannot drift.
+export type { UnitDifficultySnapshot };
 
 /**
  * The coarse state a unit sits in. Stored on the run row (reusing `UnitRun`).
@@ -27,7 +37,7 @@ export type UnitPhase =
   | "teach" // concept teach, post-struggle, between the two passes
   | "mastered"; // terminal
 
-/** A unit runs the connect->solve loop twice. Pass 2 is harder and writes Goldilocks. */
+/** Both passes share one calibrated difficulty; pass 2 supplies rating evidence. */
 export type PassIndex = 1 | 2;
 
 /**
@@ -38,8 +48,20 @@ export type PassIndex = 1 | 2;
  */
 export type UnitEvent =
   | { type: "teach_done" } // an Orient or Concept teach finished
+  | {
+      type: "phase_continues";
+      reason: "prompted" | "needs_more_work";
+    } // Connect/Solve produced a learner prompt without grading an attempt
   | { type: "connection_graded"; connected: boolean } // result of a Connect check
-  | { type: "solution_graded"; passed: boolean }; // result of a Solve check (grade >= threshold)
+  | {
+      type: "solution_graded";
+      /** Derived in toUnitEvent: score >= recipe.grade.passAt. Never model-declared. */
+      passed: boolean;
+      /** The grading tool's 0-100 score — the one number mastery and Goldilocks share. */
+      score: number;
+      /** Exactly one primary code when failed, empty when passed (enforced in toUnitEvent). */
+      errorCodes: readonly string[];
+    };
 
 /**
  * The durable cursor for one unit run. This is the typed view of the `UnitRun`
@@ -63,6 +85,16 @@ export interface UnitState {
 export type PersistedUnitRun = UnitState & {
   sessionId: string;
   userId: string | null;
+  /** Set once by the first committed turn and reused for both passes. */
+  difficultySnapshot: UnitDifficultySnapshot | null;
+  /**
+   * The active ScenarioSpec, tagged with the pass it was recorded on.
+   * Replaceable — pass 1's spec is stored, then pass 2 overwrites it after
+   * reading pass 1's as its "new surface" constraint. The pass tag is what
+   * stops pass 2's own spec from being re-rendered as a "do not reuse this
+   * surface" constraint against itself (see context.ts).
+   */
+  scenarioSpec: UnitScenarioSpecRecord | null;
 };
 
 /**
@@ -74,9 +106,19 @@ export interface LoopPolicy {
   maxRepairsBeforeMicroTeach: number; // solve: after N failed repairs, micro-teach, then retry
 }
 
-/** The pass/fail bar for a solve. `evaluationGrade` is 0–100; clearing `passAt` passes. */
+/**
+ * The pass/fail bar for a solve: a gradeSolution score (0-100) clearing
+ * `passAt` passes. Applied in toUnitEvent — the model reports the score, the
+ * server owns the verdict.
+ */
 export interface GradeThreshold {
   passAt: number; // e.g. 80
+  /**
+   * Time budget for the pass-2 transfer solve, measured from the persisted
+   * solvePresentedAt stamp. Exceeding it marks the attempt wasOverTime, which
+   * Goldilocks discounts (see engine/rating/evidence.ts overTimeDiscount).
+   */
+  solveTimeLimitSeconds: number;
 }
 
 /**
@@ -101,11 +143,21 @@ export interface UnitRecipe {
   goldilocks: GoldilocksWiring;
 }
 
-const RECIPE_VERSIONS = ["education-unit-v1"] as const;
+const RECIPE_VERSIONS = ["education-unit-v1", "recall-v1"] as const;
 type RecipeVersion = (typeof RECIPE_VERSIONS)[number];
 
 /** The recipe version every new unit run starts on. */
 export const CURRENT_RECIPE_VERSION: RecipeVersion = "education-unit-v1";
+
+/**
+ * The recall interlude: a degenerate unit run that begins at Solve pass 2 —
+ * the scored transfer moment — and skips every teaching beat. One composed
+ * scenario, one first-verdict rating write, optional repairs, mastered.
+ */
+export const RECALL_RECIPE_VERSION: RecipeVersion = "recall-v1";
+
+export const isRecallRecipe = (version: string): boolean =>
+  version === RECALL_RECIPE_VERSION;
 
 const isRecipeVersion = (version: string): version is RecipeVersion =>
   (RECIPE_VERSIONS as readonly string[]).includes(version);
@@ -132,6 +184,7 @@ export function getUnitRecipe(version: string, scope: RatingScope): UnitRecipe {
     },
     grade: {
       passAt: 80,
+      solveTimeLimitSeconds: 300,
     },
     goldilocks: {
       scope,

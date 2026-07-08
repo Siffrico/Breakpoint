@@ -44,4 +44,5 @@ export { DEFAULT_RATING_POLICY, SUPPORT_LEVELS } from "./policy";
 export type { GeneratorCalibrationNote } from "./render";
 export { buildGeneratorCalibrationNote, renderScenarioDirective } from "./render";
 export type { BandRamp } from "./expand-band-ladder";
-export { expandUnitBands } from "./expand-band-ladder";
+export { expandSkillBands, expandUnitBands } from "./expand-band-ladder";
+export { seedFromStartingPoint } from "./seed";

@@ -24,7 +24,7 @@ export default async function OnboardingPage({
 
   const startNewProject = (await searchParams).new === "1";
   // A normal visit restores even a just-completed build, so reloading before
-  // pressing "Start learning" cannot silently mint a replacement session.
+  // pressing "Start learning" cannot silently create a replacement session.
   // Only the explicit new-project action opts out of restoration.
   const initialState = startNewProject
     ? null

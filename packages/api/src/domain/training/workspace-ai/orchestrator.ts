@@ -6,8 +6,6 @@ import type { WorkspaceAiEducationStage, WorkspaceAiState } from "./types";
 import type { PersistedUnitRun } from "../education-unit/unit";
 import { WorkspaceAiEducationStageSchema } from "./types";
 
-const RECALL_INTERVAL_COMPLETIONS = 3;
-
 type RuntimeNode = Pick<
   CurriculumNode,
   "id" | "kind" | "status" | "title" | "summary" | "whyItMatters" | "orderIndex"
@@ -16,47 +14,32 @@ type RuntimeNode = Pick<
 const isLearningUnit = (node: RuntimeNode) =>
   node.kind === "unit" || node.kind === "integration";
 
-const getCompletedUnits = (nodes: RuntimeNode[]) =>
-  nodes
-    .filter((node) => isLearningUnit(node) && node.status === "completed")
-    .sort((left, right) => left.orderIndex - right.orderIndex);
-
 const getNextReadyUnit = (nodes: RuntimeNode[]) =>
   nodes
     .filter((node) => isLearningUnit(node) && node.status === "ready")
     .sort((left, right) => left.orderIndex - right.orderIndex)[0] ?? null;
 
-const getRecalledUnitIds = (responses: PhaseResponseRecord[]) =>
-  new Set(
-    responses
-      .filter((response) => response.phase === "ai_recall")
-      .map((response) => response.metadata?.recallUnitId)
-      .filter((unitId): unitId is string => typeof unitId === "string"),
-  );
+/** The node the recall-decay policy chose, resolved to a plan node by the caller. */
+export interface PlannedRecallTarget {
+  unitNodeId: string;
+  unitTitle: string;
+}
 
 /**
- * Takes curriculum nodes and recall response history; produces the next due
- * recall unit; fails only by returning null when no recall is due.
+ * A recall interlude may only interrupt at a unit boundary: before the first
+ * education turn of the next unit, or after the current one is mastered.
+ * Mid-FSM learners are never yanked out of a half-finished unit.
  */
-export const selectDueRecallUnit = ({
-  nodes,
-  responses,
+export const isUnitMidFlight = ({
+  activeUnitResponses,
+  activeUnitRun,
 }: {
-  nodes: RuntimeNode[];
-  responses: PhaseResponseRecord[];
-}) => {
-  const completedUnits = getCompletedUnits(nodes);
-  const recalledUnitIds = getRecalledUnitIds(responses);
-  const recallSlotsUnlocked = Math.floor(
-    completedUnits.length / RECALL_INTERVAL_COMPLETIONS,
-  );
-
-  return (
-    completedUnits
-      .slice(0, recallSlotsUnlocked)
-      .find((unit) => !recalledUnitIds.has(unit.id)) ?? null
-  );
-};
+  activeUnitResponses: PhaseResponseRecord[];
+  activeUnitRun?: PersistedUnitRun | null;
+}): boolean =>
+  activeUnitResponses.some((response) => response.phase === "ai_education") &&
+  activeUnitRun != null &&
+  activeUnitRun.phase !== "mastered";
 
 /**
  * Takes phase response history; produces the phase the unit last left off in;
@@ -82,30 +65,34 @@ export const getCurrentEducationStage = (
  */
 export const planWorkspaceTurn = ({
   nodes,
-  allResponses,
+  allResponses: _allResponses,
   activeUnitResponses,
   activeUnitRun,
+  recallTarget = null,
 }: {
   nodes: RuntimeNode[];
   allResponses: PhaseResponseRecord[];
   activeUnitResponses: PhaseResponseRecord[];
   activeUnitRun?: PersistedUnitRun | null;
+  /** Due recall chosen by the decay policy; only honored at a unit boundary. */
+  recallTarget?: PlannedRecallTarget | null;
 }): WorkspaceAiState | null => {
-  const recallUnit = selectDueRecallUnit({
-    nodes,
-    responses: allResponses,
-  });
-
-  if (recallUnit) {
+  if (
+    recallTarget &&
+    !isUnitMidFlight({ activeUnitResponses, activeUnitRun })
+  ) {
+    // A recall interlude is an education turn against the source unit's
+    // content — recallUnitId (not activeUnitId) marks the run as recall so
+    // resolution projects the recall recipe instead of a fresh full unit.
     return {
-      mode: "recall",
-      promptKind: "recall",
-      educationStage: null,
+      mode: "education_unit",
+      promptKind: "education_unit",
+      educationStage: "solve",
       workflowId: null,
       activeUnitId: null,
       activeUnitTitle: null,
-      recallUnitId: recallUnit.id,
-      recallUnitTitle: recallUnit.title,
+      recallUnitId: recallTarget.unitNodeId,
+      recallUnitTitle: recallTarget.unitTitle,
     };
   }
 

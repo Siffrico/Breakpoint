@@ -1,5 +1,10 @@
 import { z } from "zod/v4";
 
+export const WorkspaceBootstrapInputSchema = z.object({
+  sessionId: z.string().uuid().optional(),
+  cookieSessionId: z.string().uuid().optional(),
+});
+
 export const OnboardingSlotSchema = z.enum([
   "target_identity",
   "hard_moments",
@@ -75,6 +80,104 @@ export const DifficultyBandSchema = z.object({
   minRating: z.number().int(),
   maxRating: z.number().int(),
   label: z.string().min(1).optional(),
+});
+
+/**
+ * Canonical Goldilocks rating contract shared by the API engine and the
+ * database. This is the ONE definition of a persisted difficulty directive and
+ * its unit snapshot — the DB `.$type<>()` columns and the engine's runtime
+ * types both derive from here, so a rating-model change can never silently
+ * drift between the two layers.
+ */
+
+/** How scaffolded a scenario is when presented (4C/ID support axis). */
+export const SupportLevelSchema = z.enum(["worked_example", "guided", "none"]);
+
+/**
+ * Where a learner is starting from in their target field, elicited once during
+ * onboarding. This is the single source of truth shared by the DB column, the
+ * elicitation tool schema, the tRPC input, and the client. It maps to a seed
+ * rating (see engine/rating/seed.ts) — never surfaced to the learner as a level
+ * word; the client always shows the concrete option text they tapped.
+ */
+export const StartingPointTierSchema = z.enum([
+  "fundamentals",
+  "skip_basics",
+  "advanced",
+]);
+
+/**
+ * A Glicko seed stamped onto a curriculum plan at build time and read back by
+ * the workspace as the initial rating state. Mirrors the persisted shape of
+ * JobRatingState minus the never-seeded `lastRatedAt` (a fresh node has no
+ * last-rated timestamp, so decay never fires on it).
+ */
+export const SeedRatingSchema = z.object({
+  rating: z.number(),
+  ratingDeviation: z.number(),
+  volatility: z.number(),
+});
+
+/** The decision the Goldilocks ladder emits for the next scenario. */
+export const DirectiveIntentSchema = z.enum([
+  "repair",
+  "probe",
+  "back_off",
+  "promote",
+  "fade_support",
+  "challenge",
+  "mastered",
+]);
+
+/** Where the learner sits inside a job's band ladder. */
+export const JobProgressStateSchema = z.object({
+  bandOrder: z.number().int().min(0),
+  supportLevel: SupportLevelSchema,
+});
+
+/** A single difficulty directive, as decided by the engine and persisted. */
+export const ScenarioDirectiveSchema = z.object({
+  intent: DirectiveIntentSchema,
+  bandOrder: z.number().int().min(0),
+  supportLevel: SupportLevelSchema,
+  targetItemRating: z.number(),
+  targetMisconceptionCode: z.string().nullable(),
+  reason: z.string(),
+  nextProgress: JobProgressStateSchema,
+});
+
+/**
+ * The ScenarioSpec stored on a unit run — the scenario agent's reverse-engineered
+ * artifact (see education-unit/scenario-spec.ts). `targetSkill` is the unit-level
+ * invariant; the rest is scenario-scoped and replaced each pass.
+ */
+export const UnitScenarioSpecSchema = z.object({
+  targetSkill: z.string().min(1),
+  surface: z.string().min(1),
+  canonicalAnswer: z.string().min(1),
+  reasoningPath: z.string().min(1),
+  rubric: z.string().min(1),
+});
+
+/**
+ * The persisted form of a ScenarioSpec: the agent-emitted spec plus the pass
+ * it was recorded on, stamped by the orchestrator (never by the model). The
+ * pass tag lets the context builder tell "pass 1's spec — render the pass-2
+ * transfer constraint" apart from "pass 2's own spec — render the grading
+ * reference". Optional only for rows written before the tag existed; an
+ * untagged spec is treated as pass 1's.
+ */
+export const UnitScenarioSpecRecordSchema = UnitScenarioSpecSchema.extend({
+  pass: z.union([z.literal(1), z.literal(2)]).optional(),
+});
+
+/** The calibrated-difficulty snapshot stored on a unit run. */
+export const UnitDifficultySnapshotSchema = z.object({
+  nodeId: z.string(),
+  directive: ScenarioDirectiveSchema,
+  promptBlock: z.string(),
+  ratingSnapshot: z.string(),
+  learnerRating: z.number(),
 });
 
 export const CurriculumNodeSchema = z.object({
@@ -625,118 +728,6 @@ export const SubmitEducationUnitStepSchema = z.object({
   latencyMs: z.number().int().min(0).nullable().optional(),
 });
 
-export const RecallGateStatusSchema = z.enum([
-  "pending",
-  "active",
-  "passed",
-  "repaired",
-  "flagged",
-]);
-
-export const RecallProbeTypeSchema = z.enum([
-  "seed_return",
-  "interleave",
-  "compression",
-]);
-
-export const RecallProbeStatusSchema = z.enum([
-  "pending",
-  "answered",
-  "repair_pending",
-  "repaired",
-  "failed",
-]);
-
-export const UnitRecallStatusSchema = z.enum([
-  "retained",
-  "decayed",
-  "repaired",
-]);
-
-export const RecallProbeSchema = z.object({
-  id: z.string().min(1),
-  gateId: z.string().min(1),
-  probeOrder: z.number().int().min(0),
-  probeType: RecallProbeTypeSchema,
-  sourceUnitNodeIds: z.array(z.string().min(1)).min(1),
-  prompt: z.string().min(1),
-  seedSnapshot: z.string().nullable(),
-  userResponse: z.string().nullable(),
-  score: z.number().int().min(0).max(100).nullable(),
-  passed: z.boolean().nullable(),
-  repairPrompt: z.string().nullable(),
-  repairResponse: z.string().nullable(),
-  repairScore: z.number().int().min(0).max(100).nullable(),
-  repairPassed: z.boolean().nullable(),
-  status: RecallProbeStatusSchema,
-  createdAt: z.date(),
-  updatedAt: z.date().nullable(),
-  completedAt: z.date().nullable(),
-});
-
-export const RecallGateSchema = z.object({
-  id: z.string().min(1),
-  planId: z.string().min(1),
-  sessionId: z.string().min(1),
-  userId: z.string().nullable(),
-  triggerAfterUnitNodeId: z.string().min(1),
-  status: RecallGateStatusSchema,
-  probes: z.array(RecallProbeSchema),
-  createdAt: z.date(),
-  updatedAt: z.date().nullable(),
-  completedAt: z.date().nullable(),
-});
-
-export const RecallGateSummarySchema = z.object({
-  id: z.string().min(1),
-  status: RecallGateStatusSchema,
-  triggerAfterUnitNodeId: z.string().min(1),
-  probeCount: z.number().int().min(0),
-  pendingProbeCount: z.number().int().min(0),
-});
-
-export const UnitRecallStateSchema = z.object({
-  id: z.string().min(1),
-  unitNodeId: z.string().min(1),
-  planId: z.string().min(1),
-  lastRecalledAt: z.date().nullable(),
-  lastRecallOrderIndex: z.number().int().min(0).nullable(),
-  recallCount: z.number().int().min(0),
-  decayCount: z.number().int().min(0),
-  lastRecallScore: z.number().int().min(0).max(100).nullable(),
-  status: UnitRecallStatusSchema,
-  createdAt: z.date(),
-  updatedAt: z.date().nullable(),
-});
-
-export const SubmitRecallProbeSchema = z.object({
-  gateId: z.string().uuid(),
-  probeId: z.string().uuid(),
-  mode: z.enum(["probe", "repair"]),
-  response: z.string().min(20).max(5_000),
-});
-
-export const FinalizeForgeUnitResultSchema = z.discriminatedUnion(
-  "nextAction",
-  [
-    z.object({
-      nextAction: z.literal("recall_gate"),
-      gate: RecallGateSchema,
-    }),
-    z.object({
-      nextAction: z.literal("unit"),
-      nodeId: z.string().min(1),
-    }),
-    z.object({
-      nextAction: z.literal("simulation"),
-      nodeId: z.string().min(1),
-    }),
-    z.object({
-      nextAction: z.literal("home"),
-    }),
-  ],
-);
-
 export const UnitContentSchema = ForgeUnitContentSchema;
 export const DebriefSchema = ForgeDebriefSchema;
 
@@ -840,6 +831,19 @@ export type BeforeAfterProfile = z.infer<typeof BeforeAfterProfileSchema>;
 export type CurriculumNodeKind = z.infer<typeof CurriculumNodeKindSchema>;
 export type CurriculumNodeStatus = z.infer<typeof CurriculumNodeStatusSchema>;
 export type DifficultyBand = z.infer<typeof DifficultyBandSchema>;
+export type SupportLevel = z.infer<typeof SupportLevelSchema>;
+export type StartingPointTier = z.infer<typeof StartingPointTierSchema>;
+export type SeedRating = z.infer<typeof SeedRatingSchema>;
+export type DirectiveIntent = z.infer<typeof DirectiveIntentSchema>;
+export type JobProgressState = z.infer<typeof JobProgressStateSchema>;
+export type ScenarioDirective = z.infer<typeof ScenarioDirectiveSchema>;
+export type UnitDifficultySnapshot = z.infer<
+  typeof UnitDifficultySnapshotSchema
+>;
+export type UnitScenarioSpec = z.infer<typeof UnitScenarioSpecSchema>;
+export type UnitScenarioSpecRecord = z.infer<
+  typeof UnitScenarioSpecRecordSchema
+>;
 export type CurriculumNode = z.infer<typeof CurriculumNodeSchema>;
 export type ProjectOverview = z.infer<typeof ProjectOverviewSchema>;
 export type ProjectOverviewSummary = z.infer<
@@ -926,20 +930,8 @@ export type EducationUnitImplementationReview = z.infer<
   typeof EducationUnitImplementationReviewSchema
 >;
 export type EducationUnitState = z.infer<typeof EducationUnitStateSchema>;
-export type RecallGateStatus = z.infer<typeof RecallGateStatusSchema>;
-export type RecallProbeType = z.infer<typeof RecallProbeTypeSchema>;
-export type RecallProbeStatus = z.infer<typeof RecallProbeStatusSchema>;
-export type UnitRecallStatus = z.infer<typeof UnitRecallStatusSchema>;
-export type RecallProbe = z.infer<typeof RecallProbeSchema>;
-export type RecallGate = z.infer<typeof RecallGateSchema>;
-export type RecallGateSummary = z.infer<typeof RecallGateSummarySchema>;
-export type UnitRecallState = z.infer<typeof UnitRecallStateSchema>;
-export type SubmitRecallProbe = z.infer<typeof SubmitRecallProbeSchema>;
 export type SubmitEducationUnitStep = z.infer<
   typeof SubmitEducationUnitStepSchema
->;
-export type FinalizeForgeUnitResult = z.infer<
-  typeof FinalizeForgeUnitResultSchema
 >;
 export type UnitContent = z.infer<typeof UnitContentSchema>;
 export type UnitMasteryContract = z.infer<typeof UnitMasteryContractSchema>;

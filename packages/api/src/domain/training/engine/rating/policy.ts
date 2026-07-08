@@ -14,13 +14,22 @@
  * attempt timing.
  */
 
+import type { SupportLevel } from "@acme/validators";
+
 /**
  * How scaffolded the scenario is when presented. This is the 4C/ID support
  * axis: fade support within a band before raising difficulty. Order matters —
  * index 0 is the most supported.
  */
-export const SUPPORT_LEVELS = ["worked_example", "guided", "none"] as const;
-export type SupportLevel = (typeof SUPPORT_LEVELS)[number];
+export const SUPPORT_LEVELS = [
+  "worked_example",
+  "guided",
+  "none",
+] as const satisfies readonly SupportLevel[];
+// Support level is part of the persisted rating contract; the canonical enum
+// lives in `@acme/validators` so the runtime ladder above and the database
+// cannot drift. `satisfies` guarantees the ordered ladder stays a valid subset.
+export type { SupportLevel };
 
 export interface RatingPolicy {
   /** Rating every learner and job starts at, and the mean decay drifts toward. */

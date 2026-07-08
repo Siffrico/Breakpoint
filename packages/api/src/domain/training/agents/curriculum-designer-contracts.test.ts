@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "vitest";
 
 import type { DifficultyBand } from "../engine/rating";
-import { expandUnitBands, validateDifficultyBands } from "../engine/rating";
+import {
+  expandSkillBands,
+  expandUnitBands,
+  validateDifficultyBands,
+} from "../engine/rating";
 import { CurriculumPlanDraftSchema } from "./contracts";
 
 const topCeilingOf = (bands: readonly DifficultyBand[]): number => {
@@ -11,51 +15,46 @@ const topCeilingOf = (bands: readonly DifficultyBand[]): number => {
   return top.maxRating;
 };
 
-const buildUnit = (index: number) => ({
-  title: `Handle realistic job case ${index + 1}`,
-  learningGoal:
-    "Given a realistic trigger cue, choose the next expert move and explain the tradeoff. The learner must avoid a plausible surrogate and produce a checkable decision.",
-});
-
 const buildDraft = (
-  unitCount: number,
+  skillCount: number,
   bandRamp = { startRating: 1300, peakRating: 1700 },
 ) => ({
   title: "Production debugging operator",
   summary: "A job-first curriculum for production debugging.",
   targetIdentity: "Production debugging operator",
-  clusters: [
-    {
-      title: "Diagnose incidents and choose the next probe",
-      summary: "Handle real incident evidence under ambiguity.",
-      whyItMatters:
-        "The learner must make the right diagnostic move under pressure.",
-      units: Array.from({ length: unitCount }, (_unused, index) =>
-        buildUnit(index),
-      ),
-      bandRamp,
-      simulation: {
-        title: "Incident diagnosis simulation",
-        summary: "Diagnose a production incident from partial signals.",
-        whyItMatters: "This proves the job can be performed as a whole.",
-      },
+  clusters: Array.from({ length: skillCount }, (_, index) => ({
+    title: `Diagnose incidents and choose the next probe ${index + 1}`,
+    summary: "Handle real incident evidence under ambiguity.",
+    whyItMatters:
+      "The learner must make the right diagnostic move under pressure.",
+    workflow: {
+      name: "Diagnose a production incident",
+      steps: ["Collect signals", "Separate hypotheses", "Choose a probe"],
     },
-  ],
-  integrationLayers: [],
+    bandRamp,
+    simulation: {
+      title: "Incident diagnosis simulation",
+      summary: "Diagnose a production incident from partial signals.",
+      whyItMatters: "This proves the job can be performed as a whole.",
+    },
+    masteryContract: {
+      exitCriteria: ["Chooses a discriminating probe from partial evidence."],
+    },
+  })),
 });
 
 void test("curriculum plan draft accepts a load-bearing cluster with a band ramp", () => {
-  assert.doesNotThrow(() => CurriculumPlanDraftSchema.parse(buildDraft(10)));
+  assert.doesNotThrow(() => CurriculumPlanDraftSchema.parse(buildDraft(4)));
 });
 
 void test("curriculum plan draft accepts the minimum cluster size", () => {
-  assert.doesNotThrow(() => CurriculumPlanDraftSchema.parse(buildDraft(8)));
+  assert.doesNotThrow(() => CurriculumPlanDraftSchema.parse(buildDraft(3)));
 });
 
-void test("curriculum plan draft rejects undersized job clusters", () => {
+void test("curriculum plan draft rejects fewer than three independent skills", () => {
   assert.throws(
-    () => CurriculumPlanDraftSchema.parse(buildDraft(3)),
-    /too small|at least 8/i,
+    () => CurriculumPlanDraftSchema.parse(buildDraft(2)),
+    /too small|at least 3/i,
   );
 });
 
@@ -63,7 +62,7 @@ void test("curriculum plan draft rejects an inverted band ramp", () => {
   assert.throws(
     () =>
       CurriculumPlanDraftSchema.parse(
-        buildDraft(10, { startRating: 1700, peakRating: 1300 }),
+        buildDraft(3, { startRating: 1700, peakRating: 1300 }),
       ),
     /peakRating must be greater than startRating/i,
   );
@@ -116,4 +115,11 @@ void test("expandUnitBands rejects a degenerate ramp", () => {
     () => expandUnitBands(0, 5, { startRating: 1500, peakRating: 1500 }),
     /peakRating .* must be greater than startRating/i,
   );
+});
+
+void test("expandSkillBands produces one canonical ladder ending at peak", () => {
+  const bands = expandSkillBands({ startRating: 1100, peakRating: 1700 });
+  assert.doesNotThrow(() => validateDifficultyBands(bands));
+  assert.equal(bands.length, 3);
+  assert.equal(bands.at(-1)?.maxRating, 1700);
 });

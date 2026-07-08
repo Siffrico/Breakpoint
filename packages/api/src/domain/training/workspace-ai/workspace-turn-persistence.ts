@@ -1,7 +1,13 @@
+import { Effect } from "effect";
+
+import type { DbError } from "../../../effect/errors";
 import type { UnitTurnResult } from "../education-unit/orchestrate-unit-turn";
-import type { PersistedUnitRun, UnitEvent } from "../education-unit/unit";
 import type {
-  CurriculumNode,
+  PersistedUnitRun,
+  UnitDifficultySnapshot,
+  UnitEvent,
+} from "../education-unit/unit";
+import type {
   CurriculumPlan,
   Debrief,
   DifficultyBand,
@@ -11,21 +17,23 @@ import type {
 import type {
   WorkspaceAiEducationOutput,
   WorkspaceAiMessage,
-  WorkspaceAiRecallOutput,
   WorkspaceAiState,
   WorkspaceAiTurnResult,
 } from "./types";
 import type { WorkspaceTurnDependencies } from "./workspace-turn";
+import { isRecallRecipe } from "../education-unit/unit";
 import {
-  getWorkspaceMessageSlot,
-  planNextWorkspaceTurn,
-} from "./workspace-turn";
+  RatingEvidenceError,
+  WorkspacePersistenceError,
+} from "./workspace-errors";
+import { planNextWorkspaceTurn } from "./workspace-turn";
+import { WorkspaceTurnRepo } from "./workspace-turn-repo";
 
 export interface WorkspaceTurnPersistenceDependencies
   extends Omit<WorkspaceTurnDependencies, "getActivePlan"> {
-  claimWorkspaceTurn?: (input: {
+  claimWorkspaceTurn: (input: {
     sessionId: string;
-    action: "submit_answer" | "next_scenario" | "adjust_difficulty";
+    action: "submit_answer";
     content: string;
     slot: string | null;
     unitId?: string | null;
@@ -48,70 +56,24 @@ export interface WorkspaceTurnPersistenceDependencies
     turnId?: string | null;
     metadata?: WorkspaceAiMessage["metadata"];
   }) => Promise<WorkspaceAiMessage | null>;
-  listMessagesByTurnId?: (
-    sessionId: string,
-    turnId: string,
-  ) => Promise<WorkspaceAiMessage[]>;
   listMessages: (
     sessionId: string,
     slot?: "education_unit" | "recall",
   ) => Promise<WorkspaceAiMessage[]>;
-  savePhaseResponse: (input: {
-    unitContentId: string;
-    sessionId: string;
-    userId?: string | null;
-    phase: PhaseResponseRecord["phase"];
-    sequence: number;
-    userResponse: string;
-    aiResponse?: string | null;
-    passed?: boolean | null;
-    score?: number | null;
-    metadata?: PhaseResponseRecord["metadata"];
-  }) => Promise<PhaseResponseRecord | null>;
-  updateUnitMasteryContract: (input: {
-    unitContentId: string;
-    unitMasteryContract: UnitContent["unitMasteryContract"];
-  }) => Promise<unknown>;
-  updateScenarioContract: (input: {
-    scenarioAttemptId: string;
-    scenarioPrompt: string;
-    scenarioContract: NonNullable<
-      WorkspaceAiEducationOutput["scenarioEvaluationContract"]
-    >;
-  }) => Promise<unknown>;
-  saveAttempt: (input: {
-    sessionId: string;
-    userId?: string | null;
-    unitId: string;
-    response: string;
-    debrief: Debrief;
-    seedResponse?: string | null;
-    finalArticulation?: string | null;
-    growthDimensions?: string[] | null;
-  }) => Promise<unknown>;
-  completeNode: (nodeId: string) => Promise<CurriculumNode | null>;
-  commitEducationTurn: (input: WorkspaceEducationTurnCommit) => Promise<{
-    assistantMessage: WorkspaceAiMessage;
-    nextReadyNode: CurriculumNode | null;
-  }>;
-  commitRecallTurn: (
-    input: WorkspaceRecallTurnCommit,
-  ) => Promise<{ assistantMessage: WorkspaceAiMessage }>;
-  commitNextScenarioPrompt: (
-    input: WorkspaceNextScenarioCommit,
-  ) => Promise<{ assistantMessage: WorkspaceAiMessage }>;
-  markWorkspaceTurnFailed?: (input: {
+  /** The active unit's transcript only — each unit is its own chat. */
+  listUnitMessages: (
+    sessionId: string,
+    unitId: string,
+  ) => Promise<WorkspaceAiMessage[]>;
+  markWorkspaceTurnFailed: (input: {
     sessionId: string;
     turnId: string;
     leaseId: string;
     reason: string;
   }) => Promise<void>;
-  touchSession: (sessionId: string) => Promise<unknown>;
 }
 
-export type WorkspaceAiTurnPersistenceResult = WorkspaceAiTurnResult & {
-  nextReadyNode?: CurriculumNode | null;
-};
+export type WorkspaceAiTurnPersistenceResult = WorkspaceAiTurnResult;
 
 export interface WorkspaceOutputContractCommit {
   unitContentId: string;
@@ -133,6 +95,17 @@ export interface WorkspaceAssistantMessageCommit {
   unitId: string;
   turnId?: string | null;
   metadata?: WorkspaceAiMessage["metadata"];
+}
+
+export interface WorkspaceAttemptCommit {
+  sessionId: string;
+  userId?: string | null;
+  unitId: string;
+  response: string;
+  debrief: Debrief;
+  seedResponse?: string | null;
+  finalArticulation?: string | null;
+  growthDimensions?: string[] | null;
 }
 
 export interface WorkspaceUserMessageCommit {
@@ -159,19 +132,50 @@ export interface WorkspacePhaseResponseCommit {
 }
 
 export interface WorkspaceEducationTurnCommit {
-  turnId?: string | null;
-  turnLeaseId?: string | null;
+  turnId: string;
+  turnLeaseId: string;
   userMessage: WorkspaceUserMessageCommit | null;
   assistantMessage: WorkspaceAssistantMessageCommit;
   contracts: WorkspaceOutputContractCommit | null;
   phaseResponse: WorkspacePhaseResponseCommit;
   ratingEvaluation: WorkspaceRatingEvaluationCommit | null;
+  /**
+   * Mastery check-offs commit atomically with the turn — a lost lease or a
+   * failed commit must never leave checked entries without a mastered turn.
+   */
+  syllabusCheckOff: WorkspaceSyllabusCheckOffCommit | null;
+  /**
+   * Recall verdicts strengthen or weaken the composed syllabus entries
+   * atomically with the rated turn (see policies/recall-decay.ts).
+   */
+  syllabusReinforcement?: { entryIds: string[]; passed: boolean } | null;
+  scenarioPresentation: {
+    userId: string;
+    nodeId: string;
+    snapshot: UnitDifficultySnapshot;
+    presentedAt: Date;
+  } | null;
+  solvePresentation: {
+    /**
+     * Null on a recall presentation, where the attempt is opened in the same
+     * commit — the repository stamps the attempt it just opened.
+     */
+    scenarioAttemptId: string | null;
+    presentedAt: Date;
+  } | null;
   nextRun: PersistedUnitRun;
   completion: {
     nodeId: string;
-    attempt: Parameters<WorkspaceTurnPersistenceDependencies["saveAttempt"]>[0];
+    attempt: WorkspaceAttemptCommit;
   } | null;
   touchSessionId: string;
+}
+
+export interface WorkspaceSyllabusCheckOffCommit {
+  clusterNodeId: string;
+  requestedEntryIds: string[];
+  targetedEntryIds: string[];
+  evidenceNodeId: string;
 }
 
 export interface WorkspaceRatingEvaluationCommit {
@@ -185,28 +189,6 @@ export interface WorkspaceRatingEvaluationCommit {
   bands: readonly DifficultyBand[] | null;
 }
 
-export interface WorkspaceRecallTurnCommit {
-  turnId?: string | null;
-  turnLeaseId?: string | null;
-  assistantMessage: Omit<WorkspaceAssistantMessageCommit, "slot"> & {
-    slot: "recall";
-  };
-  userMessage:
-    | (Omit<WorkspaceUserMessageCommit, "slot"> & { slot: "recall" })
-    | null;
-  phaseResponse: WorkspacePhaseResponseCommit;
-  touchSessionId: string;
-}
-
-export interface WorkspaceNextScenarioCommit {
-  turnId?: string | null;
-  turnLeaseId?: string | null;
-  assistantMessage: WorkspaceAssistantMessageCommit;
-  contracts: WorkspaceOutputContractCommit | null;
-  phaseResponse: WorkspacePhaseResponseCommit;
-  touchSessionId: string;
-}
-
 const getDifficultyDirectiveMetadata = (reason?: string | null) =>
   reason ? { difficultyDirectiveReason: reason } : null;
 
@@ -215,6 +197,8 @@ const verdictLabel = (event: UnitEvent): string => {
   switch (event.type) {
     case "teach_done":
       return "teach_done";
+    case "phase_continues":
+      return event.reason;
     case "connection_graded":
       return event.connected ? "connected" : "not_connected";
     case "solution_graded":
@@ -242,101 +226,15 @@ const buildUnitCompletionDebrief = (
   nextStep: "Continue to the next training unit.",
 });
 
-export const saveRecallTurnResult = async ({
-  sessionId,
-  userId,
-  message,
-  state,
-  unit,
-  plan,
-  output,
-  difficultyDirectiveReason,
-  manualDifficultySignal,
-  turnId,
-  turnLeaseId,
-  persistUserMessage,
-  phaseResponseSequence,
-  deps,
-}: {
-  sessionId: string;
-  userId: string;
-  message: string;
-  state: WorkspaceAiState;
-  unit: UnitContent;
-  plan: CurriculumPlan;
-  output: WorkspaceAiRecallOutput;
-  difficultyDirectiveReason?: string | null;
-  manualDifficultySignal?: "too_easy" | "too_hard" | null;
-  turnId?: string | null;
-  turnLeaseId?: string | null;
-  persistUserMessage: boolean;
-  phaseResponseSequence: number;
-  deps: WorkspaceTurnPersistenceDependencies;
-}): Promise<WorkspaceAiTurnResult> => {
-  const { assistantMessage } = await deps.commitRecallTurn({
-    turnId,
-    turnLeaseId,
-    userMessage: persistUserMessage
-      ? {
-          sessionId,
-          role: "user",
-          content: message,
-          slot: "recall",
-          unitId: unit.nodeId,
-          turnId,
-        }
-      : null,
-    assistantMessage: {
-      sessionId,
-      role: "assistant",
-      content: output.assistantMessage,
-      slot: "recall",
-      unitId: unit.nodeId,
-      turnId,
-      metadata: getDifficultyDirectiveMetadata(difficultyDirectiveReason),
-    },
-    phaseResponse: {
-      unitContentId: unit.id,
-      sessionId,
-      userId,
-      phase: "ai_recall",
-      sequence: phaseResponseSequence,
-      userResponse: message,
-      aiResponse: output.assistantMessage,
-      passed: output.recallComplete,
-      score: output.score,
-      metadata: {
-        recallUnitId: unit.nodeId,
-        promptKind: "recall",
-        modelPurpose: "recall",
-        manualDifficultySignal: manualDifficultySignal ?? undefined,
-        difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
-        estimatedItemRating: output.estimatedItemRating ?? undefined,
-        feedback: output.assistantMessage,
-        evidenceAnchors: output.strengths,
-      },
-    },
-    touchSessionId: sessionId,
-  });
-
-  const nextState = await planNextWorkspaceTurn({ sessionId, plan, deps });
-
-  return {
-    state: nextState ?? state,
-    messages: await deps.listMessages(sessionId, "recall"),
-    assistantMessage,
-  };
-};
-
 /**
  * Persists one education-unit FSM turn: the user + assistant messages, a phase
  * response carrying the new phase, the advanced unit-run cursor, an optional
- * Goldilocks write (only the passing pass-2 solve supplies one), and the
+ * optional exactly-once Goldilocks write from the first scored pass-2 Solve,
  * completion attempt once the unit is mastered. The `state` fallback is only
  * used when the curriculum has no next runnable turn (unit just mastered and
  * awaiting the Next-Unit gate).
  */
-export const saveUnitPhaseResult = async ({
+export const saveUnitPhaseResult = ({
   sessionId,
   userId,
   message,
@@ -345,6 +243,12 @@ export const saveUnitPhaseResult = async ({
   plan,
   turnResult,
   ratingEvaluation,
+  syllabusCheckOff = null,
+  syllabusReinforcement = null,
+  openRecallAttempt = false,
+  recallEntryIds = null,
+  difficultySnapshot,
+  scenarioAttemptId,
   difficultyDirectiveReason,
   turnId,
   turnLeaseId,
@@ -360,107 +264,187 @@ export const saveUnitPhaseResult = async ({
   plan: CurriculumPlan;
   turnResult: UnitTurnResult;
   ratingEvaluation: WorkspaceRatingEvaluationCommit | null;
+  syllabusCheckOff?: WorkspaceSyllabusCheckOffCommit | null;
+  syllabusReinforcement?: { entryIds: string[]; passed: boolean } | null;
+  /** True when this turn's prompted commit must open the recall attempt. */
+  openRecallAttempt?: boolean;
+  /** Composed entry ids, stamped on the recall presentation's metadata. */
+  recallEntryIds?: string[] | null;
+  difficultySnapshot: UnitDifficultySnapshot;
+  scenarioAttemptId: string | null;
   difficultyDirectiveReason?: string | null;
-  turnId?: string | null;
-  turnLeaseId?: string | null;
+  turnId: string;
+  turnLeaseId: string;
   persistUserMessage: boolean;
   phaseResponseSequence: number;
   deps: WorkspaceTurnPersistenceDependencies;
-}): Promise<WorkspaceAiTurnPersistenceResult> => {
-  const {
-    nextState,
-    event,
-    forcedConnectAdvance,
-    gradeReasoning,
-    ratingWrite,
-  } = turnResult;
-  const aiMessage = turnResult.assistantMessage;
-  const mastered = nextState.phase === "mastered";
+}): Effect.Effect<
+  WorkspaceAiTurnPersistenceResult,
+  DbError | RatingEvidenceError | WorkspacePersistenceError,
+  WorkspaceTurnRepo
+> =>
+  Effect.gen(function* () {
+    const {
+      nextState,
+      event,
+      forcedConnectAdvance,
+      gradeReasoning,
+      ratingWrite,
+    } = turnResult;
+    const aiMessage = turnResult.assistantMessage;
+    const mastered = nextState.phase === "mastered";
 
-  const nextRun: PersistedUnitRun = { ...nextState, sessionId, userId };
-
-  const phaseResponse: WorkspacePhaseResponseCommit = {
-    unitContentId: unit.id,
-    sessionId,
-    userId,
-    phase: "ai_education",
-    sequence: phaseResponseSequence,
-    userResponse: message,
-    aiResponse: aiMessage,
-    passed: mastered,
-    score: ratingWrite?.score ?? null,
-    metadata: {
-      aiEducationStage: nextState.phase,
-      phasePass: nextState.pass,
-      forcedConnectAdvance: forcedConnectAdvance || undefined,
-      promptKind: "education_unit",
-      modelPurpose: "education",
-      verdict: verdictLabel(event),
-      difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
-      feedback: aiMessage,
-    },
-  };
-
-  const completion = mastered
-    ? {
-        nodeId: unit.nodeId,
-        attempt: {
-          sessionId,
-          userId,
-          unitId: unit.id,
-          response: message,
-          debrief: buildUnitCompletionDebrief(message, gradeReasoning),
-          finalArticulation: message,
-          growthDimensions: [] as string[],
-        },
-      }
-    : null;
-
-  const { assistantMessage, nextReadyNode } = await deps.commitEducationTurn({
-    turnId,
-    turnLeaseId,
-    userMessage: persistUserMessage
-      ? {
-          sessionId,
-          role: "user",
-          content: message,
-          slot: "education_unit",
-          unitId: unit.nodeId,
-          turnId,
-        }
-      : null,
-    assistantMessage: {
+    const nextRun: PersistedUnitRun = {
+      ...nextState,
       sessionId,
-      role: "assistant",
-      content: aiMessage,
-      slot: "education_unit",
-      unitId: unit.nodeId,
+      userId,
+      difficultySnapshot,
+      // The connect agent records a spec only when it poses a scenario; on every
+      // other turn this is null, and the upsert coalesces null onto the stored
+      // spec so it is preserved rather than wiped. See the repository.
+      scenarioSpec: turnResult.scenarioSpec,
+    };
+
+    const prompted =
+      event.type === "phase_continues" && event.reason === "prompted";
+    const isTeachProbePresentation =
+      event.type === "teach_done" &&
+      nextRun.pass === 2 &&
+      nextRun.phase === "connect" &&
+      turnResult.scenarioSpec?.pass === 2;
+    // A recall presentation opens the attempt and stamps Solve timing in one
+    // commit: the composed scenario IS the solve task, so presentation and
+    // solve-start are the same moment.
+    const isRecallPresentation =
+      openRecallAttempt && prompted && nextRun.phase === "solve";
+    const scenarioPresentation =
+      (nextRun.pass === 2 &&
+        nextRun.phase === "connect" &&
+        (prompted || isTeachProbePresentation)) ||
+      isRecallPresentation
+        ? {
+            userId,
+            nodeId: difficultySnapshot.nodeId,
+            snapshot: difficultySnapshot,
+            presentedAt: new Date(),
+          }
+        : null;
+    const solvePresentation =
+      nextRun.pass === 2 && nextRun.phase === "solve" && prompted
+        ? isRecallPresentation
+          ? { scenarioAttemptId: null, presentedAt: new Date() }
+          : scenarioAttemptId
+            ? { scenarioAttemptId, presentedAt: new Date() }
+            : yield* new RatingEvidenceError({
+                message:
+                  "Pass-2 Solve cannot be presented without a scenario attempt.",
+              })
+        : null;
+
+    const phaseResponse: WorkspacePhaseResponseCommit = {
+      unitContentId: unit.id,
+      sessionId,
+      userId,
+      phase: "ai_education",
+      sequence: phaseResponseSequence,
+      userResponse: message,
+      aiResponse: aiMessage,
+      passed: mastered,
+      score: ratingWrite?.score ?? null,
+      metadata: {
+        aiEducationStage: nextState.phase,
+        phasePass: nextState.pass,
+        forcedConnectAdvance: forcedConnectAdvance || undefined,
+        promptKind: "education_unit",
+        modelPurpose: "education",
+        verdict: verdictLabel(event),
+        difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
+        goldilocksUpdated: ratingEvaluation ? true : undefined,
+        recallEntryIds:
+          isRecallPresentation && recallEntryIds ? recallEntryIds : undefined,
+        feedback: aiMessage,
+      },
+    };
+
+    // A mastered recall is a checkpoint, not a unit completion: the node was
+    // completed by the original run and must not gain a second attempt row.
+    const completion =
+      mastered && !isRecallRecipe(nextRun.recipeVersion)
+        ? {
+            nodeId: unit.nodeId,
+            attempt: {
+              sessionId,
+              userId,
+              unitId: unit.id,
+              response: message,
+              debrief: buildUnitCompletionDebrief(message, gradeReasoning),
+              finalArticulation: message,
+              growthDimensions: [] as string[],
+            },
+          }
+        : null;
+
+    const workspaceTurnRepo = yield* WorkspaceTurnRepo;
+    const { assistantMessage } = yield* workspaceTurnRepo.commitEducationTurn({
       turnId,
-      metadata: getDifficultyDirectiveMetadata(difficultyDirectiveReason),
-    },
-    contracts: null,
-    phaseResponse,
-    ratingEvaluation,
-    nextRun,
-    completion,
-    touchSessionId: sessionId,
-  });
+      turnLeaseId,
+      userMessage: persistUserMessage
+        ? {
+            sessionId,
+            role: "user",
+            content: message,
+            slot: "education_unit",
+            unitId: unit.nodeId,
+            turnId,
+          }
+        : null,
+      assistantMessage: {
+        sessionId,
+        role: "assistant",
+        content: aiMessage,
+        slot: "education_unit",
+        unitId: unit.nodeId,
+        turnId,
+        metadata: getDifficultyDirectiveMetadata(difficultyDirectiveReason),
+      },
+      contracts: null,
+      phaseResponse,
+      ratingEvaluation,
+      syllabusCheckOff,
+      syllabusReinforcement,
+      scenarioPresentation,
+      solvePresentation,
+      nextRun,
+      completion,
+      touchSessionId: sessionId,
+    });
 
-  const nextWorkspaceState = await planNextWorkspaceTurn({
-    sessionId,
-    plan,
-    deps,
-  });
+    const nextWorkspaceState = yield* Effect.tryPromise({
+      try: () => planNextWorkspaceTurn({ sessionId, plan, deps }),
+      catch: (cause) =>
+        new WorkspacePersistenceError({
+          message: "Workspace state could not be replanned.",
+          operation: "planNextWorkspaceTurn",
+          cause,
+        }),
+    });
 
-  return {
-    state: nextWorkspaceState ?? { ...state, educationStage: nextState.phase },
-    messages: await deps.listMessages(
-      sessionId,
-      nextWorkspaceState
-        ? getWorkspaceMessageSlot(nextWorkspaceState.mode)
-        : "education_unit",
-    ),
-    assistantMessage,
-    nextReadyNode,
-  };
-};
+    const messages = yield* Effect.tryPromise({
+      try: () => deps.listUnitMessages(sessionId, unit.nodeId),
+      catch: (cause) =>
+        new WorkspacePersistenceError({
+          message: "Workspace messages could not be loaded.",
+          operation: "listWorkspaceMessages",
+          cause,
+        }),
+    });
+
+    return {
+      state: nextWorkspaceState ?? {
+        ...state,
+        educationStage: nextState.phase,
+      },
+      messages,
+      assistantMessage,
+    };
+  });

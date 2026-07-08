@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
+import type { Layer } from "effect";
 
 import type { Result } from "../../../lib/result";
-import type {
-  AttemptTiming,
-  WorkspaceAiTurnResult,
-} from "../workspace-ai/types";
+import type { WorkspaceAiTurnResult } from "../workspace-ai/types";
 import type { WorkspaceTurnOrchestrationDependencies } from "../workspace-ai/workspace-turn-orchestration";
+import type { WorkspaceTurnRepo } from "../workspace-ai/workspace-turn-repo";
 import { err, ok } from "../../../lib/result";
+import { UnitNotReadyError } from "../unit-preparation/errors";
 import { runOneStep } from "../workspace-ai/workspace-turn-orchestration";
 
 /**
@@ -18,18 +18,18 @@ export const submitAiWorkspaceMessageWorkflow = async ({
   sessionId,
   userId,
   message,
-  turnId = null,
-  attemptTiming,
+  turnId,
   deps,
+  workspaceTurnRepoLayer,
 }: {
   sessionId: string;
   userId: string;
   message: string;
-  turnId?: string | null;
-  attemptTiming?: AttemptTiming | null;
+  turnId: string;
   deps: WorkspaceTurnOrchestrationDependencies;
-}): Promise<Result<WorkspaceAiTurnResult>> => {
-  const turnLeaseId = turnId ? randomUUID() : null;
+  workspaceTurnRepoLayer: Layer.Layer<WorkspaceTurnRepo>;
+}): Promise<Result<WorkspaceAiTurnResult, Error | string>> => {
+  const turnLeaseId = randomUUID();
   try {
     return ok(
       await runOneStep({
@@ -38,22 +38,20 @@ export const submitAiWorkspaceMessageWorkflow = async ({
         turnId,
         turnLeaseId,
         message,
-        attemptTiming,
-        action: "submit_answer",
         deps,
+        workspaceTurnRepoLayer,
       }),
     );
   } catch (error) {
-    if (turnId && turnLeaseId && deps.markWorkspaceTurnFailed) {
-      await deps.markWorkspaceTurnFailed({
-        sessionId,
-        turnId,
-        leaseId: turnLeaseId,
-        reason: error instanceof Error ? error.message : "unknown error",
-      });
+    await deps.markWorkspaceTurnFailed({
+      sessionId,
+      turnId,
+      leaseId: turnLeaseId,
+      reason: error instanceof Error ? error.message : "unknown error",
+    });
+    if (error instanceof UnitNotReadyError) {
+      throw error;
     }
-    return err(
-      error instanceof Error ? error.message : "Workspace turn failed.",
-    );
+    return err(error instanceof Error ? error : "Workspace turn failed.");
   }
 };

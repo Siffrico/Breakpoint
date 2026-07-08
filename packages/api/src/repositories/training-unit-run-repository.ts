@@ -1,5 +1,5 @@
 import type { db as databaseClient } from "@acme/db/client";
-import { and, eq } from "@acme/db";
+import { and, desc, eq, ne, sql } from "@acme/db";
 import { TrainingUnitRun } from "@acme/db/schema";
 
 import type {
@@ -7,8 +7,24 @@ import type {
   PersistedUnitRun,
   UnitPhase,
 } from "../domain/training/education-unit/unit";
+import { RECALL_RECIPE_VERSION } from "../domain/training/education-unit/unit";
 
 type Database = typeof databaseClient;
+
+const canonicalJson = (value: unknown): string => {
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalJson).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value).sort(([left], [right]) =>
+      left.localeCompare(right),
+    );
+    return `{${entries
+      .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+};
 
 // Narrow the free-text varchar columns back onto the FSM's literal unions. A
 // row that predates the FSM (or was hand-edited) is a corrupt cursor, not a
@@ -46,6 +62,8 @@ const mapUnitRun = (
   pass: parsePass(row.pass),
   connectGrills: row.connectGrills,
   solveRepairs: row.solveRepairs,
+  difficultySnapshot: row.difficultySnapshotJson,
+  scenarioSpec: row.scenarioSpecJson,
 });
 
 export const trainingUnitRunRepository = {
@@ -68,6 +86,47 @@ export const trainingUnitRunRepository = {
     return row ? mapUnitRun(row) : null;
   },
 
+  getInFlightRecallRun: async ({
+    db,
+    sessionId,
+  }: {
+    db: Database;
+    sessionId: string;
+  }): Promise<PersistedUnitRun | null> => {
+    const row = await db.query.TrainingUnitRun.findFirst({
+      where: and(
+        eq(TrainingUnitRun.sessionId, sessionId),
+        eq(TrainingUnitRun.recipeVersion, RECALL_RECIPE_VERSION),
+        ne(TrainingUnitRun.phase, "mastered"),
+      ),
+      orderBy: [desc(TrainingUnitRun.updatedAt)],
+    });
+
+    return row ? mapUnitRun(row) : null;
+  },
+
+  retireInFlightRecallRun: async ({
+    db,
+    sessionId,
+    unitContentId,
+  }: {
+    db: Database;
+    sessionId: string;
+    unitContentId: string;
+  }): Promise<void> => {
+    await db
+      .update(TrainingUnitRun)
+      .set({ phase: "mastered" })
+      .where(
+        and(
+          eq(TrainingUnitRun.sessionId, sessionId),
+          eq(TrainingUnitRun.unitContentId, unitContentId),
+          eq(TrainingUnitRun.recipeVersion, RECALL_RECIPE_VERSION),
+          ne(TrainingUnitRun.phase, "mastered"),
+        ),
+      );
+  },
+
   upsertUnitRun: async ({
     db,
     run,
@@ -84,6 +143,8 @@ export const trainingUnitRunRepository = {
       pass: run.pass,
       connectGrills: run.connectGrills,
       solveRepairs: run.solveRepairs,
+      difficultySnapshotJson: run.difficultySnapshot,
+      scenarioSpecJson: run.scenarioSpec,
     };
 
     const [row] = await db
@@ -98,12 +159,31 @@ export const trainingUnitRunRepository = {
           pass: values.pass,
           connectGrills: values.connectGrills,
           solveRepairs: values.solveRepairs,
+          // Write-once WITHIN a live run. A recipe change (a recall run resets
+          // a mastered education row, or vice versa) is a new run — and so is
+          // a fresh cursor over a mastered row on the SAME recipe (recall
+          // recurs on recall-v1; passed or retired, the old row is finished):
+          // the incoming snapshot replaces the old one wholesale.
+          difficultySnapshotJson: sql`case when ${TrainingUnitRun.recipeVersion} = excluded.recipe_version and ${TrainingUnitRun.phase} != 'mastered' then coalesce(${TrainingUnitRun.difficultySnapshotJson}, excluded.difficulty_snapshot_json) else excluded.difficulty_snapshot_json end`,
+          // Replaceable, unlike difficulty (which is coalesced write-once): a
+          // turn that produces a new spec overwrites; a turn that produces none
+          // (null) preserves the stored one. So pass 2's connect replaces pass
+          // 1's spec, but ordinary grill/solve turns never wipe it. A recipe
+          // change — or a new run over a mastered row — starts clean.
+          scenarioSpecJson: sql`case when ${TrainingUnitRun.recipeVersion} = excluded.recipe_version and ${TrainingUnitRun.phase} != 'mastered' then coalesce(excluded.scenario_spec_json, ${TrainingUnitRun.scenarioSpecJson}) else excluded.scenario_spec_json end`,
         },
       })
       .returning();
 
     if (!row) {
       throw new Error("Unit run could not be saved.");
+    }
+    if (
+      run.difficultySnapshot &&
+      canonicalJson(row.difficultySnapshotJson) !==
+        canonicalJson(run.difficultySnapshot)
+    ) {
+      throw new Error("A unit run's difficulty snapshot cannot be replaced.");
     }
 
     return mapUnitRun(row);

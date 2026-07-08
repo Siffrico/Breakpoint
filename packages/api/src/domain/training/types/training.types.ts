@@ -35,7 +35,6 @@ import type {
   EvaluationDimensionResult,
   FailureGap,
   FailureIsolationResult,
-  FinalizeForgeUnitResult,
   ForgeDebrief,
   ForgeUnitContent,
   ForgeUnitScenario,
@@ -51,23 +50,14 @@ import type {
   PracticeSubmission,
   PreSeedUnitContentDraft,
   ProjectOverview,
-  RecallGate,
-  RecallGateStatus,
-  RecallGateSummary,
-  RecallProbe,
-  RecallProbeStatus,
-  RecallProbeType,
   ScenarioEvaluationContract,
   SubmitEducationUnitStep,
-  SubmitRecallProbe,
   TeachbackMessage,
   TeachbackRoundResult,
   TeachbackSetup,
   TeachCapstoneScenario,
   UnitContent,
   UnitMasteryContract,
-  UnitRecallState,
-  UnitRecallStatus,
 } from "@acme/validators";
 
 import type { ProjectBuildState } from "../orchestration/build-project";
@@ -116,7 +106,6 @@ export type {
   GhostEvaluation,
   GhostScenario,
   IdentityReport,
-  FinalizeForgeUnitResult,
   OnboardingQuestion,
   OnboardingSlot,
   OnboardingTranscriptMessage,
@@ -126,21 +115,12 @@ export type {
   PracticeSubmission,
   PreSeedUnitContentDraft,
   ProjectOverview,
-  RecallGate,
-  RecallGateSummary,
-  RecallGateStatus,
-  RecallProbe,
-  RecallProbeStatus,
-  RecallProbeType,
   ScenarioEvaluationContract,
-  SubmitRecallProbe,
   SubmitEducationUnitStep,
   TeachbackMessage,
   TeachbackRoundResult,
   TeachbackSetup,
   TeachCapstoneScenario,
-  UnitRecallState,
-  UnitRecallStatus,
   UnitContent,
   UnitMasteryContract,
 };
@@ -158,6 +138,14 @@ export interface CurriculumNodeBlueprint {
   positionColumn: number;
   positionRow: number;
   difficultyBands: DifficultyBand[] | null;
+  skillMap: {
+    workflow: { name: string; steps: string[] };
+    bandRamp: { startRating: number; peakRating: number };
+    masteryContract: {
+      exitCriteria: string[];
+      maxRatingDeviation?: number;
+    };
+  } | null;
 }
 
 export interface PostSeedGenerationResult {
@@ -200,7 +188,6 @@ export interface HomeState {
   totalUnits: number;
   nextUnitId: string | null;
   nextUnitTitle: string | null;
-  activeRecallGate: RecallGateSummary | null;
   blockingSignals: string[];
   lastCompletedUnit: {
     title: string;
@@ -269,9 +256,13 @@ export interface PhaseResponseMetadata {
   evaluationPlan?: EvaluationPlan;
   attemptTiming?: AttemptTiming;
   scenarioAttemptId?: string;
+  // Syllabus entries composed into a recall presentation; the verdict turn
+  // reinforces exactly these, immune to the decay target shifting mid-interlude.
+  recallEntryIds?: string[];
   nextScenarioPrompt?: boolean;
   manualDifficultySignal?: "too_easy" | "too_hard";
   difficultyDirectiveReason?: string;
+  goldilocksUpdated?: boolean;
   estimatedItemRating?: number;
   assessmentStatus?: EducationUnitAssessmentStatus;
   gap?: FailureGap;

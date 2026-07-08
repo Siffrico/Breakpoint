@@ -1,9 +1,16 @@
 import { index, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
 
+import type { ScenarioDirective, SupportLevel } from "@acme/validators";
+
 import { user } from "../../auth-schema";
 import { TrainingCurriculumNode } from "./curriculum";
+import { TrainingUnitRun } from "./unit";
 
-export type TrainingSupportLevel = "worked_example" | "guided" | "none";
+/**
+ * @deprecated Alias of the canonical `SupportLevel` from `@acme/validators`.
+ * Kept so persisted rating shapes share one source of truth with the engine.
+ */
+export type TrainingSupportLevel = SupportLevel;
 
 export interface TrainingRecentAttemptJson {
   bandOrder: number;
@@ -18,25 +25,12 @@ export interface TrainingRecentAttemptJson {
   occurredAt: string;
 }
 
-export interface TrainingScenarioDirectiveJson {
-  intent:
-    | "repair"
-    | "probe"
-    | "back_off"
-    | "promote"
-    | "fade_support"
-    | "challenge"
-    | "mastered";
-  bandOrder: number;
-  supportLevel: TrainingSupportLevel;
-  targetItemRating: number;
-  targetMisconceptionCode: string | null;
-  reason: string;
-  nextProgress: {
-    bandOrder: number;
-    supportLevel: TrainingSupportLevel;
-  };
-}
+/**
+ * @deprecated Alias of the canonical `ScenarioDirective` from
+ * `@acme/validators`. Kept so the persisted `directiveJson` column shares one
+ * source of truth with the API rating engine.
+ */
+export type TrainingScenarioDirectiveJson = ScenarioDirective;
 
 export interface TrainingScenarioEvaluationContractJson {
   version: 1;
@@ -174,11 +168,18 @@ export const TrainingScenarioAttempt = pgTable(
     itemRating: t.doublePrecision().notNull(),
     targetMisconceptionCode: t.varchar({ length: 160 }),
     supportLevel: t.varchar({ length: 32 }).notNull(),
+    /** Present only for education-unit and recall attempts. */
+    unitRunId: t
+      .uuid()
+      .references(() => TrainingUnitRun.id, { onDelete: "cascade" }),
+    originTurnId: t.varchar({ length: 96 }),
     createdAt: t
       .timestamp({ mode: "date", withTimezone: true })
       .defaultNow()
       .notNull(),
     presentedAt: t.timestamp({ mode: "date", withTimezone: true }),
+    solvePresentedAt: t.timestamp({ mode: "date", withTimezone: true }),
+    solvePromptTurnId: t.varchar({ length: 96 }),
     evaluatedAt: t.timestamp({ mode: "date", withTimezone: true }),
   }),
   (table) => [
@@ -187,6 +188,10 @@ export const TrainingScenarioAttempt = pgTable(
       table.nodeId,
       table.status,
       table.createdAt,
+    ),
+    uniqueIndex("becoming_training_scenario_attempt_run_turn_idx").on(
+      table.unitRunId,
+      table.originTurnId,
     ),
   ],
 );

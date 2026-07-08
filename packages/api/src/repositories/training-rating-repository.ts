@@ -1,6 +1,11 @@
 import type { db as databaseClient } from "@acme/db/client";
-import type { ScenarioEvaluationContract } from "@acme/validators";
-import { and, asc, desc, eq, sql } from "@acme/db";
+import type {
+  JobProgressState,
+  ScenarioDirective,
+  ScenarioEvaluationContract,
+  SupportLevel,
+} from "@acme/validators";
+import { and, asc, desc, eq, inArray, sql } from "@acme/db";
 import {
   TrainingJobProgress,
   TrainingMisconception,
@@ -10,18 +15,24 @@ import {
 
 type Database = typeof databaseClient;
 
-type SupportLevel = "worked_example" | "guided" | "none";
+const sameDirective = (
+  left: ScenarioDirective,
+  right: ScenarioDirective,
+): boolean =>
+  left.intent === right.intent &&
+  left.bandOrder === right.bandOrder &&
+  left.supportLevel === right.supportLevel &&
+  left.targetItemRating === right.targetItemRating &&
+  left.targetMisconceptionCode === right.targetMisconceptionCode &&
+  left.reason === right.reason &&
+  left.nextProgress.bandOrder === right.nextProgress.bandOrder &&
+  left.nextProgress.supportLevel === right.nextProgress.supportLevel;
 
 interface JobRatingState {
   rating: number;
   ratingDeviation: number;
   volatility: number;
   lastRatedAt: Date | null;
-}
-
-interface JobProgressState {
-  bandOrder: number;
-  supportLevel: SupportLevel;
 }
 
 interface MisconceptionState {
@@ -53,23 +64,6 @@ interface RatingPredictionRecord {
   predictedScore: number;
   actualOutcome: number;
   occurredAt: Date;
-}
-
-interface ScenarioDirective {
-  intent:
-    | "repair"
-    | "probe"
-    | "back_off"
-    | "promote"
-    | "fade_support"
-    | "challenge"
-    | "mastered";
-  bandOrder: number;
-  supportLevel: SupportLevel;
-  targetItemRating: number;
-  targetMisconceptionCode: string | null;
-  reason: string;
-  nextProgress: JobProgressState;
 }
 
 interface ApplyEvaluationResult {
@@ -206,6 +200,44 @@ export const trainingRatingRepository = {
     return rows.reverse().map(toRatingPredictionRecord);
   },
 
+  // Batch-read the learner's live Glicko state for a set of nodes (skill
+  // clusters). Nodes with no attempt yet simply have no row — the caller renders
+  // those as "not yet rated" rather than substituting a default rating.
+  listJobProgressByNodeIds: async ({
+    db,
+    userId,
+    nodeIds,
+  }: {
+    db: Database;
+    userId: string;
+    nodeIds: string[];
+  }): Promise<
+    {
+      nodeId: string;
+      rating: number;
+      ratingDeviation: number;
+      lastRatedAt: Date | null;
+    }[]
+  > => {
+    if (nodeIds.length === 0) {
+      return [];
+    }
+
+    const rows = await db.query.TrainingJobProgress.findMany({
+      where: and(
+        eq(TrainingJobProgress.userId, userId),
+        inArray(TrainingJobProgress.nodeId, nodeIds),
+      ),
+    });
+
+    return rows.map((row) => ({
+      nodeId: row.nodeId,
+      rating: row.rating,
+      ratingDeviation: row.ratingDeviation,
+      lastRatedAt: row.lastRatedAt,
+    }));
+  },
+
   openScenarioAttempt: async ({
     db,
     userId,
@@ -239,6 +271,106 @@ export const trainingRatingRepository = {
     return row;
   },
 
+  openEducationScenarioAttempt: async ({
+    db,
+    unitRunId,
+    originTurnId,
+    userId,
+    nodeId,
+    directive,
+    itemRating,
+    scenarioPrompt,
+    presentedAt,
+  }: {
+    db: Database;
+    unitRunId: string;
+    originTurnId: string;
+    userId: string;
+    nodeId: string;
+    directive: ScenarioDirective;
+    itemRating: number;
+    scenarioPrompt: string;
+    presentedAt: Date;
+  }) => {
+    const [inserted] = await db
+      .insert(TrainingScenarioAttempt)
+      .values({
+        userId,
+        nodeId,
+        status: "open",
+        directiveJson: directive,
+        itemRating,
+        targetMisconceptionCode: directive.targetMisconceptionCode,
+        supportLevel: directive.supportLevel,
+        unitRunId,
+        originTurnId,
+        scenarioPrompt,
+        presentedAt,
+      })
+      .onConflictDoNothing({
+        target: [
+          TrainingScenarioAttempt.unitRunId,
+          TrainingScenarioAttempt.originTurnId,
+        ],
+      })
+      .returning();
+
+    if (inserted) return inserted;
+
+    const existing = await db.query.TrainingScenarioAttempt.findFirst({
+      where: and(
+        eq(TrainingScenarioAttempt.unitRunId, unitRunId),
+        eq(TrainingScenarioAttempt.originTurnId, originTurnId),
+        eq(TrainingScenarioAttempt.userId, userId),
+        eq(TrainingScenarioAttempt.nodeId, nodeId),
+      ),
+    });
+    if (!existing) {
+      throw new Error("Education scenario attempt could not be opened.");
+    }
+    if (
+      !sameDirective(existing.directiveJson, directive) ||
+      existing.itemRating !== itemRating ||
+      existing.scenarioPrompt !== scenarioPrompt ||
+      existing.originTurnId !== originTurnId
+    ) {
+      throw new Error(
+        "An education scenario attempt cannot be presented more than once.",
+      );
+    }
+    return existing;
+  },
+
+  stampSolvePresentation: async ({
+    db,
+    scenarioAttemptId,
+    solvePromptTurnId,
+    presentedAt,
+  }: {
+    db: Database;
+    scenarioAttemptId: string;
+    solvePromptTurnId: string | null;
+    presentedAt: Date;
+  }) => {
+    const [row] = await db
+      .update(TrainingScenarioAttempt)
+      .set({
+        solvePresentedAt: sql<Date>`coalesce(${TrainingScenarioAttempt.solvePresentedAt}, ${presentedAt})`,
+        solvePromptTurnId: sql<
+          string | null
+        >`case when ${TrainingScenarioAttempt.solvePresentedAt} is null then ${solvePromptTurnId} else ${TrainingScenarioAttempt.solvePromptTurnId} end`,
+      })
+      .where(
+        and(
+          eq(TrainingScenarioAttempt.id, scenarioAttemptId),
+          eq(TrainingScenarioAttempt.status, "open"),
+        ),
+      )
+      .returning();
+    if (!row) throw new Error("Open scenario attempt could not be timed.");
+    return row;
+  },
+
   getOpenScenarioById: async ({
     db,
     scenarioAttemptId,
@@ -259,29 +391,6 @@ export const trainingRatingRepository = {
       ),
     })) ?? null,
 
-  updateScenarioItemRating: async ({
-    db,
-    scenarioAttemptId,
-    itemRating,
-  }: {
-    db: Database;
-    scenarioAttemptId: string;
-    itemRating: number;
-  }) => {
-    const [row] = await db
-      .update(TrainingScenarioAttempt)
-      .set({ itemRating })
-      .where(
-        and(
-          eq(TrainingScenarioAttempt.id, scenarioAttemptId),
-          eq(TrainingScenarioAttempt.status, "open"),
-        ),
-      )
-      .returning();
-
-    return row ?? null;
-  },
-
   updateScenarioContract: async ({
     db,
     scenarioAttemptId,
@@ -296,7 +405,7 @@ export const trainingRatingRepository = {
     const [row] = await db
       .update(TrainingScenarioAttempt)
       .set({
-        scenarioPrompt,
+        scenarioPrompt: sql<string>`coalesce(${TrainingScenarioAttempt.scenarioPrompt}, ${scenarioPrompt})`,
         scenarioContractJson: scenarioContract,
         contractVersion: scenarioContract.version,
         presentedAt: sql<Date>`coalesce(${TrainingScenarioAttempt.presentedAt}, now())`,

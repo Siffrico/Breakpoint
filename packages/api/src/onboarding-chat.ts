@@ -10,6 +10,7 @@ import {
 } from "ai";
 
 import type { db as databaseClient } from "@acme/db/client";
+import type { StartingPointTier } from "@acme/validators";
 
 import type { CreateProjectResult } from "./domain/training/agents/onboarding-chat-agent";
 import type {
@@ -17,6 +18,8 @@ import type {
   ProjectBuildState,
 } from "./domain/training/orchestration/build-project";
 import {
+  AskStartingPointOutputSchema,
+  askStartingPointTool,
   createCreateProjectTool,
   ONBOARDING_CHAT_SYSTEM,
 } from "./domain/training/agents/onboarding-chat-agent";
@@ -65,21 +68,57 @@ const extractText = (message: UIMessage): string =>
     .join("\n")
     .trim();
 
+/**
+ * The newest answered `askStartingPoint` tool part across the transcript, if
+ * any. Rebuilt transcripts (transcriptToMessages) drop tool parts after a
+ * reload, so the model would otherwise forget the tap — we read it back here to
+ * persist and re-inject it. Scans newest-first so the latest answer wins.
+ */
+const findLatestStartingPointAnswer = (
+  messages: UIMessage[],
+): { tier: StartingPointTier; label: string } | null => {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const parts = messages[i]?.parts ?? [];
+    for (let j = parts.length - 1; j >= 0; j -= 1) {
+      const part = parts[j];
+      if (
+        part &&
+        part.type === "tool-askStartingPoint" &&
+        "output" in part &&
+        part.output !== undefined
+      ) {
+        const parsed = AskStartingPointOutputSchema.safeParse(part.output);
+        if (parsed.success) return parsed.data;
+      }
+    }
+  }
+  return null;
+};
+
 export const streamOnboardingChat = async ({
   db,
   sessionId,
   userId,
   messages,
   modelName,
+  scheduleBackgroundTask,
 }: {
   db: Database;
   sessionId: string;
   userId: string;
   messages: UIMessage[];
   modelName?: string | null;
+  /** Next.js `after` seam so post-build prewarm survives the response. */
+  scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }): Promise<Response> =>
   withAiModelPreference(modelName, () =>
-    runOnboardingChat({ db, sessionId, userId, messages }),
+    runOnboardingChat({
+      db,
+      sessionId,
+      userId,
+      messages,
+      scheduleBackgroundTask,
+    }),
   );
 
 /**
@@ -95,11 +134,14 @@ export const streamProjectBuildResume = async ({
   sessionId,
   userId,
   modelName,
+  scheduleBackgroundTask,
 }: {
   db: Database;
   sessionId: string;
   userId: string;
   modelName?: string | null;
+  /** Next.js `after` seam so post-build prewarm survives the response. */
+  scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }): Promise<Response> => {
   const session = await trainingOnboardingRepository.getSession({
     db,
@@ -135,6 +177,7 @@ export const streamProjectBuildResume = async ({
           transcript,
           input: run.input,
           deps: createBuildProjectDeps(db),
+          scheduleBackgroundTask,
           onProgress: (build) => {
             writer.write({
               type: "data-project-build",
@@ -155,11 +198,13 @@ const runOnboardingChat = async ({
   sessionId,
   userId,
   messages,
+  scheduleBackgroundTask,
 }: {
   db: Database;
   sessionId: string;
   userId: string;
   messages: UIMessage[];
+  scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }): Promise<Response> => {
   const session = await trainingOnboardingRepository.getSession({
     db,
@@ -200,7 +245,28 @@ const runOnboardingChat = async ({
     sessionId,
   });
   const projectBuildReadiness = getProjectBuildReadiness(transcript);
-  const modelMessages = await convertToModelMessages(messages);
+  const modelMessages = await convertToModelMessages(messages, {
+    ignoreIncompleteToolCalls: true,
+  });
+
+  // The learner's tapped starting point rides an execute-less tool result. It
+  // initializes the persisted value atomically; later manual overrides remain
+  // authoritative when this old tool result is replayed on approval.
+  const startingPointAnswer = findLatestStartingPointAnswer(messages);
+  if (startingPointAnswer) {
+    await trainingOnboardingRepository.setInitialStartingPoint({
+      db,
+      sessionId,
+      tier: startingPointAnswer.tier,
+      label: startingPointAnswer.label,
+    });
+  }
+  const storedTier = session.startingPointTier ?? startingPointAnswer?.tier;
+  const storedLabel = session.startingPointLabel ?? startingPointAnswer?.label;
+  const startingPointNote =
+    storedTier && storedLabel
+      ? `Learner starting point: ${storedTier} ("${storedLabel}").`
+      : "Starting point not yet asked — call askStartingPoint once the field is known, before suggesting projects.";
 
   const stream = createUIMessageStream<OnboardingChatUIMessage>({
     onError: () => "The onboarding chat hit an error.",
@@ -216,6 +282,7 @@ const runOnboardingChat = async ({
           transcript,
           input,
           deps: createBuildProjectDeps(db),
+          scheduleBackgroundTask,
           onProgress: (build) => {
             writer.write({
               type: "data-project-build",
@@ -245,10 +312,12 @@ Runtime state: ${
           projectBuildReadiness.ready
             ? "The server has enough learner signal to request project confirmation, but only call createProject if the learner has explicitly chosen one of your suggested projects."
             : "Do not call createProject yet. Keep consulting with one short question; the server does not have enough concrete learner signal to create a project."
-        }`,
+        }
+${startingPointNote}`,
         messages: modelMessages,
         tools: {
           ...getSearchToolsForSelectedProvider("onboarding"),
+          askStartingPoint: askStartingPointTool,
           createProject: createCreateProjectTool({
             buildProject,
             getReadiness: () => projectBuildReadiness,
