@@ -254,7 +254,6 @@ describe("trainingSyllabusRepository persistence", () => {
 
       const result = await trainingSyllabusRepository.checkOffEntries({
         db,
-        clusterNodeId: cluster.id,
         requestedEntryIds: [target.id, "00000000-0000-0000-0000-000000000000"],
         targetedEntryIds: [target.id],
         evidenceNodeId: created.node.id,

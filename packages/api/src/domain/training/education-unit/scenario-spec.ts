@@ -80,11 +80,11 @@ export const renderEvalRubricContext = (spec: ScenarioSpec): string =>
     `Rubric:\n${spec.rubric}`,
   ].join("\n");
 
-/** The grading reference for a Connect scenario that was posed by Teach. */
+/** The grading reference for the round's already-posed Connect scenario. */
 export const renderConnectGradingContext = (spec: ScenarioSpec): string =>
   [
     "## Active connection scenario",
-    "The Teach beat already posed this round's evolved scenario. Grade the learner's latest answer; do not present another scenario.",
+    "This round's scenario has already been posed. Grade the learner's latest answer against it; do not present another scenario.",
     `Target skill: ${spec.targetSkill}`,
     renderWorldState(spec),
     `Canonical answer: ${spec.canonicalAnswer}`,

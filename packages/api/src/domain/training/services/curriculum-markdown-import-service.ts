@@ -384,6 +384,7 @@ const buildRootNode = ({
   positionColumn: 0,
   positionRow: 0,
   difficultyBands: null,
+  abilityStage: null,
   skillMap: null,
 });
 
@@ -419,6 +420,7 @@ export const buildCurriculumBlueprintFromMarkdown = ({
       positionColumn: index + 1,
       positionRow: 0,
       difficultyBands: null,
+      abilityStage: null,
       skillMap: null,
     }),
   );

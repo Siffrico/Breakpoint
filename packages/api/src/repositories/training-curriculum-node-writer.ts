@@ -22,6 +22,7 @@ export const insertBlueprintNodes = async ({
         planId,
         kind: node.kind,
         status: node.status,
+        abilityStage: node.abilityStage,
         title: node.title,
         summary: node.summary,
         whyItMatters: node.whyItMatters,
@@ -133,14 +134,15 @@ export const appendDynamicUnitNode = async ({
       .returning();
     if (!node) throw new Error("Dynamic unit could not be persisted.");
 
-    await transactionDb
-      .update(TrainingSyllabusEntry)
-      .set({ status: "targeted" })
-      .where(
-        and(
-          eq(TrainingSyllabusEntry.clusterNodeId, clusterNodeId),
-          inArray(TrainingSyllabusEntry.id, targetEntryIds),
-        ),
-      );
+    // Scoped by entry id only: a skillset unit (parent = ability) targets
+    // entries owned by the ability's CHILD skills, so scoping by the unit's
+    // own parent id would match nothing. Entry ids are primary keys and were
+    // loaded from this unit's frontier, so id scoping is exact.
+    if (targetEntryIds.length > 0) {
+      await transactionDb
+        .update(TrainingSyllabusEntry)
+        .set({ status: "targeted" })
+        .where(inArray(TrainingSyllabusEntry.id, targetEntryIds));
+    }
     return { node, created: true } as const;
   });

@@ -1,13 +1,7 @@
 import type { designCurriculum } from "../agents/curriculum-designer";
 import type { CurriculumNodeBlueprint } from "../types/training.types";
+import { foundationCalibrationRamp } from "../engine/progression-model";
 import { expandSkillBands } from "../engine/rating";
-
-/**
- * Foundation units are criterion-referenced, so a skill node's bandRamp exists
- * only to keep the shared unit machinery calibrated at a modest, fixed span
- * above the ability's floor. It never gates mastery — concept coverage does.
- */
-const FOUNDATION_RAMP_SPAN = 200;
 
 /**
  * The v2 plan tree: root → ability → skill. Units are appended dynamically
@@ -15,9 +9,10 @@ const FOUNDATION_RAMP_SPAN = 200;
  * progression engine — never authored here.
  *
  * Gating at build time: the first ability and its first skill are `ready`;
- * everything else is `planned`. Foundations run skill-by-skill in dependency
- * order; skillset units unlock only when every skill in the ability is
- * mastered (see engine/plan-progression.ts).
+ * everything else is `planned`. An ability's `ready` status only makes its
+ * track visible — every ability starts at stage "foundations", and its
+ * skillset climb opens via an explicit stage change once all child skills
+ * are mastered (see engine/plan-progression.ts / progression-model.ts).
  */
 export const buildCurriculumNodes = (
   draft: Awaited<ReturnType<typeof designCurriculum>>["planDraft"],
@@ -41,6 +36,7 @@ export const buildCurriculumNodes = (
       positionColumn: centerColumn,
       positionRow: 0,
       difficultyBands: null,
+      abilityStage: null,
       skillMap: null,
     },
   ];
@@ -61,6 +57,7 @@ export const buildCurriculumNodes = (
       positionColumn: abilityIndex,
       positionRow: 1,
       difficultyBands: expandSkillBands(ability.bandRamp),
+      abilityStage: "foundations",
       skillMap: {
         workflow: ability.workflow,
         bandRamp: ability.bandRamp,
@@ -82,12 +79,12 @@ export const buildCurriculumNodes = (
         positionColumn: abilityIndex,
         positionRow: 2 + skillIndex,
         difficultyBands: null,
+        abilityStage: null,
         skillMap: {
           workflow: skill.workflow,
-          bandRamp: {
-            startRating: ability.bandRamp.startRating,
-            peakRating: ability.bandRamp.startRating + FOUNDATION_RAMP_SPAN,
-          },
+          // Difficulty calibration only (see progression-model.ts): the
+          // foundation regime has no rating gate, so this ramp never gates.
+          bandRamp: foundationCalibrationRamp(ability.bandRamp),
           masteryContract: skill.masteryContract,
         },
       });

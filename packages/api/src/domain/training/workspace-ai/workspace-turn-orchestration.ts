@@ -21,6 +21,7 @@ import { buildUnitTurnContext } from "../education-unit/context";
 import { runUnitTurn } from "../education-unit/orchestrate-unit-turn";
 import { getUnitRecipe } from "../education-unit/unit";
 import { boundTranscript } from "../engine/compaction";
+import { regimeForNodeKind } from "../engine/progression-model";
 import { resolveRatingScope } from "../orchestration/rating-scope";
 import { deriveServerAttemptTiming } from "./evaluation-plan";
 import {
@@ -380,14 +381,17 @@ export const runEducationUnitTurn = ({
       };
     }
 
-    // The two-regime switch: a foundation unit (parent = skill node) never
-    // writes the ability ELO — its mastery is concept coverage. Skillset
-    // units (parent = ability / legacy cluster) and recall runs write.
+    // The two-regime switch, decided by the one canonical kind→regime mapping
+    // (progression-model.ts): a foundation unit never writes the ability ELO —
+    // its mastery is concept coverage. Skillset units and recall runs write.
     const unitNode = plan.nodes.find((planNode) => planNode.id === unit.nodeId);
     const unitParentKind = plan.nodes.find(
       (planNode) => planNode.id === unitNode?.parentNodeId,
     )?.kind;
-    const isFoundationUnit = unitParentKind === "skill" && recallFocus === null;
+    const isFoundationUnit =
+      unitParentKind != null &&
+      regimeForNodeKind(unitParentKind) === "foundation" &&
+      recallFocus === null;
     const recipe = getUnitRecipe(unitRun.recipeVersion, ratingScope, {
       writesRating: !isFoundationUnit,
     });
@@ -434,7 +438,6 @@ export const runEducationUnitTurn = ({
     const syllabusCheckOff =
       turnResult.nextState.phase === "mastered" && syllabus
         ? {
-            clusterNodeId: syllabus.clusterNodeId,
             requestedEntryIds: turnResult.syllabusCheckOff?.entryIds ?? [],
             targetedEntryIds: syllabus.targets.map((entry) => entry.id),
             evidenceNodeId: unit.nodeId,

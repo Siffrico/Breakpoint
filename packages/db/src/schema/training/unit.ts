@@ -212,6 +212,9 @@ export const TrainingUnitRun = pgTable(
     pass: t.integer().notNull().default(1),
     connectGrills: t.integer().notNull().default(0),
     solveRepairs: t.integer().notNull().default(0),
+    // One-shot help marker for the v2 connect loop: armed when a failed grade
+    // spends the grill budget, consumed by the turn that delivers the teach.
+    connectTeachDue: t.boolean().notNull().default(false),
     difficultySnapshotJson: t
       .jsonb()
       .$type<TrainingUnitDifficultySnapshotJson | null>(),

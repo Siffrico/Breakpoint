@@ -178,7 +178,6 @@ export interface WorkspaceEducationTurnCommit {
 }
 
 export interface WorkspaceSyllabusCheckOffCommit {
-  clusterNodeId: string;
   requestedEntryIds: string[];
   targetedEntryIds: string[];
   evidenceNodeId: string;

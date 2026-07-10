@@ -323,15 +323,18 @@ export const runUnitTurn = (
     //     evaluator would grade against the wrong round's canonical answer.
     const posesTask =
       event.type === "phase_continues" && event.reason === "prompted";
-    const hasActiveTeachProbe =
+    // On every round — including round one, where Connect itself recorded the
+    // spec while posing — a stored current-round spec means the scenario is
+    // live: later connect turns grade it, never replace it.
+    const hasActiveScenario =
       state.phase === "connect" &&
-      state.pass > 1 &&
-      storedSpec?.pass === state.pass;
-    if (hasActiveTeachProbe && (posesTask || recordedSpec)) {
+      storedSpec != null &&
+      (storedSpec.pass ?? 1) === state.pass;
+    if (hasActiveScenario && (posesTask || recordedSpec)) {
       return yield* Effect.fail(
         new EducationUnitContractError({
           message:
-            "Connect must grade the active Teach probe instead of replacing it.",
+            "Connect must grade the active scenario instead of replacing it.",
         }),
       );
     }

@@ -88,7 +88,24 @@ export const trainingSyllabusRepository = {
       where: eq(TrainingCurriculumNode.id, unit.parentNodeId),
     });
     if (!cluster?.skillMap) return null;
-    const entries = await listEntries({ db, clusterNodeId: cluster.id });
+    // Skillset units (parent = ability) own no syllabus rows of their own —
+    // their checked/targeted concepts live on the ability's child skills.
+    const ownerIds =
+      cluster.kind === "ability"
+        ? (
+            await db.query.TrainingCurriculumNode.findMany({
+              where: and(
+                eq(TrainingCurriculumNode.parentNodeId, cluster.id),
+                eq(TrainingCurriculumNode.kind, "skill"),
+              ),
+            })
+          ).map((skill) => skill.id)
+        : [cluster.id];
+    const entries = (
+      await Promise.all(
+        ownerIds.map((clusterNodeId) => listEntries({ db, clusterNodeId })),
+      )
+    ).flat();
     return {
       clusterNodeId: cluster.id,
       workflow: cluster.skillMap.workflow,
@@ -101,15 +118,15 @@ export const trainingSyllabusRepository = {
     };
   },
 
+  // Scoped by entry id throughout: the targeted set may span multiple owning
+  // skill nodes (skillset units), so a single clusterNodeId cannot scope it.
   checkOffEntries: async ({
     db,
-    clusterNodeId,
     requestedEntryIds,
     targetedEntryIds,
     evidenceNodeId,
   }: {
     db: Database;
-    clusterNodeId: string;
     requestedEntryIds: string[];
     targetedEntryIds: string[];
     evidenceNodeId: string;
@@ -130,25 +147,22 @@ export const trainingSyllabusRepository = {
                 checkedAt: new Date(),
                 evidenceNodeId,
               })
-              .where(
-                and(
-                  eq(TrainingSyllabusEntry.clusterNodeId, clusterNodeId),
-                  inArray(TrainingSyllabusEntry.id, acceptedIds),
-                ),
-              )
+              .where(inArray(TrainingSyllabusEntry.id, acceptedIds))
               .returning({ id: TrainingSyllabusEntry.id });
 
       const checkedIds = checked.map((entry) => entry.id);
       const missing = acceptedIds.filter((id) => !checkedIds.includes(id));
-      await transactionDb
-        .update(TrainingSyllabusEntry)
-        .set({ status: "unchecked" })
-        .where(
-          and(
-            eq(TrainingSyllabusEntry.clusterNodeId, clusterNodeId),
-            eq(TrainingSyllabusEntry.status, "targeted"),
-          ),
-        );
+      if (targetedEntryIds.length > 0) {
+        await transactionDb
+          .update(TrainingSyllabusEntry)
+          .set({ status: "unchecked" })
+          .where(
+            and(
+              inArray(TrainingSyllabusEntry.id, targetedEntryIds),
+              eq(TrainingSyllabusEntry.status, "targeted"),
+            ),
+          );
+      }
       return { checked: checkedIds, deferred: [...deferred, ...missing] };
     });
   },

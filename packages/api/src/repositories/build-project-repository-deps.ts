@@ -6,6 +6,7 @@ import { StartingPointTierSchema } from "@acme/validators";
 import type { BuildProjectDeps } from "../domain/training/orchestration/build-project";
 import { designSyllabus } from "../domain/training/agents/syllabus-designer";
 import { decideMasteryProgression } from "../domain/training/engine/plan-progression";
+import { parseAbilityStage } from "../domain/training/engine/progression-model";
 import { ArtifactBuildError } from "../domain/training/orchestration/agent-runtime";
 import { createNextUnit } from "../domain/training/unit-creation/create-next-unit";
 import { runPrepareUnit } from "../domain/training/unit-preparation/prepare-unit-edge";
@@ -121,15 +122,24 @@ export const recoverSkillUnits = async ({
   // The recoverable frontier: every non-completed, ready skillMap node —
   // v2 `skill` nodes (foundation units), `ability` nodes whose skillset climb
   // has opened, and legacy `skill_cluster`s. Planned-but-locked nodes are the
-  // progression engine's to open, not recovery's.
-  const skills = rawNodes.filter(
-    (node) =>
-      (node.kind === "skill" ||
-        node.kind === "ability" ||
-        node.kind === "skill_cluster") &&
-      node.status === "ready" &&
-      node.skillMap != null,
-  );
+  // progression engine's to open, not recovery's. An ability's `ready` status
+  // only means its track is visible; whether its skillset climb is open is an
+  // explicit stage the advancement engine records. Rows that predate the
+  // stage column fall back to deriving it from child-skill completion.
+  const skills = rawNodes.filter((node) => {
+    if (node.status !== "ready" || node.skillMap == null) return false;
+    if (node.kind === "skill" || node.kind === "skill_cluster") return true;
+    if (node.kind !== "ability") return false;
+    const stage = parseAbilityStage(node.abilityStage);
+    if (stage) return stage === "skillset";
+    const childSkills = rawNodes.filter(
+      (child) => child.kind === "skill" && child.parentNodeId === node.id,
+    );
+    return (
+      childSkills.length > 0 &&
+      childSkills.every((child) => child.status === "completed")
+    );
+  });
 
   const recoverSkill = async (clusterNodeId: string, kind: string) => {
     // Abilities own no syllabus — their skillset units aggregate the child

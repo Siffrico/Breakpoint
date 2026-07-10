@@ -90,13 +90,10 @@ const buildOutputContract = (input: UnitTurnContextInput): string | null => {
 
   // v2 connect loop: the grill budget is spent but the phase keeps looping —
   // escalate to a teach of the missing idea, then re-pose the SAME scenario.
-  // Recoverable from state because no phase change happened (the counter
-  // survives), unlike the v1 force-advance above.
-  if (
-    state.phase === "connect" &&
-    !policy.advanceOnMaxGrills &&
-    state.connectGrills >= policy.maxGrillsBeforeTeach
-  ) {
+  // Driven by the explicit one-shot marker (armed by the failing grade,
+  // consumed by the turn that delivers the teach — see fsm.ts), so the
+  // directive can never fire again on the learner's post-teach answer.
+  if (state.phase === "connect" && state.connectTeachDue) {
     directives.push(
       "The learner has repeatedly missed the core connection. This turn, briefly TEACH the missing idea — anchored on their own attempts, smallest possible reveal — then re-pose the same scenario's reconstruct questions so they can genuinely connect. Do not grade this turn as connected on your teaching; only on their own reconstruction.",
     );
@@ -184,10 +181,12 @@ export const buildUnitTurnContext = (input: UnitTurnContextInput): string => {
   //   - teach sees the just-finished round's spec as the evolution constraint
   //     (same world, escalated friction; the final round adds the transfer
   //     mutation).
-  //   - connect on a later round sees the prior round's spec as the evolution
-  //     constraint (safety net when no seam teach recorded one), or the
-  //     current round's spec as the grading reference for the probe Teach
-  //     already posed.
+  //   - connect sees the prior round's spec as the evolution constraint
+  //     (safety net when no seam teach recorded one), or the current round's
+  //     spec as the grading reference for the already-posed scenario — on
+  //     EVERY round, including round one, where Connect itself recorded the
+  //     spec while posing. Whether the spec is "current" or "prior" is decided
+  //     once, from its pass tag alone.
   //   - solve (the evaluator) only grades against the current round's spec. A
   //     prior round's canonical answer belongs to an earlier form of the
   //     scenario; grading against it would score the learner on the wrong
@@ -202,21 +201,13 @@ export const buildUnitTurnContext = (input: UnitTurnContextInput): string => {
           isFinalRound: state.pass + 1 >= input.passes,
         }),
       );
-    } else if (
-      state.phase === "connect" &&
-      state.pass > 1 &&
-      specPass === state.pass - 1
-    ) {
+    } else if (state.phase === "connect" && specPass === state.pass - 1) {
       sections.push(
         renderScenarioEvolutionConstraint(input.scenarioSpec, {
           isFinalRound,
         }),
       );
-    } else if (
-      state.phase === "connect" &&
-      state.pass > 1 &&
-      specPass === state.pass
-    ) {
+    } else if (state.phase === "connect" && specPass === state.pass) {
       sections.push(renderConnectGradingContext(input.scenarioSpec));
     } else if (state.phase === "solve" && specPass === state.pass) {
       sections.push(renderEvalRubricContext(input.scenarioSpec));

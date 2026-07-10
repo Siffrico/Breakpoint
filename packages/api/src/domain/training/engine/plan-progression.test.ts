@@ -176,13 +176,23 @@ describe("planSkillMapAdvancement", () => {
     });
   });
 
+  it("a mastered skill mid-track emits no stage change", () => {
+    expect(planSkillMapAdvancement(tree, "skill-1").stageChanges).toEqual([]);
+  });
+
   it("the last mastered skill opens the ability's skillset units", () => {
     const allButLast = tree.map((item) =>
       item.id === "skill-1" ? { ...item, status: "completed" as const } : item,
     );
-    expect(planSkillMapAdvancement(allButLast, "skill-2")).toMatchObject({
+    const advancement = planSkillMapAdvancement(allButLast, "skill-2");
+    expect(advancement).toMatchObject({
       kind: "skillset_unit",
       abilityNodeId: "ability-1",
+    });
+    // The unlock is recorded explicitly — nothing may infer it from status.
+    expect(advancement.stageChanges).toContainEqual({
+      nodeId: "ability-1",
+      stage: "skillset",
     });
   });
 
@@ -195,6 +205,14 @@ describe("planSkillMapAdvancement", () => {
     expect(advancement.changes).toContainEqual({
       nodeId: "ability-2",
       status: "ready",
+    });
+    expect(advancement.stageChanges).toContainEqual({
+      nodeId: "ability-1",
+      stage: "mastered",
+    });
+    expect(advancement.stageChanges).toContainEqual({
+      nodeId: "ability-2",
+      stage: "foundations",
     });
   });
 

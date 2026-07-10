@@ -71,6 +71,12 @@ export const TrainingCurriculumNode = pgTable(
     parentNodeId: t.uuid(),
     kind: t.varchar({ length: 32 }).notNull(),
     status: t.varchar({ length: 32 }).notNull().default("planned"),
+    // Executable progression stage for ability-like nodes, kept separate from
+    // the lifecycle status above: "ready" only means the track is visible;
+    // this says what may RUN ("foundations" | "skillset" | "mastered").
+    // Null on non-ability nodes and on rows written before the column existed
+    // (readers fall back to deriving the stage from child-skill completion).
+    abilityStage: t.varchar({ length: 16 }),
     title: t.varchar({ length: 240 }).notNull(),
     summary: t.text().notNull(),
     whyItMatters: t.text().notNull(),

@@ -60,6 +60,7 @@ const enter = (
   pass,
   connectGrills: 0, // counters reset whenever we move to a new phase
   solveRepairs: 0,
+  connectTeachDue: false,
 });
 
 const nextPass = (pass: PassIndex): PassIndex =>
@@ -88,21 +89,36 @@ export const transition = (
         state,
         event,
       );
-      if (event.type === "phase_continues") return state;
+      // If a teach was due, the turn that produced this event delivered it
+      // (teach + re-pose). Consume the one-shot and restart the grill budget
+      // so remediation is never repeated on the learner's very next answer.
+      const current = state.connectTeachDue
+        ? { ...state, connectTeachDue: false, connectGrills: 0 }
+        : state;
+      if (event.type === "phase_continues") return current;
       if (event.connected) {
-        return enter(state, "solve", state.pass); // got the core — go solve
+        return enter(current, "solve", current.pass); // got the core — go solve
       }
-      const grills = state.connectGrills + 1;
+      const grills = current.connectGrills + 1;
       // Missed it. v1 recipes force-advance once the grill budget is spent so
-      // the learner is never trapped; v2 recipes keep looping — the learner is
-      // helped until they genuinely connect (shouldTeachMissedConnection tells
-      // the caller when the help must escalate to a teach). Callers that need
-      // "did we force them through?" must check shouldTeachMissedConnection()
-      // against the pre-transition state/event — enter() resets the counter.
-      return recipe.policy.advanceOnMaxGrills &&
+      // the learner is never trapped (callers that need "did we force them
+      // through?" must check shouldTeachMissedConnection() against the
+      // pre-transition state/event — enter() resets the counter). v2 recipes
+      // keep looping: spending the budget arms connectTeachDue, telling the
+      // next turn to escalate to a teach of the missing idea.
+      if (
+        recipe.policy.advanceOnMaxGrills &&
         grills >= recipe.policy.maxGrillsBeforeTeach
-        ? enter(state, "solve", state.pass)
-        : { ...state, connectGrills: grills };
+      ) {
+        return enter(current, "solve", current.pass);
+      }
+      return {
+        ...current,
+        connectGrills: grills,
+        connectTeachDue:
+          !recipe.policy.advanceOnMaxGrills &&
+          grills >= recipe.policy.maxGrillsBeforeTeach,
+      };
     }
 
     case "solve": {

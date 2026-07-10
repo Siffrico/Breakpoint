@@ -114,6 +114,8 @@ export interface CurriculumNodeBlueprint {
   positionColumn: number;
   positionRow: number;
   difficultyBands: DifficultyBand[] | null;
+  /** Executable stage for ability nodes (progression-model.ts AbilityStage). */
+  abilityStage: "foundations" | "skillset" | "mastered" | null;
   skillMap: {
     workflow: { name: string; steps: string[] };
     bandRamp: { startRating: number; peakRating: number };

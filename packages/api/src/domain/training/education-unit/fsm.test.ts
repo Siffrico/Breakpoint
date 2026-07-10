@@ -85,18 +85,34 @@ describe("transition", () => {
 
   it("v2 connect NEVER force-advances — it keeps looping past the grill limit", () => {
     let cur = state({ phase: "connect", pass: 1, connectGrills: 0 });
-    for (let i = 1; i <= 5; i++) {
+    for (let i = 0; i < 5; i++) {
       cur = transition(
         cur,
         { type: "connection_graded", connected: false },
         v2,
       );
-      expect(cur).toMatchObject({
-        phase: "connect",
-        pass: 1,
-        connectGrills: i,
-      });
+      expect(cur).toMatchObject({ phase: "connect", pass: 1 });
     }
+  });
+
+  it("v2 connect arms the one-shot teach at the grill limit and consumes it on the next event", () => {
+    // Two failed grades spend the budget and arm the teach.
+    let cur = state({ phase: "connect", pass: 1, connectGrills: 0 });
+    cur = transition(cur, { type: "connection_graded", connected: false }, v2);
+    expect(cur).toMatchObject({ connectGrills: 1, connectTeachDue: false });
+    cur = transition(cur, { type: "connection_graded", connected: false }, v2);
+    expect(cur).toMatchObject({ connectGrills: 2, connectTeachDue: true });
+    // The next turn delivers the teach: its event consumes the marker and
+    // restarts the grill budget, so remediation never fires twice in a row.
+    cur = transition(
+      cur,
+      { type: "phase_continues", reason: "needs_more_work" },
+      v2,
+    );
+    expect(cur).toMatchObject({ connectGrills: 0, connectTeachDue: false });
+    // A single post-teach failure does not immediately re-arm it.
+    cur = transition(cur, { type: "connection_graded", connected: false }, v2);
+    expect(cur).toMatchObject({ connectGrills: 1, connectTeachDue: false });
   });
 
   it("solve -> teach on a non-final round pass", () => {

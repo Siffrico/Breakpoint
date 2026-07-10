@@ -1,7 +1,11 @@
+import { Match } from "effect";
+
 import type {
   CurriculumNodeKind,
   CurriculumNodeStatus,
 } from "../types/training.types";
+import type { AbilityStage } from "./progression-model";
+import { DEFAULT_MAX_RATING_DEVIATION } from "./progression-model";
 
 /**
  * Pure curriculum-progression engine.
@@ -27,6 +31,12 @@ export interface ProgressionNode {
 export interface StatusChange {
   nodeId: string;
   status: CurriculumNodeStatus;
+}
+
+/** One intended ability-stage mutation (see progression-model.ts AbilityStage). */
+export interface StageChange {
+  nodeId: string;
+  stage: AbilityStage;
 }
 
 export interface AdvanceResult {
@@ -81,27 +91,32 @@ export const usesDynamicMasteryLoop = ({
 }): boolean =>
   (nodeKind === "simulation" || nodeKind === "unit") && parentHasSkillMap;
 
-export const decideMasteryProgression = (
+export const decideMasteryProgression: (
   state: MasteryProgressionState,
-): MasteryProgressionDecision => {
-  if (state.regime === "foundation") {
+) => MasteryProgressionDecision = Match.type<MasteryProgressionState>().pipe(
+  Match.when({ regime: "foundation" }, (state) => {
     const mastered =
       state.entries.length > 0 &&
       state.entries.every(
         (entry) => entry.coverageCount >= state.coverageTarget,
       );
-    return mastered ? { intent: "node_complete" } : { intent: "create_unit" };
-  }
-  const { maxRatingDeviation = 80 } = state;
-  if (
-    state.uncheckedEntryCount === 0 &&
-    state.learnerRating >= state.peakRating &&
-    state.ratingDeviation <= maxRatingDeviation
-  ) {
-    return { intent: "node_complete" };
-  }
-  return { intent: "create_unit" };
-};
+    return mastered
+      ? ({ intent: "node_complete" } as const)
+      : ({ intent: "create_unit" } as const);
+  }),
+  Match.when({ regime: "skillset" }, (state) => {
+    const maxRatingDeviation =
+      state.maxRatingDeviation ?? DEFAULT_MAX_RATING_DEVIATION;
+    const mastered =
+      state.uncheckedEntryCount === 0 &&
+      state.learnerRating >= state.peakRating &&
+      state.ratingDeviation <= maxRatingDeviation;
+    return mastered
+      ? ({ intent: "node_complete" } as const)
+      : ({ intent: "create_unit" } as const);
+  }),
+  Match.exhaustive,
+);
 
 /**
  * What unlocks after a skillMap-bearing node (skill or ability) is mastered.
@@ -114,21 +129,32 @@ export const decideMasteryProgression = (
  *                     or plan complete
  */
 export type SkillMapAdvancement =
-  | { kind: "foundation_unit"; skillNodeId: string; changes: StatusChange[] }
-  | { kind: "skillset_unit"; abilityNodeId: string; changes: StatusChange[] }
-  | { kind: "plan_complete"; changes: StatusChange[] }
-  | { kind: "none"; changes: StatusChange[] };
+  | {
+      kind: "foundation_unit";
+      skillNodeId: string;
+      changes: StatusChange[];
+      stageChanges: StageChange[];
+    }
+  | {
+      kind: "skillset_unit";
+      abilityNodeId: string;
+      changes: StatusChange[];
+      stageChanges: StageChange[];
+    }
+  | { kind: "plan_complete"; changes: StatusChange[]; stageChanges: StageChange[] }
+  | { kind: "none"; changes: StatusChange[]; stageChanges: StageChange[] };
 
 export const planSkillMapAdvancement = (
   nodes: readonly ProgressionNode[],
   masteredNodeId: string,
 ): SkillMapAdvancement => {
   const mastered = nodes.find((node) => node.id === masteredNodeId);
-  if (!mastered) return { kind: "none", changes: [] };
+  if (!mastered) return { kind: "none", changes: [], stageChanges: [] };
 
   const changes: StatusChange[] = [
     { nodeId: masteredNodeId, status: "completed" },
   ];
+  const stageChanges: StageChange[] = [];
   const ordered = [...nodes].sort((a, b) => a.orderIndex - b.orderIndex);
   const statusOf = (node: ProgressionNode): CurriculumNodeStatus =>
     node.id === masteredNodeId ? "completed" : node.status;
@@ -143,40 +169,57 @@ export const planSkillMapAdvancement = (
     );
     if (nextSkill) {
       changes.push({ nodeId: nextSkill.id, status: "ready" });
-      return { kind: "foundation_unit", skillNodeId: nextSkill.id, changes };
+      return {
+        kind: "foundation_unit",
+        skillNodeId: nextSkill.id,
+        changes,
+        stageChanges,
+      };
     }
     // Every skill in the ability is mastered — the skillset tier climb opens.
+    // The stage change is the explicit record of that unlock; nothing may
+    // infer it from the ability's lifecycle status.
     if (mastered.parentNodeId) {
+      stageChanges.push({ nodeId: mastered.parentNodeId, stage: "skillset" });
       return {
         kind: "skillset_unit",
         abilityNodeId: mastered.parentNodeId,
         changes,
+        stageChanges,
       };
     }
-    return { kind: "none", changes };
+    return { kind: "none", changes, stageChanges };
   }
 
   if (mastered.kind === "ability" || mastered.kind === "skill_cluster") {
+    stageChanges.push({ nodeId: masteredNodeId, stage: "mastered" });
     const nextAbility = ordered.find(
       (node) =>
         (node.kind === "ability" || node.kind === "skill_cluster") &&
         statusOf(node) !== "completed",
     );
-    if (!nextAbility) return { kind: "plan_complete", changes };
+    if (!nextAbility) return { kind: "plan_complete", changes, stageChanges };
     changes.push({ nodeId: nextAbility.id, status: "ready" });
     const firstSkill = ordered.find(
       (node) => node.kind === "skill" && node.parentNodeId === nextAbility.id,
     );
     if (firstSkill) {
+      stageChanges.push({ nodeId: nextAbility.id, stage: "foundations" });
       changes.push({ nodeId: firstSkill.id, status: "ready" });
-      return { kind: "foundation_unit", skillNodeId: firstSkill.id, changes };
+      return {
+        kind: "foundation_unit",
+        skillNodeId: firstSkill.id,
+        changes,
+        stageChanges,
+      };
     }
     // Legacy cluster with no skill children: its units are created directly
-    // under it by the mastery loop; nothing further to name here.
-    return { kind: "none", changes };
+    // under it by the mastery loop, so its climb opens immediately.
+    stageChanges.push({ nodeId: nextAbility.id, stage: "skillset" });
+    return { kind: "none", changes, stageChanges };
   }
 
-  return { kind: "none", changes };
+  return { kind: "none", changes, stageChanges };
 };
 
 /**

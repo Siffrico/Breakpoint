@@ -81,6 +81,13 @@ export interface UnitState {
   pass: PassIndex;
   connectGrills: number; // failed connect attempts in the current round; reset on phase change
   solveRepairs: number; // failed solve attempts in the current round; reset on phase change
+  /**
+   * Explicit one-shot help marker for the v2 connect loop: armed when a failed
+   * grade spends the grill budget (the NEXT connect turn must teach the missed
+   * idea and re-pose), consumed — together with the grill counter — by that
+   * turn's event. Optional so rows and fixtures that predate it read as false.
+   */
+  connectTeachDue?: boolean;
 }
 
 /**
