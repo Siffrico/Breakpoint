@@ -122,6 +122,9 @@ export const TrainingSyllabusEntry = pgTable(
   "becoming_training_syllabus_entry",
   (t) => ({
     id: t.uuid().notNull().primaryKey().defaultRandom(),
+    // The node this entry's concepts belong to. On v2 plans this is a `skill`
+    // node (each skill owns its concept list); on pre-v2 plans it is the
+    // `skill_cluster`. The column name is kept to avoid a rename migration.
     clusterNodeId: t
       .uuid()
       .notNull()
@@ -130,6 +133,17 @@ export const TrainingSyllabusEntry = pgTable(
     label: t.text().notNull(),
     kind: t.varchar({ length: 32 }).notNull(),
     gloss: t.text().notNull(),
+    // v2 concept model: the causal claim this concept IS ("X under Y causes Z").
+    // A mechanism-form concept is a scenario template — the scenario agent
+    // instantiates it instead of inventing a surface. Null on pre-v2 entries.
+    mechanism: t.text(),
+    // How many scored solves this concept was load-bearing in. Skill mastery
+    // requires every concept to reach the coverage target (see
+    // engine/concept-coverage.ts) — never a drifting rating.
+    coverageCount: t.integer().notNull().default(0),
+    // Support level of the most recent covering solve ("worked_example" |
+    // "guided" | "none"). Coverage earned unaided is what mastery counts.
+    lastHelpLevel: t.varchar({ length: 32 }),
     status: t.varchar({ length: 32 }).notNull().default("unchecked"),
     checkedAt: t.timestamp({ mode: "date", withTimezone: true }),
     // Spaced-reinforcement state: how many consecutive scored recalls this

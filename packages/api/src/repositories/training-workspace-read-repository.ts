@@ -161,9 +161,7 @@ export const trainingWorkspaceReadRepository = {
         (nextNode
           ? nextNode.kind === "integration"
             ? "Integration unit ready"
-            : nextNode.kind === "simulation"
-              ? "Cluster capstone ready"
-              : "Next unit ready"
+            : "Next unit ready"
           : null),
       blockingSignals:
         summary.recentFailureTags.length > 0

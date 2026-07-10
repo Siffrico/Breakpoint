@@ -218,6 +218,7 @@ describe("trainingSyllabusRepository persistence", () => {
         label: `Discrimination ${index + 1}`,
         kind: "discrimination" as const,
         gloss: `Tell signal ${index + 1} from its plausible surrogate.`,
+        mechanism: `Collapsing signal ${index + 1} with its surrogate under load causes the wrong repair.`,
       }));
       const first = await trainingSyllabusRepository.ensureSyllabus({
         db,

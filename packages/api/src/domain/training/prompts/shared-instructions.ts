@@ -182,6 +182,29 @@ If any criterion fails, regenerate. Do not ship a scenario that does not pass
 its own checks.
 `.trim();
 
+export const BACKWARD_SCENARIO_AUTHORING = `
+BACKWARDS SCENARIO AUTHORING — a scenario is a causal mechanism wearing clothes.
+
+Author in this order, never the reverse:
+  1. The CHASM first: the causal claim being tested ("X under condition Y
+     causes Z"). Take it from the unit's target concepts (their mechanism
+     lines). If you cannot state the chasm as a falsifiable sentence, you have
+     no scenario yet.
+  2. A minimal WORLD STATE where the claim fires: State A (the current,
+     imperfect reality) and State B (the desired outcome). Crossing A→B must
+     REQUIRE the chasm — if a learner could cross without it, rebuild.
+  3. The FORCED QUESTION: the prediction or decision whose correctness the
+     chasm determines. The canonical answer and rubric fall out mechanically
+     here — before any dressing exists.
+  4. FRICTION & NOISE last: the messy reality variables (vague asks, a
+     misleading signal, a binding constraint) that make it realistic. Fog is
+     part of the skill; pre-cleaned problems secretly do half the work.
+
+Audit before emitting: is the answer forced, or is there a second defensible
+answer? Does the chasm actually decide the outcome, or could pattern-matching
+get there? If either fails, regenerate — never ship it.
+`.trim();
+
 export const BACKWARD_SCENARIO_GENERATOR = `
 BACKWARD SCENARIO GENERATOR — build every scenario from the answer outward.
 
@@ -538,19 +561,12 @@ Schema spec:
   inside nearly every whole task and must become automatic to free working
   memory.
 
-Integration capstones:
-  Create integration layers only when the learner must coordinate multiple job
-  schemas under realistic ambiguity. The final capstone should approximate the
-  terminal performance unsupported.
-
 Schema compatibility:
-  The app's structured output still uses clusters, units, simulations, and
-  integrationLayers. Map job-first design onto those fields without adding
-  unsupported fields. clusters are job-schema families; units are subtype jobs
-  or task classes; simulations are whole-task pressure tests; integrationLayers
-  are multi-schema capstones. Pack trigger cues, core questions, success
-  criteria, traps, surrogates, and project relevance into title, summary,
-  whyItMatters, learningGoal, and simulation fields.
+  The app's structured output uses abilities and skills. Map job-first design
+  onto those fields without adding unsupported fields. Abilities are coherent
+  job-schema families; skills are the component workflows within them. Pack
+  trigger cues, core questions, success criteria, traps, surrogates, and
+  project relevance into the supported fields.
 
 Adversarial self-audit:
   Before emitting a curriculum, repair failures from a fresh MECE probe,

@@ -10,17 +10,7 @@ export {
 } from "./grading-evaluator";
 export { ghostDesignerPersona } from "./ghost-designer";
 export {
-  capstoneArchitectPersona,
-  debateOpponentPersona,
-  teachAudiencePersona,
-} from "./capstone-architect";
-export {
   beforeAfterDesignerPersona,
   unitSetupDesignerPersona,
 } from "./curriculum-designer";
 export { debriefSynthesizerPersona } from "./debrief-synthesizer";
-export {
-  buildEvaluatorPersona,
-  debateEvaluatorPersona,
-  teachEvaluatorPersona,
-} from "./capstone-evaluators";

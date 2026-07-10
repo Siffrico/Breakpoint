@@ -16,13 +16,14 @@ const topCeilingOf = (bands: readonly DifficultyBand[]): number => {
 };
 
 const buildDraft = (
-  skillCount: number,
+  abilityCount: number,
   bandRamp = { startRating: 1300, peakRating: 1700 },
+  skillCount = 3,
 ) => ({
   title: "Production debugging operator",
   summary: "A job-first curriculum for production debugging.",
   targetIdentity: "Production debugging operator",
-  clusters: Array.from({ length: skillCount }, (_, index) => ({
+  abilities: Array.from({ length: abilityCount }, (_, index) => ({
     title: `Diagnose incidents and choose the next probe ${index + 1}`,
     summary: "Handle real incident evidence under ambiguity.",
     whyItMatters:
@@ -32,28 +33,45 @@ const buildDraft = (
       steps: ["Collect signals", "Separate hypotheses", "Choose a probe"],
     },
     bandRamp,
-    simulation: {
-      title: "Incident diagnosis simulation",
-      summary: "Diagnose a production incident from partial signals.",
-      whyItMatters: "This proves the job can be performed as a whole.",
-    },
     masteryContract: {
       exitCriteria: ["Chooses a discriminating probe from partial evidence."],
     },
+    skills: Array.from({ length: skillCount }, (_, skillIndex) => ({
+      title: `Read incident evidence ${skillIndex + 1}`,
+      summary: "Pull the discriminating signal out of noisy evidence.",
+      whyItMatters: "Wrong reads waste the incident's time box.",
+      workflow: {
+        name: "Read incident evidence",
+        steps: ["Collect signals", "Rank hypotheses", "Name the gap"],
+      },
+      masteryContract: {
+        exitCriteria: ["Names the discriminating signal from raw evidence."],
+      },
+    })),
   })),
 });
 
-void test("curriculum plan draft accepts a load-bearing cluster with a band ramp", () => {
+void test("curriculum plan draft accepts a load-bearing ability with a band ramp", () => {
   assert.doesNotThrow(() => CurriculumPlanDraftSchema.parse(buildDraft(4)));
 });
 
-void test("curriculum plan draft accepts the minimum cluster size", () => {
-  assert.doesNotThrow(() => CurriculumPlanDraftSchema.parse(buildDraft(3)));
+void test("curriculum plan draft accepts the minimum ability count", () => {
+  assert.doesNotThrow(() => CurriculumPlanDraftSchema.parse(buildDraft(2)));
 });
 
-void test("curriculum plan draft rejects fewer than three independent skills", () => {
+void test("curriculum plan draft rejects too few abilities", () => {
   assert.throws(
-    () => CurriculumPlanDraftSchema.parse(buildDraft(2)),
+    () => CurriculumPlanDraftSchema.parse(buildDraft(1)),
+    /too small|at least 2/i,
+  );
+});
+
+void test("curriculum plan draft rejects an ability with too few skills", () => {
+  assert.throws(
+    () =>
+      CurriculumPlanDraftSchema.parse(
+        buildDraft(3, { startRating: 1300, peakRating: 1700 }, 2),
+      ),
     /too small|at least 3/i,
   );
 });

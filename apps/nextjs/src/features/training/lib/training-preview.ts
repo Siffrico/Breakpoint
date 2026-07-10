@@ -346,22 +346,6 @@ export const previewPlanState: PlanState = {
       difficultyBands: null,
     },
     {
-      id: "node-sim-1",
-      parentNodeId: "00000000-0000-4000-8000-000000000101",
-      kind: "simulation",
-      title: "Cross-region checkout under partial partition",
-      summary: "Diagnose stale inventory reads during a live network event.",
-      whyItMatters: "This is the systems environment you are actually training for.",
-      learningGoal:
-        "Use the simulation to combine replication, lag, and user-visible correctness in one incident. Passing means the learner can diagnose the failure path and choose a defensible tradeoff.",
-      orderIndex: 3,
-      depth: 3,
-      positionColumn: 3,
-      positionRow: 0,
-      status: "planned",
-      difficultyBands: null,
-    },
-    {
       id: "node-cluster-2",
       parentNodeId: "node-root",
       kind: "skill_cluster",

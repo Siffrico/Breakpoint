@@ -61,8 +61,13 @@ export const BeforeAfterProfileSchema = z.object({
   firstShift: z.string().min(1),
 });
 
+// "ability" and "skill" are the v2 hierarchy (topic → ability → skill → unit).
+// "skill_cluster", "integration" and "simulation" remain parseable for plans
+// created before the ability/skill split; new plans never emit them.
 export const CurriculumNodeKindSchema = z.enum([
   "root",
+  "ability",
+  "skill",
   "skill_cluster",
   "unit",
   "integration",
@@ -147,28 +152,42 @@ export const ScenarioDirectiveSchema = z.object({
 });
 
 /**
- * The ScenarioSpec stored on a unit run — the scenario agent's reverse-engineered
+ * The ScenarioSpec stored on a unit run — the scenario agent's backwards-authored
  * artifact (see education-unit/scenario-spec.ts). `targetSkill` is the unit-level
- * invariant; the rest is scenario-scoped and replaced each pass.
+ * invariant. One scenario per unit run: later rounds EVOLVE the same world
+ * (stateA/stateB shift, friction escalates) instead of replacing the surface.
+ *
+ * Authoring order is enforced by prompt: chasm (the causal claim being tested)
+ * first, then a world state where it fires, then the dressing — never the
+ * reverse. `stateA`/`stateB`/`chasm`/`frictionNoise` are optional at the record
+ * level only so specs persisted before v2 still parse; the v2 tool requires them.
  */
 export const UnitScenarioSpecSchema = z.object({
   targetSkill: z.string().min(1),
   surface: z.string().min(1),
+  /** State A: the current, imperfect reality the learner is dropped into. */
+  stateA: z.string().min(1).optional(),
+  /** State B: the desired outcome the learner must reach. */
+  stateB: z.string().min(1).optional(),
+  /** The chasm: the causal claim / cognitive leap that crossing A→B requires. */
+  chasm: z.string().min(1).optional(),
+  /** Friction & noise: the messy reality variables that make it realistic. */
+  frictionNoise: z.string().min(1).optional(),
   canonicalAnswer: z.string().min(1),
   reasoningPath: z.string().min(1),
   rubric: z.string().min(1),
 });
 
 /**
- * The persisted form of a ScenarioSpec: the agent-emitted spec plus the pass
+ * The persisted form of a ScenarioSpec: the agent-emitted spec plus the round
  * it was recorded on, stamped by the orchestrator (never by the model). The
- * pass tag lets the context builder tell "pass 1's spec — render the pass-2
- * transfer constraint" apart from "pass 2's own spec — render the grading
- * reference". Optional only for rows written before the tag existed; an
- * untagged spec is treated as pass 1's.
+ * round tag lets the context builder tell a prior round's spec (render the
+ * evolution constraint) from the current round's own spec (render the grading
+ * reference). Optional only for rows written before the tag existed; an
+ * untagged spec is treated as round 1's.
  */
 export const UnitScenarioSpecRecordSchema = UnitScenarioSpecSchema.extend({
-  pass: z.union([z.literal(1), z.literal(2)]).optional(),
+  pass: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
 });
 
 /** The calibrated-difficulty snapshot stored on a unit run. */
@@ -498,105 +517,6 @@ export const TeachbackMessageSchema = z.object({
   round: z.number().int().min(1),
 });
 
-export const CapstoneFormatSchema = z.enum(["build", "debate", "teach"]);
-
-export const CapstoneStatusSchema = z.enum([
-  "pending",
-  "in_progress",
-  "passed",
-  "failed",
-]);
-
-export const BuildCapstoneScenarioSchema = z.object({
-  format: z.literal("build"),
-  title: z.string().min(1),
-  artifactType: z.string().min(1),
-  briefing: z.string().min(1),
-  constraints: z.array(z.string().min(1)).min(2),
-  evaluationCriteria: z.array(z.string().min(1)).min(3),
-});
-
-export const DebateCapstoneScenarioSchema = z.object({
-  format: z.literal("debate"),
-  title: z.string().min(1),
-  resolution: z.string().min(1),
-  context: z.string().min(1),
-  aiPosition: z.string().min(1),
-  openingArgument: z.string().min(1),
-});
-
-export const TeachCapstoneScenarioSchema = z.object({
-  format: z.literal("teach"),
-  title: z.string().min(1),
-  audience: z.string().min(1),
-  audienceContext: z.string().min(1),
-  deliveryGoal: z.string().min(1),
-  openingQuestion: z.string().min(1),
-});
-
-export const CapstoneScenarioSchema = z.discriminatedUnion("format", [
-  BuildCapstoneScenarioSchema,
-  DebateCapstoneScenarioSchema,
-  TeachCapstoneScenarioSchema,
-]);
-
-export const CapstoneMessageRoleSchema = z.enum([
-  "system",
-  "user",
-  "assistant",
-]);
-
-export const CapstoneMessageSchema = z.object({
-  id: z.string().min(1),
-  capstoneId: z.string().min(1),
-  role: CapstoneMessageRoleSchema,
-  content: z.string().min(1),
-  sequence: z.number().int().min(0),
-  round: z.number().int().min(0),
-  createdAt: z.date(),
-});
-
-export const CapstoneAttemptSchema = z.object({
-  id: z.string().min(1),
-  simulationNodeId: z.string().min(1),
-  planId: z.string().min(1),
-  sessionId: z.string().min(1),
-  userId: z.string().nullable(),
-  format: CapstoneFormatSchema,
-  status: CapstoneStatusSchema,
-  scenario: CapstoneScenarioSchema,
-  currentRound: z.number().int().min(0),
-  maxRounds: z.number().int().min(1),
-  score: z.number().int().min(0).max(100).nullable(),
-  feedback: z.string().nullable(),
-  createdAt: z.date(),
-  updatedAt: z.date().nullable(),
-});
-
-export const CapstoneStateSchema = z.object({
-  capstone: CapstoneAttemptSchema,
-  messages: z.array(CapstoneMessageSchema),
-});
-
-export const CapstoneSubmissionSchema = z.object({
-  nodeId: z.string().min(1),
-  response: z.string().min(50).max(5_000),
-});
-
-export const CapstoneTurnResultSchema = z.object({
-  assistantReply: z.string().nullable(),
-  status: CapstoneStatusSchema,
-  round: z.number().int().min(1),
-  score: z.number().int().min(0).max(100).nullable(),
-  feedback: z.string().nullable(),
-});
-
-export const CapstoneEvaluationSchema = z.object({
-  passed: z.boolean(),
-  score: z.number().int().min(0).max(100),
-  feedback: z.string().min(1),
-});
-
 export const ForgeDebriefSchema = z.object({
   seedResponse: z.string(),
   finalArticulation: z.string(),
@@ -880,21 +800,6 @@ export type FailureIsolationResult = z.infer<
 export type GhostSubmission = z.infer<typeof GhostSubmissionSchema>;
 export type GhostEvaluation = z.infer<typeof GhostEvaluationSchema>;
 export type TeachbackMessage = z.infer<typeof TeachbackMessageSchema>;
-export type CapstoneFormat = z.infer<typeof CapstoneFormatSchema>;
-export type CapstoneStatus = z.infer<typeof CapstoneStatusSchema>;
-export type BuildCapstoneScenario = z.infer<typeof BuildCapstoneScenarioSchema>;
-export type DebateCapstoneScenario = z.infer<
-  typeof DebateCapstoneScenarioSchema
->;
-export type TeachCapstoneScenario = z.infer<typeof TeachCapstoneScenarioSchema>;
-export type CapstoneScenario = z.infer<typeof CapstoneScenarioSchema>;
-export type CapstoneMessageRole = z.infer<typeof CapstoneMessageRoleSchema>;
-export type CapstoneMessage = z.infer<typeof CapstoneMessageSchema>;
-export type CapstoneAttempt = z.infer<typeof CapstoneAttemptSchema>;
-export type CapstoneState = z.infer<typeof CapstoneStateSchema>;
-export type CapstoneSubmission = z.infer<typeof CapstoneSubmissionSchema>;
-export type CapstoneTurnResult = z.infer<typeof CapstoneTurnResultSchema>;
-export type CapstoneEvaluation = z.infer<typeof CapstoneEvaluationSchema>;
 export type ForgeDebrief = z.infer<typeof ForgeDebriefSchema>;
 export type EducationUnitAttemptMode = z.infer<
   typeof EducationUnitAttemptModeSchema

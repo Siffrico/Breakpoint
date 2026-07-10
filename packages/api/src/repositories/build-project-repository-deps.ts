@@ -16,9 +16,9 @@ import { trainingCurriculumRepository } from "./training-curriculum-repository";
 import { trainingOnboardingRepository } from "./training-onboarding-repository";
 import { trainingSyllabusRepository } from "./training-syllabus-repository";
 import {
+  advanceSkillMapNode,
   createUnitCreationRepositoryDeps,
-  loadSkillMasteryState,
-  openSkillSimulation,
+  loadProgressionState,
 } from "./unit-creation-repository-deps";
 import { createUnitPreparationRepositoryDeps } from "./unit-preparation-repository-deps";
 
@@ -118,28 +118,37 @@ export const recoverSkillUnits = async ({
     return;
   }
 
-  // Completed clusters are mastered — never reopen them with review units.
+  // The recoverable frontier: every non-completed, ready skillMap node —
+  // v2 `skill` nodes (foundation units), `ability` nodes whose skillset climb
+  // has opened, and legacy `skill_cluster`s. Planned-but-locked nodes are the
+  // progression engine's to open, not recovery's.
   const skills = rawNodes.filter(
     (node) =>
-      node.kind === "skill_cluster" &&
-      node.status !== "completed" &&
+      (node.kind === "skill" ||
+        node.kind === "ability" ||
+        node.kind === "skill_cluster") &&
+      node.status === "ready" &&
       node.skillMap != null,
   );
 
-  const recoverSkill = async (clusterNodeId: string) => {
-    const syllabus = await ensureSkillSyllabus({
-      db,
-      clusterNodeId,
-      targetIdentity: plan.targetIdentity,
-    });
-    if (!syllabus) return;
-    const mastery = await loadSkillMasteryState({ db, clusterNodeId, userId });
-    if (!mastery) return;
-    const decision = decideMasteryProgression(mastery);
+  const recoverSkill = async (clusterNodeId: string, kind: string) => {
+    // Abilities own no syllabus — their skillset units aggregate the child
+    // skills' concept maps at unit-creation time.
+    if (kind !== "ability") {
+      const syllabus = await ensureSkillSyllabus({
+        db,
+        clusterNodeId,
+        targetIdentity: plan.targetIdentity,
+      });
+      if (!syllabus) return;
+    }
+    const state = await loadProgressionState({ db, clusterNodeId, userId });
+    if (!state) return;
+    const decision = decideMasteryProgression(state);
     if (decision.intent === "create_unit") {
       await ensureSkillUnit({ db, clusterNodeId, sessionId, userId });
-    } else if (decision.intent === "simulation") {
-      await openSkillSimulation({ db, clusterNodeId });
+    } else {
+      await advanceSkillMapNode({ db, nodeId: clusterNodeId, sessionId, userId });
     }
   };
 
@@ -149,7 +158,7 @@ export const recoverSkillUnits = async ({
   const [firstSkill, ...remainingSkills] = skills;
   if (!firstSkill) return;
   try {
-    await recoverSkill(firstSkill.id);
+    await recoverSkill(firstSkill.id, firstSkill.kind);
   } catch (error) {
     console.error("Skill unit recovery failed", {
       clusterNodeId: firstSkill.id,
@@ -159,7 +168,7 @@ export const recoverSkillUnits = async ({
   if (remainingSkills.length === 0) return;
   const recoverRemaining = async () => {
     await Promise.allSettled(
-      remainingSkills.map((skill) => recoverSkill(skill.id)),
+      remainingSkills.map((skill) => recoverSkill(skill.id, skill.kind)),
     );
   };
   if (scheduleBackgroundTask) {

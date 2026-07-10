@@ -283,7 +283,7 @@ export function WorkspaceShell({
           !preview &&
           !isHistorySelected &&
           !bootstrapPending &&
-          Boolean(activeNode && activeNode.kind !== "simulation"),
+          Boolean(activeNode),
         initialData:
           isInitialSession && unit?.nodeId === activeNode?.id
             ? (unit ?? undefined)
@@ -716,10 +716,10 @@ export function WorkspaceShell({
         inert={sidebarCollapsed ? true : undefined}
         className={[
           "hidden shrink-0 overflow-hidden transition-[width] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] md:block",
-          sidebarCollapsed ? "w-0" : "bg-sidebar w-[232px]",
+          sidebarCollapsed ? "w-0" : "bg-sidebar w-[220px]",
         ].join(" ")}
       >
-        <div className="h-full w-[232px]">
+        <div className="h-full w-[220px]">
           <CurriculumSidebar
             projects={projects}
             currentSessionId={selectedSessionId}

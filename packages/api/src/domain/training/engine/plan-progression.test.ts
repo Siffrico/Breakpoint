@@ -5,9 +5,20 @@ import {
   decideMasteryProgression,
   planAdvancement,
   planCompletion,
+  planSkillMapAdvancement,
   rollUpParentStatus,
   usesDynamicMasteryLoop,
 } from "./plan-progression";
+
+const node = (
+  overrides: Partial<ProgressionNode> & { id: string },
+): ProgressionNode => ({
+  parentNodeId: null,
+  kind: "unit",
+  status: "planned",
+  orderIndex: 0,
+  ...overrides,
+});
 
 describe("usesDynamicMasteryLoop", () => {
   it("keeps legacy and imported units on list advancement", () => {
@@ -42,63 +53,161 @@ describe("usesDynamicMasteryLoop", () => {
 });
 
 describe("decideMasteryProgression", () => {
-  it("keeps creating units while knowledge remains unchecked", () => {
+  it("foundation: keeps creating units while any concept is under-covered", () => {
     expect(
       decideMasteryProgression({
+        regime: "foundation",
+        entries: [{ coverageCount: 3 }, { coverageCount: 2 }],
+        coverageTarget: 3,
+      }),
+    ).toEqual({ intent: "create_unit" });
+  });
+
+  it("foundation: masters the skill once every concept reaches the target", () => {
+    expect(
+      decideMasteryProgression({
+        regime: "foundation",
+        entries: [{ coverageCount: 3 }, { coverageCount: 4 }],
+        coverageTarget: 3,
+      }),
+    ).toEqual({ intent: "node_complete" });
+  });
+
+  it("foundation: an empty concept map is never mastered", () => {
+    expect(
+      decideMasteryProgression({
+        regime: "foundation",
+        entries: [],
+        coverageTarget: 3,
+      }),
+    ).toEqual({ intent: "create_unit" });
+  });
+
+  it("skillset: keeps creating units while knowledge remains unchecked", () => {
+    expect(
+      decideMasteryProgression({
+        regime: "skillset",
         uncheckedEntryCount: 1,
         learnerRating: 1700,
         ratingDeviation: 40,
         peakRating: 1600,
-        simulationPassed: false,
       }),
     ).toEqual({ intent: "create_unit" });
   });
 
-  it("keeps creating units until peak performance is stable", () => {
+  it("skillset: keeps creating units until peak performance is stable", () => {
     expect(
       decideMasteryProgression({
+        regime: "skillset",
         uncheckedEntryCount: 0,
         learnerRating: 1600,
         ratingDeviation: 120,
         peakRating: 1600,
-        simulationPassed: false,
       }),
     ).toEqual({ intent: "create_unit" });
   });
 
-  it("opens the simulation only after syllabus and rating gates pass", () => {
+  it("skillset: masters the ability after the rating gate passes", () => {
     expect(
       decideMasteryProgression({
+        regime: "skillset",
         uncheckedEntryCount: 0,
         learnerRating: 1650,
         ratingDeviation: 60,
         peakRating: 1600,
-        simulationPassed: false,
       }),
-    ).toEqual({ intent: "simulation" });
-  });
-
-  it("completes the cluster after the simulation passes", () => {
-    expect(
-      decideMasteryProgression({
-        uncheckedEntryCount: 0,
-        learnerRating: 1650,
-        ratingDeviation: 60,
-        peakRating: 1600,
-        simulationPassed: true,
-      }),
-    ).toEqual({ intent: "cluster_complete" });
+    ).toEqual({ intent: "node_complete" });
   });
 });
 
-const node = (
-  overrides: Partial<ProgressionNode> & { id: string },
-): ProgressionNode => ({
-  parentNodeId: null,
-  kind: "unit",
-  status: "planned",
-  orderIndex: 0,
-  ...overrides,
+describe("planSkillMapAdvancement", () => {
+  const tree = [
+    node({ id: "root", kind: "root", status: "completed" }),
+    node({
+      id: "ability-1",
+      kind: "ability",
+      parentNodeId: "root",
+      status: "ready",
+      orderIndex: 1,
+    }),
+    node({
+      id: "skill-1",
+      kind: "skill",
+      parentNodeId: "ability-1",
+      status: "ready",
+      orderIndex: 2,
+    }),
+    node({
+      id: "skill-2",
+      kind: "skill",
+      parentNodeId: "ability-1",
+      status: "planned",
+      orderIndex: 3,
+    }),
+    node({
+      id: "ability-2",
+      kind: "ability",
+      parentNodeId: "root",
+      status: "planned",
+      orderIndex: 4,
+    }),
+    node({
+      id: "skill-3",
+      kind: "skill",
+      parentNodeId: "ability-2",
+      status: "planned",
+      orderIndex: 5,
+    }),
+  ];
+
+  it("a mastered skill unlocks the next sibling skill's foundation unit", () => {
+    const advancement = planSkillMapAdvancement(tree, "skill-1");
+    expect(advancement).toMatchObject({
+      kind: "foundation_unit",
+      skillNodeId: "skill-2",
+    });
+    expect(advancement.changes).toContainEqual({
+      nodeId: "skill-1",
+      status: "completed",
+    });
+    expect(advancement.changes).toContainEqual({
+      nodeId: "skill-2",
+      status: "ready",
+    });
+  });
+
+  it("the last mastered skill opens the ability's skillset units", () => {
+    const allButLast = tree.map((item) =>
+      item.id === "skill-1" ? { ...item, status: "completed" as const } : item,
+    );
+    expect(planSkillMapAdvancement(allButLast, "skill-2")).toMatchObject({
+      kind: "skillset_unit",
+      abilityNodeId: "ability-1",
+    });
+  });
+
+  it("a mastered ability unlocks the next ability's first skill", () => {
+    const advancement = planSkillMapAdvancement(tree, "ability-1");
+    expect(advancement).toMatchObject({
+      kind: "foundation_unit",
+      skillNodeId: "skill-3",
+    });
+    expect(advancement.changes).toContainEqual({
+      nodeId: "ability-2",
+      status: "ready",
+    });
+  });
+
+  it("the last mastered ability completes the plan", () => {
+    const lastAbility = tree.map((item) =>
+      item.id === "ability-1"
+        ? { ...item, status: "completed" as const }
+        : item,
+    );
+    expect(planSkillMapAdvancement(lastAbility, "ability-2")).toMatchObject({
+      kind: "plan_complete",
+    });
+  });
 });
 
 /**

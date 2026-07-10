@@ -17,7 +17,12 @@ const baseInput = (
     unitMasteryContract: null,
   },
   state: initialState("unit-1", "education-unit-v1"),
-  policy: { maxGrillsBeforeTeach: 2, maxRepairsBeforeMicroTeach: 2 },
+  policy: {
+    maxGrillsBeforeTeach: 2,
+    maxRepairsBeforeMicroTeach: 2,
+    advanceOnMaxGrills: true,
+  },
+  passes: 2,
   memories: [],
   difficultyLine: null,
   pendingConnectTeach: false,
@@ -42,7 +47,7 @@ describe("buildUnitTurnContext", () => {
       }),
     );
 
-    expect(context).toContain("Phase: connect (pass 2 of 2)");
+    expect(context).toContain("Phase: connect (round 2 of 2)");
     expect(context).toContain("Target the learner at rating 1200.");
     expect(context).toContain("They over-index on the first visible symptom.");
   });
@@ -120,17 +125,17 @@ describe("buildUnitTurnContext", () => {
         }),
       );
 
-    // Pass-2 connect varies the surface off pass 1's spec (untagged legacy
-    // specs count as pass 1), then grades the probe against its pass-2 spec.
-    expect(at("connect", 1)).toContain("## Transfer constraint (pass 2)");
+    // Round-2 connect evolves the world off round 1's spec (untagged legacy
+    // specs count as round 1), then grades the probe against its own spec.
+    expect(at("connect", 1)).toContain("## Scenario evolution constraint");
     expect(at("connect", undefined)).toContain(
-      "## Transfer constraint (pass 2)",
+      "## Scenario evolution constraint",
     );
     expect(at("connect", 2)).toContain("## Active connection scenario");
-    expect(at("connect", 2)).not.toContain("## Transfer constraint (pass 2)");
+    expect(at("connect", 2)).not.toContain("## Scenario evolution constraint");
 
-    // Pass-2 solve grades only against pass 2's spec — pass 1's canonical
-    // answer belongs to a different scenario.
+    // Solve grades only against the current round's spec — a prior round's
+    // canonical answer belongs to an earlier form of the scenario.
     expect(at("solve", 2)).toContain("## Grading reference");
     expect(at("solve", 1)).not.toContain("## Grading reference");
     expect(at("solve", undefined)).not.toContain("## Grading reference");
@@ -144,7 +149,10 @@ describe("buildUnitTurnContext", () => {
         scenarioSpec: spec(1),
       }),
     );
-    expect(teachContext).toContain("## Transfer constraint (pass 2)");
+    expect(teachContext).toContain("## Scenario evolution constraint");
+    // Evolving into round 2 of a 2-round recipe is the final round: the
+    // transfer mutation directive must be present.
+    expect(teachContext).toContain("FINAL ROUND");
   });
 
   it("renders the workflow, assumed knowledge, and exact targets", () => {

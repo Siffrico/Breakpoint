@@ -9,6 +9,7 @@ import type {
   UnitContent,
 } from "../types/training.types";
 import type { CreateNextUnitError } from "../unit-creation/create-next-unit";
+import type { MasteryProgressionState } from "../engine/plan-progression";
 import { err, ok } from "../../../lib/result";
 import { decideMasteryProgression } from "../engine/plan-progression";
 import { assertUnitCanAdvance } from "../workspace-ai/workspace-turn";
@@ -33,22 +34,21 @@ interface AdvanceCompletedUnitDependencies {
     sessionId: string;
     userId: string;
   }) => Effect.Effect<unknown, CreateNextUnitError>;
-  /** Resolves null when the cluster has no skill map (legacy/imported plans). */
-  getMasteryState: (input: {
+  /** Resolves null when the parent has no skill map (legacy/imported plans). */
+  getProgressionState: (input: {
     clusterNodeId: string;
     userId: string;
-  }) => Effect.Effect<
-    {
-      uncheckedEntryCount: number;
-      learnerRating: number;
-      ratingDeviation: number;
-      peakRating: number;
-      simulationPassed: boolean;
-      maxRatingDeviation?: number;
-    } | null,
-    DbError
-  >;
-  openSimulation: (clusterNodeId: string) => Effect.Effect<unknown, DbError>;
+  }) => Effect.Effect<MasteryProgressionState | null, DbError>;
+  /**
+   * The parent skill/ability is mastered: complete it, unlock what follows
+   * (next skill's foundation unit, the ability's skillset units, or the next
+   * ability), and create the unlocked unit.
+   */
+  advanceSkillMapNode: (input: {
+    clusterNodeId: string;
+    sessionId: string;
+    userId: string;
+  }) => Effect.Effect<unknown, DbError>;
   /**
    * Keeps the serverless function alive until the task settles (Next.js
    * `after`). Without it the runtime freezes the instance once the response
@@ -107,7 +107,7 @@ export const advanceCompletedUnitWorkflow = async ({
         });
         return;
       }
-      const state = yield* deps.getMasteryState({
+      const state = yield* deps.getProgressionState({
         clusterNodeId,
         userId,
       });
@@ -121,8 +121,9 @@ export const advanceCompletedUnitWorkflow = async ({
           sessionId,
           userId,
         });
-      } else if (decision.intent === "simulation") {
-        yield* deps.openSimulation(clusterNodeId);
+      } else {
+        // The parent skill/ability is mastered — advance the hierarchy.
+        yield* deps.advanceSkillMapNode({ clusterNodeId, sessionId, userId });
       }
     }).pipe(
       Effect.retry({

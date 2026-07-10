@@ -111,7 +111,7 @@ const previewCurriculum = (
   payload: ProjectBuildArtifactPayload["curriculum"],
 ): ProjectBuildStepDetail => {
   const plan = payload.planDraft;
-  const clusters = titledItems(plan?.clusters);
+  const abilities = titledItems(plan?.abilities);
 
   return detailFrom(
     "Curriculum draft",
@@ -120,7 +120,7 @@ const previewCurriculum = (
       line("Headline", payload.identityReport?.headline),
       line("Plan", plan?.title),
       line("Summary", plan?.summary),
-      listLine("Skills", clusters),
+      listLine("Abilities", abilities),
     ]),
   );
 };

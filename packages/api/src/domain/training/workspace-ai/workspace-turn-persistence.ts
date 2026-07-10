@@ -149,6 +149,12 @@ export interface WorkspaceEducationTurnCommit {
    * atomically with the rated turn (see policies/recall-decay.ts).
    */
   syllabusReinforcement?: { entryIds: string[]; passed: boolean } | null;
+  /**
+   * Every passed solve credits the unit's target concepts with one coverage
+   * rep (the foundation regime's mastery counter — engine/concept-coverage.ts),
+   * atomically with the verdict that earned it.
+   */
+  conceptCoverage?: { entryIds: string[]; helpLevel: string } | null;
   scenarioPresentation: {
     userId: string;
     nodeId: string;
@@ -245,6 +251,8 @@ export const saveUnitPhaseResult = ({
   ratingEvaluation,
   syllabusCheckOff = null,
   syllabusReinforcement = null,
+  conceptCoverage = null,
+  writeOnPass = 2,
   openRecallAttempt = false,
   recallEntryIds = null,
   difficultySnapshot,
@@ -266,6 +274,9 @@ export const saveUnitPhaseResult = ({
   ratingEvaluation: WorkspaceRatingEvaluationCommit | null;
   syllabusCheckOff?: WorkspaceSyllabusCheckOffCommit | null;
   syllabusReinforcement?: { entryIds: string[]; passed: boolean } | null;
+  conceptCoverage?: { entryIds: string[]; helpLevel: string } | null;
+  /** The recipe's measured round (goldilocks.writeOnPass); v1/recall 2, v2 3. */
+  writeOnPass?: PersistedUnitRun["pass"];
   /** True when this turn's prompted commit must open the recall attempt. */
   openRecallAttempt?: boolean;
   /** Composed entry ids, stamped on the recall presentation's metadata. */
@@ -307,18 +318,21 @@ export const saveUnitPhaseResult = ({
 
     const prompted =
       event.type === "phase_continues" && event.reason === "prompted";
+    // The measured round is the recipe's write round (v1/recall: 2, v2: 3).
+    // Attempts and solve timing are opened only there — earlier rounds are
+    // formative and never feed the rating.
     const isTeachProbePresentation =
       event.type === "teach_done" &&
-      nextRun.pass === 2 &&
+      nextRun.pass === writeOnPass &&
       nextRun.phase === "connect" &&
-      turnResult.scenarioSpec?.pass === 2;
+      turnResult.scenarioSpec?.pass === writeOnPass;
     // A recall presentation opens the attempt and stamps Solve timing in one
     // commit: the composed scenario IS the solve task, so presentation and
     // solve-start are the same moment.
     const isRecallPresentation =
       openRecallAttempt && prompted && nextRun.phase === "solve";
     const scenarioPresentation =
-      (nextRun.pass === 2 &&
+      (nextRun.pass === writeOnPass &&
         nextRun.phase === "connect" &&
         (prompted || isTeachProbePresentation)) ||
       isRecallPresentation
@@ -330,14 +344,14 @@ export const saveUnitPhaseResult = ({
           }
         : null;
     const solvePresentation =
-      nextRun.pass === 2 && nextRun.phase === "solve" && prompted
+      nextRun.pass === writeOnPass && nextRun.phase === "solve" && prompted
         ? isRecallPresentation
           ? { scenarioAttemptId: null, presentedAt: new Date() }
           : scenarioAttemptId
             ? { scenarioAttemptId, presentedAt: new Date() }
             : yield* new RatingEvidenceError({
                 message:
-                  "Pass-2 Solve cannot be presented without a scenario attempt.",
+                  "The measured Solve cannot be presented without a scenario attempt.",
               })
         : null;
 
@@ -412,6 +426,7 @@ export const saveUnitPhaseResult = ({
       ratingEvaluation,
       syllabusCheckOff,
       syllabusReinforcement,
+      conceptCoverage,
       scenarioPresentation,
       solvePresentation,
       nextRun,

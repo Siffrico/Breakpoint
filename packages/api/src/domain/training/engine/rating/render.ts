@@ -34,7 +34,7 @@ const INTENT_INSTRUCTIONS: Record<ScenarioDirective["intent"], string> = {
   challenge:
     "Standard training scenario in the Goldilocks zone (~70% expected success). Vary the surface context away from recently used ones; keep difficulty axes consistent with the target rating.",
   mastered:
-    "The job is mastered. If a scenario is still requested, generate a celebratory capstone at full difficulty with no support.",
+    "The job is mastered. If a scenario is still requested, generate a celebratory full-difficulty scenario with no support.",
 };
 
 /**

@@ -67,7 +67,6 @@ export type AiModelPurpose =
   | "recall"
   | "evaluation"
   | "tutor"
-  | "capstone"
   | "projectOverview"
   | "default";
 
@@ -82,7 +81,6 @@ const PURPOSE_TIER: Record<AiModelPurpose, ModelTier> = {
   recall: "standard",
   evaluation: "critical",
   tutor: "standard",
-  capstone: "critical",
   projectOverview: "critical",
   default: "standard",
 };

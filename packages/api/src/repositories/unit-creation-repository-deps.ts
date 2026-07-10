@@ -5,11 +5,18 @@ import { and, desc, eq, ne } from "@acme/db";
 import { TrainingCurriculumNode } from "@acme/db/schema";
 
 import type { CreateNextUnitDependencies } from "../domain/training/unit-creation/create-next-unit";
+import type {
+  MasteryProgressionState,
+  ProgressionNode,
+} from "../domain/training/engine/plan-progression";
+import { CONCEPT_COVERAGE_TARGET } from "../domain/training/engine/concept-coverage";
+import { planSkillMapAdvancement } from "../domain/training/engine/plan-progression";
 import {
   createInitialRatingState,
   expandSkillBands,
 } from "../domain/training/engine/rating";
 import type { JobRatingState } from "../domain/training/engine/rating";
+import { createNextUnit } from "../domain/training/unit-creation/create-next-unit";
 import { resolveScenarioDirective } from "../domain/training/orchestration/goldilocks";
 import { prepareUnitContent } from "../domain/training/unit-preparation/prepare-unit-content";
 import { queryWithClient } from "../effect/db";
@@ -48,35 +55,90 @@ export const createUnitCreationRepositoryDeps = ({
   return {
   loadSkill: (clusterNodeId) =>
     queryWithClient(db, "loadSkillForUnitCreation", async () => {
-      const cluster = await db.query.TrainingCurriculumNode.findFirst({
+      const node = await db.query.TrainingCurriculumNode.findFirst({
         where: eq(TrainingCurriculumNode.id, clusterNodeId),
       });
-      if (!cluster?.skillMap) return null;
-      const [entries, openUnit] = await Promise.all([
-        trainingSyllabusRepository.listEntries({ db, clusterNodeId }),
-        db.query.TrainingCurriculumNode.findFirst({
-          where: and(
-            eq(TrainingCurriculumNode.parentNodeId, clusterNodeId),
-            eq(TrainingCurriculumNode.kind, "unit"),
-            ne(TrainingCurriculumNode.status, "completed"),
-          ),
-          orderBy: [desc(TrainingCurriculumNode.orderIndex)],
-        }),
-      ]);
+      if (!node?.skillMap) return null;
+      const mapEntry = (entry: {
+        id: string;
+        label: string;
+        gloss: string;
+        kind: string;
+        status: string;
+      }) => ({
+        id: entry.id,
+        label: entry.label,
+        gloss: entry.gloss,
+        kind: entry.kind as
+          | "discrimination"
+          | "concept"
+          | "subskill"
+          | "vocabulary",
+        status: entry.status,
+      });
+
+      const openUnit = await db.query.TrainingCurriculumNode.findFirst({
+        where: and(
+          eq(TrainingCurriculumNode.parentNodeId, clusterNodeId),
+          eq(TrainingCurriculumNode.kind, "unit"),
+          ne(TrainingCurriculumNode.status, "completed"),
+        ),
+        orderBy: [desc(TrainingCurriculumNode.orderIndex)],
+      });
+
+      // Skillset units (parent = ability): the "frontier" is the ability's
+      // weakest concepts across ALL its skills — the least-covered ones are
+      // the integration targets. They are surfaced with status "unchecked" so
+      // the pure selector (sliceSyllabusFrontier) picks them; their real
+      // check-off state lives on the skill's own foundation history.
+      if (node.kind === "ability" || node.kind === "skill") {
+        if (node.kind === "ability") {
+          const skills = await db.query.TrainingCurriculumNode.findMany({
+            where: and(
+              eq(TrainingCurriculumNode.parentNodeId, clusterNodeId),
+              eq(TrainingCurriculumNode.kind, "skill"),
+            ),
+          });
+          const perSkillEntries = await Promise.all(
+            skills.map((skill) =>
+              trainingSyllabusRepository.listEntries({
+                db,
+                clusterNodeId: skill.id,
+              }),
+            ),
+          );
+          const entries = perSkillEntries
+            .flat()
+            .sort((a, b) => a.coverageCount - b.coverageCount)
+            .map((entry) => ({ ...mapEntry(entry), status: "unchecked" }));
+          return {
+            title: node.title,
+            whyItMatters: node.whyItMatters,
+            entries,
+            openUnit: openUnit ?? null,
+          };
+        }
+        const entries = await trainingSyllabusRepository.listEntries({
+          db,
+          clusterNodeId,
+        });
+        return {
+          title: node.title,
+          whyItMatters: node.whyItMatters,
+          entries: entries.map(mapEntry),
+          openUnit: openUnit ?? null,
+        };
+      }
+
+      // Legacy skill_cluster path — unchanged.
+      const entries = await trainingSyllabusRepository.listEntries({
+        db,
+        clusterNodeId,
+      });
       return {
-        title: cluster.title,
-        whyItMatters: cluster.whyItMatters,
-        entries: entries.map((entry) => ({
-          id: entry.id,
-          label: entry.label,
-          gloss: entry.gloss,
-          kind: entry.kind as
-            | "discrimination"
-            | "concept"
-            | "subskill"
-            | "vocabulary",
-          status: entry.status,
-        })),
+        title: node.title,
+        whyItMatters: node.whyItMatters,
+        entries: entries.map(mapEntry),
         openUnit: openUnit ?? null,
       };
     }),
@@ -117,11 +179,16 @@ export const createUnitCreationRepositoryDeps = ({
 };
 
 /**
- * Load the mastery-progression inputs for a dynamic skill cluster. Returns null
- * when the cluster has no skill map (legacy/imported plans) — those plans never
- * enter the mastery loop, so callers treat null as "nothing to decide".
+ * Load the two-regime progression state for a unit's skillMap-bearing parent.
+ * Returns null when the node has no skill map (legacy/imported plans) — those
+ * plans never enter the mastery loop, so callers treat null as "nothing to
+ * decide".
+ *
+ *   skill node          → foundation regime: concept coverage vs. the target
+ *   ability node        → skillset regime: the ability ELO vs. its peak gate
+ *   legacy skill_cluster → skillset regime + its old syllabus-frontier check
  */
-export const loadSkillMasteryState = async ({
+export const loadProgressionState = async ({
   db,
   clusterNodeId,
   userId,
@@ -129,55 +196,101 @@ export const loadSkillMasteryState = async ({
   db: Database;
   clusterNodeId: string;
   userId: string;
-}) => {
-  const cluster = await db.query.TrainingCurriculumNode.findFirst({
+}): Promise<MasteryProgressionState | null> => {
+  const node = await db.query.TrainingCurriculumNode.findFirst({
     where: eq(TrainingCurriculumNode.id, clusterNodeId),
   });
-  if (!cluster?.skillMap) return null;
+  if (!node?.skillMap) return null;
+
+  if (node.kind === "skill") {
+    const entries = await trainingSyllabusRepository.listEntries({
+      db,
+      clusterNodeId,
+    });
+    return {
+      regime: "foundation",
+      entries: entries.map((entry) => ({
+        coverageCount: entry.coverageCount,
+      })),
+      coverageTarget: CONCEPT_COVERAGE_TARGET,
+    };
+  }
+
   const seed = await resolvePlanSeedRating({ db, nodeId: clusterNodeId });
-  const [entries, progress, simulation] = await Promise.all([
-    trainingSyllabusRepository.listEntries({ db, clusterNodeId }),
+  const [entries, progress] = await Promise.all([
+    node.kind === "ability"
+      ? Promise.resolve([])
+      : trainingSyllabusRepository.listEntries({ db, clusterNodeId }),
     trainingRatingRepository.loadJobProgress({
       db,
       userId,
       nodeId: clusterNodeId,
       initialRatingState: seed ?? createInitialRatingState(),
     }),
-    db.query.TrainingCurriculumNode.findFirst({
-      where: and(
-        eq(TrainingCurriculumNode.parentNodeId, clusterNodeId),
-        eq(TrainingCurriculumNode.kind, "simulation"),
-      ),
-    }),
   ]);
   return {
+    regime: "skillset",
     uncheckedEntryCount: entries.filter((entry) => entry.status !== "checked")
       .length,
     learnerRating: progress.ratingState.rating,
     ratingDeviation: progress.ratingState.ratingDeviation,
-    peakRating: cluster.skillMap.bandRamp.peakRating,
-    maxRatingDeviation:
-      cluster.skillMap.masteryContract.maxRatingDeviation ?? 80,
-    simulationPassed: simulation?.status === "completed",
+    peakRating: node.skillMap.bandRamp.peakRating,
+    maxRatingDeviation: node.skillMap.masteryContract.maxRatingDeviation ?? 80,
   };
 };
 
-export const openSkillSimulation = async ({
+/**
+ * A skillMap node (skill or ability) is mastered: apply the pure advancement
+ * plan (complete it, unlock what follows) and create the next unit it names.
+ * Idempotent per node — re-running on an already-completed node re-applies the
+ * same statuses and re-ensures the same next unit.
+ */
+export const advanceSkillMapNode = async ({
   db,
-  clusterNodeId,
+  nodeId,
+  sessionId,
+  userId,
 }: {
   db: Database;
-  clusterNodeId: string;
+  nodeId: string;
+  sessionId: string;
+  userId: string;
 }) => {
-  const [simulation] = await db
-    .update(TrainingCurriculumNode)
-    .set({ status: "ready" })
-    .where(
-      and(
-        eq(TrainingCurriculumNode.parentNodeId, clusterNodeId),
-        eq(TrainingCurriculumNode.kind, "simulation"),
-      ),
-    )
-    .returning();
-  return simulation ?? null;
+  const node = await db.query.TrainingCurriculumNode.findFirst({
+    where: eq(TrainingCurriculumNode.id, nodeId),
+  });
+  if (!node) return null;
+  const planNodes = await db.query.TrainingCurriculumNode.findMany({
+    where: eq(TrainingCurriculumNode.planId, node.planId),
+  });
+  const advancement = planSkillMapAdvancement(
+    planNodes.map((row) => ({
+      id: row.id,
+      parentNodeId: row.parentNodeId,
+      kind: row.kind as ProgressionNode["kind"],
+      status: row.status as ProgressionNode["status"],
+      orderIndex: row.orderIndex,
+    })),
+    nodeId,
+  );
+  for (const change of advancement.changes) {
+    await db
+      .update(TrainingCurriculumNode)
+      .set({ status: change.status })
+      .where(eq(TrainingCurriculumNode.id, change.nodeId));
+  }
+  const nextParentId =
+    advancement.kind === "foundation_unit"
+      ? advancement.skillNodeId
+      : advancement.kind === "skillset_unit"
+        ? advancement.abilityNodeId
+        : null;
+  if (!nextParentId) return advancement;
+  await Effect.runPromise(
+    createNextUnit({
+      clusterNodeId: nextParentId,
+      deps: createUnitCreationRepositoryDeps({ db, sessionId, userId }),
+    }),
+  );
+  return advancement;
 };

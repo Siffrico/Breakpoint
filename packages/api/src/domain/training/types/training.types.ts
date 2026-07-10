@@ -1,15 +1,5 @@
 import type {
   BeforeAfterProfile,
-  BuildCapstoneScenario,
-  CapstoneAttempt,
-  CapstoneEvaluation,
-  CapstoneFormat,
-  CapstoneMessage,
-  CapstoneMessageRole,
-  CapstoneScenario,
-  CapstoneState,
-  CapstoneStatus,
-  CapstoneTurnResult,
   ClusterBriefing,
   ClusterBriefingMapItem,
   ComplexityBudget,
@@ -17,7 +7,6 @@ import type {
   CurriculumNodeKind,
   CurriculumNodeStatus,
   CurriculumPlan,
-  DebateCapstoneScenario,
   Debrief,
   DifficultyBand,
   EducationUnitActiveStage,
@@ -55,7 +44,6 @@ import type {
   TeachbackMessage,
   TeachbackRoundResult,
   TeachbackSetup,
-  TeachCapstoneScenario,
   UnitContent,
   UnitMasteryContract,
 } from "@acme/validators";
@@ -69,17 +57,7 @@ export type {
   CurriculumNodeStatus,
   CurriculumPlan,
   DifficultyBand,
-  CapstoneAttempt,
-  CapstoneEvaluation,
-  CapstoneFormat,
-  CapstoneMessage,
-  CapstoneMessageRole,
-  CapstoneScenario,
-  CapstoneState,
-  CapstoneStatus,
-  CapstoneTurnResult,
   ComplexityBudget,
-  BuildCapstoneScenario,
   BeforeAfterProfile,
   ClusterBriefing,
   ClusterBriefingMapItem,
@@ -97,7 +75,6 @@ export type {
   EducationUnitState,
   EducationUnitWorkedExample,
   EvaluationDimensionResult,
-  DebateCapstoneScenario,
   FailureGap,
   FailureIsolationResult,
   ForgeDebrief,
@@ -120,7 +97,6 @@ export type {
   TeachbackMessage,
   TeachbackRoundResult,
   TeachbackSetup,
-  TeachCapstoneScenario,
   UnitContent,
   UnitMasteryContract,
 };
@@ -197,10 +173,6 @@ export interface HomeState {
   demonstratedCapabilities: string[];
   nodeScores: Record<string, number>;
 }
-
-export type CapstoneAttemptRecord = CapstoneAttempt;
-
-export type CapstoneMessageRecord = CapstoneMessage;
 
 export interface ProfileState {
   targetIdentity: string;

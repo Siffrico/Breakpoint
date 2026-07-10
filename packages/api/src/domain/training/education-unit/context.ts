@@ -15,11 +15,11 @@
 
 import type { UnitContent } from "../types/training.types";
 import type { ScenarioSpecRecord } from "./scenario-spec";
-import type { LoopPolicy, UnitState } from "./unit";
+import type { LoopPolicy, PassIndex, UnitState } from "./unit";
 import {
   renderConnectGradingContext,
   renderEvalRubricContext,
-  renderPriorSurfaceConstraint,
+  renderScenarioEvolutionConstraint,
 } from "./scenario-spec";
 
 export interface UnitTurnContextInput {
@@ -35,6 +35,8 @@ export interface UnitTurnContextInput {
   >;
   state: UnitState;
   policy: LoopPolicy;
+  /** Total rounds in this run's recipe (v1: 2, v2: 3, recall: 2). */
+  passes: PassIndex;
   /** Learner memories, most-relevant first; only `content` is rendered. */
   memories: readonly { content: string }[];
   /**
@@ -77,12 +79,32 @@ const bullet = (lines: readonly string[]): string =>
 
 /** The explicit per-turn output contract the solve agent looks for. */
 const buildOutputContract = (input: UnitTurnContextInput): string | null => {
-  const { state, policy, pendingConnectTeach } = input;
+  const { state, policy, passes, pendingConnectTeach } = input;
   const directives: string[] = [];
 
   if (pendingConnectTeach && state.phase === "solve") {
     directives.push(
       "The learner did not reconstruct the connection on their own and was advanced anyway. Before posing the solve problem, briefly teach the missed idea, anchored on their own last attempt.",
+    );
+  }
+
+  // v2 connect loop: the grill budget is spent but the phase keeps looping —
+  // escalate to a teach of the missing idea, then re-pose the SAME scenario.
+  // Recoverable from state because no phase change happened (the counter
+  // survives), unlike the v1 force-advance above.
+  if (
+    state.phase === "connect" &&
+    !policy.advanceOnMaxGrills &&
+    state.connectGrills >= policy.maxGrillsBeforeTeach
+  ) {
+    directives.push(
+      "The learner has repeatedly missed the core connection. This turn, briefly TEACH the missing idea — anchored on their own attempts, smallest possible reveal — then re-pose the same scenario's reconstruct questions so they can genuinely connect. Do not grade this turn as connected on your teaching; only on their own reconstruction.",
+    );
+  }
+
+  if (state.phase === "solve" && state.pass === passes) {
+    directives.push(
+      "This is the unit's FINAL round: on a passing answer, also call checkOffSyllabus with only the target entry ids the learner directly demonstrated.",
     );
   }
 
@@ -110,7 +132,7 @@ export const buildUnitTurnContext = (input: UnitTurnContextInput): string => {
 
   const sections: string[] = [
     `## Unit\nSkill: ${unit.title}\nLearning goal: ${unit.learningGoal}\nWhy it matters: ${unit.whyItMatters}`,
-    `## Where we are\nPhase: ${state.phase} (pass ${state.pass} of 2)`,
+    `## Where we are\nPhase: ${state.phase} (round ${state.pass} of ${input.passes})`,
     `## Scenario material\nSeed scenario: ${unit.seedPrompt}\nSeed hint (never reveal directly): ${unit.seedHint}`,
   ];
 
@@ -158,29 +180,45 @@ export const buildUnitTurnContext = (input: UnitTurnContextInput): string => {
     );
   }
 
-  // Pass-2 use of the recorded spec, gated on WHICH pass recorded it:
-  //   - connect sees pass 1's spec as a "vary the surface" constraint, or its
-  //     pass-2 spec as the grading reference for the probe Teach already posed.
-  //   - solve (the eval agent) only grades against pass 2's spec. Pass 1's
-  //     canonical answer belongs to a different scenario; grading against it
-  //     would score the learner on the wrong answer key, so it is never shown.
+  // Use of the recorded spec, gated on WHICH round recorded it:
+  //   - teach sees the just-finished round's spec as the evolution constraint
+  //     (same world, escalated friction; the final round adds the transfer
+  //     mutation).
+  //   - connect on a later round sees the prior round's spec as the evolution
+  //     constraint (safety net when no seam teach recorded one), or the
+  //     current round's spec as the grading reference for the probe Teach
+  //     already posed.
+  //   - solve (the evaluator) only grades against the current round's spec. A
+  //     prior round's canonical answer belongs to an earlier form of the
+  //     scenario; grading against it would score the learner on the wrong
+  //     answer key, so it is never shown.
   if (input.scenarioSpec) {
     const specPass = input.scenarioSpec.pass ?? 1;
-    if (state.phase === "teach" && specPass === 1) {
-      sections.push(renderPriorSurfaceConstraint(input.scenarioSpec));
+    const isFinalRound = state.pass >= input.passes;
+    if (state.phase === "teach" && specPass === state.pass) {
+      sections.push(
+        renderScenarioEvolutionConstraint(input.scenarioSpec, {
+          // The seam teach evolves INTO the next round.
+          isFinalRound: state.pass + 1 >= input.passes,
+        }),
+      );
     } else if (
-      state.pass === 2 &&
       state.phase === "connect" &&
-      specPass === 1
+      state.pass > 1 &&
+      specPass === state.pass - 1
     ) {
-      sections.push(renderPriorSurfaceConstraint(input.scenarioSpec));
+      sections.push(
+        renderScenarioEvolutionConstraint(input.scenarioSpec, {
+          isFinalRound,
+        }),
+      );
     } else if (
-      state.pass === 2 &&
       state.phase === "connect" &&
-      specPass === 2
+      state.pass > 1 &&
+      specPass === state.pass
     ) {
       sections.push(renderConnectGradingContext(input.scenarioSpec));
-    } else if (state.pass === 2 && state.phase === "solve" && specPass === 2) {
+    } else if (state.phase === "solve" && specPass === state.pass) {
       sections.push(renderEvalRubricContext(input.scenarioSpec));
     }
   }

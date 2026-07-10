@@ -380,7 +380,17 @@ export const runEducationUnitTurn = ({
       };
     }
 
-    const recipe = getUnitRecipe(unitRun.recipeVersion, ratingScope);
+    // The two-regime switch: a foundation unit (parent = skill node) never
+    // writes the ability ELO — its mastery is concept coverage. Skillset
+    // units (parent = ability / legacy cluster) and recall runs write.
+    const unitNode = plan.nodes.find((planNode) => planNode.id === unit.nodeId);
+    const unitParentKind = plan.nodes.find(
+      (planNode) => planNode.id === unitNode?.parentNodeId,
+    )?.kind;
+    const isFoundationUnit = unitParentKind === "skill" && recallFocus === null;
+    const recipe = getUnitRecipe(unitRun.recipeVersion, ratingScope, {
+      writesRating: !isFoundationUnit,
+    });
     // A fresh recall run has no difficulty snapshot yet; its first prompted
     // commit is the presentation that opens the measured attempt.
     const isFreshRecallPresentation =
@@ -389,6 +399,7 @@ export const runEducationUnitTurn = ({
       unit,
       state: unitRun,
       policy: recipe.policy,
+      passes: recipe.passes,
       memories,
       difficultyLine: difficultySnapshot.promptBlock,
       pendingConnectTeach: readPendingConnectTeach(unitResponses),
@@ -520,6 +531,21 @@ export const runEducationUnitTurn = ({
           }
         : null;
 
+    // Concept coverage: every passed solve credits the unit's target concepts
+    // with one rep at the support level it was earned under. This counter —
+    // not a rating — is what masters a skill (see engine/concept-coverage.ts),
+    // so it rides the same atomic commit as the verdict.
+    const conceptCoverage =
+      !recallFocus &&
+      syllabus &&
+      turnResult.event.type === "solution_graded" &&
+      turnResult.event.passed
+        ? {
+            entryIds: syllabus.targets.map((entry) => entry.id),
+            helpLevel: difficultySnapshot.directive.supportLevel,
+          }
+        : null;
+
     const result = yield* saveUnitPhaseResult({
       sessionId,
       userId,
@@ -531,6 +557,8 @@ export const runEducationUnitTurn = ({
       ratingEvaluation,
       syllabusCheckOff,
       syllabusReinforcement,
+      conceptCoverage,
+      writeOnPass: recipe.goldilocks.writeOnPass,
       openRecallAttempt: isFreshRecallPresentation,
       recallEntryIds: composedEntryIds.length > 0 ? composedEntryIds : null,
       difficultySnapshot,

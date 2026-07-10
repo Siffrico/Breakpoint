@@ -28,31 +28,3 @@ Next step: ${item.nextStep}`,
     )
     .join("\n\n");
 };
-
-export interface CapstoneClusterHistory {
-  title: string;
-  summary: string;
-  score: number;
-  readiness: string;
-  growthDimensions: string[] | null;
-  improvements: string[];
-  failureTags: string[];
-}
-
-export const formatCapstoneHistory = (
-  history: CapstoneClusterHistory[],
-): string => {
-  if (history.length === 0) return "No unit history available.";
-
-  return history
-    .map(
-      (item, i) => `${i + 1}. ${item.title}
-- Summary: ${item.summary}
-- Score: ${item.score}
-- Readiness: ${item.readiness}
-- Growth dimensions: ${item.growthDimensions?.join(", ") ?? "None captured"}
-- Improvements: ${item.improvements.length > 0 ? item.improvements.join("; ") : "None captured"}
-- Failure tags: ${item.failureTags.length > 0 ? item.failureTags.join("; ") : "None captured"}`,
-    )
-    .join("\n");
-};

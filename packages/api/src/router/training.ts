@@ -5,7 +5,6 @@ import { z } from "zod/v4";
 import type { StartingPointTier } from "@acme/validators";
 import { sql } from "@acme/db";
 import {
-  CapstoneSubmissionSchema,
   StartingPointTierSchema,
   WorkspaceBootstrapInputSchema,
 } from "@acme/validators";
@@ -16,10 +15,8 @@ import { raiseUnitPreparationError } from "../domain/training/unit-preparation/p
 import { advanceCompletedUnitWorkflow } from "../domain/training/workflows/advance-completed-unit-workflow";
 import { continueLearningProjectWorkflow } from "../domain/training/workflows/continue-learning-project-workflow";
 import { createLearningProjectWorkflow } from "../domain/training/workflows/create-learning-project-workflow";
-import { generateCapstoneWorkflow } from "../domain/training/workflows/generate-capstone-workflow";
 import { getActivePlanWorkflow } from "../domain/training/workflows/get-active-plan-workflow";
 import { getAiWorkspaceWorkflow } from "../domain/training/workflows/get-ai-workspace-workflow";
-import { getCapstoneWorkflow } from "../domain/training/workflows/get-capstone-workflow";
 import { getHomeStateWorkflow } from "../domain/training/workflows/get-home-state-workflow";
 import { getProfileWorkflow } from "../domain/training/workflows/get-profile-workflow";
 import { getProjectTopicWorkflow } from "../domain/training/workflows/get-project-topic-workflow";
@@ -29,11 +26,8 @@ import { getWorkspaceIndexWorkflow } from "../domain/training/workflows/get-work
 import { prepareUnitWorkflow } from "../domain/training/workflows/prepare-unit-workflow";
 import { startOnboardingWorkflow } from "../domain/training/workflows/start-onboarding-workflow";
 import { submitAiWorkspaceMessageWorkflow } from "../domain/training/workflows/submit-ai-workspace-message-workflow";
-import { submitCapstoneMessageWorkflow } from "../domain/training/workflows/submit-capstone-message-workflow";
 import { queryWithClient } from "../effect/db";
 import { recoverSkillUnits } from "../repositories/build-project-repository-deps";
-import { trainingAttemptRepository } from "../repositories/training-attempt-repository";
-import { trainingCapstoneRepository } from "../repositories/training-capstone-repository";
 import { trainingCurriculumRepository } from "../repositories/training-curriculum-repository";
 import { trainingOnboardingRepository } from "../repositories/training-onboarding-repository";
 import { trainingRatingRepository } from "../repositories/training-rating-repository";
@@ -41,8 +35,8 @@ import { trainingUnitRunRepository } from "../repositories/training-unit-run-rep
 import { trainingWorkspaceReadRepository } from "../repositories/training-workspace-read-repository";
 import {
   createUnitCreationRepositoryDeps,
-  loadSkillMasteryState,
-  openSkillSimulation,
+  advanceSkillMapNode,
+  loadProgressionState,
 } from "../repositories/unit-creation-repository-deps";
 import { createUnitPreparationRepositoryDeps } from "../repositories/unit-preparation-repository-deps";
 import {
@@ -89,10 +83,6 @@ const NodeSessionSchema = z.object({
   sessionId: z.string().uuid(),
 });
 
-const SubmitCapstoneMessageSchema = CapstoneSubmissionSchema.extend({
-  sessionId: z.string().uuid(),
-});
-
 const CreateLearningProjectSchema = z.object({
   title: z.string().min(2).max(120),
   targetIdentity: z.string().max(240).optional(),
@@ -102,137 +92,6 @@ const CreateLearningProjectSchema = z.object({
 type Database = Parameters<
   typeof trainingCurriculumRepository.getNodeById
 >[0]["db"];
-
-const lockCapstoneNode = async ({
-  db,
-  sessionId,
-  nodeId,
-}: {
-  db: Database;
-  sessionId: string;
-  nodeId: string;
-}) => {
-  await db.execute(
-    sql`select pg_advisory_xact_lock(hashtext(${sessionId}), hashtext(${nodeId}))`,
-  );
-};
-
-const createCapstoneGenerationDeps = (
-  db: Database,
-): Parameters<typeof generateCapstoneWorkflow>[0]["deps"] => ({
-  getNodeById: (nodeId: string) =>
-    trainingCurriculumRepository.getNodeById({
-      db,
-      nodeId,
-    }),
-  getPlanNodesBySession: (sessionId: string) =>
-    trainingCurriculumRepository.getPlanNodesBySession({
-      db,
-      sessionId,
-    }),
-  getCapstoneByNodeId: (simulationNodeId: string, sessionId: string) =>
-    trainingCapstoneRepository.getCapstoneByNodeId({
-      db,
-      simulationNodeId,
-      sessionId,
-    }),
-  listCapstoneMessages: (capstoneId: string) =>
-    trainingCapstoneRepository.listMessages({
-      db,
-      capstoneId,
-    }),
-  saveCapstone: (payload: {
-    simulationNodeId: string;
-    planId: string;
-    sessionId: string;
-    userId?: string | null;
-    scenario: Parameters<
-      typeof trainingCapstoneRepository.saveCapstone
-    >[0]["scenario"];
-    maxRounds: number;
-  }) =>
-    trainingCapstoneRepository.saveCapstone({
-      db,
-      ...payload,
-    }),
-  appendCapstoneMessage: (payload: {
-    capstoneId: string;
-    role: Parameters<
-      typeof trainingCapstoneRepository.appendMessage
-    >[0]["role"];
-    content: string;
-    sequence: number;
-    round: number;
-  }) =>
-    trainingCapstoneRepository.appendMessage({
-      db,
-      ...payload,
-    }),
-  getUnitByNodeId: (nodeId: string) =>
-    trainingCurriculumRepository.getUnitByNodeId({
-      db,
-      nodeId,
-    }),
-  listLatestAttemptsByUnitIds: (sessionId: string, unitIds: string[]) =>
-    trainingAttemptRepository.listLatestAttemptsByUnitIds({
-      db,
-      sessionId,
-      unitIds,
-    }),
-});
-
-const createCapstoneSubmissionDeps = (
-  db: Database,
-): Parameters<typeof submitCapstoneMessageWorkflow>[0]["deps"] => ({
-  getNodeById: (nodeId: string) =>
-    trainingCurriculumRepository.getNodeById({
-      db,
-      nodeId,
-    }),
-  getCapstoneByNodeId: (simulationNodeId: string, sessionId: string) =>
-    trainingCapstoneRepository.getCapstoneByNodeId({
-      db,
-      simulationNodeId,
-      sessionId,
-    }),
-  listCapstoneMessages: (capstoneId: string) =>
-    trainingCapstoneRepository.listMessages({
-      db,
-      capstoneId,
-    }),
-  appendCapstoneMessage: (payload: {
-    capstoneId: string;
-    role: Parameters<
-      typeof trainingCapstoneRepository.appendMessage
-    >[0]["role"];
-    content: string;
-    sequence: number;
-    round: number;
-  }) =>
-    trainingCapstoneRepository.appendMessage({
-      db,
-      ...payload,
-    }),
-  updateCapstone: (payload: {
-    capstoneId: string;
-    status?: Parameters<
-      typeof trainingCapstoneRepository.updateCapstone
-    >[0]["status"];
-    currentRound?: number;
-    score?: number | null;
-    feedback?: string | null;
-  }) =>
-    trainingCapstoneRepository.updateCapstone({
-      db,
-      ...payload,
-    }),
-  completeNode: async (nodeId: string) => {
-    await trainingCurriculumRepository.completeNode({
-      db,
-      nodeId,
-    });
-  },
-});
 
 const getErrorCode = (message: string) => {
   if (message.includes("does not exist") || message.includes("not found")) {
@@ -874,17 +733,22 @@ export const trainingRouter = {
                   userId,
                 }),
               }),
-            getMasteryState: ({ clusterNodeId, userId }) =>
-              queryWithClient(ctx.db, "loadSkillMasteryState", () =>
-                loadSkillMasteryState({
+            getProgressionState: ({ clusterNodeId, userId }) =>
+              queryWithClient(ctx.db, "loadProgressionState", () =>
+                loadProgressionState({
                   db: ctx.db,
                   clusterNodeId,
                   userId,
                 }),
               ),
-            openSimulation: (clusterNodeId) =>
-              queryWithClient(ctx.db, "openSkillSimulation", () =>
-                openSkillSimulation({ db: ctx.db, clusterNodeId }),
+            advanceSkillMapNode: ({ clusterNodeId, sessionId, userId }) =>
+              queryWithClient(ctx.db, "advanceSkillMapNode", () =>
+                advanceSkillMapNode({
+                  db: ctx.db,
+                  nodeId: clusterNodeId,
+                  sessionId,
+                  userId,
+                }),
               ),
             scheduleBackgroundTask: ctx.scheduleBackgroundTask,
           },
@@ -905,85 +769,6 @@ export const trainingRouter = {
         }),
       );
     }),
-
-  getCapstone: protectedProcedure
-    .input(NodeSessionSchema)
-    .query(async ({ ctx, input }) =>
-      ctx.db.transaction(async (tx) => {
-        await requireSessionOwner({ ctx, sessionId: input.sessionId });
-
-        const db = tx as unknown as Database;
-        await lockCapstoneNode({
-          db,
-          nodeId: input.nodeId,
-          sessionId: input.sessionId,
-        });
-
-        return throwOnFailure(
-          await getCapstoneWorkflow({
-            sessionId: input.sessionId,
-            nodeId: input.nodeId,
-            userId: ctx.session.user.id,
-            deps: createCapstoneGenerationDeps(db),
-          }),
-        );
-      }),
-    ),
-
-  generateCapstone: protectedProcedure
-    .input(NodeSessionSchema)
-    .mutation(async ({ ctx, input }) =>
-      ctx.db.transaction(async (tx) => {
-        await requireSessionOwner({ ctx, sessionId: input.sessionId });
-
-        const db = tx as unknown as Database;
-        await lockCapstoneNode({
-          db,
-          nodeId: input.nodeId,
-          sessionId: input.sessionId,
-        });
-
-        return throwOnFailure(
-          await generateCapstoneWorkflow({
-            sessionId: input.sessionId,
-            nodeId: input.nodeId,
-            userId: ctx.session.user.id,
-            deps: createCapstoneGenerationDeps(db),
-          }),
-        );
-      }),
-    ),
-
-  submitCapstoneMessage: protectedProcedure
-    .input(SubmitCapstoneMessageSchema)
-    .mutation(async ({ ctx, input }) =>
-      ctx.db.transaction(async (tx) => {
-        await requireSessionOwner({ ctx, sessionId: input.sessionId });
-
-        const db = tx as unknown as Database;
-        await lockCapstoneNode({
-          db,
-          nodeId: input.nodeId,
-          sessionId: input.sessionId,
-        });
-
-        const result = throwOnFailure(
-          await submitCapstoneMessageWorkflow({
-            sessionId: input.sessionId,
-            nodeId: input.nodeId,
-            response: input.response,
-            deps: createCapstoneSubmissionDeps(db),
-          }),
-        );
-
-        await trainingOnboardingRepository.touchSession({
-          db,
-          sessionId: input.sessionId,
-        });
-
-        return result;
-      }),
-    ),
 
   home: protectedProcedure
     .input(SessionIdSchema)

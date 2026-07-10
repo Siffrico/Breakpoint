@@ -279,6 +279,14 @@ const commitEducationTurn = async ({
       });
     }
 
+    if (input.conceptCoverage) {
+      await trainingSyllabusRepository.incrementCoverage({
+        db: txDb,
+        entryIds: input.conceptCoverage.entryIds,
+        helpLevel: input.conceptCoverage.helpLevel,
+      });
+    }
+
     if (input.completion) {
       await trainingAttemptRepository.saveAttempt({
         db: txDb,

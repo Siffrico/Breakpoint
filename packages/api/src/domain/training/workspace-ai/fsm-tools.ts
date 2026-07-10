@@ -87,16 +87,26 @@ export const gradeSolution = tool({
 });
 
 /**
- * Available in Connect when the scenario is first posed. NOT an FSM event — it
- * records the reverse-engineered ScenarioSpec artifact (canonical answer,
- * reasoning path, rubric, target skill/surface) so teach and the pass-2 eval
- * can reuse it. The orchestrator reads it out of the tool calls (like the solve
+ * Available in Connect when the scenario is first posed, and in Teach when the
+ * scenario evolves for the next round. NOT an FSM event — it records the
+ * backwards-authored ScenarioSpec artifact (state A/B, chasm, friction,
+ * canonical answer, reasoning path, rubric) so teach and the evaluator can
+ * reuse it. The orchestrator reads it out of the tool calls (like the solve
  * score), never through toUnitEvent.
+ *
+ * The tool REQUIRES the world-state fields the persisted record keeps optional
+ * (pre-v2 rows lack them): requiring them here is what forces backwards
+ * authoring — a model that cannot state the chasm has no scenario.
  */
 export const recordScenarioSpec = tool({
   description:
-    "Call this exactly once, on the turn you first pose the scenario, to record the spec you reverse-engineered: the target skill, the surface, the canonical answer, the reasoning path, and the grading rubric.",
-  inputSchema: ScenarioSpecSchema,
+    "Call this exactly once, on the turn you pose or evolve the scenario, to record the spec you authored backwards: target skill, surface (the world), state A (current reality), state B (desired outcome), the chasm (the causal claim tested), friction & noise, the canonical answer, the reasoning path, and the grading rubric.",
+  inputSchema: ScenarioSpecSchema.required({
+    stateA: true,
+    stateB: true,
+    chasm: true,
+    frictionNoise: true,
+  }),
   execute: acknowledge,
 });
 

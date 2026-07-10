@@ -33,10 +33,20 @@ export class CurriculumInvariantError extends Error {
   }
 }
 
+/** The node kinds a rating can be keyed on: v2 abilities, legacy clusters. */
+const RATING_SCOPE_KINDS = new Set<CurriculumNode["kind"]>([
+  "ability",
+  "skill_cluster",
+]);
+
 /**
- * Walk a unit up to its nearest `skill_cluster` ancestor and return that node as
- * the rating scope. The active curriculum graph is a required invariant: rating
- * against a guessed fallback node would silently split one skill's history into
+ * Walk a unit up to its nearest `ability` (or legacy `skill_cluster`) ancestor
+ * and return that node as the rating scope. Foundation units (under `skill`
+ * nodes) walk one level further — they READ the ability's difficulty but never
+ * write it (see GoldilocksWiring.writesRating); skillset units sit directly
+ * under the ability. One cumulative ELO accrues per ability, never per skill.
+ * The active curriculum graph is a required invariant: rating against a
+ * guessed fallback node would silently split one ability's history into
  * multiple buckets.
  *
  * Pure and side-effect free: it reads only the plan nodes already in memory, so
@@ -60,10 +70,10 @@ export const resolveRatingScope = ({
   let cursor: CurriculumNode = unitNode;
   const seen = new Set<string>([unitNode.id]);
 
-  while (cursor.kind !== "skill_cluster") {
+  while (!RATING_SCOPE_KINDS.has(cursor.kind)) {
     if (!cursor.parentNodeId) {
       throw new CurriculumInvariantError(
-        `Node ${cursor.id} has no skill_cluster ancestor.`,
+        `Node ${cursor.id} has no ability ancestor.`,
       );
     }
 

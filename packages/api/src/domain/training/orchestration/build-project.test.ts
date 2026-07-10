@@ -82,7 +82,20 @@ const packet: OnboardingPacket = {
   confidenceFlags: [],
 };
 
-const buildSkill = (index: number) => ({
+const buildComponentSkill = (index: number) => ({
+  title: `Trace acknowledgement boundaries ${index + 1}`,
+  summary: "Follow one write through its replicas.",
+  whyItMatters: "Acknowledgement gaps hide the real failure.",
+  workflow: {
+    name: "Trace a write's acknowledgements",
+    steps: ["Find the write", "List the replicas", "Mark the ack boundary"],
+  },
+  masteryContract: {
+    exitCriteria: ["Marks the acknowledgement boundary correctly."],
+  },
+});
+
+const buildAbility = (index: number) => ({
   title: `Diagnose replicated-service failure ${index + 1}`,
   summary: "Trace reads, writes, lag, and acknowledgement boundaries.",
   whyItMatters: "Reliability claims fail here first.",
@@ -91,14 +104,12 @@ const buildSkill = (index: number) => ({
     steps: ["Collect evidence", "Trace message flow", "Choose the next probe"],
   },
   bandRamp: { startRating: 1000, peakRating: 1600 },
-  simulation: {
-    title: `Checkout under replica lag ${index + 1}`,
-    summary: "Diagnose stale inventory during a live incident.",
-    whyItMatters: "It combines user impact and consistency mechanics.",
-  },
   masteryContract: {
     exitCriteria: ["Diagnoses the causal mechanism from incomplete evidence."],
   },
+  skills: Array.from({ length: 3 }, (_, skillIndex) =>
+    buildComponentSkill(skillIndex),
+  ),
 });
 
 const curriculum: CurriculumDesignerOutput = {
@@ -132,7 +143,7 @@ const curriculum: CurriculumDesignerOutput = {
     title: "Distributed systems",
     summary: "Practice operational judgment for replicated services.",
     targetIdentity: "backend engineer",
-    clusters: Array.from({ length: 3 }, (_, index) => buildSkill(index)),
+    abilities: Array.from({ length: 3 }, (_, index) => buildAbility(index)),
   },
 };
 
@@ -293,24 +304,27 @@ const run = (
   });
 
 describe("buildProjectFromOnboarding", () => {
-  it("prewarms a syllabus and first unit for every independent skill", async () => {
+  it("prewarms every skill's syllabus but only the unlocked skill's unit", async () => {
     mockPacket.mockResolvedValue(packet);
     mockCurriculum.mockResolvedValue(curriculum);
     mockOverview.mockResolvedValue(overview);
     const { deps } = makeDeps();
-    const skills = curriculum.planDraft.clusters.map((cluster, index) => ({
+    const firstAbility = curriculum.planDraft.abilities[0];
+    if (!firstAbility) throw new Error("Expected an ability fixture.");
+    const skills = firstAbility.skills.map((skill, index) => ({
       id: `skill-${index + 1}`,
-      parentNodeId: null,
-      kind: "skill_cluster" as const,
-      title: cluster.title,
-      summary: cluster.summary,
-      whyItMatters: cluster.whyItMatters,
-      learningGoal: cluster.masteryContract.exitCriteria.join(" "),
-      orderIndex: index,
-      depth: 1,
-      positionColumn: index,
-      positionRow: 1,
-      status: "ready" as const,
+      parentNodeId: "ability-1",
+      kind: "skill" as const,
+      title: skill.title,
+      summary: skill.summary,
+      whyItMatters: skill.whyItMatters,
+      learningGoal: skill.masteryContract.exitCriteria.join(" "),
+      orderIndex: index + 1,
+      depth: 2,
+      positionColumn: 0,
+      positionRow: 2 + index,
+      // v2 gate: only the first skill is unlocked at build time.
+      status: index === 0 ? ("ready" as const) : ("planned" as const),
       difficultyBands: null,
     }));
     deps.finalize = vi.fn(() =>
@@ -325,9 +339,9 @@ describe("buildProjectFromOnboarding", () => {
 
     expect(result.success).toBe(true);
     expect(deps.ensureSkillSyllabus).toHaveBeenCalledTimes(skills.length);
-    expect(deps.createSkillUnit).toHaveBeenCalledTimes(skills.length);
+    expect(deps.createSkillUnit).toHaveBeenCalledTimes(1);
     expect(deps.createSkillUnit).toHaveBeenCalledWith({
-      clusterNodeId: "skill-3",
+      clusterNodeId: "skill-1",
       sessionId: "session-id",
       userId: "user-id",
     });

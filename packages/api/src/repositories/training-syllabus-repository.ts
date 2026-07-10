@@ -58,6 +58,7 @@ export const trainingSyllabusRepository = {
             label: entry.label,
             kind: entry.kind,
             gloss: entry.gloss,
+            mechanism: entry.mechanism,
           })),
         )
         .onConflictDoNothing({
@@ -203,6 +204,31 @@ export const trainingSyllabusRepository = {
           ]
         : [],
     );
+  },
+
+  /**
+   * Applies one scored solve to the concepts it was load-bearing for: a pass
+   * earns a coverage rep and stamps the support level it was earned at. Skill
+   * mastery reads coverageCount against the target (engine/concept-coverage.ts)
+   * — this counter, not a rating, is the foundation-regime progress state.
+   */
+  incrementCoverage: async ({
+    db,
+    entryIds,
+    helpLevel,
+  }: {
+    db: Database;
+    entryIds: string[];
+    helpLevel: string;
+  }) => {
+    if (entryIds.length === 0) return;
+    await db
+      .update(TrainingSyllabusEntry)
+      .set({
+        coverageCount: sql`${TrainingSyllabusEntry.coverageCount} + 1`,
+        lastHelpLevel: helpLevel,
+      })
+      .where(inArray(TrainingSyllabusEntry.id, entryIds));
   },
 
   /**

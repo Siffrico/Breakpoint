@@ -10,28 +10,35 @@ export interface SyllabusSkillInput {
   masteryContract: { exitCriteria: string[] };
 }
 
-const SYLLABUS_DESIGNER_SYSTEM = `You design a knowledge frontier for one expert workflow.
+const CONCEPT_MAPPER_SYSTEM = `You map the concepts behind one skill — one recurring workflow moment where expertise changes the outcome.
 
-Produce 20-60 ordered syllabus entries from novice footholds to expert precision. Entries are not lessons or units. They are the discriminations, concepts, subskills, and vocabulary a learner must reliably use while performing the workflow.
+Produce 6-24 ordered entries. Every entry MUST be stated as a causal mechanism, never a topic label. The mechanism field is a falsifiable claim of the form "X under condition Y causes Z" — concrete enough that a scenario where it fires could be built from the sentence alone.
 
-Weight the ladder toward discriminations: what experts can tell apart that weaker performers collapse together. Use concepts and vocabulary only where they support action and causal explanation. Use subskills for compact recurring moves, never large artifact production.
+Bad: label "idempotency", mechanism "understanding idempotent operations".
+Good: label "retry double-execution", mechanism "retrying a non-idempotent write after a timeout executes the side effect twice, because the first attempt may have succeeded before the timeout fired".
 
-Search for current practitioner evidence, official guidance, postmortems, and field-specific failure modes. Order by dependency and increasing judgment difficulty. Each gloss must say what precise performance the entry enables or what confusion it prevents. Avoid duplicated paraphrases, generic soft skills, and topic-outline structure.`;
+Entry kinds:
+- discrimination: two situations experts tell apart that novices collapse; the mechanism states what differs causally and what goes wrong when collapsed.
+- concept: a causal model the skill's decisions rest on.
+- subskill: a compact recurring move; the mechanism states why the move works.
+- vocabulary: a term the field uses; the mechanism states the causal fact the term names — vocabulary without a mechanism is trivia and must be cut.
+
+Weight toward discriminations and concepts. Search for current practitioner evidence, official guidance, postmortems, and field-specific failure modes. Order by dependency and increasing judgment difficulty. Each gloss says what precise performance the entry enables or what confusion it prevents. No duplicated paraphrases, no generic soft skills, no topic-outline structure.`;
 
 export const designSyllabus = async (
   skill: SyllabusSkillInput,
 ): Promise<SyllabusOutput> =>
   runResilientAgent({
     agent: "syllabusDesigner",
-    system: SYLLABUS_DESIGNER_SYSTEM,
+    system: CONCEPT_MAPPER_SYSTEM,
     schema: SyllabusOutputSchema,
-    errorMessage: "Failed to generate the skill syllabus.",
-    prompt: `Build the ordered knowledge frontier for this skill.
+    errorMessage: "Failed to generate the skill concept map.",
+    prompt: `Build the ordered concept map for this skill.
 
 Target identity: ${skill.targetIdentity}
 Skill: ${skill.title}
 Summary: ${skill.summary}
-Workflow: ${skill.workflow.name}
+Workflow moment: ${skill.workflow.name}
 Workflow steps:
 ${skill.workflow.steps.map((step, index) => `${index + 1}. ${step}`).join("\n")}
 Mastery exit criteria:

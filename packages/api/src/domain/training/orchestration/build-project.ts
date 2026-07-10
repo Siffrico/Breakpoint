@@ -308,13 +308,23 @@ export interface BuildProjectDeps {
   }) => Promise<unknown>;
 }
 
+/** v2 plans decompose into abilities; legacy plans into skill clusters. */
+const isModuleNode = (node: { kind: string }): boolean =>
+  node.kind === "ability" || node.kind === "skill_cluster";
+
+/**
+ * The skillMap nodes whose syllabus/first-unit are prewarmed after a build:
+ * v2 `skill` nodes (foundation units) and legacy `skill_cluster`s. Abilities
+ * are excluded — their skillset units open only after every skill is mastered.
+ */
+const isPrewarmSkillNode = (node: { kind: string }): boolean =>
+  node.kind === "skill" || node.kind === "skill_cluster";
+
 const countModules = (plan: CurriculumPlan): number =>
-  plan.nodes.filter((node) => node.kind === "skill_cluster").length;
+  plan.nodes.filter(isModuleNode).length;
 
 const moduleTitles = (blueprint: CurriculumBlueprint): string[] =>
-  blueprint.nodes
-    .filter((node) => node.kind === "skill_cluster")
-    .map((node) => node.title);
+  blueprint.nodes.filter(isModuleNode).map((node) => node.title);
 
 const getProjectBuildSourceKey = (input: CreateProjectInput) =>
   JSON.stringify({
@@ -535,7 +545,7 @@ export const buildProjectFromOnboarding = async ({
       state.phase = "complete";
       state.projectName = existingPlan.title || projectName;
       state.modules = existingPlan.nodes
-        .filter((node) => node.kind === "skill_cluster")
+        .filter(isModuleNode)
         .map((node) => node.title);
       state.moduleCount = countModules(existingPlan);
       state.planId = existingPlan.id;
@@ -946,9 +956,7 @@ export const buildProjectFromOnboarding = async ({
   state.phase = "complete";
   state.projectName = plan.title || projectName;
   state.moduleCount = countModules(plan);
-  state.modules = plan.nodes
-    .filter((node) => node.kind === "skill_cluster")
-    .map((node) => node.title);
+  state.modules = plan.nodes.filter(isModuleNode).map((node) => node.title);
   state.planId = plan.id;
   state.firstUnitId = plan.nextUnitId;
   state.targetIdentity = plan.targetIdentity;
@@ -979,7 +987,7 @@ export const buildProjectFromOnboarding = async ({
     }
   }
 
-  const skills = plan.nodes.filter((node) => node.kind === "skill_cluster");
+  const skills = plan.nodes.filter(isPrewarmSkillNode);
   for (const skill of skills) {
     const prepareSkill = async () => {
       try {
@@ -987,7 +995,11 @@ export const buildProjectFromOnboarding = async ({
           clusterNodeId: skill.id,
           targetIdentity: plan.targetIdentity,
         });
-        if (userId) {
+        // Units are only created for unlocked skills — v2 gates foundations
+        // skill-by-skill, so locked skills get their unit at unlock time
+        // (advanceSkillMapNode), not here. Their syllabus is still prewarmed
+        // above so unlocking is instant.
+        if (userId && skill.status === "ready") {
           await deps.createSkillUnit({
             clusterNodeId: skill.id,
             sessionId,

@@ -204,7 +204,7 @@ describe("workspace read preparation boundary", () => {
       unitId: unit.id,
       sessionId: "session-1",
       userId: null,
-      recipeVersion: "education-unit-v1",
+      recipeVersion: "education-unit-v2",
       phase: "orient",
       pass: 1,
       connectGrills: 0,
@@ -215,7 +215,7 @@ describe("workspace read preparation boundary", () => {
     expect(turn.state).toMatchObject({
       mode: "education_unit",
       educationStage: "orient",
-      workflowId: "education-unit-v1",
+      workflowId: "education-unit-v2",
     });
     expect(upsertUnitRun).not.toHaveBeenCalled();
   });
@@ -296,7 +296,7 @@ describe("durable recall projection", () => {
     expect(turn.state).toMatchObject({
       activeUnitId: readyNode.id,
       recallUnitId: null,
-      workflowId: "education-unit-v1",
+      workflowId: "education-unit-v2",
     });
     expect(deps.retireInFlightRecallRun).toHaveBeenCalledWith(
       "session-1",
@@ -319,7 +319,7 @@ describe("durable recall projection", () => {
     expect(turn.state).toMatchObject({
       activeUnitId: readyNode.id,
       recallUnitId: null,
-      workflowId: "education-unit-v1",
+      workflowId: "education-unit-v2",
     });
   });
 });

@@ -9,28 +9,32 @@ import { PROJECT_FIT_CONSULTANT_SYSTEM } from "../prompts/personas/project-fit-c
 import { CurriculumDesignerOutputSchema } from "./contracts";
 
 const CURRICULUM_DESIGNER_TRANSLATOR = `Translator mode:
-- The consultation is complete. Produce the identity report, before/after, and curriculum skill architecture only.
-- Decompose the target performance into 3-6 independent, load-bearing main skills.
-- Each skill is one workflow a practitioner repeatedly runs, not a topic, tool, chapter, or content category.
+- The consultation is complete. Produce the identity report, before/after, and the ability architecture only.
+- Decompose the target performance into 2-6 independent, load-bearing MAIN ABILITIES.
+- An ability is a whole performance a practitioner is visibly good or bad at (e.g. "architect backend systems under real constraints"), not a topic, tool, chapter, or content category.
 - Research real practitioner workflows, official guidance, postmortems, job evidence, and field norms when uncertainty exists.
 
-For each skill:
-- Give the workflow a concrete output-oriented name and 3-7 ordered reasoning/action steps.
+For each ability:
+- Give the integrated workflow a concrete output-oriented name and 3-7 ordered reasoning/action steps. This is the whole-task sequence skillset units will simulate.
 - Set bandRamp.startRating near the lowest scaffoldable whole-task performance and peakRating at genuine expert transfer under ambiguity.
-- Define a realistic simulation with a situation, required action/output, and externally checkable stakes.
-- Define a mastery contract as observable exit criteria for independent expert performance. Set maxRatingDeviation only when the skill needs a stability threshold different from the default 80.
-- Keep skills independent: mastering one must not require completing another skill's authored sequence first.
+- Define a mastery contract as observable exit criteria for independent expert performance. Set maxRatingDeviation only when the ability needs a stability threshold different from the default 80.
+- Decompose the ability into 3-8 component SKILLS, in dependency order (earliest = prerequisite for later ones).
+
+For each skill (the signal-moment test):
+- Map the ability's real workflow first, then keep ONLY the sparse decision moments where an expert and a novice visibly produce different outcomes. Each surviving moment is one skill. Routine activity where novice and expert converge is noise — cut it.
+- Give each skill its own micro-workflow: the cue the practitioner notices, the reasoning move, the action taken (3-7 steps).
+- Define each skill's mastery contract as observable exit criteria. Skills are criterion-mastered through foundation practice — no rating thresholds here.
+- Skills must partition the ability: performing all skills in workflow order IS performing the ability.
 
 Difficulty and pedagogy:
 - Difficulty rises through ambiguity, interacting constraints, fidelity, reduced support, atypicality, and edge cases.
 - Expertise is recurring situation -> reasoning -> action. Category names must be verb phrases with outputs.
-- Supportive information is introduced just in time inside whole-task practice.
 - Run the Video, Swap, MECE, Textbook, and Load-Bearing tests internally before emitting.
 
 Critical output constraint:
 - Do not enumerate, outline, title, or imply education units.
-- Units are created downstream from a search-grounded syllabus and current Goldilocks difficulty state.
-- Do not emit integration layers. Cross-skill integration belongs in later orchestration, not this skill map.
+- Units are created downstream from a search-grounded concept map and progression state.
+- Do not emit simulations or integration layers.
 
 Identity and before/after:
 - Name the baseline honestly from consultation evidence; confidence flags only where evidence is weak.
@@ -70,7 +74,7 @@ export const designCurriculum = async ({
 ${
   skills && skills.length > 0
     ? `
-Learner-approved skills — keep these as the cluster titles unless the transcript clearly contradicts them:
+Learner-approved abilities — keep these as the ability titles unless the transcript clearly contradicts them:
 ${skills.map((skill) => `- ${skill}`).join("\n")}
 `
     : ""

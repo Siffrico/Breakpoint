@@ -40,7 +40,6 @@ export const RUN_PROFILES = {
   recall: STANDARD_PROFILE,
   evaluation: { ...STANDARD_PROFILE, reasoningBudgetTokens: 4_096 },
   tutor: STANDARD_PROFILE,
-  capstone: { ...STANDARD_PROFILE, reasoningBudgetTokens: 8_192 },
   projectOverview: {
     ...STANDARD_PROFILE,
     reasoningBudgetTokens: 8_192,

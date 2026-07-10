@@ -78,15 +78,13 @@ describe("advanceCompletedUnitWorkflow", () => {
           return value;
         },
         createUnit,
-        getMasteryState: () =>
+        getProgressionState: () =>
           Effect.succeed({
-            uncheckedEntryCount: 3,
-            learnerRating: 1200,
-            ratingDeviation: 100,
-            peakRating: 1600,
-            simulationPassed: false,
+            regime: "foundation" as const,
+            entries: [{ coverageCount: 1 }, { coverageCount: 0 }],
+            coverageTarget: 3,
           }),
-        openSimulation: () => Effect.void,
+        advanceSkillMapNode: () => Effect.void,
       },
     });
 
@@ -109,7 +107,7 @@ describe("advanceCompletedUnitWorkflow", () => {
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
     const createUnit = vi.fn(() => Effect.void);
-    const openSimulation = vi.fn(() => Effect.void);
+    const advanceSkillMapNode = vi.fn(() => Effect.void);
 
     const result = await advanceCompletedUnitWorkflow({
       sessionId: "session-1",
@@ -127,8 +125,8 @@ describe("advanceCompletedUnitWorkflow", () => {
             touchSession: () => Promise.resolve(),
           }),
         createUnit,
-        getMasteryState: () => Effect.succeed(null),
-        openSimulation,
+        getProgressionState: () => Effect.succeed(null),
+        advanceSkillMapNode,
       },
     });
 
@@ -136,7 +134,7 @@ describe("advanceCompletedUnitWorkflow", () => {
 
     expect(result.success).toBe(true);
     expect(createUnit).not.toHaveBeenCalled();
-    expect(openSimulation).not.toHaveBeenCalled();
+    expect(advanceSkillMapNode).not.toHaveBeenCalled();
     expect(consoleError).not.toHaveBeenCalled();
     consoleError.mockRestore();
   });

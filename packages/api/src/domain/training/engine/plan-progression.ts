@@ -37,15 +37,40 @@ export interface AdvanceResult {
 
 export type MasteryProgressionDecision =
   | { intent: "create_unit" }
-  | { intent: "simulation" }
-  | { intent: "cluster_complete" };
+  | { intent: "node_complete" };
+
+/**
+ * The two-regime progression state, keyed on the unit's skillMap-bearing
+ * parent:
+ *
+ *   - "foundation" (parent is a `skill`): criterion-referenced. Mastered when
+ *     every concept has reached the coverage target. No rating is consulted —
+ *     concept #20 is judged exactly like concept #1.
+ *   - "skillset" (parent is an `ability`, or a legacy `skill_cluster`): the
+ *     ELO tier climb. Mastered at peak rating with a tight deviation. The
+ *     optional uncheckedEntryCount keeps legacy clusters honest about their
+ *     syllabus frontier; v2 abilities pass 0.
+ */
+export type MasteryProgressionState =
+  | {
+      regime: "foundation";
+      entries: readonly { coverageCount: number }[];
+      coverageTarget: number;
+    }
+  | {
+      regime: "skillset";
+      uncheckedEntryCount: number;
+      learnerRating: number;
+      ratingDeviation: number;
+      peakRating: number;
+      maxRatingDeviation?: number;
+    };
 
 /**
  * Whether a completed node's progression is owned by the dynamic mastery loop
- * (create_unit/simulation decisions) instead of list advancement. Only nodes inside a
- * dynamic skill cluster (parent has a skill map) qualify — legacy and imported
- * plans have no skill map, so their units *and* simulations keep advancing via
- * {@link planAdvancement}.
+ * (create_unit/node_complete decisions) instead of list advancement. Only
+ * nodes whose parent has a skill map qualify — legacy and imported plans have
+ * no skill map, so their units keep advancing via {@link planAdvancement}.
  */
 export const usesDynamicMasteryLoop = ({
   nodeKind,
@@ -56,30 +81,102 @@ export const usesDynamicMasteryLoop = ({
 }): boolean =>
   (nodeKind === "simulation" || nodeKind === "unit") && parentHasSkillMap;
 
-export const decideMasteryProgression = ({
-  uncheckedEntryCount,
-  learnerRating,
-  ratingDeviation,
-  peakRating,
-  simulationPassed,
-  maxRatingDeviation = 80,
-}: {
-  uncheckedEntryCount: number;
-  learnerRating: number;
-  ratingDeviation: number;
-  peakRating: number;
-  simulationPassed: boolean;
-  maxRatingDeviation?: number;
-}): MasteryProgressionDecision => {
-  if (simulationPassed) return { intent: "cluster_complete" };
+export const decideMasteryProgression = (
+  state: MasteryProgressionState,
+): MasteryProgressionDecision => {
+  if (state.regime === "foundation") {
+    const mastered =
+      state.entries.length > 0 &&
+      state.entries.every(
+        (entry) => entry.coverageCount >= state.coverageTarget,
+      );
+    return mastered ? { intent: "node_complete" } : { intent: "create_unit" };
+  }
+  const { maxRatingDeviation = 80 } = state;
   if (
-    uncheckedEntryCount === 0 &&
-    learnerRating >= peakRating &&
-    ratingDeviation <= maxRatingDeviation
+    state.uncheckedEntryCount === 0 &&
+    state.learnerRating >= state.peakRating &&
+    state.ratingDeviation <= maxRatingDeviation
   ) {
-    return { intent: "simulation" };
+    return { intent: "node_complete" };
   }
   return { intent: "create_unit" };
+};
+
+/**
+ * What unlocks after a skillMap-bearing node (skill or ability) is mastered.
+ * Pure over the plan's nodes; the repository applies the changes and creates
+ * the named unit.
+ *
+ *   skill mastered  → next planned sibling skill's foundation unit,
+ *                     or (all skills mastered) the ability's skillset units
+ *   ability mastered → the next planned ability's first skill,
+ *                     or plan complete
+ */
+export type SkillMapAdvancement =
+  | { kind: "foundation_unit"; skillNodeId: string; changes: StatusChange[] }
+  | { kind: "skillset_unit"; abilityNodeId: string; changes: StatusChange[] }
+  | { kind: "plan_complete"; changes: StatusChange[] }
+  | { kind: "none"; changes: StatusChange[] };
+
+export const planSkillMapAdvancement = (
+  nodes: readonly ProgressionNode[],
+  masteredNodeId: string,
+): SkillMapAdvancement => {
+  const mastered = nodes.find((node) => node.id === masteredNodeId);
+  if (!mastered) return { kind: "none", changes: [] };
+
+  const changes: StatusChange[] = [
+    { nodeId: masteredNodeId, status: "completed" },
+  ];
+  const ordered = [...nodes].sort((a, b) => a.orderIndex - b.orderIndex);
+  const statusOf = (node: ProgressionNode): CurriculumNodeStatus =>
+    node.id === masteredNodeId ? "completed" : node.status;
+
+  if (mastered.kind === "skill") {
+    const siblingSkills = ordered.filter(
+      (node) =>
+        node.kind === "skill" && node.parentNodeId === mastered.parentNodeId,
+    );
+    const nextSkill = siblingSkills.find(
+      (node) => statusOf(node) !== "completed",
+    );
+    if (nextSkill) {
+      changes.push({ nodeId: nextSkill.id, status: "ready" });
+      return { kind: "foundation_unit", skillNodeId: nextSkill.id, changes };
+    }
+    // Every skill in the ability is mastered — the skillset tier climb opens.
+    if (mastered.parentNodeId) {
+      return {
+        kind: "skillset_unit",
+        abilityNodeId: mastered.parentNodeId,
+        changes,
+      };
+    }
+    return { kind: "none", changes };
+  }
+
+  if (mastered.kind === "ability" || mastered.kind === "skill_cluster") {
+    const nextAbility = ordered.find(
+      (node) =>
+        (node.kind === "ability" || node.kind === "skill_cluster") &&
+        statusOf(node) !== "completed",
+    );
+    if (!nextAbility) return { kind: "plan_complete", changes };
+    changes.push({ nodeId: nextAbility.id, status: "ready" });
+    const firstSkill = ordered.find(
+      (node) => node.kind === "skill" && node.parentNodeId === nextAbility.id,
+    );
+    if (firstSkill) {
+      changes.push({ nodeId: firstSkill.id, status: "ready" });
+      return { kind: "foundation_unit", skillNodeId: firstSkill.id, changes };
+    }
+    // Legacy cluster with no skill children: its units are created directly
+    // under it by the mastery loop; nothing further to name here.
+    return { kind: "none", changes };
+  }
+
+  return { kind: "none", changes };
 };
 
 /**
