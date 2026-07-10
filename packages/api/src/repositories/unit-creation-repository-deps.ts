@@ -2,7 +2,7 @@ import { Effect } from "effect";
 
 import type { db as databaseClient } from "@acme/db/client";
 import { and, desc, eq, ne } from "@acme/db";
-import { TrainingCurriculumNode } from "@acme/db/schema";
+import { TrainingCurriculumNode, TrainingCurriculumPlan } from "@acme/db/schema";
 
 import type { CreateNextUnitDependencies } from "../domain/training/unit-creation/create-next-unit";
 import type {
@@ -21,6 +21,7 @@ import {
 } from "../domain/training/engine/rating";
 import type { JobRatingState } from "../domain/training/engine/rating";
 import { createNextUnit } from "../domain/training/unit-creation/create-next-unit";
+import { designSyllabus } from "../domain/training/agents/syllabus-designer";
 import { resolveScenarioDirective } from "../domain/training/orchestration/goldilocks";
 import { prepareUnitContent } from "../domain/training/unit-preparation/prepare-unit-content";
 import { queryWithClient } from "../effect/db";
@@ -34,6 +35,39 @@ import { createUnitPreparationRepositoryDeps } from "./unit-preparation-reposito
 
 type Database = typeof databaseClient;
 type NodeRow = typeof TrainingCurriculumNode.$inferSelect;
+
+export const ensureSkillSyllabus = async ({
+  db,
+  clusterNodeId,
+  targetIdentity,
+}: {
+  db: Database;
+  clusterNodeId: string;
+  targetIdentity: string;
+}) => {
+  const cluster = await trainingCurriculumRepository.getNodeById({
+    db,
+    nodeId: clusterNodeId,
+  });
+  if (!cluster?.skillMap) return null;
+  const existing = await trainingSyllabusRepository.listEntries({
+    db,
+    clusterNodeId,
+  });
+  if (existing.length > 0) return existing;
+  const syllabus = await designSyllabus({
+    title: cluster.title,
+    summary: cluster.summary,
+    targetIdentity,
+    workflow: cluster.skillMap.workflow,
+    masteryContract: cluster.skillMap.masteryContract,
+  });
+  return trainingSyllabusRepository.ensureSyllabus({
+    db,
+    clusterNodeId,
+    entries: syllabus.entries,
+  });
+};
 
 export const createUnitCreationRepositoryDeps = ({
   db,
@@ -122,10 +156,22 @@ export const createUnitCreationRepositoryDeps = ({
             openUnit: openUnit ?? null,
           };
         }
-        const entries = await trainingSyllabusRepository.listEntries({
+        let entries = await trainingSyllabusRepository.listEntries({
           db,
           clusterNodeId,
         });
+        if (entries.length === 0) {
+          const plan = await db.query.TrainingCurriculumPlan.findFirst({
+            where: eq(TrainingCurriculumPlan.id, node.planId),
+          });
+          if (!plan) return null;
+          entries =
+            (await ensureSkillSyllabus({
+              db,
+              clusterNodeId,
+              targetIdentity: plan.targetIdentity,
+            })) ?? [];
+        }
         return {
           title: node.title,
           whyItMatters: node.whyItMatters,

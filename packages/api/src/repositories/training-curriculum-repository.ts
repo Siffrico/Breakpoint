@@ -973,25 +973,31 @@ export const trainingCurriculumRepository = {
 
   completeNode: async ({ db, nodeId }: { db: Database; nodeId: string }) => {
     const node = await trainingCurriculumRepository.getNodeById({ db, nodeId });
-    await trainingCurriculumRepository.markNodeCompleted({
-      db,
-      nodeId,
-    });
     const parent = node?.parentNodeId
       ? await trainingCurriculumRepository.getNodeById({
           db,
           nodeId: node.parentNodeId,
         })
       : null;
-    if (
+    const usesDynamicLoop =
       node &&
       usesDynamicMasteryLoop({
         nodeKind: node.kind as CurriculumNodeKind,
         parentHasSkillMap: Boolean(parent?.skillMap),
-      })
-    ) {
+      });
+
+    if (usesDynamicLoop) {
+      await db
+        .update(TrainingCurriculumNode)
+        .set({ status: "completed" })
+        .where(eq(TrainingCurriculumNode.id, nodeId));
       return node;
     }
+
+    await trainingCurriculumRepository.markNodeCompleted({
+      db,
+      nodeId,
+    });
     return trainingCurriculumRepository.advancePlanAfterCompletion({
       db,
       nodeId,

@@ -216,6 +216,39 @@ describe("planSkillMapAdvancement", () => {
     });
   });
 
+  it("does not skip an already-completed immediate successor on replay", () => {
+    const replayed = [
+      ...tree.map((item) =>
+        item.id === "skill-1" || item.id === "skill-2"
+          ? { ...item, status: "completed" as const }
+          : item,
+      ),
+      node({
+        id: "skill-4",
+        kind: "skill",
+        parentNodeId: "ability-1",
+        status: "planned",
+        orderIndex: 6,
+      }),
+    ];
+
+    expect(planSkillMapAdvancement(replayed, "skill-1")).toMatchObject({
+      kind: "none",
+    });
+  });
+
+  it("does not reset a progressed first skill when an ability advance is replayed", () => {
+    const replayed = tree.map((item) =>
+      item.id === "skill-3"
+        ? { ...item, status: "completed" as const }
+        : item,
+    );
+
+    expect(planSkillMapAdvancement(replayed, "ability-1")).toMatchObject({
+      kind: "none",
+    });
+  });
+
   it("the last mastered ability completes the plan", () => {
     const lastAbility = tree.map((item) =>
       item.id === "ability-1"

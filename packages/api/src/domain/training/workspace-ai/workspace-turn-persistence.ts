@@ -252,6 +252,7 @@ export const saveUnitPhaseResult = ({
   syllabusReinforcement = null,
   conceptCoverage = null,
   writeOnPass = 2,
+  writesRating = true,
   openRecallAttempt = false,
   recallEntryIds = null,
   difficultySnapshot,
@@ -276,6 +277,8 @@ export const saveUnitPhaseResult = ({
   conceptCoverage?: { entryIds: string[]; helpLevel: string } | null;
   /** The recipe's measured round (goldilocks.writeOnPass); v1/recall 2, v2 3. */
   writeOnPass?: PersistedUnitRun["pass"];
+  /** Foundation units are criterion-referenced and never open rating attempts. */
+  writesRating?: boolean;
   /** True when this turn's prompted commit must open the recall attempt. */
   openRecallAttempt?: boolean;
   /** Composed entry ids, stamped on the recall presentation's metadata. */
@@ -330,8 +333,11 @@ export const saveUnitPhaseResult = ({
     // solve-start are the same moment.
     const isRecallPresentation =
       openRecallAttempt && prompted && nextRun.phase === "solve";
+    const tracksRatingAttempt =
+      writesRating || isRecallRecipe(nextRun.recipeVersion);
     const scenarioPresentation =
-      (nextRun.pass === writeOnPass &&
+      (tracksRatingAttempt &&
+        nextRun.pass === writeOnPass &&
         nextRun.phase === "connect" &&
         (prompted || isTeachProbePresentation)) ||
       isRecallPresentation
@@ -343,7 +349,10 @@ export const saveUnitPhaseResult = ({
           }
         : null;
     const solvePresentation =
-      nextRun.pass === writeOnPass && nextRun.phase === "solve" && prompted
+      tracksRatingAttempt &&
+      nextRun.pass === writeOnPass &&
+      nextRun.phase === "solve" &&
+      prompted
         ? isRecallPresentation
           ? { scenarioAttemptId: null, presentedAt: new Date() }
           : scenarioAttemptId

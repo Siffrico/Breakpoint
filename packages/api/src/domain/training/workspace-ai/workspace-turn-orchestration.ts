@@ -438,7 +438,7 @@ export const runEducationUnitTurn = ({
     const syllabusCheckOff =
       turnResult.nextState.phase === "mastered" && syllabus
         ? {
-            requestedEntryIds: turnResult.syllabusCheckOff?.entryIds ?? [],
+            requestedEntryIds: syllabus.targets.map((entry) => entry.id),
             targetedEntryIds: syllabus.targets.map((entry) => entry.id),
             evidenceNodeId: unit.nodeId,
           }
@@ -562,6 +562,7 @@ export const runEducationUnitTurn = ({
       syllabusReinforcement,
       conceptCoverage,
       writeOnPass: recipe.goldilocks.writeOnPass,
+      writesRating: recipe.goldilocks.writesRating,
       openRecallAttempt: isFreshRecallPresentation,
       recallEntryIds: composedEntryIds.length > 0 ? composedEntryIds : null,
       difficultySnapshot,

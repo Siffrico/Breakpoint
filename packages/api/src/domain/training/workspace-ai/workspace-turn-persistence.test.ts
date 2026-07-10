@@ -330,4 +330,32 @@ void test("saveUnitPhaseResult persists transitions and non-grading continuation
     difficultySnapshot,
   );
   assert.equal(teachProbeCommit.nextRun.scenarioSpec?.pass, 2);
+
+  captured = null;
+  await runSave({
+    sessionId: "session-1",
+    userId: "user-1",
+    message: "Present the foundation transfer scenario.",
+    state,
+    unit,
+    plan,
+    turnResult: {
+      ...continuationTurn,
+      nextState: { ...continuationTurn.nextState, pass: 2 },
+    },
+    ratingEvaluation: null,
+    difficultySnapshot,
+    scenarioAttemptId: null,
+    writesRating: false,
+    persistUserMessage: true,
+    phaseResponseSequence: 7,
+    turnId: "turn-5",
+    turnLeaseId: "lease-5",
+    deps,
+  });
+
+  assert.ok(captured);
+  const foundationCommit = captured as unknown as WorkspaceEducationTurnCommit;
+  assert.equal(foundationCommit.scenarioPresentation, null);
+  assert.equal(foundationCommit.solvePresentation, null);
 });

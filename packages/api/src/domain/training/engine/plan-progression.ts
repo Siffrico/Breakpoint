@@ -165,9 +165,12 @@ export const planSkillMapAdvancement = (
         node.kind === "skill" && node.parentNodeId === mastered.parentNodeId,
     );
     const nextSkill = siblingSkills.find(
-      (node) => statusOf(node) !== "completed",
+      (node) => node.orderIndex > mastered.orderIndex,
     );
     if (nextSkill) {
+      if (statusOf(nextSkill) === "completed") {
+        return { kind: "none", changes, stageChanges };
+      }
       changes.push({ nodeId: nextSkill.id, status: "ready" });
       return {
         kind: "foundation_unit",
@@ -180,6 +183,12 @@ export const planSkillMapAdvancement = (
     // The stage change is the explicit record of that unlock; nothing may
     // infer it from the ability's lifecycle status.
     if (mastered.parentNodeId) {
+      const ability = nodes.find(
+        (node) => node.id === mastered.parentNodeId,
+      );
+      if (ability?.status === "completed") {
+        return { kind: "none", changes, stageChanges };
+      }
       stageChanges.push({ nodeId: mastered.parentNodeId, stage: "skillset" });
       return {
         kind: "skillset_unit",
@@ -196,14 +205,21 @@ export const planSkillMapAdvancement = (
     const nextAbility = ordered.find(
       (node) =>
         (node.kind === "ability" || node.kind === "skill_cluster") &&
-        statusOf(node) !== "completed",
+        node.parentNodeId === mastered.parentNodeId &&
+        node.orderIndex > mastered.orderIndex,
     );
     if (!nextAbility) return { kind: "plan_complete", changes, stageChanges };
+    if (statusOf(nextAbility) === "completed") {
+      return { kind: "none", changes, stageChanges };
+    }
     changes.push({ nodeId: nextAbility.id, status: "ready" });
     const firstSkill = ordered.find(
       (node) => node.kind === "skill" && node.parentNodeId === nextAbility.id,
     );
     if (firstSkill) {
+      if (statusOf(firstSkill) === "completed") {
+        return { kind: "none", changes, stageChanges };
+      }
       stageChanges.push({ nodeId: nextAbility.id, stage: "foundations" });
       changes.push({ nodeId: firstSkill.id, status: "ready" });
       return {

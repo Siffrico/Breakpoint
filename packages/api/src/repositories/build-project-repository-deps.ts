@@ -4,7 +4,6 @@ import type { db as databaseClient } from "@acme/db/client";
 import { StartingPointTierSchema } from "@acme/validators";
 
 import type { BuildProjectDeps } from "../domain/training/orchestration/build-project";
-import { designSyllabus } from "../domain/training/agents/syllabus-designer";
 import { decideMasteryProgression } from "../domain/training/engine/plan-progression";
 import { parseAbilityStage } from "../domain/training/engine/progression-model";
 import { ArtifactBuildError } from "../domain/training/orchestration/agent-runtime";
@@ -15,48 +14,15 @@ import { buildProjectCurriculumRepository } from "./build-project-curriculum-rep
 import { buildProjectProfileRepository } from "./build-project-profile-repository";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
 import { trainingOnboardingRepository } from "./training-onboarding-repository";
-import { trainingSyllabusRepository } from "./training-syllabus-repository";
 import {
   advanceSkillMapNode,
   createUnitCreationRepositoryDeps,
+  ensureSkillSyllabus,
   loadProgressionState,
 } from "./unit-creation-repository-deps";
 import { createUnitPreparationRepositoryDeps } from "./unit-preparation-repository-deps";
 
 type Database = typeof databaseClient;
-
-export const ensureSkillSyllabus = async ({
-  db,
-  clusterNodeId,
-  targetIdentity,
-}: {
-  db: Database;
-  clusterNodeId: string;
-  targetIdentity: string;
-}) => {
-  const cluster = await trainingCurriculumRepository.getNodeById({
-    db,
-    nodeId: clusterNodeId,
-  });
-  if (!cluster?.skillMap) return null;
-  const existing = await trainingSyllabusRepository.listEntries({
-    db,
-    clusterNodeId,
-  });
-  if (existing.length > 0) return existing;
-  const syllabus = await designSyllabus({
-    title: cluster.title,
-    summary: cluster.summary,
-    targetIdentity,
-    workflow: cluster.skillMap.workflow,
-    masteryContract: cluster.skillMap.masteryContract,
-  });
-  return trainingSyllabusRepository.ensureSyllabus({
-    db,
-    clusterNodeId,
-    entries: syllabus.entries,
-  });
-};
 
 export const ensureSkillUnit = async ({
   db,

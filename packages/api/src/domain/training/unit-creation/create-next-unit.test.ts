@@ -5,6 +5,7 @@ import {
   buildDynamicUnitDifficultyBands,
   createNextUnit,
   sliceSyllabusFrontier,
+  SyllabusTargetsMissingError,
 } from "./create-next-unit";
 
 const entry = (id: string, status = "unchecked") => ({
@@ -88,5 +89,23 @@ describe("createNextUnit", () => {
 
     expect(result).toBe(openUnit);
     expect(prepareUnitEffect).not.toHaveBeenCalled();
+  });
+
+  it("fails loudly when a skill has no syllabus targets", async () => {
+    await expect(
+      Effect.runPromise(
+        createNextUnit({
+          clusterNodeId: "cluster-1",
+          deps: {
+            loadSkill: () =>
+              Effect.succeed({ ...openSkill, openUnit: null }),
+            resolveDirective: () => Effect.die("should not resolve"),
+            appendUnit: () => Effect.die("should not append"),
+            hasUnitContent: () => Effect.die("should not read content"),
+            prepareUnitEffect: () => Effect.die("should not prepare"),
+          },
+        }),
+      ),
+    ).rejects.toBeInstanceOf(SyllabusTargetsMissingError);
   });
 });

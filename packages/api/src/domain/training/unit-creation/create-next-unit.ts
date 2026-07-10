@@ -99,10 +99,15 @@ export class SkillClusterNotFoundError extends Data.TaggedError(
   "SkillClusterNotFoundError",
 )<{ readonly clusterNodeId: string }> {}
 
+export class SyllabusTargetsMissingError extends Data.TaggedError(
+  "SyllabusTargetsMissingError",
+)<{ readonly clusterNodeId: string }> {}
+
 export type CreateNextUnitError =
   | DbError
   | UnitPreparationError
-  | SkillClusterNotFoundError;
+  | SkillClusterNotFoundError
+  | SyllabusTargetsMissingError;
 
 /**
  * Takes a skill frontier, produces its open or newly created unit, and fails
@@ -129,7 +134,9 @@ export const createNextUnit = <TNode extends { id: string }>({
     }
 
     const targets = selectCreationTargets(skill.entries, complexityBudget);
-    if (targets.length === 0) return null;
+    if (targets.length === 0) {
+      return yield* new SyllabusTargetsMissingError({ clusterNodeId });
+    }
     const calibrated = yield* deps.resolveDirective(clusterNodeId);
     const persisted = yield* deps.appendUnit({
       clusterNodeId,

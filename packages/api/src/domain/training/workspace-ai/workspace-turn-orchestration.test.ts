@@ -8,6 +8,7 @@ import type { WorkspaceAiState } from "./types";
 import type { ResolvedWorkspaceTurn } from "./workspace-turn";
 import type { WorkspaceTurnOrchestrationDependencies } from "./workspace-turn-orchestration";
 import type { WorkspaceTurnRepoShape } from "./workspace-turn-repo";
+import type { WorkspaceEducationTurnCommit } from "./workspace-turn-persistence";
 import { EducationUnitContractError } from "../education-unit/orchestrate-unit-turn";
 import { runEducationUnitTurn } from "./workspace-turn-orchestration";
 import { WorkspaceTurnRepo } from "./workspace-turn-repo";
@@ -319,4 +320,77 @@ void test("an education turn returns the committed assistant message", async () 
   assert.equal(result.assistantMessage, assistantMessage);
   assert.match(modelContext, /Keep difficulty fixed at 1100/);
   assert.equal(emittedAfterCommit, true);
+});
+
+void test("a mastered unit checks off every target even when the evaluator omits the optional tool", async () => {
+  const captured: { committed?: WorkspaceEducationTurnCommit } = {};
+  const assistantMessage = {
+    id: "message-2",
+    role: "assistant" as const,
+    content: "You applied both mechanisms correctly.",
+    sequence: 2,
+    slot: "education_unit" as const,
+    unitId: node.id,
+    metadata: null,
+  };
+  const deps = {
+    claimWorkspaceTurn: () => Promise.resolve({ status: "claimed" as const }),
+    markWorkspaceTurnFailed: () => Promise.resolve(),
+    listUnitMessages: () => Promise.resolve([]),
+    listMemories: () => Promise.resolve([]),
+    resolveDifficultyDirective: () => fail("resolveDifficultyDirective"),
+    getUnitSyllabusContext: () =>
+      Promise.resolve({
+        clusterNodeId: clusterNode.id,
+        workflow: { name: "Diagnose", steps: ["Observe", "Explain"] },
+        checked: [],
+        targets: [
+          { id: "entry-1", label: "First", gloss: "First mechanism" },
+          { id: "entry-2", label: "Second", gloss: "Second mechanism" },
+        ],
+      }),
+    runUnitTurn: () =>
+      Effect.succeed({
+        assistantMessage: assistantMessage.content,
+        event: {
+          type: "solution_graded" as const,
+          passed: true,
+          score: 92,
+          errorCodes: [],
+        },
+        nextState: { ...unitRun, phase: "mastered" as const, pass: 2 },
+        forcedConnectAdvance: false,
+        gradeReasoning: "Both target mechanisms were applied.",
+        ratingWrite: null,
+        syllabusCheckOff: null,
+        scenarioSpec: null,
+      }),
+    listPhaseResponsesBySession: () => Promise.resolve([]),
+    getUnitByNodeId: () => Promise.resolve(turn.unit),
+    listRecallCandidates: () => Promise.resolve([]),
+    getPhaseResponses: () => Promise.resolve([]),
+    getUnitRun: () => Promise.resolve(unitRun),
+    getInFlightRecallRun: () => Promise.resolve(null),
+  } as unknown as WorkspaceTurnOrchestrationDependencies;
+
+  await runEducationTest(
+    runEducationUnitTurn({
+      sessionId: unitRun.sessionId,
+      userId: "user-1",
+      turnId: "turn-1",
+      turnLeaseId: "lease-1",
+      message: "Both mechanisms point to the same root cause.",
+      turn,
+      deps,
+    }),
+    (commit) => {
+      captured.committed = commit;
+      return Effect.succeed({ assistantMessage });
+    },
+  );
+
+  assert.deepEqual(captured.committed?.syllabusCheckOff?.requestedEntryIds, [
+    "entry-1",
+    "entry-2",
+  ]);
 });
