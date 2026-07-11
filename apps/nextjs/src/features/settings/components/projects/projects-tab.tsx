@@ -73,9 +73,13 @@ const estimateImportedUnitCount = (value: string) => {
 export function ProjectsTab({
   initialProjects,
   preview = false,
+  workspacePath = "/workspace",
+  projectPath = "/settings/topics",
 }: {
   initialProjects: LearningProject[];
   preview?: boolean;
+  workspacePath?: string;
+  projectPath?: string;
 }) {
   const trpc = useTRPC();
   const router = useRouter();
@@ -360,11 +364,20 @@ How to catch and repair weak reasoning.`}
                   <div className="flex items-center gap-2">
                     <Button
                       render={
-                        <Link
-                          href={`/workspace?session=${project.sessionId}`}
-                        />
+                        <Link href={`${projectPath}/${project.sessionId}`} />
                       }
                       variant="outline"
+                      size="sm"
+                    >
+                      Details
+                    </Button>
+                    <Button
+                      render={
+                        <Link
+                          href={`${workspacePath}?session=${project.sessionId}`}
+                        />
+                      }
+                      variant="ghost"
                       size="sm"
                     >
                       Open

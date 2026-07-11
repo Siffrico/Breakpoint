@@ -22,7 +22,7 @@ function ClusterCard({ cluster }: { cluster: TopicCluster }) {
   const rated = cluster.rating !== null;
 
   return (
-    <div className="border-border bg-card border px-5 py-4">
+    <div className="border-border bg-card rounded-lg border px-5 py-4">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
           <div className="text-foreground text-[13.5px] font-medium">
@@ -72,7 +72,7 @@ export function TopicDetail({ topic }: { topic: ProjectTopic }) {
   return (
     <div>
       <div>
-        <h1 className="font-display text-foreground text-[22px] font-semibold tracking-[-0.02em]">
+        <h1 className="text-foreground text-[25px] leading-[1.2] font-medium tracking-[-0.02em]">
           {topic.title}
         </h1>
         <p className="text-foreground/52 mt-1 text-[13px] leading-6">
@@ -91,7 +91,7 @@ export function TopicDetail({ topic }: { topic: ProjectTopic }) {
             ))}
           </div>
         ) : (
-          <div className="border-border bg-card text-foreground/48 border px-5 py-4 text-[12px]">
+          <div className="border-border bg-card text-foreground/48 rounded-lg border px-5 py-4 text-[12px]">
             No skill clusters yet — finish generating this project.
           </div>
         )}
@@ -101,7 +101,7 @@ export function TopicDetail({ topic }: { topic: ProjectTopic }) {
         <h2 className="font-display text-foreground/84 mb-3 text-[13px] font-semibold">
           Overview
         </h2>
-        <div className="border-border bg-card border px-5 py-4">
+        <div className="border-border bg-card rounded-lg border px-5 py-4">
           {topic.overview ? (
             <div className="text-foreground/78 text-[13px] leading-7 whitespace-pre-wrap">
               {topic.overview.body}
