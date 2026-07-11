@@ -289,7 +289,11 @@ export function MissionCanvas({
                     </section>
                   ) : null}
                   {isEvaluating ? (
-                    <Progress className="mb-5" aria-label="Evaluating proof">
+                    <Progress
+                      value={null}
+                      className="mb-5"
+                      aria-label="Evaluating proof"
+                    >
                       <ProgressLabel className="text-[13px] font-normal text-[var(--site-text-2)]">
                         Checking your proof against the mission standard…
                       </ProgressLabel>
