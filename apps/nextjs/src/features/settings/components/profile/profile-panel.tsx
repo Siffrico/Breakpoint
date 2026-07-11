@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useMutation } from "@tanstack/react-query";
 
 import type { RouterOutputs } from "@acme/api";
@@ -108,7 +108,7 @@ export function ProfilePanel({
     <div>
       <SettingsPageHeader title="Profile" />
 
-      <SettingsSection title="Account">
+      <SettingsSection title="Account" radius="lg">
         <div className="flex items-center gap-3 px-5 py-4">
           <ProfileAvatar name={account.name} image={account.image} />
           <div className="min-w-0">
@@ -130,7 +130,7 @@ export function ProfilePanel({
         />
       </SettingsSection>
 
-      <SettingsSection title="Training">
+      <SettingsSection title="Training" radius="lg">
         {savedGeneral ? (
           <>
             <SettingRow

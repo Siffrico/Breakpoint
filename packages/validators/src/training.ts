@@ -29,9 +29,22 @@ export const MissionPlanSchema = z.object({
   sources: z.array(z.string().url()).max(4),
 });
 
-export const MissionProofSchema = z.object({
-  text: z.string().max(4_000),
-  imageUrls: z.array(z.string().url()).max(3),
+export const MissionProofSchema = z
+  .object({
+    text: z.string().max(4_000),
+    imageUrls: z.array(z.string().url()).max(3),
+  })
+  .refine(
+    (proof) => proof.text.trim().length > 0 || proof.imageUrls.length > 0,
+    {
+      message: "Mission proof must include text or an image.",
+    },
+  );
+
+export const MissionQuestionArgsSchema = z.object({
+  question: z.string().min(1).max(240),
+  options: z.array(z.string().min(1).max(120)).min(2).max(4),
+  allowFreeText: z.boolean().default(true),
 });
 
 export const ProposeMissionsArgsSchema = z.object({
@@ -893,6 +906,7 @@ export type MissionStatus = z.infer<typeof MissionStatusSchema>;
 export type MissionSpec = z.infer<typeof MissionSpecSchema>;
 export type MissionPlan = z.infer<typeof MissionPlanSchema>;
 export type MissionProof = z.infer<typeof MissionProofSchema>;
+export type MissionQuestionArgs = z.infer<typeof MissionQuestionArgsSchema>;
 export type ProposeMissionsArgs = z.infer<typeof ProposeMissionsArgsSchema>;
 export type FinalizePlanArgs = z.infer<typeof FinalizePlanArgsSchema>;
 export type EditPlanArgs = z.infer<typeof EditPlanArgsSchema>;

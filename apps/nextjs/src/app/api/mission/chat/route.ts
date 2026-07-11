@@ -1,4 +1,3 @@
-import type { UIMessage } from "ai";
 import type { NextRequest } from "next/server";
 import { after } from "next/server";
 import { z } from "zod/v4";
@@ -31,7 +30,7 @@ export const POST = async (req: NextRequest) => {
     db,
     userId: session.user.id,
     unitRunId: parsed.data.unitRunId,
-    messages: parsed.data.messages as UIMessage[],
+    messages: parsed.data.messages,
     proof: parsed.data.proof,
     modelName: model.success ? model.data : null,
     scheduleBackgroundTask: (task) => after(task),

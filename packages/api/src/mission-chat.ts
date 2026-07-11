@@ -4,6 +4,7 @@ import {
   createUIMessageStream,
   createUIMessageStreamResponse,
   hasToolCall,
+  safeValidateUIMessages,
   smoothStream,
   stepCountIs,
   streamText,
@@ -11,13 +12,8 @@ import {
 
 import type { db as databaseClient } from "@acme/db/client";
 import type { MissionProof } from "@acme/validators";
-import { and, eq } from "@acme/db";
-import {
-  TrainingCurriculumNode,
-  TrainingCurriculumPlan,
-  TrainingUnitContent,
-  TrainingUnitRun,
-} from "@acme/db/schema";
+import { eq } from "@acme/db";
+import { TrainingCurriculumPlan } from "@acme/db/schema";
 
 import {
   getAiModelForPurpose,
@@ -46,27 +42,34 @@ export const streamMissionChat = async ({
   db: Database;
   userId: string;
   unitRunId: string;
-  messages: UIMessage[];
+  messages: unknown[];
   proof?: MissionProof;
   modelName?: string | null;
   scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }): Promise<Response> =>
   withAiModelPreference(modelName, async () => {
-    const run = await db.query.TrainingUnitRun.findFirst({
-      where: and(
-        eq(TrainingUnitRun.id, unitRunId),
-        eq(TrainingUnitRun.userId, userId),
-      ),
+    const access = await missionRepository.getEligibleRun({
+      db,
+      userId,
+      unitRunId,
     });
-    if (!run) return new Response("Mission unit not found.", { status: 404 });
-    const unit = await db.query.TrainingUnitContent.findFirst({
-      where: eq(TrainingUnitContent.id, run.unitContentId),
+    if (!access)
+      return new Response("Mission unit not found.", { status: 404 });
+    if (!access.eligible)
+      return new Response("This unit is not eligible for a field mission.", {
+        status: 403,
+      });
+    const existingMission = await missionRepository.getByUnitRun({
+      db,
+      userId,
+      unitRunId,
     });
-    const node = unit
-      ? await db.query.TrainingCurriculumNode.findFirst({
-          where: eq(TrainingCurriculumNode.id, unit.nodeId),
-        })
-      : null;
+    if (
+      existingMission?.status === "completed" ||
+      existingMission?.status === "skipped"
+    )
+      return new Response("This mission is already closed.", { status: 409 });
+    const { unit, node } = access;
     const plan = node
       ? await db.query.TrainingCurriculumPlan.findFirst({
           where: eq(TrainingCurriculumPlan.id, node.planId),
@@ -85,7 +88,14 @@ export const streamMissionChat = async ({
       unitGoal: node.summary,
       concepts: unit.scenarioFocusAreas,
     });
-    const convertedMessages = await convertToModelMessages(messages, {
+    const validatedMessages =
+      await safeValidateUIMessages<MissionChatUIMessage>({
+        messages,
+      });
+    if (!validatedMessages.success)
+      return new Response("Invalid mission conversation.", { status: 400 });
+    const uiMessages = validatedMessages.data;
+    const convertedMessages = await convertToModelMessages(uiMessages, {
       ignoreIncompleteToolCalls: true,
     });
     const modelMessages = proof
@@ -99,7 +109,7 @@ export const streamMissionChat = async ({
       : convertedMessages;
     const stream = createUIMessageStream<MissionChatUIMessage>({
       onError: () => "The mission guide hit an error. Try again.",
-      originalMessages: messages,
+      originalMessages: uiMessages,
       onFinish: ({ messages: persistedMessages }) => {
         const persist = async () => {
           await missionRepository.upsertDraft({
@@ -120,6 +130,7 @@ export const streamMissionChat = async ({
           tools: {
             ...getSearchToolsForSelectedProvider("mission"),
             ...createMissionCreatorTools({
+              submittedProof: proof,
               confirmPlan: async ({ spec, plan }) => {
                 await missionRepository.confirmPlan({
                   db,
@@ -136,13 +147,15 @@ export const streamMissionChat = async ({
                   unitRunId,
                 })) ?? null,
               completeMission: async ({ proof, debrief }) => {
-                await missionRepository.saveProofAndComplete({
+                const updated = await missionRepository.saveProofAndComplete({
                   db,
                   userId,
                   unitRunId,
                   proof,
                   debrief,
                 });
+                if (updated.length === 0)
+                  throw new Error("This mission is not active.");
               },
             }),
           },

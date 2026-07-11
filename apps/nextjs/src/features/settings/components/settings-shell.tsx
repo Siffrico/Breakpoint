@@ -58,9 +58,7 @@ export function SettingsPageHeader({
 }) {
   return (
     <div>
-      <h1 className="text-foreground text-[18px] font-semibold">
-        {title}
-      </h1>
+      <h1 className="text-foreground text-[18px] font-semibold">{title}</h1>
       {description ? (
         <p className="text-foreground/48 mt-1 text-[13px] leading-6">
           {description}
@@ -74,17 +72,25 @@ export function SettingsSection({
   title,
   children,
   className,
+  radius = "xl",
 }: {
   title: string;
   children: React.ReactNode;
   className?: string;
+  radius?: "lg" | "xl";
 }) {
   return (
     <section
       aria-label={title}
       className={["mt-6", className].filter(Boolean).join(" ")}
     >
-      <div className="divide-border/60 border-border/50 bg-secondary divide-y overflow-hidden rounded-xl border">
+      <div
+        className={
+          radius === "lg"
+            ? "divide-border/60 border-border/50 bg-secondary divide-y overflow-hidden rounded-lg border"
+            : "divide-border/60 border-border/50 bg-secondary divide-y overflow-hidden rounded-xl border"
+        }
+      >
         {children}
       </div>
     </section>

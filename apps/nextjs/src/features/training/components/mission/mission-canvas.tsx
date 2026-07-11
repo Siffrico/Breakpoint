@@ -3,11 +3,15 @@
 import type { UIMessage } from "ai";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DefaultChatTransport, isTextUIPart } from "ai";
 
-import type { MissionPlan, MissionSpec, MissionStatus } from "@acme/validators";
+import type { RouterOutputs } from "@acme/api";
 import { toast } from "@acme/ui/toast";
+import {
+  MissionQuestionArgsSchema,
+  ProposeMissionsArgsSchema,
+} from "@acme/validators";
 
 import { AssistantRichText } from "~/features/training/components/assistant-rich-text";
 import { useTRPC } from "~/trpc/react";
@@ -17,28 +21,16 @@ import { MissionPlanCard } from "./mission-plan-card";
 import { ProofComposer } from "./proof-composer";
 import { QuestionCard } from "./question-card";
 
-type MissionHydration = {
-  status: MissionStatus;
-  spec: MissionSpec | null;
-  plan: MissionPlan | null;
-  debrief: string | null;
-  messages: unknown[];
-} | null;
-type ToolPayload = Record<string, unknown>;
-const object = (value: unknown): ToolPayload | null =>
-  value && typeof value === "object" && !Array.isArray(value)
-    ? (value as ToolPayload)
-    : null;
-const asSpecs = (value: unknown): MissionSpec[] | null =>
-  Array.isArray(value) ? (value as MissionSpec[]) : null;
-
+type MissionHydration = RouterOutputs["missions"]["getForUnitRun"];
 const latestTool = (messages: UIMessage[], name: string) => {
   for (const message of [...messages].reverse())
     for (const part of [...message.parts].reverse()) {
       if (part.type === `tool-${name}`)
-        return object(
-          "output" in part ? part.output : "input" in part ? part.input : null,
-        );
+        return "output" in part
+          ? part.output
+          : "input" in part
+            ? part.input
+            : null;
     }
   return null;
 };
@@ -55,9 +47,20 @@ export function MissionCanvas({
     initialMission?.status === "active",
   );
   const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  const missionQuery = useQuery({
+    ...trpc.missions.getForUnitRun.queryOptions({ unitRunId }),
+    initialData: initialMission,
+  });
+  const mission = missionQuery.data;
   const initialMessages = (initialMission?.messages ?? []).filter(
     (message): message is UIMessage =>
-      Boolean(object(message) && Array.isArray(object(message)?.parts)),
+      Boolean(
+        message &&
+          typeof message === "object" &&
+          "parts" in message &&
+          Array.isArray(message.parts),
+      ),
   );
   const transport = useMemo(
     () => new DefaultChatTransport<UIMessage>({ api: "/api/mission/chat" }),
@@ -66,17 +69,30 @@ export function MissionCanvas({
   const { messages, sendMessage, error, clearError } = useChat<UIMessage>({
     messages: initialMessages,
     transport,
+    onFinish: () => {
+      void queryClient.invalidateQueries(
+        trpc.missions.getForUnitRun.queryFilter({ unitRunId }),
+      );
+    },
   });
   const startMission = useMutation(
     trpc.missions.start.mutationOptions({
       onMutate: () => setStartedMission(true),
+      onSuccess: () =>
+        queryClient.invalidateQueries(
+          trpc.missions.getForUnitRun.queryFilter({ unitRunId }),
+        ),
       onError: (mutationError) => {
         setStartedMission(false);
         toast.error(mutationError.message);
       },
     }),
   );
-  const started = useRef(initialMessages.length > 0);
+  const started = useRef(
+    initialMessages.length > 0 ||
+      initialMission?.status === "completed" ||
+      initialMission?.status === "skipped",
+  );
   useEffect(() => {
     if (started.current) return;
     started.current = true;
@@ -85,25 +101,18 @@ export function MissionCanvas({
       { body: { unitRunId } },
     );
   }, [sendMessage, unitRunId]);
-  const ask = latestTool(messages, "ask");
-  const proposed = latestTool(messages, "propose_missions");
-  const finalized =
-    latestTool(messages, "finalize_plan") ?? latestTool(messages, "edit_plan");
-  const completed = latestTool(messages, "complete_mission");
-  const spec =
-    (object(finalized)?.spec as MissionSpec | undefined) ??
-    initialMission?.spec ??
-    null;
-  const plan =
-    (object(finalized)?.plan as MissionPlan | undefined) ??
-    initialMission?.plan ??
-    null;
-  const missions = asSpecs(object(proposed)?.missions) ?? null;
-  const debrief =
-    (object(completed)?.debrief as string | undefined) ??
-    initialMission?.debrief ??
-    null;
-  const active = startedMission || initialMission?.status === "active";
+  const askResult = MissionQuestionArgsSchema.safeParse(
+    latestTool(messages, "ask"),
+  );
+  const proposedResult = ProposeMissionsArgsSchema.safeParse(
+    latestTool(messages, "propose_missions"),
+  );
+  const ask = askResult.success ? askResult.data : null;
+  const missions = proposedResult.success ? proposedResult.data.missions : null;
+  const spec = mission?.spec ?? null;
+  const plan = mission?.plan ?? null;
+  const debrief = mission?.debrief ?? null;
+  const active = startedMission || mission?.status === "active";
   const submit = (
     text: string,
     proof?: { text: string; imageUrls: string[] },
@@ -194,13 +203,7 @@ export function MissionCanvas({
           <div className="mt-6">
             <QuestionCard
               question={question}
-              options={
-                Array.isArray(ask.options)
-                  ? ask.options.filter(
-                      (option): option is string => typeof option === "string",
-                    )
-                  : []
-              }
+              options={ask.options}
               onAnswer={submit}
             />
           </div>

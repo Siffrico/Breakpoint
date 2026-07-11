@@ -22,7 +22,7 @@ export function BillingPanel({ billing }: { billing: BillingState }) {
     <div>
       <SettingsPageHeader title="Billing" />
 
-      <SettingsSection title="Plan">
+      <SettingsSection title="Plan" radius="lg">
         <SettingRow
           label="Current plan"
           control={<Badge variant="muted">{formatPlan(billing.plan)}</Badge>}

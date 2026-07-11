@@ -17,8 +17,7 @@ export default async function MissionPage({
   if (!session?.user) redirect("/");
   if (!unitRunId || !z.string().uuid().safeParse(unitRunId).success)
     redirect("/workspace");
-  const mission = await getMissionForUnitRun(unitRunId).catch(() => null);
-  return (
-    <MissionCanvas unitRunId={unitRunId} initialMission={mission ?? null} />
-  );
+  const mission = await getMissionForUnitRun(unitRunId).catch(() => undefined);
+  if (mission === undefined) redirect("/workspace");
+  return <MissionCanvas unitRunId={unitRunId} initialMission={mission} />;
 }

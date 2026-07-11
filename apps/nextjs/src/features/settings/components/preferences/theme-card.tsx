@@ -1,8 +1,8 @@
 "use client";
 
+import type { ThemeMode } from "@acme/ui/theme";
 import { cn } from "@acme/ui";
 import { useTheme } from "@acme/ui/theme";
-import type { ThemeMode } from "@acme/ui/theme";
 
 import {
   SettingRow,
@@ -19,7 +19,7 @@ export function ThemePreferenceCard() {
   const { themeMode, setTheme } = useTheme();
 
   return (
-    <SettingsSection title="Interface and theme">
+    <SettingsSection title="Interface and theme" radius="lg">
       <SettingRow
         label="Interface theme"
         control={
@@ -32,7 +32,7 @@ export function ThemePreferenceCard() {
                   type="button"
                   onClick={() => setTheme(option.value)}
                   className={cn(
-                    "px-3 py-1 text-[12px] outline-none transition-colors focus:outline-none focus-visible:outline-none",
+                    "px-3 py-1 text-[12px] transition-colors outline-none focus:outline-none focus-visible:outline-none",
                     isActive
                       ? "bg-foreground/[0.06] text-foreground"
                       : "text-foreground/60 hover:text-foreground/88",

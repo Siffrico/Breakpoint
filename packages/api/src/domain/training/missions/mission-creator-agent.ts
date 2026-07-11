@@ -5,18 +5,11 @@ import type { MissionPlan, MissionProof, MissionSpec } from "@acme/validators";
 import {
   EditPlanArgsSchema,
   FinalizePlanArgsSchema,
-  MissionProofSchema,
+  MissionQuestionArgsSchema,
   ProposeMissionsArgsSchema,
 } from "@acme/validators";
 
-export const MissionQuestionArgsSchema = z.object({
-  question: z.string().min(1).max(240),
-  options: z.array(z.string().min(1).max(120)).min(2).max(4),
-  allowFreeText: z.boolean().default(true),
-});
-
 const CompleteMissionArgsSchema = z.object({
-  proof: MissionProofSchema,
   debrief: z.string().min(1).max(1_000),
 });
 
@@ -24,6 +17,7 @@ const CompleteMissionArgsSchema = z.object({
 export const createMissionCreatorTools = ({
   confirmPlan,
   getMission,
+  submittedProof,
   completeMission,
 }: {
   confirmPlan: (input: {
@@ -31,6 +25,7 @@ export const createMissionCreatorTools = ({
     plan: MissionPlan;
   }) => Promise<void>;
   getMission: () => Promise<{ spec: MissionSpec | null } | null>;
+  submittedProof?: MissionProof;
   completeMission: (input: {
     proof: MissionProof;
     debrief: string;
@@ -70,11 +65,13 @@ export const createMissionCreatorTools = ({
   }),
   complete_mission: tool({
     description:
-      "Accept the learner's proof, write a warm debrief, and finish the mission. Never reject proof in v1.",
+      "Write a warm debrief for the learner's submitted proof and finish the mission. Never reject proof in v1.",
     inputSchema: CompleteMissionArgsSchema,
-    execute: async ({ proof, debrief }) => {
-      await completeMission({ proof, debrief });
-      return { proof, debrief };
+    execute: async ({ debrief }) => {
+      if (!submittedProof)
+        throw new Error("The learner must submit proof before completion.");
+      await completeMission({ proof: submittedProof, debrief });
+      return { proof: submittedProof, debrief };
     },
   }),
 });

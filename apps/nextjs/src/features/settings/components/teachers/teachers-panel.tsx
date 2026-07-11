@@ -67,7 +67,7 @@ function TeacherAccordionItem({
         type="button"
         onClick={onToggle}
         aria-expanded={isOpen}
-        className="hover:bg-foreground/[0.02] flex w-full items-start justify-between gap-3 px-4 py-3.5 text-left outline-none transition-colors focus:outline-none focus-visible:outline-none"
+        className="hover:bg-foreground/[0.02] flex w-full items-start justify-between gap-3 px-4 py-3.5 text-left transition-colors outline-none focus:outline-none focus-visible:outline-none"
       >
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -141,7 +141,7 @@ export function TeachersPanel() {
         <ModelSwitcherCard />
       </div>
 
-      <div className="divide-border/60 border-border/50 bg-secondary mt-6 divide-y overflow-hidden rounded-xl border">
+      <div className="divide-border/60 border-border/50 bg-secondary mt-6 divide-y overflow-hidden rounded-lg border">
         {TEACHER_AGENTS.map((agent) => (
           <TeacherAccordionItem
             key={agent.id}
