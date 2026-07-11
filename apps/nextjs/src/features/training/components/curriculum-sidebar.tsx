@@ -5,12 +5,10 @@ import { memo, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  BookOpenText,
   CaretRight,
   DotsThree,
   Gear,
   MagnifyingGlass,
-  MapTrifold,
   NotePencil,
   Plus,
   SidebarSimple,
@@ -270,7 +268,6 @@ function ProjectRow({
   project,
   href,
   overviewHref,
-  curriculumHref,
   isCurrent,
   isExpanded,
   activeLessonId,
@@ -287,7 +284,6 @@ function ProjectRow({
   project: LearningProject;
   href: string;
   overviewHref: string;
-  curriculumHref: string;
   isCurrent: boolean;
   isExpanded: boolean;
   activeLessonId?: string | null;
@@ -371,10 +367,7 @@ function ProjectRow({
           )}
         </button>
 
-        <ProjectActionsMenu
-          overviewHref={overviewHref}
-          curriculumHref={curriculumHref}
-        />
+        <ProjectActionsMenu overviewHref={overviewHref} />
       </div>
 
       {isExpanded && lessons.length > 0 ? (
@@ -416,13 +409,7 @@ function ProjectRow({
   );
 }
 
-function ProjectActionsMenu({
-  overviewHref,
-  curriculumHref,
-}: {
-  overviewHref: string;
-  curriculumHref: string;
-}) {
+function ProjectActionsMenu({ overviewHref }: { overviewHref: string }) {
   return (
     <Menu>
       <MenuTrigger
@@ -443,20 +430,12 @@ function ProjectActionsMenu({
         side="right"
         align="start"
         sideOffset={6}
-        className="border-foreground/[0.1] bg-background text-foreground w-36 rounded-none shadow-[0_10px_30px_rgba(0,0,0,0.12)] before:rounded-none"
+        className="border-foreground/[0.1] bg-background text-foreground w-auto min-w-0 rounded-xl p-1 shadow-[0_10px_30px_rgba(0,0,0,0.12)] before:rounded-xl"
       >
         <MenuItem
-          render={<Link href={curriculumHref} />}
-          className="rounded-none text-[13px]"
-        >
-          <BookOpenText size={14} aria-hidden="true" />
-          Curriculum
-        </MenuItem>
-        <MenuItem
           render={<Link href={overviewHref} />}
-          className="rounded-none text-[13px]"
+          className="rounded-lg px-3 text-[13px]"
         >
-          <MapTrifold size={14} aria-hidden="true" />
           Overview
         </MenuItem>
       </MenuPopup>
@@ -686,19 +665,15 @@ function CurriculumSidebarComponent({
             const href = preview
               ? "/ui/workspace"
               : `/workspace?session=${project.sessionId}`;
-            const curriculumHref = preview
-              ? "/ui/curriculum"
-              : `/curriculum?session=${project.sessionId}`;
             const overviewHref = preview
-              ? "/ui/overview"
-              : `/overview?session=${project.sessionId}`;
+              ? `/ui/profile/topics/${project.sessionId}`
+              : `/settings/topics/${project.sessionId}`;
             return (
               <ProjectRow
                 key={project.sessionId}
                 project={project}
                 href={href}
                 overviewHref={overviewHref}
-                curriculumHref={curriculumHref}
                 isCurrent={isCurrent}
                 isExpanded={isExpanded}
                 activeLessonId={activeLessonId}
