@@ -404,6 +404,9 @@
   --site-text-3: color-mix(in oklab, var(--site-fg) 40%, transparent);
   --site-accent: #f54e00;
   --site-raised: #1c1c1c;
+  /* the global theme's --primary (settings blue) — kept reachable here since
+     this scope overrides --primary with the neutral surface color below. */
+  --site-cta: oklch(0.588 0.217 264);
 
   /* design-system surface tokens — so @acme/ui controls (Button, Input …)
      inherit this palette when rendered inside a `.bp-site` scope. */

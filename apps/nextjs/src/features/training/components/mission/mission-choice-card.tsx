@@ -16,42 +16,33 @@ export function MissionChoiceCards({
   onOther: () => void;
 }) {
   return (
-    <section className="space-y-3">
+    <section className="flex flex-col gap-2.5">
       {missions.map((mission, index) => (
-        <motion.article
+        <motion.button
           layoutId={`mission-${index}`}
           transition={missionMotion}
           key={mission.title}
-          className="border-border bg-card border p-5"
+          type="button"
+          onClick={() => onPick(mission)}
+          className="w-full rounded-lg border border-[var(--site-line)] bg-[var(--site-raised)] px-4 py-3.5 text-left outline-none transition-colors hover:border-[var(--site-line-strong)]"
         >
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="font-medium">
-                {index + 1}. {mission.title}
-              </p>
-              <p className="text-muted-foreground mt-1 text-sm">
-                {mission.hook}
-              </p>
-              <p className="text-muted-foreground mt-3 text-xs">
-                ~{mission.estMinutes}m · bring {mission.proofKind}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => onPick(mission)}
-              className="bg-foreground text-background shrink-0 rounded-full px-3 py-2 text-sm"
-            >
-              Pick
-            </button>
-          </div>
-        </motion.article>
+          <p className="text-[14px] font-medium text-[var(--site-fg)]">
+            {mission.title}
+          </p>
+          <p className="mt-1 text-[13px] leading-relaxed text-[var(--site-text-2)]">
+            {mission.hook}
+          </p>
+          <p className="mt-2.5 font-mono text-[11px] tracking-[0.03em] text-[var(--site-text-3)]">
+            ~{mission.estMinutes}m · bring {mission.proofKind}
+          </p>
+        </motion.button>
       ))}
       <button
         type="button"
         onClick={onOther}
-        className="text-muted-foreground text-sm underline"
+        className="mt-2 self-start text-[13px] text-[var(--site-text-2)] underline-offset-[3px] outline-none transition-colors hover:text-[var(--site-fg)] hover:underline"
       >
-        ↻ Do something else
+        Do something else
       </button>
     </section>
   );

@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import { Button } from "@acme/ui/button";
+
 export function ConsultSheet({
   open,
   onClose,
@@ -16,15 +18,17 @@ export function ConsultSheet({
   return (
     <aside
       aria-label="Mission consult"
-      className="border-border bg-background fixed inset-y-0 right-0 z-50 w-full max-w-md border-l p-6 shadow-2xl"
+      className="fixed inset-y-0 right-0 z-50 w-full max-w-md border-l border-[var(--site-line)] bg-[var(--site-bg)] p-6 shadow-2xl"
     >
-      <div className="flex items-center justify-between">
-        <p className="font-mono text-xs tracking-[0.16em]">💬 CONSULT</p>
-        <button type="button" onClick={onClose} aria-label="Close consult">
-          ×
-        </button>
-      </div>
-      <p className="text-muted-foreground mt-6 text-sm">
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close consult"
+        className="absolute top-5 right-6 text-[var(--site-text-2)] outline-none transition-colors hover:text-[var(--site-fg)]"
+      >
+        ×
+      </button>
+      <p className="pr-8 text-[14px] leading-relaxed text-[var(--site-text-2)]">
         Tell me what needs to change. I’ll reshape the plan in place.
       </p>
       <form
@@ -40,15 +44,12 @@ export function ConsultSheet({
           autoFocus
           value={message}
           onChange={(event) => setMessage(event.target.value)}
-          className="border-border min-h-32 w-full border bg-transparent p-3 text-sm outline-none"
-          placeholder="No oven at home…"
+          className="min-h-32 w-full rounded-lg border border-[var(--site-line)] bg-[var(--site-raised)] p-3.5 text-[14px] leading-relaxed text-[var(--site-fg)] outline-none transition-colors placeholder:text-[var(--site-text-3)] focus:border-[var(--site-line-strong)]"
+        placeholder="No oven at home…"
         />
-        <button
-          className="bg-foreground text-background mt-3 rounded-full px-4 py-2 text-sm"
-          type="submit"
-        >
+        <Button type="submit" size="lg" className="mt-3 w-full border-[var(--site-line)]">
           Send
-        </button>
+        </Button>
       </form>
     </aside>
   );

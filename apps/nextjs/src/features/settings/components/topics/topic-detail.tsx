@@ -35,7 +35,7 @@ function ClusterCard({ cluster }: { cluster: TopicCluster }) {
         <div className="shrink-0 text-right">
           {rated ? (
             <>
-              <div className="font-display text-foreground text-[15px] font-semibold tabular-nums">
+              <div className="text-foreground text-[15px] font-semibold tabular-nums">
                 {Math.round(cluster.rating ?? 0)}
               </div>
               <div className="text-foreground/44 text-[11px] tabular-nums">
@@ -81,7 +81,7 @@ export function TopicDetail({ topic }: { topic: ProjectTopic }) {
       </div>
 
       <section className="mt-10">
-        <h2 className="font-display text-foreground/84 mb-3 text-[13px] font-semibold">
+        <h2 className="text-foreground/84 mb-3 text-[13px] font-semibold">
           Skill clusters
         </h2>
         {topic.clusters.length > 0 ? (
@@ -98,7 +98,7 @@ export function TopicDetail({ topic }: { topic: ProjectTopic }) {
       </section>
 
       <section className="mt-10">
-        <h2 className="font-display text-foreground/84 mb-3 text-[13px] font-semibold">
+        <h2 className="text-foreground/84 mb-3 text-[13px] font-semibold">
           Overview
         </h2>
         <div className="border-border bg-card rounded-lg border px-5 py-4">

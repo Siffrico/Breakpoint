@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DefaultChatTransport, isTextUIPart } from "ai";
+import { AnimatePresence, motion } from "motion/react";
 
 import type { RouterOutputs } from "@acme/api";
 import { toast } from "@acme/ui/toast";
@@ -15,6 +16,7 @@ import {
 
 import { AssistantRichText } from "~/features/training/components/assistant-rich-text";
 import { useTRPC } from "~/trpc/react";
+import { missionMotion } from "./animation";
 import { ConsultSheet } from "./consult-sheet";
 import { MissionChoiceCards } from "./mission-choice-card";
 import { MissionPlanCard } from "./mission-plan-card";
@@ -132,11 +134,37 @@ export function MissionCanvas({
     typeof ask?.question === "string"
       ? ask.question
       : "What would you like to get from this?";
+
+  // One stage at a time, mirrored in the eyebrow so the learner always knows
+  // where they are. Order matches the rendering priority below.
+  const stage = debrief
+    ? "debrief"
+    : active && spec && plan
+      ? "active"
+      : spec && plan
+        ? "plan"
+        : missions
+          ? "choices"
+          : ask
+            ? "ask"
+            : "searching";
+  const stageLabel = {
+    ask: "01 — SHAPE",
+    choices: "02 — CHOOSE",
+    plan: "03 — COMMIT",
+    active: "04 — PROVE",
+    debrief: "COMPLETE",
+    searching: null,
+  }[stage];
+
   return (
-    <main className="bg-background text-foreground min-h-dvh">
-      <div className="mx-auto max-w-2xl px-5 py-10">
-        <p className="text-muted-foreground font-mono text-xs tracking-[0.18em]">
+    <main className="bp-site min-h-dvh w-full">
+      <div className="mx-auto w-full max-w-[560px] px-6 py-16">
+        <p className="font-mono text-[12px] tracking-[0.18em] text-[var(--site-text-3)]">
           MISSION
+          {stageLabel ? (
+            <span className="text-[var(--site-text-2)]"> · {stageLabel}</span>
+          ) : null}
         </p>
         {error ? (
           <button
@@ -145,45 +173,57 @@ export function MissionCanvas({
               clearError();
               submit("Please retry that.");
             }}
-            className="mt-5 text-sm underline"
+            className="mt-5 text-[14px] text-[var(--site-text-2)] underline underline-offset-[3px] outline-none transition-colors hover:text-[var(--site-fg)]"
           >
             The mission guide paused. Retry
           </button>
         ) : null}
+        <AnimatePresence mode="wait" initial={false}>
+        <motion.div
+          key={stage}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -6 }}
+          transition={missionMotion}
+        >
         {latestText ? (
-          <div className="mt-5">
+          <div className="mt-6">
             <AssistantRichText content={latestText} />
           </div>
         ) : null}
         {debrief ? (
-          <section className="border-border bg-card mt-6 border p-6">
-            <p className="text-lg">✓ Mission complete</p>
-            <p className="text-muted-foreground mt-3 text-sm leading-6">
+          <section className="mt-8 rounded-lg border border-[var(--site-line)] bg-[var(--site-raised)] p-6">
+            <p className="text-[17px] font-medium tracking-[-0.01em] text-[var(--site-fg)]">
+              Mission complete
+            </p>
+            <p className="mt-2 text-[14px] leading-relaxed text-[var(--site-text-2)]">
               {debrief}
             </p>
             <a
               href="/workspace"
-              className="mt-6 inline-block text-sm underline"
+              className="mt-5 inline-block text-[14px] text-[var(--site-text-2)] underline underline-offset-[3px] transition-colors hover:text-[var(--site-fg)]"
             >
               Back to path →
             </a>
           </section>
         ) : active && spec && plan ? (
           <>
-            <div className="mt-6">
+            <div className="mt-8">
               <MissionPlanCard spec={spec} plan={plan} readOnly />
             </div>
-            <ProofComposer
-              onSubmit={(text, imageUrls) =>
-                submit("I completed the mission and submitted my proof.", {
-                  text,
-                  imageUrls,
-                })
-              }
-            />
+            <div className="mt-10">
+              <ProofComposer
+                onSubmit={(text, imageUrls) =>
+                  submit("I completed the mission and submitted my proof.", {
+                    text,
+                    imageUrls,
+                  })
+                }
+              />
+            </div>
           </>
         ) : spec && plan ? (
-          <div className="mt-6">
+          <div className="mt-8">
             <MissionPlanCard
               spec={spec}
               plan={plan}
@@ -192,7 +232,7 @@ export function MissionCanvas({
             />
           </div>
         ) : missions ? (
-          <div className="mt-6">
+          <div className="mt-8">
             <MissionChoiceCards
               missions={missions}
               onPick={(mission) => submit(`I choose: ${mission.title}`)}
@@ -200,7 +240,7 @@ export function MissionCanvas({
             />
           </div>
         ) : ask ? (
-          <div className="mt-6">
+          <div className="mt-8">
             <QuestionCard
               question={question}
               options={ask.options}
@@ -208,10 +248,12 @@ export function MissionCanvas({
             />
           </div>
         ) : (
-          <p className="text-muted-foreground mt-6 text-sm">
+          <p className="mt-6 text-[14px] text-[var(--site-text-2)]">
             Finding a mission that fits you…
           </p>
         )}
+        </motion.div>
+        </AnimatePresence>
       </div>
       <ConsultSheet
         open={consultOpen}
