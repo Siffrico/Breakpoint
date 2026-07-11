@@ -47,6 +47,7 @@ export const RUN_PROFILES = {
     maxSteps: 6,
     search: true,
   },
+  mission: { ...STANDARD_PROFILE, maxSteps: 6, search: true },
   default: STANDARD_PROFILE,
 } as const satisfies Record<AiModelPurpose, RunProfile>;
 

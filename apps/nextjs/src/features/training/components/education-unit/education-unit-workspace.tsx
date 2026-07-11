@@ -2,6 +2,7 @@
 
 import type { UIMessage } from "ai";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useChat } from "@ai-sdk/react";
 import {
   CaretDown,
@@ -10,7 +11,7 @@ import {
   Copy,
   PencilSimple,
 } from "@phosphor-icons/react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { DefaultChatTransport, isTextUIPart } from "ai";
 
 import type { RouterOutputs } from "@acme/api";
@@ -428,6 +429,13 @@ function EducationUnitWorkspaceComponent({
 }) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  const missionEligibility = useQuery({
+    ...trpc.missions.eligibility.queryOptions({
+      unitContentId: unit.id,
+      sessionId,
+    }),
+    enabled: !preview && unit.activeStage === "complete",
+  });
   const [isExpanded, setIsExpanded] = useState(false);
   const [previewIsRunning, setPreviewIsRunning] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -859,6 +867,20 @@ function EducationUnitWorkspaceComponent({
 
   const inputZone = (
     <div className={embedded ? "bg-background shrink-0" : "mt-10"}>
+      {missionEligibility.data?.eligible &&
+      missionEligibility.data.unitRunId ? (
+        <Link
+          href={`/workspace/mission?unitRunId=${missionEligibility.data.unitRunId}`}
+          className="border-border bg-card hover:bg-muted mb-5 block border p-4 transition-colors"
+        >
+          <span className="text-sm font-medium">
+            🎯 Take it into the real world
+          </span>
+          <span className="text-muted-foreground mt-1 block text-sm">
+            A field mission, built for you. Start mission →
+          </span>
+        </Link>
+      ) : null}
       <div className="font-sans">
         <WorkspaceComposerInput
           value={response}

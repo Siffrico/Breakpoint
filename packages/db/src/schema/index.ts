@@ -7,3 +7,4 @@ export * from "./training/profile";
 export * from "./training/rating";
 export * from "./training/recall";
 export * from "./training/unit";
+export * from "./training/mission";

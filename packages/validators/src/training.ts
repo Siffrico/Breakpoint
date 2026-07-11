@@ -5,6 +5,48 @@ export const WorkspaceBootstrapInputSchema = z.object({
   cookieSessionId: z.string().uuid().optional(),
 });
 
+export const MissionStatusSchema = z.enum([
+  "drafting",
+  "active",
+  "completed",
+  "skipped",
+]);
+
+export const MissionSpecSchema = z.object({
+  title: z.string().min(1).max(160),
+  hook: z.string().min(1).max(500),
+  estMinutes: z.number().int().min(5).max(60),
+  proofKind: z.string().min(1).max(120),
+});
+
+export const MissionPlanSchema = z.object({
+  why: z.string().min(1).max(600),
+  steps: z
+    .array(z.object({ text: z.string().min(1).max(400), done: z.boolean() }))
+    .min(1)
+    .max(3),
+  bringBack: z.string().min(1).max(300),
+  sources: z.array(z.string().url()).max(4),
+});
+
+export const MissionProofSchema = z.object({
+  text: z.string().max(4_000),
+  imageUrls: z.array(z.string().url()).max(3),
+});
+
+export const ProposeMissionsArgsSchema = z.object({
+  missions: z.array(MissionSpecSchema).length(3),
+});
+
+export const FinalizePlanArgsSchema = z.object({
+  spec: MissionSpecSchema,
+  plan: MissionPlanSchema,
+});
+
+export const EditPlanArgsSchema = z.object({
+  plan: MissionPlanSchema,
+});
+
 export const OnboardingSlotSchema = z.enum([
   "target_identity",
   "hard_moments",
@@ -847,3 +889,10 @@ export type EvaluationDimensionResult = z.infer<
   typeof EvaluationDimensionResultSchema
 >;
 export type Debrief = z.infer<typeof DebriefSchema>;
+export type MissionStatus = z.infer<typeof MissionStatusSchema>;
+export type MissionSpec = z.infer<typeof MissionSpecSchema>;
+export type MissionPlan = z.infer<typeof MissionPlanSchema>;
+export type MissionProof = z.infer<typeof MissionProofSchema>;
+export type ProposeMissionsArgs = z.infer<typeof ProposeMissionsArgsSchema>;
+export type FinalizePlanArgs = z.infer<typeof FinalizePlanArgsSchema>;
+export type EditPlanArgs = z.infer<typeof EditPlanArgsSchema>;

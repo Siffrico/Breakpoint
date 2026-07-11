@@ -15,6 +15,10 @@
       "types": "./dist/workspace-chat.d.ts",
       "default": "./src/workspace-chat.ts"
     },
+    "./mission-chat": {
+      "types": "./dist/mission-chat.d.ts",
+      "default": "./src/mission-chat.ts"
+    },
     "./workspace-events": {
       "types": "./dist/workspace-events.d.ts",
       "default": "./src/workspace-events.ts"
