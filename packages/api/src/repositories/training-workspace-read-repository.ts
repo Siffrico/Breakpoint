@@ -21,13 +21,17 @@ export const trainingWorkspaceReadRepository = {
       userId,
     });
     const sessionIds = sessions.map((session) => session.id);
-    const [profiles, plans, firstUserMessages] = await Promise.all([
+    const [profiles, plans, firstUserMessages, chatUnits] = await Promise.all([
       trainingOnboardingRepository.listProfilesBySessionIds({
         db,
         sessionIds,
       }),
       trainingCurriculumRepository.listPlansBySessionIds({ db, sessionIds }),
       trainingOnboardingRepository.listFirstUserMessagesBySessionIds({
+        db,
+        sessionIds,
+      }),
+      trainingOnboardingRepository.listChatUnitIdsBySessionIds({
         db,
         sessionIds,
       }),
@@ -47,6 +51,17 @@ export const trainingWorkspaceReadRepository = {
     const firstUserMessageBySessionId = new Map(
       firstUserMessages.map((message) => [message.sessionId, message.content]),
     );
+    const chatUnitIdsBySessionId = new Map<string, Set<string>>();
+    for (const chatUnit of chatUnits) {
+      const unitIds = chatUnitIdsBySessionId.get(chatUnit.sessionId);
+      if (unitIds) unitIds.add(chatUnit.unitId);
+      else {
+        chatUnitIdsBySessionId.set(
+          chatUnit.sessionId,
+          new Set([chatUnit.unitId]),
+        );
+      }
+    }
     const nodes = await trainingCurriculumRepository.listNodesByPlanIds({
       db,
       planIds: plans.map((plan) => plan.id),
@@ -77,6 +92,7 @@ export const trainingWorkspaceReadRepository = {
 
       const lessonPreview = (projectNodesBySessionId.get(session.id) ?? [])
         .filter((node) => node.kind === "unit" || node.kind === "integration")
+        .filter((node) => chatUnitIdsBySessionId.get(session.id)?.has(node.id))
         .sort((left, right) => right.orderIndex - left.orderIndex)
         .slice(0, 10)
         .map((node) => ({
