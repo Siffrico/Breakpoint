@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { ArrowRight } from "@phosphor-icons/react";
 import { AnimatePresence, motion } from "motion/react";
 
@@ -135,16 +136,13 @@ export function MissionPreview() {
                 </h1>
                 <p className="mt-3 text-[14px] leading-relaxed text-[var(--site-text-2)]">
                   Eval judgment has been mastered.{" "}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      // TODO: route to the next ability in the path.
-                    }}
+                  <Link
+                    href="/workspace"
                     className="inline-flex items-center gap-1 text-[var(--site-fg)] underline underline-offset-[3px] outline-none transition-opacity hover:opacity-80"
                   >
                     move on to next
                     <ArrowRight className="size-3.5" />
-                  </button>
+                  </Link>
                 </p>
               </div>
             ) : selected ? (

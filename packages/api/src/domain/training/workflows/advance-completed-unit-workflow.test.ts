@@ -32,6 +32,14 @@ const nextNode = {
   orderIndex: 2,
 } satisfies CurriculumNode;
 
+const abilityNode = {
+  ...currentNode,
+  id: "ability-1",
+  parentNodeId: null,
+  kind: "ability",
+  orderIndex: 0,
+} satisfies CurriculumNode;
+
 const unit = {
   id: "unit-content-1",
   nodeId: currentNode.id,
@@ -51,6 +59,53 @@ const masteredRun = {
 } satisfies PersistedUnitRun;
 
 describe("advanceCompletedUnitWorkflow", () => {
+  it("routes a mastered ability unit to its required mission without completing it", async () => {
+    const completeNode = vi.fn(() => Promise.resolve());
+    const advanceSkillMapNode = vi.fn(() => Effect.void);
+    const abilityUnit = { ...currentNode, parentNodeId: abilityNode.id };
+
+    const result = await advanceCompletedUnitWorkflow({
+      sessionId: "session-1",
+      nodeId: abilityUnit.id,
+      deps: {
+        withTransaction: (run) =>
+          run({
+            getActivePlan: () =>
+              Promise.resolve({
+                nodes: [abilityNode, abilityUnit],
+              } as CurriculumPlan),
+            getUnitByNodeId: () => Promise.resolve(unit),
+            getUnitRun: () => Promise.resolve(masteredRun),
+            completeNode,
+            touchSession: () => Promise.resolve(),
+          }),
+        createUnit: () => Effect.void,
+        getProgressionState: () =>
+          Effect.succeed({
+            regime: "skillset" as const,
+            uncheckedEntryCount: 0,
+            learnerRating: 1_800,
+            ratingDeviation: 50,
+            peakRating: 1_800,
+          }),
+        getMissionStatus: () =>
+          Promise.resolve({ unitRunId: "run-1", status: "active" }),
+        advanceSkillMapNode,
+      },
+    });
+
+    expect(result).toEqual({
+      success: true,
+      data: {
+        advanced: false,
+        missionRequired: true,
+        unitRunId: "run-1",
+      },
+    });
+    expect(completeNode).not.toHaveBeenCalled();
+    expect(advanceSkillMapNode).not.toHaveBeenCalled();
+  });
+
   it("commits immediately and creates the next unit in the background", async () => {
     const events: string[] = [];
     const createUnit = vi.fn(() => {
@@ -84,6 +139,7 @@ describe("advanceCompletedUnitWorkflow", () => {
             entries: [{ coverageCount: 1 }, { coverageCount: 0 }],
             coverageTarget: 3,
           }),
+        getMissionStatus: () => Promise.resolve(null),
         advanceSkillMapNode: () => Effect.void,
       },
     });
@@ -99,7 +155,13 @@ describe("advanceCompletedUnitWorkflow", () => {
       sessionId: "session-1",
       userId: "user-1",
     });
-    expect(events).toEqual(["transaction:start", "transaction:commit", "create_unit"]);
+    expect(events).toEqual([
+      "transaction:start",
+      "transaction:commit",
+      "transaction:start",
+      "transaction:commit",
+      "create_unit",
+    ]);
   });
 
   it("skips the mastery loop quietly for legacy plans without a skill map", async () => {
@@ -126,6 +188,7 @@ describe("advanceCompletedUnitWorkflow", () => {
           }),
         createUnit,
         getProgressionState: () => Effect.succeed(null),
+        getMissionStatus: () => Promise.resolve(null),
         advanceSkillMapNode,
       },
     });

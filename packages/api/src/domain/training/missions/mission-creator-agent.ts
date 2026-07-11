@@ -1,7 +1,12 @@
 import { tool } from "ai";
 import { z } from "zod/v4";
 
-import type { MissionPlan, MissionProof, MissionSpec } from "@acme/validators";
+import type {
+  MissionEvaluation,
+  MissionPlan,
+  MissionProof,
+  MissionSpec,
+} from "@acme/validators";
 import {
   EditPlanArgsSchema,
   FinalizePlanArgsSchema,
@@ -9,16 +14,14 @@ import {
   ProposeMissionsArgsSchema,
 } from "@acme/validators";
 
-const CompleteMissionArgsSchema = z.object({
-  debrief: z.string().min(1).max(1_000),
-});
+const CompleteMissionArgsSchema = z.object({});
 
 /** Builds only the tools for one already-authorized mission stream. */
 export const createMissionCreatorTools = ({
   confirmPlan,
   getMission,
   submittedProof,
-  completeMission,
+  evaluateMission,
 }: {
   confirmPlan: (input: {
     spec: MissionSpec;
@@ -26,10 +29,7 @@ export const createMissionCreatorTools = ({
   }) => Promise<void>;
   getMission: () => Promise<{ spec: MissionSpec | null } | null>;
   submittedProof?: MissionProof;
-  completeMission: (input: {
-    proof: MissionProof;
-    debrief: string;
-  }) => Promise<void>;
+  evaluateMission: (proof: MissionProof) => Promise<MissionEvaluation>;
 }) => ({
   ask: tool({
     description:
@@ -65,17 +65,16 @@ export const createMissionCreatorTools = ({
   }),
   complete_mission: tool({
     description:
-      "Write a warm debrief for the learner's submitted proof and finish the mission. Never reject proof in v1.",
+      "Evaluate the learner's submitted proof against the mission standard. This completes the mission only when the returned evaluation passes.",
     inputSchema: CompleteMissionArgsSchema,
-    execute: async ({ debrief }) => {
+    execute: async () => {
       if (!submittedProof)
         throw new Error("The learner must submit proof before completion.");
-      await completeMission({ proof: submittedProof, debrief });
-      return { proof: submittedProof, debrief };
+      return evaluateMission(submittedProof);
     },
   }),
 });
 
 export type MissionCreatorToolResult =
   | { spec: MissionSpec; plan: MissionPlan }
-  | { proof: MissionProof; debrief: string };
+  | MissionEvaluation;

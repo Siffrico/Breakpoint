@@ -3,13 +3,13 @@ import { Duration, Effect, Schedule } from "effect";
 import type { DbError } from "../../../effect/errors";
 import type { Result } from "../../../lib/result";
 import type { PersistedUnitRun } from "../education-unit/unit";
+import type { MasteryProgressionState } from "../engine/plan-progression";
 import type {
   CurriculumNode,
   CurriculumPlan,
   UnitContent,
 } from "../types/training.types";
 import type { CreateNextUnitError } from "../unit-creation/create-next-unit";
-import type { MasteryProgressionState } from "../engine/plan-progression";
 import { err, ok } from "../../../lib/result";
 import { decideMasteryProgression } from "../engine/plan-progression";
 import { assertUnitCanAdvance } from "../workspace-ai/workspace-turn";
@@ -39,6 +39,14 @@ interface AdvanceCompletedUnitDependencies {
     clusterNodeId: string;
     userId: string;
   }) => Effect.Effect<MasteryProgressionState | null, DbError>;
+  getMissionStatus: (input: {
+    sessionId: string;
+    unitContentId: string;
+    userId: string;
+  }) => Promise<{
+    unitRunId: string;
+    status: "completed" | "active" | "drafting" | null;
+  } | null>;
   /**
    * The parent skill/ability is mastered: complete it, unlock what follows
    * (next skill's foundation unit, the ability's skillset units, or the next
@@ -57,7 +65,9 @@ interface AdvanceCompletedUnitDependencies {
   scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }
 
-const isTransientUnitCreationFailure = (error: DbError | CreateNextUnitError): boolean =>
+const isTransientUnitCreationFailure = (
+  error: DbError | CreateNextUnitError,
+): boolean =>
   error._tag === "DbError" ||
   error._tag === "UnitPersistError" ||
   (error._tag === "UnitScaffoldError" &&
@@ -76,9 +86,20 @@ export const advanceCompletedUnitWorkflow = async ({
   nodeId: string;
   deps: AdvanceCompletedUnitDependencies;
 }): Promise<
-  Result<{ advanced: true; nextReadyNode: CurriculumNode | null }>
+  Result<
+    | { advanced: true; nextReadyNode: CurriculumNode | null }
+    | {
+        advanced: false;
+        missionRequired: true;
+        unitRunId: string;
+      }
+  >
 > => {
-  let completed: { node: CurriculumNode; run: PersistedUnitRun };
+  let completed: {
+    node: CurriculumNode;
+    parent: CurriculumNode | null;
+    run: PersistedUnitRun;
+  };
   try {
     completed = await deps.withTransaction(async (tx) => {
       const plan = await tx.getActivePlan(sessionId);
@@ -89,32 +110,78 @@ export const advanceCompletedUnitWorkflow = async ({
       assertUnitCanAdvance({ node, run });
 
       if (!node || !run) throw new Error("Completed unit context is missing.");
-      if (node.status !== "completed") await tx.completeNode(nodeId);
-      await tx.touchSession(sessionId);
-      return { node, run };
+      return {
+        node,
+        parent:
+          plan?.nodes.find((item) => item.id === node.parentNodeId) ?? null,
+        run,
+      };
     });
   } catch (error) {
     return err(error instanceof Error ? error.message : "Unit cannot advance.");
   }
 
-  if (completed.node.kind === "unit" && completed.node.parentNodeId) {
-    const clusterNodeId = completed.node.parentNodeId;
-    const createNextUnitTask = Effect.gen(function* () {
-      const userId = completed.run.userId;
-      if (!userId) {
-        yield* Effect.logError("Unit run has no learner id.", {
-          clusterNodeId,
-        });
-        return;
+  let progression:
+    | {
+        clusterNodeId: string;
+        userId: string;
+        decision: ReturnType<typeof decideMasteryProgression>;
       }
-      const state = yield* deps.getProgressionState({
-        clusterNodeId,
-        userId,
-      });
-      // Legacy plans have no skill map; completeNode already ran list
-      // advancement for them, so there is nothing to create here.
-      if (!state) return;
+    | undefined;
+  if (
+    completed.node.kind === "unit" &&
+    completed.node.parentNodeId &&
+    completed.run.userId
+  ) {
+    const clusterNodeId = completed.node.parentNodeId;
+    const userId = completed.run.userId;
+    const state = await Effect.runPromise(
+      deps.getProgressionState({ clusterNodeId, userId }),
+    );
+    if (state) {
       const decision = decideMasteryProgression(state);
+      if (
+        decision.intent === "node_complete" &&
+        completed.parent?.kind === "ability"
+      ) {
+        const mission = await deps.getMissionStatus({
+          sessionId,
+          unitContentId: completed.run.unitId,
+          userId,
+        });
+        if (mission?.status !== "completed") {
+          if (!mission) {
+            return err("Mission context is unavailable.");
+          }
+          return ok({
+            advanced: false,
+            missionRequired: true,
+            unitRunId: mission.unitRunId,
+          });
+        }
+      }
+      progression = { clusterNodeId, userId, decision };
+    }
+  }
+
+  try {
+    await deps.withTransaction(async (tx) => {
+      const plan = await tx.getActivePlan(sessionId);
+      const node = plan?.nodes.find((item) => item.id === nodeId) ?? null;
+      const unit = node ? await tx.getUnitByNodeId(node.id) : null;
+      const run = unit ? await tx.getUnitRun(sessionId, unit.id) : null;
+      assertUnitCanAdvance({ node, run });
+      if (!node) throw new Error("Completed unit context is missing.");
+      if (node.status !== "completed") await tx.completeNode(nodeId);
+      await tx.touchSession(sessionId);
+    });
+  } catch (error) {
+    return err(error instanceof Error ? error.message : "Unit cannot advance.");
+  }
+
+  if (progression) {
+    const { clusterNodeId, userId, decision } = progression;
+    const createNextUnitTask = Effect.gen(function* () {
       if (decision.intent === "create_unit") {
         yield* deps.createUnit({
           clusterNodeId,
@@ -143,7 +210,8 @@ export const advanceCompletedUnitWorkflow = async ({
 
     // Failures are already logged via tapCause; ignore them here so the
     // background runner never rejects.
-    const runUnitCreation = () => Effect.runPromise(Effect.ignore(createNextUnitTask));
+    const runUnitCreation = () =>
+      Effect.runPromise(Effect.ignore(createNextUnitTask));
     if (deps.scheduleBackgroundTask) {
       deps.scheduleBackgroundTask(runUnitCreation);
     } else {

@@ -361,7 +361,13 @@ export function WorkspaceShell({
     mode === "unit" && unitAdvanceGate.status === "enabled";
   const advanceCompletedUnit = useMutation(
     trpc.training.advanceCompletedUnit.mutationOptions({
-      onSuccess: () => {
+      onSuccess: (result) => {
+        if (!result.advanced && result.missionRequired) {
+          router.push(
+            `/workspace/mission?unitRunId=${encodeURIComponent(result.unitRunId)}`,
+          );
+          return;
+        }
         // router.refresh() re-renders the RSC (new `unit` prop), but the
         // aiWorkspace query is frozen at staleTime: Infinity and initialData
         // never overwrites a populated cache — without this invalidation the

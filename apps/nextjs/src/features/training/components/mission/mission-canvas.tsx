@@ -2,12 +2,19 @@
 
 import type { UIMessage } from "ai";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DefaultChatTransport, isTextUIPart } from "ai";
 import { AnimatePresence, motion } from "motion/react";
 
 import type { RouterOutputs } from "@acme/api";
+import {
+  Progress,
+  ProgressIndicator,
+  ProgressLabel,
+  ProgressTrack,
+} from "@acme/ui/progress";
 import { toast } from "@acme/ui/toast";
 import {
   MissionQuestionArgsSchema,
@@ -48,6 +55,7 @@ export function MissionCanvas({
   const [startedMission, setStartedMission] = useState(
     initialMission?.status === "active",
   );
+  const router = useRouter();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const missionQuery = useQuery({
@@ -68,15 +76,16 @@ export function MissionCanvas({
     () => new DefaultChatTransport<UIMessage>({ api: "/api/mission/chat" }),
     [],
   );
-  const { messages, sendMessage, error, clearError } = useChat<UIMessage>({
-    messages: initialMessages,
-    transport,
-    onFinish: () => {
-      void queryClient.invalidateQueries(
-        trpc.missions.getForUnitRun.queryFilter({ unitRunId }),
-      );
-    },
-  });
+  const { messages, sendMessage, status, error, clearError } =
+    useChat<UIMessage>({
+      messages: initialMessages,
+      transport,
+      onFinish: () => {
+        void queryClient.invalidateQueries(
+          trpc.missions.getForUnitRun.queryFilter({ unitRunId }),
+        );
+      },
+    });
   const startMission = useMutation(
     trpc.missions.start.mutationOptions({
       onMutate: () => setStartedMission(true),
@@ -90,10 +99,19 @@ export function MissionCanvas({
       },
     }),
   );
+  const moveToNextAbility = useMutation(
+    trpc.training.advanceCompletedUnit.mutationOptions({
+      onSuccess: () => {
+        if (!mission) return;
+        router.push(
+          `/workspace?session=${encodeURIComponent(mission.sessionId)}`,
+        );
+      },
+      onError: (mutationError) => toast.error(mutationError.message),
+    }),
+  );
   const started = useRef(
-    initialMessages.length > 0 ||
-      initialMission?.status === "completed" ||
-      initialMission?.status === "skipped",
+    initialMessages.length > 0 || initialMission?.status === "completed",
   );
   useEffect(() => {
     if (started.current) return;
@@ -114,6 +132,12 @@ export function MissionCanvas({
   const spec = mission?.spec ?? null;
   const plan = mission?.plan ?? null;
   const debrief = mission?.debrief ?? null;
+  const evaluations =
+    mission?.evaluations.filter(
+      (attempt) => attempt.status === "evaluated" && attempt.evaluation,
+    ) ?? [];
+  const latestEvaluation = evaluations.at(-1)?.evaluation ?? null;
+  const isEvaluating = status === "submitted" || status === "streaming";
   const active = startedMission || mission?.status === "active";
   const submit = (
     text: string,
@@ -173,86 +197,152 @@ export function MissionCanvas({
               clearError();
               submit("Please retry that.");
             }}
-            className="mt-5 text-[14px] text-[var(--site-text-2)] underline underline-offset-[3px] outline-none transition-colors hover:text-[var(--site-fg)]"
+            className="mt-5 text-[14px] text-[var(--site-text-2)] underline underline-offset-[3px] transition-colors outline-none hover:text-[var(--site-fg)]"
           >
             The mission guide paused. Retry
           </button>
         ) : null}
         <AnimatePresence mode="wait" initial={false}>
-        <motion.div
-          key={stage}
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -6 }}
-          transition={missionMotion}
-        >
-        {latestText ? (
-          <div className="mt-6">
-            <AssistantRichText content={latestText} />
-          </div>
-        ) : null}
-        {debrief ? (
-          <section className="mt-8 rounded-lg border border-[var(--site-line)] bg-[var(--site-raised)] p-6">
-            <p className="text-[17px] font-medium tracking-[-0.01em] text-[var(--site-fg)]">
-              Mission complete
-            </p>
-            <p className="mt-2 text-[14px] leading-relaxed text-[var(--site-text-2)]">
-              {debrief}
-            </p>
-            <a
-              href="/workspace"
-              className="mt-5 inline-block text-[14px] text-[var(--site-text-2)] underline underline-offset-[3px] transition-colors hover:text-[var(--site-fg)]"
-            >
-              Back to path →
-            </a>
-          </section>
-        ) : active && spec && plan ? (
-          <>
-            <div className="mt-8">
-              <MissionPlanCard spec={spec} plan={plan} readOnly />
-            </div>
-            <div className="mt-10">
-              <ProofComposer
-                onSubmit={(text, imageUrls) =>
-                  submit("I completed the mission and submitted my proof.", {
-                    text,
-                    imageUrls,
-                  })
-                }
-              />
-            </div>
-          </>
-        ) : spec && plan ? (
-          <div className="mt-8">
-            <MissionPlanCard
-              spec={spec}
-              plan={plan}
-              onStart={() => startMission.mutate({ unitRunId })}
-              onConsult={() => setConsultOpen(true)}
-            />
-          </div>
-        ) : missions ? (
-          <div className="mt-8">
-            <MissionChoiceCards
-              missions={missions}
-              onPick={(mission) => submit(`I choose: ${mission.title}`)}
-              onOther={() => setConsultOpen(true)}
-            />
-          </div>
-        ) : ask ? (
-          <div className="mt-8">
-            <QuestionCard
-              question={question}
-              options={ask.options}
-              onAnswer={submit}
-            />
-          </div>
-        ) : (
-          <p className="mt-6 text-[14px] text-[var(--site-text-2)]">
-            Finding a mission that fits you…
-          </p>
-        )}
-        </motion.div>
+          <motion.div
+            key={stage}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={missionMotion}
+          >
+            {latestText ? (
+              <div className="mt-6">
+                <AssistantRichText content={latestText} />
+              </div>
+            ) : null}
+            {debrief ? (
+              <section className="mt-8 rounded-lg border border-[var(--site-line)] bg-[var(--site-raised)] p-6">
+                <p className="text-[17px] font-medium tracking-[-0.01em] text-[var(--site-fg)]">
+                  Mission complete
+                </p>
+                <p className="mt-2 text-[14px] leading-relaxed text-[var(--site-text-2)]">
+                  {debrief}
+                </p>
+                <button
+                  type="button"
+                  disabled={!mission || moveToNextAbility.isPending}
+                  onClick={() => {
+                    if (!mission) return;
+                    moveToNextAbility.mutate({
+                      sessionId: mission.sessionId,
+                      nodeId: mission.nodeId,
+                    });
+                  }}
+                  className="mt-5 inline-block text-[14px] text-[var(--site-text-2)] underline underline-offset-[3px] transition-colors hover:text-[var(--site-fg)] disabled:cursor-wait disabled:opacity-60"
+                >
+                  {moveToNextAbility.isPending
+                    ? "Preparing next ability…"
+                    : "Move on to next →"}
+                </button>
+              </section>
+            ) : active && spec && plan ? (
+              <>
+                <div className="mt-8">
+                  <MissionPlanCard spec={spec} plan={plan} readOnly />
+                </div>
+                <div className="mt-10">
+                  {latestEvaluation && !latestEvaluation.passed ? (
+                    <section
+                      aria-live="polite"
+                      className="mb-5 border-t border-[var(--site-line)] pt-5"
+                    >
+                      <div className="flex items-baseline justify-between gap-4">
+                        <p className="text-[14px] font-medium text-[var(--site-fg)]">
+                          {latestEvaluation.score >= 55
+                            ? "Almost there"
+                            : "Needs another pass"}{" · "}
+                          {latestEvaluation.score}/100
+                        </p>
+                        <p className="font-mono text-[11px] text-[var(--site-text-3)]">
+                          Standard: 70
+                        </p>
+                      </div>
+                      <p className="mt-2 text-[14px] leading-relaxed text-[var(--site-text-2)]">
+                        {latestEvaluation.summary}
+                      </p>
+                      {latestEvaluation.nextStep ? (
+                        <p className="mt-2 text-[14px] leading-relaxed text-[var(--site-fg)]">
+                          Next: {latestEvaluation.nextStep}
+                        </p>
+                      ) : null}
+                      <Progress
+                        value={Math.min(
+                          (latestEvaluation.attemptNumber / 4) * 100,
+                          100,
+                        )}
+                        className="mt-4 gap-2"
+                      >
+                        <ProgressLabel className="font-mono text-[11px] font-normal text-[var(--site-text-3)]">
+                          {latestEvaluation.attemptNumber <= 4
+                            ? `Submission ${latestEvaluation.attemptNumber} of 4 guided attempts`
+                            : `Standards review ${latestEvaluation.attemptNumber}`}
+                        </ProgressLabel>
+                        <ProgressTrack className="h-1 bg-[var(--site-line)]">
+                          <ProgressIndicator className="bg-[var(--site-fg)]" />
+                        </ProgressTrack>
+                      </Progress>
+                    </section>
+                  ) : null}
+                  {isEvaluating ? (
+                    <Progress className="mb-5" aria-label="Evaluating proof">
+                      <ProgressLabel className="text-[13px] font-normal text-[var(--site-text-2)]">
+                        Checking your proof against the mission standard…
+                      </ProgressLabel>
+                      <ProgressTrack className="h-1 bg-[var(--site-line)]">
+                        <ProgressIndicator className="bg-[var(--site-fg)]" />
+                      </ProgressTrack>
+                    </Progress>
+                  ) : null}
+                  <ProofComposer
+                    disabled={isEvaluating}
+                    onSubmit={(text, imageUrls) =>
+                      submit(
+                        "I completed the mission and submitted my proof.",
+                        {
+                          text,
+                          imageUrls,
+                        },
+                      )
+                    }
+                  />
+                </div>
+              </>
+            ) : spec && plan ? (
+              <div className="mt-8">
+                <MissionPlanCard
+                  spec={spec}
+                  plan={plan}
+                  onStart={() => startMission.mutate({ unitRunId })}
+                  onConsult={() => setConsultOpen(true)}
+                />
+              </div>
+            ) : missions ? (
+              <div className="mt-8">
+                <MissionChoiceCards
+                  missions={missions}
+                  onPick={(mission) => submit(`I choose: ${mission.title}`)}
+                  onOther={() => setConsultOpen(true)}
+                />
+              </div>
+            ) : ask ? (
+              <div className="mt-8">
+                <QuestionCard
+                  question={question}
+                  options={ask.options}
+                  onAnswer={submit}
+                />
+              </div>
+            ) : (
+              <p className="mt-6 text-[14px] text-[var(--site-text-2)]">
+                Finding a mission that fits you…
+              </p>
+            )}
+          </motion.div>
         </AnimatePresence>
       </div>
       <ConsultSheet

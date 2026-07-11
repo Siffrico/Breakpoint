@@ -20,8 +20,10 @@ const MAX_IMAGES = 3;
  */
 export function ProofComposer({
   onSubmit,
+  disabled = false,
 }: {
   onSubmit: (text: string, imageUrls: string[]) => void;
+  disabled?: boolean;
 }) {
   const [text, setText] = useState("");
   const [urls, setUrls] = useState<string[]>([]);
@@ -39,7 +41,8 @@ export function ProofComposer({
     },
   });
 
-  const canSend = !isUploading && (text.trim().length > 0 || urls.length > 0);
+  const canSend =
+    !disabled && !isUploading && (text.trim().length > 0 || urls.length > 0);
 
   const send = () => {
     if (!canSend) return;
@@ -88,6 +91,7 @@ export function ProofComposer({
           autoFocus
           rows={2}
           value={text}
+          disabled={disabled}
           onChange={(event) => {
             setText(event.target.value);
             resize();
@@ -121,9 +125,9 @@ export function ProofComposer({
           <button
             type="button"
             aria-label="Attach a photo"
-            disabled={isUploading || urls.length >= MAX_IMAGES}
+            disabled={disabled || isUploading || urls.length >= MAX_IMAGES}
             onClick={() => fileInputRef.current?.click()}
-            className="flex size-8 items-center justify-center rounded-md text-[var(--site-text-2)] outline-none transition-colors hover:bg-[color-mix(in_oklab,var(--site-fg)_8%,transparent)] hover:text-[var(--site-fg)] disabled:pointer-events-none disabled:opacity-40"
+            className="flex size-8 items-center justify-center rounded-md text-[var(--site-text-2)] transition-colors outline-none hover:bg-[color-mix(in_oklab,var(--site-fg)_8%,transparent)] hover:text-[var(--site-fg)] disabled:pointer-events-none disabled:opacity-40"
           >
             {isUploading ? (
               <CircleNotch className="size-4.5 animate-spin" />
@@ -136,7 +140,7 @@ export function ProofComposer({
             aria-label="Send proof"
             disabled={!canSend}
             onClick={send}
-            className="flex size-8 items-center justify-center rounded-md bg-[var(--site-fg)] text-[var(--site-bg)] outline-none transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-30"
+            className="flex size-8 items-center justify-center rounded-md bg-[var(--site-fg)] text-[var(--site-bg)] transition-opacity outline-none hover:opacity-90 disabled:pointer-events-none disabled:opacity-30"
           >
             <ArrowUp className="size-4.5" weight="bold" />
           </button>

@@ -1,6 +1,7 @@
 import { pgTable, uniqueIndex } from "drizzle-orm/pg-core";
 
 import type {
+  MissionEvaluation,
   MissionPlan,
   MissionProof,
   MissionSpec,
@@ -41,4 +42,36 @@ export const TrainingMission = pgTable(
       .$onUpdateFn(() => new Date()),
   }),
   (table) => [uniqueIndex("becoming_mission_unit_run_idx").on(table.unitRunId)],
+);
+
+export const TrainingMissionEvaluation = pgTable(
+  "becoming_mission_evaluation",
+  (t) => ({
+    id: t.uuid().notNull().primaryKey().defaultRandom(),
+    missionId: t
+      .uuid()
+      .notNull()
+      .references(() => TrainingMission.id, { onDelete: "cascade" }),
+    attemptNumber: t.integer().notNull(),
+    status: t
+      .varchar({ length: 16 })
+      .$type<"evaluating" | "evaluated">()
+      .notNull()
+      .default("evaluating"),
+    proof: t.jsonb().$type<MissionProof>().notNull(),
+    evaluation: t.jsonb().$type<MissionEvaluation | null>(),
+    createdAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .$onUpdateFn(() => new Date()),
+  }),
+  (table) => [
+    uniqueIndex("becoming_mission_evaluation_attempt_idx").on(
+      table.missionId,
+      table.attemptNumber,
+    ),
+  ],
 );

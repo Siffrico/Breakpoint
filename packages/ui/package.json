@@ -15,6 +15,7 @@
     "./input": "./src/input.tsx",
     "./label": "./src/label.tsx",
     "./menu": "./src/menu.tsx",
+    "./progress": "./src/progress.tsx",
     "./scroll-area": "./src/scroll-area.tsx",
     "./separator": "./src/separator.tsx",
     "./select": "./src/select.tsx",

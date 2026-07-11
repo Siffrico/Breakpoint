@@ -28,14 +28,15 @@ import { startOnboardingWorkflow } from "../domain/training/workflows/start-onbo
 import { submitAiWorkspaceMessageWorkflow } from "../domain/training/workflows/submit-ai-workspace-message-workflow";
 import { queryWithClient } from "../effect/db";
 import { recoverSkillUnits } from "../repositories/build-project-repository-deps";
+import { missionRepository } from "../repositories/mission-repository";
 import { trainingCurriculumRepository } from "../repositories/training-curriculum-repository";
 import { trainingOnboardingRepository } from "../repositories/training-onboarding-repository";
 import { trainingRatingRepository } from "../repositories/training-rating-repository";
 import { trainingUnitRunRepository } from "../repositories/training-unit-run-repository";
 import { trainingWorkspaceReadRepository } from "../repositories/training-workspace-read-repository";
 import {
-  createUnitCreationRepositoryDeps,
   advanceSkillMapNode,
+  createUnitCreationRepositoryDeps,
   loadProgressionState,
 } from "../repositories/unit-creation-repository-deps";
 import { createUnitPreparationRepositoryDeps } from "../repositories/unit-preparation-repository-deps";
@@ -741,6 +742,21 @@ export const trainingRouter = {
                   userId,
                 }),
               ),
+            getMissionStatus: async ({ sessionId, unitContentId, userId }) => {
+              const unitRunId = await missionRepository.findUnitRunId({
+                db: ctx.db,
+                userId,
+                unitContentId,
+                sessionId,
+              });
+              if (!unitRunId) return null;
+              const mission = await missionRepository.getByUnitRun({
+                db: ctx.db,
+                unitRunId,
+                userId,
+              });
+              return { unitRunId, status: mission?.status ?? null };
+            },
             advanceSkillMapNode: ({ clusterNodeId, sessionId, userId }) =>
               queryWithClient(ctx.db, "advanceSkillMapNode", () =>
                 advanceSkillMapNode({

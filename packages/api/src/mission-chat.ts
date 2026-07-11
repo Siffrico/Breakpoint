@@ -9,6 +9,7 @@ import {
   stepCountIs,
   streamText,
 } from "ai";
+import { Effect } from "effect";
 
 import type { db as databaseClient } from "@acme/db/client";
 import type { MissionProof } from "@acme/validators";
@@ -22,8 +23,10 @@ import {
   withAiModelPreference,
 } from "./domain/training/engine/model-router";
 import { buildMissionContext } from "./domain/training/missions/context";
+import { evaluateMissionProof } from "./domain/training/missions/evaluate-mission-proof";
 import { createMissionCreatorTools } from "./domain/training/missions/mission-creator-agent";
 import { MISSION_CREATOR_PROMPT } from "./domain/training/missions/mission-creator-prompt";
+import { decideMissionEvaluation } from "./domain/training/missions/mission-evaluation-policy";
 import { missionRepository } from "./repositories/mission-repository";
 
 type Database = typeof databaseClient;
@@ -64,10 +67,7 @@ export const streamMissionChat = async ({
       userId,
       unitRunId,
     });
-    if (
-      existingMission?.status === "completed" ||
-      existingMission?.status === "skipped"
-    )
+    if (existingMission?.status === "completed")
       return new Response("This mission is already closed.", { status: 409 });
     const { unit, node } = access;
     const plan = node
@@ -146,16 +146,48 @@ export const streamMissionChat = async ({
                   userId,
                   unitRunId,
                 })) ?? null,
-              completeMission: async ({ proof, debrief }) => {
-                const updated = await missionRepository.saveProofAndComplete({
+              evaluateMission: async (submittedProof) => {
+                const reservation = await missionRepository.reserveEvaluation({
                   db,
                   userId,
                   unitRunId,
-                  proof,
-                  debrief,
+                  proof: submittedProof,
                 });
-                if (updated.length === 0)
-                  throw new Error("This mission is not active.");
+                if (reservation.kind === "already-evaluating")
+                  throw new Error("This proof is already being evaluated.");
+                if (reservation.kind === "unavailable")
+                  throw new Error("This mission is not ready for evaluation.");
+
+                try {
+                  const draft = await Effect.runPromise(
+                    evaluateMissionProof({
+                      spec: reservation.mission.spec,
+                      plan: reservation.mission.plan,
+                      proof: submittedProof,
+                    }),
+                  );
+                  const evaluation = decideMissionEvaluation({
+                    draft,
+                    attemptNumber: reservation.attemptNumber,
+                    firstScore: reservation.firstScore,
+                  });
+                  const saved = await missionRepository.finishEvaluation({
+                    db,
+                    missionId: reservation.mission.id,
+                    attemptId: reservation.attemptId,
+                    proof: submittedProof,
+                    evaluation,
+                  });
+                  if (!saved)
+                    throw new Error("This evaluation could not be saved.");
+                  return evaluation;
+                } catch (evaluationError) {
+                  await missionRepository.cancelEvaluation({
+                    db,
+                    attemptId: reservation.attemptId,
+                  });
+                  throw evaluationError;
+                }
               },
             }),
           },

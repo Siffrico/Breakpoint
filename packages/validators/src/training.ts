@@ -9,7 +9,6 @@ export const MissionStatusSchema = z.enum([
   "drafting",
   "active",
   "completed",
-  "skipped",
 ]);
 
 export const MissionSpecSchema = z.object({
@@ -40,6 +39,22 @@ export const MissionProofSchema = z
       message: "Mission proof must include text or an image.",
     },
   );
+
+export const MissionEvaluationCriterionSchema = z.object({
+  key: z.enum(["execution", "evidence", "judgment"]),
+  score: z.number().int().min(0),
+  feedback: z.string().min(1).max(500),
+});
+
+export const MissionEvaluationSchema = z.object({
+  score: z.number().int().min(0).max(100),
+  passed: z.boolean(),
+  growthPass: z.boolean(),
+  attemptNumber: z.number().int().min(1).max(99),
+  summary: z.string().min(1).max(1_000),
+  nextStep: z.string().min(1).max(500).nullable(),
+  criteria: z.array(MissionEvaluationCriterionSchema).length(3),
+});
 
 export const MissionQuestionArgsSchema = z.object({
   question: z.string().min(1).max(240),
@@ -906,6 +921,7 @@ export type MissionStatus = z.infer<typeof MissionStatusSchema>;
 export type MissionSpec = z.infer<typeof MissionSpecSchema>;
 export type MissionPlan = z.infer<typeof MissionPlanSchema>;
 export type MissionProof = z.infer<typeof MissionProofSchema>;
+export type MissionEvaluation = z.infer<typeof MissionEvaluationSchema>;
 export type MissionQuestionArgs = z.infer<typeof MissionQuestionArgsSchema>;
 export type ProposeMissionsArgs = z.infer<typeof ProposeMissionsArgsSchema>;
 export type FinalizePlanArgs = z.infer<typeof FinalizePlanArgsSchema>;

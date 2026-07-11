@@ -1,19 +1,23 @@
 import type { db as databaseClient } from "@acme/db/client";
-import type { MissionPlan, MissionProof, MissionSpec } from "@acme/validators";
-import { and, eq, inArray } from "@acme/db";
+import type {
+  MissionEvaluation,
+  MissionPlan,
+  MissionProof,
+  MissionSpec,
+} from "@acme/validators";
+import { and, asc, eq, inArray, sql } from "@acme/db";
 import {
   TrainingCurriculumNode,
   TrainingMission,
+  TrainingMissionEvaluation,
   TrainingUnitContent,
   TrainingUnitRun,
 } from "@acme/db/schema";
 
-import {
-  RESUMABLE_MISSION_STATUSES,
-  sourceStatusesForMissionTransition,
-} from "../domain/training/missions/mission-lifecycle";
+import { RESUMABLE_MISSION_STATUSES } from "../domain/training/missions/mission-lifecycle";
 
 type Database = typeof databaseClient;
+const STALE_EVALUATION_MS = 2 * 60 * 1_000;
 
 export const missionRepository = {
   findUnitRunId: async ({
@@ -92,6 +96,126 @@ export const missionRepository = {
         eq(TrainingMission.userId, userId),
         eq(TrainingMission.unitRunId, unitRunId),
       ),
+    }),
+
+  listEvaluations: ({ db, missionId }: { db: Database; missionId: string }) =>
+    db.query.TrainingMissionEvaluation.findMany({
+      where: eq(TrainingMissionEvaluation.missionId, missionId),
+      orderBy: asc(TrainingMissionEvaluation.attemptNumber),
+    }),
+
+  reserveEvaluation: ({
+    db,
+    userId,
+    unitRunId,
+    proof,
+  }: {
+    db: Database;
+    userId: string;
+    unitRunId: string;
+    proof: MissionProof;
+  }) =>
+    db.transaction(async (tx) => {
+      const transactionDb = tx as unknown as Database;
+      await transactionDb.execute(
+        sql`select pg_advisory_xact_lock(hashtext(${unitRunId}), hashtext('mission-evaluation'))`,
+      );
+      const mission = await transactionDb.query.TrainingMission.findFirst({
+        where: and(
+          eq(TrainingMission.userId, userId),
+          eq(TrainingMission.unitRunId, unitRunId),
+        ),
+      });
+      if (
+        mission?.status !== "active" ||
+        !mission.spec ||
+        !mission.plan
+      )
+        return { kind: "unavailable" as const };
+
+      const attempts =
+        await transactionDb.query.TrainingMissionEvaluation.findMany({
+          where: eq(TrainingMissionEvaluation.missionId, mission.id),
+          orderBy: asc(TrainingMissionEvaluation.attemptNumber),
+        });
+      const pendingAttempt = attempts.find(
+        (attempt) => attempt.status === "evaluating",
+      );
+      if (pendingAttempt) {
+        if (Date.now() - pendingAttempt.createdAt.getTime() < STALE_EVALUATION_MS)
+          return { kind: "already-evaluating" as const };
+        await transactionDb
+          .delete(TrainingMissionEvaluation)
+          .where(eq(TrainingMissionEvaluation.id, pendingAttempt.id));
+      }
+
+      const evaluatedAttempts = attempts.filter(
+        (attempt) => attempt.status === "evaluated",
+      );
+      const attemptNumber = evaluatedAttempts.length + 1;
+      const [attempt] = await transactionDb
+        .insert(TrainingMissionEvaluation)
+        .values({ missionId: mission.id, attemptNumber, proof })
+        .returning({ id: TrainingMissionEvaluation.id });
+      if (!attempt) return { kind: "unavailable" as const };
+
+      return {
+        kind: "reserved" as const,
+        attemptId: attempt.id,
+        attemptNumber,
+        firstScore: evaluatedAttempts[0]?.evaluation?.score ?? null,
+        mission: { ...mission, spec: mission.spec, plan: mission.plan },
+      };
+    }),
+
+  cancelEvaluation: ({ db, attemptId }: { db: Database; attemptId: string }) =>
+    db
+      .delete(TrainingMissionEvaluation)
+      .where(
+        and(
+          eq(TrainingMissionEvaluation.id, attemptId),
+          eq(TrainingMissionEvaluation.status, "evaluating"),
+        ),
+      ),
+
+  finishEvaluation: ({
+    db,
+    missionId,
+    attemptId,
+    proof,
+    evaluation,
+  }: {
+    db: Database;
+    missionId: string;
+    attemptId: string;
+    proof: MissionProof;
+    evaluation: MissionEvaluation;
+  }) =>
+    db.transaction(async (tx) => {
+      const transactionDb = tx as unknown as Database;
+      const updatedAttempt = await transactionDb
+        .update(TrainingMissionEvaluation)
+        .set({ status: "evaluated", evaluation })
+        .where(
+          and(
+            eq(TrainingMissionEvaluation.id, attemptId),
+            eq(TrainingMissionEvaluation.missionId, missionId),
+            eq(TrainingMissionEvaluation.status, "evaluating"),
+          ),
+        )
+        .returning({ id: TrainingMissionEvaluation.id });
+      if (updatedAttempt.length === 0) return false;
+      if (evaluation.passed) {
+        await transactionDb
+          .update(TrainingMission)
+          .set({
+            proof,
+            debrief: evaluation.summary,
+            status: "completed",
+          })
+          .where(eq(TrainingMission.id, missionId));
+      }
+      return true;
     }),
 
   listResumable: ({
@@ -186,59 +310,7 @@ export const missionRepository = {
           eq(TrainingMission.unitRunId, unitRunId),
           inArray(
             TrainingMission.status,
-            sourceStatusesForMissionTransition("start"),
-          ),
-        ),
-      )
-      .returning(),
-
-  saveProofAndComplete: ({
-    db,
-    userId,
-    unitRunId,
-    proof,
-    debrief,
-  }: {
-    db: Database;
-    userId: string;
-    unitRunId: string;
-    proof: MissionProof;
-    debrief: string;
-  }) =>
-    db
-      .update(TrainingMission)
-      .set({ proof, debrief, status: "completed" })
-      .where(
-        and(
-          eq(TrainingMission.userId, userId),
-          eq(TrainingMission.unitRunId, unitRunId),
-          inArray(
-            TrainingMission.status,
-            sourceStatusesForMissionTransition("complete"),
-          ),
-        ),
-      )
-      .returning(),
-
-  skip: ({
-    db,
-    userId,
-    unitRunId,
-  }: {
-    db: Database;
-    userId: string;
-    unitRunId: string;
-  }) =>
-    db
-      .update(TrainingMission)
-      .set({ status: "skipped" })
-      .where(
-        and(
-          eq(TrainingMission.userId, userId),
-          eq(TrainingMission.unitRunId, unitRunId),
-          inArray(
-            TrainingMission.status,
-            sourceStatusesForMissionTransition("skip"),
+            RESUMABLE_MISSION_STATUSES,
           ),
         ),
       )

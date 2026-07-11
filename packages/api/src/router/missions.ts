@@ -54,11 +54,22 @@ export const missionsRouter = {
           code: "FORBIDDEN",
           message: "This unit is not eligible for a field mission.",
         });
-      return missionRepository.getByUnitRun({
+      const mission = await missionRepository.getByUnitRun({
         db: ctx.db,
         userId: ctx.session.user.id,
         unitRunId: input.unitRunId,
       });
+      if (!mission || !result.node) return null;
+      const evaluations = await missionRepository.listEvaluations({
+        db: ctx.db,
+        missionId: mission.id,
+      });
+      return {
+        ...mission,
+        evaluations,
+        sessionId: result.run.sessionId,
+        nodeId: result.node.id,
+      };
     }),
   start: protectedProcedure
     .input(UnitRunInputSchema)
@@ -94,31 +105,6 @@ export const missionsRouter = {
           message: "This mission can no longer be started.",
         });
       return { status: "active" as const };
-    }),
-  skip: protectedProcedure
-    .input(UnitRunInputSchema)
-    .mutation(async ({ ctx, input }) => {
-      const result = await missionRepository.getEligibleRun({
-        db: ctx.db,
-        userId: ctx.session.user.id,
-        unitRunId: input.unitRunId,
-      });
-      if (!result?.eligible)
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "This mission cannot be skipped.",
-        });
-      const updated = await missionRepository.skip({
-        db: ctx.db,
-        userId: ctx.session.user.id,
-        unitRunId: input.unitRunId,
-      });
-      if (updated.length === 0)
-        throw new TRPCError({
-          code: "CONFLICT",
-          message: "This mission can no longer be skipped.",
-        });
-      return { skipped: true };
     }),
   resumable: protectedProcedure
     .input(SessionInputSchema)
