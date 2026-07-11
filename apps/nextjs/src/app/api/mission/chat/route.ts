@@ -5,7 +5,7 @@ import { z } from "zod/v4";
 
 import { streamMissionChat } from "@acme/api/mission-chat";
 import { db } from "@acme/db/client";
-import { AiModelPreferenceSchema } from "@acme/validators";
+import { AiModelPreferenceSchema, MissionProofSchema } from "@acme/validators";
 
 import { requireSession } from "~/app/api/_lib/require-session";
 
@@ -14,6 +14,7 @@ export const maxDuration = 300;
 const BodySchema = z.object({
   unitRunId: z.string().uuid(),
   messages: z.array(z.unknown()),
+  proof: MissionProofSchema.optional(),
   model: z.string().optional(),
 });
 
@@ -31,6 +32,7 @@ export const POST = async (req: NextRequest) => {
     userId: session.user.id,
     unitRunId: parsed.data.unitRunId,
     messages: parsed.data.messages as UIMessage[],
+    proof: parsed.data.proof,
     modelName: model.success ? model.data : null,
     scheduleBackgroundTask: (task) => after(task),
   });

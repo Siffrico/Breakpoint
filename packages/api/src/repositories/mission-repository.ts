@@ -62,7 +62,7 @@ export const missionRepository = {
       .values({ userId, unitRunId, spec, plan, messages: [] })
       .onConflictDoUpdate({
         target: TrainingMission.unitRunId,
-        set: { spec, plan, status: "drafting" },
+        set: { spec, plan },
       })
       .returning();
     return row;

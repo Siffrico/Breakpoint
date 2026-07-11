@@ -110,6 +110,36 @@ export const missionsRouter = {
         unitRunId: input.unitRunId,
       });
     }),
+  start: protectedProcedure
+    .input(UnitRunInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const result = await getEligibleRun({
+        db: ctx.db,
+        userId: ctx.session.user.id,
+        unitRunId: input.unitRunId,
+      });
+      if (!result?.eligible)
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "This mission cannot be started.",
+        });
+      const mission = await missionRepository.getByUnitRun({
+        db: ctx.db,
+        userId: ctx.session.user.id,
+        unitRunId: input.unitRunId,
+      });
+      if (!mission?.spec || !mission.plan)
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Choose a mission before starting it.",
+        });
+      await missionRepository.start({
+        db: ctx.db,
+        userId: ctx.session.user.id,
+        unitRunId: input.unitRunId,
+      });
+      return { status: "active" as const };
+    }),
   skip: protectedProcedure
     .input(UnitRunInputSchema)
     .mutation(async ({ ctx, input }) => {

@@ -7,4 +7,4 @@ Rules:
 - Call ask to render a question card. Call propose_missions with exactly three distinct options. Do not bury cards in prose.
 - When the learner picks a choice, call finalize_plan. For a constraint or tweak, call edit_plan or propose_missions. Do live search only when a fact is necessary; a failed search never blocks the plan.
 - Once a learner says they did it or sends proof, call complete_mission. Trust their proof in v1; warmly name what they did and never reject it.
-- Start mission is a client message. A proof turn may include image URLs in the message; acknowledge them without asserting visual details you cannot establish.`;
+- Starting a mission is handled directly by the client; do not say it has started until the active plan is in the conversation context. A proof turn may include server-provided proof data; acknowledge its image URLs without asserting visual details you cannot establish.`;

@@ -3,11 +3,14 @@
 import type { UIMessage } from "ai";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
+import { useMutation } from "@tanstack/react-query";
 import { DefaultChatTransport, isTextUIPart } from "ai";
 
 import type { MissionPlan, MissionSpec, MissionStatus } from "@acme/validators";
+import { toast } from "@acme/ui/toast";
 
 import { AssistantRichText } from "~/features/training/components/assistant-rich-text";
+import { useTRPC } from "~/trpc/react";
 import { ConsultSheet } from "./consult-sheet";
 import { MissionChoiceCards } from "./mission-choice-card";
 import { MissionPlanCard } from "./mission-plan-card";
@@ -48,6 +51,10 @@ export function MissionCanvas({
   initialMission: MissionHydration;
 }) {
   const [consultOpen, setConsultOpen] = useState(false);
+  const [startedMission, setStartedMission] = useState(
+    initialMission?.status === "active",
+  );
+  const trpc = useTRPC();
   const initialMessages = (initialMission?.messages ?? []).filter(
     (message): message is UIMessage =>
       Boolean(object(message) && Array.isArray(object(message)?.parts)),
@@ -60,6 +67,15 @@ export function MissionCanvas({
     messages: initialMessages,
     transport,
   });
+  const startMission = useMutation(
+    trpc.missions.start.mutationOptions({
+      onMutate: () => setStartedMission(true),
+      onError: (mutationError) => {
+        setStartedMission(false);
+        toast.error(mutationError.message);
+      },
+    }),
+  );
   const started = useRef(initialMessages.length > 0);
   useEffect(() => {
     if (started.current) return;
@@ -87,12 +103,13 @@ export function MissionCanvas({
     (object(completed)?.debrief as string | undefined) ??
     initialMission?.debrief ??
     null;
-  const active =
-    initialMission?.status === "active" ||
-    Boolean(latestTool(messages, "start_mission"));
-  const submit = (text: string) => {
+  const active = startedMission || initialMission?.status === "active";
+  const submit = (
+    text: string,
+    proof?: { text: string; imageUrls: string[] },
+  ) => {
     clearError();
-    void sendMessage({ text }, { body: { unitRunId } });
+    void sendMessage({ text }, { body: { unitRunId, proof } });
   };
   const latestText =
     [...messages]
@@ -149,9 +166,10 @@ export function MissionCanvas({
             </div>
             <ProofComposer
               onSubmit={(text, imageUrls) =>
-                submit(
-                  `I completed the mission. Proof: ${text || "Photo attached."}\nImages: ${imageUrls.join(", ")}`,
-                )
+                submit("I completed the mission and submitted my proof.", {
+                  text,
+                  imageUrls,
+                })
               }
             />
           </>
@@ -160,7 +178,7 @@ export function MissionCanvas({
             <MissionPlanCard
               spec={spec}
               plan={plan}
-              onStart={() => submit("Start mission now.")}
+              onStart={() => startMission.mutate({ unitRunId })}
               onConsult={() => setConsultOpen(true)}
             />
           </div>

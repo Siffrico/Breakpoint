@@ -15,10 +15,6 @@ export const MissionQuestionArgsSchema = z.object({
   allowFreeText: z.boolean().default(true),
 });
 
-const StartMissionArgsSchema = z.object({
-  acknowledgement: z.string().min(1).max(300),
-});
-
 const CompleteMissionArgsSchema = z.object({
   proof: MissionProofSchema,
   debrief: z.string().min(1).max(1_000),
@@ -28,7 +24,6 @@ const CompleteMissionArgsSchema = z.object({
 export const createMissionCreatorTools = ({
   confirmPlan,
   getMission,
-  startMission,
   completeMission,
 }: {
   confirmPlan: (input: {
@@ -36,7 +31,6 @@ export const createMissionCreatorTools = ({
     plan: MissionPlan;
   }) => Promise<void>;
   getMission: () => Promise<{ spec: MissionSpec | null } | null>;
-  startMission: () => Promise<void>;
   completeMission: (input: {
     proof: MissionProof;
     debrief: string;
@@ -72,15 +66,6 @@ export const createMissionCreatorTools = ({
         throw new Error("A mission must be chosen before its plan can change.");
       await confirmPlan({ spec: mission.spec, plan });
       return { spec: mission.spec, plan };
-    },
-  }),
-  start_mission: tool({
-    description:
-      "Mark the confirmed plan active when the learner presses Start mission.",
-    inputSchema: StartMissionArgsSchema,
-    execute: async (args) => {
-      await startMission();
-      return args;
     },
   }),
   complete_mission: tool({
