@@ -61,6 +61,9 @@ const packet: OnboardingPacket = {
     "Names tradeoffs before choosing.",
     "Repairs weak explanations.",
   ],
+  scenarioInspirations: [
+    "Vercel — making difficult deployment work feel immediate and simple.",
+  ],
   confidenceFlags: [],
 };
 

@@ -79,6 +79,9 @@ const packet: OnboardingPacket = {
     "Names tradeoffs before choosing.",
     "Repairs weak explanations.",
   ],
+  scenarioInspirations: [
+    "Vercel — making difficult deployment work feel immediate and simple.",
+  ],
   confidenceFlags: [],
 };
 
@@ -244,6 +247,9 @@ const makeDeps = (
     getStartingPoint: vi.fn<BuildProjectDeps["getStartingPoint"]>(() =>
       Promise.resolve(opts.startingPoint ?? null),
     ),
+    persistScenarioInspiration: vi.fn<
+      BuildProjectDeps["persistScenarioInspiration"]
+    >(() => Promise.resolve()),
     claimRun: vi.fn<BuildProjectDeps["claimRun"]>(() =>
       Promise.resolve(opts.claim ?? { status: "claimed" }),
     ),
@@ -338,6 +344,11 @@ describe("buildProjectFromOnboarding", () => {
     await Promise.all(tasks);
 
     expect(result.success).toBe(true);
+    expect(deps.persistScenarioInspiration).toHaveBeenCalledWith({
+      userId: "user-id",
+      content:
+        "Scenario inspiration: Vercel — making difficult deployment work feel immediate and simple.",
+    });
     expect(deps.ensureSkillSyllabus).toHaveBeenCalledTimes(skills.length);
     expect(deps.createSkillUnit).toHaveBeenCalledTimes(1);
     expect(deps.createSkillUnit).toHaveBeenCalledWith({

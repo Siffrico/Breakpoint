@@ -28,6 +28,10 @@ import {
 } from "~/features/training/hooks/use-autosaved-response-draft";
 import { useTRPC } from "~/trpc/react";
 import { NotionComposer } from "./notion-composer";
+import {
+  ASK_COACH_SOURCE_ATTRIBUTE,
+  SelectionAskCoach,
+} from "./selection-ask-coach";
 import { WorkspaceComposerInput } from "./workspace-composer-input";
 
 type EducationUnit = RouterOutputs["training"]["unit"];
@@ -142,7 +146,7 @@ function PromptTurn({
     <section className="py-3 font-sans">
       {/* Assistant content fills the column edge-to-edge (no extra px), so its
           right edge matches the submitted-answer receipt's right edge. */}
-      <div className={CHAT_COLUMN_CLASS}>
+      <div className={CHAT_COLUMN_CLASS} {...{ [ASK_COACH_SOURCE_ATTRIBUTE]: "" }}>
         {statusLabel ? (
           <WorkspaceStatusLine
             label={statusLabel}
@@ -416,6 +420,7 @@ function EducationUnitWorkspaceComponent({
   onRunningChange,
   onRunCommand,
   onAskCoachAboutAnswer,
+  onAskCoachAboutSelection,
 }: {
   unit: EducationUnit;
   sessionId: string;
@@ -426,6 +431,7 @@ function EducationUnitWorkspaceComponent({
   onRunningChange?: (isRunning: boolean) => void;
   onRunCommand?: (intent: UnitCoachCommandIntent) => void;
   onAskCoachAboutAnswer?: (answer: string) => void;
+  onAskCoachAboutSelection?: (selection: string) => void;
 }) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -924,6 +930,10 @@ function EducationUnitWorkspaceComponent({
     />
   );
 
+  const selectionAskCoach = onAskCoachAboutSelection ? (
+    <SelectionAskCoach onAsk={onAskCoachAboutSelection} />
+  ) : null;
+
   if (embedded) {
     return (
       <>
@@ -937,6 +947,7 @@ function EducationUnitWorkspaceComponent({
           </ChatComposerDock>
         </div>
         {expandedOverlay}
+        {selectionAskCoach}
       </>
     );
   }
@@ -954,6 +965,7 @@ function EducationUnitWorkspaceComponent({
         </div>
       </main>
       {expandedOverlay}
+      {selectionAskCoach}
     </>
   );
 }

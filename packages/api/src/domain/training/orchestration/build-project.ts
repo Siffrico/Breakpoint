@@ -262,6 +262,11 @@ export interface BuildProjectDeps {
   getStartingPoint: (
     sessionId: string,
   ) => Promise<{ tier: StartingPointTier; label: string } | null>;
+  /** Persist onboarding-derived scenario inspiration into learner memory. */
+  persistScenarioInspiration: (input: {
+    userId: string;
+    content: string;
+  }) => Promise<void>;
   /** Create (or return) the durable "generating" plan shell. Returns its id. */
   ensureShell: (input: {
     sessionId: string;
@@ -673,6 +678,13 @@ export const buildProjectFromOnboarding = async ({
   }
   setStep("goals", "done");
   emit();
+
+  if (packet && userId) {
+    await deps.persistScenarioInspiration({
+      userId,
+      content: `Scenario inspiration: ${packet.scenarioInspirations.join("; ")}`,
+    });
+  }
 
   const buildBlueprint = (
     design: CurriculumDesignerOutput,

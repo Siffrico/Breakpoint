@@ -482,6 +482,23 @@ export function WorkspaceShell({
     [liveUnit],
   );
 
+  const openUnitCoachForSelection = useCallback(
+    (selection: string) => {
+      if (!liveUnit) return;
+
+      const excerpt = selection.trim().slice(0, MAX_COACH_ANSWER_CHARS);
+      if (!excerpt) return;
+      setUnitCoachOpen(true);
+      setUnitCoachTrigger((previous) => ({
+        intent: "freeform",
+        message: `Explain this part of the lesson:\n\n"${excerpt}"`,
+        nonce: (previous?.nonce ?? 0) + 1,
+        unitId: liveUnit.nodeId,
+      }));
+    },
+    [liveUnit],
+  );
+
   const toggleUnitCoach = () => {
     setUnitCoachTrigger(null);
     setUnitCoachOpen((open) => (unitCoachFocused ? true : !open));
@@ -977,6 +994,7 @@ export function WorkspaceShell({
                         onRunningChange={setIsSessionRunning}
                         onRunCommand={openUnitCoachWithCommand}
                         onAskCoachAboutAnswer={openUnitCoachForAnswer}
+                        onAskCoachAboutSelection={openUnitCoachForSelection}
                       />
                     ) : null}
 

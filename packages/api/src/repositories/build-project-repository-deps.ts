@@ -7,11 +7,16 @@ import type { BuildProjectDeps } from "../domain/training/orchestration/build-pr
 import { decideMasteryProgression } from "../domain/training/engine/plan-progression";
 import { parseAbilityStage } from "../domain/training/engine/progression-model";
 import { ArtifactBuildError } from "../domain/training/orchestration/agent-runtime";
+import {
+  getMemoryContentHash,
+  normalizeMemoryContent,
+} from "../domain/memory/policies/memory-caps";
 import { createNextUnit } from "../domain/training/unit-creation/create-next-unit";
 import { runPrepareUnit } from "../domain/training/unit-preparation/prepare-unit-edge";
 import { buildProjectCheckpointRepository } from "./build-project-checkpoint-repository";
 import { buildProjectCurriculumRepository } from "./build-project-curriculum-repository";
 import { buildProjectProfileRepository } from "./build-project-profile-repository";
+import { memoryRepository } from "./memory-repository";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
 import { trainingOnboardingRepository } from "./training-onboarding-repository";
 import {
@@ -208,6 +213,23 @@ export const createBuildProjectDeps = (db: Database): BuildProjectDeps => ({
     );
     if (!parsed.success || !session?.startingPointLabel) return null;
     return { tier: parsed.data, label: session.startingPointLabel };
+  },
+
+  persistScenarioInspiration: async ({ userId, content }) => {
+    const normalized = normalizeMemoryContent(content);
+    const result = await memoryRepository.create({
+      db,
+      userId,
+      content: normalized,
+      contentHash: getMemoryContentHash(normalized),
+      source: "profile_update",
+    });
+    if (!result.success && result.error.code !== "CONFLICT") {
+      throw new ArtifactBuildError(
+        "Failed to save the learner's scenario interests.",
+        "save",
+      );
+    }
   },
 
   ensureShell: async ({

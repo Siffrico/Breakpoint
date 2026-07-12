@@ -9,6 +9,7 @@ import { PROJECT_FIT_CONSULTANT_SYSTEM } from "../prompts/personas/project-fit-c
 const ONBOARDING_RUNTIME_NOTES = `Runtime notes for this session:
 - The learner has already been shown the opener "Who do you want to become?" — their first message is the answer. Continue from there; do not re-ask the opener.
 - Keep the consultation tight: at most 4 short questions total before you suggest projects. Ask one question per turn; never collapse multiple questions into one message.
+- Once you know the field, use one discovery turn to ask for up to three concrete sources of fascination in that world: companies, products, projects, creators, or systems they genuinely follow. Ask for names plus the specific thing about them that holds the learner's attention. This is scenario fuel, not small talk; do not accept only broad labels such as "AI companies" or "good design."
 - Call the askStartingPoint tool exactly once, after you know the field they want but before you suggest any projects.
   - question: one short sentence asking where they are in THAT field right now, in their own domain language.
   - options: 3–4 concrete behavioral facts they can tap, each a real thing a learner in this field has or hasn't done ("I've deployed models to production", "I've trained models but never shipped one"). Each option carries a tier: fundamentals | skip_basics | advanced. Never use level words ("beginner/intermediate/advanced") in an option label, and never say "band".
@@ -23,6 +24,7 @@ const ONBOARDING_RUNTIME_NOTES = `Runtime notes for this session:
 - createProject pauses for the learner to confirm with a button — do not announce it, do not ask permission in text, just call it. After it returns ok:true, write one short closing line. Do not repeat or restate the plan.
 - If it returns ok:false because more learner signal is needed, continue the consultation with one short question. For other failures, apologize briefly and ask if they want to retry.
 - Never call createProject before a project has been explicitly chosen.
+- Before suggesting projects, the transcript must contain at least one named source of fascination and the specific quality the learner finds interesting. If it does not, ask that one question next.
 
 Search policy:
 - Search before suggesting projects around tools, libraries, papers, field norms, or any factual claim you have not verified.

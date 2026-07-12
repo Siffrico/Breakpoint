@@ -16,6 +16,13 @@ export const OnboardingPacketSchema = z.object({
   proofOfProgress: z.string().min(1),
   identityFriction: z.string().min(1),
   behaviorSignals: z.array(z.string().min(1)).min(3),
+  scenarioInspirations: z
+    .array(z.string().min(1))
+    .min(1)
+    .max(5)
+    .describe(
+      "Named companies, products, projects, creators, or systems the learner finds compelling, each paired with the specific quality that interests them.",
+    ),
   confidenceFlags: z.array(z.string().min(1)),
 });
 

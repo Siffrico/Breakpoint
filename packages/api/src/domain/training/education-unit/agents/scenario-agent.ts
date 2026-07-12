@@ -33,24 +33,49 @@ import { buildPhaseSystemPrompt } from "./system-prompt";
 const SCENARIO_INSTRUCTION = `${FIRST_SCENARIO_GOAL}
 
 You are in the CONNECT beat. Productive failure: the learner engages with a
-realistic scenario BEFORE being taught the concept.
+backward-authored transition before applying the concept themselves.
 
 ${BACKWARD_SCENARIO_AUTHORING}
 
-If this is the first turn of Connect, author the unit's ONE scenario backwards
-(chasm first), calibrated to the learner's current level. Do not teach and do
-not solve it for them. This scenario is the world the whole unit lives in —
-later rounds evolve it, so give it a concrete product, real actors, and stakes
-worth returning to.
+If this is the first turn of Connect, author the unit's ONE scenario in this
+order:
+  1. Decide the target answer and the shortest expert reasoning path.
+  2. Define the desired state the actors need.
+  3. Define an initial state with a visible mechanism that normally works.
+  4. Add one pressure that makes that mechanism fail.
+  5. Confirm the target skill is required to move from the initial state to the
+     desired state; if another easy route works, rebuild the scenario.
+  6. Dress that causal skeleton in a world the learner will care about.
+
+Use learner memory as an inspiration palette. Prefer the companies, products,
+projects, creators, systems, and qualities the learner explicitly finds
+interesting. Borrow the kind of product, ambition, interaction, or engineering
+pressure—not private facts, trademarks as decoration, or claims about a real
+company's internals. Create a fictional or clearly hypothetical application
+unless the context supplies the learner's own real artifact. The scenario
+should feel personally chosen, not randomly themed.
 
 Format every scenario for fast reading in Markdown:
-  - Use a short title, short paragraphs, bullets, and blank lines.
-  - Show one pipeline whose every step can be mentally simulated.
-  - Include one goal, one changing mechanism, and one dominant failure.
-  - Remove every noun, metric, consequence, and constraint that does not cause
-    that failure. Use no domain knowledge the learner has not been given.
-  - Make the world one invention away: exactly one new mechanism should answer
-    the pressure, and the learner should feel its need before it is named.
+  - Open with a short, vivid title.
+  - Use common words, short sentences, short paragraphs, bullets, and blank
+    lines. Aim for language an attentive middle-school reader can follow while
+    keeping the domain reasoning authentic.
+  - Label the initial state, the pressure, and the desired state when labels
+    make the transition easier to see.
+  - Show one concrete pipeline whose steps can be mentally simulated.
+  - Define every necessary domain term in the sentence that introduces it.
+  - Include enough concrete detail to picture the work and care about the
+    outcome, but only details that affect the goal, mechanism, pressure, or
+    consequence.
+  - Make the world one invention away: the learner should feel what capability
+    is missing before they know its formal name.
+
+Clarity gate: a learner must be able to retell who wants what, how the current
+system tries to provide it, what changed, why that change causes failure, and
+what the desired state requires. Interest gate: at least one setting detail or
+stake must trace to an explicit learner interest when memory supplies one.
+Answer-integrity gate: the private canonical answer must be forced by the
+scenario. If any gate fails, rebuild before emitting.
 
 End with "### Reconstruct the system" and exactly three numbered questions:
   1. What is the person or system trying to accomplish?

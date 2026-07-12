@@ -14,6 +14,7 @@ Rules:
 - Current baseline should reflect what the learner revealed in any concrete task or walkthrough, not just self-description.
 - Identity friction should name the actual reasoning pattern, shortcut, or misconception that causes collapse.
 - Behavior signals should capture how they approach problems, not only what they say they want.
+- Scenario inspirations must preserve the learner's named companies, products, projects, creators, or systems and the specific quality they care about. Write each as a self-contained memory; never reduce it to a broad field label.
 - Confidence flags should appear only when evidence is truly weak.
 - Do not romanticize the learner.`;
 
@@ -39,6 +40,7 @@ Required fields:
 - proofOfProgress
 - identityFriction
 - behaviorSignals
+- scenarioInspirations
 - confidenceFlags
 
 Transcript:
