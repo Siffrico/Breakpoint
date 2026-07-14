@@ -927,16 +927,21 @@ export function WorkspaceShell({
                 <main
                   className={[
                     "flex min-w-0 flex-1 flex-col",
+                    // Unit mode scrolls inside the workspace's receipt trail,
+                    // not at the main level — the scenario anchor and composer
+                    // stay viewport-fixed.
                     mode === "onboarding"
                       ? "min-h-0 overflow-hidden"
-                      : "overflow-y-auto px-6 pt-1 pb-2 sm:px-10 sm:pt-2",
+                      : mode === "unit"
+                        ? "min-h-0 overflow-hidden px-6 sm:px-10"
+                        : "overflow-y-auto px-6 pt-1 pb-2 sm:px-10 sm:pt-2",
                   ].join(" ")}
                 >
                   <div
                     className={
-                      mode === "onboarding"
+                      mode === "onboarding" || mode === "unit"
                         ? "flex min-h-0 w-full flex-1 flex-col"
-                        : mode === "unit" || mode === "history"
+                        : mode === "history"
                           ? "flex min-h-full flex-col"
                           : "bp-prose flex min-h-full flex-col"
                     }

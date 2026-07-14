@@ -4,7 +4,8 @@ import type { MouseEvent } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "@phosphor-icons/react";
 
-import { AssistantRichText } from "./assistant-rich-text";
+import { toCompletedExchanges } from "./education-unit/exchange-grouping";
+import { ExchangeReceipt } from "./education-unit/exchange-receipt";
 
 interface ChatHistoryMessage {
   id: string;
@@ -15,8 +16,9 @@ interface ChatHistoryMessage {
 
 /**
  * Read-only transcript of a past chat (one unit's slice of the workspace
- * conversation). Rendering-only: no composer, no turn state — the live
- * conversation stays on the plain workspace URL.
+ * conversation), rendered as the same collapsed exchange receipts the live
+ * workspace uses — every exchange starts collapsed and expands in place.
+ * Rendering-only: no composer, no turn state.
  */
 export function ChatHistoryView({
   messages,
@@ -27,9 +29,17 @@ export function ChatHistoryView({
   currentChatHref: string;
   onBackToCurrentChat?: (event: MouseEvent<HTMLAnchorElement>) => void;
 }) {
+  const exchanges = toCompletedExchanges(
+    messages.map((message) => ({
+      id: message.id,
+      role: message.role,
+      text: message.content,
+    })),
+  );
+
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col pb-10">
-      <div className="border-foreground/[0.08] bg-foreground/[0.025] mt-4 mb-6 flex items-center justify-between gap-3 rounded-[8px] border px-4 py-2.5">
+      <div className="border-foreground/[0.08] bg-foreground/[0.025] mt-4 mb-6 flex items-center justify-between gap-3 rounded-md border px-4 py-2.5">
         <p className="text-foreground/56 min-w-0 truncate text-[12px]">
           You are viewing an earlier chat. It is read-only.
         </p>
@@ -43,28 +53,24 @@ export function ChatHistoryView({
         </Link>
       </div>
 
-      {messages.length === 0 ? (
+      {exchanges.length === 0 ? (
         <div className="text-foreground/48 py-16 text-center text-[13px]">
           No messages were recorded for this chat.
         </div>
       ) : (
-        <div className="flex flex-col gap-5">
-          {messages.map((message) =>
-            message.role === "user" ? (
-              <div key={message.id} className="flex justify-end">
-                <div className="bg-foreground/[0.05] text-foreground/88 max-w-[85%] rounded-[10px] px-4 py-2.5 text-[14px] leading-6 whitespace-pre-wrap">
-                  {message.content}
-                </div>
-              </div>
-            ) : (
-              <div
-                key={message.id}
-                className="bp-prose text-foreground/84 max-w-none text-[14px] leading-7"
-              >
-                <AssistantRichText content={message.content} />
-              </div>
-            ),
-          )}
+        <div className="flex flex-col gap-1.5 font-sans">
+          {exchanges.map((exchange, index) => (
+            <ExchangeReceipt
+              key={
+                exchange.prompt?.id ??
+                exchange.answer?.id ??
+                `exchange-${index}`
+              }
+              exchange={exchange}
+              fallbackTitle={`Exchange ${index + 1}`}
+              readOnly
+            />
+          ))}
         </div>
       )}
     </div>

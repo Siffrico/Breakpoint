@@ -27,7 +27,12 @@ import {
   useAutosavedResponseDraft,
 } from "~/features/training/hooks/use-autosaved-response-draft";
 import { useTRPC } from "~/trpc/react";
+import type { ExchangeMessage } from "./exchange-grouping";
+import { groupLiveExchanges } from "./exchange-grouping";
+import { ExchangeReceipt } from "./exchange-receipt";
 import { NotionComposer } from "./notion-composer";
+import { countWords } from "./receipt-summary";
+import { ScenarioAnchor } from "./scenario-anchor";
 import {
   ASK_COACH_SOURCE_ATTRIBUTE,
   SelectionAskCoach,
@@ -78,13 +83,13 @@ const CHAT_COLUMN_CLASS =
   "mx-auto w-[calc(100%-2rem)] max-w-[48.9rem] sm:w-[calc(100%-3rem)]";
 const PREVIEW_RESPONSE_DELAY_MS = 450;
 
-const isViewportNearBottom = () => {
-  if (typeof window === "undefined") return true;
+const isScrolledNearBottom = (element: HTMLElement | null) => {
+  if (!element) return true;
 
-  const scrollableHeight = document.documentElement.scrollHeight;
-  const viewportBottom = window.scrollY + window.innerHeight;
-
-  return scrollableHeight - viewportBottom < AUTO_SCROLL_BOTTOM_THRESHOLD;
+  return (
+    element.scrollHeight - element.scrollTop - element.clientHeight <
+    AUTO_SCROLL_BOTTOM_THRESHOLD
+  );
 };
 
 const makePreviewWorkspaceMessage = (
@@ -177,9 +182,6 @@ function PromptTurn({
   );
 }
 
-const countWords = (text: string) =>
-  text.trim().split(/\s+/).filter(Boolean).length;
-
 function SubmittedAnswerReceipt({
   text,
   pending = false,
@@ -213,9 +215,8 @@ function SubmittedAnswerReceipt({
   return (
     <section className="py-3 font-sans">
       <div className={CHAT_COLUMN_CLASS}>
-        {/* Mirrors the user bubble: column-relative width, right-anchored,
-            radius matched to the composer (6px). */}
-        <div className="border-foreground/[0.14] bg-foreground/[0.055] ml-auto w-fit max-w-[min(82%,64ch)] rounded-[6px] border">
+        {/* Mirrors the user bubble: column-relative width, right-anchored. */}
+        <div className="border-foreground/[0.14] bg-foreground/[0.055] ml-auto w-fit max-w-[min(82%,64ch)] rounded-md border">
           <button
             type="button"
             onClick={() => setIsOpen((current) => !current)}
@@ -444,6 +445,7 @@ function EducationUnitWorkspaceComponent({
   });
   const [isExpanded, setIsExpanded] = useState(false);
   const [previewIsRunning, setPreviewIsRunning] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
   const previewTimeoutRef = useRef<number | null>(null);
@@ -563,17 +565,23 @@ function EducationUnitWorkspaceComponent({
     trpc.training.aiWorkspace,
   ]);
 
+  // Auto-follow tracks the internal trail scroller, not the window: the
+  // scenario anchor and composer are fixed, so the trail is the only thing
+  // that moves.
   useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
     const updateAutoFollow = () => {
-      shouldAutoFollowRef.current = isViewportNearBottom();
+      shouldAutoFollowRef.current = isScrolledNearBottom(container);
     };
 
     updateAutoFollow();
-    window.addEventListener("scroll", updateAutoFollow, { passive: true });
+    container.addEventListener("scroll", updateAutoFollow, { passive: true });
     window.addEventListener("resize", updateAutoFollow);
 
     return () => {
-      window.removeEventListener("scroll", updateAutoFollow);
+      container.removeEventListener("scroll", updateAutoFollow);
       window.removeEventListener("resize", updateAutoFollow);
     };
   }, []);
@@ -591,7 +599,9 @@ function EducationUnitWorkspaceComponent({
     if (!shouldAutoFollowRef.current) return;
 
     const frameId = window.requestAnimationFrame(() => {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+      const container = scrollContainerRef.current;
+      if (!container) return;
+      container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
     });
 
     return () => window.cancelAnimationFrame(frameId);
@@ -789,90 +799,139 @@ function EducationUnitWorkspaceComponent({
   };
 
   const visibleMessages = chatMessages.filter(
-    (message) => !(message.role === "user" && message.metadata?.synthetic),
+    (message) =>
+      (message.role === "assistant" || message.role === "user") &&
+      !(message.role === "user" && message.metadata?.synthetic),
   );
-  const latestVisibleUserMessageId = [...visibleMessages]
-    .reverse()
-    .find((message) => message.role === "user")?.id;
-  const latestAssistantMessageId = [...chatMessages]
-    .reverse()
-    .find((message) => message.role === "assistant")?.id;
-  const renderedMessages = workspaceUnavailable
-    ? [
-        <PromptTurn
-          key="workspace-unavailable"
-          helper="Workspace unavailable"
-          prompt="The AI workspace could not be loaded, so replying here could advance the wrong stage. Refresh the workspace before continuing."
-        />,
-      ]
-    : missingTranscriptForResumedUnit
-      ? [
-          <PromptTurn
-            key="missing-transcript"
-            helper="Resume unavailable"
-            prompt={`This unit already has saved progress, but the AI workspace transcript for this stage is missing. Replying here could rewind the lesson. Refresh the workspace before continuing.\n\nCurrent checkpoint: ${fallbackTurn.prompt}`}
-          />,
-        ]
-      : visibleMessages.length === 0
-        ? [
-            <PromptTurn
-              key="initial-prompt"
-              prompt={introMessage?.prompt ?? fallbackTurn.prompt}
-              helper={introMessage?.helper ?? fallbackTurn.helper}
-            />,
-          ]
-        : visibleMessages.map((message) => {
-            const content = getChatMessageText(message);
-            if (message.role === "assistant") {
-              const isLiveAssistant =
-                effectiveIsRunning && message.id === latestAssistantMessageId;
-              const liveStatus = isLiveAssistant
-                ? getWorkspaceStatus(message)
-                : null;
-              return (
-                <PromptTurn
-                  key={message.id}
-                  prompt={content}
-                  helper={null}
-                  difficultyDirectiveReason={
-                    message.metadata?.difficultyDirectiveReason ?? null
-                  }
-                  statusLabel={
-                    liveStatus && liveStatus.status !== "complete"
-                      ? liveStatus.label
-                      : null
-                  }
-                />
-              );
-            }
+  const exchangeMessages: ExchangeMessage[] = visibleMessages.map(
+    (message) => ({
+      id: message.id,
+      role: message.role as "assistant" | "user",
+      text: getChatMessageText(message),
+      failed: message.metadata?.failed === true,
+    }),
+  );
+  const grouped = groupLiveExchanges(exchangeMessages);
+  const activePrompt = grouped.activePrompt;
+  const pendingAnswer = grouped.pendingAnswer;
+  const activePromptMessage = activePrompt
+    ? (chatMessages.find((message) => message.id === activePrompt.id) ?? null)
+    : null;
+  const activeLiveStatus =
+    effectiveIsRunning && activePromptMessage
+      ? getWorkspaceStatus(activePromptMessage)
+      : null;
 
-            return (
-              <SubmittedAnswerReceipt
-                key={message.id}
-                text={content}
-                pending={
-                  effectiveIsRunning &&
-                  message.id === latestVisibleUserMessageId
-                }
-                failed={message.metadata?.failed === true}
-                canRevise={canCompose && !effectiveIsRunning}
-                onRevise={() => startAnswerRevision(content)}
-                onRetry={
-                  message.metadata?.failed && message.metadata.turnId
-                    ? () => void handleSubmit(content, message.metadata?.turnId)
-                    : undefined
-                }
-                onAskCoach={
-                  onAskCoachAboutAnswer
-                    ? () => onAskCoachAboutAnswer(content)
-                    : undefined
-                }
-              />
-            );
-          });
+  const anchorTitle =
+    streamState?.recallUnitTitle ?? streamState?.activeUnitTitle ?? unit.title;
+  const anchorStage = streamState?.recallUnitId
+    ? "recall"
+    : (streamState?.educationStage ?? null);
+  const anchorProgress = aiWorkspace?.evaluationProgress
+    ? {
+        completed: aiWorkspace.evaluationProgress.completedAttempts,
+        total: aiWorkspace.evaluationProgress.scenarioCount,
+      }
+    : null;
+  const anchorDetail = introMessage?.prompt ?? fallbackTurn.prompt;
+
+  const trailContent = workspaceUnavailable ? (
+    <PromptTurn
+      helper="Workspace unavailable"
+      prompt="The AI workspace could not be loaded, so replying here could advance the wrong stage. Refresh the workspace before continuing."
+    />
+  ) : missingTranscriptForResumedUnit ? (
+    <PromptTurn
+      helper="Resume unavailable"
+      prompt={`This unit already has saved progress, but the AI workspace transcript for this stage is missing. Replying here could rewind the lesson. Refresh the workspace before continuing.\n\nCurrent checkpoint: ${fallbackTurn.prompt}`}
+    />
+  ) : (
+    <>
+      {grouped.history.length > 0 ? (
+        <div
+          className={`${CHAT_COLUMN_CLASS} flex flex-col gap-1.5 pt-1 pb-3 font-sans`}
+        >
+          {grouped.history.map((exchange, index) => (
+            <ExchangeReceipt
+              key={
+                exchange.prompt?.id ??
+                exchange.answer?.id ??
+                `exchange-${index}`
+              }
+              exchange={exchange}
+              fallbackTitle={`Exchange ${index + 1}`}
+              canRevise={canCompose && !effectiveIsRunning}
+              onRevise={startAnswerRevision}
+              onAskCoach={onAskCoachAboutAnswer}
+            />
+          ))}
+        </div>
+      ) : null}
+
+      {activePrompt ? (
+        <PromptTurn
+          prompt={activePrompt.text}
+          helper={null}
+          difficultyDirectiveReason={
+            activePromptMessage?.metadata?.difficultyDirectiveReason ?? null
+          }
+          statusLabel={
+            activeLiveStatus && activeLiveStatus.status !== "complete"
+              ? activeLiveStatus.label
+              : null
+          }
+        />
+      ) : (
+        <PromptTurn
+          prompt={introMessage?.prompt ?? fallbackTurn.prompt}
+          helper={introMessage?.helper ?? fallbackTurn.helper}
+        />
+      )}
+
+      {pendingAnswer ? (
+        <SubmittedAnswerReceipt
+          text={pendingAnswer.text}
+          pending={effectiveIsRunning}
+          canRevise={canCompose && !effectiveIsRunning}
+          onRevise={() => startAnswerRevision(pendingAnswer.text)}
+          onAskCoach={
+            onAskCoachAboutAnswer
+              ? () => onAskCoachAboutAnswer(pendingAnswer.text)
+              : undefined
+          }
+        />
+      ) : null}
+
+      {grouped.failedAnswers.map((answer) => {
+        const failedMessage = chatMessages.find(
+          (message) => message.id === answer.id,
+        );
+        const failedTurnId = failedMessage?.metadata?.turnId;
+        return (
+          <SubmittedAnswerReceipt
+            key={answer.id}
+            text={answer.text}
+            failed
+            canRevise={canCompose && !effectiveIsRunning}
+            onRevise={() => startAnswerRevision(answer.text)}
+            onRetry={
+              failedTurnId
+                ? () => void handleSubmit(answer.text, failedTurnId)
+                : undefined
+            }
+            onAskCoach={
+              onAskCoachAboutAnswer
+                ? () => onAskCoachAboutAnswer(answer.text)
+                : undefined
+            }
+          />
+        );
+      })}
+    </>
+  );
 
   const inputZone = (
-    <div className={embedded ? "bg-background shrink-0" : "mt-10"}>
+    <div className="bg-background shrink-0">
       {missionEligibility.data?.eligible &&
       missionEligibility.data.unitRunId ? (
         <Link
@@ -934,15 +993,30 @@ function EducationUnitWorkspaceComponent({
     <SelectionAskCoach onAsk={onAskCoachAboutSelection} />
   ) : null;
 
+  // Viewport-fixed three-region column: scenario anchor on top, the receipt
+  // trail + active exchange scrolling in the middle, composer pinned below.
+  // The page itself never scrolls — the trail region does.
   if (embedded) {
     return (
       <>
-        <div className="flex min-h-full flex-1 flex-col">
-          <div className="flex-1 pt-8 pb-10">
-            {renderedMessages}
-            <div ref={bottomRef} />
+        <div className="flex min-h-0 flex-1 flex-col">
+          <ScenarioAnchor
+            title={anchorTitle}
+            stage={anchorStage}
+            progress={anchorProgress}
+            detail={anchorDetail}
+            columnClassName={CHAT_COLUMN_CLASS}
+          />
+          <div
+            ref={scrollContainerRef}
+            className="min-h-0 flex-1 overflow-y-auto"
+          >
+            <div className="pt-5 pb-8">
+              {trailContent}
+              <div ref={bottomRef} />
+            </div>
           </div>
-          <ChatComposerDock className="mt-auto pt-4 pb-1">
+          <ChatComposerDock className="shrink-0 pt-3 pb-1">
             {inputZone}
           </ChatComposerDock>
         </div>
@@ -954,13 +1028,26 @@ function EducationUnitWorkspaceComponent({
 
   return (
     <>
-      <main className="bp-page-bg text-foreground min-h-screen px-5 py-8 sm:px-8 lg:px-10">
-        <div className="flex w-full flex-col pb-32">
-          {renderedMessages}
-          <div className="bg-background/95 fixed inset-x-0 bottom-0 z-20 backdrop-blur-sm">
-            <div className="mx-auto w-[calc(100%-2rem)] max-w-[48.9rem] py-4 sm:w-[calc(100%-3rem)]">
-              {inputZone}
-            </div>
+      <main className="bp-page-bg text-foreground flex h-dvh flex-col px-5 pt-3 sm:px-8 lg:px-10">
+        <ScenarioAnchor
+          title={anchorTitle}
+          stage={anchorStage}
+          progress={anchorProgress}
+          detail={anchorDetail}
+          columnClassName={CHAT_COLUMN_CLASS}
+        />
+        <div
+          ref={scrollContainerRef}
+          className="min-h-0 flex-1 overflow-y-auto"
+        >
+          <div className="pt-5 pb-8">
+            {trailContent}
+            <div ref={bottomRef} />
+          </div>
+        </div>
+        <div className="bg-background/95 shrink-0 backdrop-blur-sm">
+          <div className="mx-auto w-[calc(100%-2rem)] max-w-[48.9rem] py-4 sm:w-[calc(100%-3rem)]">
+            {inputZone}
           </div>
         </div>
       </main>
