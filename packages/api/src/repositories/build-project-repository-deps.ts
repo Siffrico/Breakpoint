@@ -16,6 +16,7 @@ import { runPrepareUnit } from "../domain/training/unit-preparation/prepare-unit
 import { buildProjectCheckpointRepository } from "./build-project-checkpoint-repository";
 import { buildProjectCurriculumRepository } from "./build-project-curriculum-repository";
 import { buildProjectProfileRepository } from "./build-project-profile-repository";
+import { knowledgeTopicRepository } from "./knowledge-topic-repository";
 import { memoryRepository } from "./memory-repository";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
 import { trainingOnboardingRepository } from "./training-onboarding-repository";
@@ -112,14 +113,56 @@ export const recoverSkillUnits = async ({
     );
   });
 
-  const recoverSkill = async (clusterNodeId: string, kind: string) => {
+  // Recovery generates syllabi for skills whose build prewarm never ran, so it
+  // must supply the same ability knowledge model the prewarm would have —
+  // otherwise the healed syllabus is written topic-less and, because syllabi
+  // are ensure-once, stays that way for the plan's lifetime.
+  const abilityTopicPromises = new Map<
+    string,
+    Promise<{ id: string; slug: string; title: string; gloss: string; coreIdea: string }[]>
+  >();
+  const topicsForSkill = (node: { parentNodeId: string | null }) => {
+    const ability = node.parentNodeId
+      ? rawNodes.find(
+          (candidate) =>
+            candidate.id === node.parentNodeId && candidate.kind === "ability",
+        )
+      : undefined;
+    if (!ability) return Promise.resolve(undefined);
+    let topics = abilityTopicPromises.get(ability.id);
+    if (!topics) {
+      topics = knowledgeTopicRepository
+        .ensureAbilityKnowledgeModel({
+          db,
+          abilityNodeId: ability.id,
+          targetIdentity: plan.targetIdentity,
+        })
+        .catch((error) => {
+          console.error("Knowledge model recovery failed; continuing topic-less", {
+            abilityNodeId: ability.id,
+            error: error instanceof Error ? error.message : "Unknown error",
+          });
+          return [];
+        });
+      abilityTopicPromises.set(ability.id, topics);
+    }
+    return topics;
+  };
+
+  const recoverSkill = async (node: {
+    id: string;
+    kind: string;
+    parentNodeId: string | null;
+  }) => {
+    const clusterNodeId = node.id;
     // Abilities own no syllabus — their skillset units aggregate the child
     // skills' concept maps at unit-creation time.
-    if (kind !== "ability") {
+    if (node.kind !== "ability") {
       const syllabus = await ensureSkillSyllabus({
         db,
         clusterNodeId,
         targetIdentity: plan.targetIdentity,
+        topics: await topicsForSkill(node),
       });
       if (!syllabus) return;
     }
@@ -139,7 +182,7 @@ export const recoverSkillUnits = async ({
   const [firstSkill, ...remainingSkills] = skills;
   if (!firstSkill) return;
   try {
-    await recoverSkill(firstSkill.id, firstSkill.kind);
+    await recoverSkill(firstSkill);
   } catch (error) {
     console.error("Skill unit recovery failed", {
       clusterNodeId: firstSkill.id,
@@ -149,7 +192,7 @@ export const recoverSkillUnits = async ({
   if (remainingSkills.length === 0) return;
   const recoverRemaining = async () => {
     await Promise.allSettled(
-      remainingSkills.map((skill) => recoverSkill(skill.id, skill.kind)),
+      remainingSkills.map((skill) => recoverSkill(skill)),
     );
   };
   if (scheduleBackgroundTask) {
@@ -325,6 +368,8 @@ export const createBuildProjectDeps = (db: Database): BuildProjectDeps => ({
       deps: createUnitPreparationRepositoryDeps(db),
     }),
   ensureSkillSyllabus: (input) => ensureSkillSyllabus({ db, ...input }),
+  ensureAbilityKnowledgeModel: (input) =>
+    knowledgeTopicRepository.ensureAbilityKnowledgeModel({ db, ...input }),
   createSkillUnit: ({ clusterNodeId, sessionId, userId }) =>
     ensureSkillUnit({ db, clusterNodeId, sessionId, userId }),
 });

@@ -60,6 +60,7 @@ export type AiModelPurpose =
   | "onboarding"
   | "curriculum"
   | "syllabus"
+  | "knowledgeModel"
   | "buildContent"
   | "failure"
   | "ghost"
@@ -75,6 +76,7 @@ const PURPOSE_TIER: Record<AiModelPurpose, ModelTier> = {
   onboarding: "critical",
   curriculum: "critical",
   syllabus: "critical",
+  knowledgeModel: "critical",
   buildContent: "critical",
   failure: "critical",
   ghost: "critical",

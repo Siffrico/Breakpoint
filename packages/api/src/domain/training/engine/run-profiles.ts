@@ -28,6 +28,12 @@ export const RUN_PROFILES = {
     maxSteps: 8,
     search: true,
   },
+  knowledgeModel: {
+    reasoningBudgetTokens: 16_384,
+    maxOutputTokens: 8_192,
+    maxSteps: 8,
+    search: true,
+  },
   buildContent: {
     reasoningBudgetTokens: 8_192,
     maxOutputTokens: 8_192,

@@ -1,3 +1,4 @@
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { index, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
 
 import { user } from "../../auth-schema";
@@ -124,6 +125,50 @@ export const TrainingCurriculumNode = pgTable(
   ],
 );
 
+export const TrainingKnowledgeTopic = pgTable(
+  "becoming_knowledge_topic",
+  (t) => ({
+    id: t.uuid().notNull().primaryKey().defaultRandom(),
+    planId: t
+      .uuid()
+      .notNull()
+      .references(() => TrainingCurriculumPlan.id, { onDelete: "cascade" }),
+    abilityNodeId: t
+      .uuid()
+      .notNull()
+      .references(() => TrainingCurriculumNode.id, { onDelete: "cascade" }),
+    parentTopicId: t.uuid().references((): AnyPgColumn => TrainingKnowledgeTopic.id, {
+      onDelete: "cascade",
+    }),
+    slug: t.varchar({ length: 120 }).notNull(),
+    title: t.varchar({ length: 240 }).notNull(),
+    gloss: t.text().notNull(),
+    coreIdea: t.text().notNull(),
+    misconception: t.text().notNull(),
+    orderIndex: t.integer().notNull(),
+    strength: t.integer().notNull().default(0),
+    lastReinforcedAt: t.timestamp({ mode: "date", withTimezone: true }),
+    checkedAt: t.timestamp({ mode: "date", withTimezone: true }),
+    evidenceNodeId: t
+      .uuid()
+      .references(() => TrainingCurriculumNode.id, { onDelete: "set null" }),
+    createdAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  }),
+  (table) => [
+    uniqueIndex("becoming_knowledge_topic_ability_slug_idx").on(
+      table.abilityNodeId,
+      table.slug,
+    ),
+    index("becoming_knowledge_topic_parent_order_idx").on(
+      table.parentTopicId,
+      table.orderIndex,
+    ),
+  ],
+);
+
 export const TrainingSyllabusEntry = pgTable(
   "becoming_training_syllabus_entry",
   (t) => ({
@@ -135,6 +180,9 @@ export const TrainingSyllabusEntry = pgTable(
       .uuid()
       .notNull()
       .references(() => TrainingCurriculumNode.id, { onDelete: "cascade" }),
+    topicId: t.uuid().references(() => TrainingKnowledgeTopic.id, {
+      onDelete: "set null",
+    }),
     orderIndex: t.integer().notNull(),
     label: t.text().notNull(),
     kind: t.varchar({ length: 32 }).notNull(),

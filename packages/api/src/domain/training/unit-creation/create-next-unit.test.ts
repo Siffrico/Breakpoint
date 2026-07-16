@@ -27,6 +27,52 @@ describe("sliceSyllabusFrontier", () => {
   });
 });
 
+describe("topic-first target selection", () => {
+  it("uses every unchecked concept from the earliest topic before later topics", async () => {
+    const appendUnit = vi.fn((_input: { targetEntryIds: string[] }) =>
+      Effect.succeed({ node: { id: "unit" }, created: false }),
+    );
+    await Effect.runPromise(createNextUnit({
+      clusterNodeId: "skill",
+      complexityBudget: 2,
+      deps: {
+        loadSkill: () => Effect.succeed({ ...openSkill, openUnit: null, entries: [
+          { ...entry("later"), topicId: "topic-2", topicOrderIndex: 2 },
+          { ...entry("first-a"), topicId: "topic-1", topicOrderIndex: 1 },
+          { ...entry("first-b"), topicId: "topic-1", topicOrderIndex: 1 },
+        ] }),
+        resolveDirective: () => Effect.succeed({ directive: { targetItemRating: 1200 } as never, promptBlock: "" }),
+        appendUnit,
+        hasUnitContent: () => Effect.succeed(true),
+        prepareUnitEffect: () => Effect.void,
+      },
+    }));
+    expect(appendUnit.mock.calls[0]?.[0]?.targetEntryIds).toEqual(["first-a", "first-b"]);
+  });
+
+  it("keeps topic-less entries in syllabus position instead of starving them", async () => {
+    const appendUnit = vi.fn((_input: { targetEntryIds: string[] }) =>
+      Effect.succeed({ node: { id: "unit" }, created: false }),
+    );
+    await Effect.runPromise(createNextUnit({
+      clusterNodeId: "skill",
+      complexityBudget: 2,
+      deps: {
+        loadSkill: () => Effect.succeed({ ...openSkill, openUnit: null, entries: [
+          { ...entry("orphan"), topicId: null, topicOrderIndex: null },
+          { ...entry("topic-a"), topicId: "topic-1", topicOrderIndex: 1 },
+          { ...entry("topic-b"), topicId: "topic-1", topicOrderIndex: 1 },
+        ] }),
+        resolveDirective: () => Effect.succeed({ directive: { targetItemRating: 1200 } as never, promptBlock: "" }),
+        appendUnit,
+        hasUnitContent: () => Effect.succeed(true),
+        prepareUnitEffect: () => Effect.void,
+      },
+    }));
+    expect(appendUnit.mock.calls[0]?.[0]?.targetEntryIds).toEqual(["orphan", "topic-a"]);
+  });
+});
+
 describe("buildDynamicUnitDifficultyBands", () => {
   it("centers the unit ladder on the Goldilocks directive", () => {
     expect(buildDynamicUnitDifficultyBands({ targetItemRating: 1200 })[1]).toEqual({

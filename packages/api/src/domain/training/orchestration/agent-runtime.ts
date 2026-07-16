@@ -13,6 +13,7 @@ const PURPOSE_BY_AGENT = {
   onboarding: "onboarding",
   curriculumDesigner: "curriculum",
   syllabusDesigner: "syllabus",
+  knowledgeModelDesigner: "knowledgeModel",
   buildContent: "buildContent",
   failureIsolation: "failure",
   ghostReplay: "ghost",

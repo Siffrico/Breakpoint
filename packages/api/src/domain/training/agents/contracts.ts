@@ -4,6 +4,7 @@ import type { OnboardingTranscriptMessageSchema } from "@acme/validators";
 import {
   BeforeAfterProfileSchema,
   IdentityReportSchema,
+  KnowledgeModelOutputSchema,
   ProjectOverviewSchema,
 } from "@acme/validators";
 
@@ -104,6 +105,7 @@ export const SyllabusOutputSchema = z.object({
         gloss: z.string().min(1),
         /** The causal claim: what, under which conditions, causes what. */
         mechanism: z.string().min(1),
+        topicSlug: z.string().min(1).max(120).nullable().optional(),
       }),
     )
     .min(6)
@@ -126,6 +128,8 @@ export type CurriculumDesignerOutput = z.infer<
 >;
 export type ProjectOverviewOutput = z.infer<typeof ProjectOverviewOutputSchema>;
 export type SyllabusOutput = z.infer<typeof SyllabusOutputSchema>;
+export type KnowledgeModelOutput = z.infer<typeof KnowledgeModelOutputSchema>;
+export { KnowledgeModelOutputSchema };
 export type OnboardingTranscript = z.infer<
   typeof OnboardingTranscriptMessageSchema
 >[];

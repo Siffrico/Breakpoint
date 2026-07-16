@@ -8,6 +8,7 @@ export interface SyllabusSkillInput {
   targetIdentity: string;
   workflow: { name: string; steps: string[] };
   masteryContract: { exitCriteria: string[] };
+  topics?: { slug: string; title: string; gloss: string; coreIdea: string }[];
 }
 
 const CONCEPT_MAPPER_SYSTEM = `You map the concepts behind one skill — one recurring workflow moment where expertise changes the outcome.
@@ -17,7 +18,7 @@ Produce 6-24 ordered entries. Every entry MUST be stated as a causal mechanism, 
 Bad: label "idempotency", mechanism "understanding idempotent operations".
 Good: label "retry double-execution", mechanism "retrying a non-idempotent write after a timeout executes the side effect twice, because the first attempt may have succeeded before the timeout fired".
 
-Entry kinds:
+Every entry must carry topicSlug when a knowledge topic applies. Attach it to the topic whose core idea explains the mechanism. A concept fitting no topic is trivia: cut it.\n\nEntry kinds:
 - discrimination: two situations experts tell apart that novices collapse; the mechanism states what differs causally and what goes wrong when collapsed.
 - concept: a causal model the skill's decisions rest on.
 - subskill: a compact recurring move; the mechanism states why the move works.
@@ -42,5 +43,7 @@ Workflow moment: ${skill.workflow.name}
 Workflow steps:
 ${skill.workflow.steps.map((step, index) => `${index + 1}. ${step}`).join("\n")}
 Mastery exit criteria:
-${skill.masteryContract.exitCriteria.map((criterion) => `- ${criterion}`).join("\n")}`,
+${skill.masteryContract.exitCriteria.map((criterion) => `- ${criterion}`).join("\n")}
+Knowledge topics (attach entries to these slugs):
+${skill.topics?.map((topic) => `- ${topic.slug}: ${topic.title} — ${topic.coreIdea}`).join("\n") ?? "No topic model is available; use null topicSlug."}`,
   });

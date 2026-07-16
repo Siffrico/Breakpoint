@@ -305,7 +305,12 @@ export interface BuildProjectDeps {
   ensureSkillSyllabus: (input: {
     clusterNodeId: string;
     targetIdentity: string;
+    topics?: { id: string; slug: string; title: string; gloss: string; coreIdea: string }[];
   }) => Promise<unknown>;
+  ensureAbilityKnowledgeModel: (input: {
+    abilityNodeId: string;
+    targetIdentity: string;
+  }) => Promise<{ id: string; slug: string; title: string; gloss: string; coreIdea: string }[]>;
   createSkillUnit: (input: {
     clusterNodeId: string;
     sessionId: string;
@@ -1000,12 +1005,27 @@ export const buildProjectFromOnboarding = async ({
   }
 
   const skills = plan.nodes.filter(isPrewarmSkillNode);
+  const abilityTopics = new Map<string, Promise<{ id: string; slug: string; title: string; gloss: string; coreIdea: string }[]>>();
+  for (const ability of plan.nodes.filter((node) => node.kind === "ability")) {
+    abilityTopics.set(
+      ability.id,
+      deps.ensureAbilityKnowledgeModel({ abilityNodeId: ability.id, targetIdentity: plan.targetIdentity }).catch((error) => {
+        console.error("Knowledge model prewarm failed; continuing topic-less", {
+          abilityNodeId: ability.id,
+          error: error instanceof Error ? error.message : "Unknown error",
+        });
+        return [];
+      }),
+    );
+  }
   for (const skill of skills) {
     const prepareSkill = async () => {
       try {
+        const topics = skill.parentNodeId ? await abilityTopics.get(skill.parentNodeId) : undefined;
         await deps.ensureSkillSyllabus({
           clusterNodeId: skill.id,
           targetIdentity: plan.targetIdentity,
+          topics,
         });
         // Units are only created for unlocked skills — v2 gates foundations
         // skill-by-skill, so locked skills get their unit at unlock time

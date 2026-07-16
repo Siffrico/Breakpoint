@@ -10,6 +10,8 @@ export interface FrontierEntry {
   gloss: string;
   kind: "discrimination" | "concept" | "subskill" | "vocabulary";
   status: string;
+  topicId?: string | null;
+  topicOrderIndex?: number | null;
 }
 
 export const sliceSyllabusFrontier = (
@@ -24,7 +26,25 @@ const selectCreationTargets = (
   entries: readonly FrontierEntry[],
   complexityBudget: 1 | 2 | 3,
 ) => {
-  const frontier = sliceSyllabusFrontier(entries, complexityBudget);
+  const unchecked = entries.filter((entry) => entry.status === "unchecked");
+  const firstTopicId = [...unchecked]
+    .filter((entry) => entry.topicId)
+    .sort((left, right) => (left.topicOrderIndex ?? Number.MAX_SAFE_INTEGER) - (right.topicOrderIndex ?? Number.MAX_SAFE_INTEGER))[0]?.topicId;
+  const topicEntries = firstTopicId
+    ? unchecked.filter((entry) => entry.topicId === firstTopicId)
+    : [];
+  // Topic-less entries (a topicSlug the resolver couldn't match) keep their
+  // syllabus dependency position instead of starving behind every topic: any
+  // that precede the selected topic's first entry ride in ahead of it.
+  const firstTopicPosition = topicEntries[0]
+    ? unchecked.indexOf(topicEntries[0])
+    : unchecked.length;
+  const orphansBefore = unchecked.filter(
+    (entry, position) => !entry.topicId && position < firstTopicPosition,
+  );
+  const frontier = firstTopicId
+    ? [...orphansBefore, ...topicEntries].slice(0, complexityBudget)
+    : sliceSyllabusFrontier(entries, complexityBudget);
   if (frontier.length > 0) return frontier;
   return entries
     .filter((entry) => entry.status === "checked")

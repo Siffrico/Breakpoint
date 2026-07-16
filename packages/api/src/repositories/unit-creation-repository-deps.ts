@@ -1,8 +1,8 @@
 import { Effect } from "effect";
 
 import type { db as databaseClient } from "@acme/db/client";
-import { and, desc, eq, ne } from "@acme/db";
-import { TrainingCurriculumNode, TrainingCurriculumPlan } from "@acme/db/schema";
+import { and, asc, desc, eq, ne } from "@acme/db";
+import { TrainingCurriculumNode, TrainingCurriculumPlan, TrainingKnowledgeTopic } from "@acme/db/schema";
 
 import type { CreateNextUnitDependencies } from "../domain/training/unit-creation/create-next-unit";
 import type {
@@ -40,10 +40,12 @@ export const ensureSkillSyllabus = async ({
   db,
   clusterNodeId,
   targetIdentity,
+  topics,
 }: {
   db: Database;
   clusterNodeId: string;
   targetIdentity: string;
+  topics?: { id: string; slug: string; title: string; gloss: string; coreIdea: string }[];
 }) => {
   const cluster = await trainingCurriculumRepository.getNodeById({
     db,
@@ -61,11 +63,13 @@ export const ensureSkillSyllabus = async ({
     targetIdentity,
     workflow: cluster.skillMap.workflow,
     masteryContract: cluster.skillMap.masteryContract,
+    topics,
   });
   return trainingSyllabusRepository.ensureSyllabus({
     db,
     clusterNodeId,
     entries: syllabus.entries,
+    topicIdsBySlug: new Map(topics?.map((topic) => [topic.slug, topic.id]) ?? []),
   });
 };
 
@@ -103,6 +107,7 @@ export const createUnitCreationRepositoryDeps = ({
         gloss: string;
         kind: string;
         status: string;
+        topicId?: string | null;
       }) => ({
         id: entry.id,
         label: entry.label,
@@ -113,6 +118,7 @@ export const createUnitCreationRepositoryDeps = ({
           | "subskill"
           | "vocabulary",
         status: entry.status,
+        topicId: entry.topicId ?? null,
       });
 
       const openUnit = await db.query.TrainingCurriculumNode.findFirst({
@@ -172,10 +178,17 @@ export const createUnitCreationRepositoryDeps = ({
               targetIdentity: plan.targetIdentity,
             })) ?? [];
         }
+        const topics = node.parentNodeId
+          ? await db.query.TrainingKnowledgeTopic.findMany({
+              where: eq(TrainingKnowledgeTopic.abilityNodeId, node.parentNodeId),
+              orderBy: [asc(TrainingKnowledgeTopic.orderIndex)],
+            })
+          : [];
+        const topicOrderById = new Map(topics.map((topic) => [topic.id, topic.orderIndex]));
         return {
           title: node.title,
           whyItMatters: node.whyItMatters,
-          entries: entries.map(mapEntry),
+          entries: entries.map((entry) => ({ ...mapEntry(entry), topicOrderIndex: entry.topicId ? (topicOrderById.get(entry.topicId) ?? null) : null })),
           openUnit: openUnit ?? null,
         };
       }

@@ -39,13 +39,31 @@ export const trainingSyllabusRepository = {
     db,
     clusterNodeId,
     entries,
+    topicIdsBySlug,
   }: {
     db: Database;
     clusterNodeId: string;
     entries: SyllabusOutput["entries"];
+    topicIdsBySlug?: ReadonlyMap<string, string>;
   }) =>
     db.transaction(async (tx) => {
       const transactionDb = tx as unknown as Database;
+      const unresolvedSlugs = [
+        ...new Set(
+          entries
+            .map((entry) => entry.topicSlug)
+            .filter(
+              (slug): slug is string =>
+                typeof slug === "string" && !topicIdsBySlug?.has(slug),
+            ),
+        ),
+      ];
+      if (unresolvedSlugs.length > 0) {
+        console.warn("Syllabus entries reference unknown knowledge topics", {
+          clusterNodeId,
+          unresolvedSlugs,
+        });
+      }
       const existing = await listEntries({ db: transactionDb, clusterNodeId });
       if (existing.length > 0) return existing;
 
@@ -59,6 +77,9 @@ export const trainingSyllabusRepository = {
             kind: entry.kind,
             gloss: entry.gloss,
             mechanism: entry.mechanism,
+            topicId: entry.topicSlug
+              ? (topicIdsBySlug?.get(entry.topicSlug) ?? null)
+              : null,
           })),
         )
         .onConflictDoNothing({

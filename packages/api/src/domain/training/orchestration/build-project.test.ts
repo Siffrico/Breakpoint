@@ -286,6 +286,9 @@ const makeDeps = (
     ensureSkillSyllabus: vi.fn<BuildProjectDeps["ensureSkillSyllabus"]>(() =>
       Promise.resolve(),
     ),
+    ensureAbilityKnowledgeModel: vi.fn<
+      BuildProjectDeps["ensureAbilityKnowledgeModel"]
+    >(() => Promise.resolve([])),
     createSkillUnit: vi.fn<BuildProjectDeps["createSkillUnit"]>(() =>
       Promise.resolve(),
     ),
