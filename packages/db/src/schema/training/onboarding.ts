@@ -65,6 +65,9 @@ export const TrainingOnboardingMessage = pgTable(
       table.sessionId,
       table.sequence,
     ),
+    index("becoming_onboarding_message_session_unit_sequence_idx")
+      .on(table.sessionId, table.unitId, table.sequence)
+      .where(sql`${table.unitId} is not null`),
     uniqueIndex("becoming_onboarding_message_session_turn_role_idx")
       .on(table.sessionId, table.turnId, table.role)
       .where(sql`${table.turnId} is not null`),
