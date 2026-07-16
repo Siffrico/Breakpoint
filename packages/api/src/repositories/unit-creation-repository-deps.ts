@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 
 import type { db as databaseClient } from "@acme/db/client";
-import { and, asc, desc, eq, ne } from "@acme/db";
+import { and, asc, desc, eq } from "@acme/db";
 import { TrainingCurriculumNode, TrainingCurriculumPlan, TrainingKnowledgeTopic } from "@acme/db/schema";
 
 import type { CreateNextUnitDependencies } from "../domain/training/unit-creation/create-next-unit";
@@ -95,7 +95,7 @@ export const createUnitCreationRepositoryDeps = ({
   };
 
   return {
-  loadSkill: (clusterNodeId) =>
+  loadSkill: (clusterNodeId, unitStatus) =>
     queryWithClient(db, "loadSkillForUnitCreation", async () => {
       const node = await db.query.TrainingCurriculumNode.findFirst({
         where: eq(TrainingCurriculumNode.id, clusterNodeId),
@@ -125,7 +125,7 @@ export const createUnitCreationRepositoryDeps = ({
         where: and(
           eq(TrainingCurriculumNode.parentNodeId, clusterNodeId),
           eq(TrainingCurriculumNode.kind, "unit"),
-          ne(TrainingCurriculumNode.status, "completed"),
+          eq(TrainingCurriculumNode.status, unitStatus),
         ),
         orderBy: [desc(TrainingCurriculumNode.orderIndex)],
       });

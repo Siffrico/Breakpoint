@@ -40,7 +40,9 @@ import {
 import { WorkspaceComposerInput } from "./workspace-composer-input";
 
 type EducationUnit = RouterOutputs["training"]["unit"];
-type AiWorkspace = RouterOutputs["training"]["aiWorkspace"];
+type AiWorkspace = RouterOutputs["training"]["aiWorkspace"] & {
+  pendingNextUnit?: boolean;
+};
 interface AiWorkspaceIntroMessage {
   prompt: string;
   helper: string | null;
@@ -425,6 +427,7 @@ function EducationUnitWorkspaceComponent({
   onRunCommand,
   onAskCoachAboutAnswer,
   onAskCoachAboutSelection,
+  onAdvanceUnit,
 }: {
   unit: EducationUnit;
   sessionId: string;
@@ -436,6 +439,7 @@ function EducationUnitWorkspaceComponent({
   onRunCommand?: (intent: UnitCoachCommandIntent) => void;
   onAskCoachAboutAnswer?: (answer: string) => void;
   onAskCoachAboutSelection?: (selection: string) => void;
+  onAdvanceUnit?: () => void;
 }) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -673,6 +677,12 @@ function EducationUnitWorkspaceComponent({
   const awaitingUnitAdvance =
     aiWorkspace?.unitAdvanceGate.status === "enabled" ||
     streamState?.educationStage === "mastered";
+  const awaitingNextUnitContent =
+    aiWorkspace?.pendingNextUnit === true ||
+    (aiWorkspace?.state?.activeUnitId != null &&
+      aiWorkspace.state.activeUnitId !== unit.nodeId &&
+      aiWorkspace.state.recallUnitId == null &&
+      aiWorkspace.messages.length === 0);
   // A live recall reopens a completed unit's chat, so the unit's own stage
   // gating (which reads "complete") must not lock the composer — the next
   // submit runs the recall checkpoint, not the finished unit.
@@ -681,22 +691,26 @@ function EducationUnitWorkspaceComponent({
   const missingTranscriptForResumedUnit =
     !preview &&
     aiWorkspace != null &&
+    !awaitingNextUnitContent &&
     chatMessages.length === 0 &&
     !introMessage &&
     unit.activeStage !== "challenge";
   const canCompose =
     !workspaceUnavailable &&
     !missingTranscriptForResumedUnit &&
+    !awaitingNextUnitContent &&
     (recallIsLive || (!awaitingUnitAdvance && fallbackTurn.canCompose));
   const composerPlaceholder = canCompose
     ? "Submit your answer."
     : workspaceUnavailable
       ? "Refresh the workspace before continuing."
-      : missingTranscriptForResumedUnit
-        ? "Refresh to resume this unit safely."
-        : awaitingUnitAdvance
-          ? "Press Next Unit to continue."
-          : "This unit is complete.";
+      : awaitingNextUnitContent
+        ? "Preparing the next unit…"
+        : missingTranscriptForResumedUnit
+          ? "Refresh to resume this unit safely."
+          : awaitingUnitAdvance
+            ? "Press Next Unit to continue."
+            : "This unit is complete.";
 
   useEffect(() => {
     onRunningChange?.(effectiveIsRunning);
@@ -871,7 +885,9 @@ function EducationUnitWorkspaceComponent({
     : null;
   const anchorDetail = introMessage?.prompt ?? fallbackTurn.prompt;
 
-  const trailContent = workspaceUnavailable ? (
+  const trailContent = awaitingNextUnitContent ? (
+    <PromptTurn prompt="" statusLabel="Thinking…" />
+  ) : workspaceUnavailable ? (
     <PromptTurn
       helper="Workspace unavailable"
       prompt="The AI workspace could not be loaded, so replying here could advance the wrong stage. Refresh the workspace before continuing."
@@ -994,6 +1010,8 @@ function EducationUnitWorkspaceComponent({
           isRunning={effectiveIsRunning}
           textareaRef={composerTextareaRef}
           placeholder={composerPlaceholder}
+          awaitingUnitAdvance={awaitingUnitAdvance}
+          onAdvanceUnit={onAdvanceUnit}
         />
         <div className="mt-2.5 flex items-center justify-end">
           {draftStatus !== "idle" ? (
@@ -1016,6 +1034,8 @@ function EducationUnitWorkspaceComponent({
       placeholder={composerPlaceholder}
       canSubmit={Boolean(response.trim()) && canCompose}
       isSubmitting={effectiveIsRunning}
+      awaitingUnitAdvance={awaitingUnitAdvance}
+      onAdvanceUnit={onAdvanceUnit}
       onChange={setResponse}
       onClose={() => setIsExpanded(false)}
       onSubmit={(md) => {

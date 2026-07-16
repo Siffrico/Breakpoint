@@ -1,5 +1,5 @@
 import type { db as databaseClient } from "@acme/db/client";
-import { and, desc, eq, inArray, ne, sql } from "@acme/db";
+import { and, desc, eq, inArray, sql } from "@acme/db";
 import { TrainingCurriculumNode, TrainingSyllabusEntry } from "@acme/db/schema";
 
 import type { CurriculumBlueprint } from "../domain/training/types/training.types";
@@ -69,6 +69,7 @@ export const appendDynamicUnitNode = async ({
   whyItMatters,
   difficultyBands,
   targetEntryIds,
+  status = "ready",
 }: {
   db: Database;
   clusterNodeId: string;
@@ -82,6 +83,7 @@ export const appendDynamicUnitNode = async ({
     label?: string;
   }[];
   targetEntryIds: string[];
+  status?: "planned" | "ready";
 }) =>
   db.transaction(async (tx) => {
     const transactionDb = tx as unknown as Database;
@@ -100,7 +102,7 @@ export const appendDynamicUnitNode = async ({
       where: and(
         eq(TrainingCurriculumNode.parentNodeId, clusterNodeId),
         eq(TrainingCurriculumNode.kind, "unit"),
-        ne(TrainingCurriculumNode.status, "completed"),
+        eq(TrainingCurriculumNode.status, status),
       ),
       orderBy: [desc(TrainingCurriculumNode.orderIndex)],
     });
@@ -121,7 +123,7 @@ export const appendDynamicUnitNode = async ({
         planId: cluster.planId,
         parentNodeId: cluster.id,
         kind: "unit",
-        status: "ready",
+        status,
         title,
         summary,
         whyItMatters,

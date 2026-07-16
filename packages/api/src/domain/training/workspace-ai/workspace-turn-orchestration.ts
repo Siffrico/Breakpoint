@@ -71,6 +71,12 @@ export interface WorkspaceTurnOrchestrationDependencies
   }) => Promise<OpenScenarioResult | null>;
   /** Test seam for deterministic education-unit contract tests. */
   runUnitTurn?: typeof runUnitTurn;
+  pregenerateNextUnit?: (input: {
+    sessionId: string;
+    userId: string;
+    clusterNodeId: string;
+  }) => Promise<void>;
+  scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -571,6 +577,31 @@ export const runEducationUnitTurn = ({
       ).length,
       deps,
     });
+    const clusterNodeId = node.parentNodeId;
+    if (
+      turnResult.nextState.phase === "mastered" &&
+      clusterNodeId &&
+      deps.pregenerateNextUnit
+    ) {
+      const pregenerateNextUnit = deps.pregenerateNextUnit;
+      const runPregeneration = () =>
+        pregenerateNextUnit({
+          sessionId,
+          userId,
+          clusterNodeId,
+        }).catch((cause: unknown) => {
+          console.error("next unit pre-generation failed", {
+            sessionId,
+            clusterNodeId,
+            cause,
+          });
+        });
+      if (deps.scheduleBackgroundTask) {
+        deps.scheduleBackgroundTask(runPregeneration);
+      } else {
+        void runPregeneration();
+      }
+    }
     onAssistantMessage?.(result.assistantMessage.content);
 
     return {

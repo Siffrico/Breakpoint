@@ -41,6 +41,8 @@ export function WorkspaceComposerInput({
   isRunning,
   textareaRef,
   placeholder,
+  awaitingUnitAdvance = false,
+  onAdvanceUnit,
 }: {
   value: string;
   onValueChange: (value: string) => void;
@@ -52,6 +54,8 @@ export function WorkspaceComposerInput({
   isRunning: boolean;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   placeholder: string;
+  awaitingUnitAdvance?: boolean;
+  onAdvanceUnit?: () => void;
 }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [dismissed, setDismissed] = useState(false);
@@ -92,6 +96,17 @@ export function WorkspaceComposerInput({
   };
 
   const handleKeyDownCapture = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (
+      awaitingUnitAdvance &&
+      event.key === "Enter" &&
+      !event.shiftKey &&
+      !event.nativeEvent.isComposing
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      onAdvanceUnit?.();
+      return;
+    }
     if (!menuOpen) return;
 
     if (event.key === "ArrowDown") {

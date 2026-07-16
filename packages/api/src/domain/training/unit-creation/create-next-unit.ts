@@ -29,7 +29,11 @@ const selectCreationTargets = (
   const unchecked = entries.filter((entry) => entry.status === "unchecked");
   const firstTopicId = [...unchecked]
     .filter((entry) => entry.topicId)
-    .sort((left, right) => (left.topicOrderIndex ?? Number.MAX_SAFE_INTEGER) - (right.topicOrderIndex ?? Number.MAX_SAFE_INTEGER))[0]?.topicId;
+    .sort(
+      (left, right) =>
+        (left.topicOrderIndex ?? Number.MAX_SAFE_INTEGER) -
+        (right.topicOrderIndex ?? Number.MAX_SAFE_INTEGER),
+    )[0]?.topicId;
   const topicEntries = firstTopicId
     ? unchecked.filter((entry) => entry.topicId === firstTopicId)
     : [];
@@ -85,7 +89,10 @@ export const buildDynamicUnitDifficultyBands = (
 };
 
 export interface CreateNextUnitDependencies<TNode> {
-  loadSkill: (clusterNodeId: string) => Effect.Effect<
+  loadSkill: (
+    clusterNodeId: string,
+    unitStatus: "planned" | "ready",
+  ) => Effect.Effect<
     {
       title: string;
       whyItMatters: string;
@@ -108,6 +115,7 @@ export interface CreateNextUnitDependencies<TNode> {
     whyItMatters: string;
     difficultyBands: ReturnType<typeof buildDynamicUnitDifficultyBands>;
     targetEntryIds: string[];
+    status: "planned" | "ready";
   }) => Effect.Effect<{ node: TNode; created: boolean }, DbError>;
   hasUnitContent: (nodeId: string) => Effect.Effect<boolean, DbError>;
   prepareUnitEffect: (
@@ -136,14 +144,16 @@ export type CreateNextUnitError =
 export const createNextUnit = <TNode extends { id: string }>({
   clusterNodeId,
   complexityBudget = 2,
+  status = "ready",
   deps,
 }: {
   clusterNodeId: string;
   complexityBudget?: 1 | 2 | 3;
+  status?: "planned" | "ready";
   deps: CreateNextUnitDependencies<TNode>;
 }): Effect.Effect<TNode | null, CreateNextUnitError> =>
   Effect.gen(function* () {
-    const skill = yield* deps.loadSkill(clusterNodeId);
+    const skill = yield* deps.loadSkill(clusterNodeId, status);
     if (!skill) {
       return yield* new SkillClusterNotFoundError({ clusterNodeId });
     }
@@ -165,6 +175,7 @@ export const createNextUnit = <TNode extends { id: string }>({
       whyItMatters: skill.whyItMatters,
       difficultyBands: buildDynamicUnitDifficultyBands(calibrated.directive),
       targetEntryIds: targets.map((entry) => entry.id),
+      status,
     });
     if (persisted.created) yield* deps.prepareUnitEffect(persisted.node);
     return persisted.node;

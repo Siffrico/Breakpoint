@@ -22,6 +22,7 @@ interface AdvanceCompletedUnitTransactionDependencies {
     unitContentId: string,
   ) => Promise<PersistedUnitRun | null>;
   completeNode: (nodeId: string) => Promise<unknown>;
+  markNodeReady: (nodeId: string) => Promise<unknown>;
   touchSession: (sessionId: string) => Promise<unknown>;
 }
 
@@ -164,8 +165,9 @@ export const advanceCompletedUnitWorkflow = async ({
     }
   }
 
+  let nextReadyNode: CurriculumNode | null = null;
   try {
-    await deps.withTransaction(async (tx) => {
+    nextReadyNode = await deps.withTransaction(async (tx) => {
       const plan = await tx.getActivePlan(sessionId);
       const node = plan?.nodes.find((item) => item.id === nodeId) ?? null;
       const unit = node ? await tx.getUnitByNodeId(node.id) : null;
@@ -173,7 +175,26 @@ export const advanceCompletedUnitWorkflow = async ({
       assertUnitCanAdvance({ node, run });
       if (!node) throw new Error("Completed unit context is missing.");
       if (node.status !== "completed") await tx.completeNode(nodeId);
+      const plannedSibling =
+        progression?.decision.intent === "create_unit"
+          ? (plan?.nodes.find(
+              (candidate) =>
+                candidate.kind === "unit" &&
+                candidate.parentNodeId === node.parentNodeId &&
+                candidate.orderIndex > node.orderIndex &&
+                candidate.status === "planned",
+            ) ?? null)
+          : null;
+      const plannedContent = plannedSibling
+        ? await tx.getUnitByNodeId(plannedSibling.id)
+        : null;
+      if (plannedSibling && plannedContent) {
+        await tx.markNodeReady(plannedSibling.id);
+      }
       await tx.touchSession(sessionId);
+      return plannedSibling && plannedContent
+        ? { ...plannedSibling, status: "ready" as const }
+        : null;
     });
   } catch (error) {
     return err(error instanceof Error ? error.message : "Unit cannot advance.");
@@ -183,6 +204,7 @@ export const advanceCompletedUnitWorkflow = async ({
     const { clusterNodeId, userId, decision } = progression;
     const createNextUnitTask = Effect.gen(function* () {
       if (decision.intent === "create_unit") {
+        if (nextReadyNode) return;
         yield* deps.createUnit({
           clusterNodeId,
           sessionId,
@@ -219,5 +241,5 @@ export const advanceCompletedUnitWorkflow = async ({
     }
   }
 
-  return ok({ advanced: true, nextReadyNode: null });
+  return ok({ advanced: true, nextReadyNode });
 };

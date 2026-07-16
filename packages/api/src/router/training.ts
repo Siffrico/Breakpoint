@@ -3,13 +3,15 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod/v4";
 
 import type { StartingPointTier } from "@acme/validators";
-import { sql } from "@acme/db";
+import { eq, sql } from "@acme/db";
+import { TrainingCurriculumNode } from "@acme/db/schema";
 import {
   StartingPointTierSchema,
   WorkspaceBootstrapInputSchema,
 } from "@acme/validators";
 
 import { createNextUnit } from "../domain/training/unit-creation/create-next-unit";
+import { ADVANCE_COMPLETED_UNIT_LOCK_KEY } from "../domain/training/unit-creation/pregenerate-next-unit";
 import { UnitNotReadyError } from "../domain/training/unit-preparation/errors";
 import { raiseUnitPreparationError } from "../domain/training/unit-preparation/prepare-unit-edge";
 import { advanceCompletedUnitWorkflow } from "../domain/training/workflows/advance-completed-unit-workflow";
@@ -636,7 +638,7 @@ export const trainingRouter = {
     .mutation(async ({ ctx, input }) => {
       await requireSessionOwner({ ctx, sessionId: input.sessionId });
 
-      return throwOnFailure(
+      const result = throwOnFailure(
         await advanceCompletedUnitWorkflow({
           sessionId: input.sessionId,
           nodeId: input.nodeId,
@@ -645,7 +647,7 @@ export const trainingRouter = {
               ctx.db.transaction(async (tx) => {
                 const db = tx as unknown as Database;
                 await db.execute(
-                  sql`select pg_advisory_xact_lock(hashtext(${input.sessionId}), hashtext('advance-completed-unit'))`,
+                  sql`select pg_advisory_xact_lock(hashtext(${input.sessionId}), hashtext(${ADVANCE_COMPLETED_UNIT_LOCK_KEY}))`,
                 );
                 return run({
                   getActivePlan: (sessionId) =>
@@ -666,6 +668,11 @@ export const trainingRouter = {
                     }),
                   completeNode: (nodeId) =>
                     trainingCurriculumRepository.completeNode({ db, nodeId }),
+                  markNodeReady: (nodeId) =>
+                    db
+                      .update(TrainingCurriculumNode)
+                      .set({ status: "ready" })
+                      .where(eq(TrainingCurriculumNode.id, nodeId)),
                   touchSession: (sessionId) =>
                     trainingOnboardingRepository.touchSession({
                       db,
@@ -718,6 +725,16 @@ export const trainingRouter = {
           },
         }),
       );
+      if (!result.advanced) return result;
+      return {
+        advanced: true as const,
+        nextChat: result.nextReadyNode
+          ? {
+              nodeId: result.nextReadyNode.id,
+              title: result.nextReadyNode.title,
+            }
+          : null,
+      };
     }),
 
   unit: protectedProcedure

@@ -44,6 +44,10 @@ type PlanState = RouterOutputs["training"]["activePlan"];
 type EducationUnit = RouterOutputs["training"]["unit"];
 type OnboardingState = RouterOutputs["training"]["onboardingState"];
 type AiWorkspace = RouterOutputs["training"]["aiWorkspace"];
+type TransitionalAiWorkspace = AiWorkspace & {
+  pendingNextUnit?: boolean;
+  pendingNextUnitTitle?: string;
+};
 type EvaluationPlan = NonNullable<AiWorkspace["evaluationPlan"]>;
 type LearningProject =
   RouterOutputs["training"]["listLearningProjects"][number];
@@ -112,6 +116,13 @@ export function WorkspaceShell({
   >(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const projectsQuery = useQuery(
+    trpc.training.listLearningProjects.queryOptions(undefined, {
+      initialData: projects,
+      staleTime: Number.POSITIVE_INFINITY,
+    }),
+  );
+  const resolvedProjects = projectsQuery.data;
 
   const toggleSidebar = useCallback(() => {
     setSidebarCollapsed((prev) => !prev);
@@ -145,7 +156,7 @@ export function WorkspaceShell({
     "bp-workspace-theme",
     "warm",
   );
-  const selectedProject = projects.find(
+  const selectedProject = resolvedProjects.find(
     (project) => project.sessionId === selectedSessionId,
   );
   const isInitialSession = selectedSessionId === sessionId;
@@ -248,8 +259,9 @@ export function WorkspaceShell({
       },
     ),
   );
-  const resolvedAiWorkspace =
-    aiWorkspaceQuery.data ?? (isInitialSession ? aiWorkspace : null) ?? null;
+  const resolvedAiWorkspace = (aiWorkspaceQuery.data ??
+    (isInitialSession ? aiWorkspace : null) ??
+    null) as TransitionalAiWorkspace | null;
   const activeNodeId =
     resolvedAiWorkspace?.state?.recallUnitId ??
     resolvedAiWorkspace?.state?.activeUnitId ??
@@ -363,27 +375,168 @@ export function WorkspaceShell({
     mode === "unit" &&
     resolvedAiWorkspace?.state?.recallUnitId == null &&
     unitAdvanceGate.status === "enabled";
+  // While an optimistic advance is pending, the sidebar highlights the
+  // optimistic entry via the workspace state (selectedChatId stays null so the
+  // shell never reads the transition as a history selection).
+  const pendingActiveLessonId = resolvedAiWorkspace?.pendingNextUnit
+    ? (resolvedAiWorkspace.state?.activeUnitId ?? null)
+    : null;
   const advanceCompletedUnit = useMutation(
     trpc.training.advanceCompletedUnit.mutationOptions({
-      onSuccess: (result) => {
+      onMutate: async () => {
+        const workspaceKey = trpc.training.aiWorkspace.queryKey({
+          sessionId: selectedSessionId,
+        });
+        const projectsKey = trpc.training.listLearningProjects.queryKey();
+        await Promise.all([
+          queryClient.cancelQueries({ queryKey: workspaceKey }),
+          queryClient.cancelQueries({ queryKey: projectsKey }),
+        ]);
+
+        const previousWorkspace =
+          queryClient.getQueryData<TransitionalAiWorkspace>(workspaceKey);
+        const previousProjects =
+          queryClient.getQueryData<LearningProject[]>(projectsKey);
+        const previousSelectedChatId = selectedChatId;
+        const tempNodeId = crypto.randomUUID();
+        const nextTitle =
+          unitAdvanceGate.status === "enabled"
+            ? (unitAdvanceGate.nextTitle ?? "Next unit")
+            : "Next unit";
+
+        if (previousProjects) {
+          queryClient.setQueryData<LearningProject[]>(
+            projectsKey,
+            previousProjects.map((project) =>
+              project.sessionId === selectedSessionId
+                ? {
+                    ...project,
+                    lessonPreview: [
+                      {
+                        id: tempNodeId,
+                        title: nextTitle,
+                        status: "ready" as const,
+                      },
+                      ...project.lessonPreview,
+                    ],
+                  }
+                : project,
+            ),
+          );
+        }
+        if (previousWorkspace?.state) {
+          queryClient.setQueryData<TransitionalAiWorkspace>(workspaceKey, {
+            ...previousWorkspace,
+            state: {
+              ...previousWorkspace.state,
+              activeUnitId: tempNodeId,
+              activeUnitTitle: nextTitle,
+              recallUnitId: null,
+              recallUnitTitle: null,
+              educationStage: null,
+            },
+            messages: [],
+            introMessage: null,
+            evaluationPlan: null,
+            evaluationProgress: null,
+            unitAdvanceGate: { status: "locked" },
+            pendingNextUnit: true,
+            pendingNextUnitTitle: nextTitle,
+          });
+        }
+        // Stay on the live-chat view (null = active chat): pointing
+        // selectedChatId at the temp id would flip isHistorySelected, swap the
+        // shell into history mode, and disable the aiWorkspace query — hiding
+        // the pending-unit UI this optimistic update exists to show.
+        setSelectedChatId(null);
+
+        return {
+          previousWorkspace,
+          previousProjects,
+          previousSelectedChatId,
+          tempNodeId,
+        };
+      },
+      onSuccess: (result, _variables, context) => {
+        const workspaceKey = trpc.training.aiWorkspace.queryKey({
+          sessionId: selectedSessionId,
+        });
+        const projectsKey = trpc.training.listLearningProjects.queryKey();
+        const restoreSnapshots = () => {
+          if (context.previousWorkspace) {
+            queryClient.setQueryData(workspaceKey, context.previousWorkspace);
+          }
+          if (context.previousProjects) {
+            queryClient.setQueryData(projectsKey, context.previousProjects);
+          }
+          setSelectedChatId(context.previousSelectedChatId);
+        };
+
         if (!result.advanced) {
+          restoreSnapshots();
           router.push(
             `/workspace/mission?unitRunId=${encodeURIComponent(result.unitRunId)}`,
           );
           return;
         }
-        // router.refresh() re-renders the RSC (new `unit` prop), but the
-        // aiWorkspace query is frozen at staleTime: Infinity and initialData
-        // never overwrites a populated cache — without this invalidation the
-        // workspace would keep showing the finished unit forever.
+        if (result.nextChat) {
+          const { nodeId, title } = result.nextChat;
+          queryClient.setQueryData<LearningProject[]>(projectsKey, (current) =>
+            current?.map((project) =>
+              project.sessionId === selectedSessionId
+                ? {
+                    ...project,
+                    lessonPreview: project.lessonPreview.map((lesson) =>
+                      lesson.id === context.tempNodeId
+                        ? { ...lesson, id: nodeId, title }
+                        : lesson,
+                    ),
+                  }
+                : project,
+            ),
+          );
+          queryClient.setQueryData<TransitionalAiWorkspace>(
+            workspaceKey,
+            (current) =>
+              current?.state
+                ? {
+                    ...current,
+                    state: {
+                      ...current.state,
+                      activeUnitId: nodeId,
+                      activeUnitTitle: title,
+                    },
+                  }
+                : current,
+          );
+          // The new unit is the live chat; selecting its real id would read as
+          // a history selection until router.refresh catches fallbackActiveNodeId up.
+          setSelectedChatId(null);
+        }
+        void queryClient.invalidateQueries({ queryKey: projectsKey });
         void queryClient.invalidateQueries({
-          queryKey: trpc.training.aiWorkspace.queryKey({
-            sessionId: selectedSessionId,
-          }),
+          queryKey: workspaceKey,
         });
         router.refresh();
       },
-      onError: (error) => toast.error(error.message),
+      onError: (error, _variables, context) => {
+        if (context?.previousWorkspace) {
+          queryClient.setQueryData(
+            trpc.training.aiWorkspace.queryKey({
+              sessionId: selectedSessionId,
+            }),
+            context.previousWorkspace,
+          );
+        }
+        if (context?.previousProjects) {
+          queryClient.setQueryData(
+            trpc.training.listLearningProjects.queryKey(),
+            context.previousProjects,
+          );
+        }
+        setSelectedChatId(context?.previousSelectedChatId ?? null);
+        toast.error(error.message);
+      },
     }),
   );
   const timerIsActive = activeEvaluationPlan != null;
@@ -438,7 +591,8 @@ export function WorkspaceShell({
       : mode === "onboarding"
         ? (resolvedOnboardingState?.activeQuestion?.prompt ??
           "Start a new learning track")
-        : (liveUnit?.title ??
+        : (resolvedAiWorkspace?.pendingNextUnitTitle ??
+          liveUnit?.title ??
           resolvedWorkspace?.nextUnitTitle ??
           "Preparing your next unit");
 
@@ -672,7 +826,7 @@ export function WorkspaceShell({
   const prefetchProject = useCallback(
     (nextSessionId: string) => {
       if (nextSessionId === selectedSessionId) return;
-      const project = projects.find(
+      const project = resolvedProjects.find(
         (candidate) => candidate.sessionId === nextSessionId,
       );
       if (project?.status !== "active") {
@@ -696,7 +850,7 @@ export function WorkspaceShell({
         ),
       ]);
     },
-    [projects, queryClient, selectedSessionId, trpc],
+    [queryClient, resolvedProjects, selectedSessionId, trpc],
   );
 
   const handleSelectChat = useCallback(
@@ -748,14 +902,17 @@ export function WorkspaceShell({
       >
         <div className="h-full w-[220px]">
           <CurriculumSidebar
-            projects={projects}
+            projects={resolvedProjects}
             currentSessionId={selectedSessionId}
             preview={preview}
             collapsed={false}
             onToggleCollapsed={toggleSidebar}
             userName={userName}
             activeLessonId={
-              resolvedChatHistory?.node.id ?? liveUnit?.nodeId ?? null
+              pendingActiveLessonId ??
+              resolvedChatHistory?.node.id ??
+              liveUnit?.nodeId ??
+              null
             }
             isSessionRunning={isSessionRunning}
             workspaceTheme={workspaceTheme}
@@ -785,14 +942,17 @@ export function WorkspaceShell({
             }}
           >
             <CurriculumSidebar
-              projects={projects}
+              projects={resolvedProjects}
               currentSessionId={selectedSessionId}
               preview={preview}
               collapsed={false}
               onToggleCollapsed={closeMobileSidebar}
               userName={userName}
               activeLessonId={
-                resolvedChatHistory?.node.id ?? liveUnit?.nodeId ?? null
+                pendingActiveLessonId ??
+                resolvedChatHistory?.node.id ??
+                liveUnit?.nodeId ??
+                null
               }
               isSessionRunning={isSessionRunning}
               workspaceTheme={workspaceTheme}
@@ -999,6 +1159,7 @@ export function WorkspaceShell({
                         preview={preview}
                         embedded
                         aiWorkspace={resolvedAiWorkspace}
+                        onAdvanceUnit={handleAdvanceCompletedUnit}
                         onStateChange={handleUnitStateChange}
                         onRunningChange={setIsSessionRunning}
                         onRunCommand={openUnitCoachWithCommand}
