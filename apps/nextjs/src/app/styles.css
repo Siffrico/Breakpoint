@@ -420,7 +420,7 @@
   --background: #fafafa;
   --foreground: #1f1d18;
   /* SECONDARY — raised surfaces (sidebar, muted): ~10% off MAIN, neutral grey. */
-  --secondary: color-mix(in oklab, var(--background) 98.5%, #000000);
+  --secondary: color-mix(in oklab, var(--background) 99.5%, #000000);
   --secondary-foreground: color-mix(in oklab, var(--foreground) 78%, transparent);
   --card: #ffffff;
   --card-foreground: #1f1d18;
