@@ -11,10 +11,10 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 
 import { cn } from "@acme/ui";
 
-const MIN_HEIGHT_PX = 94;
+const MIN_HEIGHT_PX = 80;
 const COMPACT_MIN_HEIGHT_PX = 56;
-const HARD_MAX_HEIGHT_PX = 240;
-const VIEWPORT_RATIO_CAP = 0.24;
+const HARD_MAX_HEIGHT_PX = 640;
+const VIEWPORT_RATIO_CAP = 0.5;
 
 function syncHeight(element: HTMLTextAreaElement | null, minHeightPx: number) {
   if (!element) return;
@@ -103,13 +103,13 @@ export function ChatComposer({
   return (
     <div
       style={{
-        borderRadius: 8,
+        borderRadius: 32,
         boxShadow: "inset 0 1px 0 rgba(255,255,255,0.025)",
         ...style,
       }}
       className={cn(
         "bg-background border-border relative w-full overflow-hidden border transition-[border-color,box-shadow]",
-        compact ? "min-h-[56px]" : "min-h-[96px]",
+        compact ? "min-h-[56px]" : "min-h-[80px]",
         className,
       )}
     >
@@ -124,10 +124,10 @@ export function ChatComposer({
         style={
           compact
             ? { paddingBottom: 28, scrollPaddingBottom: 28 }
-            : { paddingBottom: 56, scrollPaddingBottom: 56 }
+            : { paddingBottom: 40, scrollPaddingBottom: 40 }
         }
         className={cn(
-          "text-foreground placeholder:text-muted-foreground block w-full resize-none rounded-[8px] bg-transparent outline-none [&::-webkit-resizer]:hidden",
+          "text-foreground placeholder:text-muted-foreground block w-full resize-none rounded-[inherit] bg-transparent outline-none [&::-webkit-resizer]:hidden",
           compact
             ? "px-3 pt-2 text-[13px] leading-5"
             : "px-4 pt-4 text-[14px] leading-6",
@@ -137,7 +137,7 @@ export function ChatComposer({
       <div
         className={cn(
           "absolute inset-x-0 bottom-0 flex items-center justify-between gap-3",
-          compact ? "h-7 px-2" : "h-12 px-3",
+          compact ? "h-7 px-2" : "h-10 px-3",
         )}
       >
         <div className="flex min-w-0 items-center gap-2 leading-none">
