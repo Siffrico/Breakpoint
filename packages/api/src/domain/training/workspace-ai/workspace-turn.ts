@@ -37,7 +37,6 @@ export type WorkspaceTurnDependencies = WorkspaceProjectionReaderSource;
 
 export interface ResolvedWorkspaceTurn {
   plan: CurriculumPlan;
-  allResponses: PhaseResponseRecord[];
   state: WorkspaceAiState;
   node: CurriculumNode;
   unit: UnitContent;
@@ -234,7 +233,7 @@ const resolvePersistedRecall = ({
   return node?.status === "completed" ? { target, node, run } : null;
 };
 
-const loadPlannedRecall = ({
+export const loadPlannedRecall = ({
   sessionId,
   plan,
   active,
@@ -402,15 +401,7 @@ export const resolveWorkspaceTurnEffect = ({
 > =>
   Effect.gen(function* () {
     const reader = yield* WorkspaceProjectionReader;
-    const [plan, allResponses] = yield* Effect.all(
-      [
-        authorizedPlan
-          ? Effect.succeed(authorizedPlan)
-          : reader.getActivePlan(sessionId),
-        reader.listPhaseResponsesBySession(sessionId),
-      ],
-      { concurrency: 2 },
-    );
+    const plan = authorizedPlan ?? (yield* reader.getActivePlan(sessionId));
 
     if (!plan) {
       return yield* new CurriculumNotReadyError({
@@ -441,7 +432,6 @@ export const resolveWorkspaceTurnEffect = ({
 
     const state = planWorkspaceTurn({
       nodes: plan.nodes,
-      allResponses,
       activeUnitResponses: active.responses,
       activeUnitRun: active.run,
       recallTarget: plannedRecall
@@ -495,7 +485,6 @@ export const resolveWorkspaceTurnEffect = ({
 
     return {
       plan,
-      allResponses,
       state: resolvedState,
       node,
       unit,
@@ -543,13 +532,12 @@ export const planNextWorkspaceTurn = async ({
   const exit = await Effect.runPromiseExit(
     Effect.gen(function* () {
       const reader = yield* WorkspaceProjectionReader;
-      const [allResponses, active, inFlightRun] = yield* Effect.all(
+      const [active, inFlightRun] = yield* Effect.all(
         [
-          reader.listPhaseResponsesBySession(sessionId),
           loadNextReadyUnitProjection({ sessionId, nodes: plan.nodes }),
           reader.getInFlightRecallRun(sessionId),
         ],
-        { concurrency: 3 },
+        { concurrency: 2 },
       );
       const plannedRecall = yield* loadPlannedRecall({
         sessionId,
@@ -559,7 +547,6 @@ export const planNextWorkspaceTurn = async ({
       });
       return planWorkspaceTurn({
         nodes: plan.nodes,
-        allResponses,
         activeUnitResponses: active.responses,
         activeUnitRun: active.run,
         recallTarget: plannedRecall

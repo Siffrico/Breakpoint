@@ -1,5 +1,5 @@
 import type { ModelMessage } from "ai";
-import type { Layer, Scope } from "effect";
+import type { Scope } from "effect";
 import { Effect, Exit } from "effect";
 
 import type { Memory } from "../../memory/types";
@@ -30,12 +30,7 @@ import {
   WorkspaceInputError,
   WorkspacePersistenceError,
 } from "./workspace-errors";
-import {
-  isUnitAwaitingAdvance,
-  planNextWorkspaceTurn,
-  resolveWorkspaceTurn,
-} from "./workspace-turn";
-import { runWorkspaceTurn } from "./workspace-turn-edge";
+import { isUnitAwaitingAdvance, planNextWorkspaceTurn } from "./workspace-turn";
 import { saveUnitPhaseResult } from "./workspace-turn-persistence";
 
 interface ResolvedDifficultyDirectiveResult {
@@ -584,39 +579,3 @@ export const runEducationUnitTurn = ({
       assistantMessage: result.assistantMessage,
     };
   }).pipe(Effect.scoped);
-
-// ---------------------------------------------------------------------------
-// Entry point
-// ---------------------------------------------------------------------------
-
-export const runOneStep = async ({
-  sessionId,
-  userId,
-  turnId,
-  turnLeaseId,
-  message,
-  deps,
-  workspaceTurnRepoLayer,
-}: {
-  sessionId: string;
-  userId: string;
-  turnId: string;
-  turnLeaseId: string;
-  message: string;
-  deps: WorkspaceTurnOrchestrationDependencies;
-  workspaceTurnRepoLayer: Layer.Layer<WorkspaceTurnRepo>;
-}): Promise<WorkspaceAiTurnResult> => {
-  const turn = await resolveWorkspaceTurn({ sessionId, deps });
-
-  return runWorkspaceTurn(
-    runEducationUnitTurn({
-      sessionId,
-      userId,
-      turnId,
-      turnLeaseId,
-      message,
-      turn,
-      deps,
-    }).pipe(Effect.provide(workspaceTurnRepoLayer)),
-  );
-};

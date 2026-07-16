@@ -855,34 +855,6 @@ export const trainingCurriculumRepository = {
     }));
   },
 
-  listPhaseResponsesBySession: async ({
-    db,
-    sessionId,
-  }: {
-    db: Database;
-    sessionId: string;
-  }): Promise<PhaseResponseRecord[]> => {
-    const rows = await db.query.TrainingUnitPhaseResponse.findMany({
-      where: eq(TrainingUnitPhaseResponse.sessionId, sessionId),
-      orderBy: [asc(TrainingUnitPhaseResponse.createdAt)],
-    });
-
-    return rows.map((row) => ({
-      id: row.id,
-      unitContentId: row.unitContentId,
-      sessionId: row.sessionId,
-      userId: row.userId,
-      phase: row.phase as PhaseResponseRecord["phase"],
-      sequence: row.sequence,
-      userResponse: row.userResponse,
-      aiResponse: row.aiResponse,
-      passed: row.passed,
-      score: row.score,
-      metadata: row.metadata as PhaseResponseRecord["metadata"],
-      createdAt: row.createdAt,
-    }));
-  },
-
   getLatestFailureIsolation: async ({
     db,
     unitContentId,

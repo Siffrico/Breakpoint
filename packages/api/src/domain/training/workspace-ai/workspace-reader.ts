@@ -20,9 +20,6 @@ const read = <A>(operation: string, run: () => Promise<A>) =>
 
 export interface WorkspaceProjectionReaderSource {
   readonly getActivePlan: (sessionId: string) => Promise<CurriculumPlan | null>;
-  readonly listPhaseResponsesBySession: (
-    sessionId: string,
-  ) => Promise<PhaseResponseRecord[]>;
   readonly getPhaseResponses: (
     unitContentId: string,
     sessionId: string,
@@ -48,9 +45,6 @@ export interface WorkspaceProjectionReaderShape {
   readonly getActivePlan: (
     sessionId: string,
   ) => Effect.Effect<CurriculumPlan | null, DbError>;
-  readonly listPhaseResponsesBySession: (
-    sessionId: string,
-  ) => Effect.Effect<PhaseResponseRecord[], DbError>;
   readonly getPhaseResponses: (
     unitContentId: string,
     sessionId: string,
@@ -84,10 +78,6 @@ export const makeWorkspaceProjectionReader = (
 ): WorkspaceProjectionReaderShape => ({
   getActivePlan: (sessionId) =>
     read("getActivePlan", () => source.getActivePlan(sessionId)),
-  listPhaseResponsesBySession: (sessionId) =>
-    read("listPhaseResponsesBySession", () =>
-      source.listPhaseResponsesBySession(sessionId),
-    ),
   getPhaseResponses: (unitContentId, sessionId) =>
     read("getPhaseResponses", () =>
       source.getPhaseResponses(unitContentId, sessionId),
@@ -111,6 +101,10 @@ export interface AiWorkspaceReaderSource {
     sessionId: string,
     slot?: "education_unit" | "recall",
   ) => Promise<WorkspaceAiMessage[]>;
+  readonly listUnitMessages: (
+    sessionId: string,
+    unitId: string,
+  ) => Promise<WorkspaceAiMessage[]>;
   readonly getScenarioAttemptStartedAt: (input: {
     scenarioAttemptId: string;
     nodeId: string;
@@ -121,6 +115,10 @@ export interface AiWorkspaceReaderShape {
   readonly listMessages: (
     sessionId: string,
     slot?: "education_unit" | "recall",
+  ) => Effect.Effect<WorkspaceAiMessage[], DbError>;
+  readonly listUnitMessages: (
+    sessionId: string,
+    unitId: string,
   ) => Effect.Effect<WorkspaceAiMessage[], DbError>;
   readonly getScenarioAttemptStartedAt: (input: {
     scenarioAttemptId: string;
@@ -138,6 +136,8 @@ export const makeAiWorkspaceReader = (
 ): AiWorkspaceReaderShape => ({
   listMessages: (sessionId, slot) =>
     read("listMessages", () => source.listMessages(sessionId, slot)),
+  listUnitMessages: (sessionId, unitId) =>
+    read("listUnitMessages", () => source.listUnitMessages(sessionId, unitId)),
   getScenarioAttemptStartedAt: (input) =>
     read("getScenarioAttemptStartedAt", () =>
       source.getScenarioAttemptStartedAt(input),

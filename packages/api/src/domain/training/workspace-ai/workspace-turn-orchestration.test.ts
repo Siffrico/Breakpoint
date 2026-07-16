@@ -7,8 +7,8 @@ import type { CurriculumNode, UnitContent } from "../types/training.types";
 import type { WorkspaceAiState } from "./types";
 import type { ResolvedWorkspaceTurn } from "./workspace-turn";
 import type { WorkspaceTurnOrchestrationDependencies } from "./workspace-turn-orchestration";
-import type { WorkspaceTurnRepoShape } from "./workspace-turn-repo";
 import type { WorkspaceEducationTurnCommit } from "./workspace-turn-persistence";
+import type { WorkspaceTurnRepoShape } from "./workspace-turn-repo";
 import { EducationUnitContractError } from "../education-unit/orchestrate-unit-turn";
 import { runEducationUnitTurn } from "./workspace-turn-orchestration";
 import { WorkspaceTurnRepo } from "./workspace-turn-repo";
@@ -89,7 +89,6 @@ const unitRun = {
 
 const turn = {
   plan: { nodes: [clusterNode, node] },
-  allResponses: [],
   state: { mode: "education_unit" } as WorkspaceAiState,
   node,
   unit: {
@@ -107,7 +106,6 @@ void test("a claimed, in-flight education turn is rejected before running the mo
     getActivePlan: () => fail("getActivePlan"),
     listUnitMessages: () => fail("listUnitMessages"),
     appendMessage: () => fail("appendMessage"),
-    listPhaseResponsesBySession: () => fail("listPhaseResponsesBySession"),
     getPhaseResponses: () => fail("getPhaseResponses"),
     getUnitRun: () => fail("getUnitRun"),
     getInFlightRecallRun: () => fail("getInFlightRecallRun"),
@@ -289,7 +287,6 @@ void test("an education turn returns the committed assistant message", async () 
       committed = true;
       return Promise.resolve({ assistantMessage });
     },
-    listPhaseResponsesBySession: () => Promise.resolve([]),
     getUnitByNodeId: () => Promise.resolve(turn.unit),
     listRecallCandidates: () => Promise.resolve([]),
     getPhaseResponses: () => Promise.resolve([]),
@@ -365,7 +362,6 @@ void test("a mastered unit checks off every target even when the evaluator omits
         syllabusCheckOff: null,
         scenarioSpec: null,
       }),
-    listPhaseResponsesBySession: () => Promise.resolve([]),
     getUnitByNodeId: () => Promise.resolve(turn.unit),
     listRecallCandidates: () => Promise.resolve([]),
     getPhaseResponses: () => Promise.resolve([]),

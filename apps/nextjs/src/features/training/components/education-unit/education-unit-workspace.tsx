@@ -19,6 +19,7 @@ import { Button } from "@acme/ui/button";
 import { ChatComposerDock, WorkspaceStatusLine } from "@acme/ui/chat";
 import { toast } from "@acme/ui/toast";
 
+import type { ExchangeMessage } from "./exchange-grouping";
 import type { UnitCoachCommandIntent } from "~/features/training/lib/unit-coach-commands";
 import { AssistantRichText } from "~/features/training/components/assistant-rich-text";
 import {
@@ -27,7 +28,6 @@ import {
   useAutosavedResponseDraft,
 } from "~/features/training/hooks/use-autosaved-response-draft";
 import { useTRPC } from "~/trpc/react";
-import type { ExchangeMessage } from "./exchange-grouping";
 import { groupLiveExchanges } from "./exchange-grouping";
 import { ExchangeReceipt } from "./exchange-receipt";
 import { NotionComposer } from "./notion-composer";
@@ -151,7 +151,10 @@ function PromptTurn({
     <section className="py-3 font-sans">
       {/* Assistant content fills the column edge-to-edge (no extra px), so its
           right edge matches the submitted-answer receipt's right edge. */}
-      <div className={CHAT_COLUMN_CLASS} {...{ [ASK_COACH_SOURCE_ATTRIBUTE]: "" }}>
+      <div
+        className={CHAT_COLUMN_CLASS}
+        {...{ [ASK_COACH_SOURCE_ATTRIBUTE]: "" }}
+      >
         {statusLabel ? (
           <WorkspaceStatusLine
             label={statusLabel}
@@ -565,6 +568,36 @@ function EducationUnitWorkspaceComponent({
     trpc.training.aiWorkspace,
   ]);
 
+  // One refetch when a finished stream hands the live chat to a different
+  // unit (a recall interlude completing, or a recall becoming due): the
+  // bootstrap-frozen aiWorkspace still points at the previous unit's
+  // transcript, and the server read is the source of truth for the handoff.
+  const bootstrapLiveUnitId = aiWorkspace?.state
+    ? (aiWorkspace.state.activeUnitId ?? aiWorkspace.state.recallUnitId)
+    : null;
+  const streamLiveUnitId = streamState
+    ? (streamState.activeUnitId ?? streamState.recallUnitId)
+    : null;
+  const liveUnitInvalidatedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (preview || effectiveIsRunning) return;
+    if (streamLiveUnitId == null || bootstrapLiveUnitId == null) return;
+    if (streamLiveUnitId === bootstrapLiveUnitId) return;
+    if (liveUnitInvalidatedRef.current === streamLiveUnitId) return;
+    liveUnitInvalidatedRef.current = streamLiveUnitId;
+    void queryClient.invalidateQueries({
+      queryKey: trpc.training.aiWorkspace.queryKey({ sessionId }),
+    });
+  }, [
+    bootstrapLiveUnitId,
+    effectiveIsRunning,
+    preview,
+    queryClient,
+    sessionId,
+    streamLiveUnitId,
+    trpc.training.aiWorkspace,
+  ]);
+
   // Auto-follow tracks the internal trail scroller, not the window: the
   // scenario anchor and composer are fixed, so the trail is the only thing
   // that moves.
@@ -640,6 +673,10 @@ function EducationUnitWorkspaceComponent({
   const awaitingUnitAdvance =
     aiWorkspace?.unitAdvanceGate.status === "enabled" ||
     streamState?.educationStage === "mastered";
+  // A live recall reopens a completed unit's chat, so the unit's own stage
+  // gating (which reads "complete") must not lock the composer — the next
+  // submit runs the recall checkpoint, not the finished unit.
+  const recallIsLive = streamState?.recallUnitId != null;
   const workspaceUnavailable = !preview && aiWorkspace == null;
   const missingTranscriptForResumedUnit =
     !preview &&
@@ -650,8 +687,7 @@ function EducationUnitWorkspaceComponent({
   const canCompose =
     !workspaceUnavailable &&
     !missingTranscriptForResumedUnit &&
-    !awaitingUnitAdvance &&
-    fallbackTurn.canCompose;
+    (recallIsLive || (!awaitingUnitAdvance && fallbackTurn.canCompose));
   const composerPlaceholder = canCompose
     ? "Submit your answer."
     : workspaceUnavailable

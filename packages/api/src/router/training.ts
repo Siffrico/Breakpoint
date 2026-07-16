@@ -25,7 +25,6 @@ import { getWorkspaceBootstrapWorkflow } from "../domain/training/workflows/get-
 import { getWorkspaceIndexWorkflow } from "../domain/training/workflows/get-workspace-index-workflow";
 import { prepareUnitWorkflow } from "../domain/training/workflows/prepare-unit-workflow";
 import { startOnboardingWorkflow } from "../domain/training/workflows/start-onboarding-workflow";
-import { submitAiWorkspaceMessageWorkflow } from "../domain/training/workflows/submit-ai-workspace-message-workflow";
 import { queryWithClient } from "../effect/db";
 import { recoverSkillUnits } from "../repositories/build-project-repository-deps";
 import { missionRepository } from "../repositories/mission-repository";
@@ -40,10 +39,7 @@ import {
   loadProgressionState,
 } from "../repositories/unit-creation-repository-deps";
 import { createUnitPreparationRepositoryDeps } from "../repositories/unit-preparation-repository-deps";
-import {
-  createWorkspaceTurnRepositoryDeps,
-  workspaceTurnRepoLayer,
-} from "../repositories/workspace-turn-repository-deps";
+import { createWorkspaceTurnRepositoryDeps } from "../repositories/workspace-turn-repository-deps";
 import { protectedProcedure } from "../trpc";
 
 const SessionIdSchema = z.object({
@@ -63,21 +59,6 @@ const STARTING_POINT_OVERRIDE_LABEL: Record<StartingPointTier, string> = {
   skip_basics: "skipping the basics",
   advanced: "straight to the hard stuff",
 };
-
-const SubmitAiWorkspaceMessageSchema = z.object({
-  sessionId: z.string().uuid(),
-  message: z.string().min(1).max(8_000),
-  turnId: z.string().min(1).max(96),
-  attemptTiming: z
-    .object({
-      elapsedSeconds: z.number().int(),
-      timeLimitSeconds: z.number().int().positive(),
-      overrunSeconds: z.number().int().min(0),
-      wasOverTime: z.boolean(),
-      pausedSeconds: z.number().int().min(0).optional(),
-    })
-    .optional(),
-});
 
 const NodeSessionSchema = z.object({
   nodeId: z.string().uuid(),
@@ -604,37 +585,6 @@ export const trainingRouter = {
         return throwOnFailure<never>({ success: false, error: failure });
       }
       return result.data;
-    }),
-
-  submitAiWorkspaceMessage: protectedProcedure
-    .input(SubmitAiWorkspaceMessageSchema)
-    .mutation(async ({ ctx, input }) => {
-      await requireSessionOwner({ ctx, sessionId: input.sessionId });
-
-      try {
-        const result = await submitAiWorkspaceMessageWorkflow({
-          sessionId: input.sessionId,
-          userId: ctx.session.user.id,
-          message: input.message,
-          turnId: input.turnId,
-          deps: createWorkspaceTurnRepositoryDeps(ctx.db),
-          workspaceTurnRepoLayer: workspaceTurnRepoLayer(ctx.db),
-        });
-        if (result.success) return result.data;
-        if (result.error instanceof TRPCError) throw result.error;
-        return throwOnFailure<never>({
-          success: false,
-          error:
-            typeof result.error === "string"
-              ? result.error
-              : result.error.message,
-        });
-      } catch (error) {
-        if (error instanceof UnitNotReadyError) {
-          return raiseUnitPreparationError(error);
-        }
-        throw error;
-      }
     }),
 
   continueLearningProject: protectedProcedure

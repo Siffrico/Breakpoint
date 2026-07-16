@@ -369,11 +369,6 @@ export const createWorkspaceTurnRepositoryDeps = (
         db,
         ...payload,
       }),
-    listPhaseResponsesBySession: (sessionId: string) =>
-      trainingCurriculumRepository.listPhaseResponsesBySession({
-        db,
-        sessionId,
-      }),
     getPhaseResponses: (unitContentId: string, sessionId: string) =>
       trainingCurriculumRepository.getPhaseResponses({
         db,

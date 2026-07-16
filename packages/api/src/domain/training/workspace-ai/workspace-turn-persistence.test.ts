@@ -120,7 +120,6 @@ void test("saveUnitPhaseResult persists transitions and non-grading continuation
 
   const deps = {
     getPhaseResponses: () => Promise.resolve([]),
-    listPhaseResponsesBySession: () => Promise.resolve([]),
     listUnitMessages: () => Promise.resolve([]),
     getUnitRun: () => Promise.resolve(null),
     getInFlightRecallRun: () => Promise.resolve(null),

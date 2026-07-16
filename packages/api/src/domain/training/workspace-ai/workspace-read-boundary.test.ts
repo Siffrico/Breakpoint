@@ -91,7 +91,6 @@ const recallPresentation = {
 
 const recallDeps = (entryIds: string[] = [recallCandidate.id]) => ({
   getActivePlan: () => Promise.resolve(recallPlan),
-  listPhaseResponsesBySession: () => Promise.resolve([recallPresentation]),
   getPhaseResponses: (unitContentId: string) =>
     Promise.resolve(
       unitContentId === recallUnit.id
@@ -129,7 +128,7 @@ describe("workspace read preparation boundary", () => {
       deps: {
         getActivePlan: () => Promise.resolve(plan),
         listMessages: () => Promise.resolve([]),
-        listPhaseResponsesBySession: () => Promise.resolve([]),
+        listUnitMessages: () => Promise.resolve([]),
         getPhaseResponses: () => Promise.resolve([]),
         getUnitRun: () => Promise.resolve(null),
         getInFlightRecallRun: () => Promise.resolve(null),
@@ -162,7 +161,6 @@ describe("workspace read preparation boundary", () => {
         sessionId: "session-1",
         deps: {
           getActivePlan: () => Promise.resolve(plan),
-          listPhaseResponsesBySession: () => Promise.resolve([]),
           getPhaseResponses: () => Promise.resolve([]),
           getUnitRun: () => Promise.resolve(null),
           getInFlightRecallRun: () => Promise.resolve(null),
@@ -189,7 +187,6 @@ describe("workspace read preparation boundary", () => {
       sessionId: "session-1",
       deps: {
         getActivePlan: () => Promise.resolve(plan),
-        listPhaseResponsesBySession: () => Promise.resolve([]),
         getPhaseResponses: () => Promise.resolve([]),
         getUnitRun: () => Promise.resolve(null),
         getInFlightRecallRun: () => Promise.resolve(null),
@@ -232,7 +229,6 @@ describe("workspace read preparation boundary", () => {
       authorizedPlan: plan,
       deps: {
         getActivePlan,
-        listPhaseResponsesBySession: () => Promise.resolve([]),
         getPhaseResponses: () => Promise.resolve([]),
         getUnitRun: () => Promise.resolve(null),
         getInFlightRecallRun: () => Promise.resolve(null),
@@ -321,5 +317,134 @@ describe("durable recall projection", () => {
       recallUnitId: null,
       workflowId: "education-unit-v2",
     });
+  });
+});
+
+describe("workspace view reads", () => {
+  const unitMessage = (unitId: string, content: string) => ({
+    role: "assistant" as const,
+    content,
+    sequence: 0,
+    slot: "education_unit",
+    unitId,
+    turnId: null,
+    metadata: null,
+  });
+
+  it("reads only the active unit's transcript, never the whole session", async () => {
+    const listMessages = vi.fn().mockResolvedValue([]);
+    const listUnitMessages = vi
+      .fn()
+      .mockResolvedValue([unitMessage(readyNode.id, "Scenario prompt")]);
+
+    const result = await getAiWorkspaceWorkflow({
+      sessionId: "session-1",
+      deps: {
+        getActivePlan: () => Promise.resolve(recallPlan),
+        listMessages,
+        listUnitMessages,
+        getPhaseResponses: () => Promise.resolve([]),
+        getUnitRun: () => Promise.resolve(null),
+        getInFlightRecallRun: () => Promise.resolve(null),
+        retireInFlightRecallRun: () => Promise.resolve(),
+        getUnitByNodeId: () => Promise.resolve(activeUnit),
+        // Nothing decayed: the active unit is the live chat.
+        listRecallCandidates: () => Promise.resolve([]),
+        getScenarioAttemptStartedAt: () => Promise.resolve(null),
+      },
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.state).toMatchObject({
+        activeUnitId: readyNode.id,
+        recallUnitId: null,
+        educationStage: "orient",
+      });
+      expect(result.data.messages).toEqual([
+        unitMessage(readyNode.id, "Scenario prompt"),
+      ]);
+      expect(result.data.introMessage).toBeNull();
+    }
+    expect(listUnitMessages).toHaveBeenCalledWith("session-1", readyNode.id);
+    expect(listMessages).not.toHaveBeenCalled();
+  });
+
+  it("surfaces an in-flight recall with its transcript and intro", async () => {
+    const listMessages = vi.fn().mockResolvedValue([]);
+    const listUnitMessages = vi
+      .fn()
+      .mockImplementation((_sessionId: string, unitId: string) =>
+        Promise.resolve([unitMessage(unitId, `Chat for ${unitId}`)]),
+      );
+
+    const result = await getAiWorkspaceWorkflow({
+      sessionId: "session-1",
+      deps: {
+        ...recallDeps(),
+        listMessages,
+        listUnitMessages,
+        getScenarioAttemptStartedAt: () => Promise.resolve(null),
+      },
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.state).toMatchObject({
+        recallUnitId: completedNode.id,
+        activeUnitId: null,
+        workflowId: "recall-v1",
+        educationStage: "solve",
+      });
+      expect(result.data.messages).toEqual([
+        unitMessage(completedNode.id, `Chat for ${completedNode.id}`),
+      ]);
+      expect(result.data.introMessage).toMatchObject({ helper: "Recall" });
+      // A recall interlude has no scenario plan of its own.
+      expect(result.data.evaluationPlan).toBeNull();
+      expect(result.data.evaluationProgress).toBeNull();
+    }
+    expect(listUnitMessages).toHaveBeenCalledWith(
+      "session-1",
+      completedNode.id,
+    );
+    expect(listMessages).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the whole transcript when no turn is runnable", async () => {
+    const completedOnlyPlan = {
+      id: "plan-1",
+      nodes: [completedNode],
+    } as CurriculumPlan;
+    const listMessages = vi
+      .fn()
+      .mockResolvedValue([unitMessage(completedNode.id, "Earlier chat")]);
+    const listUnitMessages = vi.fn().mockResolvedValue([]);
+
+    const result = await getAiWorkspaceWorkflow({
+      sessionId: "session-1",
+      deps: {
+        getActivePlan: () => Promise.resolve(completedOnlyPlan),
+        listMessages,
+        listUnitMessages,
+        getPhaseResponses: () => Promise.resolve([]),
+        getUnitRun: () => Promise.resolve(null),
+        getInFlightRecallRun: () => Promise.resolve(null),
+        retireInFlightRecallRun: () => Promise.resolve(),
+        getUnitByNodeId: () => Promise.resolve(null),
+        listRecallCandidates: () => Promise.resolve([]),
+        getScenarioAttemptStartedAt: () => Promise.resolve(null),
+      },
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.state).toBeNull();
+      expect(result.data.messages).toEqual([
+        unitMessage(completedNode.id, "Earlier chat"),
+      ]);
+    }
+    expect(listMessages).toHaveBeenCalledWith("session-1", undefined);
+    expect(listUnitMessages).not.toHaveBeenCalled();
   });
 });
