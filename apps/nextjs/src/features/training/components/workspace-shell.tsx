@@ -254,8 +254,16 @@ export function WorkspaceShell({
         staleTime: Number.POSITIVE_INFINITY,
         refetchOnWindowFocus: false,
         retry: false,
-        refetchInterval: (query) =>
-          isUnitPreparingError(query.state.error) ? 60_000 : false,
+        refetchInterval: (query) => {
+          // An optimistic advance is waiting on background unit creation:
+          // poll tight so the thinking state resolves in seconds, not the
+          // relaxed UNIT_PREPARING cadence.
+          const data = query.state.data as
+            | TransitionalAiWorkspace
+            | undefined;
+          if (data?.pendingNextUnit) return 5_000;
+          return isUnitPreparingError(query.state.error) ? 60_000 : false;
+        },
       },
     ),
   );
@@ -512,6 +520,23 @@ export function WorkspaceShell({
           // The new unit is the live chat; selecting its real id would read as
           // a history selection until router.refresh catches fallbackActiveNodeId up.
           setSelectedChatId(null);
+        } else {
+          // Background creation is still generating the next unit: the temp
+          // entry has no real id to reconcile to and the projects refetch
+          // would drop it anyway — remove it now so the sidebar and the
+          // still-pending chat pane don't disagree in the meantime.
+          queryClient.setQueryData<LearningProject[]>(projectsKey, (current) =>
+            current?.map((project) =>
+              project.sessionId === selectedSessionId
+                ? {
+                    ...project,
+                    lessonPreview: project.lessonPreview.filter(
+                      (lesson) => lesson.id !== context.tempNodeId,
+                    ),
+                  }
+                : project,
+            ),
+          );
         }
         void queryClient.invalidateQueries({ queryKey: projectsKey });
         void queryClient.invalidateQueries({
