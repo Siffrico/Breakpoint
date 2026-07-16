@@ -32,6 +32,7 @@
     "@uploadthing/react": "^7.3.3",
     "ai": "^6.0.134",
     "better-auth": "catalog:",
+    "date-fns": "^4.4.0",
     "gsap": "^3.15.0",
     "katex": "^0.16.45",
     "motion": "^12.42.2",

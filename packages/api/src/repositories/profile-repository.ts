@@ -1,11 +1,12 @@
 import { Effect, Layer } from "effect";
 
-import { eq } from "@acme/db";
+import { and, eq, gte, sql } from "@acme/db";
 import {
   account,
   TrainingCurriculumPlan,
   TrainingIdentityProfile,
   TrainingIdentityProfileVersion,
+  TrainingUnitAttempt,
   user,
 } from "@acme/db/schema";
 
@@ -38,10 +39,38 @@ export const ProfileRepoLive = Layer.effect(
           // closure below, but keeps it for a local const.
           const currentVersionId = profile.currentVersionId;
 
-          const version = yield* query("getGeneralProfileVersion", (client) =>
-            client.query.TrainingIdentityProfileVersion.findFirst({
-              where: eq(TrainingIdentityProfileVersion.id, currentVersionId),
-            }),
+          const [version, unitActivity] = yield* query(
+            "getGeneralProfileDetails",
+            (client) =>
+              Promise.all([
+                client.query.TrainingIdentityProfileVersion.findFirst({
+                  where: eq(
+                    TrainingIdentityProfileVersion.id,
+                    currentVersionId,
+                  ),
+                }),
+                client
+                  .select({
+                    date: sql<string>`to_char(${TrainingUnitAttempt.createdAt} at time zone 'UTC', 'YYYY-MM-DD')`,
+                    count: sql<number>`count(*)::int`,
+                  })
+                  .from(TrainingUnitAttempt)
+                  .where(
+                    and(
+                      eq(TrainingUnitAttempt.onboardingSessionId, sessionId),
+                      gte(
+                        TrainingUnitAttempt.createdAt,
+                        sql`now() - interval '1 year'`,
+                      ),
+                    ),
+                  )
+                  .groupBy(
+                    sql`(${TrainingUnitAttempt.createdAt} at time zone 'UTC')::date`,
+                  )
+                  .orderBy(
+                    sql`(${TrainingUnitAttempt.createdAt} at time zone 'UTC')::date`,
+                  ),
+              ]),
           );
           if (!version) return null;
 
@@ -50,6 +79,7 @@ export const ProfileRepoLive = Layer.effect(
             targetIdentity: version.targetIdentity,
             motivation: version.motivation,
             hardMoments: version.hardMoments,
+            unitActivity,
           };
         }),
 

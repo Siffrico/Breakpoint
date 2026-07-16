@@ -13,6 +13,12 @@ export const previewProfileGeneral: ProfileGeneral = {
     "Scoping work when requirements are fuzzy",
     "Holding a tradeoff call under deadline pressure",
   ],
+  unitActivity: [
+    { date: "2026-05-12", count: 1 },
+    { date: "2026-05-14", count: 2 },
+    { date: "2026-05-19", count: 1 },
+    { date: "2026-05-20", count: 3 },
+  ],
 };
 
 export const previewProfileAccount: ProfileAccount = {
@@ -55,7 +61,8 @@ export const previewLearningProjects = [
 export const previewMemories = [
   {
     id: "mem-1",
-    content: "Prefers async-first workflows with written decisions over meetings.",
+    content:
+      "Prefers async-first workflows with written decisions over meetings.",
     source: "manual" as const,
     importId: null,
     createdAt: new Date("2026-03-28T10:00:00Z"),
@@ -72,7 +79,8 @@ export const previewMemories = [
   },
   {
     id: "mem-3",
-    content: "Freezes on ambiguous product asks; wants training under deadline pressure.",
+    content:
+      "Freezes on ambiguous product asks; wants training under deadline pressure.",
     source: "chatgpt_import" as const,
     importId: "imp-1",
     createdAt: new Date("2026-04-01T10:00:00Z"),

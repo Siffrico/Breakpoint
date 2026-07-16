@@ -12,6 +12,12 @@ export const ProfileGeneralSchema = z.object({
   hardMoments: z
     .array(z.string().min(1).max(PROFILE_MAX_HARD_MOMENT_CHARS))
     .max(PROFILE_MAX_HARD_MOMENTS),
+  unitActivity: z.array(
+    z.object({
+      date: z.string(),
+      count: z.number().int().nonnegative(),
+    }),
+  ),
 });
 
 export const ProfileAccountSchema = z.object({
@@ -26,7 +32,12 @@ export const ProfileBillingSchema = z.object({
   manageUrl: z.string().min(1).nullable(),
 });
 
-export const UpdateProfileGeneralInputSchema = ProfileGeneralSchema;
+export const UpdateProfileGeneralInputSchema = ProfileGeneralSchema.pick({
+  sessionId: true,
+  targetIdentity: true,
+  motivation: true,
+  hardMoments: true,
+});
 
 export type ProfileGeneral = z.infer<typeof ProfileGeneralSchema>;
 export type ProfileAccount = z.infer<typeof ProfileAccountSchema>;

@@ -7,7 +7,6 @@ import { useMutation } from "@tanstack/react-query";
 import type { RouterOutputs } from "@acme/api";
 import { Button } from "@acme/ui/button";
 import { Input } from "@acme/ui/input";
-import { Textarea } from "@acme/ui/textarea";
 import { toast } from "@acme/ui/toast";
 
 import { ProfileAvatar } from "~/features/settings/components/settings-avatar";
@@ -19,6 +18,7 @@ import {
   SettingsSection,
 } from "~/features/settings/components/settings-shell";
 import { useTRPC } from "~/trpc/react";
+import { LearningActivityCard } from "./learning-activity-card";
 
 type GeneralState = RouterOutputs["profile"]["getGeneral"];
 type AccountState = RouterOutputs["profile"]["getAccount"];
@@ -45,9 +45,6 @@ export function ProfilePanel({
   const [targetIdentity, setTargetIdentity] = useState(
     initialGeneral?.targetIdentity ?? "",
   );
-  const [motivation, setMotivation] = useState(
-    initialGeneral?.motivation ?? "",
-  );
   const [hardMoments, setHardMoments] = useState(
     initialGeneral?.hardMoments ?? [],
   );
@@ -58,7 +55,6 @@ export function ProfilePanel({
     // eslint-disable-next-line react-hooks/set-state-in-effect -- Server-provided profile data can change after navigation.
     setSavedGeneral(initialGeneral);
     setTargetIdentity(initialGeneral?.targetIdentity ?? "");
-    setMotivation(initialGeneral?.motivation ?? "");
     setHardMoments(initialGeneral?.hardMoments ?? []);
   }, [initialGeneral]);
 
@@ -66,9 +62,12 @@ export function ProfilePanel({
     trpc.profile.updateGeneral.mutationOptions({
       onSuccess: (updated) => {
         setError(null);
-        setSavedGeneral(updated);
+        setSavedGeneral((current) =>
+          current
+            ? { ...updated, unitActivity: current.unitActivity }
+            : current,
+        );
         setTargetIdentity(updated.targetIdentity);
-        setMotivation(updated.motivation);
         setHardMoments(updated.hardMoments);
         toast.success("Profile saved.");
       },
@@ -84,10 +83,9 @@ export function ProfilePanel({
 
     return (
       targetIdentity !== savedGeneral.targetIdentity ||
-      motivation !== savedGeneral.motivation ||
       hardMoments.join("\u0001") !== savedGeneral.hardMoments.join("\u0001")
     );
-  }, [hardMoments, motivation, savedGeneral, targetIdentity]);
+  }, [hardMoments, savedGeneral, targetIdentity]);
 
   const addHardMoment = () => {
     const nextMoment = hardMomentDraft.trim();
@@ -130,6 +128,10 @@ export function ProfilePanel({
         />
       </SettingsSection>
 
+      {savedGeneral ? (
+        <LearningActivityCard activity={savedGeneral.unitActivity} />
+      ) : null}
+
       <SettingsSection title="Training" radius="lg">
         {savedGeneral ? (
           <>
@@ -144,13 +146,6 @@ export function ProfilePanel({
                 />
               }
             />
-            <SettingField label="Motivation">
-              <Textarea
-                value={motivation}
-                onChange={(event) => setMotivation(event.target.value)}
-                placeholder="Why this identity matters right now."
-              />
-            </SettingField>
             <SettingField label="Hard moments">
               <div className="flex flex-wrap gap-2">
                 {hardMoments.length > 0 ? (
@@ -204,7 +199,7 @@ export function ProfilePanel({
                   updateGeneral.mutate({
                     sessionId: savedGeneral.sessionId,
                     targetIdentity,
-                    motivation,
+                    motivation: savedGeneral.motivation,
                     hardMoments,
                   });
                 }}
