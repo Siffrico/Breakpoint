@@ -28,7 +28,7 @@ import {
 } from "../../workspace-ai/fsm-tools";
 import { PhaseAgentOutputSchema } from "./output-schema";
 import { runPhaseAgent } from "./run-phase-agent";
-import { buildPhaseSystemPrompt } from "./system-prompt";
+import { STABLE_SYSTEM_PROMPT } from "./system-prompt";
 
 const SCENARIO_INSTRUCTION = `${FIRST_SCENARIO_GOAL}
 
@@ -128,17 +128,18 @@ enough that their attempt leaks their actual mental model.
 
 ${SCENARIO_DESIGN_CRITERIA}`;
 
-const SYSTEM = buildPhaseSystemPrompt(SCENARIO_INSTRUCTION);
-
 export const runScenarioAgent = (
   messages: ModelMessage[],
+  contextBlock: string,
   onPartialAssistantMessage?: (content: string) => void,
 ): Effect.Effect<PhaseAgentResult<PhaseAgentOutput>, PhaseAgentError> =>
   runPhaseAgent({
     purpose: "education",
     phase: "connect",
-    system: SYSTEM,
+    system: STABLE_SYSTEM_PROMPT,
     messages,
+    instruction: SCENARIO_INSTRUCTION,
+    contextBlock,
     schema: PhaseAgentOutputSchema,
     schemaName: "connect_output",
     tools: { continuePhase, gradeConnection, recordScenarioSpec },

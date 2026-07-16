@@ -1,4 +1,5 @@
 import type * as AiModule from "ai";
+import type { ModelMessage } from "ai";
 import { APICallError } from "ai";
 import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -30,6 +31,10 @@ const partialOutputs = async function* (values: readonly unknown[]) {
 const streamResult = (object: unknown, toolCalls: unknown[] = []) => ({
   output: Promise.resolve(object),
   toolCalls: Promise.resolve(toolCalls),
+  usage: Promise.resolve({
+    inputTokens: 120,
+    cachedInputTokens: 80,
+  }),
   partialOutputStream: partialOutputs([]),
 });
 
@@ -38,6 +43,8 @@ const baseInput = {
   phase: "orient" as const,
   system: "system prompt",
   messages: [{ role: "user" as const, content: "hi" }],
+  instruction: "Follow the phase instruction.",
+  contextBlock: "## Context\nTest context",
   schema,
   schemaName: "test_output",
   errorMessage: "Phase agent failed.",
@@ -62,6 +69,32 @@ describe("runPhaseAgent", () => {
       { toolName: "gradeConnection", input: { connected: true } },
     ]);
     expect(streamTextMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("appends the turn directive after the untouched transcript", async () => {
+    streamTextMock.mockReturnValueOnce(
+      streamResult({ assistantMessage: "hello" }),
+    );
+
+    await Effect.runPromise(runPhaseAgent(baseInput));
+
+    const call = streamTextMock.mock.calls[0]?.[0] as {
+      system?: string;
+      prompt: ModelMessage[];
+    };
+    expect(call.system).toBeUndefined();
+    expect(call.prompt.map(({ role, content }) => ({ role, content }))).toEqual(
+      [
+        { role: "system", content: "system prompt" },
+        { role: "user", content: "hi" },
+        {
+          role: "user",
+          content:
+            "## This turn\n\nFollow the phase instruction.\n\n## Unit context\n\n## Context\nTest context",
+        },
+      ],
+    );
+    expect(baseInput.messages).toEqual([{ role: "user", content: "hi" }]);
   });
 
   it("emits partial learner-facing messages before the structured result completes", async () => {
@@ -168,7 +201,7 @@ describe("runPhaseAgent", () => {
     expect(streamTextMock).toHaveBeenCalledTimes(1);
   });
 
-  it("repairs once on a schema failure by appending a corrective message", async () => {
+  it("repairs once by appending a corrective message after the directive", async () => {
     const schemaError = new Error("bad shape");
     schemaError.name = "TypeValidationError";
     streamTextMock
@@ -184,8 +217,38 @@ describe("runPhaseAgent", () => {
     const secondCallArgs = streamTextMock.mock.calls[1]?.[0] as {
       prompt: { role: string; content: string }[];
     };
-    expect(secondCallArgs.prompt).toHaveLength(2);
-    expect(secondCallArgs.prompt[1]?.role).toBe("user");
+    expect(secondCallArgs.prompt).toHaveLength(4);
+    expect(secondCallArgs.prompt[2]?.content).toContain("## This turn");
+    expect(secondCallArgs.prompt[3]?.content).toContain(
+      "Your previous response did not match",
+    );
+  });
+
+  it("keeps every shared prompt-prefix message deeply equal across turns", async () => {
+    streamTextMock
+      .mockReturnValueOnce(streamResult({ assistantMessage: "turn n" }))
+      .mockReturnValueOnce(
+        streamResult({ assistantMessage: "turn n plus one" }),
+      );
+
+    await Effect.runPromise(
+      runPhaseAgent({ ...baseInput, contextBlock: "context for turn N" }),
+    );
+    await Effect.runPromise(
+      runPhaseAgent({ ...baseInput, contextBlock: "context for turn N+1" }),
+    );
+
+    const firstPrompt = (
+      streamTextMock.mock.calls[0]?.[0] as { prompt: ModelMessage[] }
+    ).prompt;
+    const secondPrompt = (
+      streamTextMock.mock.calls[1]?.[0] as { prompt: ModelMessage[] }
+    ).prompt;
+    expect(firstPrompt).toHaveLength(secondPrompt.length);
+    for (let index = 0; index < firstPrompt.length - 1; index += 1) {
+      expect(secondPrompt[index]).toEqual(firstPrompt[index]);
+    }
+    expect(secondPrompt.at(-1)).not.toEqual(firstPrompt.at(-1));
   });
 
   it("fails with the tagged error once the schema repair budget is exhausted", async () => {

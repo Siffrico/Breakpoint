@@ -29,7 +29,7 @@ import {
 import { checkOffSyllabus } from "./check-off-syllabus.tool";
 import { PhaseAgentOutputSchema } from "./output-schema";
 import { runPhaseAgent } from "./run-phase-agent";
-import { buildPhaseSystemPrompt } from "./system-prompt";
+import { STABLE_SYSTEM_PROMPT } from "./system-prompt";
 
 const EVALUATOR_INSTRUCTION = `You are the EVALUATOR for the SOLVE beat. The learner has established the
 core connection (Connect passed) and must now produce a solution to the
@@ -87,17 +87,18 @@ your normal reply; the score travels on the gradeSolution tool call.
 
 ${ERROR_CLASSIFICATION_PROTOCOL}`;
 
-const SYSTEM = buildPhaseSystemPrompt(EVALUATOR_INSTRUCTION);
-
 export const runEvaluatorAgent = (
   messages: ModelMessage[],
+  contextBlock: string,
   onPartialAssistantMessage?: (content: string) => void,
 ): Effect.Effect<PhaseAgentResult<PhaseAgentOutput>, PhaseAgentError> =>
   runPhaseAgent({
     purpose: "education",
     phase: "solve",
-    system: SYSTEM,
+    system: STABLE_SYSTEM_PROMPT,
     messages,
+    instruction: EVALUATOR_INSTRUCTION,
+    contextBlock,
     schema: PhaseAgentOutputSchema,
     schemaName: "solve_output",
     tools: {

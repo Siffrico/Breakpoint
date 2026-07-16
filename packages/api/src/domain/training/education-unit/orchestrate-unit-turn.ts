@@ -89,6 +89,7 @@ export interface UnitTurnResult {
 export type UnitPhaseRunner = (
   state: UnitState,
   messages: ModelMessage[],
+  contextBlock: string,
   onPartialAssistantMessage?: (content: string) => void,
 ) => Effect.Effect<
   PhaseAgentResult<PhaseAgentOutput>,
@@ -102,20 +103,39 @@ export interface UnitTurnDependencies {
 const runPhaseForState: UnitPhaseRunner = (
   state: UnitState,
   messages: ModelMessage[],
+  contextBlock: string,
   onPartialAssistantMessage,
 ) => {
   switch (state.phase) {
     case "orient":
-      return runTeachAgent("orient", messages, onPartialAssistantMessage);
+      return runTeachAgent(
+        "orient",
+        messages,
+        contextBlock,
+        onPartialAssistantMessage,
+      );
     case "connect":
-      return runScenarioAgent(messages, onPartialAssistantMessage);
+      return runScenarioAgent(
+        messages,
+        contextBlock,
+        onPartialAssistantMessage,
+      );
     case "solve":
       // Every round's Solve is graded by the one evaluator; whether the score
       // reaches Goldilocks is the recipe's call (writesGoldilocks / ratingWrite),
       // never the agent's.
-      return runEvaluatorAgent(messages, onPartialAssistantMessage);
+      return runEvaluatorAgent(
+        messages,
+        contextBlock,
+        onPartialAssistantMessage,
+      );
     case "teach":
-      return runTeachAgent("seam", messages, onPartialAssistantMessage);
+      return runTeachAgent(
+        "seam",
+        messages,
+        contextBlock,
+        onPartialAssistantMessage,
+      );
     case "mastered":
       return Effect.fail(
         new EducationUnitContractError({
@@ -260,14 +280,12 @@ export const runUnitTurn = (
       );
     }
 
-    const messages: ModelMessage[] = [
-      { role: "user", content: contextBlock },
-      ...transcript,
-    ];
+    const messages: ModelMessage[] = [...transcript];
 
     const result = yield* dependencies.runPhase(
       state,
       messages,
+      contextBlock,
       input.onPartialAssistantMessage,
     );
     const parsedOutput = PhaseAgentOutputSchema.safeParse(result.object);

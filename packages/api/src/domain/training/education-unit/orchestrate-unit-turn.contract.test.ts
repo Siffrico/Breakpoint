@@ -157,7 +157,7 @@ describe("runUnitTurn contract", () => {
     expect(state).toMatchObject({ phase: "mastered", pass: 2 });
   });
 
-  it("prepends context and preserves transcript order", async () => {
+  it("passes context separately and preserves the transcript prefix", async () => {
     const transcript: ModelMessage[] = [
       { role: "assistant", content: "Earlier assistant message" },
       { role: "user", content: "Learner answer" },
@@ -179,10 +179,12 @@ describe("runUnitTurn contract", () => {
     );
 
     expect(runner).toHaveBeenCalledOnce();
-    expect(runner.mock.calls[0]?.[1]).toEqual([
-      { role: "user", content: "## Context\nFirst" },
-      ...transcript,
-    ]);
+    expect(runner.mock.calls[0]?.[1]).toEqual(transcript);
+    expect(runner.mock.calls[0]?.[2]).toBe("## Context\nFirst");
+    expect(transcript.at(-1)).toEqual({
+      role: "user",
+      content: "Learner answer",
+    });
   });
 
   it("keeps the canonical target skill when Teach paraphrases it", async () => {

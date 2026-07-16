@@ -3,6 +3,10 @@ import type { z } from "zod/v4";
 import { Output, smoothStream, stepCountIs, streamText } from "ai";
 
 import type { RunProfile } from "./run-profiles";
+import {
+  CACHE_CONTROL_PROVIDER_OPTIONS,
+  withCacheBreakpoints,
+} from "./prompt-cache";
 
 type StructuredModel = Parameters<typeof streamText>[0]["model"];
 
@@ -34,6 +38,7 @@ export const invokeStructuredModel = <TSchema extends z.ZodTypeAny>({
   tools,
   maxSteps,
   profile,
+  cache = false,
   smoothPartials = false,
   abortSignal,
 }: {
@@ -46,6 +51,7 @@ export const invokeStructuredModel = <TSchema extends z.ZodTypeAny>({
   maxSteps: number;
   /** Artifact agents pass their run profile; interactive turns omit it. */
   profile?: RunProfile;
+  cache?: boolean;
   /** Pace partial-output deltas for checkpoint streaming (resilient agent). */
   smoothPartials?: boolean;
   abortSignal?: AbortSignal;
@@ -56,8 +62,18 @@ export const invokeStructuredModel = <TSchema extends z.ZodTypeAny>({
   streamText({
     model,
     output: Output.object({ schema, name: schemaName }),
-    system,
-    prompt,
+    ...(cache && Array.isArray(prompt)
+      ? {
+          prompt: withCacheBreakpoints([
+            {
+              role: "system",
+              content: system,
+              providerOptions: CACHE_CONTROL_PROVIDER_OPTIONS,
+            },
+            ...prompt,
+          ]),
+        }
+      : { system, prompt }),
     tools,
     stopWhen: stepCountIs(maxSteps),
     abortSignal,

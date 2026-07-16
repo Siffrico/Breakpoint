@@ -24,7 +24,7 @@ import { ERROR_CLASSIFICATION_PROTOCOL } from "../../prompts/shared-instructions
 import { recordScenarioSpec } from "../../workspace-ai/fsm-tools";
 import { PhaseAgentOutputSchema } from "./output-schema";
 import { runPhaseAgent } from "./run-phase-agent";
-import { buildPhaseSystemPrompt } from "./system-prompt";
+import { STABLE_SYSTEM_PROMPT } from "./system-prompt";
 
 export type TeachBeat = "orient" | "seam";
 
@@ -165,20 +165,20 @@ This is a single response. There is nothing to grade yet.
 
 ${ERROR_CLASSIFICATION_PROTOCOL}`;
 
-const ORIENT_SYSTEM = buildPhaseSystemPrompt(ORIENT_INSTRUCTION);
-const SEAM_SYSTEM = buildPhaseSystemPrompt(SEAM_INSTRUCTION);
-
 export const runTeachAgent = (
   beat: TeachBeat,
   messages: ModelMessage[],
+  contextBlock: string,
   onPartialAssistantMessage?: (content: string) => void,
 ): Effect.Effect<PhaseAgentResult<PhaseAgentOutput>, PhaseAgentError> =>
   beat === "orient"
     ? runPhaseAgent({
         purpose: "education",
         phase: "orient",
-        system: ORIENT_SYSTEM,
+        system: STABLE_SYSTEM_PROMPT,
         messages,
+        instruction: ORIENT_INSTRUCTION,
+        contextBlock,
         schema: PhaseAgentOutputSchema,
         schemaName: "orient_output",
         errorMessage: "Failed to run the Orient step.",
@@ -187,8 +187,10 @@ export const runTeachAgent = (
     : runPhaseAgent({
         purpose: "education",
         phase: "teach",
-        system: SEAM_SYSTEM,
+        system: STABLE_SYSTEM_PROMPT,
         messages,
+        instruction: SEAM_INSTRUCTION,
+        contextBlock,
         schema: PhaseAgentOutputSchema,
         schemaName: "teach_output",
         tools: { recordScenarioSpec },
