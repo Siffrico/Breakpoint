@@ -687,6 +687,11 @@ function EducationUnitWorkspaceComponent({
   // gating (which reads "complete") must not lock the composer — the next
   // submit runs the recall checkpoint, not the finished unit.
   const recallIsLive = streamState?.recallUnitId != null;
+  // Enter-to-advance must never intercept a recall answer: the gate can be
+  // enabled (active unit mastered) while a recall interlude has the composer
+  // live, and it stays moot once the optimistic transition is pending.
+  const enterAdvancesUnit =
+    awaitingUnitAdvance && !recallIsLive && !awaitingNextUnitContent;
   const workspaceUnavailable = !preview && aiWorkspace == null;
   const missingTranscriptForResumedUnit =
     !preview &&
@@ -1010,7 +1015,7 @@ function EducationUnitWorkspaceComponent({
           isRunning={effectiveIsRunning}
           textareaRef={composerTextareaRef}
           placeholder={composerPlaceholder}
-          awaitingUnitAdvance={awaitingUnitAdvance}
+          awaitingUnitAdvance={enterAdvancesUnit}
           onAdvanceUnit={onAdvanceUnit}
         />
         <div className="mt-2.5 flex items-center justify-end">
@@ -1034,7 +1039,7 @@ function EducationUnitWorkspaceComponent({
       placeholder={composerPlaceholder}
       canSubmit={Boolean(response.trim()) && canCompose}
       isSubmitting={effectiveIsRunning}
-      awaitingUnitAdvance={awaitingUnitAdvance}
+      awaitingUnitAdvance={enterAdvancesUnit}
       onAdvanceUnit={onAdvanceUnit}
       onChange={setResponse}
       onClose={() => setIsExpanded(false)}
