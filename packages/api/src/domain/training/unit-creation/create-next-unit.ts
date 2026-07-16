@@ -138,10 +138,12 @@ export type CreateNextUnitError =
   | SyllabusTargetsMissingError;
 
 /**
- * Takes a skill frontier, produces its open or newly created unit, and fails
- * only when the skill is missing or its database/scaffold preparation fails.
+ * The node-only half of unit creation: resolves or appends the frontier unit
+ * row without generating content. Kept separate so callers that must not hold
+ * a lock or transaction across the LLM call (pre-generation) can create the
+ * node quickly and run content preparation afterwards.
  */
-export const createNextUnit = <TNode extends { id: string }>({
+export const createNextUnitNode = <TNode extends { id: string }>({
   clusterNodeId,
   complexityBudget = 2,
   status = "ready",
@@ -151,7 +153,10 @@ export const createNextUnit = <TNode extends { id: string }>({
   complexityBudget?: 1 | 2 | 3;
   status?: "planned" | "ready";
   deps: CreateNextUnitDependencies<TNode>;
-}): Effect.Effect<TNode | null, CreateNextUnitError> =>
+}): Effect.Effect<
+  { node: TNode; needsContent: boolean },
+  CreateNextUnitError
+> =>
   Effect.gen(function* () {
     const skill = yield* deps.loadSkill(clusterNodeId, status);
     if (!skill) {
@@ -159,8 +164,7 @@ export const createNextUnit = <TNode extends { id: string }>({
     }
     if (skill.openUnit) {
       const hasContent = yield* deps.hasUnitContent(skill.openUnit.id);
-      if (!hasContent) yield* deps.prepareUnitEffect(skill.openUnit);
-      return skill.openUnit;
+      return { node: skill.openUnit, needsContent: !hasContent };
     }
 
     const targets = selectCreationTargets(skill.entries, complexityBudget);
@@ -177,6 +181,31 @@ export const createNextUnit = <TNode extends { id: string }>({
       targetEntryIds: targets.map((entry) => entry.id),
       status,
     });
-    if (persisted.created) yield* deps.prepareUnitEffect(persisted.node);
-    return persisted.node;
+    return { node: persisted.node, needsContent: persisted.created };
+  });
+
+/**
+ * Takes a skill frontier, produces its open or newly created unit, and fails
+ * only when the skill is missing or its database/scaffold preparation fails.
+ */
+export const createNextUnit = <TNode extends { id: string }>({
+  clusterNodeId,
+  complexityBudget = 2,
+  status = "ready",
+  deps,
+}: {
+  clusterNodeId: string;
+  complexityBudget?: 1 | 2 | 3;
+  status?: "planned" | "ready";
+  deps: CreateNextUnitDependencies<TNode>;
+}): Effect.Effect<TNode | null, CreateNextUnitError> =>
+  Effect.gen(function* () {
+    const created = yield* createNextUnitNode({
+      clusterNodeId,
+      complexityBudget,
+      status,
+      deps,
+    });
+    if (created.needsContent) yield* deps.prepareUnitEffect(created.node);
+    return created.node;
   });

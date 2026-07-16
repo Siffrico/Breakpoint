@@ -13,7 +13,7 @@ import type {
 } from "./domain/training/workspace-ai/types";
 import { withAiModelPreference } from "./domain/training/engine/model-router";
 import { WorkspaceUserError } from "./domain/training/errors";
-import { createNextUnit } from "./domain/training/unit-creation/create-next-unit";
+import { createNextUnitNode } from "./domain/training/unit-creation/create-next-unit";
 import { pregenerateNextUnit } from "./domain/training/unit-creation/pregenerate-next-unit";
 import { createAssistantTextStreamer } from "./domain/training/workspace-ai/assistant-text-streamer";
 import { resolveWorkspaceTurn } from "./domain/training/workspace-ai/workspace-turn";
@@ -108,6 +108,11 @@ const getEducationWritingLabel = (
       return "Writing feedback";
   }
 };
+
+/** The node row unit creation works with — pins pregen's generic parameter. */
+type UnitCreationNode = Parameters<
+  ReturnType<typeof createUnitCreationRepositoryDeps>["prepareUnitEffect"]
+>[0];
 
 export const streamWorkspaceChat = async ({
   db,
@@ -210,7 +215,7 @@ const streamWorkspaceChatWithModelPreference = async ({
           clusterNodeId: string;
         }) =>
           Effect.runPromise(
-            pregenerateNextUnit({
+            pregenerateNextUnit<UnitCreationNode>({
               ...input,
               deps: {
                 withLock: ({ sessionId: lockedSessionId, key, run }) =>
@@ -268,13 +273,15 @@ const streamWorkspaceChatWithModelPreference = async ({
                                   userId,
                                 }),
                             ),
-                          createUnit: ({
+                          // Node row only — the transaction (and the advance
+                          // lock it holds) must commit before any LLM call.
+                          createUnitNode: ({
                             clusterNodeId,
                             sessionId,
                             userId,
                             status,
                           }) =>
-                            createNextUnit({
+                            createNextUnitNode({
                               clusterNodeId,
                               status,
                               deps: createUnitCreationRepositoryDeps({
@@ -287,6 +294,15 @@ const streamWorkspaceChatWithModelPreference = async ({
                       );
                     }),
                   ),
+                // Unlocked, non-transactional: the seed generation runs after
+                // the planned node committed, so a Next Unit press never
+                // queues behind the model call.
+                prepareUnit: (node) =>
+                  createUnitCreationRepositoryDeps({
+                    db,
+                    sessionId: input.sessionId,
+                    userId: input.userId,
+                  }).prepareUnitEffect(node),
               },
             }),
           ),

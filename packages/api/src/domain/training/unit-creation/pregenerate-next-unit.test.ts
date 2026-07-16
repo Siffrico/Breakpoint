@@ -13,29 +13,70 @@ const foundationNeedsUnit = {
   coverageTarget: 3,
 };
 
-describe("pregenerateNextUnit", () => {
-  it("uses the advance lock and delegates idempotent planned creation", async () => {
-    const lockInputs: { sessionId: string; key: string }[] = [];
-    let exists = false;
-    let creationCount = 0;
-    const persistCreation = vi.fn(() =>
-      Effect.sync(() => {
-        if (!exists) {
-          exists = true;
-          creationCount += 1;
-        }
-      }),
-    );
-    const deps: PregenerateNextUnitDependencies = {
-      withLock: ({ sessionId, key, run }) => {
-        lockInputs.push({ sessionId, key });
-        return run({
-          isAwaitingUnitAdvance: () => Effect.succeed(true),
-          getProgressionState: () => Effect.succeed(foundationNeedsUnit),
-          createUnit: persistCreation,
+interface TestNode {
+  id: string;
+}
+
+const makeDeps = ({
+  events,
+  needsContent,
+  progressionState = foundationNeedsUnit,
+  isAwaitingAdvance = true,
+}: {
+  events: string[];
+  needsContent: () => boolean;
+  progressionState?: typeof foundationNeedsUnit | null;
+  isAwaitingAdvance?: boolean;
+}): {
+  deps: PregenerateNextUnitDependencies<TestNode>;
+  createUnitNode: ReturnType<typeof vi.fn>;
+  prepareUnit: ReturnType<typeof vi.fn>;
+  lockInputs: { sessionId: string; key: string }[];
+} => {
+  const lockInputs: { sessionId: string; key: string }[] = [];
+  const createUnitNode = vi.fn(() =>
+    Effect.sync(() => {
+      events.push("createUnitNode");
+      return { node: { id: "node-planned" }, needsContent: needsContent() };
+    }),
+  );
+  const prepareUnit = vi.fn(() =>
+    Effect.sync(() => {
+      events.push("prepareUnit");
+    }),
+  );
+  const deps: PregenerateNextUnitDependencies<TestNode> = {
+    withLock: ({ sessionId, key, run }) => {
+      lockInputs.push({ sessionId, key });
+      return Effect.gen(function* () {
+        events.push("lock:acquired");
+        const result = yield* run({
+          isAwaitingUnitAdvance: () => Effect.succeed(isAwaitingAdvance),
+          getProgressionState: () => Effect.succeed(progressionState),
+          createUnitNode,
         });
+        events.push("lock:released");
+        return result;
+      });
+    },
+    prepareUnit,
+  };
+  return { deps, createUnitNode, prepareUnit, lockInputs };
+};
+
+describe("pregenerateNextUnit", () => {
+  it("creates the planned node under the lock and generates content after release", async () => {
+    const events: string[] = [];
+    let exists = false;
+    const { deps, createUnitNode, prepareUnit, lockInputs } = makeDeps({
+      events,
+      // First run creates the node; the rerun finds it already prepared.
+      needsContent: () => {
+        const created = !exists;
+        exists = true;
+        return created;
       },
-    };
+    });
 
     await Effect.runPromise(
       pregenerateNextUnit({
@@ -45,76 +86,80 @@ describe("pregenerateNextUnit", () => {
         deps,
       }),
     );
-    await Effect.runPromise(
-      pregenerateNextUnit({
-        sessionId: "session-1",
-        userId: "user-1",
-        clusterNodeId: "cluster-1",
-        deps,
-      }),
-    );
 
+    // The LLM call must never run while the advance lock is held.
+    expect(events).toEqual([
+      "lock:acquired",
+      "createUnitNode",
+      "lock:released",
+      "prepareUnit",
+    ]);
     expect(lockInputs).toEqual([
       { sessionId: "session-1", key: ADVANCE_COMPLETED_UNIT_LOCK_KEY },
-      { sessionId: "session-1", key: ADVANCE_COMPLETED_UNIT_LOCK_KEY },
     ]);
-    expect(persistCreation).toHaveBeenCalledTimes(2);
-    expect(persistCreation).toHaveBeenLastCalledWith({
+    expect(createUnitNode).toHaveBeenCalledWith({
       clusterNodeId: "cluster-1",
       sessionId: "session-1",
       userId: "user-1",
       status: "planned",
     });
-    expect(exists).toBe(true);
-    expect(creationCount).toBe(1);
+    expect(prepareUnit).toHaveBeenCalledWith({ id: "node-planned" });
+
+    await Effect.runPromise(
+      pregenerateNextUnit({
+        sessionId: "session-1",
+        userId: "user-1",
+        clusterNodeId: "cluster-1",
+        deps,
+      }),
+    );
+    // Idempotent rerun: node already has content, no second generation.
+    expect(prepareUnit).toHaveBeenCalledTimes(1);
   });
 
   it("does nothing when mastery completes the parent node", async () => {
-    const createUnit = vi.fn(() => Effect.void);
+    const events: string[] = [];
+    const { deps, createUnitNode, prepareUnit } = makeDeps({
+      events,
+      needsContent: () => true,
+      progressionState: {
+        regime: "foundation" as const,
+        entries: [{ coverageCount: 3 }],
+        coverageTarget: 3,
+      },
+    });
 
     await Effect.runPromise(
       pregenerateNextUnit({
         sessionId: "session-1",
         userId: "user-1",
         clusterNodeId: "cluster-1",
-        deps: {
-          withLock: ({ run }) =>
-            run({
-              isAwaitingUnitAdvance: () => Effect.succeed(true),
-              getProgressionState: () =>
-                Effect.succeed({
-                  regime: "foundation" as const,
-                  entries: [{ coverageCount: 3 }],
-                  coverageTarget: 3,
-                }),
-              createUnit,
-            }),
-        },
+        deps,
       }),
     );
 
-    expect(createUnit).not.toHaveBeenCalled();
+    expect(createUnitNode).not.toHaveBeenCalled();
+    expect(prepareUnit).not.toHaveBeenCalled();
   });
 
   it("does nothing when the real advance wins the lock", async () => {
-    const createUnit = vi.fn(() => Effect.void);
+    const events: string[] = [];
+    const { deps, createUnitNode, prepareUnit } = makeDeps({
+      events,
+      needsContent: () => true,
+      isAwaitingAdvance: false,
+    });
 
     await Effect.runPromise(
       pregenerateNextUnit({
         sessionId: "session-1",
         userId: "user-1",
         clusterNodeId: "cluster-1",
-        deps: {
-          withLock: ({ run }) =>
-            run({
-              isAwaitingUnitAdvance: () => Effect.succeed(false),
-              getProgressionState: () => Effect.succeed(foundationNeedsUnit),
-              createUnit,
-            }),
-        },
+        deps,
       }),
     );
 
-    expect(createUnit).not.toHaveBeenCalled();
+    expect(createUnitNode).not.toHaveBeenCalled();
+    expect(prepareUnit).not.toHaveBeenCalled();
   });
 });

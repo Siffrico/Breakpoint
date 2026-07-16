@@ -165,9 +165,9 @@ export const advanceCompletedUnitWorkflow = async ({
     }
   }
 
-  let nextReadyNode: CurriculumNode | null = null;
+  let promoted: { node: CurriculumNode; hadContent: boolean } | null = null;
   try {
-    nextReadyNode = await deps.withTransaction(async (tx) => {
+    promoted = await deps.withTransaction(async (tx) => {
       const plan = await tx.getActivePlan(sessionId);
       const node = plan?.nodes.find((item) => item.id === nodeId) ?? null;
       const unit = node ? await tx.getUnitByNodeId(node.id) : null;
@@ -185,26 +185,36 @@ export const advanceCompletedUnitWorkflow = async ({
                 candidate.status === "planned",
             ) ?? null)
           : null;
+      // Promote even when pre-generation hasn't landed content yet: a planned
+      // node left behind would be invisible to the ready-scoped fallback,
+      // which would then append a duplicate. Promoting it lets the fallback
+      // adopt it as the open ready unit and prepare its content.
+      if (plannedSibling) await tx.markNodeReady(plannedSibling.id);
       const plannedContent = plannedSibling
         ? await tx.getUnitByNodeId(plannedSibling.id)
         : null;
-      if (plannedSibling && plannedContent) {
-        await tx.markNodeReady(plannedSibling.id);
-      }
       await tx.touchSession(sessionId);
-      return plannedSibling && plannedContent
-        ? { ...plannedSibling, status: "ready" as const }
+      return plannedSibling
+        ? {
+            node: { ...plannedSibling, status: "ready" as const },
+            hadContent: plannedContent != null,
+          }
         : null;
     });
   } catch (error) {
     return err(error instanceof Error ? error.message : "Unit cannot advance.");
   }
+  const nextReadyNode = promoted?.node ?? null;
 
   if (progression) {
     const { clusterNodeId, userId, decision } = progression;
+    const promotedHadContent = promoted?.hadContent ?? false;
     const createNextUnitTask = Effect.gen(function* () {
       if (decision.intent === "create_unit") {
-        if (nextReadyNode) return;
+        // Fully prepared by pre-generation — nothing left to create. A
+        // promoted-but-contentless node still needs createUnit, which finds
+        // it as the open ready unit and generates its content.
+        if (promotedHadContent) return;
         yield* deps.createUnit({
           clusterNodeId,
           sessionId,

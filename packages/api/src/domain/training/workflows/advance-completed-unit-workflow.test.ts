@@ -257,7 +257,7 @@ describe("advanceCompletedUnitWorkflow", () => {
     expect(createUnit).not.toHaveBeenCalled();
   });
 
-  it("keeps background creation as the fallback when planned content is missing", async () => {
+  it("promotes a contentless planned sibling and lets background creation prepare it", async () => {
     const plannedNode = {
       ...nextNode,
       status: "planned",
@@ -294,11 +294,16 @@ describe("advanceCompletedUnitWorkflow", () => {
       },
     });
 
+    // Promoted so the ready-scoped fallback adopts it instead of appending a
+    // duplicate; createUnit still runs to generate the missing content.
     await vi.waitFor(() => expect(createUnit).toHaveBeenCalledOnce());
     expect(result).toEqual({
       success: true,
-      data: { advanced: true, nextReadyNode: null },
+      data: {
+        advanced: true,
+        nextReadyNode: { ...plannedNode, status: "ready" },
+      },
     });
-    expect(markNodeReady).not.toHaveBeenCalled();
+    expect(markNodeReady).toHaveBeenCalledWith(plannedNode.id);
   });
 });
