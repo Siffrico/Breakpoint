@@ -238,11 +238,13 @@ export const loadPlannedRecall = ({
   plan,
   active,
   inFlightRun,
+  repairStaleRun,
 }: {
   sessionId: string;
   plan: CurriculumPlan;
   active: NextReadyUnitProjection;
   inFlightRun: PersistedUnitRun | null;
+  repairStaleRun: boolean;
 }): EffectType.Effect<
   PlannedRecall | null,
   DbError,
@@ -270,21 +272,25 @@ export const loadPlannedRecall = ({
         candidates,
       });
       if (resumed) return resumed;
-      yield* Effect.logWarning("Retiring a stale in-flight recall run.", {
-        sessionId,
-        unitContentId: inFlightRun.unitId,
-      });
-      // Best-effort self-healing: a failed retirement must not block the turn
-      // — the stale run simply gets retried on the next resolution.
-      yield* reader.retireInFlightRecallRun(sessionId, inFlightRun.unitId).pipe(
-        Effect.catch((cause) =>
-          Effect.logError("Stale recall retirement failed.", {
-            cause,
-            sessionId,
-            unitContentId: inFlightRun.unitId,
-          }),
-        ),
-      );
+      if (repairStaleRun) {
+        yield* Effect.logWarning("Retiring a stale in-flight recall run.", {
+          sessionId,
+          unitContentId: inFlightRun.unitId,
+        });
+        // Best-effort self-healing: a failed retirement must not block the turn
+        // — the stale run simply gets retried on the next resolution.
+        yield* reader
+          .retireInFlightRecallRun(sessionId, inFlightRun.unitId)
+          .pipe(
+            Effect.catch((cause) =>
+              Effect.logError("Stale recall retirement failed.", {
+                cause,
+                sessionId,
+                unitContentId: inFlightRun.unitId,
+              }),
+            ),
+          );
+      }
     }
 
     if (
@@ -428,6 +434,7 @@ export const resolveWorkspaceTurnEffect = ({
       plan,
       active,
       inFlightRun,
+      repairStaleRun: true,
     });
 
     const state = planWorkspaceTurn({
@@ -544,6 +551,7 @@ export const planNextWorkspaceTurn = async ({
         plan,
         active,
         inFlightRun,
+        repairStaleRun: true,
       });
       return planWorkspaceTurn({
         nodes: plan.nodes,

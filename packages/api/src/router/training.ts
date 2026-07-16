@@ -569,13 +569,11 @@ export const trainingRouter = {
   aiWorkspace: protectedProcedure
     .input(SessionIdSchema)
     .query(async ({ ctx, input }) => {
-      const [result] = await Promise.all([
-        getAiWorkspaceWorkflow({
-          sessionId: input.sessionId,
-          deps: createGetAiWorkspaceDependencies(ctx.db, ctx.session.user.id),
-        }),
-        requireSessionOwner({ ctx, sessionId: input.sessionId }),
-      ]);
+      await requireSessionOwner({ ctx, sessionId: input.sessionId });
+      const result = await getAiWorkspaceWorkflow({
+        sessionId: input.sessionId,
+        deps: createGetAiWorkspaceDependencies(ctx.db, ctx.session.user.id),
+      });
       if (!result.success) {
         const failure = result.error;
         if (failure instanceof UnitNotReadyError) {

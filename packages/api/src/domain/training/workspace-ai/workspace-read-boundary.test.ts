@@ -411,6 +411,30 @@ describe("workspace view reads", () => {
     expect(listMessages).not.toHaveBeenCalled();
   });
 
+  it("does not repair stale recall state from the read workflow", async () => {
+    const deps = {
+      ...recallDeps(["deleted-entry"]),
+      listRecallCandidates: () => Promise.resolve([]),
+      listMessages: () => Promise.resolve([]),
+      listUnitMessages: () => Promise.resolve([]),
+      getScenarioAttemptStartedAt: () => Promise.resolve(null),
+    };
+
+    const result = await getAiWorkspaceWorkflow({
+      sessionId: "session-1",
+      deps,
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.state).toMatchObject({
+        activeUnitId: readyNode.id,
+        recallUnitId: null,
+      });
+    }
+    expect(deps.retireInFlightRecallRun).not.toHaveBeenCalled();
+  });
+
   it("falls back to the whole transcript when no turn is runnable", async () => {
     const completedOnlyPlan = {
       id: "plan-1",

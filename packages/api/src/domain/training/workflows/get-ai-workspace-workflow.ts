@@ -107,7 +107,13 @@ export const getAiWorkspaceWorkflowEffect = ({
     const [plannedRecall, activeUnitMessages, attemptStartedAt] =
       yield* Effect.all(
         [
-          loadPlannedRecall({ sessionId, plan, active, inFlightRun }),
+          loadPlannedRecall({
+            sessionId,
+            plan,
+            active,
+            inFlightRun,
+            repairStaleRun: false,
+          }),
           active.node
             ? displayReader.listUnitMessages(sessionId, active.node.id)
             : Effect.succeed<WorkspaceAiMessage[]>([]),
