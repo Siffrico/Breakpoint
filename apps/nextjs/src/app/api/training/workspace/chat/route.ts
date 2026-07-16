@@ -29,9 +29,7 @@ const resolveModelPreference = (req: NextRequest, model?: string) => {
 
 const getTextFromMessage = (message: UIMessage) =>
   message.parts
-    .filter(isTextUIPart)
-    .map((part) => part.text)
-    .join("")
+    .reduce((text, part) => (isTextUIPart(part) ? text + part.text : text), "")
     .trim();
 
 const resolveSubmittedMessage = (body: WorkspaceChatRequestBody) => {

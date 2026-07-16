@@ -540,3 +540,18 @@
 @theme inline {
   --color-destructive-foreground: var(--destructive-foreground);
 }
+
+/* Accessibility: honor the user's OS-level "reduce motion" setting (WCAG 2.3.3).
+   Neutralizes CSS transitions/animations and smooth scrolling for everyone who
+   asks for it; JS-driven animation (Motion, GSAP) should additionally guard on
+   `useReducedMotion()` / `usePrefersReducedMotion()` at its call sites. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

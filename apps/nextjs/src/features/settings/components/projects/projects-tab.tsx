@@ -30,12 +30,12 @@ import { useTRPC } from "~/trpc/react";
 type LearningProject =
   RouterOutputs["training"]["listLearningProjects"][number];
 
-const formatUpdatedAt = (updatedAt: Date) =>
-  new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(updatedAt);
+const UPDATED_AT_FORMAT = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+});
+const formatUpdatedAt = (updatedAt: Date) => UPDATED_AT_FORMAT.format(updatedAt);
 
 const LAST_SESSION_COOKIE = "bp-last-learning-session";
 const MAX_MARKDOWN_CHARS = 120_000;
@@ -153,6 +153,9 @@ export function ProjectsTab({
           currentSessionId === sessionId ||
           readCookie(LAST_SESSION_COOKIE) === sessionId
         ) {
+          // Non-sensitive "last opened session" breadcrumb, not an auth secret;
+          // it must stay client-readable (see readCookie above), so it is
+          // deliberately not httpOnly. This line clears it.
           document.cookie = `${LAST_SESSION_COOKIE}=; path=/; max-age=0; SameSite=Lax`;
           router.refresh();
         }

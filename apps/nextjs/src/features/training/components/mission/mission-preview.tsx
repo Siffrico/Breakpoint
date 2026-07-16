@@ -3,10 +3,9 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ArrowRight } from "@phosphor-icons/react";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, domMax, LazyMotion, m } from "motion/react";
 
 import type { MissionPlan, MissionSpec } from "@acme/validators";
-
 import { Button } from "@acme/ui/button";
 
 import { missionMotion } from "./animation";
@@ -69,22 +68,23 @@ export function MissionPreview() {
   const [sent, setSent] = useState(false);
 
   return (
-    <main className="bp-site min-h-dvh w-full">
-      <AnimatePresence mode="wait" initial={false}>
-        <motion.div
-          key={sent ? "done" : page}
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -6 }}
-          transition={missionMotion}
-          className={
-            page === "pick"
-              ? "mx-auto w-full max-w-[560px] px-6 py-16"
-              : "flex min-h-dvh flex-col"
-          }
-        >
-          {page === "pick" ? (
-            <>
+    <LazyMotion features={domMax}>
+      <main className="bp-site min-h-dvh w-full">
+        <AnimatePresence mode="wait" initial={false}>
+          <m.div
+            key={sent ? "done" : page}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={missionMotion}
+            className={
+              page === "pick"
+                ? "mx-auto w-full max-w-[560px] px-6 py-16"
+                : "flex min-h-dvh flex-col"
+            }
+          >
+            {page === "pick" ? (
+              <>
                 <h1 className="text-[25px] leading-[1.2] font-medium tracking-[-0.02em] text-[var(--site-fg)]">
                   Missions:
                 </h1>
@@ -98,7 +98,7 @@ export function MissionPreview() {
                         type="button"
                         aria-pressed={isSelected}
                         onClick={() => setSelected(mission)}
-                        className={`bg-card w-full rounded-lg border px-5 py-4 text-left text-[14px] leading-relaxed outline-none transition-colors ${
+                        className={`bg-card w-full rounded-lg border px-5 py-4 text-left text-[14px] leading-relaxed transition-colors outline-none ${
                           isSelected
                             ? "border-[var(--site-line-strong)] text-[var(--site-fg)]"
                             : "border-border text-[var(--site-text-2)] hover:text-[var(--site-fg)]"
@@ -123,7 +123,7 @@ export function MissionPreview() {
                   <button
                     type="button"
                     onClick={() => setConsultOpen(true)}
-                    className="text-[14px] text-[var(--site-text-2)] underline underline-offset-[3px] outline-none transition-colors hover:text-[var(--site-fg)]"
+                    className="text-[14px] text-[var(--site-text-2)] underline underline-offset-[3px] transition-colors outline-none hover:text-[var(--site-fg)]"
                   >
                     something else
                   </button>
@@ -138,7 +138,7 @@ export function MissionPreview() {
                   Eval judgment has been mastered.{" "}
                   <Link
                     href="/workspace"
-                    className="inline-flex items-center gap-1 text-[var(--site-fg)] underline underline-offset-[3px] outline-none transition-opacity hover:opacity-80"
+                    className="inline-flex items-center gap-1 text-[var(--site-fg)] underline underline-offset-[3px] transition-opacity outline-none hover:opacity-80"
                   >
                     move on to next
                     <ArrowRight className="size-3.5" />
@@ -161,14 +161,15 @@ export function MissionPreview() {
                 </div>
               </>
             ) : null}
-          </motion.div>
+          </m.div>
         </AnimatePresence>
 
-      <ConsultSheet
-        open={consultOpen}
-        onClose={() => setConsultOpen(false)}
-        onSend={() => setConsultOpen(false)}
-      />
-    </main>
+        <ConsultSheet
+          open={consultOpen}
+          onClose={() => setConsultOpen(false)}
+          onSend={() => setConsultOpen(false)}
+        />
+      </main>
+    </LazyMotion>
   );
 }

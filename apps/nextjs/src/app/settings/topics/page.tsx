@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 
 import { ProjectsTab } from "~/features/settings/components/projects/projects-tab";
 import { listLearningProjects } from "~/features/settings/server/settings-queries";
@@ -11,5 +12,9 @@ export const metadata: Metadata = {
 export default async function SettingsTopicsPage() {
   const projects = await listLearningProjects();
 
-  return <ProjectsTab initialProjects={projects} />;
+  return (
+    <Suspense fallback={null}>
+      <ProjectsTab initialProjects={projects} />
+    </Suspense>
+  );
 }

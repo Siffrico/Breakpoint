@@ -63,6 +63,9 @@ export function NotionComposer({
     if (!open) return;
     const root = editorRef.current;
     if (!root) return;
+    // `markdownToHtml` HTML-escapes all input, then emits only a fixed,
+    // attribute-free tag whitelist (headings, p, lists, strong/em/code,
+    // blockquote) — no href/event handlers/scripts — so it cannot inject.
     const seedHtml = markdownToHtml(initialMarkdown);
     root.innerHTML = seedHtml || "<p><br></p>";
     ensureEditorHasBlock(root);

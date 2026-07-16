@@ -108,6 +108,15 @@ const Cubes: React.FC<CubesProps> = ({
     [radius, maxAngle, enterDur, leaveDur, easing]
   );
 
+  // Keep the sim loop pinned to the latest `tiltAt` without listing it as an
+  // effect dependency — otherwise the requestAnimationFrame loop below tears
+  // down and restarts every time a tilt-related prop changes. (Equivalent to
+  // `useEffectEvent`, which isn't exported in this React 19.1 build.)
+  const tiltAtRef = useRef(tiltAt);
+  useEffect(() => {
+    tiltAtRef.current = tiltAt;
+  }, [tiltAt]);
+
   const onPointerMove = useCallback(
     (e: PointerEvent) => {
       userActiveRef.current = true;
@@ -251,7 +260,7 @@ const Cubes: React.FC<CubesProps> = ({
         const tgt = simTargetRef.current;
         pos.x += (tgt.x - pos.x) * speed;
         pos.y += (tgt.y - pos.y) * speed;
-        tiltAt(pos.y, pos.x);
+        tiltAtRef.current(pos.y, pos.x);
         if (Math.hypot(pos.x - tgt.x, pos.y - tgt.y) < 0.1) {
           simTargetRef.current = {
             x: Math.random() * cols,
@@ -267,7 +276,7 @@ const Cubes: React.FC<CubesProps> = ({
         cancelAnimationFrame(simRAFRef.current);
       }
     };
-  }, [autoAnimate, cols, rows, tiltAt]);
+  }, [autoAnimate, cols, rows]);
 
   useEffect(() => {
     const el = sceneRef.current;

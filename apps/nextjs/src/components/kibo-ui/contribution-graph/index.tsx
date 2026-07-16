@@ -251,7 +251,10 @@ export const ContributionGraph = ({
   const weeks = useMemo(() => groupByWeeks(data, weekStart), [data, weekStart]);
   const LABEL_MARGIN = 8;
 
-  const labels = { ...DEFAULT_LABELS, ...labelsProp };
+  const labels = useMemo(
+    () => ({ ...DEFAULT_LABELS, ...labelsProp }),
+    [labelsProp],
+  );
   const labelHeight = fontSize + LABEL_MARGIN;
 
   const year =
@@ -267,29 +270,47 @@ export const ContributionGraph = ({
   const width = weeks.length * (blockSize + blockMargin) - blockMargin;
   const height = labelHeight + (blockSize + blockMargin) * 7 - blockMargin;
 
+  const contextValue = useMemo(
+    () => ({
+      data,
+      weeks,
+      blockMargin,
+      blockRadius,
+      blockSize,
+      fontSize,
+      labels,
+      labelHeight,
+      maxLevel,
+      totalCount,
+      weekStart,
+      year,
+      width,
+      height,
+    }),
+    [
+      data,
+      weeks,
+      blockMargin,
+      blockRadius,
+      blockSize,
+      fontSize,
+      labels,
+      labelHeight,
+      maxLevel,
+      totalCount,
+      weekStart,
+      year,
+      width,
+      height,
+    ],
+  );
+
   if (data.length === 0) {
     return null;
   }
 
   return (
-    <ContributionGraphContext.Provider
-      value={{
-        data,
-        weeks,
-        blockMargin,
-        blockRadius,
-        blockSize,
-        fontSize,
-        labels,
-        labelHeight,
-        maxLevel,
-        totalCount,
-        weekStart,
-        year,
-        width,
-        height,
-      }}
-    >
+    <ContributionGraphContext.Provider value={contextValue}>
       <div
         className={cn("flex w-max max-w-full flex-col gap-2", className)}
         style={{ fontSize, ...style }}

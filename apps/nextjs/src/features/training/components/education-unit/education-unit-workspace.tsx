@@ -384,10 +384,10 @@ const getChatMessageText = (message: WorkspaceChatMessage) => {
     }
   }
 
-  return message.parts
-    .filter(isTextUIPart)
-    .map((part) => part.text)
-    .join("");
+  return message.parts.reduce(
+    (text, part) => (isTextUIPart(part) ? text + part.text : text),
+    "",
+  );
 };
 
 const getWorkspaceStatus = (

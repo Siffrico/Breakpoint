@@ -333,6 +333,8 @@ export function WorkspaceShell({
   ]);
 
   useEffect(() => {
+    // Non-sensitive "last opened session" breadcrumb, not an auth secret; it
+    // must stay client-readable, so it is deliberately not httpOnly.
     document.cookie = `${LAST_SESSION_COOKIE}=${selectedSessionId}; path=/; SameSite=Lax`;
     const params = new URLSearchParams(window.location.search);
     if (!params.has("session")) {
@@ -362,7 +364,7 @@ export function WorkspaceShell({
   const advanceCompletedUnit = useMutation(
     trpc.training.advanceCompletedUnit.mutationOptions({
       onSuccess: (result) => {
-        if (!result.advanced && result.missionRequired) {
+        if (!result.advanced) {
           router.push(
             `/workspace/mission?unitRunId=${encodeURIComponent(result.unitRunId)}`,
           );

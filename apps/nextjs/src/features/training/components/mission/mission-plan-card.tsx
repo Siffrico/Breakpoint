@@ -1,9 +1,8 @@
 "use client";
 
-import { motion } from "motion/react";
+import { m } from "motion/react";
 
 import type { MissionPlan, MissionSpec } from "@acme/validators";
-
 import { Button } from "@acme/ui/button";
 
 import { missionMotion } from "./animation";
@@ -28,7 +27,7 @@ export function MissionPlanCard({
 }) {
   if (readOnly) {
     return (
-      <motion.section layout transition={missionMotion}>
+      <m.section layout transition={missionMotion}>
         <h1 className="text-[19px] leading-[1.3] font-medium tracking-[-0.01em] text-[var(--site-fg)]">
           {spec.title}
         </h1>
@@ -47,12 +46,12 @@ export function MissionPlanCard({
             </li>
           ))}
         </ul>
-      </motion.section>
+      </m.section>
     );
   }
 
   return (
-    <motion.section layout transition={missionMotion}>
+    <m.section layout transition={missionMotion}>
       <h1 className="text-[25px] leading-[1.2] font-medium tracking-[-0.02em] text-[var(--site-fg)]">
         {spec.title}
       </h1>
@@ -98,11 +97,11 @@ export function MissionPlanCard({
         <button
           type="button"
           onClick={onConsult}
-          className="text-center text-[14px] text-[var(--site-text-2)] underline-offset-[3px] outline-none transition-colors hover:text-[var(--site-fg)] hover:underline"
+          className="text-center text-[14px] text-[var(--site-text-2)] underline-offset-[3px] transition-colors outline-none hover:text-[var(--site-fg)] hover:underline"
         >
           Ask / tweak
         </button>
       </div>
-    </motion.section>
+    </m.section>
   );
 }

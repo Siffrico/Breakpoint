@@ -7,10 +7,12 @@ import { useTheme } from "@acme/ui/theme";
 import type { SettingsTabKey, TopicNavItem } from "./settings-nav";
 import { SettingsSidebar } from "./settings-nav";
 
+const EMPTY_TOPICS: TopicNavItem[] = [];
+
 export function SettingsShell({
   basePath = "/settings",
   activeTab,
-  topics = [],
+  topics = EMPTY_TOPICS,
   children,
 }: {
   basePath?: string;

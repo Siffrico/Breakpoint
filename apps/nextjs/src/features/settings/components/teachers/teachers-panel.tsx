@@ -93,10 +93,14 @@ function TeacherAccordionItem({
 
       {isOpen ? (
         <div className="px-4 pb-4">
-          <label className="text-foreground/55 mb-1.5 block text-[11px] font-medium tracking-[0.02em]">
+          <label
+            htmlFor={`teacher-prompt-${agent.id}`}
+            className="text-foreground/55 mb-1.5 block text-[11px] font-medium tracking-[0.02em]"
+          >
             System prompt
           </label>
           <Textarea
+            id={`teacher-prompt-${agent.id}`}
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             rows={6}

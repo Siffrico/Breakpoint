@@ -1,6 +1,8 @@
-{
-  "ignore": {
-    "rules": [
+import type { ReactDoctorConfig } from "react-doctor/api";
+
+export default {
+  ignore: {
+    rules: [
       "react-doctor/no-derived-state",
       "react-doctor/no-derived-useState",
       "react-doctor/prefer-useReducer",
@@ -36,4 +38,4 @@
       "react-doctor/no-array-index-as-key"
     ]
   }
-}
+} satisfies ReactDoctorConfig;
