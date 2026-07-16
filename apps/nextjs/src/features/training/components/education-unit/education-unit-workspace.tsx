@@ -20,6 +20,7 @@ import { ChatComposerDock, WorkspaceStatusLine } from "@acme/ui/chat";
 import { toast } from "@acme/ui/toast";
 
 import type { ExchangeMessage } from "./exchange-grouping";
+import type { TransitionalAiWorkspace } from "~/features/training/lib/transitional-ai-workspace";
 import type { UnitCoachCommandIntent } from "~/features/training/lib/unit-coach-commands";
 import { AssistantRichText } from "~/features/training/components/assistant-rich-text";
 import {
@@ -40,9 +41,7 @@ import {
 import { WorkspaceComposerInput } from "./workspace-composer-input";
 
 type EducationUnit = RouterOutputs["training"]["unit"];
-type AiWorkspace = RouterOutputs["training"]["aiWorkspace"] & {
-  pendingNextUnit?: boolean;
-};
+type AiWorkspace = TransitionalAiWorkspace;
 interface AiWorkspaceIntroMessage {
   prompt: string;
   helper: string | null;

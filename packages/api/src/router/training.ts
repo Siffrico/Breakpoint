@@ -3,8 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod/v4";
 
 import type { StartingPointTier } from "@acme/validators";
-import { eq, sql } from "@acme/db";
-import { TrainingCurriculumNode } from "@acme/db/schema";
+import { sql } from "@acme/db";
 import {
   StartingPointTierSchema,
   WorkspaceBootstrapInputSchema,
@@ -669,10 +668,7 @@ export const trainingRouter = {
                   completeNode: (nodeId) =>
                     trainingCurriculumRepository.completeNode({ db, nodeId }),
                   markNodeReady: (nodeId) =>
-                    db
-                      .update(TrainingCurriculumNode)
-                      .set({ status: "ready" })
-                      .where(eq(TrainingCurriculumNode.id, nodeId)),
+                    trainingCurriculumRepository.markNodeReady({ db, nodeId }),
                   touchSession: (sessionId) =>
                     trainingOnboardingRepository.touchSession({
                       db,

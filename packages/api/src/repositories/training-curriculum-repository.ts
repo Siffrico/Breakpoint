@@ -975,4 +975,12 @@ export const trainingCurriculumRepository = {
       nodeId,
     });
   },
+
+  /** Promotes a pre-generated planned node into the live ready slot. */
+  markNodeReady: async ({ db, nodeId }: { db: Database; nodeId: string }) => {
+    await db
+      .update(TrainingCurriculumNode)
+      .set({ status: "ready" })
+      .where(eq(TrainingCurriculumNode.id, nodeId));
+  },
 };

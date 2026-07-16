@@ -580,22 +580,31 @@ export const runEducationUnitTurn = ({
     const clusterNodeId = node.parentNodeId;
     if (
       turnResult.nextState.phase === "mastered" &&
+      // A recall run masters a reopened unit, not the live frontier — its
+      // parent cluster must not pre-generate (the locked advance-gate check
+      // would also reject it, but the intent belongs here).
+      recallFocus === null &&
       clusterNodeId &&
       deps.pregenerateNextUnit
     ) {
       const pregenerateNextUnit = deps.pregenerateNextUnit;
+      // Failures are logged and swallowed: the advance path regenerates, so a
+      // dead pre-generation must never surface into the turn.
       const runPregeneration = () =>
-        pregenerateNextUnit({
-          sessionId,
-          userId,
-          clusterNodeId,
-        }).catch((cause: unknown) => {
-          console.error("next unit pre-generation failed", {
-            sessionId,
-            clusterNodeId,
-            cause,
-          });
-        });
+        Effect.runPromise(
+          Effect.tryPromise(() =>
+            pregenerateNextUnit({ sessionId, userId, clusterNodeId }),
+          ).pipe(
+            Effect.tapCause((cause) =>
+              Effect.logError("next unit pre-generation failed", {
+                sessionId,
+                clusterNodeId,
+                cause,
+              }),
+            ),
+            Effect.ignore,
+          ),
+        );
       if (deps.scheduleBackgroundTask) {
         deps.scheduleBackgroundTask(runPregeneration);
       } else {

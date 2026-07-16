@@ -12,6 +12,7 @@ import type { RouterOutputs } from "@acme/api";
 import { Button } from "@acme/ui/button";
 import { toast } from "@acme/ui/toast";
 
+import type { TransitionalAiWorkspace } from "~/features/training/lib/transitional-ai-workspace";
 import type {
   UnitCoachCommandIntent,
   UnitCoachTrigger,
@@ -44,10 +45,6 @@ type PlanState = RouterOutputs["training"]["activePlan"];
 type EducationUnit = RouterOutputs["training"]["unit"];
 type OnboardingState = RouterOutputs["training"]["onboardingState"];
 type AiWorkspace = RouterOutputs["training"]["aiWorkspace"];
-type TransitionalAiWorkspace = AiWorkspace & {
-  pendingNextUnit?: boolean;
-  pendingNextUnitTitle?: string;
-};
 type EvaluationPlan = NonNullable<AiWorkspace["evaluationPlan"]>;
 type LearningProject =
   RouterOutputs["training"]["listLearningProjects"][number];
