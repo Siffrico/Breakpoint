@@ -1,9 +1,13 @@
 import type { db as databaseClient } from "@acme/db/client";
-import { and, asc, eq, inArray, sql } from "@acme/db";
+import { and, asc, desc, eq, gte, inArray, isNotNull, ne, sql } from "@acme/db";
 import { TrainingCurriculumNode, TrainingSyllabusEntry } from "@acme/db/schema";
 
 import type { SyllabusOutput } from "../domain/training/agents/contracts";
 import type { RecallCandidateEntry } from "../domain/training/policies/recall-decay";
+import {
+  RECALL_COMPANION_MIN_STRENGTH,
+  recallIntervalDaysFor,
+} from "../domain/training/policies/recall-decay";
 
 type Database = typeof databaseClient;
 
@@ -33,6 +37,50 @@ const listEntries = ({
     where: eq(TrainingSyllabusEntry.clusterNodeId, clusterNodeId),
     orderBy: [asc(TrainingSyllabusEntry.orderIndex)],
   });
+
+const recallCandidateSelection = {
+  id: TrainingSyllabusEntry.id,
+  clusterNodeId: TrainingSyllabusEntry.clusterNodeId,
+  label: TrainingSyllabusEntry.label,
+  gloss: TrainingSyllabusEntry.gloss,
+  checkedAt: TrainingSyllabusEntry.checkedAt,
+  strength: TrainingSyllabusEntry.strength,
+  lastReinforcedAt: TrainingSyllabusEntry.lastReinforcedAt,
+  evidenceNodeId: TrainingSyllabusEntry.evidenceNodeId,
+};
+
+interface RecallCandidateRow {
+  id: string;
+  clusterNodeId: string;
+  label: string;
+  gloss: string;
+  checkedAt: Date | null;
+  strength: number;
+  lastReinforcedAt: Date | null;
+  evidenceNodeId: string | null;
+}
+
+const mapRecallCandidate = (
+  row: RecallCandidateRow,
+): RecallCandidateEntry | null =>
+  row.checkedAt
+    ? {
+        ...row,
+        checkedAt: row.checkedAt,
+      }
+    : null;
+
+// These SQL expressions must stay equivalent to recall-decay.ts: ordering in
+// the database is what keeps candidate transfer bounded to one primary row.
+const recallAnchor = sql`coalesce(${TrainingSyllabusEntry.lastReinforcedAt}, ${TrainingSyllabusEntry.checkedAt})`;
+const recallIntervalSeconds = sql<number>`case
+  when ${TrainingSyllabusEntry.strength} <= 0 then ${recallIntervalDaysFor(0) * 86_400}
+  when ${TrainingSyllabusEntry.strength} = 1 then ${recallIntervalDaysFor(1) * 86_400}
+  when ${TrainingSyllabusEntry.strength} = 2 then ${recallIntervalDaysFor(2) * 86_400}
+  else ${recallIntervalDaysFor(3) * 86_400}
+end`;
+const recallOverdueRatio = (now: Date) =>
+  sql<number>`extract(epoch from (${now}::timestamptz - ${recallAnchor})) / ${recallIntervalSeconds}`;
 
 export const trainingSyllabusRepository = {
   ensureSyllabus: async ({
@@ -188,29 +236,18 @@ export const trainingSyllabusRepository = {
     });
   },
 
-  /**
-   * Every checked entry across the plan's clusters, shaped for the
-   * recall-decay policy. Entries that were never checked have no decay clock
-   * and are excluded at the query.
-   */
-  listRecallCandidates: async ({
+  getRecallCandidatesByIds: async ({
     db,
     planId,
+    entryIds,
   }: {
     db: Database;
     planId: string;
+    entryIds: readonly string[];
   }): Promise<RecallCandidateEntry[]> => {
+    if (entryIds.length === 0) return [];
     const rows = await db
-      .select({
-        id: TrainingSyllabusEntry.id,
-        clusterNodeId: TrainingSyllabusEntry.clusterNodeId,
-        label: TrainingSyllabusEntry.label,
-        gloss: TrainingSyllabusEntry.gloss,
-        checkedAt: TrainingSyllabusEntry.checkedAt,
-        strength: TrainingSyllabusEntry.strength,
-        lastReinforcedAt: TrainingSyllabusEntry.lastReinforcedAt,
-        evidenceNodeId: TrainingSyllabusEntry.evidenceNodeId,
-      })
+      .select(recallCandidateSelection)
       .from(TrainingSyllabusEntry)
       .innerJoin(
         TrainingCurriculumNode,
@@ -220,25 +257,77 @@ export const trainingSyllabusRepository = {
         and(
           eq(TrainingCurriculumNode.planId, planId),
           eq(TrainingSyllabusEntry.status, "checked"),
+          inArray(TrainingSyllabusEntry.id, [...entryIds]),
         ),
       );
 
-    return rows.flatMap((row) =>
-      row.checkedAt
-        ? [
-            {
-              id: row.id,
-              clusterNodeId: row.clusterNodeId,
-              label: row.label,
-              gloss: row.gloss,
-              checkedAt: row.checkedAt,
-              strength: row.strength,
-              lastReinforcedAt: row.lastReinforcedAt,
-              evidenceNodeId: row.evidenceNodeId,
-            },
-          ]
-        : [],
-    );
+    return rows.flatMap((row) => {
+      const candidate = mapRecallCandidate(row);
+      return candidate ? [candidate] : [];
+    });
+  },
+
+  getMostOverdueRecallCandidate: async ({
+    db,
+    planId,
+    now,
+  }: {
+    db: Database;
+    planId: string;
+    now: Date;
+  }): Promise<RecallCandidateEntry | null> => {
+    const overdueRatio = recallOverdueRatio(now);
+    const [row] = await db
+      .select(recallCandidateSelection)
+      .from(TrainingSyllabusEntry)
+      .innerJoin(
+        TrainingCurriculumNode,
+        eq(TrainingCurriculumNode.id, TrainingSyllabusEntry.clusterNodeId),
+      )
+      .where(
+        and(
+          eq(TrainingCurriculumNode.planId, planId),
+          eq(TrainingSyllabusEntry.status, "checked"),
+          isNotNull(TrainingSyllabusEntry.checkedAt),
+          isNotNull(TrainingSyllabusEntry.evidenceNodeId),
+          sql`${overdueRatio} >= 1`,
+        ),
+      )
+      .orderBy(desc(overdueRatio))
+      .limit(1);
+
+    return row ? mapRecallCandidate(row) : null;
+  },
+
+  getRecallCompanionCandidate: async ({
+    db,
+    clusterNodeId,
+    primaryEntryId,
+    now,
+  }: {
+    db: Database;
+    clusterNodeId: string;
+    primaryEntryId: string;
+    now: Date;
+  }): Promise<RecallCandidateEntry | null> => {
+    const overdueRatio = recallOverdueRatio(now);
+    const [row] = await db
+      .select(recallCandidateSelection)
+      .from(TrainingSyllabusEntry)
+      .where(
+        and(
+          eq(TrainingSyllabusEntry.clusterNodeId, clusterNodeId),
+          ne(TrainingSyllabusEntry.id, primaryEntryId),
+          eq(TrainingSyllabusEntry.status, "checked"),
+          gte(TrainingSyllabusEntry.strength, RECALL_COMPANION_MIN_STRENGTH),
+          isNotNull(TrainingSyllabusEntry.checkedAt),
+          sql`${overdueRatio} < 1`,
+        ),
+      )
+      .orderBy(desc(recallAnchor))
+      .limit(1);
+
+    return row ? mapRecallCandidate(row) : null;
   },
 
   /**

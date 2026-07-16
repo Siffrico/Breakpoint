@@ -36,9 +36,19 @@ export interface WorkspaceProjectionReaderSource {
     unitContentId: string,
   ) => Promise<void>;
   readonly getUnitByNodeId: (nodeId: string) => Promise<UnitContent | null>;
-  readonly listRecallCandidates: (
+  readonly getRecallCandidatesByIds: (
     planId: string,
+    entryIds: readonly string[],
   ) => Promise<RecallCandidateEntry[]>;
+  readonly getMostOverdueRecallCandidate: (
+    planId: string,
+    now: Date,
+  ) => Promise<RecallCandidateEntry | null>;
+  readonly getRecallCompanionCandidate: (
+    clusterNodeId: string,
+    primaryEntryId: string,
+    now: Date,
+  ) => Promise<RecallCandidateEntry | null>;
 }
 
 export interface WorkspaceProjectionReaderShape {
@@ -63,9 +73,19 @@ export interface WorkspaceProjectionReaderShape {
   readonly getUnitByNodeId: (
     nodeId: string,
   ) => Effect.Effect<UnitContent | null, DbError>;
-  readonly listRecallCandidates: (
+  readonly getRecallCandidatesByIds: (
     planId: string,
+    entryIds: readonly string[],
   ) => Effect.Effect<RecallCandidateEntry[], DbError>;
+  readonly getMostOverdueRecallCandidate: (
+    planId: string,
+    now: Date,
+  ) => Effect.Effect<RecallCandidateEntry | null, DbError>;
+  readonly getRecallCompanionCandidate: (
+    clusterNodeId: string,
+    primaryEntryId: string,
+    now: Date,
+  ) => Effect.Effect<RecallCandidateEntry | null, DbError>;
 }
 
 export class WorkspaceProjectionReader extends Context.Service<
@@ -92,15 +112,21 @@ export const makeWorkspaceProjectionReader = (
     ),
   getUnitByNodeId: (nodeId) =>
     read("getUnitByNodeId", () => source.getUnitByNodeId(nodeId)),
-  listRecallCandidates: (planId) =>
-    read("listRecallCandidates", () => source.listRecallCandidates(planId)),
+  getRecallCandidatesByIds: (planId, entryIds) =>
+    read("getRecallCandidatesByIds", () =>
+      source.getRecallCandidatesByIds(planId, entryIds),
+    ),
+  getMostOverdueRecallCandidate: (planId, now) =>
+    read("getMostOverdueRecallCandidate", () =>
+      source.getMostOverdueRecallCandidate(planId, now),
+    ),
+  getRecallCompanionCandidate: (clusterNodeId, primaryEntryId, now) =>
+    read("getRecallCompanionCandidate", () =>
+      source.getRecallCompanionCandidate(clusterNodeId, primaryEntryId, now),
+    ),
 });
 
 export interface AiWorkspaceReaderSource {
-  readonly listMessages: (
-    sessionId: string,
-    slot?: "education_unit" | "recall",
-  ) => Promise<WorkspaceAiMessage[]>;
   readonly listUnitMessages: (
     sessionId: string,
     unitId: string,
@@ -112,10 +138,6 @@ export interface AiWorkspaceReaderSource {
 }
 
 export interface AiWorkspaceReaderShape {
-  readonly listMessages: (
-    sessionId: string,
-    slot?: "education_unit" | "recall",
-  ) => Effect.Effect<WorkspaceAiMessage[], DbError>;
   readonly listUnitMessages: (
     sessionId: string,
     unitId: string,
@@ -134,8 +156,6 @@ export class AiWorkspaceReader extends Context.Service<
 export const makeAiWorkspaceReader = (
   source: AiWorkspaceReaderSource,
 ): AiWorkspaceReaderShape => ({
-  listMessages: (sessionId, slot) =>
-    read("listMessages", () => source.listMessages(sessionId, slot)),
   listUnitMessages: (sessionId, unitId) =>
     read("listUnitMessages", () => source.listUnitMessages(sessionId, unitId)),
   getScenarioAttemptStartedAt: (input) =>

@@ -347,12 +347,6 @@ export const createWorkspaceTurnRepositoryDeps = (
   return {
     getActivePlan: (sessionId: string) =>
       trainingCurriculumRepository.getActivePlan({ db, sessionId }),
-    listMessages: (sessionId: string, slot?: "education_unit" | "recall") =>
-      trainingOnboardingRepository.listWorkspaceMessages({
-        db,
-        sessionId,
-        slot,
-      }),
     listUnitMessages: (sessionId: string, unitId: string) =>
       trainingOnboardingRepository.listWorkspaceMessagesByUnit({
         db,
@@ -391,8 +385,29 @@ export const createWorkspaceTurnRepositoryDeps = (
       }),
     getUnitByNodeId: (nodeId: string) =>
       trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),
-    listRecallCandidates: (planId: string) =>
-      trainingSyllabusRepository.listRecallCandidates({ db, planId }),
+    getRecallCandidatesByIds: (planId: string, entryIds: readonly string[]) =>
+      trainingSyllabusRepository.getRecallCandidatesByIds({
+        db,
+        planId,
+        entryIds,
+      }),
+    getMostOverdueRecallCandidate: (planId: string, now: Date) =>
+      trainingSyllabusRepository.getMostOverdueRecallCandidate({
+        db,
+        planId,
+        now,
+      }),
+    getRecallCompanionCandidate: (
+      clusterNodeId: string,
+      primaryEntryId: string,
+      now: Date,
+    ) =>
+      trainingSyllabusRepository.getRecallCompanionCandidate({
+        db,
+        clusterNodeId,
+        primaryEntryId,
+        now,
+      }),
     markWorkspaceTurnFailed: (input) =>
       markWorkspaceTurnFailed({ db, ...input }),
     listMemories: async (userId: string) => {

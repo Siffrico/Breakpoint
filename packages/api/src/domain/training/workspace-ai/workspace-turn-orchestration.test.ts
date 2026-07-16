@@ -28,6 +28,12 @@ const fail = (name: string): never => {
   throw new Error(`${name} should not be called`);
 };
 
+const noRecallProjectionDeps = {
+  getRecallCandidatesByIds: () => Promise.resolve([]),
+  getMostOverdueRecallCandidate: () => Promise.resolve(null),
+  getRecallCompanionCandidate: () => Promise.resolve(null),
+};
+
 const node = {
   id: "node-1",
   parentNodeId: "cluster-1",
@@ -111,7 +117,7 @@ void test("a claimed, in-flight education turn is rejected before running the mo
     getInFlightRecallRun: () => fail("getInFlightRecallRun"),
     upsertUnitRun: () => fail("upsertUnitRun"),
     getUnitByNodeId: () => fail("getUnitByNodeId"),
-    listRecallCandidates: () => Promise.resolve([]),
+    ...noRecallProjectionDeps,
     commitEducationTurn: () => fail("commitEducationTurn"),
     listMemories: () => fail("listMemories"),
   } as unknown as WorkspaceTurnOrchestrationDependencies;
@@ -288,7 +294,7 @@ void test("an education turn returns the committed assistant message", async () 
       return Promise.resolve({ assistantMessage });
     },
     getUnitByNodeId: () => Promise.resolve(turn.unit),
-    listRecallCandidates: () => Promise.resolve([]),
+    ...noRecallProjectionDeps,
     getPhaseResponses: () => Promise.resolve([]),
     getUnitRun: () => Promise.resolve(unitRun),
     getInFlightRecallRun: () => Promise.resolve(null),
@@ -363,7 +369,7 @@ void test("a mastered unit checks off every target even when the evaluator omits
         scenarioSpec: null,
       }),
     getUnitByNodeId: () => Promise.resolve(turn.unit),
-    listRecallCandidates: () => Promise.resolve([]),
+    ...noRecallProjectionDeps,
     getPhaseResponses: () => Promise.resolve([]),
     getUnitRun: () => Promise.resolve(unitRun),
     getInFlightRecallRun: () => Promise.resolve(null),

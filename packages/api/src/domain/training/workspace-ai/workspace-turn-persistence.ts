@@ -56,10 +56,6 @@ export interface WorkspaceTurnPersistenceDependencies
     turnId?: string | null;
     metadata?: WorkspaceAiMessage["metadata"];
   }) => Promise<WorkspaceAiMessage | null>;
-  listMessages: (
-    sessionId: string,
-    slot?: "education_unit" | "recall",
-  ) => Promise<WorkspaceAiMessage[]>;
   /** The active unit's transcript only — each unit is its own chat. */
   listUnitMessages: (
     sessionId: string,

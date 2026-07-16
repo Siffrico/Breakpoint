@@ -612,29 +612,6 @@ export const trainingOnboardingRepository = {
       }));
   },
 
-  listWorkspaceMessages: async ({
-    db,
-    sessionId,
-    slot,
-  }: {
-    db: Database;
-    sessionId: string;
-    slot?: string | null;
-  }) => {
-    const messages = await db.query.TrainingOnboardingMessage.findMany({
-      where:
-        slot == null
-          ? eq(TrainingOnboardingMessage.sessionId, sessionId)
-          : and(
-              eq(TrainingOnboardingMessage.sessionId, sessionId),
-              eq(TrainingOnboardingMessage.slot, slot),
-            ),
-      orderBy: asc(TrainingOnboardingMessage.sequence),
-    });
-
-    return messages.map(mapWorkspaceMessage).filter(isTranscriptVisibleMessage);
-  },
-
   listChatUnitIdsBySessionIds: async ({
     db,
     sessionIds,

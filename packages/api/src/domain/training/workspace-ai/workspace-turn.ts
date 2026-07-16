@@ -21,7 +21,6 @@ import {
   isRecallRecipe,
   RECALL_RECIPE_VERSION,
 } from "../education-unit/unit";
-import { selectRecallTarget } from "../policies/recall-decay";
 import { UnitNotReadyError } from "../unit-preparation/errors";
 import { isUnitMidFlight, planWorkspaceTurn } from "./orchestrator";
 import {
@@ -164,25 +163,7 @@ export const resolveRecallRunProjection = ({
   };
 };
 
-/**
- * Resolves the plan's due recall target (if any) against its nodes. Returns
- * null when nothing has decayed or the evidence unit is no longer in the plan.
- */
-export const resolvePlannedRecall = ({
-  plan,
-  candidates,
-  now,
-}: {
-  plan: CurriculumPlan;
-  candidates: Parameters<typeof selectRecallTarget>[0];
-  now: Date;
-}): { target: RecallTarget; node: CurriculumNode } | null => {
-  const target = selectRecallTarget(candidates, now);
-  if (!target) return null;
-  const node = plan.nodes.find((n) => n.id === target.evidenceNodeId);
-  return node?.status === "completed" ? { target, node } : null;
-};
-
+/** Rehydrates the persisted one-or-two entry recall target. */
 const rehydrateRecallTarget = ({
   entryIds,
   candidates,
@@ -252,23 +233,23 @@ export const loadPlannedRecall = ({
 > =>
   Effect.gen(function* () {
     const reader = yield* WorkspaceProjectionReader;
-    let candidates: Awaited<
-      ReturnType<WorkspaceProjectionReaderSource["listRecallCandidates"]>
-    > | null = null;
 
     if (inFlightRun) {
-      const loaded = yield* Effect.all(
-        [
-          reader.getPhaseResponses(inFlightRun.unitId, sessionId),
-          reader.listRecallCandidates(plan.id),
-        ],
-        { concurrency: 2 },
+      const responses = yield* reader.getPhaseResponses(
+        inFlightRun.unitId,
+        sessionId,
       );
-      candidates = loaded[1];
+      const entryIds = [...responses]
+        .reverse()
+        .find((response) => response.metadata?.recallEntryIds)
+        ?.metadata?.recallEntryIds;
+      const candidates = entryIds
+        ? yield* reader.getRecallCandidatesByIds(plan.id, entryIds)
+        : [];
       const resumed = resolvePersistedRecall({
         plan,
         run: inFlightRun,
-        responses: loaded[0],
+        responses,
         candidates,
       });
       if (resumed) return resumed;
@@ -302,13 +283,26 @@ export const loadPlannedRecall = ({
       return null;
     }
 
-    candidates ??= yield* reader.listRecallCandidates(plan.id);
-    const scheduled = resolvePlannedRecall({
-      plan,
-      candidates,
-      now: new Date(),
-    });
-    return scheduled ? { ...scheduled, run: null } : null;
+    const now = new Date();
+    const primary = yield* reader.getMostOverdueRecallCandidate(plan.id, now);
+    if (!primary?.evidenceNodeId) return null;
+    const node = plan.nodes.find((item) => item.id === primary.evidenceNodeId);
+    if (node?.status !== "completed") return null;
+    const companion = yield* reader.getRecallCompanionCandidate(
+      primary.clusterNodeId,
+      primary.id,
+      now,
+    );
+    return {
+      target: {
+        clusterNodeId: primary.clusterNodeId,
+        evidenceNodeId: primary.evidenceNodeId,
+        primary,
+        companion,
+      },
+      node,
+      run: null,
+    };
   });
 
 /**

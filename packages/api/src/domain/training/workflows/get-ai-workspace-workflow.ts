@@ -174,13 +174,13 @@ export const getAiWorkspaceWorkflowEffect = ({
     // findWorkspaceTurnNode uses to pick the unit messages are written under
     // (exactly one of the two is ever set — see orchestrator.ts), so this
     // matches the transcript the live turn appends to. With no runnable turn
-    // the whole project transcript is the view.
+    // there is no live chat to hydrate.
     const liveUnitId = resolvedState
       ? (resolvedState.activeUnitId ?? resolvedState.recallUnitId)
       : null;
     const messages =
       liveUnitId == null
-        ? yield* displayReader.listMessages(sessionId)
+        ? []
         : liveUnitId === active.node?.id
           ? activeUnitMessages
           : yield* displayReader.listUnitMessages(sessionId, liveUnitId);

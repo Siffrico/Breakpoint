@@ -46,18 +46,20 @@ export interface RecallTarget {
 const REINFORCEMENT_INTERVALS_DAYS = [3, 7, 21, 60] as const;
 
 /** Companions must be this strong to ride along without needing review. */
-const COMPANION_MIN_STRENGTH = 2;
+export const RECALL_COMPANION_MIN_STRENGTH = 2;
 
 const DAY_MS = 24 * 60 * 60 * 1_000;
 
-const intervalMsFor = (strength: number): number => {
+export const recallIntervalDaysFor = (strength: number): number => {
   const index = Math.min(
     Math.max(strength, 0),
     REINFORCEMENT_INTERVALS_DAYS.length - 1,
   );
-  const days = REINFORCEMENT_INTERVALS_DAYS[index];
-  return (days ?? 60) * DAY_MS;
+  return REINFORCEMENT_INTERVALS_DAYS[index] ?? 60;
 };
+
+const intervalMsFor = (strength: number): number =>
+  recallIntervalDaysFor(strength) * DAY_MS;
 
 const anchorOf = (entry: RecallCandidateEntry): Date =>
   entry.lastReinforcedAt ?? entry.checkedAt;
@@ -100,12 +102,11 @@ export const selectRecallTarget = (
         (entry) =>
           entry.clusterNodeId === primary.clusterNodeId &&
           entry.id !== primary.id &&
-          entry.strength >= COMPANION_MIN_STRENGTH &&
+          entry.strength >= RECALL_COMPANION_MIN_STRENGTH &&
           !isEntryDue(entry, now),
       )
       .sort(
-        (left, right) =>
-          anchorOf(right).getTime() - anchorOf(left).getTime(),
+        (left, right) => anchorOf(right).getTime() - anchorOf(left).getTime(),
       )[0] ?? null;
 
   return {
@@ -121,5 +122,7 @@ export const selectRecallTarget = (
  * Pass extends the ladder; fail drops one rung (never below zero) so the
  * entry comes back sooner without restarting from scratch.
  */
-export const reinforcedStrength = (strength: number, passed: boolean): number =>
-  passed ? strength + 1 : Math.max(0, strength - 1);
+export const reinforcedStrength = (
+  strength: number,
+  passed: boolean,
+): number => (passed ? strength + 1 : Math.max(0, strength - 1));

@@ -113,14 +113,6 @@ export const validateUnitCoachMessages = async (messages: unknown) => {
   return result;
 };
 
-export const selectCurrentUnitMessages = (
-  messages: WorkspaceAiMessage[],
-  unitId: string,
-) =>
-  messages
-    .filter((message) => message.unitId === unitId)
-    .slice(-MAX_WORKSPACE_MESSAGES);
-
 const formatWorkspaceTranscript = (messages: WorkspaceAiMessage[]) =>
   messages.length === 0
     ? "No workspace turns have been recorded for this unit yet."
@@ -193,17 +185,13 @@ export const streamUnitCoach = async ({
   }
 
   const [workspaceMessages, modelMessages] = await Promise.all([
-    deps.listMessages(sessionId, "education_unit"),
+    deps.listUnitMessages(sessionId, resolvedTurn.unit.nodeId),
     convertToModelMessages(validatedMessages.data),
   ]);
-  const currentUnitMessages = selectCurrentUnitMessages(
-    workspaceMessages,
-    resolvedTurn.unit.nodeId,
-  );
   const context = formatUnitCoachContext({
     unit: resolvedTurn.unit,
     state: resolvedTurn.state,
-    workspaceMessages: currentUnitMessages,
+    workspaceMessages: workspaceMessages.slice(-MAX_WORKSPACE_MESSAGES),
   });
 
   const result = streamText({
