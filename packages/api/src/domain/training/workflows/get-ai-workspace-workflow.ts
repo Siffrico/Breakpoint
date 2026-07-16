@@ -216,11 +216,14 @@ export const getAiWorkspaceWorkflowEffect = ({
               attemptStartedAt,
             }
           : null,
-      unitAdvanceGate: getUnitAdvanceGate({
-        node: active.node,
-        run: active.run,
-        nextNode: nextLearningNode,
-      }),
+      unitAdvanceGate:
+        resolvedState?.recallUnitId != null
+          ? { status: "locked" }
+          : getUnitAdvanceGate({
+              node: active.node,
+              run: active.run,
+              nextNode: nextLearningNode,
+            }),
       introMessage: buildWorkspaceIntroMessage({
         plan,
         state: resolvedState,

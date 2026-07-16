@@ -360,7 +360,9 @@ export function WorkspaceShell({
     status: "locked",
   };
   const canAdvanceUnit =
-    mode === "unit" && unitAdvanceGate.status === "enabled";
+    mode === "unit" &&
+    resolvedAiWorkspace?.state?.recallUnitId == null &&
+    unitAdvanceGate.status === "enabled";
   const advanceCompletedUnit = useMutation(
     trpc.training.advanceCompletedUnit.mutationOptions({
       onSuccess: (result) => {

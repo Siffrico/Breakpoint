@@ -411,6 +411,43 @@ describe("workspace view reads", () => {
     expect(listMessages).not.toHaveBeenCalled();
   });
 
+  it("locks unit advancement while a due recall is live", async () => {
+    const activeMasteredRun = {
+      ...recallRun,
+      unitId: activeUnit.id,
+      recipeVersion: "education-unit-v2",
+      phase: "mastered",
+    } satisfies PersistedUnitRun;
+
+    const result = await getAiWorkspaceWorkflow({
+      sessionId: "session-1",
+      deps: {
+        getActivePlan: () => Promise.resolve(recallPlan),
+        listMessages: () => Promise.resolve([]),
+        listUnitMessages: () => Promise.resolve([]),
+        getPhaseResponses: () => Promise.resolve([recallPresentation]),
+        getUnitRun: () => Promise.resolve(activeMasteredRun),
+        getInFlightRecallRun: () => Promise.resolve(null),
+        retireInFlightRecallRun: () => Promise.resolve(),
+        getUnitByNodeId: (nodeId: string) =>
+          Promise.resolve(
+            nodeId === completedNode.id ? recallUnit : activeUnit,
+          ),
+        listRecallCandidates: () => Promise.resolve([recallCandidate]),
+        getScenarioAttemptStartedAt: () => Promise.resolve(null),
+      },
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.state).toMatchObject({
+        recallUnitId: completedNode.id,
+        activeUnitId: null,
+      });
+      expect(result.data.unitAdvanceGate).toEqual({ status: "locked" });
+    }
+  });
+
   it("does not repair stale recall state from the read workflow", async () => {
     const deps = {
       ...recallDeps(["deleted-entry"]),
