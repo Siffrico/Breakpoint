@@ -1,5 +1,6 @@
 import type { db as databaseClient } from "@acme/db/client";
 import type {
+  DifficultyVector,
   JobProgressState,
   ScenarioDirective,
   ScenarioEvaluationContract,
@@ -279,6 +280,7 @@ export const trainingRatingRepository = {
     nodeId,
     directive,
     itemRating,
+    difficultyVector,
     scenarioPrompt,
     presentedAt,
   }: {
@@ -289,6 +291,7 @@ export const trainingRatingRepository = {
     nodeId: string;
     directive: ScenarioDirective;
     itemRating: number;
+    difficultyVector?: DifficultyVector | null;
     scenarioPrompt: string;
     presentedAt: Date;
   }) => {
@@ -300,6 +303,7 @@ export const trainingRatingRepository = {
         status: "open",
         directiveJson: directive,
         itemRating,
+        difficultyVectorJson: difficultyVector ?? null,
         targetMisconceptionCode: directive.targetMisconceptionCode,
         supportLevel: directive.supportLevel,
         unitRunId,
@@ -331,6 +335,8 @@ export const trainingRatingRepository = {
     if (
       !sameDirective(existing.directiveJson, directive) ||
       existing.itemRating !== itemRating ||
+      JSON.stringify(existing.difficultyVectorJson) !==
+        JSON.stringify(difficultyVector ?? null) ||
       existing.scenarioPrompt !== scenarioPrompt ||
       existing.originTurnId !== originTurnId
     ) {
@@ -578,6 +584,7 @@ export const trainingRatingRepository = {
     await db.insert(TrainingRatingPrediction).values({
       userId,
       nodeId,
+      scenarioAttemptId,
       ratingBefore: result.prediction.ratingBefore,
       ratingDeviationBefore: result.prediction.ratingDeviationBefore,
       ratingAfter: result.prediction.ratingAfter,

@@ -2,13 +2,22 @@ import { Effect, Layer } from "effect";
 
 import type { db as databaseClient } from "@acme/db/client";
 import { and, eq } from "@acme/db";
-import { TrainingUnitRun, TrainingWorkspaceTurn } from "@acme/db/schema";
+import {
+  TrainingCurriculumNode,
+  TrainingUnitRun,
+  TrainingWorkspaceTurn,
+} from "@acme/db/schema";
 
 import type { JobRatingState } from "../domain/training/engine/rating";
 import type { DifficultyBand } from "../domain/training/types/training.types";
 import type { WorkspaceAiMessage } from "../domain/training/workspace-ai/types";
 import type { WorkspaceTurnOrchestrationDependencies } from "../domain/training/workspace-ai/workspace-turn-orchestration";
 import type { WorkspaceEducationTurnCommit } from "../domain/training/workspace-ai/workspace-turn-persistence";
+import {
+  auditDialCompliance,
+  countVector,
+  predictItemRating,
+} from "../domain/training/engine/rating";
 import {
   recordEvaluation,
   resolveScenarioDirective,
@@ -189,6 +198,42 @@ const commitEducationTurn = async ({
         );
       }
       const presentation = input.scenarioPresentation;
+      const vector = input.nextRun.scenarioSpec
+        ? countVector(input.nextRun.scenarioSpec)
+        : null;
+      let itemRating = presentation.snapshot.directive.targetItemRating;
+      if (vector && presentation.snapshot.format) {
+        try {
+          itemRating = predictItemRating(vector, [
+            presentation.snapshot.format,
+          ]);
+          if (presentation.snapshot.dialPreset) {
+            const audit = auditDialCompliance(
+              vector,
+              presentation.snapshot.dialPreset,
+            );
+            if (Object.values(audit).some((axis) => !axis.inRange)) {
+              console.warn(
+                "Scenario difficulty vector missed its dial preset",
+                {
+                  nodeId: presentation.nodeId,
+                  vector,
+                  audit,
+                },
+              );
+            }
+          }
+        } catch (error) {
+          console.warn(
+            "Scenario difficulty vector could not be rated; using directive target",
+            {
+              nodeId: presentation.nodeId,
+              vector,
+              error,
+            },
+          );
+        }
+      }
       const attempt =
         await trainingRatingRepository.openEducationScenarioAttempt({
           db: txDb,
@@ -197,7 +242,8 @@ const commitEducationTurn = async ({
           userId: presentation.userId,
           nodeId: presentation.nodeId,
           directive: presentation.snapshot.directive,
-          itemRating: presentation.snapshot.directive.targetItemRating,
+          itemRating,
+          difficultyVector: vector,
           scenarioPrompt: input.assistantMessage.content,
           presentedAt: presentation.presentedAt,
         });
@@ -431,13 +477,19 @@ export const createWorkspaceTurnRepositoryDeps = (
       now: Date;
       bands?: readonly DifficultyBand[] | null;
     }) =>
-      getSeed(nodeId).then((seed) =>
+      Promise.all([
+        getSeed(nodeId),
+        db.query.TrainingCurriculumNode.findFirst({
+          where: eq(TrainingCurriculumNode.id, nodeId),
+        }),
+      ]).then(([seed, ratingNode]) =>
         resolveScenarioDirective({
           userId,
           nodeId,
           now,
           bands,
           initialRatingState: seed ?? undefined,
+          scenarioFormats: ratingNode?.skillMap?.scenarioFormats,
           deps: createTrainingRatingGoldilocksDeps(db),
         }),
       ),

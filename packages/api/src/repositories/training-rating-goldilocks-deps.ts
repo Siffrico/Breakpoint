@@ -1,8 +1,10 @@
 import type { db as databaseClient } from "@acme/db/client";
+import { eq } from "@acme/db";
+import { TrainingCurriculumNode } from "@acme/db/schema";
 
 import type {
-  ResolveScenarioDirectiveDependencies,
   RecordEvaluationDependencies,
+  ResolveScenarioDirectiveDependencies,
 } from "../domain/training/orchestration/goldilocks";
 import { trainingRatingRepository } from "./training-rating-repository";
 
@@ -24,13 +26,30 @@ export const createTrainingRatingGoldilocksDeps = (
       userId,
       nodeId,
     }),
-  getScenarioAttempt: ({ scenarioAttemptId, userId, nodeId }) =>
-    trainingRatingRepository.getOpenScenarioById({
-      db,
-      scenarioAttemptId,
-      userId,
-      nodeId,
-    }),
+  getScenarioAttempt: async ({ scenarioAttemptId, userId, nodeId }) => {
+    const [attempt, node] = await Promise.all([
+      trainingRatingRepository.getOpenScenarioById({
+        db,
+        scenarioAttemptId,
+        userId,
+        nodeId,
+      }),
+      db.query.TrainingCurriculumNode.findFirst({
+        where: eq(TrainingCurriculumNode.id, nodeId),
+      }),
+    ]);
+    if (!attempt) return null;
+    const format = node?.skillMap?.scenarioFormats?.find(
+      (candidate) => candidate.id === attempt.difficultyVectorJson?.formatId,
+    );
+    return {
+      ...attempt,
+      guessChance:
+        format?.kind === "mcq" && format.optionCount
+          ? 1 / format.optionCount
+          : 0,
+    };
+  },
   saveEvaluationResult: ({
     userId,
     nodeId,

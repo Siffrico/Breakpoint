@@ -36,6 +36,62 @@ void test("resolving difficulty is read-only", async () => {
 
   assert.equal(result.learnerRating, createInitialRatingState().rating);
   assert.match(result.promptBlock, /Difficulty directive/);
+  assert.equal(result.format.id, "legacy_frq");
+  assert.doesNotMatch(result.promptBlock, /Target item rating/);
+});
+
+void test("probe prefers MCQ and format selection rotates deterministically", async () => {
+  const formats = [
+    {
+      id: "frq",
+      label: "FRQ",
+      kind: "frq" as const,
+      description: "Free response",
+    },
+    {
+      id: "mcq-a",
+      label: "MCQ A",
+      kind: "mcq" as const,
+      description: "Choice",
+      optionCount: 4,
+    },
+    {
+      id: "mcq-b",
+      label: "MCQ B",
+      kind: "mcq" as const,
+      description: "Choice",
+      optionCount: 3,
+    },
+  ];
+  const loaded = {
+    ...jobProgress(),
+    recentAttempts: [
+      {
+        bandOrder: 0,
+        offeredSupport: "worked_example" as const,
+        itemRating: 900,
+        score: 50,
+        outcome: 0.5,
+        effectiveSupport: "worked_example" as const,
+        cleanPass: false,
+        pass: false,
+        hardFail: false,
+        occurredAt: new Date(),
+      },
+    ],
+  };
+  const result = await resolveScenarioDirective({
+    userId: "user-1",
+    nodeId: "cluster-1",
+    now: new Date("2026-01-01T00:00:00Z"),
+    bands: deriveDefaultBands(),
+    scenarioFormats: formats,
+    deps: {
+      loadJobProgress: () => Promise.resolve(loaded),
+      listRecentPredictions: () => Promise.resolve([]),
+    },
+  });
+  assert.equal(result.format.id, "mcq-b");
 });
 
 void test("defaults the initial rating state when no seed is supplied", async () => {

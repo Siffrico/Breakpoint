@@ -37,7 +37,7 @@ export interface JobRatingState {
 export interface RatedOutcome {
   /** Fractional result in [0,1] — rubric partial credit, post evidence discounts. */
   readonly outcome: number;
-  /** The scenario's (LLM-estimated) item rating. */
+  /** The scenario's structurally predicted item rating. */
   readonly itemRating: number;
   /** Uncertainty on the item rating; defaults to the policy's high value. */
   readonly itemRatingDeviation?: number;

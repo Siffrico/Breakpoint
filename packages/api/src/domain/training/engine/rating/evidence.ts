@@ -28,6 +28,8 @@ export interface AttemptEvidence {
   readonly itemRating: number;
   /** When the attempt was evaluated. */
   readonly occurredAt: Date;
+  /** Random-guess success chance for an MCQ; invalid values degrade to zero. */
+  readonly guessChance?: number;
 }
 
 export interface AttemptRecord {
@@ -104,7 +106,17 @@ export const assessAttempt = (
   }
   supportIndex(evidence.offeredSupport);
 
-  const rawOutcome = scoreToOutcome(evidence.score);
+  const uncorrectedOutcome = scoreToOutcome(evidence.score);
+  const guessChance =
+    typeof evidence.guessChance === "number" &&
+    evidence.guessChance >= 0 &&
+    evidence.guessChance < 1
+      ? evidence.guessChance
+      : 0;
+  const rawOutcome = Math.max(
+    0,
+    (uncorrectedOutcome - guessChance) / (1 - guessChance),
+  );
   const asks = Math.max(0, Math.floor(evidence.sidechatAskCount));
 
   const extraAsks = Math.max(0, asks - policy.cleanPassMaxSidechatAsks);

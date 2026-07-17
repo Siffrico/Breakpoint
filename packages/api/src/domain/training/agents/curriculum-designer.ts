@@ -6,7 +6,7 @@ import type {
 } from "./contracts";
 import { runResilientAgent } from "../orchestration/agent-runtime";
 import { PROJECT_FIT_CONSULTANT_SYSTEM } from "../prompts/personas/project-fit-consultant";
-import { CurriculumDesignerOutputSchema } from "./contracts";
+import { NewCurriculumDesignerOutputSchema } from "./contracts";
 
 const CURRICULUM_DESIGNER_TRANSLATOR = `Translator mode:
 - The consultation is complete. Produce the identity report, before/after, and the ability architecture only.
@@ -19,6 +19,7 @@ For each ability:
 - Set bandRamp.startRating near the lowest scaffoldable whole-task performance and peakRating at genuine expert transfer under ambiguity.
 - Define a mastery contract as observable exit criteria for independent expert performance. Set maxRatingDeviation only when the ability needs a stability threshold different from the default 80.
 - Decompose the ability into 3-8 component SKILLS, in dependency order (earliest = prerequisite for later ones).
+- Choose 6-8 recurring scenarioFormats that fit this ability. Include at least one MCQ with optionCount and at least one vague A→B gradient FRQ. Formats are reusable structural recipes, not one-off topics.
 
 For each skill (the signal-moment test):
 - Map the ability's real workflow first, then keep ONLY the sparse decision moments where an expert and a novice visibly produce different outcomes. Each surviving moment is one skill. Routine activity where novice and expert converge is noise — cut it.
@@ -66,7 +67,7 @@ export const designCurriculum = async ({
   runResilientAgent({
     agent: "curriculumDesigner",
     system: CURRICULUM_DESIGNER_SYSTEM,
-    schema: CurriculumDesignerOutputSchema,
+    schema: NewCurriculumDesignerOutputSchema,
     errorMessage: "Failed to generate the curriculum architecture.",
     onPartial: options?.onPartial,
     seedPartial: options?.seedPartial,

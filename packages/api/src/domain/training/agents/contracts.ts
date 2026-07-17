@@ -6,6 +6,7 @@ import {
   IdentityReportSchema,
   KnowledgeModelOutputSchema,
   ProjectOverviewSchema,
+  ScenarioFormatSchema,
 } from "@acme/validators";
 
 export const OnboardingPacketSchema = z.object({
@@ -83,6 +84,25 @@ export const CurriculumPlanDraftSchema = z.object({
         /** ELO tier climb for skillset units only. */
         bandRamp: BandRampSchema,
         masteryContract: MasteryContractSchema,
+        scenarioFormats: z
+          .array(ScenarioFormatSchema)
+          .min(6)
+          .max(8)
+          .superRefine((formats, ctx) => {
+            if (!formats.some((format) => format.kind === "mcq")) {
+              ctx.addIssue({
+                code: "custom",
+                message: "include at least one MCQ format",
+              });
+            }
+            if (!formats.some((format) => format.kind === "frq")) {
+              ctx.addIssue({
+                code: "custom",
+                message: "include at least one gradient FRQ format",
+              });
+            }
+          })
+          .optional(),
         /** Dependency-ordered component skills (foundation-unit targets). */
         skills: z.array(AbilitySkillDraftSchema).min(3).max(8),
       }),
@@ -117,6 +137,19 @@ export const CurriculumDesignerOutputSchema = z.object({
   beforeAfter: BeforeAfterProfileSchema,
   planDraft: CurriculumPlanDraftSchema,
 });
+
+export const NewCurriculumDesignerOutputSchema =
+  CurriculumDesignerOutputSchema.superRefine((output, ctx) => {
+    output.planDraft.abilities.forEach((ability, index) => {
+      if (!ability.scenarioFormats) {
+        ctx.addIssue({
+          code: "custom",
+          message: "scenarioFormats are required for every new ability",
+          path: ["planDraft", "abilities", index, "scenarioFormats"],
+        });
+      }
+    });
+  });
 
 export const ProjectOverviewOutputSchema = ProjectOverviewSchema.omit({
   generatedAt: true,

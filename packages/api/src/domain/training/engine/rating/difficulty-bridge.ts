@@ -1,0 +1,73 @@
+import type {
+  DifficultyVector,
+  ScenarioFormat,
+  UnitScenarioSpec,
+} from "@acme/validators";
+
+import type { DifficultyDialPreset } from "./difficulty-priors";
+import {
+  BASE_PER_FORMAT_KIND,
+  DIFFICULTY_COUNT_WEIGHTS,
+} from "./difficulty-priors";
+
+export const countVector = (
+  spec: UnitScenarioSpec,
+): DifficultyVector | null => {
+  if (
+    !spec.formatId ||
+    !spec.reasoningPathSteps ||
+    !spec.withheldGivens ||
+    !spec.embeddedAlternatives
+  ) {
+    return null;
+  }
+  return {
+    formatId: spec.formatId,
+    reasoningPathSteps: spec.reasoningPathSteps.length,
+    withheldGivens: spec.withheldGivens.length,
+    embeddedAlternatives: spec.embeddedAlternatives.length,
+  };
+};
+
+export const predictItemRating = (
+  vector: DifficultyVector,
+  formats: readonly ScenarioFormat[],
+): number => {
+  const counts = [
+    vector.reasoningPathSteps,
+    vector.withheldGivens,
+    vector.embeddedAlternatives,
+  ];
+  if (counts.some((count) => !Number.isInteger(count) || count < 0)) {
+    throw new RangeError(
+      "difficulty vector counts must be non-negative integers",
+    );
+  }
+  const format = formats.find((candidate) => candidate.id === vector.formatId);
+  if (!format)
+    throw new RangeError(`unknown scenario format: ${vector.formatId}`);
+  return (
+    BASE_PER_FORMAT_KIND[format.kind] +
+    vector.reasoningPathSteps * DIFFICULTY_COUNT_WEIGHTS.perStep +
+    vector.withheldGivens * DIFFICULTY_COUNT_WEIGHTS.perWithheldGiven +
+    vector.embeddedAlternatives * DIFFICULTY_COUNT_WEIGHTS.perAlternative
+  );
+};
+
+const axisAudit = (value: number, range: readonly [number, number]) => ({
+  value,
+  range,
+  inRange: value >= range[0] && value <= range[1],
+});
+
+export const auditDialCompliance = (
+  vector: DifficultyVector,
+  preset: DifficultyDialPreset,
+) => ({
+  reasoningPathSteps: axisAudit(vector.reasoningPathSteps, preset.steps),
+  withheldGivens: axisAudit(vector.withheldGivens, preset.withheldGivens),
+  embeddedAlternatives: axisAudit(
+    vector.embeddedAlternatives,
+    preset.alternatives,
+  ),
+});

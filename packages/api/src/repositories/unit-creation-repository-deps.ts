@@ -2,27 +2,31 @@ import { Effect } from "effect";
 
 import type { db as databaseClient } from "@acme/db/client";
 import { and, asc, desc, eq } from "@acme/db";
-import { TrainingCurriculumNode, TrainingCurriculumPlan, TrainingKnowledgeTopic } from "@acme/db/schema";
+import {
+  TrainingCurriculumNode,
+  TrainingCurriculumPlan,
+  TrainingKnowledgeTopic,
+} from "@acme/db/schema";
 
-import type { CreateNextUnitDependencies } from "../domain/training/unit-creation/create-next-unit";
 import type {
   MasteryProgressionState,
   ProgressionNode,
 } from "../domain/training/engine/plan-progression";
+import type { JobRatingState } from "../domain/training/engine/rating";
+import type { CreateNextUnitDependencies } from "../domain/training/unit-creation/create-next-unit";
+import { designSyllabus } from "../domain/training/agents/syllabus-designer";
 import { CONCEPT_COVERAGE_TARGET } from "../domain/training/engine/concept-coverage";
 import {
   difficultyRampOf,
   resolveProgressionModel,
 } from "../domain/training/engine/progression-model";
-import { advanceSkillMapNodeWorkflow } from "../domain/training/unit-creation/advance-skill-map-node";
 import {
   createInitialRatingState,
   expandSkillBands,
 } from "../domain/training/engine/rating";
-import type { JobRatingState } from "../domain/training/engine/rating";
-import { createNextUnit } from "../domain/training/unit-creation/create-next-unit";
-import { designSyllabus } from "../domain/training/agents/syllabus-designer";
 import { resolveScenarioDirective } from "../domain/training/orchestration/goldilocks";
+import { advanceSkillMapNodeWorkflow } from "../domain/training/unit-creation/advance-skill-map-node";
+import { createNextUnit } from "../domain/training/unit-creation/create-next-unit";
 import { prepareUnitContent } from "../domain/training/unit-preparation/prepare-unit-content";
 import { queryWithClient } from "../effect/db";
 import { resolvePlanSeedRating } from "./plan-seed-rating";
@@ -45,7 +49,13 @@ export const ensureSkillSyllabus = async ({
   db: Database;
   clusterNodeId: string;
   targetIdentity: string;
-  topics?: { id: string; slug: string; title: string; gloss: string; coreIdea: string }[];
+  topics?: {
+    id: string;
+    slug: string;
+    title: string;
+    gloss: string;
+    coreIdea: string;
+  }[];
 }) => {
   const cluster = await trainingCurriculumRepository.getNodeById({
     db,
@@ -69,7 +79,9 @@ export const ensureSkillSyllabus = async ({
     db,
     clusterNodeId,
     entries: syllabus.entries,
-    topicIdsBySlug: new Map(topics?.map((topic) => [topic.slug, topic.id]) ?? []),
+    topicIdsBySlug: new Map(
+      topics?.map((topic) => [topic.slug, topic.id]) ?? [],
+    ),
   });
 };
 
@@ -95,149 +107,161 @@ export const createUnitCreationRepositoryDeps = ({
   };
 
   return {
-  loadSkill: (clusterNodeId, unitStatus) =>
-    queryWithClient(db, "loadSkillForUnitCreation", async () => {
-      const node = await db.query.TrainingCurriculumNode.findFirst({
-        where: eq(TrainingCurriculumNode.id, clusterNodeId),
-      });
-      if (!node?.skillMap) return null;
-      const mapEntry = (entry: {
-        id: string;
-        label: string;
-        gloss: string;
-        kind: string;
-        status: string;
-        topicId?: string | null;
-      }) => ({
-        id: entry.id,
-        label: entry.label,
-        gloss: entry.gloss,
-        kind: entry.kind as
-          | "discrimination"
-          | "concept"
-          | "subskill"
-          | "vocabulary",
-        status: entry.status,
-        topicId: entry.topicId ?? null,
-      });
+    loadSkill: (clusterNodeId, unitStatus) =>
+      queryWithClient(db, "loadSkillForUnitCreation", async () => {
+        const node = await db.query.TrainingCurriculumNode.findFirst({
+          where: eq(TrainingCurriculumNode.id, clusterNodeId),
+        });
+        if (!node?.skillMap) return null;
+        const mapEntry = (entry: {
+          id: string;
+          label: string;
+          gloss: string;
+          kind: string;
+          status: string;
+          topicId?: string | null;
+        }) => ({
+          id: entry.id,
+          label: entry.label,
+          gloss: entry.gloss,
+          kind: entry.kind as
+            | "discrimination"
+            | "concept"
+            | "subskill"
+            | "vocabulary",
+          status: entry.status,
+          topicId: entry.topicId ?? null,
+        });
 
-      const openUnit = await db.query.TrainingCurriculumNode.findFirst({
-        where: and(
-          eq(TrainingCurriculumNode.parentNodeId, clusterNodeId),
-          eq(TrainingCurriculumNode.kind, "unit"),
-          eq(TrainingCurriculumNode.status, unitStatus),
-        ),
-        orderBy: [desc(TrainingCurriculumNode.orderIndex)],
-      });
+        const openUnit = await db.query.TrainingCurriculumNode.findFirst({
+          where: and(
+            eq(TrainingCurriculumNode.parentNodeId, clusterNodeId),
+            eq(TrainingCurriculumNode.kind, "unit"),
+            eq(TrainingCurriculumNode.status, unitStatus),
+          ),
+          orderBy: [desc(TrainingCurriculumNode.orderIndex)],
+        });
 
-      // Skillset units (parent = ability): the "frontier" is the ability's
-      // weakest concepts across ALL its skills — the least-covered ones are
-      // the integration targets. They are surfaced with status "unchecked" so
-      // the pure selector (sliceSyllabusFrontier) picks them; their real
-      // check-off state lives on the skill's own foundation history.
-      if (node.kind === "ability" || node.kind === "skill") {
-        if (node.kind === "ability") {
-          const skills = await db.query.TrainingCurriculumNode.findMany({
-            where: and(
-              eq(TrainingCurriculumNode.parentNodeId, clusterNodeId),
-              eq(TrainingCurriculumNode.kind, "skill"),
-            ),
+        // Skillset units (parent = ability): the "frontier" is the ability's
+        // weakest concepts across ALL its skills — the least-covered ones are
+        // the integration targets. They are surfaced with status "unchecked" so
+        // the pure selector (sliceSyllabusFrontier) picks them; their real
+        // check-off state lives on the skill's own foundation history.
+        if (node.kind === "ability" || node.kind === "skill") {
+          if (node.kind === "ability") {
+            const skills = await db.query.TrainingCurriculumNode.findMany({
+              where: and(
+                eq(TrainingCurriculumNode.parentNodeId, clusterNodeId),
+                eq(TrainingCurriculumNode.kind, "skill"),
+              ),
+            });
+            const perSkillEntries = await Promise.all(
+              skills.map((skill) =>
+                trainingSyllabusRepository.listEntries({
+                  db,
+                  clusterNodeId: skill.id,
+                }),
+              ),
+            );
+            const entries = perSkillEntries
+              .flat()
+              .sort((a, b) => a.coverageCount - b.coverageCount)
+              .map((entry) => ({ ...mapEntry(entry), status: "unchecked" }));
+            return {
+              title: node.title,
+              whyItMatters: node.whyItMatters,
+              entries,
+              openUnit: openUnit ?? null,
+            };
+          }
+          let entries = await trainingSyllabusRepository.listEntries({
+            db,
+            clusterNodeId,
           });
-          const perSkillEntries = await Promise.all(
-            skills.map((skill) =>
-              trainingSyllabusRepository.listEntries({
+          if (entries.length === 0) {
+            const plan = await db.query.TrainingCurriculumPlan.findFirst({
+              where: eq(TrainingCurriculumPlan.id, node.planId),
+            });
+            if (!plan) return null;
+            entries =
+              (await ensureSkillSyllabus({
                 db,
-                clusterNodeId: skill.id,
-              }),
-            ),
+                clusterNodeId,
+                targetIdentity: plan.targetIdentity,
+              })) ?? [];
+          }
+          const topics = node.parentNodeId
+            ? await db.query.TrainingKnowledgeTopic.findMany({
+                where: eq(
+                  TrainingKnowledgeTopic.abilityNodeId,
+                  node.parentNodeId,
+                ),
+                orderBy: [asc(TrainingKnowledgeTopic.orderIndex)],
+              })
+            : [];
+          const topicOrderById = new Map(
+            topics.map((topic) => [topic.id, topic.orderIndex]),
           );
-          const entries = perSkillEntries
-            .flat()
-            .sort((a, b) => a.coverageCount - b.coverageCount)
-            .map((entry) => ({ ...mapEntry(entry), status: "unchecked" }));
           return {
             title: node.title,
             whyItMatters: node.whyItMatters,
-            entries,
+            entries: entries.map((entry) => ({
+              ...mapEntry(entry),
+              topicOrderIndex: entry.topicId
+                ? (topicOrderById.get(entry.topicId) ?? null)
+                : null,
+            })),
             openUnit: openUnit ?? null,
           };
         }
-        let entries = await trainingSyllabusRepository.listEntries({
+
+        // Legacy skill_cluster path — unchanged.
+        const entries = await trainingSyllabusRepository.listEntries({
           db,
           clusterNodeId,
         });
-        if (entries.length === 0) {
-          const plan = await db.query.TrainingCurriculumPlan.findFirst({
-            where: eq(TrainingCurriculumPlan.id, node.planId),
-          });
-          if (!plan) return null;
-          entries =
-            (await ensureSkillSyllabus({
-              db,
-              clusterNodeId,
-              targetIdentity: plan.targetIdentity,
-            })) ?? [];
-        }
-        const topics = node.parentNodeId
-          ? await db.query.TrainingKnowledgeTopic.findMany({
-              where: eq(TrainingKnowledgeTopic.abilityNodeId, node.parentNodeId),
-              orderBy: [asc(TrainingKnowledgeTopic.orderIndex)],
-            })
-          : [];
-        const topicOrderById = new Map(topics.map((topic) => [topic.id, topic.orderIndex]));
         return {
           title: node.title,
           whyItMatters: node.whyItMatters,
-          entries: entries.map((entry) => ({ ...mapEntry(entry), topicOrderIndex: entry.topicId ? (topicOrderById.get(entry.topicId) ?? null) : null })),
+          entries: entries.map(mapEntry),
           openUnit: openUnit ?? null,
         };
-      }
-
-      // Legacy skill_cluster path — unchanged.
-      const entries = await trainingSyllabusRepository.listEntries({
-        db,
-        clusterNodeId,
-      });
-      return {
-        title: node.title,
-        whyItMatters: node.whyItMatters,
-        entries: entries.map(mapEntry),
-        openUnit: openUnit ?? null,
-      };
-    }),
-  resolveDirective: (clusterNodeId) =>
-    queryWithClient(db, "resolveUnitCreationDirective", async () => {
-      const cluster = await db.query.TrainingCurriculumNode.findFirst({
-        where: eq(TrainingCurriculumNode.id, clusterNodeId),
-      });
-      const model = cluster ? resolveProgressionModel(cluster) : null;
-      if (!model) throw new Error("Skill map is missing.");
-      return resolveScenarioDirective({
-        userId,
-        nodeId: clusterNodeId,
-        now: new Date(),
-        bands:
-          cluster?.difficultyBands ?? expandSkillBands(difficultyRampOf(model)),
-        initialRatingState: (await getSeed(clusterNodeId)) ?? undefined,
-        deps: createTrainingRatingGoldilocksDeps(db),
-      });
-    }),
-  appendUnit: (input) =>
-    queryWithClient(db, "appendDynamicUnit", () =>
-      appendDynamicUnitNode({ db, ...input }),
-    ),
-  hasUnitContent: (nodeId) =>
-    queryWithClient(db, "hasDynamicUnitContent", async () =>
-      Boolean(
-        await trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),
+      }),
+    resolveDirective: (clusterNodeId) =>
+      queryWithClient(db, "resolveUnitCreationDirective", async () => {
+        const cluster = await db.query.TrainingCurriculumNode.findFirst({
+          where: eq(TrainingCurriculumNode.id, clusterNodeId),
+        });
+        const model = cluster ? resolveProgressionModel(cluster) : null;
+        if (!model) throw new Error("Skill map is missing.");
+        return resolveScenarioDirective({
+          userId,
+          nodeId: clusterNodeId,
+          now: new Date(),
+          bands:
+            cluster?.difficultyBands ??
+            expandSkillBands(difficultyRampOf(model)),
+          initialRatingState: (await getSeed(clusterNodeId)) ?? undefined,
+          scenarioFormats: cluster?.skillMap?.scenarioFormats,
+          deps: createTrainingRatingGoldilocksDeps(db),
+        });
+      }),
+    appendUnit: (input) =>
+      queryWithClient(db, "appendDynamicUnit", () =>
+        appendDynamicUnitNode({ db, ...input }),
       ),
-    ),
-  prepareUnitEffect: (node) =>
-    prepareUnitContent({
-      node,
-      sessionId,
-      deps: createUnitPreparationRepositoryDeps(db),
-    }).pipe(Effect.asVoid),
+    hasUnitContent: (nodeId) =>
+      queryWithClient(db, "hasDynamicUnitContent", async () =>
+        Boolean(
+          await trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),
+        ),
+      ),
+    prepareUnitEffect: (node) =>
+      prepareUnitContent({
+        node,
+        sessionId,
+        deps: createUnitPreparationRepositoryDeps(db),
+      }).pipe(Effect.asVoid),
   };
 };
 

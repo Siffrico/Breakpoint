@@ -1,7 +1,11 @@
 import { z } from "zod/v4";
 
 export const KnowledgeTopicSchema = z.object({
-  slug: z.string().min(1).max(120).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+  slug: z
+    .string()
+    .min(1)
+    .max(120)
+    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
   parentSlug: z.string().min(1).max(120).nullable(),
   title: z.string().min(1).max(240),
   gloss: z.string().min(1).max(1_000),
@@ -19,11 +23,7 @@ export const WorkspaceBootstrapInputSchema = z.object({
   cookieSessionId: z.string().uuid().optional(),
 });
 
-export const MissionStatusSchema = z.enum([
-  "drafting",
-  "active",
-  "completed",
-]);
+export const MissionStatusSchema = z.enum(["drafting", "active", "completed"]);
 
 export const MissionSpecSchema = z.object({
   title: z.string().min(1).max(160),
@@ -171,6 +171,29 @@ export const DifficultyBandSchema = z.object({
   label: z.string().min(1).optional(),
 });
 
+export const ScenarioFormatSchema = z
+  .object({
+    id: z.string().min(1),
+    label: z.string().min(1),
+    kind: z.enum(["mcq", "frq"]),
+    description: z.string().min(1),
+    optionCount: z.number().int().min(2).optional(),
+  })
+  .refine(
+    (format) => format.kind !== "mcq" || format.optionCount !== undefined,
+    {
+      message: "optionCount is required for MCQ formats",
+      path: ["optionCount"],
+    },
+  );
+
+export const DifficultyVectorSchema = z.object({
+  formatId: z.string().min(1),
+  reasoningPathSteps: z.number().int().min(0),
+  withheldGivens: z.number().int().min(0),
+  embeddedAlternatives: z.number().int().min(0),
+});
+
 /**
  * Canonical Goldilocks rating contract shared by the API engine and the
  * database. This is the ONE definition of a persisted difficulty directive and
@@ -257,6 +280,10 @@ export const UnitScenarioSpecSchema = z.object({
   chasm: z.string().min(1).optional(),
   /** Friction & noise: the messy reality variables that make it realistic. */
   frictionNoise: z.string().min(1).optional(),
+  formatId: z.string().min(1).optional(),
+  reasoningPathSteps: z.array(z.string().min(1)).optional(),
+  withheldGivens: z.array(z.string()).optional(),
+  embeddedAlternatives: z.array(z.string()).optional(),
   canonicalAnswer: z.string().min(1),
   reasoningPath: z.string().min(1),
   rubric: z.string().min(1),
@@ -281,6 +308,17 @@ export const UnitDifficultySnapshotSchema = z.object({
   promptBlock: z.string(),
   ratingSnapshot: z.string(),
   learnerRating: z.number(),
+  format: ScenarioFormatSchema.optional(),
+  dialPreset: z
+    .object({
+      steps: z.tuple([z.number().int().min(0), z.number().int().min(0)]),
+      withheldGivens: z.tuple([
+        z.number().int().min(0),
+        z.number().int().min(0),
+      ]),
+      alternatives: z.tuple([z.number().int().min(0), z.number().int().min(0)]),
+    })
+    .optional(),
 });
 
 export const CurriculumNodeSchema = z.object({
@@ -845,6 +883,8 @@ export type UnitDifficultySnapshot = z.infer<
   typeof UnitDifficultySnapshotSchema
 >;
 export type UnitScenarioSpec = z.infer<typeof UnitScenarioSpecSchema>;
+export type ScenarioFormat = z.infer<typeof ScenarioFormatSchema>;
+export type DifficultyVector = z.infer<typeof DifficultyVectorSchema>;
 export type UnitScenarioSpecRecord = z.infer<
   typeof UnitScenarioSpecRecordSchema
 >;

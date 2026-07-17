@@ -122,6 +122,10 @@ ${REQUIRED_UNDERSTANDING_SPEC}
 
 ${DIFFICULTY_DIAL}
 
+Vary surface setting and framing for freshness and personalization, but never
+count surface novelty as difficulty. Prefer contexts connected to the learner's
+interests when they preserve the same underlying expert decision.
+
 For the opening scenario, set the difficulty dial low-to-mid on every
 dimension: solvable enough that the learner produces a real attempt, ambiguous
 enough that their attempt leaks their actual mental model.

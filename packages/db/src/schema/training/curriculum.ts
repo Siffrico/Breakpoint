@@ -1,6 +1,8 @@
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { index, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
 
+import type { ScenarioFormat } from "@acme/validators";
+
 import { user } from "../../auth-schema";
 import { TrainingOnboardingSession } from "./onboarding";
 import { TrainingIdentityProfileVersion } from "./profile";
@@ -39,13 +41,11 @@ export const TrainingCurriculumPlan = pgTable(
     // stamped at build time. The workspace reads it as the initial rating state
     // for fresh nodes. Null when no starting point was elicited. See
     // @acme/validators SeedRating and engine/rating/seed.ts.
-    seedRating: t
-      .jsonb()
-      .$type<{
-        rating: number;
-        ratingDeviation: number;
-        volatility: number;
-      } | null>(),
+    seedRating: t.jsonb().$type<{
+      rating: number;
+      ratingDeviation: number;
+      volatility: number;
+    } | null>(),
     createdAt: t
       .timestamp({ mode: "date", withTimezone: true })
       .defaultNow()
@@ -103,6 +103,7 @@ export const TrainingCurriculumNode = pgTable(
         exitCriteria: string[];
         maxRatingDeviation?: number;
       };
+      scenarioFormats?: ScenarioFormat[];
     }>(),
     orderIndex: t.integer().notNull(),
     depth: t.integer().notNull(),
@@ -137,9 +138,11 @@ export const TrainingKnowledgeTopic = pgTable(
       .uuid()
       .notNull()
       .references(() => TrainingCurriculumNode.id, { onDelete: "cascade" }),
-    parentTopicId: t.uuid().references((): AnyPgColumn => TrainingKnowledgeTopic.id, {
-      onDelete: "cascade",
-    }),
+    parentTopicId: t
+      .uuid()
+      .references((): AnyPgColumn => TrainingKnowledgeTopic.id, {
+        onDelete: "cascade",
+      }),
     slug: t.varchar({ length: 120 }).notNull(),
     title: t.varchar({ length: 240 }).notNull(),
     gloss: t.text().notNull(),

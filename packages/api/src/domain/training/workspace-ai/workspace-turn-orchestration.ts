@@ -2,9 +2,11 @@ import type { ModelMessage } from "ai";
 import type { Scope } from "effect";
 import { Effect, Exit } from "effect";
 
+import type { ScenarioFormat } from "@acme/validators";
+
 import type { Memory } from "../../memory/types";
 import type { UnitDifficultySnapshot } from "../education-unit/unit";
-import type { ScenarioDirective } from "../engine/rating";
+import type { DifficultyDialPreset, ScenarioDirective } from "../engine/rating";
 import type { DifficultyBand } from "../types/training.types";
 import type { WorkspaceAiMessage, WorkspaceAiTurnResult } from "./types";
 import type { WorkspaceEducationTurnError } from "./workspace-errors";
@@ -38,6 +40,8 @@ interface ResolvedDifficultyDirectiveResult {
   promptBlock: string;
   ratingSnapshot: string;
   learnerRating: number;
+  format: ScenarioFormat;
+  dialPreset: DifficultyDialPreset;
 }
 
 interface OpenScenarioResult {
@@ -379,6 +383,8 @@ export const runEducationUnitTurn = ({
         promptBlock: resolvedDifficulty.promptBlock,
         ratingSnapshot: resolvedDifficulty.ratingSnapshot,
         learnerRating: resolvedDifficulty.learnerRating,
+        format: resolvedDifficulty.format,
+        dialPreset: resolvedDifficulty.dialPreset,
       };
     }
 

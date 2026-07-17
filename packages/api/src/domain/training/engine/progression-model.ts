@@ -17,6 +17,8 @@
 // old rows keep working; what changes is that the regime distinction is
 // decided here once instead of being reconstructed per call site.
 
+import type { ScenarioFormat } from "@acme/validators";
+
 export interface StoredSkillMap {
   workflow: { name: string; steps: string[] };
   bandRamp: { startRating: number; peakRating: number };
@@ -24,7 +26,22 @@ export interface StoredSkillMap {
     exitCriteria: string[];
     maxRatingDeviation?: number;
   };
+  scenarioFormats?: ScenarioFormat[];
 }
+
+const LEGACY_SCENARIO_FORMAT: ScenarioFormat = {
+  id: "legacy_frq",
+  label: "Legacy free response",
+  kind: "frq",
+  description: "A free-response scenario using the legacy authoring contract.",
+};
+
+export const resolveScenarioFormats = (
+  skillMap: StoredSkillMap | null | undefined,
+): readonly ScenarioFormat[] =>
+  skillMap?.scenarioFormats && skillMap.scenarioFormats.length > 0
+    ? skillMap.scenarioFormats
+    : [LEGACY_SCENARIO_FORMAT];
 
 /** Default mastery gate width when the contract does not narrow it. */
 export const DEFAULT_MAX_RATING_DEVIATION = 80;

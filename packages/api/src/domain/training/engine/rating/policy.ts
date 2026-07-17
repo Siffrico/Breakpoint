@@ -54,7 +54,7 @@ export interface RatingPolicy {
   readonly tau: number;
 
   /**
-   * Deviation assumed for an LLM-estimated item rating. Scenarios are bespoke
+   * Deviation assumed for a structurally predicted item rating. Scenarios are bespoke
    * and seen once, so their claimed difficulty is never corrected — a high
    * deviation keeps one mis-estimated scenario from yanking the learner's
    * rating.

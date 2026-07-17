@@ -40,6 +40,7 @@ import type {
   PreSeedUnitContentDraft,
   ProjectOverview,
   ScenarioEvaluationContract,
+  ScenarioFormat,
   SubmitEducationUnitStep,
   TeachbackMessage,
   TeachbackRoundResult,
@@ -123,6 +124,7 @@ export interface CurriculumNodeBlueprint {
       exitCriteria: string[];
       maxRatingDeviation?: number;
     };
+    scenarioFormats?: ScenarioFormat[];
   } | null;
 }
 

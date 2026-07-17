@@ -42,7 +42,21 @@ export { reduceMisconceptions, selectRepairTarget } from "./misconceptions";
 export type { RatingPolicy, SupportLevel } from "./policy";
 export { DEFAULT_RATING_POLICY, SUPPORT_LEVELS } from "./policy";
 export type { GeneratorCalibrationNote } from "./render";
-export { buildGeneratorCalibrationNote, renderScenarioDirective } from "./render";
+export {
+  buildGeneratorCalibrationNote,
+  renderScenarioDirective,
+} from "./render";
 export type { BandRamp } from "./expand-band-ladder";
 export { expandSkillBands, expandUnitBands } from "./expand-band-ladder";
 export { seedFromStartingPoint } from "./seed";
+export type { DifficultyDialPreset } from "./difficulty-priors";
+export {
+  BAND_DIAL_PRESETS,
+  BASE_PER_FORMAT_KIND,
+  DIFFICULTY_COUNT_WEIGHTS,
+} from "./difficulty-priors";
+export {
+  auditDialCompliance,
+  countVector,
+  predictItemRating,
+} from "./difficulty-bridge";

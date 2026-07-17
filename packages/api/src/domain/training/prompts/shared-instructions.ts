@@ -118,23 +118,20 @@ Classification discipline:
 `.trim();
 
 export const DIFFICULTY_DIAL = `
-DIFFICULTY DIAL — the only legitimate ways to make a scenario harder.
+DIFFICULTY DIAL — countable structural ways to make a scenario harder.
 
 Adjust each dimension independently. Harder = MORE OF THE REAL WORLD'S MESS,
 never weirder. A senior practitioner reading the harder scenario should still
 find it plausible.
 
-  1. Surface novelty       same domain as taught  →  adjacent domain  →  distant domain
-  2. Concept count         1 concept              →  2-3 combine     →  4+
-  3. Constraint count      1 constraint           →  2-3 simultaneous →  many
-  4. Ambiguity             problem fully specified →  partially       →  learner must DEFINE the problem
-  5. Distractor density    no plausible-wrong paths →  1              →  multiple competing
-  6. Adversarial pressure  neutral framing        →  mild lean        →  actively pulls toward the wrong answer
+  1. Reasoning-path steps: list every causal or decision step the solution chains.
+  2. Withheld givens: name every key fact the learner must infer or request.
+  3. Embedded alternatives: name every plausible wrong approach the setup supports.
 
 Cognitive-load principle: harder scenarios should LOWER the unnecessary
 mental work (cleaner setup, the learner's own domain, plain language) while
 RAISING the work that actually builds understanding (more concepts to juggle,
-more competing considerations, more pattern-building demand). That is the
+more interacting reasoning, inference, and discrimination demand). That is the
 recipe for "intuitive to read, complex to solve."
 
 Forbidden ways to scale difficulty:

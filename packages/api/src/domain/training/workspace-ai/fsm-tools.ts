@@ -106,6 +106,10 @@ export const recordScenarioSpec = tool({
     stateB: true,
     chasm: true,
     frictionNoise: true,
+    formatId: true,
+    reasoningPathSteps: true,
+    withheldGivens: true,
+    embeddedAlternatives: true,
   }),
   execute: acknowledge,
 });
