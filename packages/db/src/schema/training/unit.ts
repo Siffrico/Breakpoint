@@ -223,6 +223,8 @@ export const TrainingUnitRun = pgTable(
     // REPLACEABLE: pass 1's spec is stored, then pass 2's connect overwrites it
     // (after reading pass 1's as its "new surface" constraint).
     scenarioSpecJson: t.jsonb().$type<TrainingUnitScenarioSpecJson | null>(),
+    turnLeaseId: t.uuid(),
+    turnLeaseExpiresAt: t.timestamp({ mode: "date", withTimezone: true }),
     createdAt: t
       .timestamp({ mode: "date", withTimezone: true })
       .defaultNow()

@@ -3,7 +3,7 @@ import type {
   ContinuationConfig,
 } from "../orchestration/agent-runtime";
 import type {
-  OnboardingPacket,
+  LearnerBrief,
   OnboardingTranscript,
   ProjectOverviewOutput,
 } from "./contracts";
@@ -49,7 +49,7 @@ Search policy:
  * The overview is the one build artifact with a long-form, append-able field
  * (the markdown `body`), so it supplies a continuation config: on a truncated
  * generation the runner seeds the captured partial and asks the model to finish
- * it, then merges the two bodies. Structured agents (packet, curriculum) have no
+ * it, then merges the two bodies. Structured agents (brief, curriculum) have no
  * such config and fall back to a restart. See {@link runResilientAgent}.
  */
 const OVERVIEW_CONTINUATION: ContinuationConfig<ProjectOverviewOutput> = {
@@ -70,11 +70,11 @@ const OVERVIEW_CONTINUATION: ContinuationConfig<ProjectOverviewOutput> = {
 };
 
 export const designProjectOverview = async ({
-  packet,
+  brief,
   transcript,
   options,
 }: {
-  packet: OnboardingPacket;
+  brief: LearnerBrief;
   transcript: OnboardingTranscript;
   options?: ArtifactResumeOptions<ProjectOverviewOutput>;
 }): Promise<ProjectOverviewOutput> => {
@@ -102,8 +102,8 @@ Required body structure:
 11. Tie the whole overview back to the learner's desired project and target identity.
 12. End with a compressed mental model the learner can carry into the first unit.
 
-Packet:
-${formatOnboardingPacket(packet)}
+Brief:
+${formatLearnerBrief(brief)}
 
 Transcript:
 ${formatOnboardingTranscript(transcript)}`;
@@ -152,16 +152,10 @@ const mergeOverviewBodies = (first: string, second: string) => {
   return `${trimmedFirst}\n\n${trimmedSecond}`;
 };
 
-const formatOnboardingPacket = (packet: OnboardingPacket): string =>
-  `Target identity: ${packet.targetIdentity}
-Motivation: ${packet.motivation}
-Current baseline: ${packet.currentBaseline}
-Hard moments: ${packet.hardMoments.join("; ") || "None provided"}
-Constraints: ${packet.constraints.join("; ") || "None provided"}
-Proof of progress: ${packet.proofOfProgress ?? "Not established"}
-Identity friction: ${packet.identityFriction ?? "Not established"}
-Behavior signals: ${packet.behaviorSignals.join("; ") || "None provided"}
-Confidence flags: ${packet.confidenceFlags.join("; ") || "None provided"}`;
+const formatLearnerBrief = (brief: LearnerBrief): string =>
+  `What they want to learn: ${brief.whatToLearn}
+What they want to make: ${brief.whatToMake}
+Interests: ${brief.interests.join("; ") || "None provided"}`;
 
 const formatOnboardingTranscript = (messages: OnboardingTranscript): string =>
   messages

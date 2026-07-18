@@ -1,23 +1,18 @@
-import type { UIMessage } from "ai";
 import type { NextRequest } from "next/server";
 import { after } from "next/server";
-import { isTextUIPart } from "ai";
 
 import { streamWorkspaceChat } from "@acme/api/workspace-chat";
 import { db } from "@acme/db/client";
-import { AiModelPreferenceSchema } from "@acme/validators";
+import {
+  AiModelPreferenceSchema,
+  WORKSPACE_CHAT_BODY_MAX_BYTES,
+  WORKSPACE_CHAT_MESSAGE_MAX_CHARS,
+  WorkspaceChatRequestSchema,
+} from "@acme/validators";
 
 import { requireSession } from "~/app/api/_lib/require-session";
 
 export const runtime = "nodejs";
-
-interface WorkspaceChatRequestBody {
-  message?: string;
-  messages?: UIMessage[];
-  model?: string;
-  sessionId?: string;
-  turnId?: string;
-}
 
 const AI_MODEL_COOKIE = "bp-ai-model";
 const resolveModelPreference = (req: NextRequest, model?: string) => {
@@ -28,9 +23,22 @@ const resolveModelPreference = (req: NextRequest, model?: string) => {
   return parsed.success ? parsed.data : null;
 };
 
-const getTextFromMessage = (message: UIMessage) =>
+type WorkspaceChatRequestBody = ReturnType<
+  typeof WorkspaceChatRequestSchema.parse
+>;
+type WorkspaceChatMessage = NonNullable<
+  WorkspaceChatRequestBody["messages"]
+>[number];
+
+const getTextFromMessage = (message: WorkspaceChatMessage) =>
   message.parts
-    .reduce((text, part) => (isTextUIPart(part) ? text + part.text : text), "")
+    .reduce(
+      (text, part) =>
+        part.type === "text" && typeof part.text === "string"
+          ? text + part.text
+          : text,
+      "",
+    )
     .trim();
 
 const resolveSubmittedMessage = (body: WorkspaceChatRequestBody) => {
@@ -53,38 +61,71 @@ const resolveSubmittedMessage = (body: WorkspaceChatRequestBody) => {
   return "";
 };
 
+const readJsonBody = async (req: NextRequest) => {
+  const declaredLength = Number(req.headers.get("content-length"));
+  if (
+    Number.isFinite(declaredLength) &&
+    declaredLength > WORKSPACE_CHAT_BODY_MAX_BYTES
+  ) {
+    return { status: "too_large" as const };
+  }
+
+  if (!req.body) return { status: "invalid" as const };
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > WORKSPACE_CHAT_BODY_MAX_BYTES) {
+      await reader.cancel();
+      return { status: "too_large" as const };
+    }
+    chunks.push(value);
+  }
+
+  try {
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return {
+      status: "ok" as const,
+      body: JSON.parse(new TextDecoder().decode(bytes)) as unknown,
+    };
+  } catch {
+    return { status: "invalid" as const };
+  }
+};
+
 export const POST = async (req: NextRequest) => {
   const [session, bodyResult] = await Promise.all([
     requireSession(req),
-    req
-      .json()
-      .then((body: unknown) => ({ success: true as const, body }))
-      .catch(() => ({ success: false as const })),
+    readJsonBody(req),
   ]);
   if (!session) {
     return new Response("Unauthorized", { status: 401 });
   }
-  if (!bodyResult.success) {
+  if (bodyResult.status === "too_large") {
+    return new Response("Request body too large", { status: 413 });
+  }
+  if (bodyResult.status === "invalid") {
     return new Response("Invalid JSON", { status: 400 });
   }
-  if (
-    bodyResult.body == null ||
-    typeof bodyResult.body !== "object" ||
-    Array.isArray(bodyResult.body)
-  ) {
+  const parsed = WorkspaceChatRequestSchema.safeParse(bodyResult.body);
+  if (!parsed.success) {
     return new Response("Invalid request body", { status: 400 });
   }
-  const body = bodyResult.body as WorkspaceChatRequestBody;
+  const body = parsed.data;
 
   const { sessionId, turnId } = body;
   const submittedMessage = resolveSubmittedMessage(body);
   if (
-    !sessionId ||
-    typeof sessionId !== "string" ||
-    typeof turnId !== "string" ||
-    turnId.length === 0 ||
-    turnId.length > 96 ||
-    submittedMessage.length === 0
+    submittedMessage.length === 0 ||
+    submittedMessage.length > WORKSPACE_CHAT_MESSAGE_MAX_CHARS
   ) {
     return new Response("Invalid request body", { status: 400 });
   }

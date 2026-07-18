@@ -232,11 +232,12 @@ export const buildProjectCheckpointRepository = {
       where: and(
         eq(TrainingProjectBuildCheckpoint.sessionId, sessionId),
         eq(TrainingProjectBuildCheckpoint.sourceKey, sourceKey),
-        inArray(TrainingProjectBuildCheckpoint.step, [
-          "goals",
-          "curriculum",
-          "overview",
-        ]),
+        // "goals" is deliberately absent: the learner brief now arrives with the
+        // consultant's createProject call, so pre-existing goals rows are inert
+        // history. Reading them back would resurrect a stale failed row into
+        // `hasUnfinishedArtifact` and permanently block the completed-build
+        // short-circuit for sessions built before that change.
+        inArray(TrainingProjectBuildCheckpoint.step, ["curriculum", "overview"]),
       ),
     });
 

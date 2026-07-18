@@ -89,6 +89,9 @@ const PURPOSE_TIER: Record<AiModelPurpose, ModelTier> = {
   default: "standard",
 };
 
+export const getModelTierForPurpose = (purpose: AiModelPurpose): ModelTier =>
+  PURPOSE_TIER[purpose];
+
 const getEnv = (name: string): string | undefined => {
   const value = process.env[name]?.trim();
   if (!value) return undefined;
@@ -199,7 +202,7 @@ export const getAiModelForTier = (tier: ModelTier): LanguageModel | null => {
 
 export const getAiModelForPurpose = (
   purpose: AiModelPurpose,
-): LanguageModel | null => getAiModelForTier(PURPOSE_TIER[purpose]);
+): LanguageModel | null => getAiModelForTier(getModelTierForPurpose(purpose));
 
 export const requireAiModelForPurpose = (
   purpose: AiModelPurpose,

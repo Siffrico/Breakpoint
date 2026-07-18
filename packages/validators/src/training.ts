@@ -1,5 +1,33 @@
 import { z } from "zod/v4";
 
+export const WORKSPACE_CHAT_MESSAGE_MAX_CHARS = 12_000;
+export const WORKSPACE_CHAT_BODY_MAX_BYTES = 64 * 1024;
+
+const WorkspaceChatMessageSchema = z.looseObject({
+  role: z.enum(["system", "user", "assistant"]),
+  parts: z
+    .array(
+      z.looseObject({
+        type: z.string().max(64),
+        text: z.string().max(WORKSPACE_CHAT_MESSAGE_MAX_CHARS).optional(),
+      }),
+    )
+    .max(100),
+});
+
+export const WorkspaceChatRequestSchema = z
+  .object({
+    message: z.string().max(WORKSPACE_CHAT_MESSAGE_MAX_CHARS).optional(),
+    messages: z.array(WorkspaceChatMessageSchema).max(100).optional(),
+    model: z.string().max(120).optional(),
+    sessionId: z.string().uuid(),
+    turnId: z.string().min(1).max(96),
+  })
+  .refine(
+    (body) => typeof body.message === "string" || Array.isArray(body.messages),
+    { message: "A message is required." },
+  );
+
 export const KnowledgeTopicSchema = z.object({
   slug: z
     .string()

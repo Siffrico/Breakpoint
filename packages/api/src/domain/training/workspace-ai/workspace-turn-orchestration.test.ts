@@ -139,6 +139,37 @@ void test("a claimed, in-flight education turn is rejected before running the mo
   );
 });
 
+void test("a concurrent unit lease is rejected before running the model", async () => {
+  const runUnitTurn = vi.fn();
+  const markWorkspaceTurnFailed = vi.fn(() => Promise.resolve());
+  const deps = {
+    claimWorkspaceTurn: () => Promise.resolve({ status: "claimed" as const }),
+    claimWorkspaceUnitLease: () => Promise.resolve(false),
+    releaseWorkspaceUnitLease: () => Promise.resolve(),
+    markWorkspaceTurnFailed,
+    runUnitTurn,
+  } as unknown as WorkspaceTurnOrchestrationDependencies;
+
+  await assert.rejects(
+    () =>
+      runEducationTest(
+        runEducationUnitTurn({
+          sessionId: unitRun.sessionId,
+          userId: "user-1",
+          turnId: "turn-2",
+          turnLeaseId: "00000000-0000-0000-0000-000000000098",
+          message: "A different concurrent answer",
+          turn,
+          deps,
+        }),
+      ),
+    /another answer is already being processed/i,
+  );
+
+  expect(runUnitTurn).not.toHaveBeenCalled();
+  expect(markWorkspaceTurnFailed).toHaveBeenCalledOnce();
+});
+
 void test("an invalid education-unit result is never persisted", async () => {
   let commitCalled = false;
   let assistantStreamed = false;
@@ -148,6 +179,8 @@ void test("an invalid education-unit result is never persisted", async () => {
 
   const deps = {
     claimWorkspaceTurn: () => Promise.resolve({ status: "claimed" as const }),
+    claimWorkspaceUnitLease: () => Promise.resolve(true),
+    releaseWorkspaceUnitLease: () => Promise.resolve(),
     listUnitMessages: () => Promise.resolve([]),
     listMemories: () => Promise.resolve([]),
     runUnitTurn: () => Effect.fail(contractError),
@@ -189,6 +222,8 @@ void test("interrupting a claimed education turn releases its owned lease", asyn
   const runUnitTurn = vi.fn(() => Effect.never);
   const deps = {
     claimWorkspaceTurn: () => Promise.resolve({ status: "claimed" as const }),
+    claimWorkspaceUnitLease: () => Promise.resolve(true),
+    releaseWorkspaceUnitLease: () => Promise.resolve(),
     listUnitMessages: () => Promise.resolve([]),
     listMemories: () => Promise.resolve([]),
     runUnitTurn,
@@ -228,6 +263,8 @@ void test("a post-claim transcript load failure releases the lease", async () =>
   const markWorkspaceTurnFailed = vi.fn(() => Promise.resolve());
   const deps = {
     claimWorkspaceTurn: () => Promise.resolve({ status: "claimed" as const }),
+    claimWorkspaceUnitLease: () => Promise.resolve(true),
+    releaseWorkspaceUnitLease: () => Promise.resolve(),
     listUnitMessages: () => Promise.reject(new Error("message read failed")),
     markWorkspaceTurnFailed,
   } as unknown as WorkspaceTurnOrchestrationDependencies;
@@ -266,6 +303,8 @@ void test("an education turn returns the committed assistant message", async () 
   };
   const deps = {
     claimWorkspaceTurn: () => Promise.resolve({ status: "claimed" as const }),
+    claimWorkspaceUnitLease: () => Promise.resolve(true),
+    releaseWorkspaceUnitLease: () => Promise.resolve(),
     markWorkspaceTurnFailed: () => Promise.resolve(),
     appendMessage: () =>
       Promise.resolve({
@@ -338,6 +377,8 @@ void test("a mastered unit checks off every target even when the evaluator omits
   };
   const deps = {
     claimWorkspaceTurn: () => Promise.resolve({ status: "claimed" as const }),
+    claimWorkspaceUnitLease: () => Promise.resolve(true),
+    releaseWorkspaceUnitLease: () => Promise.resolve(),
     markWorkspaceTurnFailed: () => Promise.resolve(),
     listUnitMessages: () => Promise.resolve([]),
     listMemories: () => Promise.resolve([]),

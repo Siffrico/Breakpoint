@@ -217,22 +217,6 @@ const runOnboardingChat = async ({
     return new Response("Forbidden.", { status: 403 });
   }
 
-  // Persist the learner's latest answer. On an approval-resumed turn the last
-  // message is the assistant's (carrying the approval response), so we skip it.
-  const last = messages[messages.length - 1];
-  if (last?.role === "user") {
-    const text = extractText(last);
-    if (text.length > 0) {
-      await trainingOnboardingRepository.appendMessage({
-        db,
-        sessionId,
-        role: "user",
-        content: text,
-        slot: "chat",
-      });
-    }
-  }
-
   const model = getAiModelForPurpose("onboarding");
   if (!model) {
     return new Response(getMissingAiKeyMessage("onboarding chat"), {
@@ -244,6 +228,34 @@ const runOnboardingChat = async ({
     db,
     sessionId,
   });
+
+  // Persist the learner's latest answer. On an approval-resumed turn the last
+  // message is the assistant's (carrying the approval response), so we skip it.
+  // Idempotency guard: a retried request (network error, reload + recovery
+  // regenerate) re-sends a message that is already the transcript tail —
+  // re-appending it would duplicate rows, inflate the readiness char counts,
+  // and pollute the transcript every downstream agent reads.
+  const last = messages[messages.length - 1];
+  if (last?.role === "user") {
+    const text = extractText(last);
+    const tail = transcript[transcript.length - 1];
+    const alreadyPersisted = tail?.role === "user" && tail.content === text;
+    if (text.length > 0 && !alreadyPersisted) {
+      await trainingOnboardingRepository.appendMessage({
+        db,
+        sessionId,
+        role: "user",
+        content: text,
+        slot: "chat",
+      });
+      transcript.push({
+        role: "user",
+        content: text,
+        sequence: (tail?.sequence ?? -1) + 1,
+        slot: null,
+      });
+    }
+  }
   const projectBuildReadiness = getProjectBuildReadiness(transcript);
   const modelMessages = await convertToModelMessages(messages, {
     ignoreIncompleteToolCalls: true,
@@ -330,18 +342,48 @@ ${startingPointNote}`,
           chunking: "word",
         }),
         stopWhen: stepCountIs(5),
-        onFinish: async ({ text }) => {
+        onFinish: async ({ text, steps }) => {
+          // Persist the whole assistant turn, including the tool interactions
+          // the rebuilt transcript would otherwise lose on reload: the
+          // starting-point question and the proposed project both live only in
+          // ephemeral tool parts, so a refresh mid-card would erase them from
+          // every future model turn and from the build agents' transcript.
+          const rows: string[] = [];
           const trimmed = text.trim();
-          if (trimmed.length === 0) return;
-          await trainingOnboardingRepository.appendMessage({
-            db,
-            sessionId,
-            role: "assistant",
-            content: trimmed,
-            slot: "chat",
-          });
+          if (trimmed.length > 0) rows.push(trimmed);
+          for (const step of steps) {
+            for (const call of step.toolCalls) {
+              if (call.toolName === "askStartingPoint") {
+                const question = (
+                  call.input as { question?: string }
+                ).question?.trim();
+                if (question) rows.push(question);
+              }
+              if (call.toolName === "createProject") {
+                const proposal = call.input as CreateProjectInput;
+                rows.push(
+                  `Proposed project "${proposal.projectName}" (${proposal.targetIdentity}): ${proposal.summary} Waiting for the learner's confirmation.`,
+                );
+              }
+            }
+          }
+          for (const content of rows) {
+            await trainingOnboardingRepository.appendMessage({
+              db,
+              sessionId,
+              role: "assistant",
+              content,
+              slot: "chat",
+            });
+          }
         },
       });
+
+      // Detach the model stream from the client connection: without this, a
+      // closed tab aborts generation before onFinish, the assistant's reply is
+      // never persisted, and the reloaded transcript dangles on the learner's
+      // message. Documented SDK pattern for disconnect-safe persistence.
+      void result.consumeStream();
 
       writer.merge(result.toUIMessageStream());
     },

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
   CurriculumDesignerOutput,
-  OnboardingPacket,
+  LearnerBrief,
   ProjectOverviewOutput,
 } from "../agents/contracts";
 import type { CurriculumPlan } from "../types/training.types";
@@ -15,17 +15,14 @@ import { designCurriculum } from "../agents/curriculum-designer";
 import { designProjectOverview } from "../agents/project-overview";
 import { ArtifactBuildError } from "./agent-runtime";
 import { buildProjectFromOnboarding } from "./build-project";
-import { createOnboardingPacket } from "./onboarding-flow";
 
 // The build artifacts' agents are imported directly (not injected), so we mock
-// the three entry points and drive each test's behaviour through them.
-vi.mock("./onboarding-flow", () => ({ createOnboardingPacket: vi.fn() }));
+// the two entry points and drive each test's behaviour through them.
 vi.mock("../agents/curriculum-designer", () => ({ designCurriculum: vi.fn() }));
 vi.mock("../agents/project-overview", () => ({
   designProjectOverview: vi.fn(),
 }));
 
-const mockPacket = vi.mocked(createOnboardingPacket);
 const mockCurriculum = vi.mocked(designCurriculum);
 const mockOverview = vi.mocked(designProjectOverview);
 
@@ -35,12 +32,22 @@ const UNEXPECTED = (name: string) => () =>
 beforeEach(() => {
   vi.clearAllMocks();
   // Default: any agent call is a test failure unless explicitly allowed.
-  mockPacket.mockImplementation(UNEXPECTED("packet"));
   mockCurriculum.mockImplementation(UNEXPECTED("curriculum"));
   mockOverview.mockImplementation(UNEXPECTED("overview"));
 });
 
+// The consultant now emits the brief inside its createProject call, so the
+// build's whole steering signal arrives as plain input — no agent in between.
+const brief: LearnerBrief = {
+  whatToLearn: "distributed systems: real operational judgment under failure",
+  whatToMake: "a replicated service they can break and repair on purpose",
+  interests: [
+    "Vercel: making difficult deployment work feel immediate and simple.",
+  ],
+};
+
 const input = {
+  ...brief,
   projectName: "distributed systems",
   targetIdentity: "backend engineer",
   summary: "Build reliable replicated services.",
@@ -65,25 +72,6 @@ const transcript = [
     slot: "target_identity" as const,
   },
 ];
-
-const packet: OnboardingPacket = {
-  targetIdentity: "backend engineer",
-  motivation: "Build reliable systems.",
-  currentBaseline: "Knows terms but needs operational judgment.",
-  hardMoments: ["Choosing consistency tradeoffs under pressure."],
-  constraints: [],
-  proofOfProgress: "Can explain and repair replicated-service failures.",
-  identityFriction: "Reaches for slogans before tracing mechanics.",
-  behaviorSignals: [
-    "Traces concrete failure paths.",
-    "Names tradeoffs before choosing.",
-    "Repairs weak explanations.",
-  ],
-  scenarioInspirations: [
-    "Vercel — making difficult deployment work feel immediate and simple.",
-  ],
-  confidenceFlags: [],
-};
 
 const buildComponentSkill = (index: number) => ({
   title: `Trace acknowledgement boundaries ${index + 1}`,
@@ -301,12 +289,13 @@ const run = (
   deps: BuildProjectDeps,
   onProgress = vi.fn(),
   scheduleBackgroundTask?: (task: () => Promise<void>) => void,
+  inputOverride?: typeof input,
 ) =>
   buildProjectFromOnboarding({
     sessionId: "session-id",
     userId: "user-id",
     transcript,
-    input,
+    input: inputOverride ?? input,
     deps,
     onProgress,
     scheduleBackgroundTask,
@@ -314,7 +303,6 @@ const run = (
 
 describe("buildProjectFromOnboarding", () => {
   it("prewarms every skill's syllabus but only the unlocked skill's unit", async () => {
-    mockPacket.mockResolvedValue(packet);
     mockCurriculum.mockResolvedValue(curriculum);
     mockOverview.mockResolvedValue(overview);
     const { deps } = makeDeps();
@@ -350,7 +338,7 @@ describe("buildProjectFromOnboarding", () => {
     expect(deps.persistScenarioInspiration).toHaveBeenCalledWith({
       userId: "user-id",
       content:
-        "Scenario inspiration: Vercel — making difficult deployment work feel immediate and simple.",
+        "Interest: Vercel: making difficult deployment work feel immediate and simple.",
     });
     expect(deps.ensureSkillSyllabus).toHaveBeenCalledTimes(skills.length);
     expect(deps.createSkillUnit).toHaveBeenCalledTimes(1);
@@ -359,6 +347,38 @@ describe("buildProjectFromOnboarding", () => {
       sessionId: "session-id",
       userId: "user-id",
     });
+  });
+
+  it("continues building when scenario inspiration persistence fails", async () => {
+    mockCurriculum.mockResolvedValue(curriculum);
+    mockOverview.mockResolvedValue(overview);
+    const { deps } = makeDeps();
+    const twoInterests = {
+      ...input,
+      interests: [...brief.interests, "Designing systems that fail safely."],
+    };
+    const error = new ArtifactBuildError("memory unavailable", "save");
+    deps.persistScenarioInspiration = vi
+      .fn<BuildProjectDeps["persistScenarioInspiration"]>()
+      .mockRejectedValueOnce(error)
+      .mockResolvedValue(undefined);
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    const result = await run(deps, vi.fn(), undefined, twoInterests);
+
+    expect(result.success).toBe(true);
+    expect(deps.persistScenarioInspiration).toHaveBeenCalledTimes(2);
+    expect(deps.persistScenarioInspiration).toHaveBeenLastCalledWith({
+      userId: "user-id",
+      content: "Interest: Designing systems that fail safely.",
+    });
+    expect(deps.finalize).toHaveBeenCalledOnce();
+    expect(consoleError).toHaveBeenCalledWith(
+      "Scenario inspiration persistence failed; continuing project build",
+      { sessionId: "session-id", error },
+    );
   });
 
   it("does not generate or persist while a build is already running", async () => {
@@ -379,12 +399,10 @@ describe("buildProjectFromOnboarding", () => {
 
     expect(result.success).toBe(false);
     expect(deps.ensureShell).not.toHaveBeenCalled();
-    expect(mockPacket).not.toHaveBeenCalled();
     expect(mockCurriculum).not.toHaveBeenCalled();
   });
 
   it("creates the plan shell and emits planId before any AI runs", async () => {
-    mockPacket.mockResolvedValue(packet);
     mockCurriculum.mockResolvedValue(curriculum);
     mockOverview.mockResolvedValue(overview);
     const onProgress = vi.fn<(state: ProjectBuildState) => void>();
@@ -394,18 +412,17 @@ describe("buildProjectFromOnboarding", () => {
 
     expect(result.success).toBe(true);
     expect(deps.ensureShell).toHaveBeenCalledOnce();
-    // A snapshot carries the planId while goals/curriculum are still pending,
+    // A snapshot carries the planId while the curriculum is still pending,
     // i.e. the shell exists before the agents finish.
     const earlyShellEmit = onProgress.mock.calls.find(
       ([state]) =>
         state.planId === "plan-id" &&
-        state.steps.find((s) => s.id === "goals")?.status !== "done",
+        state.steps.find((s) => s.id === "curriculum")?.status !== "done",
     );
     expect(earlyShellEmit).toBeDefined();
   });
 
   it("completes a fresh build end to end with no gaps", async () => {
-    mockPacket.mockResolvedValue(packet);
     mockCurriculum.mockResolvedValue(curriculum);
     mockOverview.mockResolvedValue(overview);
     const { deps, updateRunCalls } = makeDeps();
@@ -432,13 +449,6 @@ describe("buildProjectFromOnboarding", () => {
       persistCurriculum,
       artifacts: [
         {
-          step: "goals",
-          status: "complete",
-          attempts: 1,
-          failureKind: null,
-          payload: packet,
-        },
-        {
           step: "curriculum",
           status: "generated_pending_save",
           attempts: 1,
@@ -459,7 +469,6 @@ describe("buildProjectFromOnboarding", () => {
 
     expect(result.success).toBe(true);
     // The whole point of save_only: no model is invoked.
-    expect(mockPacket).not.toHaveBeenCalled();
     expect(mockCurriculum).not.toHaveBeenCalled();
     expect(mockOverview).not.toHaveBeenCalled();
     expect(persistCurriculum).toHaveBeenCalledOnce();
@@ -467,7 +476,6 @@ describe("buildProjectFromOnboarding", () => {
   });
 
   it("completes with an overview gap when the overview agent fails", async () => {
-    mockPacket.mockResolvedValue(packet);
     mockCurriculum.mockResolvedValue(curriculum);
     mockOverview.mockRejectedValue(
       new ArtifactBuildError("overview model failed", "provider"),
@@ -486,8 +494,7 @@ describe("buildProjectFromOnboarding", () => {
     expect(store.get("overview")?.failureKind).toBe("provider");
   });
 
-  it("fails resumably on curriculum error, keeping the shell + packet checkpoint", async () => {
-    mockPacket.mockResolvedValue(packet);
+  it("fails resumably on curriculum error, keeping the shell + checkpoint", async () => {
     mockCurriculum.mockRejectedValue(
       new ArtifactBuildError("curriculum schema invalid", "schema"),
     );
@@ -498,7 +505,6 @@ describe("buildProjectFromOnboarding", () => {
     expect(result.success).toBe(false);
     expect(deps.ensureShell).toHaveBeenCalledOnce();
     expect(deps.persistCurriculum).not.toHaveBeenCalled();
-    expect(store.get("goals")?.status).toBe("complete");
     expect(store.get("curriculum")?.status).toBe("failed");
     expect(store.get("curriculum")?.failureKind).toBe("schema");
     expect(updateRunCalls.at(-1)?.status).toBe("error");
@@ -521,13 +527,6 @@ describe("buildProjectFromOnboarding", () => {
       planStatus: "active",
       artifacts: [
         {
-          step: "goals",
-          status: "complete",
-          attempts: 1,
-          failureKind: null,
-          payload: packet,
-        },
-        {
           step: "curriculum",
           status: "complete",
           attempts: 1,
@@ -548,7 +547,6 @@ describe("buildProjectFromOnboarding", () => {
 
     expect(result.success).toBe(true);
     // Curriculum is complete → skipped (no model, no re-persist); only overview runs.
-    expect(mockPacket).not.toHaveBeenCalled();
     expect(mockCurriculum).not.toHaveBeenCalled();
     expect(mockOverview).toHaveBeenCalledOnce();
     expect(deps.persistOverview).toHaveBeenCalledOnce();
@@ -556,7 +554,6 @@ describe("buildProjectFromOnboarding", () => {
   });
 
   it("does not report success when finalize fails on a still-generating plan", async () => {
-    mockPacket.mockResolvedValue(packet);
     mockCurriculum.mockResolvedValue(curriculum);
     mockOverview.mockResolvedValue(overview);
     const { deps, updateRunCalls } = makeDeps();
@@ -584,7 +581,6 @@ describe("buildProjectFromOnboarding", () => {
   });
 
   it("completes when finalize throws but the plan is already active", async () => {
-    mockPacket.mockResolvedValue(packet);
     mockCurriculum.mockResolvedValue(curriculum);
     mockOverview.mockResolvedValue(overview);
     const { deps, updateRunCalls } = makeDeps();
@@ -616,7 +612,6 @@ describe("buildProjectFromOnboarding", () => {
   });
 
   it("flushes an in-flight partial before stamping the terminal status", async () => {
-    mockPacket.mockResolvedValue(packet);
     mockOverview.mockResolvedValue(overview);
     // The curriculum agent emits one mid-stream partial, then resolves.
     mockCurriculum.mockImplementation(({ options }) => {
@@ -649,19 +644,11 @@ describe("buildProjectFromOnboarding", () => {
   });
 
   it("does not reuse artifacts from a different source key", async () => {
-    mockPacket.mockResolvedValue(packet);
     mockCurriculum.mockResolvedValue(curriculum);
     mockOverview.mockResolvedValue(overview);
     const { deps } = makeDeps({
       artifactsSourceKey: "stale-source-key",
       artifacts: [
-        {
-          step: "goals",
-          status: "complete",
-          attempts: 1,
-          failureKind: null,
-          payload: packet,
-        },
         {
           step: "curriculum",
           status: "complete",
@@ -682,13 +669,11 @@ describe("buildProjectFromOnboarding", () => {
     const result = await run(deps);
 
     expect(result.success).toBe(true);
-    expect(mockPacket).toHaveBeenCalledOnce();
     expect(mockCurriculum).toHaveBeenCalledOnce();
     expect(mockOverview).toHaveBeenCalledOnce();
   });
 
   it("stamps the seed rating from the tool-proposed starting point", async () => {
-    mockPacket.mockResolvedValue(packet);
     mockCurriculum.mockResolvedValue(curriculum);
     mockOverview.mockResolvedValue(overview);
     const { deps } = makeDeps();
@@ -720,7 +705,6 @@ describe("buildProjectFromOnboarding", () => {
   });
 
   it("lets the persisted starting point win over the tool input", async () => {
-    mockPacket.mockResolvedValue(packet);
     mockCurriculum.mockResolvedValue(curriculum);
     mockOverview.mockResolvedValue(overview);
     const { deps } = makeDeps({
@@ -746,7 +730,6 @@ describe("buildProjectFromOnboarding", () => {
   });
 
   it("stamps no seed and adds no placement note when there is no starting point", async () => {
-    mockPacket.mockResolvedValue(packet);
     mockCurriculum.mockResolvedValue(curriculum);
     mockOverview.mockResolvedValue(overview);
     const { deps } = makeDeps();

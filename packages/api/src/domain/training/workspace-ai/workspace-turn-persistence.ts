@@ -67,6 +67,16 @@ export interface WorkspaceTurnPersistenceDependencies
     leaseId: string;
     reason: string;
   }) => Promise<void>;
+  claimWorkspaceUnitLease: (input: {
+    sessionId: string;
+    unitContentId: string;
+    leaseId: string;
+  }) => Promise<boolean>;
+  releaseWorkspaceUnitLease: (input: {
+    sessionId: string;
+    unitContentId: string;
+    leaseId: string;
+  }) => Promise<void>;
 }
 
 export type WorkspaceAiTurnPersistenceResult = WorkspaceAiTurnResult;
@@ -130,6 +140,7 @@ export interface WorkspacePhaseResponseCommit {
 export interface WorkspaceEducationTurnCommit {
   turnId: string;
   turnLeaseId: string;
+  unitLeaseId: string;
   userMessage: WorkspaceUserMessageCommit | null;
   assistantMessage: WorkspaceAssistantMessageCommit;
   contracts: WorkspaceOutputContractCommit | null;
@@ -406,6 +417,7 @@ export const saveUnitPhaseResult = ({
     const { assistantMessage } = yield* workspaceTurnRepo.commitEducationTurn({
       turnId,
       turnLeaseId,
+      unitLeaseId: turnLeaseId,
       userMessage: persistUserMessage
         ? {
             sessionId,

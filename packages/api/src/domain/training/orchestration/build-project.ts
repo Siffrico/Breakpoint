@@ -4,7 +4,7 @@ import type { Result } from "../../../lib/result";
 import { seedFromStartingPoint } from "../engine/rating";
 import type {
   CurriculumDesignerOutput,
-  OnboardingPacket,
+  LearnerBrief,
   ProjectOverviewOutput,
 } from "../agents/contracts";
 import type {
@@ -19,7 +19,6 @@ import type { ProjectBuildArtifactPreviewInput } from "./project-build-preview";
 import { err, ok } from "../../../lib/result";
 import {
   CurriculumDesignerOutputSchema,
-  OnboardingPacketSchema,
   ProjectOverviewOutputSchema,
 } from "../agents/contracts";
 import { designCurriculum } from "../agents/curriculum-designer";
@@ -27,7 +26,6 @@ import { normalizeLearningTrackName } from "../agents/onboarding-chat-agent";
 import { designProjectOverview } from "../agents/project-overview";
 import { isArtifactBuildError } from "./agent-runtime";
 import { buildCurriculumNodes } from "./curriculum-flow";
-import { createOnboardingPacket } from "./onboarding-flow";
 import {
   getProjectBuildStepDetail,
   previewProjectBuildArtifact,
@@ -41,7 +39,6 @@ import {
  */
 export type ProjectBuildStep =
   | "name" // create the durable plan shell + resolve the saved name (instant)
-  | "goals" // onboarding packet agent — distil the transcript
   | "curriculum" // curriculum designer agent — identity report + skeleton + persist
   | "overview" // project overview agent — the readable field map (best-effort)
   | "save"; // finalize: flip the plan active + complete the session
@@ -67,7 +64,7 @@ export type ProjectBuildPhase = "building" | "complete" | "error";
 export type ProjectBuildGap = "overview";
 
 /** The AI-generated artifacts that get their own registry lifecycle row. */
-export type ProjectBuildArtifactStep = "goals" | "curriculum" | "overview";
+export type ProjectBuildArtifactStep = "curriculum" | "overview";
 
 /**
  * The full snapshot streamed to the client on every transition. It is emitted
@@ -96,7 +93,6 @@ export interface ProjectBuildState {
 
 const STEP_LABELS: Record<ProjectBuildStep, string> = {
   name: "Naming your project",
-  goals: "Reading your goals",
   curriculum: "Designing your curriculum",
   overview: "Writing your overview",
   save: "Saving to your library",
@@ -104,7 +100,6 @@ const STEP_LABELS: Record<ProjectBuildStep, string> = {
 
 const STEP_ORDER: ProjectBuildStep[] = [
   "name",
-  "goals",
   "curriculum",
   "overview",
   "save",
@@ -127,6 +122,13 @@ const initialSteps = (): ProjectBuildStepState[] =>
 
 /** Small input the consultant proposes; everything else is derived server-side. */
 export interface CreateProjectInput {
+  /** The learner brief the consultant distilled from its own interview. These
+   *  three are optional here (never in the tool schema) so builds resumed from
+   *  checkpoints written before the brief moved into the tool still typecheck
+   *  and complete — see `resolveLearnerBrief`. */
+  whatToLearn?: string;
+  whatToMake?: string;
+  interests?: string[];
   /** Core study topic, lowercase — becomes the sidebar/project name. */
   projectName: string;
   /** Who the learner is becoming, used only for the confirmation preview. */
@@ -343,6 +345,21 @@ const getProjectBuildSourceKey = (input: CreateProjectInput) =>
     summary: input.summary.trim(),
   });
 
+/**
+ * The brief the consultant emitted, or a degraded one reconstructed from the
+ * confirmation fields when resuming a checkpoint written before the brief moved
+ * into `createProject`. Reconstruction keeps old builds finishable: the
+ * downstream agents also read the full transcript, so a thin brief costs
+ * steering precision, never correctness.
+ */
+const resolveLearnerBrief = (input: CreateProjectInput): LearnerBrief => ({
+  whatToLearn: input.whatToLearn?.trim() || input.projectName.trim(),
+  whatToMake: input.whatToMake?.trim() || input.summary.trim(),
+  interests: (input.interests ?? [])
+    .map((interest) => interest.trim())
+    .filter(Boolean),
+});
+
 const messageFrom = (error: unknown, fallback: string): string =>
   error instanceof Error && error.message ? error.message : fallback;
 
@@ -415,6 +432,7 @@ export const buildProjectFromOnboarding = async ({
   }>
 > => {
   const projectName = normalizeLearningTrackName(input.projectName);
+  const brief = resolveLearnerBrief(input);
   const sourceKey = getProjectBuildSourceKey(input);
   const steps = initialSteps();
   const state: ProjectBuildState = {
@@ -516,10 +534,6 @@ export const buildProjectFromOnboarding = async ({
         .catch(() => undefined);
       partialTail.set(step, next);
     };
-  const goalsPartialSink = (partial: Partial<OnboardingPacket>) => {
-    setArtifactDetail({ step: "goals", payload: partial });
-    persistPartial("goals")(partial);
-  };
   const curriculumPartialSink = (
     partial: Partial<CurriculumDesignerOutput>,
   ) => {
@@ -535,7 +549,6 @@ export const buildProjectFromOnboarding = async ({
 
   const artifacts = await deps.getArtifacts({ sessionId, sourceKey });
   const artifactMap = new Map(artifacts.map((record) => [record.step, record]));
-  const goalsRecord = artifactMap.get("goals");
   const curriculumRecord = artifactMap.get("curriculum");
   const overviewRecord = artifactMap.get("overview");
 
@@ -627,68 +640,22 @@ export const buildProjectFromOnboarding = async ({
   setStep("name", "done");
   emit();
 
-  // The packet is only needed by artifacts that will actually call their agent.
-  // A `save_only` artifact with a *valid* cached payload re-persists without the
-  // packet (zero tokens); only an unusable cache forces a fresh generation.
-  const curriculumWillGenerate =
-    decide(curriculumRecord) === "generate" ||
-    (decide(curriculumRecord) === "save_only" &&
-      !CurriculumDesignerOutputSchema.safeParse(curriculumRecord?.payload)
-        .success);
-  const overviewWillGenerate =
-    decide(overviewRecord) === "generate" ||
-    (decide(overviewRecord) === "save_only" &&
-      !ProjectOverviewOutputSchema.safeParse(overviewRecord?.payload).success);
-  const needPacket = curriculumWillGenerate || overviewWillGenerate;
-
-  // 2 — goals: the onboarding packet agent reads the full transcript.
-  setStep("goals", "active");
-  emit();
-  let packet: OnboardingPacket | undefined;
-  if (needPacket) {
-    if (decide(goalsRecord) === "skip") {
-      const cached = OnboardingPacketSchema.safeParse(goalsRecord?.payload);
-      if (cached.success) {
-        packet = cached.data;
-        setArtifactDetail({ step: "goals", payload: cached.data });
-      }
-    }
-    if (!packet) {
-      const attempts = (goalsRecord?.attempts ?? 0) + 1;
+  if (userId) {
+    // One memory row per interest so each stays individually recallable when
+    // scenario and unit context is assembled later.
+    for (const interest of brief.interests) {
       try {
-        packet = await createOnboardingPacket(transcript, {
-          onPartial: goalsPartialSink,
-          seedPartial: seedFor(goalsRecord) as
-            | Partial<OnboardingPacket>
-            | undefined,
+        await deps.persistScenarioInspiration({
+          userId,
+          content: `Interest: ${interest}`,
         });
-        setArtifactDetail({ step: "goals", payload: packet });
-        await recordArtifact("goals", "complete", packet, null, attempts);
       } catch (error) {
-        await recordArtifact(
-          "goals",
-          "failed",
-          partialOf(error) ?? goalsRecord?.payload ?? null,
-          failureKindOf(error),
-          attempts,
-        );
-        return fail(
-          messageFrom(
-            error,
-            "I couldn't read enough from our conversation yet.",
-          ),
+        console.error(
+          "Scenario inspiration persistence failed; continuing project build",
+          { sessionId, error },
         );
       }
     }
-  }
-  setStep("goals", "done");
-  emit();
-
-  if (packet && userId) {
-    await deps.persistScenarioInspiration({
-      userId,
-      content: `Scenario inspiration: ${packet.scenarioInspirations.join("; ")}`,
-    });
   }
 
   const buildBlueprint = (
@@ -771,16 +738,11 @@ export const buildProjectFromOnboarding = async ({
       // Cached payload is unusable — fall through to a fresh generation.
     }
 
-    if (!packet) {
-      return err(
-        "I couldn't read your goals well enough to design the curriculum.",
-      );
-    }
     const attempts = attemptsBase + 1;
     let design: CurriculumDesignerOutput;
     try {
       design = await designCurriculum({
-        packet,
+        brief,
         transcript,
         skills: input.skills,
         placementNote,
@@ -878,16 +840,11 @@ export const buildProjectFromOnboarding = async ({
       }
     }
 
-    if (!packet) {
-      setStep("overview", "done");
-      emit();
-      return false;
-    }
     const attempts = attemptsBase + 1;
     let overview: ProjectOverviewOutput;
     try {
       overview = await designProjectOverview({
-        packet,
+        brief,
         transcript,
         options: {
           onPartial: overviewPartialSink,

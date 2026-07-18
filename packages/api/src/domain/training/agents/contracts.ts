@@ -9,25 +9,34 @@ import {
   ScenarioFormatSchema,
 } from "@acme/validators";
 
-// Nullable/empty fields are deliberate: the extractor must emit null (or [])
-// when the transcript does not evidence a field. A schema minimum here would
-// force it to invent learner psychology to satisfy validation.
-export const OnboardingPacketSchema = z.object({
-  targetIdentity: z.string().min(1),
-  motivation: z.string().min(1),
-  currentBaseline: z.string().min(1),
-  hardMoments: z.array(z.string().min(1)),
-  constraints: z.array(z.string().min(1)),
-  proofOfProgress: z.string().min(1).nullable(),
-  identityFriction: z.string().min(1).nullable(),
-  behaviorSignals: z.array(z.string().min(1)),
-  scenarioInspirations: z
-    .array(z.string().min(1))
-    .max(5)
+/**
+ * The distilled steering signal for a project build: what the learner wants to
+ * learn, what they want to make, and what turns them alive.
+ *
+ * The consultant emits this directly in its `createProject` call — it just ran
+ * the interview, so it is better positioned to name these than any agent
+ * re-reading the transcript cold. Downstream agents receive the brief *plus*
+ * the full transcript, so the brief steers and the transcript grounds.
+ */
+export const LearnerBriefSchema = z.object({
+  whatToLearn: z
+    .string()
+    .min(1)
     .describe(
-      "Named companies, products, projects, creators, or systems the learner finds compelling, each paired with the specific quality that interests them.",
+      "The field or craft the learner wants to learn, in their own words, including the specific flavor of it they care about. Not just a topic label.",
     ),
-  confidenceFlags: z.array(z.string().min(1)),
+  whatToMake: z
+    .string()
+    .min(1)
+    .describe(
+      "The concrete thing the learner wants to build or be able to do, in their own words.",
+    ),
+  interests: z
+    .array(z.string().min(1))
+    .max(6)
+    .describe(
+      "What turns the learner alive. Each entry is self-contained: a named company, product, project, creator, or system plus the specific quality that holds their attention, or an excavated driver they confirmed in the interview.",
+    ),
 });
 
 /**
@@ -157,7 +166,7 @@ export const ProjectOverviewOutputSchema = ProjectOverviewSchema.omit({
   generatedAt: true,
 });
 
-export type OnboardingPacket = z.infer<typeof OnboardingPacketSchema>;
+export type LearnerBrief = z.infer<typeof LearnerBriefSchema>;
 export type CurriculumDesignerOutput = z.infer<
   typeof CurriculumDesignerOutputSchema
 >;

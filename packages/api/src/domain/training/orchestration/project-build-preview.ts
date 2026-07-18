@@ -1,12 +1,10 @@
 import type {
   CurriculumDesignerOutput,
-  OnboardingPacket,
   ProjectOverviewOutput,
 } from "../agents/contracts";
 import type { ProjectBuildStep, ProjectBuildStepDetail } from "./build-project";
 
 export interface ProjectBuildArtifactPayload {
-  goals: DeepPartial<OnboardingPacket>;
   curriculum: DeepPartial<CurriculumDesignerOutput>;
   overview: DeepPartial<ProjectOverviewOutput>;
 }
@@ -18,7 +16,6 @@ type DeepPartial<T> = T extends readonly (infer TItem)[]
     : T;
 
 export type ProjectBuildArtifactPreviewInput =
-  | { step: "goals"; payload: ProjectBuildArtifactPayload["goals"] }
   | { step: "curriculum"; payload: ProjectBuildArtifactPayload["curriculum"] }
   | { step: "overview"; payload: ProjectBuildArtifactPayload["overview"] };
 
@@ -28,10 +25,6 @@ const DEFAULT_STEP_DETAILS: Record<ProjectBuildStep, ProjectBuildStepDetail> = {
   name: {
     title: "Project shell",
     body: "Creating the project shell and resolving the saved track name.",
-  },
-  goals: {
-    title: "Goal synthesis",
-    body: "Synthesizing the onboarding conversation into a handoff packet.",
   },
   curriculum: {
     title: "Curriculum draft",
@@ -91,22 +84,6 @@ const detailFrom = (
   generated: lines.length > 0,
 });
 
-const previewGoals = (
-  payload: ProjectBuildArtifactPayload["goals"],
-): ProjectBuildStepDetail =>
-  detailFrom(
-    "Goal synthesis",
-    compact([
-      line("Target", payload.targetIdentity),
-      line("Motivation", payload.motivation),
-      line("Baseline", payload.currentBaseline),
-      line("Proof", payload.proofOfProgress),
-      line("Friction", payload.identityFriction),
-      listLine("Hard moments", payload.hardMoments),
-      listLine("Behavior signals", payload.behaviorSignals),
-    ]),
-  );
-
 const previewCurriculum = (
   payload: ProjectBuildArtifactPayload["curriculum"],
 ): ProjectBuildStepDetail => {
@@ -144,8 +121,5 @@ export const getProjectBuildStepDetail = (
 export const previewProjectBuildArtifact = ({
   step,
   payload,
-}: ProjectBuildArtifactPreviewInput): ProjectBuildStepDetail => {
-  if (step === "goals") return previewGoals(payload);
-  if (step === "curriculum") return previewCurriculum(payload);
-  return previewOverview(payload);
-};
+}: ProjectBuildArtifactPreviewInput): ProjectBuildStepDetail =>
+  step === "curriculum" ? previewCurriculum(payload) : previewOverview(payload);

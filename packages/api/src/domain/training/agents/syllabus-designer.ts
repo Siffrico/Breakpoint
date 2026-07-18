@@ -18,7 +18,7 @@ Produce 6-24 ordered entries. Every entry MUST be stated as a causal mechanism, 
 Bad: label "idempotency", mechanism "understanding idempotent operations".
 Good: label "retry double-execution", mechanism "retrying a non-idempotent write after a timeout executes the side effect twice, because the first attempt may have succeeded before the timeout fired".
 
-Each knowledge topic is titled as the practitioner question its mental model answers. Assign every entry with this reasoning process:
+Each knowledge topic is a situation-level capability question that deliberately contains no tools or named methods — your entries are that question's answer tier, so the concrete techniques, tools, and named methods a practitioner reaches for in that situation belong here, each stated as the causal mechanism that makes it work. Assign every entry with this reasoning process:
 1. Ask which topic's question this mechanism is load-bearing for, and attach that topicSlug. If the mechanism helps answer no topic's question, it is trivia: cut it.
 2. After assigning everything, re-read each question against its attached entries: could a learner who has exactly these mechanisms, plus earlier topics, answer the question fully? If a gap remains, add the missing entry. If an entry could be dropped without weakening the answer, cut it.
 Some questions genuinely need five or more entries and some need one; never pad or trim toward a fixed count.\n\nEntry kinds:

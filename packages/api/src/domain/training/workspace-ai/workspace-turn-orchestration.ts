@@ -136,22 +136,31 @@ const ratingPromise = <A>(
 
 const releaseClaimedTurn = ({
   sessionId,
+  unitContentId,
   turnId,
   turnLeaseId,
   deps,
 }: {
   sessionId: string;
+  unitContentId: string;
   turnId: string;
   turnLeaseId: string;
   deps: WorkspaceTurnOrchestrationDependencies;
 }): Effect.Effect<void> => {
   return Effect.tryPromise(() =>
-    deps.markWorkspaceTurnFailed({
-      sessionId,
-      turnId,
-      leaseId: turnLeaseId,
-      reason: "Education turn ended before its atomic commit completed.",
-    }),
+    Promise.all([
+      deps.markWorkspaceTurnFailed({
+        sessionId,
+        turnId,
+        leaseId: turnLeaseId,
+        reason: "Education turn ended before its atomic commit completed.",
+      }),
+      deps.releaseWorkspaceUnitLease({
+        sessionId,
+        unitContentId,
+        leaseId: turnLeaseId,
+      }),
+    ]),
   ).pipe(
     Effect.catch((cause) =>
       Effect.logError("Failed to release an education turn lease.", {
@@ -167,6 +176,7 @@ const claimTurnAndLoadTranscript = ({
   sessionId,
   slot,
   unitId,
+  unitContentId,
   turnId,
   turnLeaseId,
   message,
@@ -176,6 +186,7 @@ const claimTurnAndLoadTranscript = ({
   sessionId: string;
   slot: "education_unit" | "recall";
   unitId: string;
+  unitContentId: string;
   turnId: string;
   turnLeaseId: string;
   message: string;
@@ -216,9 +227,27 @@ const claimTurnAndLoadTranscript = ({
     if (slot === "education_unit") {
       yield* Effect.addFinalizer((exit) =>
         Exit.isFailure(exit)
-          ? releaseClaimedTurn({ sessionId, turnId, turnLeaseId, deps })
+          ? releaseClaimedTurn({
+              sessionId,
+              unitContentId,
+              turnId,
+              turnLeaseId,
+              deps,
+            })
           : Effect.void,
       );
+    }
+    const claimedUnit = yield* persistPromise("claimWorkspaceUnitLease", () =>
+      deps.claimWorkspaceUnitLease({
+        sessionId,
+        unitContentId,
+        leaseId: turnLeaseId,
+      }),
+    );
+    if (!claimedUnit) {
+      return yield* new TurnLeaseConflictError({
+        message: "Another answer is already being processed for this unit.",
+      });
     }
 
     // Each unit is its own chat: load only the active unit's transcript. There
@@ -321,6 +350,7 @@ export const runEducationUnitTurn = ({
       sessionId,
       slot: "education_unit",
       unitId: unit.nodeId,
+      unitContentId: unit.id,
       turnId,
       turnLeaseId,
       message: trimmedMessage,

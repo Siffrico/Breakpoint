@@ -217,7 +217,12 @@ export function OnboardingShell({
         {
           id: "intro",
           role: "assistant",
-          parts: [{ type: "text", text: "Who do you want to become?" }],
+          parts: [
+            {
+              type: "text",
+              text: "What's something you've seen someone build or do that made you think: I want to be able to do that?",
+            },
+          ],
         },
       ];
     }
@@ -266,6 +271,21 @@ export function OnboardingShell({
     seededFromStartRef.current = true;
     setMessages(transcriptToMessages(startOnboarding.data));
   }, [setMessages, startOnboarding.data]);
+
+  // A reload that raced a dying stream can leave the persisted transcript
+  // ending on the learner's message with no reply. Answer it once instead of
+  // stranding them in a dangling turn; the server dedupes the re-sent message
+  // so no duplicate row is appended. Never fires during normal sends (status
+  // is submitted/streaming) or after errors (status is error).
+  const recoveredDanglingTurnRef = useRef(false);
+  useEffect(() => {
+    if (preview || recoveredDanglingTurnRef.current) return;
+    if (!sessionId || status !== "ready") return;
+    const lastMessage = messages[messages.length - 1];
+    if (lastMessage?.role !== "user") return;
+    recoveredDanglingTurnRef.current = true;
+    void regenerate();
+  }, [preview, sessionId, status, messages, regenerate]);
 
   const isStreaming = status === "submitted" || status === "streaming";
   const hasError = status === "error" || Boolean(error);
@@ -460,7 +480,7 @@ export function OnboardingShell({
         !sessionReady
           ? "Starting…"
           : showHero
-            ? "Who do you want to become?"
+            ? "Something you've seen built that you want to be able to build…"
             : effectiveIsStreaming
               ? "Draft a reply while your onboarder is typing…"
               : "Ask anything, / for commands, @ for context…"

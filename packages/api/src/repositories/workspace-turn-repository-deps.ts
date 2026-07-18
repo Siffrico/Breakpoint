@@ -1,7 +1,7 @@
 import { Effect, Layer } from "effect";
 
 import type { db as databaseClient } from "@acme/db/client";
-import { and, eq } from "@acme/db";
+import { and, eq, isNull, lt, or } from "@acme/db";
 import {
   TrainingCurriculumNode,
   TrainingUnitRun,
@@ -37,6 +37,63 @@ import { trainingUnitRunRepository } from "./training-unit-run-repository";
 type Database = typeof databaseClient;
 const WORKSPACE_TURN_LEASE_MS = 15 * 60 * 1_000;
 
+const claimWorkspaceUnitLease = async ({
+  db,
+  sessionId,
+  unitContentId,
+  leaseId,
+}: {
+  db: Database;
+  sessionId: string;
+  unitContentId: string;
+  leaseId: string;
+}) => {
+  const now = new Date();
+  const [leasedRun] = await db
+    .update(TrainingUnitRun)
+    .set({
+      turnLeaseId: leaseId,
+      turnLeaseExpiresAt: new Date(now.getTime() + WORKSPACE_TURN_LEASE_MS),
+    })
+    .where(
+      and(
+        eq(TrainingUnitRun.sessionId, sessionId),
+        eq(TrainingUnitRun.unitContentId, unitContentId),
+        or(
+          isNull(TrainingUnitRun.turnLeaseId),
+          isNull(TrainingUnitRun.turnLeaseExpiresAt),
+          lt(TrainingUnitRun.turnLeaseExpiresAt, now),
+        ),
+      ),
+    )
+    .returning({ id: TrainingUnitRun.id });
+
+  return Boolean(leasedRun);
+};
+
+const releaseWorkspaceUnitLease = async ({
+  db,
+  sessionId,
+  unitContentId,
+  leaseId,
+}: {
+  db: Database;
+  sessionId: string;
+  unitContentId: string;
+  leaseId: string;
+}) => {
+  await db
+    .update(TrainingUnitRun)
+    .set({ turnLeaseId: null, turnLeaseExpiresAt: null })
+    .where(
+      and(
+        eq(TrainingUnitRun.sessionId, sessionId),
+        eq(TrainingUnitRun.unitContentId, unitContentId),
+        eq(TrainingUnitRun.turnLeaseId, leaseId),
+      ),
+    );
+};
+
 const assertWorkspaceTurnLease = async ({
   db,
   sessionId,
@@ -65,6 +122,36 @@ const assertWorkspaceTurnLease = async ({
 
   if (!leasedTurn) {
     throw new Error("Workspace turn lease is no longer valid.");
+  }
+};
+
+const assertWorkspaceUnitLease = async ({
+  db,
+  sessionId,
+  unitContentId,
+  leaseId,
+}: {
+  db: Database;
+  sessionId: string;
+  unitContentId: string;
+  leaseId: string;
+}) => {
+  const [leasedRun] = await db
+    .update(TrainingUnitRun)
+    .set({
+      turnLeaseExpiresAt: new Date(Date.now() + WORKSPACE_TURN_LEASE_MS),
+    })
+    .where(
+      and(
+        eq(TrainingUnitRun.sessionId, sessionId),
+        eq(TrainingUnitRun.unitContentId, unitContentId),
+        eq(TrainingUnitRun.turnLeaseId, leaseId),
+      ),
+    )
+    .returning({ id: TrainingUnitRun.id });
+
+  if (!leasedRun) {
+    throw new Error("Workspace unit lease is no longer valid.");
   }
 };
 
@@ -181,6 +268,12 @@ const commitEducationTurn = async ({
       sessionId: input.assistantMessage.sessionId,
       turnId: input.turnId,
       leaseId: input.turnLeaseId,
+    });
+    await assertWorkspaceUnitLease({
+      db: txDb,
+      sessionId: input.nextRun.sessionId,
+      unitContentId: input.nextRun.unitId,
+      leaseId: input.unitLeaseId,
     });
     await applyContracts({ db: txDb, contracts: input.contracts });
 
@@ -352,6 +445,12 @@ const commitEducationTurn = async ({
       assistantMessage,
       userMessage,
     });
+    await releaseWorkspaceUnitLease({
+      db: txDb,
+      sessionId: input.nextRun.sessionId,
+      unitContentId: input.nextRun.unitId,
+      leaseId: input.unitLeaseId,
+    });
 
     return { assistantMessage };
   });
@@ -404,6 +503,10 @@ export const createWorkspaceTurnRepositoryDeps = (
         db,
         ...payload,
       }),
+    claimWorkspaceUnitLease: (input) =>
+      claimWorkspaceUnitLease({ db, ...input }),
+    releaseWorkspaceUnitLease: (input) =>
+      releaseWorkspaceUnitLease({ db, ...input }),
     appendMessage: (payload) =>
       trainingOnboardingRepository.appendWorkspaceMessage({
         db,

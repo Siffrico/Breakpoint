@@ -1,7 +1,8 @@
 import type { z } from "zod/v4";
 import { APICallError, NoObjectGeneratedError } from "ai";
 
-import type { AiModelPurpose } from "../engine/model-router";
+import type { AgentId } from "../engine/agent-config";
+import { getAgentConfig } from "../engine/agent-config";
 import { invokeStructuredModel } from "../engine/invoke-structured-model";
 import {
   getSearchToolsForSelectedProvider,
@@ -9,16 +10,14 @@ import {
 } from "../engine/model-router";
 import { getRunProfile } from "../engine/run-profiles";
 
-const PURPOSE_BY_AGENT = {
-  onboarding: "onboarding",
-  curriculumDesigner: "curriculum",
-  syllabusDesigner: "syllabus",
-  knowledgeModelDesigner: "knowledgeModel",
-  buildContent: "buildContent",
-  failureIsolation: "failure",
-  ghostReplay: "ghost",
-  projectOverview: "projectOverview",
-} as const;
+type ArtifactAgentId = Extract<
+  AgentId,
+  | "curriculumDesigner"
+  | "syllabusDesigner"
+  | "knowledgeModelDesigner"
+  | "buildContent"
+  | "projectOverview"
+>;
 
 export const runAgent = async <TSchema extends z.ZodTypeAny>({
   agent,
@@ -27,13 +26,13 @@ export const runAgent = async <TSchema extends z.ZodTypeAny>({
   schema,
   errorMessage,
 }: {
-  agent: keyof typeof PURPOSE_BY_AGENT;
+  agent: ArtifactAgentId;
   system: string;
   prompt: string;
   schema: TSchema;
   errorMessage: string;
 }): Promise<z.infer<TSchema>> => {
-  const purpose = PURPOSE_BY_AGENT[agent] as AiModelPurpose;
+  const purpose = getAgentConfig(agent).purpose;
   const profile = getRunProfile(purpose);
   const model = requireAiModelForPurpose(
     purpose,
@@ -224,7 +223,7 @@ export const runResilientAgent = async <TSchema extends z.ZodTypeAny>({
   onPartial,
   seedPartial,
 }: {
-  agent: keyof typeof PURPOSE_BY_AGENT;
+  agent: ArtifactAgentId;
   system: string;
   prompt: string;
   schema: TSchema;
@@ -236,7 +235,7 @@ export const runResilientAgent = async <TSchema extends z.ZodTypeAny>({
   seedPartial?: Partial<z.infer<TSchema>>;
 }): Promise<z.infer<TSchema>> => {
   type T = z.infer<TSchema>;
-  const purpose = PURPOSE_BY_AGENT[agent] as AiModelPurpose;
+  const purpose = getAgentConfig(agent).purpose;
   const profile = getRunProfile(purpose);
   const model = requireAiModelForPurpose(
     purpose,

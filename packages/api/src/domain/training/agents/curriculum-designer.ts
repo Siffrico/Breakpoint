@@ -1,13 +1,13 @@
 import type { ArtifactResumeOptions } from "../orchestration/agent-runtime";
 import type {
   CurriculumDesignerOutput,
-  OnboardingPacket,
+  LearnerBrief,
   OnboardingTranscript,
 } from "./contracts";
 import { runResilientAgent } from "../orchestration/agent-runtime";
 import { NewCurriculumDesignerOutputSchema } from "./contracts";
 
-const CURRICULUM_DESIGNER_SYSTEM = `You are a curriculum architect for an identity-driven training product. A project-fit consultation already happened; its packet and transcript arrive as your evidence. Your only job is to translate that evidence into the learner's identity report, before/after, and ability architecture.
+const CURRICULUM_DESIGNER_SYSTEM = `You are a curriculum architect for an identity-driven training product. A project-fit consultation already happened; its brief and transcript arrive as your evidence. Your only job is to translate that evidence into the learner's identity report, before/after, and ability architecture.
 
 Architecture:
 - Decompose the target performance into 2-6 independent, load-bearing MAIN ABILITIES.
@@ -46,13 +46,13 @@ Search policy:
 - Do not guess when search can resolve uncertainty.`;
 
 export const designCurriculum = async ({
-  packet,
+  brief,
   transcript,
   skills,
   placementNote,
   options,
 }: {
-  packet: OnboardingPacket;
+  brief: LearnerBrief;
   transcript: OnboardingTranscript;
   /** Learner-approved verb-first skill titles to prefer as cluster titles. */
   skills?: string[];
@@ -76,23 +76,19 @@ ${skills.map((skill) => `- ${skill}`).join("\n")}
 `
     : ""
 }${placementNote ? `${placementNote}\n` : ""}
-Packet:
-${formatOnboardingPacket(packet)}
+Brief:
+${formatLearnerBrief(brief)}
 
 Transcript:
 ${formatOnboardingTranscript(transcript)}`,
   });
 
-// Performance-relevant fields only: the ability architecture derives from the
-// target performance and the learner's starting evidence. Motivation and the
-// psychology fields inform project choice and the identity report, not the
-// curriculum — sending them here only invites motivational padding.
-const formatOnboardingPacket = (packet: OnboardingPacket): string =>
-  `Target identity: ${packet.targetIdentity}
-Current baseline: ${packet.currentBaseline}
-Hard moments: ${packet.hardMoments.join("; ") || "None provided"}
-Constraints: ${packet.constraints.join("; ") || "None provided"}
-Confidence flags: ${packet.confidenceFlags.join("; ") || "None provided"}`;
+// The brief is the distilled steering signal; baseline evidence, constraints,
+// and everything situational still arrive via the transcript below it.
+const formatLearnerBrief = (brief: LearnerBrief): string =>
+  `What they want to learn: ${brief.whatToLearn}
+What they want to make: ${brief.whatToMake}
+Interests: ${brief.interests.join("; ") || "None provided"}`;
 
 const formatOnboardingTranscript = (messages: OnboardingTranscript): string =>
   messages

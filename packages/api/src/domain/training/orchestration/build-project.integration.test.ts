@@ -49,22 +49,11 @@ const sourceKey = JSON.stringify({
 });
 
 const packet: OnboardingPacket = {
-  targetIdentity: "backend engineer",
-  motivation: "Build reliable systems.",
-  currentBaseline: "Knows terms but needs operational judgment.",
-  hardMoments: ["Choosing consistency tradeoffs under pressure."],
-  constraints: [],
-  proofOfProgress: "Can explain and repair replicated-service failures.",
-  identityFriction: "Reaches for slogans before tracing mechanics.",
-  behaviorSignals: [
-    "Traces concrete failure paths.",
-    "Names tradeoffs before choosing.",
-    "Repairs weak explanations.",
+  whatToLearn: "distributed systems: real operational judgment under failure",
+  whatToMake: "a replicated service they can break and repair on purpose",
+  interests: [
+    "Vercel: making difficult deployment work feel immediate and simple.",
   ],
-  scenarioInspirations: [
-    "Vercel — making difficult deployment work feel immediate and simple.",
-  ],
-  confidenceFlags: [],
 };
 
 const curriculum: CurriculumDesignerOutput = {
