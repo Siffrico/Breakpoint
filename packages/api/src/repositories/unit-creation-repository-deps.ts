@@ -18,6 +18,7 @@ import { designSyllabus } from "../domain/training/agents/syllabus-designer";
 import { CONCEPT_COVERAGE_TARGET } from "../domain/training/engine/concept-coverage";
 import {
   difficultyRampOf,
+  regimeForNodeKind,
   resolveProgressionModel,
 } from "../domain/training/engine/progression-model";
 import {
@@ -113,6 +114,7 @@ export const createUnitCreationRepositoryDeps = ({
           where: eq(TrainingCurriculumNode.id, clusterNodeId),
         });
         if (!node?.skillMap) return null;
+        const regime = regimeForNodeKind(node.kind);
         const mapEntry = (entry: {
           id: string;
           label: string;
@@ -170,6 +172,7 @@ export const createUnitCreationRepositoryDeps = ({
             return {
               title: node.title,
               whyItMatters: node.whyItMatters,
+              regime,
               entries,
               openUnit: openUnit ?? null,
             };
@@ -205,6 +208,7 @@ export const createUnitCreationRepositoryDeps = ({
           return {
             title: node.title,
             whyItMatters: node.whyItMatters,
+            regime,
             entries: entries.map((entry) => ({
               ...mapEntry(entry),
               topicOrderIndex: entry.topicId
@@ -223,6 +227,7 @@ export const createUnitCreationRepositoryDeps = ({
         return {
           title: node.title,
           whyItMatters: node.whyItMatters,
+          regime,
           entries: entries.map(mapEntry),
           openUnit: openUnit ?? null,
         };

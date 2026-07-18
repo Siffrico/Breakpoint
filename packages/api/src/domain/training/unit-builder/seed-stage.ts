@@ -21,7 +21,7 @@ Quality standard:
 - build something that will create strong downstream Build, Prove, and Repair stages
 
 Output discipline:
-- the title must follow the title rule that opens the task prompt's Rules list; that rule is regime-specific and overrides any general instinct about how to name a lesson
+- the title and framing must follow the Regime block that opens the task prompt; its rules are regime-specific and override any conflicting general instinct about how to name or frame a lesson
 - the seedPrompt must be a concrete situation in the learner's world that contains the concept without naming it
 - the seedPrompt must not ask them to define the lesson, summarize what they believe, or explain a term in the abstract
 - the seedPrompt must be solvable using only what the learner already knows before this session
@@ -35,23 +35,60 @@ Output discipline:
 - prefer 1 for foundational concepts unless the mechanism is genuinely dense; use 3 only when the concept needs extended reasoning, edge cases, or formal structure
 - the conceptTarget, misconceptionTarget, and proofTargets must be concrete enough for later agents to use directly`;
 
-const titleNamingRule = (
-  regime: UnitBuilderContext["planContext"]["regime"],
-): string => {
-  switch (regime) {
-    case "foundation":
-      return `- Title the unit as the single practitioner question this unit answers. The title is what the learner is answering by the end, so it must be a genuine question: second-person, ending in "?", and about doing the work rather than about a term.
+const DERIVED_QUESTION_RULES = `- Title the unit as the single practitioner question this unit answers. The title is what the learner is answering by the end, so it must be a genuine question: second-person, ending in "?", and about doing the work rather than about a term.
   - Default to "How do you ...?" — e.g. "How do you map an existing signup flow?"
   - Use "When ...?" or "Which ...?" when the targets are discriminations, so the judgment call stays visible — e.g. "When is it safe to retry a write?" Collapsing that into "How do you retry safely?" blurs the exact distinction the unit exists to sharpen.
   - Use "Why ...?" when the target is a mechanism the learner must be able to explain — e.g. "Why does adding steps sometimes reduce friction?"
   - Never write a tutorial heading such as "How to map user flows". That is a course label, not a question the learner answers.
   - Never write a definitional question such as "What is idempotency?". It names the concept and asks for recall instead of performance, which contradicts the no-concept-naming rules below.
   - Choose the form that states this unit's targets most precisely. Do not bend a target into "How do you ...?" to match the default; a precise "When ...?" beats a generic "How do you handle ...?".`;
-    case "skillset":
-      return `- Title the unit as a task-worded directive naming the realistic whole-task the learner performs (e.g. "Modify this checkout flow to be frictionless"). Never phrase it as a question.`;
-    case null:
-      return `- The title must name the real lesson.`;
+
+const regimeBlock = (context: UnitBuilderContext): string => {
+  const regime = context.planContext.regime;
+  const framing = context.syllabus?.framing ?? null;
+
+  if (regime === "foundation") {
+    if (framing) {
+      return `Regime: FOUNDATION — framed reasoning.
+This unit answers exactly one practitioner question. The learner must always know which question they are answering; what they must never be handed is its answer.
+
+The question this unit answers: ${framing.question}
+The mental model behind it — your private compass for designing the scenario, never stated to the learner: ${framing.coreIdea}
+The misconception this unit must pressure: ${framing.misconception}
+
+Regime rules:
+- title: ${
+        framing.part > 1
+          ? `the question above with the suffix " — Part ${framing.part}", because earlier sittings already covered part of it.`
+          : `the question above, verbatim.`
+      }
+- Build the seedPrompt as one concrete situation that makes exactly this question urgent — the situation itself should be asking the question, so the learner feels it without being told.
+- The question may be visible to the learner; the answer may not. Never name the target mechanisms, never state the mental model, never let the scenario resolve its own pressure.
+- misconceptionTarget: specialize the stored misconception above to the concrete scenario you build. Do not invent an unrelated one.`;
+    }
+    return `Regime: FOUNDATION — framed reasoning.
+This unit answers exactly one practitioner question, which you must derive from its target syllabus entries. The learner must always know which question they are answering; what they must never be handed is its answer.
+
+Regime rules:
+${DERIVED_QUESTION_RULES}
+- Build the seedPrompt as one concrete situation that makes exactly that question urgent — the situation itself should be asking the question, so the learner feels it without being told.
+- The question may be visible to the learner; the answer may not. Never name the target mechanisms and never let the scenario resolve its own pressure.`;
   }
+
+  if (regime === "skillset") {
+    return `Regime: SKILLSET — unframed whole-task.
+The learner already has local competence on this ability's questions. This unit tests whether they can decide, unprompted, which questions, knowledge, and methods matter inside one realistic task.
+
+Regime rules:
+- title: a task-worded directive naming the realistic whole-task the learner performs — e.g. "Modify this checkout flow to be frictionless". Never phrase it as a question.
+- Build the seedPrompt as a whole task from A to B: one concrete initial state, one desired end state, no route prescribed between them.
+- Name no concepts, no skills, and no framing questions anywhere the learner can see. The target syllabus entries steer what the task must exercise; they stay invisible.
+- Difficulty comes from ambiguity and interacting constraints the practitioner would realistically face — never from withholding information they would realistically have.`;
+  }
+
+  return `Regime: LEGACY.
+Regime rules:
+- title: name the real lesson this unit teaches.`;
 };
 
 export const runSeedStage = async (
@@ -66,8 +103,9 @@ export const runSeedStage = async (
     errorMessage: "Failed to generate the seed stage.",
     prompt: `Design the Seed stage for this education unit.
 
+${regimeBlock(context)}
+
 Rules:
-${titleNamingRule(context.planContext.regime)}
 - Stay within the current slot's scope.
 - Earlier slots should build leverage. Later slots should stress transfer and edge cases.
 - If this is an integration slot, synthesize across completed clusters rather than teaching an isolated micro-skill.

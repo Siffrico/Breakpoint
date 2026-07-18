@@ -2,6 +2,8 @@ import { z } from "zod/v4";
 
 import { PreSeedUnitContentDraftSchema } from "@acme/validators";
 
+import { FOUNDATION_UNIT_ENTRY_CAP } from "../unit-creation/create-next-unit";
+
 export const PriorLearningRecordSchema = z.object({
   title: z.string().min(1),
   score: z.number().int().min(0).max(100),
@@ -50,6 +52,16 @@ export const UnitBuilderContextSchema = z.object({
         name: z.string().min(1),
         steps: z.array(z.string().min(1)).min(1),
       }),
+      /** The knowledge-topic question this unit answers; null = unframed. */
+      framing: z
+        .object({
+          question: z.string().min(1),
+          coreIdea: z.string().min(1),
+          misconception: z.string().min(1),
+          /** 1-based sitting number when the question spans multiple units. */
+          part: z.number().int().min(1),
+        })
+        .nullable(),
       checked: z.array(
         z.object({ label: z.string().min(1), gloss: z.string().min(1) }),
       ),
@@ -62,7 +74,7 @@ export const UnitBuilderContextSchema = z.object({
           }),
         )
         .min(1)
-        .max(3),
+        .max(FOUNDATION_UNIT_ENTRY_CAP),
     })
     .nullable(),
 });

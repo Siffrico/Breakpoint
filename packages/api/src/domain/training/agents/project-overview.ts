@@ -156,11 +156,11 @@ const formatOnboardingPacket = (packet: OnboardingPacket): string =>
   `Target identity: ${packet.targetIdentity}
 Motivation: ${packet.motivation}
 Current baseline: ${packet.currentBaseline}
-Hard moments: ${packet.hardMoments.join("; ")}
+Hard moments: ${packet.hardMoments.join("; ") || "None provided"}
 Constraints: ${packet.constraints.join("; ") || "None provided"}
-Proof of progress: ${packet.proofOfProgress}
-Identity friction: ${packet.identityFriction}
-Behavior signals: ${packet.behaviorSignals.join("; ")}
+Proof of progress: ${packet.proofOfProgress ?? "Not established"}
+Identity friction: ${packet.identityFriction ?? "Not established"}
+Behavior signals: ${packet.behaviorSignals.join("; ") || "None provided"}
 Confidence flags: ${packet.confidenceFlags.join("; ") || "None provided"}`;
 
 const formatOnboardingTranscript = (messages: OnboardingTranscript): string =>

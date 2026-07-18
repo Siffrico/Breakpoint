@@ -76,6 +76,7 @@ describe("explicit unit preparation recovery", () => {
       getUnitSyllabusContext: () =>
         Promise.resolve({
           workflow: { name: "Diagnose an incident", steps: ["Choose a probe"] },
+          framing: null,
           checked: [],
           targets: [
             {

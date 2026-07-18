@@ -103,6 +103,7 @@ const makeDeps = (
   getUnitSyllabusContext: vi.fn(() =>
     Promise.resolve({
       workflow: { name: "Diagnose an incident", steps: ["Choose a probe"] },
+      framing: null,
       checked: [],
       targets: [
         { id: "entry-1", label: "Causal probe", gloss: "Separate causes." },

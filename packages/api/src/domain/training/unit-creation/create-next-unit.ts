@@ -14,6 +14,15 @@ export interface FrontierEntry {
   topicOrderIndex?: number | null;
 }
 
+/**
+ * Max syllabus entries one foundation sitting can give real reps to. A
+ * question owning more entries than this is paginated: the unit takes the
+ * first cap-full and the next unit for the same topic picks up the rest.
+ */
+export const FOUNDATION_UNIT_ENTRY_CAP = 4;
+
+export type UnitCreationRegime = "foundation" | "skillset" | null;
+
 export const sliceSyllabusFrontier = (
   entries: readonly FrontierEntry[],
   complexityBudget: 1 | 2 | 3,
@@ -25,6 +34,7 @@ export const sliceSyllabusFrontier = (
 const selectCreationTargets = (
   entries: readonly FrontierEntry[],
   complexityBudget: 1 | 2 | 3,
+  regime: UnitCreationRegime,
 ) => {
   const unchecked = entries.filter((entry) => entry.status === "unchecked");
   const firstTopicId = [...unchecked]
@@ -46,8 +56,15 @@ const selectCreationTargets = (
   const orphansBefore = unchecked.filter(
     (entry, position) => !entry.topicId && position < firstTopicPosition,
   );
+  // Foundation units are sized by the question (the topic), not by a fixed
+  // budget: the whole topic rides in, capped at what one sitting can carry.
+  // Skillset and orphan-only frontiers keep the small fixed budget.
+  const capacity =
+    regime === "foundation" && firstTopicId
+      ? FOUNDATION_UNIT_ENTRY_CAP
+      : complexityBudget;
   const frontier = firstTopicId
-    ? [...orphansBefore, ...topicEntries].slice(0, complexityBudget)
+    ? [...orphansBefore, ...topicEntries].slice(0, capacity)
     : sliceSyllabusFrontier(entries, complexityBudget);
   if (frontier.length > 0) return frontier;
   return entries
@@ -96,6 +113,7 @@ export interface CreateNextUnitDependencies<TNode> {
     {
       title: string;
       whyItMatters: string;
+      regime: UnitCreationRegime;
       entries: FrontierEntry[];
       openUnit: TNode | null;
     } | null,
@@ -167,7 +185,11 @@ export const createNextUnitNode = <TNode extends { id: string }>({
       return { node: skill.openUnit, needsContent: !hasContent };
     }
 
-    const targets = selectCreationTargets(skill.entries, complexityBudget);
+    const targets = selectCreationTargets(
+      skill.entries,
+      complexityBudget,
+      skill.regime,
+    );
     if (targets.length === 0) {
       return yield* new SyllabusTargetsMissingError({ clusterNodeId });
     }

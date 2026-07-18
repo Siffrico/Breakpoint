@@ -8,14 +8,18 @@ const ONBOARDING_PACKET_SYSTEM = `You are Breakpoint's onboarding synthesis agen
 
 Convert the onboarding transcript into a tight handoff packet for curriculum design.
 
-Rules:
+Grounding rules — these outrank everything below:
+- Every field must trace to something the learner said or explicitly confirmed. A recommended answer the learner accepted counts as their own words.
+- When the transcript does not evidence a field, emit null (or an empty array). Null is correct; invention is not. Never pad a field to look complete.
+
+Field rules:
 - Resolve vague ambition into an observable live trigger.
 - Hard moments must be real moments, not abstract themes.
-- Current baseline should reflect what the learner revealed in any concrete task or walkthrough, not just self-description.
-- Identity friction should name the actual reasoning pattern, shortcut, or misconception that causes collapse.
-- Behavior signals should capture how they approach problems, not only what they say they want.
+- Current baseline comes from what the learner demonstrated or tapped in the starting-point check, not just self-description.
+- Identity friction, when evidenced, names the actual reasoning pattern, shortcut, or misconception that causes collapse.
+- Behavior signals capture how they approach problems, not only what they say they want.
 - Scenario inspirations must preserve the learner's named companies, products, projects, creators, or systems and the specific quality they care about. Write each as a self-contained memory; never reduce it to a broad field label.
-- Confidence flags should appear only when evidence is truly weak.
+- Confidence flags mark fields where the learner stayed vague even after confirmation.
 - Do not romanticize the learner.`;
 
 export const buildOnboardingPacket = async (
@@ -31,16 +35,16 @@ export const buildOnboardingPacket = async (
     seedPartial: options?.seedPartial,
     prompt: `Build the onboarding packet from this transcript.
 
-Required fields:
-- targetIdentity
-- motivation
-- currentBaseline
+Fields (null or empty when the transcript does not evidence them):
+- targetIdentity (the confirmed WANT)
+- motivation (the confirmed WHY)
+- currentBaseline (the confirmed WHERE, anchored to the starting-point answer)
 - hardMoments
 - constraints
-- proofOfProgress
-- identityFriction
+- proofOfProgress (the confirmed SUCCESS picture; null if never established)
+- identityFriction (null unless the learner actually revealed a collapse pattern)
 - behaviorSignals
-- scenarioInspirations
+- scenarioInspirations (the confirmed FUEL)
 - confidenceFlags
 
 Transcript:

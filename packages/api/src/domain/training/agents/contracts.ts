@@ -9,18 +9,20 @@ import {
   ScenarioFormatSchema,
 } from "@acme/validators";
 
+// Nullable/empty fields are deliberate: the extractor must emit null (or [])
+// when the transcript does not evidence a field. A schema minimum here would
+// force it to invent learner psychology to satisfy validation.
 export const OnboardingPacketSchema = z.object({
   targetIdentity: z.string().min(1),
   motivation: z.string().min(1),
   currentBaseline: z.string().min(1),
-  hardMoments: z.array(z.string().min(1)).min(1),
+  hardMoments: z.array(z.string().min(1)),
   constraints: z.array(z.string().min(1)),
-  proofOfProgress: z.string().min(1),
-  identityFriction: z.string().min(1),
-  behaviorSignals: z.array(z.string().min(1)).min(3),
+  proofOfProgress: z.string().min(1).nullable(),
+  identityFriction: z.string().min(1).nullable(),
+  behaviorSignals: z.array(z.string().min(1)),
   scenarioInspirations: z
     .array(z.string().min(1))
-    .min(1)
     .max(5)
     .describe(
       "Named companies, products, projects, creators, or systems the learner finds compelling, each paired with the specific quality that interests them.",

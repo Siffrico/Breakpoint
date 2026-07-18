@@ -5,11 +5,11 @@ import type {
   OnboardingTranscript,
 } from "./contracts";
 import { runResilientAgent } from "../orchestration/agent-runtime";
-import { PROJECT_FIT_CONSULTANT_SYSTEM } from "../prompts/personas/project-fit-consultant";
 import { NewCurriculumDesignerOutputSchema } from "./contracts";
 
-const CURRICULUM_DESIGNER_TRANSLATOR = `Translator mode:
-- The consultation is complete. Produce the identity report, before/after, and the ability architecture only.
+const CURRICULUM_DESIGNER_SYSTEM = `You are a curriculum architect for an identity-driven training product. A project-fit consultation already happened; its packet and transcript arrive as your evidence. Your only job is to translate that evidence into the learner's identity report, before/after, and ability architecture.
+
+Architecture:
 - Decompose the target performance into 2-6 independent, load-bearing MAIN ABILITIES.
 - An ability is a whole performance a practitioner is visibly good or bad at (e.g. "architect backend systems under real constraints"), not a topic, tool, chapter, or content category.
 - Research real practitioner workflows, official guidance, postmortems, job evidence, and field norms when uncertainty exists.
@@ -44,10 +44,6 @@ Identity and before/after:
 Search policy:
 - Use web search whenever a factual claim, practitioner workflow, API/tool detail, or field norm is uncertain.
 - Do not guess when search can resolve uncertainty.`;
-
-const CURRICULUM_DESIGNER_SYSTEM = `${PROJECT_FIT_CONSULTANT_SYSTEM}
-
-${CURRICULUM_DESIGNER_TRANSLATOR}`;
 
 export const designCurriculum = async ({
   packet,
@@ -87,15 +83,15 @@ Transcript:
 ${formatOnboardingTranscript(transcript)}`,
   });
 
+// Performance-relevant fields only: the ability architecture derives from the
+// target performance and the learner's starting evidence. Motivation and the
+// psychology fields inform project choice and the identity report, not the
+// curriculum — sending them here only invites motivational padding.
 const formatOnboardingPacket = (packet: OnboardingPacket): string =>
   `Target identity: ${packet.targetIdentity}
-Motivation: ${packet.motivation}
 Current baseline: ${packet.currentBaseline}
-Hard moments: ${packet.hardMoments.join("; ")}
+Hard moments: ${packet.hardMoments.join("; ") || "None provided"}
 Constraints: ${packet.constraints.join("; ") || "None provided"}
-Proof of progress: ${packet.proofOfProgress}
-Identity friction: ${packet.identityFriction}
-Behavior signals: ${packet.behaviorSignals.join("; ")}
 Confidence flags: ${packet.confidenceFlags.join("; ") || "None provided"}`;
 
 const formatOnboardingTranscript = (messages: OnboardingTranscript): string =>

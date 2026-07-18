@@ -18,7 +18,10 @@ Produce 6-24 ordered entries. Every entry MUST be stated as a causal mechanism, 
 Bad: label "idempotency", mechanism "understanding idempotent operations".
 Good: label "retry double-execution", mechanism "retrying a non-idempotent write after a timeout executes the side effect twice, because the first attempt may have succeeded before the timeout fired".
 
-Every entry must carry topicSlug when a knowledge topic applies. Attach it to the topic whose core idea explains the mechanism. A concept fitting no topic is trivia: cut it.\n\nEntry kinds:
+Each knowledge topic is titled as the practitioner question its mental model answers. Assign every entry with this reasoning process:
+1. Ask which topic's question this mechanism is load-bearing for, and attach that topicSlug. If the mechanism helps answer no topic's question, it is trivia: cut it.
+2. After assigning everything, re-read each question against its attached entries: could a learner who has exactly these mechanisms, plus earlier topics, answer the question fully? If a gap remains, add the missing entry. If an entry could be dropped without weakening the answer, cut it.
+Some questions genuinely need five or more entries and some need one; never pad or trim toward a fixed count.\n\nEntry kinds:
 - discrimination: two situations experts tell apart that novices collapse; the mechanism states what differs causally and what goes wrong when collapsed.
 - concept: a causal model the skill's decisions rest on.
 - subskill: a compact recurring move; the mechanism states why the move works.

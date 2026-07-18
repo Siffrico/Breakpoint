@@ -1,6 +1,10 @@
 import type { db as databaseClient } from "@acme/db/client";
 import { and, asc, desc, eq, gte, inArray, isNotNull, ne, sql } from "@acme/db";
-import { TrainingCurriculumNode, TrainingSyllabusEntry } from "@acme/db/schema";
+import {
+  TrainingCurriculumNode,
+  TrainingKnowledgeTopic,
+  TrainingSyllabusEntry,
+} from "@acme/db/schema";
 
 import type { SyllabusOutput } from "../domain/training/agents/contracts";
 import type { RecallCandidateEntry } from "../domain/training/policies/recall-decay";
@@ -175,15 +179,49 @@ export const trainingSyllabusRepository = {
         ownerIds.map((clusterNodeId) => listEntries({ db, clusterNodeId })),
       )
     ).flat();
+    const targeted = entries.filter((entry) => entry.status === "targeted");
+    // Foundation framing: the knowledge topic the targeted entries answer.
+    // Skillset units stay unframed by design — the learner must decide which
+    // questions matter — so abilities never resolve a framing topic.
+    const framingTopicId =
+      cluster.kind === "skill"
+        ? (targeted.find((entry) => entry.topicId)?.topicId ?? null)
+        : null;
+    const framingTopic = framingTopicId
+      ? await db.query.TrainingKnowledgeTopic.findFirst({
+          where: eq(TrainingKnowledgeTopic.id, framingTopicId),
+        })
+      : null;
+    // Sitting number for a question split across units: each earlier sitting
+    // left checked entries stamped with its own evidenceNodeId, so the count
+    // of distinct evidence units is the count of completed parts.
+    const priorPartCount = framingTopicId
+      ? new Set(
+          entries
+            .filter(
+              (entry) =>
+                entry.topicId === framingTopicId &&
+                entry.status === "checked" &&
+                entry.evidenceNodeId,
+            )
+            .map((entry) => entry.evidenceNodeId),
+        ).size
+      : 0;
     return {
       clusterNodeId: cluster.id,
       workflow: cluster.skillMap.workflow,
+      framing: framingTopic
+        ? {
+            question: framingTopic.title,
+            coreIdea: framingTopic.coreIdea,
+            misconception: framingTopic.misconception,
+            part: priorPartCount + 1,
+          }
+        : null,
       checked: entries
         .filter((entry) => entry.status === "checked")
         .map(({ label, gloss }) => ({ label, gloss })),
-      targets: entries
-        .filter((entry) => entry.status === "targeted")
-        .map(({ id, label, gloss }) => ({ id, label, gloss })),
+      targets: targeted.map(({ id, label, gloss }) => ({ id, label, gloss })),
     };
   },
 

@@ -69,7 +69,47 @@ describe("topic-first target selection", () => {
         prepareUnitEffect: () => Effect.void,
       },
     }));
-    expect(appendUnit.mock.calls[0]?.[0]?.targetEntryIds).toEqual(["orphan", "topic-a"]);
+    expect(appendUnit.mock.calls[0]?.[0]?.targetEntryIds).toEqual(["orphan", "topic-a", "topic-b"]);
+  });
+
+  it("paginates a question larger than one sitting at the entry cap", async () => {
+    const appendUnit = vi.fn((_input: { targetEntryIds: string[] }) =>
+      Effect.succeed({ node: { id: "unit" }, created: false }),
+    );
+    await Effect.runPromise(createNextUnit({
+      clusterNodeId: "skill",
+      complexityBudget: 2,
+      deps: {
+        loadSkill: () => Effect.succeed({ ...openSkill, openUnit: null, entries: ["a", "b", "c", "d", "e"].map((id) => (
+          { ...entry(id), topicId: "topic-1", topicOrderIndex: 1 }
+        )) }),
+        resolveDirective: () => Effect.succeed({ directive: { targetItemRating: 1200 } as never, promptBlock: "" }),
+        appendUnit,
+        hasUnitContent: () => Effect.succeed(true),
+        prepareUnitEffect: () => Effect.void,
+      },
+    }));
+    expect(appendUnit.mock.calls[0]?.[0]?.targetEntryIds).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("keeps the fixed budget for skillset frontiers", async () => {
+    const appendUnit = vi.fn((_input: { targetEntryIds: string[] }) =>
+      Effect.succeed({ node: { id: "unit" }, created: false }),
+    );
+    await Effect.runPromise(createNextUnit({
+      clusterNodeId: "ability",
+      complexityBudget: 2,
+      deps: {
+        loadSkill: () => Effect.succeed({ ...openSkill, regime: "skillset" as const, openUnit: null, entries: ["a", "b", "c"].map((id) => (
+          { ...entry(id), topicId: "topic-1", topicOrderIndex: 1 }
+        )) }),
+        resolveDirective: () => Effect.succeed({ directive: { targetItemRating: 1200 } as never, promptBlock: "" }),
+        appendUnit,
+        hasUnitContent: () => Effect.succeed(true),
+        prepareUnitEffect: () => Effect.void,
+      },
+    }));
+    expect(appendUnit.mock.calls[0]?.[0]?.targetEntryIds).toEqual(["a", "b"]);
   });
 });
 
@@ -89,6 +129,7 @@ const openUnit = { id: "unit-1" };
 const openSkill = {
   title: "Distributed systems",
   whyItMatters: "Reliability requires sound failure handling.",
+  regime: "foundation" as const,
   entries: [],
   openUnit,
 };

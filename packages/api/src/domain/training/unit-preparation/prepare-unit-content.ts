@@ -39,6 +39,12 @@ export interface UnitPreparationDependencies {
   ) => Promise<PriorLearningRecord[]>;
   readonly getUnitSyllabusContext: (unitNodeId: string) => Promise<{
     workflow: { name: string; steps: string[] };
+    framing: {
+      question: string;
+      coreIdea: string;
+      misconception: string;
+      part: number;
+    } | null;
     checked: { label: string; gloss: string }[];
     targets: { id: string; label: string; gloss: string }[];
   } | null>;
