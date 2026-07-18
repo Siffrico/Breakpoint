@@ -70,7 +70,17 @@ export interface UnitTurnContextInput {
    */
   recallFocus?: {
     primary: { label: string; gloss: string };
-    companion: { label: string; gloss: string } | null;
+    companion: {
+      label: string;
+      gloss: string;
+      /**
+       * How the companion's situation chains with the primary's: "setup"
+       * opens the scenario a stage earlier and hands off to the target,
+       * "continuation" carries it a stage past the target, "peer" shares
+       * the target's own situation.
+       */
+      relation: "setup" | "continuation" | "peer";
+    } | null;
   } | null;
 }
 
@@ -157,8 +167,23 @@ export const buildUnitTurnContext = (input: UnitTurnContextInput): string => {
   }
 
   if (input.recallFocus) {
+    // Chained companions make the scenario one continuous whole task — the
+    // learner walks through the well-known stage on the way to the decayed one
+    // — instead of two unrelated facts stapled into one prompt.
+    const companionFraming: Record<
+      NonNullable<
+        NonNullable<UnitTurnContextInput["recallFocus"]>["companion"]
+      >["relation"],
+      string
+    > = {
+      setup:
+        "Open the scenario one stage earlier, inside this well-known skill, and let it hand off naturally to the target skill",
+      continuation:
+        "Let the scenario flow one stage past the target skill, into this well-known skill",
+      peer: "Compose it with this well-known skill from the same situation",
+    };
     const companion = input.recallFocus.companion
-      ? `\nCompose it with this well-known skill (assume solid; no review needed): ${input.recallFocus.companion.label} — ${input.recallFocus.companion.gloss}`
+      ? `\n${companionFraming[input.recallFocus.companion.relation]} (assume solid; no review needed): ${input.recallFocus.companion.label} — ${input.recallFocus.companion.gloss}`
       : "";
     sections.push(
       `## Recall focus\nThis is a spaced-recall checkpoint, not a lesson. Pose ONE realistic scenario in which the learner must retrieve and apply: ${input.recallFocus.primary.label} — ${input.recallFocus.primary.gloss}${companion}\nDo not re-teach the skill before they attempt it. Frame it briefly as a quick checkpoint before their next unit.`,

@@ -46,7 +46,7 @@ export interface WorkspaceProjectionReaderSource {
   ) => Promise<RecallCandidateEntry | null>;
   readonly getRecallCompanionCandidate: (
     clusterNodeId: string,
-    primaryEntryId: string,
+    primary: Pick<RecallCandidateEntry, "id" | "topicId" | "topicOrderIndex">,
     now: Date,
   ) => Promise<RecallCandidateEntry | null>;
 }
@@ -83,7 +83,7 @@ export interface WorkspaceProjectionReaderShape {
   ) => Effect.Effect<RecallCandidateEntry | null, DbError>;
   readonly getRecallCompanionCandidate: (
     clusterNodeId: string,
-    primaryEntryId: string,
+    primary: Pick<RecallCandidateEntry, "id" | "topicId" | "topicOrderIndex">,
     now: Date,
   ) => Effect.Effect<RecallCandidateEntry | null, DbError>;
 }
@@ -120,9 +120,9 @@ export const makeWorkspaceProjectionReader = (
     read("getMostOverdueRecallCandidate", () =>
       source.getMostOverdueRecallCandidate(planId, now),
     ),
-  getRecallCompanionCandidate: (clusterNodeId, primaryEntryId, now) =>
+  getRecallCompanionCandidate: (clusterNodeId, primary, now) =>
     read("getRecallCompanionCandidate", () =>
-      source.getRecallCompanionCandidate(clusterNodeId, primaryEntryId, now),
+      source.getRecallCompanionCandidate(clusterNodeId, primary, now),
     ),
 });
 

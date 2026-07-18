@@ -9,6 +9,7 @@ import {
 } from "@acme/db/schema";
 
 import type { JobRatingState } from "../domain/training/engine/rating";
+import type { RecallCandidateEntry } from "../domain/training/policies/recall-decay";
 import type { DifficultyBand } from "../domain/training/types/training.types";
 import type { WorkspaceAiMessage } from "../domain/training/workspace-ai/types";
 import type { WorkspaceTurnOrchestrationDependencies } from "../domain/training/workspace-ai/workspace-turn-orchestration";
@@ -548,13 +549,13 @@ export const createWorkspaceTurnRepositoryDeps = (
       }),
     getRecallCompanionCandidate: (
       clusterNodeId: string,
-      primaryEntryId: string,
+      primary: Pick<RecallCandidateEntry, "id" | "topicId" | "topicOrderIndex">,
       now: Date,
     ) =>
       trainingSyllabusRepository.getRecallCompanionCandidate({
         db,
         clusterNodeId,
-        primaryEntryId,
+        primary,
         now,
       }),
     markWorkspaceTurnFailed: (input) =>

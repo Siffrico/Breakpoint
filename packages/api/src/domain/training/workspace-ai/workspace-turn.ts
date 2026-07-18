@@ -290,7 +290,7 @@ export const loadPlannedRecall = ({
     if (node?.status !== "completed") return null;
     const companion = yield* reader.getRecallCompanionCandidate(
       primary.clusterNodeId,
-      primary.id,
+      primary,
       now,
     );
     return {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { RecallCandidateEntry } from "./recall-decay";
 import {
+  companionRelation,
   isEntryDue,
   overdueRatio,
   reinforcedStrength,
@@ -24,7 +25,14 @@ const entry = (
   strength: 0,
   lastReinforcedAt: null,
   evidenceNodeId: "unit-node-1",
+  topicId: null,
+  topicOrderIndex: null,
   ...overrides,
+});
+
+const topic = (id: string, orderIndex: number) => ({
+  topicId: id,
+  topicOrderIndex: orderIndex,
 });
 
 describe("isEntryDue", () => {
@@ -112,6 +120,78 @@ describe("selectRecallTarget", () => {
     expect(target?.companion).toBe(null);
   });
 
+  it("prefers a neighboring-topic companion over a same-topic peer", () => {
+    const primary = entry({ id: "a", checkedAt: daysAgo(4), ...topic("t2", 1) });
+    const peer = entry({
+      id: "b",
+      strength: 3,
+      lastReinforcedAt: daysAgo(1),
+      ...topic("t2", 1),
+    });
+    const upstream = entry({
+      id: "c",
+      strength: 3,
+      lastReinforcedAt: daysAgo(2),
+      ...topic("t1", 0),
+    });
+    const target = selectRecallTarget([primary, peer, upstream], NOW);
+    expect(target?.companion?.id).toBe("c");
+  });
+
+  it("prefers upstream over downstream at equal topic distance", () => {
+    const primary = entry({ id: "a", checkedAt: daysAgo(4), ...topic("t2", 1) });
+    const downstream = entry({
+      id: "b",
+      strength: 3,
+      lastReinforcedAt: daysAgo(1),
+      ...topic("t3", 2),
+    });
+    const upstream = entry({
+      id: "c",
+      strength: 3,
+      lastReinforcedAt: daysAgo(2),
+      ...topic("t1", 0),
+    });
+    const target = selectRecallTarget([primary, downstream, upstream], NOW);
+    expect(target?.companion?.id).toBe("c");
+  });
+
+  it("prefers the nearer topic over a farther upstream one", () => {
+    const primary = entry({ id: "a", checkedAt: daysAgo(4), ...topic("t3", 2) });
+    const far = entry({
+      id: "b",
+      strength: 3,
+      lastReinforcedAt: daysAgo(1),
+      ...topic("t1", 0),
+    });
+    const near = entry({
+      id: "c",
+      strength: 3,
+      lastReinforcedAt: daysAgo(2),
+      ...topic("t4", 3),
+    });
+    const target = selectRecallTarget([primary, far, near], NOW);
+    expect(target?.companion?.id).toBe("c");
+  });
+
+  it("ranks topic-less entries last and falls back to recency", () => {
+    const primary = entry({ id: "a", checkedAt: daysAgo(4), ...topic("t2", 1) });
+    const legacy = entry({
+      id: "b",
+      strength: 3,
+      lastReinforcedAt: daysAgo(1),
+    });
+    const peer = entry({
+      id: "c",
+      strength: 3,
+      lastReinforcedAt: daysAgo(2),
+      ...topic("t2", 1),
+    });
+    expect(selectRecallTarget([primary, legacy, peer], NOW)?.companion?.id).toBe(
+      "c",
+    );
+  });
+
   it("never composes across clusters", () => {
     const primary = entry({ id: "a", checkedAt: daysAgo(4) });
     const otherCluster = entry({
@@ -123,6 +203,22 @@ describe("selectRecallTarget", () => {
     expect(selectRecallTarget([primary, otherCluster], NOW)?.companion).toBe(
       null,
     );
+  });
+});
+
+describe("companionRelation", () => {
+  it("chains by topic order and degrades to peer without topics", () => {
+    expect(companionRelation(topic("t2", 1), topic("t1", 0))).toBe("setup");
+    expect(companionRelation(topic("t2", 1), topic("t3", 2))).toBe(
+      "continuation",
+    );
+    expect(companionRelation(topic("t2", 1), topic("t2", 1))).toBe("peer");
+    expect(
+      companionRelation(topic("t2", 1), {
+        topicId: null,
+        topicOrderIndex: null,
+      }),
+    ).toBe("peer");
   });
 });
 

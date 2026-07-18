@@ -70,6 +70,8 @@ const recallCandidate = {
   // A failed verdict just reset the decay clock, so this is deliberately not due.
   lastReinforcedAt: new Date("2026-07-05T00:00:00Z"),
   evidenceNodeId: completedNode.id,
+  topicId: null,
+  topicOrderIndex: null,
 } satisfies RecallCandidateEntry;
 const recallPresentation = {
   id: "response-1",
@@ -465,7 +467,7 @@ describe("workspace view reads", () => {
     expect(getMostOverdueRecallCandidate).toHaveBeenCalledOnce();
     expect(getRecallCompanionCandidate).toHaveBeenCalledWith(
       recallCandidate.clusterNodeId,
-      recallCandidate.id,
+      recallCandidate,
       expect.any(Date),
     );
   });

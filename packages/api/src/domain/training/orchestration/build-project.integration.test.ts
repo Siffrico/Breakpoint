@@ -12,7 +12,6 @@ import { TrainingCurriculumNode } from "@acme/db/schema";
 
 import type {
   CurriculumDesignerOutput,
-  OnboardingPacket,
   ProjectOverviewOutput,
 } from "../agents/contracts";
 import type { CreateProjectInput } from "./build-project";
@@ -37,6 +36,11 @@ const loadPostgresUrlFromDotenv = () => {
 loadPostgresUrlFromDotenv();
 
 const input: CreateProjectInput = {
+  whatToLearn: "distributed systems: real operational judgment under failure",
+  whatToMake: "a replicated service they can break and repair on purpose",
+  interests: [
+    "Vercel: making difficult deployment work feel immediate and simple.",
+  ],
   projectName: "distributed systems",
   targetIdentity: "backend engineer",
   summary: "Build reliable replicated services.",
@@ -47,14 +51,6 @@ const sourceKey = JSON.stringify({
   targetIdentity: input.targetIdentity,
   summary: input.summary,
 });
-
-const packet: OnboardingPacket = {
-  whatToLearn: "distributed systems: real operational judgment under failure",
-  whatToMake: "a replicated service they can break and repair on purpose",
-  interests: [
-    "Vercel: making difficult deployment work feel immediate and simple.",
-  ],
-};
 
 const curriculum: CurriculumDesignerOutput = {
   identityReport: {
@@ -233,18 +229,10 @@ describe("buildProjectFromOnboarding repository integration", () => {
           if (!session) throw new Error("Expected test session.");
 
           // Seed the artifact registry so the real persistence runs without any
-          // AI: goals is cached "complete"; curriculum + overview are
+          // AI: curriculum + overview are
           // "generated_pending_save" so the build re-persists them (save_only)
           // into a freshly-created shell — exercising profile, plan, nodes, and
           // overview writes end to end in Postgres.
-          await buildProjectCheckpointRepository.upsertArtifact({
-            db: testDb,
-            sessionId: session.id,
-            step: "goals",
-            sourceKey,
-            payload: packet,
-            status: "complete",
-          });
           await buildProjectCheckpointRepository.upsertArtifact({
             db: testDb,
             sessionId: session.id,

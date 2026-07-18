@@ -51,6 +51,8 @@ const recallCandidateSelection = {
   strength: TrainingSyllabusEntry.strength,
   lastReinforcedAt: TrainingSyllabusEntry.lastReinforcedAt,
   evidenceNodeId: TrainingSyllabusEntry.evidenceNodeId,
+  topicId: TrainingSyllabusEntry.topicId,
+  topicOrderIndex: TrainingKnowledgeTopic.orderIndex,
 };
 
 interface RecallCandidateRow {
@@ -62,6 +64,8 @@ interface RecallCandidateRow {
   strength: number;
   lastReinforcedAt: Date | null;
   evidenceNodeId: string | null;
+  topicId: string | null;
+  topicOrderIndex: number | null;
 }
 
 const mapRecallCandidate = (
@@ -291,6 +295,10 @@ export const trainingSyllabusRepository = {
         TrainingCurriculumNode,
         eq(TrainingCurriculumNode.id, TrainingSyllabusEntry.clusterNodeId),
       )
+      .leftJoin(
+        TrainingKnowledgeTopic,
+        eq(TrainingKnowledgeTopic.id, TrainingSyllabusEntry.topicId),
+      )
       .where(
         and(
           eq(TrainingCurriculumNode.planId, planId),
@@ -322,6 +330,10 @@ export const trainingSyllabusRepository = {
         TrainingCurriculumNode,
         eq(TrainingCurriculumNode.id, TrainingSyllabusEntry.clusterNodeId),
       )
+      .leftJoin(
+        TrainingKnowledgeTopic,
+        eq(TrainingKnowledgeTopic.id, TrainingSyllabusEntry.topicId),
+      )
       .where(
         and(
           eq(TrainingCurriculumNode.planId, planId),
@@ -340,29 +352,57 @@ export const trainingSyllabusRepository = {
   getRecallCompanionCandidate: async ({
     db,
     clusterNodeId,
-    primaryEntryId,
+    primary,
     now,
   }: {
     db: Database;
     clusterNodeId: string;
-    primaryEntryId: string;
+    primary: Pick<RecallCandidateEntry, "id" | "topicId" | "topicOrderIndex">;
     now: Date;
   }): Promise<RecallCandidateEntry | null> => {
     const overdueRatio = recallOverdueRatio(now);
+    // Chain-first preference ladder — must stay equivalent to companionRank
+    // in recall-decay.ts: neighboring topic first (nearer beats farther,
+    // upstream beats downstream), then a same-topic peer, then topic-less
+    // entries; ties go to the most recently reinforced.
+    const chainOrdering =
+      primary.topicId !== null && primary.topicOrderIndex !== null
+        ? [
+            sql`case
+              when ${TrainingSyllabusEntry.topicId} is null then 2
+              when ${TrainingSyllabusEntry.topicId} = ${primary.topicId} then 1
+              else 0
+            end`,
+            sql`case
+              when ${TrainingSyllabusEntry.topicId} is null or ${TrainingSyllabusEntry.topicId} = ${primary.topicId} then 0
+              else abs(${TrainingKnowledgeTopic.orderIndex} - ${primary.topicOrderIndex})
+            end`,
+            sql`case
+              when ${TrainingSyllabusEntry.topicId} is not null
+                and ${TrainingSyllabusEntry.topicId} <> ${primary.topicId}
+                and ${TrainingKnowledgeTopic.orderIndex} > ${primary.topicOrderIndex} then 1
+              else 0
+            end`,
+          ]
+        : [];
     const [row] = await db
       .select(recallCandidateSelection)
       .from(TrainingSyllabusEntry)
+      .leftJoin(
+        TrainingKnowledgeTopic,
+        eq(TrainingKnowledgeTopic.id, TrainingSyllabusEntry.topicId),
+      )
       .where(
         and(
           eq(TrainingSyllabusEntry.clusterNodeId, clusterNodeId),
-          ne(TrainingSyllabusEntry.id, primaryEntryId),
+          ne(TrainingSyllabusEntry.id, primary.id),
           eq(TrainingSyllabusEntry.status, "checked"),
           gte(TrainingSyllabusEntry.strength, RECALL_COMPANION_MIN_STRENGTH),
           isNotNull(TrainingSyllabusEntry.checkedAt),
           sql`${overdueRatio} < 1`,
         ),
       )
-      .orderBy(desc(recallAnchor))
+      .orderBy(...chainOrdering, desc(recallAnchor))
       .limit(1);
 
     return row ? mapRecallCandidate(row) : null;
