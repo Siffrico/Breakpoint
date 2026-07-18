@@ -23,6 +23,8 @@ export const UnitBuilderContextSchema = z.object({
     orderIndex: z.number().int().min(0),
   }),
   planContext: z.object({
+    /** Parent regime: skill → foundation, ability/skill_cluster → skillset. */
+    regime: z.enum(["foundation", "skillset"]).nullable(),
     slotIndex: z.number().int().min(1),
     totalSlots: z.number().int().min(1),
     clusterContext: z

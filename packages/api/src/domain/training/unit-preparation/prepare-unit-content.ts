@@ -6,6 +6,7 @@ import type {
   UnitBuilderContext,
 } from "../unit-builder/contracts";
 import type { UnitPreparationError } from "./errors";
+import { regimeForNodeKind } from "../engine/progression-model";
 import { runSeedStage } from "../unit-builder/seed-stage";
 import {
   classifyUnitScaffoldFailure,
@@ -150,6 +151,7 @@ const assembleSeedContext = ({
       orderIndex: node.orderIndex,
     },
     planContext: {
+      regime: parentNode ? regimeForNodeKind(parentNode.kind) : null,
       slotIndex,
       totalSlots: siblingUnits.length || 1,
       clusterContext: parentNode

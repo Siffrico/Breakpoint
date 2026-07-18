@@ -21,7 +21,7 @@ Quality standard:
 - build something that will create strong downstream Build, Prove, and Repair stages
 
 Output discipline:
-- the title must name the real lesson
+- the title must follow the title rule that opens the task prompt's Rules list; that rule is regime-specific and overrides any general instinct about how to name a lesson
 - the seedPrompt must be a concrete situation in the learner's world that contains the concept without naming it
 - the seedPrompt must not ask them to define the lesson, summarize what they believe, or explain a term in the abstract
 - the seedPrompt must be solvable using only what the learner already knows before this session
@@ -34,6 +34,25 @@ Output discipline:
 - the complexityBudget must be 1, 2, or 3 based on the true teaching load of this concept
 - prefer 1 for foundational concepts unless the mechanism is genuinely dense; use 3 only when the concept needs extended reasoning, edge cases, or formal structure
 - the conceptTarget, misconceptionTarget, and proofTargets must be concrete enough for later agents to use directly`;
+
+const titleNamingRule = (
+  regime: UnitBuilderContext["planContext"]["regime"],
+): string => {
+  switch (regime) {
+    case "foundation":
+      return `- Title the unit as the single practitioner question this unit answers. The title is what the learner is answering by the end, so it must be a genuine question: second-person, ending in "?", and about doing the work rather than about a term.
+  - Default to "How do you ...?" — e.g. "How do you map an existing signup flow?"
+  - Use "When ...?" or "Which ...?" when the targets are discriminations, so the judgment call stays visible — e.g. "When is it safe to retry a write?" Collapsing that into "How do you retry safely?" blurs the exact distinction the unit exists to sharpen.
+  - Use "Why ...?" when the target is a mechanism the learner must be able to explain — e.g. "Why does adding steps sometimes reduce friction?"
+  - Never write a tutorial heading such as "How to map user flows". That is a course label, not a question the learner answers.
+  - Never write a definitional question such as "What is idempotency?". It names the concept and asks for recall instead of performance, which contradicts the no-concept-naming rules below.
+  - Choose the form that states this unit's targets most precisely. Do not bend a target into "How do you ...?" to match the default; a precise "When ...?" beats a generic "How do you handle ...?".`;
+    case "skillset":
+      return `- Title the unit as a task-worded directive naming the realistic whole-task the learner performs (e.g. "Modify this checkout flow to be frictionless"). Never phrase it as a question.`;
+    case null:
+      return `- The title must name the real lesson.`;
+  }
+};
 
 export const runSeedStage = async (
   context: UnitBuilderContext,
@@ -48,6 +67,7 @@ export const runSeedStage = async (
     prompt: `Design the Seed stage for this education unit.
 
 Rules:
+${titleNamingRule(context.planContext.regime)}
 - Stay within the current slot's scope.
 - Earlier slots should build leverage. Later slots should stress transfer and edge cases.
 - If this is an integration slot, synthesize across completed clusters rather than teaching an isolated micro-skill.
@@ -91,6 +111,7 @@ const formatUnitBuilderContext = (context: UnitBuilderContext): string => {
       : "No prior learning recorded.";
 
   return `Node kind: ${context.node.kind}
+Unit regime: ${context.planContext.regime ?? "legacy"}
 Node title: ${context.node.title}
 Node summary: ${context.node.summary}
 Why it matters: ${context.node.whyItMatters}

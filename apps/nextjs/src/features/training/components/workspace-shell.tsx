@@ -12,7 +12,6 @@ import type { RouterOutputs } from "@acme/api";
 import { Button } from "@acme/ui/button";
 import { toast } from "@acme/ui/toast";
 
-import type { TransitionalAiWorkspace } from "~/features/training/lib/transitional-ai-workspace";
 import type {
   UnitCoachCommandIntent,
   UnitCoachTrigger,
@@ -75,6 +74,17 @@ const getUnitPreparingNodeId = (error: unknown) => {
 
 type WorkspaceMode = "history" | "onboarding" | "unit" | "idle";
 type WorkspaceTheme = "light" | "dark" | "warm";
+interface AdvanceTransition {
+  sessionId: string;
+  completedNodeId: string;
+  projectedNodeId: string;
+  title: string;
+}
+interface AdvanceMutationContext {
+  previousAdvanceTransition: AdvanceTransition | null;
+  previousSelectedChatId: string | null;
+  transition: AdvanceTransition;
+}
 
 export function WorkspaceShell({
   workspace,
@@ -108,6 +118,8 @@ export function WorkspaceShell({
   const [selectedChatId, setSelectedChatId] = useState<string | null>(
     chatHistory?.node.id ?? null,
   );
+  const [advanceTransition, setAdvanceTransition] =
+    useState<AdvanceTransition | null>(null);
   const [pendingBootstrapSessionId, setPendingBootstrapSessionId] = useState<
     string | null
   >(null);
@@ -119,7 +131,7 @@ export function WorkspaceShell({
       staleTime: Number.POSITIVE_INFINITY,
     }),
   );
-  const resolvedProjects = projectsQuery.data;
+  const serverProjects = projectsQuery.data;
 
   const toggleSidebar = useCallback(() => {
     setSidebarCollapsed((prev) => !prev);
@@ -153,6 +165,34 @@ export function WorkspaceShell({
     "bp-workspace-theme",
     "warm",
   );
+  const activeAdvanceTransition =
+    advanceTransition?.sessionId === selectedSessionId
+      ? advanceTransition
+      : null;
+  const resolvedProjects = activeAdvanceTransition
+    ? serverProjects.map((project) => {
+        if (
+          project.sessionId !== selectedSessionId ||
+          project.lessonPreview.some(
+            (lesson) => lesson.id === activeAdvanceTransition.projectedNodeId,
+          )
+        ) {
+          return project;
+        }
+
+        return {
+          ...project,
+          lessonPreview: [
+            {
+              id: activeAdvanceTransition.projectedNodeId,
+              title: activeAdvanceTransition.title,
+              status: "ready" as const,
+            },
+            ...project.lessonPreview,
+          ],
+        };
+      })
+    : serverProjects;
   const selectedProject = resolvedProjects.find(
     (project) => project.sessionId === selectedSessionId,
   );
@@ -255,18 +295,14 @@ export function WorkspaceShell({
           // An optimistic advance is waiting on background unit creation:
           // poll tight so the thinking state resolves in seconds, not the
           // relaxed UNIT_PREPARING cadence.
-          const data = query.state.data as
-            | TransitionalAiWorkspace
-            | undefined;
-          if (data?.pendingNextUnit) return 5_000;
+          if (activeAdvanceTransition) return 5_000;
           return isUnitPreparingError(query.state.error) ? 60_000 : false;
         },
       },
     ),
   );
-  const resolvedAiWorkspace = (aiWorkspaceQuery.data ??
-    (isInitialSession ? aiWorkspace : null) ??
-    null) as TransitionalAiWorkspace | null;
+  const resolvedAiWorkspace =
+    aiWorkspaceQuery.data ?? (isInitialSession ? aiWorkspace : null) ?? null;
   const activeNodeId =
     resolvedAiWorkspace?.state?.recallUnitId ??
     resolvedAiWorkspace?.state?.activeUnitId ??
@@ -378,107 +414,87 @@ export function WorkspaceShell({
   };
   const canAdvanceUnit =
     mode === "unit" &&
+    activeAdvanceTransition == null &&
     resolvedAiWorkspace?.state?.recallUnitId == null &&
     unitAdvanceGate.status === "enabled";
-  // While an optimistic advance is pending, the sidebar highlights the
-  // optimistic entry via the workspace state (selectedChatId stays null so the
-  // shell never reads the transition as a history selection).
-  const pendingActiveLessonId = resolvedAiWorkspace?.pendingNextUnit
-    ? (resolvedAiWorkspace.state?.activeUnitId ?? null)
-    : null;
+  const pendingActiveLessonId =
+    activeAdvanceTransition?.projectedNodeId ?? null;
+
+  useEffect(() => {
+    if (!activeAdvanceTransition) return;
+
+    const serverActiveNodeId = resolvedAiWorkspace?.state?.activeUnitId;
+    const serverProject = serverProjects.find(
+      (project) => project.sessionId === activeAdvanceTransition.sessionId,
+    );
+    const serverAdvanced = Boolean(
+      serverActiveNodeId &&
+        serverActiveNodeId !== activeAdvanceTransition.completedNodeId,
+    );
+    const serverProjectHasNextNode = Boolean(
+      serverActiveNodeId &&
+        serverProject?.lessonPreview.some(
+          (lesson) => lesson.id === serverActiveNodeId,
+        ),
+    );
+
+    if (serverAdvanced && serverProjectHasNextNode) {
+      setAdvanceTransition((current) =>
+        current === activeAdvanceTransition ? null : current,
+      );
+    } else if (serverAdvanced) {
+      void queryClient.invalidateQueries({
+        queryKey: trpc.training.listLearningProjects.queryKey(),
+      });
+    }
+  }, [
+    activeAdvanceTransition,
+    queryClient,
+    resolvedAiWorkspace,
+    serverProjects,
+    trpc.training.listLearningProjects,
+  ]);
+
+  const restoreAdvanceTransition = useCallback(
+    (context: AdvanceMutationContext | undefined) => {
+      setAdvanceTransition(context?.previousAdvanceTransition ?? null);
+      setSelectedChatId(context?.previousSelectedChatId ?? null);
+    },
+    [],
+  );
+
   const advanceCompletedUnit = useMutation(
     trpc.training.advanceCompletedUnit.mutationOptions({
-      onMutate: async () => {
-        const workspaceKey = trpc.training.aiWorkspace.queryKey({
-          sessionId: selectedSessionId,
-        });
-        const projectsKey = trpc.training.listLearningProjects.queryKey();
-        await Promise.all([
-          queryClient.cancelQueries({ queryKey: workspaceKey }),
-          queryClient.cancelQueries({ queryKey: projectsKey }),
-        ]);
-
-        const previousWorkspace =
-          queryClient.getQueryData<TransitionalAiWorkspace>(workspaceKey);
-        const previousProjects =
-          queryClient.getQueryData<LearningProject[]>(projectsKey);
+      onMutate: (variables): AdvanceMutationContext => {
         const previousSelectedChatId = selectedChatId;
-        const tempNodeId = crypto.randomUUID();
         const nextTitle =
           unitAdvanceGate.status === "enabled"
             ? (unitAdvanceGate.nextTitle ?? "Next unit")
             : "Next unit";
+        const transition: AdvanceTransition = {
+          sessionId: variables.sessionId,
+          completedNodeId: variables.nodeId,
+          projectedNodeId: crypto.randomUUID(),
+          title: nextTitle,
+        };
 
-        if (previousProjects) {
-          queryClient.setQueryData<LearningProject[]>(
-            projectsKey,
-            previousProjects.map((project) =>
-              project.sessionId === selectedSessionId
-                ? {
-                    ...project,
-                    lessonPreview: [
-                      {
-                        id: tempNodeId,
-                        title: nextTitle,
-                        status: "ready" as const,
-                      },
-                      ...project.lessonPreview,
-                    ],
-                  }
-                : project,
-            ),
-          );
-        }
-        if (previousWorkspace?.state) {
-          queryClient.setQueryData<TransitionalAiWorkspace>(workspaceKey, {
-            ...previousWorkspace,
-            state: {
-              ...previousWorkspace.state,
-              activeUnitId: tempNodeId,
-              activeUnitTitle: nextTitle,
-              recallUnitId: null,
-              recallUnitTitle: null,
-              educationStage: null,
-            },
-            messages: [],
-            introMessage: null,
-            evaluationPlan: null,
-            evaluationProgress: null,
-            unitAdvanceGate: { status: "locked" },
-            pendingNextUnit: true,
-            pendingNextUnitTitle: nextTitle,
-          });
-        }
-        // Stay on the live-chat view (null = active chat): pointing
-        // selectedChatId at the temp id would flip isHistorySelected, swap the
-        // shell into history mode, and disable the aiWorkspace query — hiding
-        // the pending-unit UI this optimistic update exists to show.
+        setAdvanceTransition(transition);
         setSelectedChatId(null);
 
         return {
-          previousWorkspace,
-          previousProjects,
+          previousAdvanceTransition: advanceTransition,
           previousSelectedChatId,
-          tempNodeId,
+          transition,
         };
       },
       onSuccess: (result, _variables, context) => {
         const workspaceKey = trpc.training.aiWorkspace.queryKey({
-          sessionId: selectedSessionId,
+          sessionId: context.transition.sessionId,
         });
         const projectsKey = trpc.training.listLearningProjects.queryKey();
-        const restoreSnapshots = () => {
-          if (context.previousWorkspace) {
-            queryClient.setQueryData(workspaceKey, context.previousWorkspace);
-          }
-          if (context.previousProjects) {
-            queryClient.setQueryData(projectsKey, context.previousProjects);
-          }
-          setSelectedChatId(context.previousSelectedChatId);
-        };
 
         if (!result.advanced) {
-          restoreSnapshots();
+          restoreAdvanceTransition(context);
           router.push(
             `/workspace/mission?unitRunId=${encodeURIComponent(result.unitRunId)}`,
           );
@@ -486,53 +502,10 @@ export function WorkspaceShell({
         }
         if (result.nextChat) {
           const { nodeId, title } = result.nextChat;
-          queryClient.setQueryData<LearningProject[]>(projectsKey, (current) =>
-            current?.map((project) =>
-              project.sessionId === selectedSessionId
-                ? {
-                    ...project,
-                    lessonPreview: project.lessonPreview.map((lesson) =>
-                      lesson.id === context.tempNodeId
-                        ? { ...lesson, id: nodeId, title }
-                        : lesson,
-                    ),
-                  }
-                : project,
-            ),
-          );
-          queryClient.setQueryData<TransitionalAiWorkspace>(
-            workspaceKey,
-            (current) =>
-              current?.state
-                ? {
-                    ...current,
-                    state: {
-                      ...current.state,
-                      activeUnitId: nodeId,
-                      activeUnitTitle: title,
-                    },
-                  }
-                : current,
-          );
-          // The new unit is the live chat; selecting its real id would read as
-          // a history selection until router.refresh catches fallbackActiveNodeId up.
-          setSelectedChatId(null);
-        } else {
-          // Background creation is still generating the next unit: the temp
-          // entry has no real id to reconcile to and the projects refetch
-          // would drop it anyway — remove it now so the sidebar and the
-          // still-pending chat pane don't disagree in the meantime.
-          queryClient.setQueryData<LearningProject[]>(projectsKey, (current) =>
-            current?.map((project) =>
-              project.sessionId === selectedSessionId
-                ? {
-                    ...project,
-                    lessonPreview: project.lessonPreview.filter(
-                      (lesson) => lesson.id !== context.tempNodeId,
-                    ),
-                  }
-                : project,
-            ),
+          setAdvanceTransition((current) =>
+            current === context.transition
+              ? { ...current, projectedNodeId: nodeId, title }
+              : current,
           );
         }
         void queryClient.invalidateQueries({ queryKey: projectsKey });
@@ -542,21 +515,7 @@ export function WorkspaceShell({
         router.refresh();
       },
       onError: (error, _variables, context) => {
-        if (context?.previousWorkspace) {
-          queryClient.setQueryData(
-            trpc.training.aiWorkspace.queryKey({
-              sessionId: selectedSessionId,
-            }),
-            context.previousWorkspace,
-          );
-        }
-        if (context?.previousProjects) {
-          queryClient.setQueryData(
-            trpc.training.listLearningProjects.queryKey(),
-            context.previousProjects,
-          );
-        }
-        setSelectedChatId(context?.previousSelectedChatId ?? null);
+        restoreAdvanceTransition(context);
         toast.error(error.message);
       },
     }),
@@ -613,7 +572,7 @@ export function WorkspaceShell({
       : mode === "onboarding"
         ? (resolvedOnboardingState?.activeQuestion?.prompt ??
           "Start a new learning track")
-        : (resolvedAiWorkspace?.pendingNextUnitTitle ??
+        : (activeAdvanceTransition?.title ??
           liveUnit?.title ??
           resolvedWorkspace?.nextUnitTitle ??
           "Preparing your next unit");
@@ -832,6 +791,12 @@ export function WorkspaceShell({
 
   const prefetchChat = useCallback(
     (nextSessionId: string, nodeId: string) => {
+      if (
+        nextSessionId === selectedSessionId &&
+        nodeId === activeAdvanceTransition?.projectedNodeId
+      ) {
+        return;
+      }
       if (nextSessionId === selectedSessionId && nodeId === activeNodeId)
         return;
 
@@ -842,7 +807,13 @@ export function WorkspaceShell({
         ),
       );
     },
-    [activeNodeId, queryClient, selectedSessionId, trpc],
+    [
+      activeAdvanceTransition?.projectedNodeId,
+      activeNodeId,
+      queryClient,
+      selectedSessionId,
+      trpc,
+    ],
   );
 
   const prefetchProject = useCallback(
@@ -882,12 +853,19 @@ export function WorkspaceShell({
       nodeId: string,
     ) => {
       const nextChatId =
-        nextSessionId === selectedSessionId && nodeId === activeNodeId
+        nextSessionId === selectedSessionId &&
+        (nodeId === activeNodeId ||
+          nodeId === activeAdvanceTransition?.projectedNodeId)
           ? null
           : nodeId;
       handleWorkspaceLink(event, nextSessionId, nextChatId);
     },
-    [activeNodeId, handleWorkspaceLink, selectedSessionId],
+    [
+      activeAdvanceTransition?.projectedNodeId,
+      activeNodeId,
+      handleWorkspaceLink,
+      selectedSessionId,
+    ],
   );
 
   useEffect(() => {
@@ -1181,6 +1159,7 @@ export function WorkspaceShell({
                         preview={preview}
                         embedded
                         aiWorkspace={resolvedAiWorkspace}
+                        advancePending={activeAdvanceTransition != null}
                         onAdvanceUnit={handleAdvanceCompletedUnit}
                         onStateChange={handleUnitStateChange}
                         onRunningChange={setIsSessionRunning}

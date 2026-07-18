@@ -20,7 +20,6 @@ import { ChatComposerDock, WorkspaceStatusLine } from "@acme/ui/chat";
 import { toast } from "@acme/ui/toast";
 
 import type { ExchangeMessage } from "./exchange-grouping";
-import type { TransitionalAiWorkspace } from "~/features/training/lib/transitional-ai-workspace";
 import type { UnitCoachCommandIntent } from "~/features/training/lib/unit-coach-commands";
 import { AssistantRichText } from "~/features/training/components/assistant-rich-text";
 import {
@@ -41,7 +40,7 @@ import {
 import { WorkspaceComposerInput } from "./workspace-composer-input";
 
 type EducationUnit = RouterOutputs["training"]["unit"];
-type AiWorkspace = TransitionalAiWorkspace;
+type AiWorkspace = RouterOutputs["training"]["aiWorkspace"];
 interface AiWorkspaceIntroMessage {
   prompt: string;
   helper: string | null;
@@ -420,6 +419,7 @@ function EducationUnitWorkspaceComponent({
   sessionId,
   preview = false,
   aiWorkspace = null,
+  advancePending = false,
   embedded = false,
   onStateChange,
   onRunningChange,
@@ -432,6 +432,7 @@ function EducationUnitWorkspaceComponent({
   sessionId: string;
   preview?: boolean;
   aiWorkspace?: AiWorkspace | null;
+  advancePending?: boolean;
   embedded?: boolean;
   onStateChange?: (state: EducationUnit) => void;
   onRunningChange?: (isRunning: boolean) => void;
@@ -677,7 +678,7 @@ function EducationUnitWorkspaceComponent({
     aiWorkspace?.unitAdvanceGate.status === "enabled" ||
     streamState?.educationStage === "mastered";
   const awaitingNextUnitContent =
-    aiWorkspace?.pendingNextUnit === true ||
+    advancePending ||
     (aiWorkspace?.state?.activeUnitId != null &&
       aiWorkspace.state.activeUnitId !== unit.nodeId &&
       aiWorkspace.state.recallUnitId == null &&
