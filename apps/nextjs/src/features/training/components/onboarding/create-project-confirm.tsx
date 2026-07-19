@@ -18,7 +18,7 @@ interface CreateProjectToolPart {
     projectName?: string;
     targetIdentity?: string;
     summary?: string;
-    skills?: string[];
+    abilities?: string[];
     startingPoint?: {
       tier?: StartingPointTier;
       reason?: string;
@@ -45,7 +45,7 @@ const TIER_DESCRIPTION: Record<StartingPointTier, string> = {
 
 /**
  * The "Create project" card. Renders as soon as the tool input starts streaming
- * (skills appear bullet by bullet); the approve/deny buttons only mount once the
+ * (abilities appear bullet by bullet); the approve/deny buttons only mount once the
  * SDK holds the call for explicit human approval. Once approved, the build card
  * takes over; if declined, we acknowledge softly so the chat flows.
  */
@@ -108,7 +108,7 @@ export function CreateProjectConfirm({
 
   const name = toolPart.input?.projectName ?? "your project";
   const summary = toolPart.input?.summary;
-  const skills = toolPart.input?.skills ?? [];
+  const abilities = toolPart.input?.abilities ?? [];
 
   const cycleTier = () => {
     if (!effectiveTier) return;
@@ -134,18 +134,18 @@ export function CreateProjectConfirm({
         </div>
       ) : null}
 
-      {skills.length > 0 ? (
+      {abilities.length > 0 ? (
         <div className="mt-4">
           <div className="text-muted-foreground text-[11px] tracking-wide uppercase">
-            Skills you'll learn
+            Abilities you'll build
           </div>
           <ul className="mt-1.5 flex flex-col gap-1">
-            {skills.map((skill, index) => (
+            {abilities.map((ability, index) => (
               <li
-                key={`skill-${index}`}
+                key={`ability-${index}`}
                 className="text-foreground/90 animate-in fade-in text-[13px] leading-6 duration-300"
               >
-                – {skill}
+                – {ability}
               </li>
             ))}
           </ul>

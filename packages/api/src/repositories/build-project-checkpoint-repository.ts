@@ -21,12 +21,52 @@ export interface ProjectBuildRunPayload {
 }
 
 const STALE_BUILD_RECLAIM_MS = 360_000; // 6 min > 300s route ceiling
+const ABANDONED_BUILD_ERROR =
+  "The project build stopped before completion. Retry to resume it.";
 
-const isUniqueViolation = (error: unknown) =>
-  typeof error === "object" &&
-  error !== null &&
-  "code" in error &&
-  error.code === "23505";
+const failedRunPayload = (
+  run: ProjectBuildRunPayload,
+  error: string,
+): ProjectBuildRunPayload => ({
+  ...run,
+  status: "error",
+  error,
+  state: {
+    ...run.state,
+    phase: "error",
+    error,
+  },
+});
+
+const recoverAbandonedRun = async ({
+  db,
+  checkpoint,
+}: {
+  db: Database;
+  checkpoint: typeof TrainingProjectBuildCheckpoint.$inferSelect;
+}): Promise<ProjectBuildRunPayload | null> => {
+  if (!isProjectBuildRunPayload(checkpoint.payload)) return null;
+  if (checkpoint.payload.status !== "building") return checkpoint.payload;
+
+  const staleBefore = new Date(Date.now() - STALE_BUILD_RECLAIM_MS);
+  if (checkpoint.updatedAt >= staleBefore) return checkpoint.payload;
+
+  const payload = failedRunPayload(checkpoint.payload, ABANDONED_BUILD_ERROR);
+  const [recovered] = await db
+    .update(TrainingProjectBuildCheckpoint)
+    .set({ payload, updatedAt: new Date() })
+    .where(
+      and(
+        eq(TrainingProjectBuildCheckpoint.id, checkpoint.id),
+        lt(TrainingProjectBuildCheckpoint.updatedAt, staleBefore),
+      ),
+    )
+    .returning();
+
+  return recovered && isProjectBuildRunPayload(recovered.payload)
+    ? recovered.payload
+    : checkpoint.payload;
+};
 
 export const isProjectBuildRunPayload = (
   payload: unknown,
@@ -43,6 +83,42 @@ export const isProjectBuildRunPayload = (
 };
 
 export const buildProjectCheckpointRepository = {
+  listRunsBySessionIds: async ({
+    db,
+    sessionIds,
+  }: {
+    db: Database;
+    sessionIds: string[];
+  }) => {
+    if (sessionIds.length === 0) return [];
+
+    const checkpoints = await db.query.TrainingProjectBuildCheckpoint.findMany({
+      where: and(
+        inArray(TrainingProjectBuildCheckpoint.sessionId, sessionIds),
+        eq(TrainingProjectBuildCheckpoint.step, "run"),
+      ),
+    });
+
+    const runs = await Promise.all(
+      checkpoints.map(async (checkpoint) => ({
+        checkpoint,
+        run: await recoverAbandonedRun({ db, checkpoint }),
+      })),
+    );
+
+    return runs.flatMap(({ checkpoint, run }) =>
+      run
+        ? [
+            {
+              sessionId: checkpoint.sessionId,
+              updatedAt: checkpoint.updatedAt,
+              run,
+            },
+          ]
+        : [],
+    );
+  },
+
   getRun: async ({ db, sessionId }: { db: Database; sessionId: string }) => {
     const checkpoint = await db.query.TrainingProjectBuildCheckpoint.findFirst({
       where: and(
@@ -51,9 +127,39 @@ export const buildProjectCheckpointRepository = {
       ),
     });
 
-    return isProjectBuildRunPayload(checkpoint?.payload)
-      ? checkpoint.payload
-      : null;
+    return checkpoint ? recoverAbandonedRun({ db, checkpoint }) : null;
+  },
+
+  failRun: async ({
+    db,
+    sessionId,
+    error,
+  }: {
+    db: Database;
+    sessionId: string;
+    error: string;
+  }) => {
+    const checkpoint = await db.query.TrainingProjectBuildCheckpoint.findFirst({
+      where: and(
+        eq(TrainingProjectBuildCheckpoint.sessionId, sessionId),
+        eq(TrainingProjectBuildCheckpoint.step, "run"),
+      ),
+    });
+    if (!checkpoint || !isProjectBuildRunPayload(checkpoint.payload)) {
+      return null;
+    }
+    if (checkpoint.payload.status === "complete") return checkpoint.payload;
+
+    const payload = failedRunPayload(checkpoint.payload, error);
+    const [failed] = await db
+      .update(TrainingProjectBuildCheckpoint)
+      .set({ payload, updatedAt: new Date() })
+      .where(eq(TrainingProjectBuildCheckpoint.id, checkpoint.id))
+      .returning();
+
+    return failed && isProjectBuildRunPayload(failed.payload)
+      ? failed.payload
+      : payload;
   },
 
   claimRun: async ({
@@ -69,22 +175,24 @@ export const buildProjectCheckpointRepository = {
   }): Promise<
     { status: "claimed" } | { status: "processing"; state: ProjectBuildState }
   > => {
-    try {
-      await db
-        .insert(TrainingProjectBuildCheckpoint)
-        .values({
-          sessionId,
-          step: "run",
-          sourceKey,
-          payload,
-        })
-        .returning();
+    const [inserted] = await db
+      .insert(TrainingProjectBuildCheckpoint)
+      .values({
+        sessionId,
+        step: "run",
+        sourceKey,
+        payload,
+      })
+      .onConflictDoNothing({
+        target: [
+          TrainingProjectBuildCheckpoint.sessionId,
+          TrainingProjectBuildCheckpoint.step,
+        ],
+      })
+      .returning();
 
+    if (inserted) {
       return { status: "claimed" };
-    } catch (error) {
-      if (!isUniqueViolation(error)) {
-        throw error;
-      }
     }
 
     const existing = await db.query.TrainingProjectBuildCheckpoint.findFirst({
@@ -237,7 +345,10 @@ export const buildProjectCheckpointRepository = {
         // history. Reading them back would resurrect a stale failed row into
         // `hasUnfinishedArtifact` and permanently block the completed-build
         // short-circuit for sessions built before that change.
-        inArray(TrainingProjectBuildCheckpoint.step, ["curriculum", "overview"]),
+        inArray(TrainingProjectBuildCheckpoint.step, [
+          "curriculum",
+          "overview",
+        ]),
       ),
     });
 

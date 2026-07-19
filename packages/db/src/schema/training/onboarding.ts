@@ -53,6 +53,19 @@ export const TrainingOnboardingMessage = pgTable(
     metadata: t.jsonb().$type<{
       difficultyDirectiveReason?: string;
       hiddenFromTranscript?: boolean;
+      projectProposal?: {
+        whatToLearn?: string;
+        whatToMake?: string;
+        interests?: string[];
+        projectName: string;
+        targetIdentity: string;
+        summary: string;
+        abilities?: string[];
+        startingPoint?: {
+          tier: "fundamentals" | "skip_basics" | "advanced";
+          reason: string;
+        };
+      };
     } | null>(),
     sequence: t.integer().notNull(),
     createdAt: t

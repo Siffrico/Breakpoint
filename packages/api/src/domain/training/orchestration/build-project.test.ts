@@ -51,11 +51,20 @@ const input = {
   projectName: "distributed systems",
   targetIdentity: "backend engineer",
   summary: "Build reliable replicated services.",
+  abilities: [
+    "Diagnose Distributed Systems Failures",
+    "Architect Reliable Replicated Services",
+  ],
 };
 const sourceKey = JSON.stringify({
   projectName: "distributed-systems",
   targetIdentity: input.targetIdentity,
   summary: input.summary,
+  whatToLearn: input.whatToLearn,
+  whatToMake: input.whatToMake,
+  interests: input.interests,
+  abilities: input.abilities,
+  startingPoint: null,
 });
 
 const transcript = [
@@ -684,8 +693,11 @@ describe("buildProjectFromOnboarding", () => {
       transcript,
       input: {
         ...input,
-        skills: ["Architect Distributed Backend Systems"],
-        startingPoint: { tier: "skip_basics", reason: "you've shipped services" },
+        abilities: ["Architect Distributed Backend Systems"],
+        startingPoint: {
+          tier: "skip_basics",
+          reason: "you've shipped services",
+        },
       },
       deps,
       onProgress: vi.fn(),
@@ -698,7 +710,7 @@ describe("buildProjectFromOnboarding", () => {
     expect(shellSeed?.ratingDeviation).toBe(250);
     // The placement note reaches the curriculum designer.
     const curriculumArgs = mockCurriculum.mock.calls[0]?.[0];
-    expect(curriculumArgs?.skills).toEqual([
+    expect(curriculumArgs?.abilities).toEqual([
       "Architect Distributed Backend Systems",
     ]);
     expect(curriculumArgs?.placementNote).toContain("1150");
@@ -738,7 +750,9 @@ describe("buildProjectFromOnboarding", () => {
     const result = await run(deps);
 
     expect(result.success).toBe(true);
-    expect(vi.mocked(deps.ensureShell).mock.calls[0]?.[0].seedRating).toBeNull();
+    expect(
+      vi.mocked(deps.ensureShell).mock.calls[0]?.[0].seedRating,
+    ).toBeNull();
     expect(mockCurriculum.mock.calls[0]?.[0].placementNote).toBeNull();
   });
 });

@@ -20,7 +20,7 @@ export const RUN_PROFILES = {
     reasoningBudgetTokens: 24_576,
     maxOutputTokens: 8_192,
     maxSteps: 10,
-    search: true,
+    search: false,
   },
   syllabus: {
     reasoningBudgetTokens: 16_384,
@@ -51,7 +51,7 @@ export const RUN_PROFILES = {
     reasoningBudgetTokens: 8_192,
     maxOutputTokens: 8_192,
     maxSteps: 6,
-    search: true,
+    search: false,
   },
   mission: { ...STANDARD_PROFILE, maxSteps: 6, search: true },
   default: STANDARD_PROFILE,

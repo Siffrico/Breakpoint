@@ -44,12 +44,21 @@ const input: CreateProjectInput = {
   projectName: "distributed systems",
   targetIdentity: "backend engineer",
   summary: "Build reliable replicated services.",
+  abilities: [
+    "Diagnose Distributed Systems Failures",
+    "Architect Reliable Replicated Services",
+  ],
 };
 
 const sourceKey = JSON.stringify({
   projectName: "distributed-systems",
   targetIdentity: input.targetIdentity,
   summary: input.summary,
+  whatToLearn: input.whatToLearn,
+  whatToMake: input.whatToMake,
+  interests: input.interests,
+  abilities: input.abilities,
+  startingPoint: null,
 });
 
 const curriculum: CurriculumDesignerOutput = {
@@ -168,7 +177,11 @@ const curriculum: CurriculumDesignerOutput = {
             whyItMatters: "Unseen effects are the ones that double-fire.",
             workflow: {
               name: "Locate effects",
-              steps: ["Trace the handler", "List writes", "Mark external calls"],
+              steps: [
+                "Trace the handler",
+                "List writes",
+                "Mark external calls",
+              ],
             },
             masteryContract: {
               exitCriteria: ["Lists every effect of a handler."],
@@ -192,7 +205,11 @@ const curriculum: CurriculumDesignerOutput = {
             whyItMatters: "Assertions beat assumptions in incident review.",
             workflow: {
               name: "Verify replay",
-              steps: ["Replay the request", "Inspect state", "Prove idempotence"],
+              steps: [
+                "Replay the request",
+                "Inspect state",
+                "Prove idempotence",
+              ],
             },
             masteryContract: {
               exitCriteria: ["Demonstrates idempotence under replay."],

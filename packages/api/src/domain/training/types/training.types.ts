@@ -49,7 +49,10 @@ import type {
   UnitMasteryContract,
 } from "@acme/validators";
 
-import type { ProjectBuildState } from "../orchestration/build-project";
+import type {
+  CreateProjectInput,
+  ProjectBuildState,
+} from "../orchestration/build-project";
 import type { AttemptTiming, EvaluationPlan } from "../workspace-ai/types";
 
 export type {
@@ -157,6 +160,7 @@ export interface OnboardingSessionState {
   transcript: OnboardingTranscriptMessage[];
   activeQuestion: OnboardingQuestion | null;
   projectBuild?: ProjectBuildState | null;
+  pendingProjectProposal?: CreateProjectInput | null;
 }
 
 export interface HomeState {

@@ -9,6 +9,7 @@ import {
   TrainingWorkspaceTurn,
 } from "@acme/db/schema";
 
+import type { CreateProjectInput } from "../domain/training/orchestration/build-project";
 import type {
   IdentityReport,
   OnboardingQuestion,
@@ -33,6 +34,7 @@ interface OnboardingMessageInsert {
   metadata?: {
     difficultyDirectiveReason?: string;
     hiddenFromTranscript?: boolean;
+    projectProposal?: CreateProjectInput;
   } | null;
 }
 
@@ -213,6 +215,56 @@ export const trainingOnboardingRepository = {
     });
 
     return message ?? null;
+  },
+
+  upsertMessageByTurnRole: async ({
+    db,
+    sessionId,
+    role,
+    content,
+    slot,
+    turnId,
+    metadata,
+  }: {
+    db: Database;
+    sessionId: string;
+    role: "assistant" | "user";
+    content: string;
+    slot: string | null;
+    turnId: string;
+    metadata?: OnboardingMessageInsert["metadata"];
+  }) => {
+    const existing = await getMessageByTurnRole({
+      db,
+      sessionId,
+      turnId,
+      role,
+    });
+    if (existing) {
+      const [updated] = await db
+        .update(TrainingOnboardingMessage)
+        .set({
+          content,
+          slot,
+          ...(metadata !== undefined ? { metadata } : {}),
+        })
+        .where(eq(TrainingOnboardingMessage.id, existing.id))
+        .returning();
+      return updated ?? existing;
+    }
+
+    const inserted = await insertMessageWithNextSequence({
+      db,
+      input: { sessionId, role, content, slot, turnId, metadata },
+    });
+    if (!inserted || inserted.content === content) return inserted;
+
+    const [updated] = await db
+      .update(TrainingOnboardingMessage)
+      .set({ content, slot })
+      .where(eq(TrainingOnboardingMessage.id, inserted.id))
+      .returning();
+    return updated ?? inserted;
   },
 
   appendWorkspaceMessage: async ({
@@ -687,11 +739,18 @@ export const trainingOnboardingRepository = {
     db: Database;
     sessionId: string;
   }): Promise<OnboardingSessionState | null> => {
-    const [session, transcript, projectBuildRun] = await Promise.all([
-      trainingOnboardingRepository.getSession({ db, sessionId }),
-      trainingOnboardingRepository.listMessages({ db, sessionId }),
-      buildProjectCheckpointRepository.getRun({ db, sessionId }),
-    ]);
+    const [session, transcript, projectBuildRun, proposalMessage] =
+      await Promise.all([
+        trainingOnboardingRepository.getSession({ db, sessionId }),
+        trainingOnboardingRepository.listMessages({ db, sessionId }),
+        buildProjectCheckpointRepository.getRun({ db, sessionId }),
+        getMessageByTurnRole({
+          db,
+          sessionId,
+          turnId: "onboarding-project-proposal",
+          role: "assistant",
+        }),
+      ]);
 
     if (!session) {
       return null;
@@ -727,6 +786,12 @@ export const trainingOnboardingRepository = {
       transcript,
       activeQuestion,
       projectBuild: projectBuildRun?.state ?? null,
+      pendingProjectProposal:
+        projectBuildRun == null &&
+        proposalMessage?.sequence === transcript.at(-1)?.sequence
+          ? ((proposalMessage?.metadata as OnboardingMessageInsert["metadata"])
+              ?.projectProposal ?? null)
+          : null,
     };
   },
 

@@ -81,14 +81,16 @@ const mapRecallCandidate = (
 // These SQL expressions must stay equivalent to recall-decay.ts: ordering in
 // the database is what keeps candidate transfer bounded to one primary row.
 const recallAnchor = sql`coalesce(${TrainingSyllabusEntry.lastReinforcedAt}, ${TrainingSyllabusEntry.checkedAt})`;
+const recallSeconds = (strength: 0 | 1 | 2 | 3) =>
+  sql.raw(String(recallIntervalDaysFor(strength) * 86_400));
 const recallIntervalSeconds = sql<number>`case
-  when ${TrainingSyllabusEntry.strength} <= 0 then ${recallIntervalDaysFor(0) * 86_400}
-  when ${TrainingSyllabusEntry.strength} = 1 then ${recallIntervalDaysFor(1) * 86_400}
-  when ${TrainingSyllabusEntry.strength} = 2 then ${recallIntervalDaysFor(2) * 86_400}
-  else ${recallIntervalDaysFor(3) * 86_400}
+  when ${TrainingSyllabusEntry.strength} <= 0 then ${recallSeconds(0)}
+  when ${TrainingSyllabusEntry.strength} = 1 then ${recallSeconds(1)}
+  when ${TrainingSyllabusEntry.strength} = 2 then ${recallSeconds(2)}
+  else ${recallSeconds(3)}
 end`;
 const recallOverdueRatio = (now: Date) =>
-  sql<number>`extract(epoch from (${now}::timestamptz - ${recallAnchor})) / ${recallIntervalSeconds}`;
+  sql<number>`extract(epoch from (${now.toISOString()}::timestamptz - ${recallAnchor})) / ${recallIntervalSeconds}`;
 
 export const trainingSyllabusRepository = {
   ensureSyllabus: async ({

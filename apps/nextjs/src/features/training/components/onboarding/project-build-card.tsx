@@ -135,6 +135,7 @@ export function ProjectBuildCard({
   onRetry,
   onRegenerateOverview,
   startPending = false,
+  retryDisabled = false,
 }: {
   state: ProjectBuildState;
   preview?: boolean;
@@ -143,6 +144,7 @@ export function ProjectBuildCard({
   onRetry?: () => void;
   onRegenerateOverview?: () => void;
   startPending?: boolean;
+  retryDisabled?: boolean;
 }) {
   const [expanded, setExpanded] = useState<
     Partial<Record<ProjectBuildStep, boolean>>
@@ -299,20 +301,26 @@ export function ProjectBuildCard({
       ) : null}
 
       {isError ? (
-        <div className="border-destructive/30 bg-destructive/[0.06] text-destructive mt-4 flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-[13px]">
+        <div className="border-destructive/30 bg-destructive/[0.06] text-destructive mt-4 rounded-md border px-3 py-2 text-[13px]">
           <span className="leading-6">
             {state.error ?? "Something went wrong building your project."}
           </span>
-          {onRetry ? (
-            <button
-              type="button"
-              onClick={onRetry}
-              className="hover:text-destructive/80 inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium"
-            >
-              <ArrowClockwise size={11} weight="bold" />
-              Try again
-            </button>
-          ) : null}
+        </div>
+      ) : null}
+
+      {!isComplete && onRetry ? (
+        <div className="border-border/60 mt-4 flex items-center justify-end border-t pt-4">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={preview || retryDisabled}
+            onClick={onRetry}
+            className="min-w-28 justify-center"
+          >
+            <ArrowClockwise size={13} weight="bold" aria-hidden="true" />
+            Retry build
+          </Button>
         </div>
       ) : null}
 

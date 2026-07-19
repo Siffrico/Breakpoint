@@ -3,6 +3,7 @@ import {
   convertToModelMessages,
   createUIMessageStream,
   createUIMessageStreamResponse,
+  hasToolCall,
   isTextUIPart,
   smoothStream,
   stepCountIs,
@@ -54,6 +55,8 @@ export type { CreateProjectResult } from "./domain/training/agents/onboarding-ch
 
 /** Stable id of the single keyed progress data part the build streams through. */
 export const PROJECT_BUILD_DATA_ID = "project-build";
+const PROJECT_PROPOSAL_TURN_ID = "onboarding-project-proposal";
+const PROJECT_BUILD_STATUS_TURN_ID = "onboarding-project-build-status";
 
 interface ProjectBuildData extends Record<string, unknown> {
   "project-build": ProjectBuildState;
@@ -171,21 +174,40 @@ export const streamProjectBuildResume = async ({
     const stream = createUIMessageStream<OnboardingChatUIMessage>({
       onError: () => "The project build hit an error.",
       execute: async ({ writer }) => {
-        await buildProjectFromOnboarding({
-          sessionId,
-          userId: session.userId,
-          transcript,
-          input: run.input,
-          deps: createBuildProjectDeps(db),
-          scheduleBackgroundTask,
-          onProgress: (build) => {
+        try {
+          await buildProjectFromOnboarding({
+            sessionId,
+            userId: session.userId,
+            transcript,
+            input: run.input,
+            deps: createBuildProjectDeps(db),
+            scheduleBackgroundTask,
+            onProgress: (build) => {
+              writer.write({
+                type: "data-project-build",
+                id: PROJECT_BUILD_DATA_ID,
+                data: build,
+              });
+            },
+          });
+        } catch (cause) {
+          const error =
+            cause instanceof Error
+              ? cause.message
+              : "The project build stopped before completion.";
+          const failed = await buildProjectCheckpointRepository.failRun({
+            db,
+            sessionId,
+            error,
+          });
+          if (failed) {
             writer.write({
               type: "data-project-build",
               id: PROJECT_BUILD_DATA_ID,
-              data: build,
+              data: failed.state,
             });
-          },
-        });
+          }
+        }
       },
     });
 
@@ -288,21 +310,42 @@ const runOnboardingChat = async ({
       const buildProject = async (
         input: CreateProjectInput,
       ): Promise<CreateProjectResult> => {
-        const result = await buildProjectFromOnboarding({
-          sessionId,
-          userId: session.userId,
-          transcript,
-          input,
-          deps: createBuildProjectDeps(db),
-          scheduleBackgroundTask,
-          onProgress: (build) => {
+        let result: Awaited<ReturnType<typeof buildProjectFromOnboarding>>;
+        try {
+          result = await buildProjectFromOnboarding({
+            sessionId,
+            userId: session.userId,
+            transcript,
+            input,
+            deps: createBuildProjectDeps(db),
+            scheduleBackgroundTask,
+            onProgress: (build) => {
+              writer.write({
+                type: "data-project-build",
+                id: PROJECT_BUILD_DATA_ID,
+                data: build,
+              });
+            },
+          });
+        } catch (cause) {
+          const error =
+            cause instanceof Error
+              ? cause.message
+              : "The project build stopped before completion.";
+          const failed = await buildProjectCheckpointRepository.failRun({
+            db,
+            sessionId,
+            error,
+          });
+          if (failed) {
             writer.write({
               type: "data-project-build",
               id: PROJECT_BUILD_DATA_ID,
-              data: build,
+              data: failed.state,
             });
-          },
-        });
+          }
+          return { ok: false, reason: error };
+        }
 
         return result.success
           ? {
@@ -341,30 +384,41 @@ ${startingPointNote}`,
           delayInMs: 15,
           chunking: "word",
         }),
-        stopWhen: stepCountIs(5),
+        stopWhen: [hasToolCall("createProject"), stepCountIs(5)],
         onFinish: async ({ text, steps }) => {
           // Persist the whole assistant turn, including the tool interactions
           // the rebuilt transcript would otherwise lose on reload: the
           // starting-point question and the proposed project both live only in
           // ephemeral tool parts, so a refresh mid-card would erase them from
           // every future model turn and from the build agents' transcript.
-          const rows: string[] = [];
+          const rows = new Set<string>();
+          const proposals: CreateProjectInput[] = [];
           const trimmed = text.trim();
-          if (trimmed.length > 0) rows.push(trimmed);
           for (const step of steps) {
             for (const call of step.toolCalls) {
               if (call.toolName === "askStartingPoint") {
                 const question = (
                   call.input as { question?: string }
                 ).question?.trim();
-                if (question) rows.push(question);
+                if (question) rows.add(question);
               }
               if (call.toolName === "createProject") {
-                const proposal = call.input as CreateProjectInput;
-                rows.push(
-                  `Proposed project "${proposal.projectName}" (${proposal.targetIdentity}): ${proposal.summary} Waiting for the learner's confirmation.`,
-                );
+                proposals.push(call.input as CreateProjectInput);
               }
+            }
+          }
+          if (trimmed.length > 0) {
+            if (proposals.length > 0) {
+              await trainingOnboardingRepository.upsertMessageByTurnRole({
+                db,
+                sessionId,
+                role: "assistant",
+                content: trimmed,
+                slot: "project_build_status",
+                turnId: PROJECT_BUILD_STATUS_TURN_ID,
+              });
+            } else {
+              rows.add(trimmed);
             }
           }
           for (const content of rows) {
@@ -374,6 +428,18 @@ ${startingPointNote}`,
               role: "assistant",
               content,
               slot: "chat",
+            });
+          }
+          const proposal = proposals.at(-1);
+          if (proposal) {
+            await trainingOnboardingRepository.upsertMessageByTurnRole({
+              db,
+              sessionId,
+              role: "assistant",
+              content: `Proposed project "${proposal.projectName}" (${proposal.targetIdentity}): ${proposal.summary} Waiting for the learner's confirmation.`,
+              slot: "project_proposal",
+              turnId: PROJECT_PROPOSAL_TURN_ID,
+              metadata: { projectProposal: proposal },
             });
           }
         },

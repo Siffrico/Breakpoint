@@ -36,7 +36,8 @@ import {
   ChatTranscript,
   ChatTranscriptContent,
   PacedAssistantText,
-  TypingIndicator,
+  StatusSpinner,
+  TextShimmer,
 } from "@acme/ui/chat";
 import { toast } from "@acme/ui/toast";
 
@@ -51,6 +52,7 @@ import { AssistantRichText } from "./assistant-rich-text";
 import { CreateProjectConfirm } from "./onboarding/create-project-confirm";
 import { ProjectBuildCard } from "./onboarding/project-build-card";
 import { StartingPointCheck } from "./onboarding/starting-point-check";
+import { UnfinishedOnboardingDialog } from "./onboarding/unfinished-onboarding-dialog";
 
 type OnboardingState = RouterOutputs["training"]["startOnboarding"];
 
@@ -67,6 +69,24 @@ const transcriptToMessages = (
       parts: [{ type: "text" as const, text: message.content }],
     }),
   );
+
+  if (state.pendingProjectProposal) {
+    messages.push({
+      id: `seed-${state.sessionId}-project-proposal`,
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-createProject",
+          toolCallId: `rehydrated-create-project-${state.sessionId}`,
+          state: "approval-requested",
+          input: state.pendingProjectProposal,
+          approval: {
+            id: `rehydrated-create-project-approval-${state.sessionId}`,
+          },
+        },
+      ],
+    } as OnboardingChatUIMessage);
+  }
 
   if (state.projectBuild) {
     messages.push({
@@ -294,19 +314,28 @@ export function OnboardingShell({
 
   // Latest streamed build snapshot, if any — drives both the inline build card
   // and the "project is ready" gating below.
-  const projectBuild = useMemo<ProjectBuildState | null>(() => {
+  const latestProjectBuildPart = useMemo<{
+    messageId: string;
+    partIndex: number;
+    state: ProjectBuildState;
+  } | null>(() => {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
       const message = messages[i];
       if (message?.role !== "assistant") continue;
       for (let j = message.parts.length - 1; j >= 0; j -= 1) {
         const part = message.parts[j];
         if (part?.type === "data-project-build") {
-          return part.data as ProjectBuildState;
+          return {
+            messageId: message.id,
+            partIndex: j,
+            state: part.data as ProjectBuildState,
+          };
         }
       }
     }
     return null;
   }, [messages]);
+  const projectBuild = latestProjectBuildPart?.state ?? null;
   const projectReady = projectBuild?.phase === "complete";
 
   useEffect(() => {
@@ -457,7 +486,8 @@ export function OnboardingShell({
       : "/settings/topics";
 
   const manualSetupAction = !embedded ? (
-    <div className="absolute top-4 right-4 z-10">
+    <div className="absolute top-4 right-4 z-10 flex items-center gap-1.5">
+      <UnfinishedOnboardingDialog activeSessionId={sessionId} />
       <Button
         render={<Link href={manualSetupHref} />}
         variant="outline"
@@ -699,6 +729,12 @@ export function OnboardingShell({
                 {message.role === "assistant"
                   ? message.parts.map((part, partIndex) => {
                       if (part.type === "data-project-build") {
+                        if (
+                          latestProjectBuildPart?.messageId !== message.id ||
+                          latestProjectBuildPart.partIndex !== partIndex
+                        ) {
+                          return null;
+                        }
                         const build = part.data as ProjectBuildState;
                         return (
                           <ProjectBuildCard
@@ -706,6 +742,7 @@ export function OnboardingShell({
                             state={build}
                             preview={preview}
                             startPending={continueLearning.isPending}
+                            retryDisabled={effectiveIsStreaming}
                             onStartLearning={() => {
                               if (preview || !build.sessionId) return;
                               continueLearning.mutate({
@@ -719,10 +756,9 @@ export function OnboardingShell({
                               );
                             }}
                             onRetry={() => {
-                              // A failed build resumes over the same stream so
-                              // the card ticks step-by-step in place; a build
-                              // that never started re-runs the model turn.
-                              if (build.phase === "error" && build.sessionId) {
+                              // Any persisted build resumes deterministically;
+                              // only a pre-build card needs another model turn.
+                              if (build.sessionId) {
                                 void regenerate({
                                   body: { resumeBuild: true },
                                 });
@@ -803,7 +839,14 @@ export function OnboardingShell({
 
           {showTypingIndicator ? (
             <ChatMessage from="assistant">
-              <TypingIndicator />
+              <div
+                role="status"
+                aria-live="polite"
+                className="text-foreground/65 flex items-center gap-2.5 text-[15px] tracking-[-0.01em]"
+              >
+                <StatusSpinner />
+                <TextShimmer text="Thinking" />
+              </div>
             </ChatMessage>
           ) : null}
 

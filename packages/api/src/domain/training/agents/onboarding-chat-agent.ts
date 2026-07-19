@@ -24,7 +24,7 @@ const ONBOARDING_RUNTIME_NOTES = `Runtime notes for this session:
   - projectName: the core study topic only, lowercase — e.g. "computer engineering", "machine learning". Not the project name, not an identity phrase, not a sentence.
   - targetIdentity: one short phrase for who they are becoming.
   - summary: one line describing what they will build.
-  - skills: 3–6 verb-first capability titles the curriculum will teach, 3–5 words each ("Architect Distributed Backend Systems"). Real load-bearing skills for this field, not topics or tools.
+  - abilities: 2–6 verb-first whole-performance titles the curriculum will teach, 3–6 words each ("Architect Distributed Systems Under Constraints"). These are broad, load-bearing practitioner abilities, not component skills, topics, tools, or chapters.
   - startingPoint: { tier, reason } — the tier the learner settled on, and a reason that paraphrases something they actually said or tapped ("you said you've deployed models to production").
 - createProject pauses for the learner to confirm with a button — do not announce it, do not ask permission in text, just call it. After it returns ok:true, write one short closing line. Do not repeat or restate the plan.
 - If it returns ok:false because more learner signal is needed, continue the consultation with one short question. For other failures, apologize briefly and ask if they want to retry.
@@ -61,12 +61,12 @@ export const CreateProjectInputSchema = LearnerBriefSchema.extend({
     .string()
     .min(1)
     .describe("One line describing what the learner will build."),
-  skills: z
+  abilities: z
     .array(z.string().min(1))
-    .min(3)
+    .min(2)
     .max(6)
     .describe(
-      'The 3–6 load-bearing skills the curriculum will teach, as verb-first capability titles of 3–5 words each, for example "Architect Distributed Backend Systems". Not topics, tools, or chapters.',
+      'The 2–6 load-bearing whole-performance abilities the curriculum will teach, as verb-first capability titles of 3–6 words each, for example "Architect Distributed Systems Under Constraints". Not component skills, topics, tools, or chapters.',
     ),
   startingPoint: z
     .object({

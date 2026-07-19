@@ -41,21 +41,21 @@ Identity and before/after:
 - Name the baseline honestly from consultation evidence; confidence flags only where evidence is weak.
 - Contrast current and expert behavior in paired, observable, testable moments.
 
-Search policy:
-- Use web search whenever a factual claim, practitioner workflow, API/tool detail, or field norm is uncertain.
-- Do not guess when search can resolve uncertainty.`;
+Factuality policy:
+- Do not guess about current practitioner workflows, APIs, tools, or field norms.
+- Keep external examples at the level supported by the learner's consultation; this step designs the curriculum architecture, while downstream concept mapping performs research grounding.`;
 
 export const designCurriculum = async ({
   brief,
   transcript,
-  skills,
+  abilities,
   placementNote,
   options,
 }: {
   brief: LearnerBrief;
   transcript: OnboardingTranscript;
-  /** Learner-approved verb-first skill titles to prefer as cluster titles. */
-  skills?: string[];
+  /** Learner-approved verb-first whole-performance titles. */
+  abilities?: string[];
   /** One-line note on where to place the learner in the band ladder. */
   placementNote?: string | null;
   options?: ArtifactResumeOptions<CurriculumDesignerOutput>;
@@ -69,10 +69,10 @@ export const designCurriculum = async ({
     seedPartial: options?.seedPartial,
     prompt: `Design the learner's identity report, before/after, and independent skill map for the project chosen in consultation.
 ${
-  skills && skills.length > 0
+  abilities && abilities.length > 0
     ? `
 Learner-approved abilities — keep these as the ability titles unless the transcript clearly contradicts them:
-${skills.map((skill) => `- ${skill}`).join("\n")}
+${abilities.map((ability) => `- ${ability}`).join("\n")}
 `
     : ""
 }${placementNote ? `${placementNote}\n` : ""}

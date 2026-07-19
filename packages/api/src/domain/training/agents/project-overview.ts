@@ -27,7 +27,7 @@ Quality bar:
 - Be exhaustive where it matters, but keep the narrative clean. This should be long because it carries a lot, not because it rambles.
 
 Length bar:
-- The body should be a substantial long-form overview, normally 6,000 to 10,000 tokens when the topic is broad enough.
+- The body should be a substantial long-form overview, normally 4,000 to 6,000 tokens when the topic is broad enough.
 - Do not compress into a short memo. The learner asked for the high-level map that makes the whole topic feel navigable.
 - If the domain is narrower, still cover the full dependency map, analogies, why-chain, vocabulary, misconception map, and project connection.
 
@@ -40,10 +40,9 @@ Output style:
 - Use one central analogy repeatedly and precisely. Do not use random unrelated analogies.
 - Avoid motivational filler. The value is orientation, compression, and intuitive clarity.
 
-Search policy:
-- You have access to a web search tool. Use it whenever you are not 100% certain about a factual claim, named artifact, current state, API/tool detail, person, company, market, event, schedule, law, or anything that may have changed.
-- Search before grounding the overview in external facts, field norms, tools, projects, or examples you have not verified.
-- Do not guess when a quick search would remove uncertainty.`;
+Factuality policy:
+- Do not guess about current external facts, tools, projects, or APIs.
+- Keep external examples at the level supported by the learner's own context; the overview is a conceptual field map, not a research report.`;
 
 /**
  * The overview is the one build artifact with a long-form, append-able field
@@ -101,6 +100,8 @@ Required body structure:
 10. Include a misconception map that makes failure patterns recognizable.
 11. Tie the whole overview back to the learner's desired project and target identity.
 12. End with a compressed mental model the learner can carry into the first unit.
+
+Keep the body within 4,000 to 6,000 tokens so the final object closes within the response budget.
 
 Brief:
 ${formatLearnerBrief(brief)}

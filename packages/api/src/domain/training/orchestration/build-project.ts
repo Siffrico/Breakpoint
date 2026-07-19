@@ -1,7 +1,6 @@
 import type { SeedRating, StartingPointTier } from "@acme/validators";
 
 import type { Result } from "../../../lib/result";
-import { seedFromStartingPoint } from "../engine/rating";
 import type {
   CurriculumDesignerOutput,
   LearnerBrief,
@@ -24,6 +23,7 @@ import {
 import { designCurriculum } from "../agents/curriculum-designer";
 import { normalizeLearningTrackName } from "../agents/onboarding-chat-agent";
 import { designProjectOverview } from "../agents/project-overview";
+import { seedFromStartingPoint } from "../engine/rating";
 import { isArtifactBuildError } from "./agent-runtime";
 import { buildCurriculumNodes } from "./curriculum-flow";
 import {
@@ -135,10 +135,10 @@ export interface CreateProjectInput {
   targetIdentity: string;
   /** One line describing what they'll build, shown on the confirm card. */
   summary: string;
-  /** Verb-first capability titles shown on the confirm card and used as
-   *  cluster-title hints for the curriculum designer. Optional so resumed builds
+  /** Verb-first whole-performance titles shown on the confirm card and used as
+   *  ability-title hints for the curriculum designer. Optional so resumed builds
    *  from older checkpoints (which lack it) still typecheck. */
-  skills?: string[];
+  abilities?: string[];
   /** Where the learner is starting from, and why. Seeds the plan's rating.
    *  Optional for the same resume-compatibility reason. */
   startingPoint?: {
@@ -307,12 +307,26 @@ export interface BuildProjectDeps {
   ensureSkillSyllabus: (input: {
     clusterNodeId: string;
     targetIdentity: string;
-    topics?: { id: string; slug: string; title: string; gloss: string; coreIdea: string }[];
+    topics?: {
+      id: string;
+      slug: string;
+      title: string;
+      gloss: string;
+      coreIdea: string;
+    }[];
   }) => Promise<unknown>;
   ensureAbilityKnowledgeModel: (input: {
     abilityNodeId: string;
     targetIdentity: string;
-  }) => Promise<{ id: string; slug: string; title: string; gloss: string; coreIdea: string }[]>;
+  }) => Promise<
+    {
+      id: string;
+      slug: string;
+      title: string;
+      gloss: string;
+      coreIdea: string;
+    }[]
+  >;
   createSkillUnit: (input: {
     clusterNodeId: string;
     sessionId: string;
@@ -338,11 +352,29 @@ const countModules = (plan: CurriculumPlan): number =>
 const moduleTitles = (blueprint: CurriculumBlueprint): string[] =>
   blueprint.nodes.filter(isModuleNode).map((node) => node.title);
 
-const getProjectBuildSourceKey = (input: CreateProjectInput) =>
+const getProjectBuildSourceKey = (
+  input: CreateProjectInput,
+  persistedStartingPoint: { tier: StartingPointTier; label: string } | null,
+) =>
   JSON.stringify({
     projectName: normalizeLearningTrackName(input.projectName),
     targetIdentity: input.targetIdentity.trim(),
     summary: input.summary.trim(),
+    whatToLearn: input.whatToLearn?.trim() ?? "",
+    whatToMake: input.whatToMake?.trim() ?? "",
+    interests: (input.interests ?? []).map((interest) => interest.trim()),
+    abilities: (input.abilities ?? []).map((ability) => ability.trim()),
+    startingPoint: persistedStartingPoint
+      ? {
+          tier: persistedStartingPoint.tier,
+          reason: persistedStartingPoint.label.trim(),
+        }
+      : input.startingPoint
+        ? {
+            tier: input.startingPoint.tier,
+            reason: input.startingPoint.reason.trim(),
+          }
+        : null,
   });
 
 /**
@@ -353,8 +385,8 @@ const getProjectBuildSourceKey = (input: CreateProjectInput) =>
  * steering precision, never correctness.
  */
 const resolveLearnerBrief = (input: CreateProjectInput): LearnerBrief => ({
-  whatToLearn: input.whatToLearn?.trim() || input.projectName.trim(),
-  whatToMake: input.whatToMake?.trim() || input.summary.trim(),
+  whatToLearn: input.whatToLearn?.trim() ?? input.projectName.trim(),
+  whatToMake: input.whatToMake?.trim() ?? input.summary.trim(),
   interests: (input.interests ?? [])
     .map((interest) => interest.trim())
     .filter(Boolean),
@@ -433,7 +465,10 @@ export const buildProjectFromOnboarding = async ({
 > => {
   const projectName = normalizeLearningTrackName(input.projectName);
   const brief = resolveLearnerBrief(input);
-  const sourceKey = getProjectBuildSourceKey(input);
+  const persistedStartingPoint = await deps
+    .getStartingPoint(sessionId)
+    .catch(() => null);
+  const sourceKey = getProjectBuildSourceKey(input, persistedStartingPoint);
   const steps = initialSteps();
   const state: ProjectBuildState = {
     phase: "building",
@@ -600,9 +635,6 @@ export const buildProjectFromOnboarding = async ({
   // [change] override) wins over whatever the createProject tool proposed. A
   // non-null tier stamps a Glicko seed onto the plan shell and adds a placement
   // note to the curriculum designer; null leaves the workspace on its defaults.
-  const persistedStartingPoint = await deps
-    .getStartingPoint(sessionId)
-    .catch(() => null);
   const startingPointTier =
     persistedStartingPoint?.tier ?? input.startingPoint?.tier ?? null;
   const startingPointLabel =
@@ -744,7 +776,7 @@ export const buildProjectFromOnboarding = async ({
       design = await designCurriculum({
         brief,
         transcript,
-        skills: input.skills,
+        abilities: input.abilities,
         placementNote,
         options: {
           onPartial: curriculumPartialSink,
@@ -962,23 +994,44 @@ export const buildProjectFromOnboarding = async ({
   }
 
   const skills = plan.nodes.filter(isPrewarmSkillNode);
-  const abilityTopics = new Map<string, Promise<{ id: string; slug: string; title: string; gloss: string; coreIdea: string }[]>>();
+  const abilityTopics = new Map<
+    string,
+    Promise<
+      {
+        id: string;
+        slug: string;
+        title: string;
+        gloss: string;
+        coreIdea: string;
+      }[]
+    >
+  >();
   for (const ability of plan.nodes.filter((node) => node.kind === "ability")) {
     abilityTopics.set(
       ability.id,
-      deps.ensureAbilityKnowledgeModel({ abilityNodeId: ability.id, targetIdentity: plan.targetIdentity }).catch((error) => {
-        console.error("Knowledge model prewarm failed; continuing topic-less", {
+      deps
+        .ensureAbilityKnowledgeModel({
           abilityNodeId: ability.id,
-          error: error instanceof Error ? error.message : "Unknown error",
-        });
-        return [];
-      }),
+          targetIdentity: plan.targetIdentity,
+        })
+        .catch((error) => {
+          console.error(
+            "Knowledge model prewarm failed; continuing topic-less",
+            {
+              abilityNodeId: ability.id,
+              error: error instanceof Error ? error.message : "Unknown error",
+            },
+          );
+          return [];
+        }),
     );
   }
   for (const skill of skills) {
     const prepareSkill = async () => {
       try {
-        const topics = skill.parentNodeId ? await abilityTopics.get(skill.parentNodeId) : undefined;
+        const topics = skill.parentNodeId
+          ? await abilityTopics.get(skill.parentNodeId)
+          : undefined;
         await deps.ensureSkillSyllabus({
           clusterNodeId: skill.id,
           targetIdentity: plan.targetIdentity,
