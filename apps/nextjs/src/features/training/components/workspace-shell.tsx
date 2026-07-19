@@ -87,9 +87,9 @@ interface AdvanceMutationContext {
 }
 
 export function WorkspaceShell({
-  workspace,
+  workspace = null,
   plan: _plan,
-  unit,
+  unit = null,
   onboardingState,
   aiWorkspace,
   projects = EMPTY_PROJECTS,
@@ -99,9 +99,9 @@ export function WorkspaceShell({
   chatHistory = null,
   initialActiveNodeId = null,
 }: {
-  workspace: WorkspaceState | null;
+  workspace?: WorkspaceState | null;
   plan: PlanState | null;
-  unit: EducationUnit | null;
+  unit?: EducationUnit | null;
   onboardingState: OnboardingState | null;
   aiWorkspace?: AiWorkspace | null;
   projects?: LearningProject[];

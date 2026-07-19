@@ -45,6 +45,14 @@ export const getWorkspaceBootstrap = async (input: {
   return caller.training.workspaceBootstrap(input);
 };
 
+export const getWorkspaceShell = async (input: {
+  sessionId?: string;
+  cookieSessionId?: string;
+}) => {
+  const caller = await createCaller();
+  return caller.training.workspaceShell(input);
+};
+
 export const getWorkspaceState = async (sessionId: string) => {
   const caller = await createCaller();
   return caller.training.home({ sessionId });
