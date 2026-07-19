@@ -368,7 +368,11 @@ export const CurriculumNodeSchema = z.object({
 export const ProjectOverviewSchema = z.object({
   title: z.string().min(1),
   summary: z.string().min(1),
-  body: z.string().min(1),
+  body: z
+    .string()
+    .trim()
+    .min(600, "Overview must contain at least 600 non-whitespace characters.")
+    .max(12_000, "Overview must stay concise."),
   generatedAt: z.string().datetime().nullable(),
 });
 

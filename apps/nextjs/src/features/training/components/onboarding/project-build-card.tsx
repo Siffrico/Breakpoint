@@ -178,6 +178,11 @@ export function ProjectBuildCard({
   const overviewMissing = state.gaps?.includes("overview") ?? false;
   const isComplete = state.phase === "complete";
   const isError = state.phase === "error";
+  const overviewGenerating =
+    isComplete &&
+    state.steps.some(
+      (step) => step.id === "overview" && step.status === "active",
+    );
 
   return (
     <div
@@ -198,7 +203,11 @@ export function ProjectBuildCard({
             ) : null}
           </div>
           <div className="text-foreground mt-1.5 text-base font-medium">
-            {isComplete ? "Project ready" : "Building your project"}
+            {overviewGenerating
+              ? "Curriculum ready · overview generating"
+              : isComplete
+                ? "Project ready"
+                : "Building your project"}
           </div>
         </div>
         <div className="text-muted-foreground shrink-0 font-mono text-[11px]">
@@ -207,18 +216,23 @@ export function ProjectBuildCard({
       </div>
 
       <div className="mt-4">
-        <ProgressBar progress={progress} active={!isComplete && !isError} />
+        <ProgressBar
+          progress={overviewGenerating ? Math.min(progress, 98) : progress}
+          active={(!isComplete || overviewGenerating) && !isError}
+        />
         <div className="text-muted-foreground mt-2 flex items-center justify-between gap-3 text-[12px] leading-5">
           <span>
-            {isComplete
-              ? `${state.moduleCount} ${skillLabel} mapped`
-              : activeStep
-                ? `${activeStep.label} · ${
-                    activeHasOutput
-                      ? "agent output streaming"
-                      : "waiting on model"
-                  }`
-                : "Preparing build"}
+            {overviewGenerating
+              ? "Your curriculum is ready. Generating its overview in the background."
+              : isComplete
+                ? `${state.moduleCount} ${skillLabel} mapped`
+                : activeStep
+                  ? `${activeStep.label} · ${
+                      activeHasOutput
+                        ? "agent output streaming"
+                        : "waiting on model"
+                    }`
+                  : "Preparing build"}
           </span>
           <span className="font-mono">{progress}%</span>
         </div>
@@ -339,7 +353,12 @@ export function ProjectBuildCard({
             type="button"
             variant="ghost"
             size="sm"
-            disabled={preview || !state.sessionId || overviewMissing}
+            disabled={
+              preview ||
+              !state.sessionId ||
+              overviewMissing ||
+              overviewGenerating
+            }
             onClick={onSeeOverview}
           >
             See overview

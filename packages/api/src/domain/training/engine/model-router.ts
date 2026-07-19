@@ -84,7 +84,7 @@ const PURPOSE_TIER: Record<AiModelPurpose, ModelTier> = {
   recall: "standard",
   evaluation: "critical",
   tutor: "standard",
-  projectOverview: "critical",
+  projectOverview: "standard",
   mission: "standard",
   default: "standard",
 };

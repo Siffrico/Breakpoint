@@ -48,9 +48,9 @@ export const RUN_PROFILES = {
   tutor: STANDARD_PROFILE,
   projectOverview: {
     ...STANDARD_PROFILE,
-    reasoningBudgetTokens: 8_192,
-    maxOutputTokens: 8_192,
-    maxSteps: 6,
+    reasoningBudgetTokens: 2_048,
+    maxOutputTokens: 2_048,
+    maxSteps: 3,
     search: false,
   },
   mission: { ...STANDARD_PROFILE, maxSteps: 6, search: true },

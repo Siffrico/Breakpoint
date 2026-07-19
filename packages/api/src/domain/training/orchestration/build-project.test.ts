@@ -150,7 +150,9 @@ const curriculum: CurriculumDesignerOutput = {
 const overview: ProjectOverviewOutput = {
   title: "Distributed systems map",
   summary: "A field map for reliable replicated services.",
-  body: "Distributed systems are about preserving useful guarantees while machines, messages, and time fail independently.",
+  body: "Distributed systems are about preserving useful guarantees while machines, messages, and time fail independently. ".repeat(
+    7,
+  ),
 };
 
 const plan: CurriculumPlan = {
@@ -248,7 +250,9 @@ const makeDeps = (
       BuildProjectDeps["persistScenarioInspiration"]
     >(() => Promise.resolve()),
     claimRun: vi.fn<BuildProjectDeps["claimRun"]>(() =>
-      Promise.resolve(opts.claim ?? { status: "claimed", ownershipToken: "test-lease" }),
+      Promise.resolve(
+        opts.claim ?? { status: "claimed", ownershipToken: "test-lease" },
+      ),
     ),
     heartbeatRun: vi.fn<BuildProjectDeps["heartbeatRun"]>(() =>
       Promise.resolve(true),
@@ -487,23 +491,48 @@ describe("buildProjectFromOnboarding", () => {
     expect(store.get("curriculum")?.status).toBe("complete");
   });
 
-  it("completes with an overview gap when the overview agent fails", async () => {
+  it("keeps a failed background overview regeneratable after the curriculum is ready", async () => {
     mockCurriculum.mockResolvedValue(curriculum);
     mockOverview.mockRejectedValue(
       new ArtifactBuildError("overview model failed", "provider"),
     );
     const { deps, store } = makeDeps();
+    const backgroundTasks: (() => Promise<void>)[] = [];
 
-    const result = await run(deps);
+    const result = await run(deps, vi.fn(), (task) =>
+      backgroundTasks.push(task),
+    );
 
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.gaps).toEqual(["overview"]);
+      expect(result.data.gaps).toBeUndefined();
     }
     expect(deps.persistCurriculum).toHaveBeenCalledOnce();
     expect(deps.persistOverview).not.toHaveBeenCalled();
+    expect(store.get("overview")?.status).toBe("generating");
+    await Promise.all(backgroundTasks.map((task) => task()));
     expect(store.get("overview")?.status).toBe("failed");
     expect(store.get("overview")?.failureKind).toBe("provider");
+  });
+
+  it("rejects a short overview at the persistence boundary and keeps it regeneratable", async () => {
+    mockCurriculum.mockResolvedValue(curriculum);
+    mockOverview.mockResolvedValue({
+      ...overview,
+      body: "x".repeat(51),
+    });
+    const { deps, store } = makeDeps();
+    const backgroundTasks: (() => Promise<void>)[] = [];
+
+    const result = await run(deps, vi.fn(), (task) =>
+      backgroundTasks.push(task),
+    );
+
+    expect(result.success).toBe(true);
+    await Promise.all(backgroundTasks.map((task) => task()));
+    expect(deps.persistOverview).not.toHaveBeenCalled();
+    expect(store.get("overview")?.status).toBe("failed");
+    expect(store.get("overview")?.failureKind).toBe("schema");
   });
 
   it("fails resumably on curriculum error, keeping the shell + checkpoint", async () => {
@@ -555,11 +584,17 @@ describe("buildProjectFromOnboarding", () => {
       ],
     });
 
-    const result = await run(deps);
+    const backgroundTasks: (() => Promise<void>)[] = [];
+    const result = await run(deps, vi.fn(), (task) =>
+      backgroundTasks.push(task),
+    );
 
     expect(result.success).toBe(true);
-    // Curriculum is complete → skipped (no model, no re-persist); only overview runs.
+    // Curriculum is complete → skipped (no model, no re-persist); overview is deferred.
     expect(mockCurriculum).not.toHaveBeenCalled();
+    expect(mockOverview).not.toHaveBeenCalled();
+    expect(store.get("overview")?.status).toBe("generating");
+    await Promise.all(backgroundTasks.map((task) => task()));
     expect(mockOverview).toHaveBeenCalledOnce();
     expect(deps.persistOverview).toHaveBeenCalledOnce();
     expect(store.get("overview")?.status).toBe("complete");

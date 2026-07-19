@@ -224,7 +224,9 @@ const curriculum: CurriculumDesignerOutput = {
 const overview: ProjectOverviewOutput = {
   title: "Distributed systems map",
   summary: "A field map for reliable replicated services.",
-  body: "Distributed systems are about preserving useful guarantees while machines, messages, and time fail independently.",
+  body: "Distributed systems are about preserving useful guarantees while machines, messages, and time fail independently. ".repeat(
+    7,
+  ),
 };
 
 const rollbackMessage = "ROLLBACK_BUILD_PROJECT_INTEGRATION_TEST";

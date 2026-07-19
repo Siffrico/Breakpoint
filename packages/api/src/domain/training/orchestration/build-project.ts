@@ -24,7 +24,7 @@ import { designCurriculum } from "../agents/curriculum-designer";
 import { normalizeLearningTrackName } from "../agents/onboarding-chat-agent";
 import { designProjectOverview } from "../agents/project-overview";
 import { seedFromStartingPoint } from "../engine/rating";
-import { isArtifactBuildError } from "./agent-runtime";
+import { ArtifactBuildError, isArtifactBuildError } from "./agent-runtime";
 import { buildCurriculumNodes } from "./curriculum-flow";
 import {
   getProjectBuildStepDetail,
@@ -236,7 +236,10 @@ export interface BuildProjectDeps {
     | { status: "claimed"; ownershipToken: string }
     | { status: "processing"; state: ProjectBuildState }
   >;
-  heartbeatRun: (input: { sessionId: string; ownershipToken: string }) => Promise<boolean>;
+  heartbeatRun: (input: {
+    sessionId: string;
+    ownershipToken: string;
+  }) => Promise<boolean>;
   updateRun: (input: {
     sessionId: string;
     sourceKey: string;
@@ -512,13 +515,12 @@ export const buildProjectFromOnboarding = async ({
   let stopHeartbeat: () => void = () => undefined;
   const updateRun = (status: ProjectBuildRunStatus, error?: string) =>
     ownershipToken
-      ?
-    deps.updateRun({
-      sessionId,
-      sourceKey,
-      payload: buildRunPayload(status, error),
-      ownershipToken,
-    })
+      ? deps.updateRun({
+          sessionId,
+          sourceKey,
+          payload: buildRunPayload(status, error),
+          ownershipToken,
+        })
       : Promise.resolve(null);
   const fail = async (message: string): Promise<Result<never>> => {
     stopHeartbeat();
@@ -584,10 +586,6 @@ export const buildProjectFromOnboarding = async ({
   ) => {
     setArtifactDetail({ step: "curriculum", payload: partial });
     persistPartial("curriculum")(partial);
-  };
-  const overviewPartialSink = (partial: Partial<ProjectOverviewOutput>) => {
-    setArtifactDetail({ step: "overview", payload: partial });
-    persistPartial("overview")(partial);
   };
 
   emit();
@@ -841,107 +839,7 @@ export const buildProjectFromOnboarding = async ({
     }
   };
 
-  // 4 — overview (OPTIONAL/best-effort): a failure becomes a "gap", never sinks the build.
-  const runOverview = async (): Promise<boolean> => {
-    setStep("overview", "active");
-    emit();
-    const action = decide(overviewRecord);
-    const attemptsBase = overviewRecord?.attempts ?? 0;
-
-    if (action === "skip") {
-      setStep("overview", "done");
-      emit();
-      return true;
-    }
-
-    if (action === "save_only") {
-      const cached = ProjectOverviewOutputSchema.safeParse(
-        overviewRecord?.payload,
-      );
-      if (cached.success) {
-        try {
-          setArtifactDetail({ step: "overview", payload: cached.data });
-          await deps.persistOverview({ sessionId, overview: cached.data });
-          await recordArtifact(
-            "overview",
-            "complete",
-            cached.data,
-            null,
-            attemptsBase,
-          );
-          setStep("overview", "done");
-          emit();
-          return true;
-        } catch {
-          await recordArtifact(
-            "overview",
-            "generated_pending_save",
-            cached.data,
-            "save",
-            attemptsBase,
-          );
-          setStep("overview", "done");
-          emit();
-          return false;
-        }
-      }
-    }
-
-    const attempts = attemptsBase + 1;
-    let overview: ProjectOverviewOutput;
-    try {
-      overview = await designProjectOverview({
-        brief,
-        transcript,
-        options: {
-          onPartial: overviewPartialSink,
-          seedPartial: seedFor(overviewRecord) as
-            | Partial<ProjectOverviewOutput>
-            | undefined,
-        },
-      });
-      setArtifactDetail({ step: "overview", payload: overview });
-    } catch (error) {
-      await recordArtifact(
-        "overview",
-        "failed",
-        partialOf(error) ?? overviewRecord?.payload ?? null,
-        failureKindOf(error),
-        attempts,
-      );
-      console.error("[build-project] overview failed; completing with a gap:", {
-        sessionId,
-        error,
-      });
-      setStep("overview", "done");
-      emit();
-      return false;
-    }
-
-    try {
-      await deps.persistOverview({ sessionId, overview });
-      await recordArtifact("overview", "complete", overview, null, attempts);
-      setStep("overview", "done");
-      emit();
-      return true;
-    } catch {
-      await recordArtifact(
-        "overview",
-        "generated_pending_save",
-        overview,
-        "save",
-        attempts,
-      );
-      setStep("overview", "done");
-      emit();
-      return false;
-    }
-  };
-
-  const [curriculumResult, overviewOk] = await Promise.all([
-    runCurriculum(),
-    runOverview(),
-  ]);
+  const curriculumResult = await runCurriculum();
 
   if (!curriculumResult.success) {
     return fail(curriculumResult.error);
@@ -973,7 +871,21 @@ export const buildProjectFromOnboarding = async ({
   }
   setStep("save", "done");
 
-  const gaps: ProjectBuildGap[] = overviewOk ? [] : ["overview"];
+  const overviewAction = decide(overviewRecord);
+  const overviewAttempts = overviewRecord?.attempts ?? 0;
+  const overviewIsReady = overviewAction === "skip";
+  if (overviewIsReady) {
+    setStep("overview", "done");
+  } else {
+    setStep("overview", "active");
+    await recordArtifact(
+      "overview",
+      "generating",
+      overviewRecord?.payload ?? null,
+      null,
+      overviewAttempts + 1,
+    );
+  }
   state.phase = "complete";
   state.projectName = plan.title || projectName;
   state.moduleCount = countModules(plan);
@@ -981,10 +893,81 @@ export const buildProjectFromOnboarding = async ({
   state.planId = plan.id;
   state.firstUnitId = plan.nextUnitId;
   state.targetIdentity = plan.targetIdentity;
-  state.gaps = gaps.length > 0 ? gaps : undefined;
+  state.gaps = undefined;
   emit();
   await updateRun("complete");
   stopHeartbeat();
+
+  if (!overviewIsReady) {
+    const generateOverview = async () => {
+      try {
+        if (overviewAction === "save_only") {
+          const cached = ProjectOverviewOutputSchema.safeParse(
+            overviewRecord?.payload,
+          );
+          if (cached.success) {
+            await deps.persistOverview({ sessionId, overview: cached.data });
+            await recordArtifact(
+              "overview",
+              "complete",
+              cached.data,
+              null,
+              overviewAttempts,
+            );
+            setStep("overview", "done");
+            await updateRun("complete");
+            return;
+          }
+        }
+        const generatedOverview = await designProjectOverview({
+          curriculum: plan,
+          options: {
+            seedPartial: seedFor(overviewRecord) as
+              | Partial<ProjectOverviewOutput>
+              | undefined,
+          },
+        });
+        const parsedOverview =
+          ProjectOverviewOutputSchema.safeParse(generatedOverview);
+        if (!parsedOverview.success) {
+          throw new ArtifactBuildError(
+            "Generated overview did not pass quality validation.",
+            "schema",
+          );
+        }
+        const overview = parsedOverview.data;
+        await deps.persistOverview({ sessionId, overview });
+        await recordArtifact(
+          "overview",
+          "complete",
+          overview,
+          null,
+          overviewAttempts + 1,
+        );
+        setStep("overview", "done");
+      } catch (error) {
+        await recordArtifact(
+          "overview",
+          "failed",
+          partialOf(error) ?? overviewRecord?.payload ?? null,
+          failureKindOf(error),
+          overviewAttempts + 1,
+        );
+        setStep("overview", "done");
+        state.gaps = ["overview"];
+        console.error(
+          "[build-project] overview failed after curriculum completion",
+          {
+            sessionId,
+            error,
+          },
+        );
+      }
+      await updateRun("complete");
+    };
+    if (scheduleBackgroundTask) scheduleBackgroundTask(generateOverview);
+    else void generateOverview();
+  }
 
   const firstReadyUnit = plan.nodes.find(
     (node) =>
@@ -1082,6 +1065,6 @@ export const buildProjectFromOnboarding = async ({
     moduleCount: state.moduleCount,
     firstUnitId: plan.nextUnitId,
     targetIdentity: plan.targetIdentity,
-    gaps: gaps.length > 0 ? gaps : undefined,
+    gaps: undefined,
   });
 };
