@@ -430,9 +430,10 @@ export function WorkspaceShell({
         };
       },
       onSuccess: (result, _variables, context) => {
-        const workspaceKey = trpc.training.aiWorkspace.queryKey({
+        const sessionInput = {
           sessionId: context.transition.sessionId,
-        });
+        };
+        const workspaceKey = trpc.training.aiWorkspace.queryKey(sessionInput);
         const projectsKey = trpc.training.listLearningProjects.queryKey();
 
         if (!result.advanced) {
@@ -454,7 +455,12 @@ export function WorkspaceShell({
         void queryClient.invalidateQueries({
           queryKey: workspaceKey,
         });
-        router.refresh();
+        void queryClient.invalidateQueries({
+          queryKey: trpc.training.unit.queryKey(sessionInput),
+        });
+        void queryClient.invalidateQueries({
+          queryKey: trpc.training.workspaceShell.queryKey(sessionInput),
+        });
       },
       onError: (error, _variables, context) => {
         restoreAdvanceTransition(context);
@@ -680,31 +686,21 @@ export function WorkspaceShell({
   const prefetchProject = useCallback(
     (nextSessionId: string) => {
       if (nextSessionId === selectedSessionId) return;
-      const project = resolvedProjects.find(
-        (candidate) => candidate.sessionId === nextSessionId,
-      );
-      if (project?.status !== "active") {
-        void queryClient.prefetchQuery(
-          trpc.training.onboardingState.queryOptions({
-            sessionId: nextSessionId,
-          }),
-        );
-        return;
-      }
 
       // aiWorkspace is deliberately not prefetched: fetching it can trigger
-      // server-side unit generation, which a mere hover must not do. Plan and
-      // home are read-only.
-      void Promise.all([
-        queryClient.prefetchQuery(
-          trpc.training.activePlan.queryOptions({ sessionId: nextSessionId }),
+      // server-side unit generation, which a mere hover must not do. The shell
+      // is read-only.
+      void queryClient.prefetchQuery(
+        trpc.training.workspaceShell.queryOptions(
+          { sessionId: nextSessionId },
+          {
+            staleTime: Number.POSITIVE_INFINITY,
+            retry: false,
+          },
         ),
-        queryClient.prefetchQuery(
-          trpc.training.home.queryOptions({ sessionId: nextSessionId }),
-        ),
-      ]);
+      );
     },
-    [queryClient, resolvedProjects, selectedSessionId, trpc],
+    [queryClient, selectedSessionId, trpc],
   );
 
   const handleSelectChat = useCallback(
