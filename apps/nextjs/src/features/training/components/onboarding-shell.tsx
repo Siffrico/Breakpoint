@@ -29,12 +29,12 @@ import type {
 import type { StartingPointTier } from "@acme/validators";
 import { Button } from "@acme/ui/button";
 import {
-  ChatComposer,
   ChatComposerDock,
   ChatMessage,
   ChatScrollToBottom,
   ChatTranscript,
   ChatTranscriptContent,
+  OnboardingComposer,
   PacedAssistantText,
   StatusSpinner,
   TextShimmer,
@@ -361,7 +361,6 @@ export function OnboardingShell({
   const {
     value: answer,
     setValue: setAnswer,
-    status: draftStatus,
     markSubmitted,
     restoreSubmitted: restoreSubmittedDraft,
     clearSubmitted: clearSubmittedDraft,
@@ -500,7 +499,7 @@ export function OnboardingShell({
   ) : null;
 
   const composer = (
-    <ChatComposer
+    <OnboardingComposer
       value={answer}
       onValueChange={setAnswer}
       onSubmit={handlePrimaryAction}
@@ -516,23 +515,13 @@ export function OnboardingShell({
               : "Ask anything, / for commands, @ for context…"
       }
       leftSlot={
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            aria-label="Add context"
-            className="flex size-7 items-center justify-center rounded-md text-[#8b8b8b] transition-colors outline-none hover:bg-white/[0.045] hover:text-[#d0d0d0] focus:outline-none focus-visible:outline-none"
-          >
-            <Plus size={16} />
-          </button>
-          {draftStatus !== "idle" ? (
-            <span
-              aria-live="polite"
-              className="ml-1 text-[11px] text-[#707070]"
-            >
-              {draftStatus === "saving" ? "Saving…" : "Saved"}
-            </span>
-          ) : null}
-        </div>
+        <button
+          type="button"
+          aria-label="Add context"
+          className="flex size-9 items-center justify-center rounded-full text-[#8b8b8b] transition-colors outline-none hover:bg-white/[0.045] hover:text-[#d0d0d0] focus:outline-none focus-visible:outline-none"
+        >
+          <Plus size={17} />
+        </button>
       }
       rightSlot={
         <Button
@@ -540,8 +529,8 @@ export function OnboardingShell({
           onClick={handlePrimaryAction}
           disabled={sendDisabled}
           variant="ghost"
-          size="sm"
-          className="size-8 rounded-[7px] border border-white/[0.055] bg-[linear-gradient(180deg,#303030_0%,#252525_48%,#1f1f1f_100%)] p-0 text-[#d7d7d7] shadow-[inset_0_1px_0_rgba(255,255,255,0.10),0_6px_16px_rgba(0,0,0,0.34)] hover:bg-[linear-gradient(180deg,#3a3a3a_0%,#2d2d2d_48%,#242424_100%)] disabled:border-white/[0.035] disabled:bg-[linear-gradient(180deg,#292929_0%,#222222_48%,#1d1d1d_100%)] disabled:text-[#686868] disabled:shadow-[inset_0_1px_0_rgba(255,255,255,0.07),0_5px_14px_rgba(0,0,0,0.26)]"
+          size="icon"
+          className="rounded-full border border-white/[0.055] sm:size-9 bg-[linear-gradient(180deg,#303030_0%,#252525_48%,#1f1f1f_100%)] p-0 text-[#d7d7d7] shadow-[inset_0_1px_0_rgba(255,255,255,0.10),0_6px_16px_rgba(0,0,0,0.34)] before:rounded-full hover:bg-[linear-gradient(180deg,#3a3a3a_0%,#2d2d2d_48%,#242424_100%)] disabled:border-white/[0.035] disabled:bg-[linear-gradient(180deg,#292929_0%,#222222_48%,#1d1d1d_100%)] disabled:text-[#686868] disabled:shadow-[inset_0_1px_0_rgba(255,255,255,0.07),0_5px_14px_rgba(0,0,0,0.26)]"
           aria-label={
             effectiveIsStreaming
               ? "Stop generating"
@@ -563,39 +552,34 @@ export function OnboardingShell({
   );
 
   if (showHero) {
-    // Hero composer: a command-console card (taller, wider, with a bottom
-    // control row) rather than the slim docked composer. The model and
-    // difficulty pills are presentational for now — they mirror the workspace
-    // chrome so the empty state reads as a console, not a bare input.
+    // Hero composer: the same single-row pill as the docked composer, just
+    // roomier and lifted off the background. Onboarding asks for one short
+    // answer at a time, so the pill never implies a drafting surface.
     const heroComposer = (
-      <ChatComposer
+      <OnboardingComposer
         value={answer}
         onValueChange={setAnswer}
         onSubmit={handlePrimaryAction}
         disabled={sendDisabled && !effectiveIsStreaming && !hasError}
         textareaRef={composerRef}
-        className="min-h-[128px] rounded-xl border-white/[0.105] bg-[#141414]"
+        // Concentric geometry: 38px buttons + 10px padding + 1px border = 60px
+        // tall, so a 30px radius makes the end caps exact semicircles sharing a
+        // centre with the buttons — a uniform 11px gap around each button arc.
+        className="border-white/[0.105] bg-[#141414] p-2.5"
         style={{
-          borderRadius: 12,
+          borderRadius: 30,
           boxShadow:
             "inset 0 1px 0 rgba(255,255,255,0.035), 0 18px 40px rgba(0,0,0,0.38), 0 3px 8px rgba(0,0,0,0.35)",
         }}
         placeholder={!sessionReady ? "Starting…" : "i want the skills of:"}
         leftSlot={
-          <div className="flex items-center gap-2.5 text-[13px] font-medium text-[#8f8f8f]">
-            <button
-              type="button"
-              aria-label="Add context"
-              className="flex size-7 items-center justify-center rounded-md text-[#9a9a9a] transition-colors outline-none hover:bg-white/[0.045] hover:text-[#cfcfcf]"
-            >
-              <Plus size={16} />
-            </button>
-            {draftStatus !== "idle" ? (
-              <span aria-live="polite" className="text-[11px] text-[#707070]">
-                {draftStatus === "saving" ? "Saving…" : "Saved"}
-              </span>
-            ) : null}
-          </div>
+          <button
+            type="button"
+            aria-label="Add context"
+            className="flex size-9.5 items-center justify-center rounded-full text-[#9a9a9a] transition-colors outline-none hover:bg-white/[0.045] hover:text-[#cfcfcf]"
+          >
+            <Plus size={17} />
+          </button>
         }
         rightSlot={
           <Button
@@ -603,8 +587,8 @@ export function OnboardingShell({
             onClick={handlePrimaryAction}
             disabled={sendDisabled}
             variant="ghost"
-            size="sm"
-            className="size-8 rounded-none border border-white/[0.08] bg-[linear-gradient(180deg,#2a2a2a_0%,#1d1d1d_100%)] p-0 text-[#cfcfcf] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_4px_10px_rgba(0,0,0,0.45)] before:rounded-none hover:bg-[linear-gradient(180deg,#303030_0%,#222222_100%)] disabled:border-white/[0.04] disabled:bg-[linear-gradient(180deg,#242424_0%,#1b1b1b_100%)] disabled:text-[#6a6a6a] disabled:shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_3px_8px_rgba(0,0,0,0.32)]"
+            size="icon-xl"
+            className="size-9.5 rounded-full border border-white/[0.08] sm:size-9.5 bg-[linear-gradient(180deg,#2a2a2a_0%,#1d1d1d_100%)] p-0 text-[#cfcfcf] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_4px_10px_rgba(0,0,0,0.45)] before:rounded-full hover:bg-[linear-gradient(180deg,#303030_0%,#222222_100%)] disabled:border-white/[0.04] disabled:bg-[linear-gradient(180deg,#242424_0%,#1b1b1b_100%)] disabled:text-[#6a6a6a] disabled:shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_3px_8px_rgba(0,0,0,0.32)]"
             aria-label={
               effectiveIsStreaming
                 ? "Stop generating"
@@ -616,9 +600,9 @@ export function OnboardingShell({
             {effectiveIsStreaming ? (
               <span aria-hidden="true" className="size-2.5 bg-current" />
             ) : hasError ? (
-              <ArrowClockwise size={14} weight="bold" />
+              <ArrowClockwise size={16} weight="bold" />
             ) : (
-              <ArrowUp size={14} weight="bold" />
+              <ArrowUp size={16} weight="bold" />
             )}
           </Button>
         }
@@ -658,7 +642,10 @@ export function OnboardingShell({
               </text>
             </svg>
 
-            {heroComposer}
+            {/* Composer sits at 4/5 the wordmark's width — narrower than the
+                logo so the stack reads as a tapered column rather than two
+                stacked bars of equal width. */}
+            <div className="mx-auto w-4/5">{heroComposer}</div>
 
             {/* Example chips to kill blank-page paralysis: tapping one submits
                 it as the learner's first answer. Presentational otherwise. */}

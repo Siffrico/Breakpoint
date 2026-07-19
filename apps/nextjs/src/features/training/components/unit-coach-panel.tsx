@@ -325,8 +325,6 @@ function UnitCoachPanelComponent({
               compact
               value={question}
               onValueChange={setQuestion}
-              onSubmit={handleAsk}
-              disabled={isRunning}
               textareaRef={composerTextareaRef}
               ariaLabel="Ask Unit Coach"
               placeholder="Ask what the scenario is testing, how to start, or where your reasoning is stuck."

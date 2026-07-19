@@ -666,7 +666,6 @@ function EducationUnitWorkspaceComponent({
   const {
     value: response,
     setValue: setResponse,
-    status: draftStatus,
     markSubmitted,
     restoreSubmitted: restoreSubmittedDraft,
     clearSubmitted: clearSubmittedDraft,
@@ -1018,16 +1017,6 @@ function EducationUnitWorkspaceComponent({
           awaitingUnitAdvance={enterAdvancesUnit}
           onAdvanceUnit={onAdvanceUnit}
         />
-        <div className="mt-2.5 flex items-center justify-end">
-          {draftStatus !== "idle" ? (
-            <span
-              aria-live="polite"
-              className="text-foreground/36 text-[11px] leading-5"
-            >
-              {draftStatus === "saving" ? "Saving…" : "Saved"}
-            </span>
-          ) : null}
-        </div>
       </div>
     </div>
   );
