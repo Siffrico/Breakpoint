@@ -233,6 +233,9 @@ export const createBuildProjectDeps = (db: Database): BuildProjectDeps => ({
   updateRun: (payload) =>
     buildProjectCheckpointRepository.updateRun({ db, ...payload }),
 
+  heartbeatRun: (payload) =>
+    buildProjectCheckpointRepository.heartbeatRun({ db, ...payload }),
+
   getArtifacts: ({ sessionId, sourceKey }) =>
     buildProjectCheckpointRepository.listArtifacts({
       db,

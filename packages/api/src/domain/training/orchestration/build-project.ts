@@ -233,8 +233,10 @@ export interface BuildProjectDeps {
       error?: string;
     };
   }) => Promise<
-    { status: "claimed" } | { status: "processing"; state: ProjectBuildState }
+    | { status: "claimed"; ownershipToken: string }
+    | { status: "processing"; state: ProjectBuildState }
   >;
+  heartbeatRun: (input: { sessionId: string; ownershipToken: string }) => Promise<boolean>;
   updateRun: (input: {
     sessionId: string;
     sourceKey: string;
@@ -244,6 +246,7 @@ export interface BuildProjectDeps {
       state: ProjectBuildState;
       error?: string;
     };
+    ownershipToken: string;
   }) => Promise<unknown>;
   /** Read the artifact registry for resume decisions. */
   getArtifacts: (input: {
@@ -505,13 +508,20 @@ export const buildProjectFromOnboarding = async ({
     state: { ...state, steps: snapshotSteps() },
     error,
   });
+  let ownershipToken: string | null = null;
+  let stopHeartbeat: () => void = () => undefined;
   const updateRun = (status: ProjectBuildRunStatus, error?: string) =>
+    ownershipToken
+      ?
     deps.updateRun({
       sessionId,
       sourceKey,
       payload: buildRunPayload(status, error),
-    });
+      ownershipToken,
+    })
+      : Promise.resolve(null);
   const fail = async (message: string): Promise<Result<never>> => {
+    stopHeartbeat();
     state.phase = "error";
     state.error = message;
     emit();
@@ -630,6 +640,11 @@ export const buildProjectFromOnboarding = async ({
     onProgress(claim.state);
     return err("Project build is already running.");
   }
+  ownershipToken = claim.ownershipToken;
+  const heartbeat = setInterval(() => {
+    void deps.heartbeatRun({ sessionId, ownershipToken: claim.ownershipToken });
+  }, 15_000);
+  stopHeartbeat = () => clearInterval(heartbeat);
 
   // Resolve the learner's starting point: the persisted value (mid-chat tap or a
   // [change] override) wins over whatever the createProject tool proposed. A
@@ -969,6 +984,7 @@ export const buildProjectFromOnboarding = async ({
   state.gaps = gaps.length > 0 ? gaps : undefined;
   emit();
   await updateRun("complete");
+  stopHeartbeat();
 
   const firstReadyUnit = plan.nodes.find(
     (node) =>

@@ -107,6 +107,11 @@ export const TrainingProjectBuildCheckpoint = pgTable(
     status: t.varchar({ length: 32 }).notNull().default("pending"),
     attempts: t.integer().notNull().default(0),
     failureKind: t.varchar({ length: 32 }),
+    // A build may make model calls only while it owns this renewable lease.
+    // Keeping this outside the JSON payload makes compare-and-swap ownership
+    // enforceable by Postgres instead of relying on application timing.
+    leaseId: t.uuid(),
+    leaseExpiresAt: t.timestamp({ mode: "date", withTimezone: true }),
     createdAt: t
       .timestamp({ mode: "date", withTimezone: true })
       .defaultNow()
@@ -123,6 +128,9 @@ export const TrainingProjectBuildCheckpoint = pgTable(
       table.step,
     ),
     index("becoming_project_build_checkpoint_session_idx").on(table.sessionId),
+    index("becoming_project_build_checkpoint_lease_expiry_idx").on(
+      table.leaseExpiresAt,
+    ),
   ],
 );
 

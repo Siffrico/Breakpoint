@@ -248,7 +248,10 @@ const makeDeps = (
       BuildProjectDeps["persistScenarioInspiration"]
     >(() => Promise.resolve()),
     claimRun: vi.fn<BuildProjectDeps["claimRun"]>(() =>
-      Promise.resolve(opts.claim ?? { status: "claimed" }),
+      Promise.resolve(opts.claim ?? { status: "claimed", ownershipToken: "test-lease" }),
+    ),
+    heartbeatRun: vi.fn<BuildProjectDeps["heartbeatRun"]>(() =>
+      Promise.resolve(true),
     ),
     updateRun: vi.fn<BuildProjectDeps["updateRun"]>((payload) => {
       updateRunCalls.push({ status: payload.payload.status });

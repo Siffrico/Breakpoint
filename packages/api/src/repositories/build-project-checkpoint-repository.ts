@@ -1,5 +1,5 @@
 import type { db as databaseClient } from "@acme/db/client";
-import { and, eq, inArray, lt } from "@acme/db";
+import { and, eq, inArray, lt, or, sql } from "@acme/db";
 import { TrainingProjectBuildCheckpoint } from "@acme/db/schema";
 
 import type { ArtifactFailureKind } from "../domain/training/orchestration/agent-runtime";
@@ -20,7 +20,7 @@ export interface ProjectBuildRunPayload {
   error?: string;
 }
 
-const STALE_BUILD_RECLAIM_MS = 360_000; // 6 min > 300s route ceiling
+const BUILD_LEASE_MS = 120_000;
 const ABANDONED_BUILD_ERROR =
   "The project build stopped before completion. Retry to resume it.";
 
@@ -48,8 +48,9 @@ const recoverAbandonedRun = async ({
   if (!isProjectBuildRunPayload(checkpoint.payload)) return null;
   if (checkpoint.payload.status !== "building") return checkpoint.payload;
 
-  const staleBefore = new Date(Date.now() - STALE_BUILD_RECLAIM_MS);
-  if (checkpoint.updatedAt >= staleBefore) return checkpoint.payload;
+  if (checkpoint.leaseExpiresAt && checkpoint.leaseExpiresAt > new Date()) {
+    return checkpoint.payload;
+  }
 
   const payload = failedRunPayload(checkpoint.payload, ABANDONED_BUILD_ERROR);
   const [recovered] = await db
@@ -58,7 +59,11 @@ const recoverAbandonedRun = async ({
     .where(
       and(
         eq(TrainingProjectBuildCheckpoint.id, checkpoint.id),
-        lt(TrainingProjectBuildCheckpoint.updatedAt, staleBefore),
+        or(
+          lt(TrainingProjectBuildCheckpoint.leaseExpiresAt, new Date()),
+          // Legacy rows from before leases are reclaimable immediately.
+          sql`${TrainingProjectBuildCheckpoint.leaseExpiresAt} is null`,
+        ),
       ),
     )
     .returning();
@@ -173,8 +178,11 @@ export const buildProjectCheckpointRepository = {
     sourceKey: string;
     payload: ProjectBuildRunPayload;
   }): Promise<
-    { status: "claimed" } | { status: "processing"; state: ProjectBuildState }
+    | { status: "claimed"; ownershipToken: string }
+    | { status: "processing"; state: ProjectBuildState }
   > => {
+    const ownershipToken = crypto.randomUUID();
+    const leaseExpiresAt = new Date(Date.now() + BUILD_LEASE_MS);
     const [inserted] = await db
       .insert(TrainingProjectBuildCheckpoint)
       .values({
@@ -182,6 +190,8 @@ export const buildProjectCheckpointRepository = {
         step: "run",
         sourceKey,
         payload,
+        leaseId: ownershipToken,
+        leaseExpiresAt,
       })
       .onConflictDoNothing({
         target: [
@@ -192,7 +202,7 @@ export const buildProjectCheckpointRepository = {
       .returning();
 
     if (inserted) {
-      return { status: "claimed" };
+      return { status: "claimed", ownershipToken };
     }
 
     const existing = await db.query.TrainingProjectBuildCheckpoint.findFirst({
@@ -206,20 +216,22 @@ export const buildProjectCheckpointRepository = {
       : null;
 
     if (existingPayload?.status === "building") {
-      const staleBefore = new Date(Date.now() - STALE_BUILD_RECLAIM_MS);
       const [reclaimed] = await db
         .update(TrainingProjectBuildCheckpoint)
-        .set({ sourceKey, payload, updatedAt: new Date() })
+        .set({ sourceKey, payload, leaseId: ownershipToken, leaseExpiresAt, updatedAt: new Date() })
         .where(
           and(
             eq(TrainingProjectBuildCheckpoint.sessionId, sessionId),
             eq(TrainingProjectBuildCheckpoint.step, "run"),
-            lt(TrainingProjectBuildCheckpoint.updatedAt, staleBefore),
+            or(
+              lt(TrainingProjectBuildCheckpoint.leaseExpiresAt, new Date()),
+              sql`${TrainingProjectBuildCheckpoint.leaseExpiresAt} is null`,
+            ),
           ),
         )
         .returning();
       if (reclaimed) {
-        return { status: "claimed" };
+        return { status: "claimed", ownershipToken };
       }
       return { status: "processing", state: existingPayload.state };
     }
@@ -229,6 +241,8 @@ export const buildProjectCheckpointRepository = {
       .set({
         sourceKey,
         payload,
+        leaseId: ownershipToken,
+        leaseExpiresAt,
         updatedAt: new Date(),
       })
       .where(
@@ -239,7 +253,28 @@ export const buildProjectCheckpointRepository = {
       )
       .returning();
 
-    return { status: "claimed" };
+    return { status: "claimed", ownershipToken };
+  },
+
+  heartbeatRun: async ({
+    db,
+    sessionId,
+    ownershipToken,
+  }: {
+    db: Database;
+    sessionId: string;
+    ownershipToken: string;
+  }) => {
+    const [checkpoint] = await db
+      .update(TrainingProjectBuildCheckpoint)
+      .set({ leaseExpiresAt: new Date(Date.now() + BUILD_LEASE_MS), updatedAt: new Date() })
+      .where(and(
+        eq(TrainingProjectBuildCheckpoint.sessionId, sessionId),
+        eq(TrainingProjectBuildCheckpoint.step, "run"),
+        eq(TrainingProjectBuildCheckpoint.leaseId, ownershipToken),
+      ))
+      .returning();
+    return checkpoint != null;
   },
 
   updateRun: async ({
@@ -247,23 +282,27 @@ export const buildProjectCheckpointRepository = {
     sessionId,
     sourceKey,
     payload,
+    ownershipToken,
   }: {
     db: Database;
     sessionId: string;
     sourceKey: string;
     payload: ProjectBuildRunPayload;
+    ownershipToken: string;
   }) => {
     const [checkpoint] = await db
       .update(TrainingProjectBuildCheckpoint)
       .set({
         sourceKey,
         payload,
+        leaseExpiresAt: null,
         updatedAt: new Date(),
       })
       .where(
         and(
           eq(TrainingProjectBuildCheckpoint.sessionId, sessionId),
-          eq(TrainingProjectBuildCheckpoint.step, "run"),
+        eq(TrainingProjectBuildCheckpoint.step, "run"),
+        eq(TrainingProjectBuildCheckpoint.leaseId, ownershipToken),
         ),
       )
       .returning();

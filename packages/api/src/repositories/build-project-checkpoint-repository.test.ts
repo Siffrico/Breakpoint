@@ -31,6 +31,11 @@ const makeDb = (updatedAt: Date) => {
     status: "pending",
     attempts: 0,
     failureKind: null,
+    leaseId: "lease-id",
+    leaseExpiresAt:
+      updatedAt.getTime() < Date.now() - 60_000
+        ? new Date(Date.now() - 60_000)
+        : new Date(Date.now() + 60_000),
     createdAt: updatedAt,
     updatedAt,
   };
@@ -106,6 +111,8 @@ describe("buildProjectCheckpointRepository", () => {
       status: "pending",
       attempts: 0,
       failureKind: null,
+      leaseId: null,
+      leaseExpiresAt: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -132,6 +139,6 @@ describe("buildProjectCheckpointRepository", () => {
 
     expect(onConflictDoNothing).toHaveBeenCalledOnce();
     expect(update).toHaveBeenCalledOnce();
-    expect(result).toEqual({ status: "claimed" });
+    expect(result).toMatchObject({ status: "claimed" });
   });
 });
