@@ -32,15 +32,16 @@ const makePlan = (nodes: CurriculumNode[]): CurriculumPlan =>
   }) as unknown as CurriculumPlan;
 
 describe("getProjectTopicWorkflow", () => {
-  it("returns only skill clusters, joined to ratings, with unrated clusters null", async () => {
+  it("returns only abilities, joined to ratings, with unrated abilities null", async () => {
     const plan = makePlan([
-      makeNode({ id: "cluster-a", kind: "skill_cluster", title: "A" }),
-      makeNode({ id: "cluster-b", kind: "skill_cluster", title: "B" }),
+      makeNode({ id: "ability-a", kind: "ability", title: "A" }),
+      makeNode({ id: "ability-b", kind: "ability", title: "B" }),
+      makeNode({ id: "legacy-cluster", kind: "skill_cluster", title: "Legacy" }),
       makeNode({ id: "unit-1", kind: "unit", title: "Unit" }),
     ]);
     const getJobProgress = vi.fn().mockResolvedValue([
       {
-        nodeId: "cluster-a",
+        nodeId: "ability-a",
         rating: 1240,
         ratingDeviation: 85,
         lastRatedAt: new Date("2026-06-01T00:00:00Z"),
@@ -59,16 +60,16 @@ describe("getProjectTopicWorkflow", () => {
     expect(result.success).toBe(true);
     if (!result.success) return;
 
-    // Only clusters, unit dropped.
-    expect(result.data.clusters.map((c) => c.nodeId)).toEqual([
-      "cluster-a",
-      "cluster-b",
+    // Only abilities; legacy clusters and units are excluded.
+    expect(result.data.abilities.map((ability) => ability.nodeId)).toEqual([
+      "ability-a",
+      "ability-b",
     ]);
-    // Progress read is scoped to the cluster nodes only.
-    expect(getJobProgress).toHaveBeenCalledWith(["cluster-a", "cluster-b"]);
-    // Rated cluster carries its Glicko state; unrated cluster is null.
-    expect(result.data.clusters[0]).toMatchObject({ rating: 1240, ratingDeviation: 85 });
-    expect(result.data.clusters[1]).toMatchObject({
+    // Progress read is scoped to the ability nodes only.
+    expect(getJobProgress).toHaveBeenCalledWith(["ability-a", "ability-b"]);
+    // Rated ability carries its Glicko state; an unrated ability is null.
+    expect(result.data.abilities[0]).toMatchObject({ rating: 1240, ratingDeviation: 85 });
+    expect(result.data.abilities[1]).toMatchObject({
       rating: null,
       ratingDeviation: null,
       lastRatedAt: null,

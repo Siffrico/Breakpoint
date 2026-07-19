@@ -559,7 +559,7 @@ export const trainingRouter = {
       return overview;
     }),
 
-  // Per-topic standing: skill clusters joined to their live Glicko rating, plus
+  // Per-topic standing: abilities joined to their live Glicko rating, plus
   // the generated overview. Backs the settings Topics detail page.
   projectTopic: protectedProcedure
     .input(SessionIdSchema)

@@ -16,7 +16,7 @@ interface JobProgressRow {
   lastRatedAt: Date | null;
 }
 
-export interface TopicClusterElo {
+export interface TopicAbilityElo {
   nodeId: string;
   title: string;
   summary: string;
@@ -30,7 +30,7 @@ export interface TopicClusterElo {
 export interface ProjectTopic {
   title: string;
   targetIdentity: string;
-  clusters: TopicClusterElo[];
+  abilities: TopicAbilityElo[];
   overview: ProjectOverview | null;
 }
 
@@ -41,7 +41,7 @@ export interface GetProjectTopicDependencies {
 }
 
 /**
- * Assembles a project's per-skill-cluster standing: each `skill_cluster` node
+ * Assembles a project's per-ability standing: each `ability` node
  * joined to its live Glicko rating (the "ELO"), plus the generated overview.
  * Pure and dependency-injected — the router supplies the DB-backed readers.
  */
@@ -57,12 +57,12 @@ export const getProjectTopicWorkflow = async ({
     return err("Curriculum plan does not exist yet.");
   }
 
-  const clusterNodes = plan.nodes.filter(
-    (node) => node.kind === "skill_cluster",
+  const abilityNodes = plan.nodes.filter(
+    (node) => node.kind === "ability",
   );
 
   const [progressRows, overview] = await Promise.all([
-    deps.getJobProgress(clusterNodes.map((node) => node.id)),
+    deps.getJobProgress(abilityNodes.map((node) => node.id)),
     deps.getProjectOverview(sessionId),
   ]);
 
@@ -70,7 +70,7 @@ export const getProjectTopicWorkflow = async ({
     progressRows.map((row) => [row.nodeId, row]),
   );
 
-  const clusters: TopicClusterElo[] = clusterNodes.map((node) => {
+  const abilities: TopicAbilityElo[] = abilityNodes.map((node) => {
     const progress = progressByNodeId.get(node.id) ?? null;
 
     return {
@@ -87,7 +87,7 @@ export const getProjectTopicWorkflow = async ({
   return ok({
     title: plan.title,
     targetIdentity: plan.targetIdentity,
-    clusters,
+    abilities,
     overview,
   });
 };

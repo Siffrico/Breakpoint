@@ -2,7 +2,7 @@ import type { RouterOutputs } from "@acme/api";
 import { Badge } from "@acme/ui/badge";
 
 type ProjectTopic = RouterOutputs["training"]["projectTopic"];
-type TopicCluster = ProjectTopic["clusters"][number];
+type TopicAbility = ProjectTopic["abilities"][number];
 
 // Display window for the rating meter. Glicko ratings cluster well inside this
 // band; the bar is a relative read, not an absolute axis.
@@ -12,34 +12,34 @@ const RATING_CEIL = 2000;
 const ratingFraction = (rating: number) =>
   Math.min(1, Math.max(0, (rating - RATING_FLOOR) / (RATING_CEIL - RATING_FLOOR)));
 
-const STATUS_LABEL: Record<TopicCluster["status"], string> = {
+const STATUS_LABEL: Record<TopicAbility["status"], string> = {
   planned: "Planned",
   ready: "In progress",
   completed: "Completed",
 };
 
-function ClusterCard({ cluster }: { cluster: TopicCluster }) {
-  const rated = cluster.rating !== null;
+function AbilityCard({ ability }: { ability: TopicAbility }) {
+  const rated = ability.rating !== null;
 
   return (
     <div className="border-border bg-card rounded-lg border px-5 py-4">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
           <div className="text-foreground text-[13.5px] font-medium">
-            {cluster.title}
+            {ability.title}
           </div>
           <div className="text-foreground/50 mt-0.5 line-clamp-2 text-[12px] leading-5">
-            {cluster.summary}
+            {ability.summary}
           </div>
         </div>
         <div className="shrink-0 text-right">
           {rated ? (
             <>
               <div className="text-foreground text-[15px] font-semibold tabular-nums">
-                {Math.round(cluster.rating ?? 0)}
+                {Math.round(ability.rating ?? 0)}
               </div>
               <div className="text-foreground/44 text-[11px] tabular-nums">
-                ± {Math.round(cluster.ratingDeviation ?? 0)}
+                ± {Math.round(ability.ratingDeviation ?? 0)}
               </div>
             </>
           ) : (
@@ -53,15 +53,15 @@ function ClusterCard({ cluster }: { cluster: TopicCluster }) {
           {rated ? (
             <div
               className="bg-primary/75 absolute inset-y-0 left-0 rounded-full"
-              style={{ width: `${ratingFraction(cluster.rating ?? 0) * 100}%` }}
+              style={{ width: `${ratingFraction(ability.rating ?? 0) * 100}%` }}
             />
           ) : null}
         </div>
         <Badge
-          variant={cluster.status === "completed" ? "success" : "muted"}
+          variant={ability.status === "completed" ? "success" : "muted"}
           size="sm"
         >
-          {STATUS_LABEL[cluster.status]}
+          {STATUS_LABEL[ability.status]}
         </Badge>
       </div>
     </div>
@@ -82,17 +82,17 @@ export function TopicDetail({ topic }: { topic: ProjectTopic }) {
 
       <section className="mt-10">
         <h2 className="text-foreground/84 mb-3 text-[13px] font-semibold">
-          Skill clusters
+          Abilities
         </h2>
-        {topic.clusters.length > 0 ? (
+        {topic.abilities.length > 0 ? (
           <div className="grid gap-3">
-            {topic.clusters.map((cluster) => (
-              <ClusterCard key={cluster.nodeId} cluster={cluster} />
+            {topic.abilities.map((ability) => (
+              <AbilityCard key={ability.nodeId} ability={ability} />
             ))}
           </div>
         ) : (
           <div className="border-border bg-card text-foreground/48 rounded-lg border px-5 py-4 text-[12px]">
-            No skill clusters yet — finish generating this project.
+            No abilities yet — finish generating this project.
           </div>
         )}
       </section>

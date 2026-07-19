@@ -15,7 +15,7 @@ const previewTopic: Parameters<typeof TopicDetail>[0]["topic"] = {
   title: "AI Engineering",
   targetIdentity:
     "An AI engineer who can ship LLM systems that survive real traffic.",
-  clusters: [
+  abilities: [
     {
       nodeId: "preview-llm-behavior",
       title: "LLM behavior under production pressure",
@@ -82,7 +82,7 @@ export default async function UiPreviewProjectDetailPage(props: {
           topic={{
             title: project.title,
             targetIdentity: "A learner building durable technical judgment.",
-            clusters: [],
+            abilities: [],
             overview: null,
           }}
         />
