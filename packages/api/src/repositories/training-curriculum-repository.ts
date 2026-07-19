@@ -276,19 +276,19 @@ export const trainingCurriculumRepository = {
       return null;
     }
 
-    const profileVersion =
-      await db.query.TrainingIdentityProfileVersion.findFirst({
+    const [profileVersion, nodeRows] = await Promise.all([
+      db.query.TrainingIdentityProfileVersion.findFirst({
         where: eq(TrainingIdentityProfileVersion.id, plan.profileVersionId),
-      });
+      }),
+      db.query.TrainingCurriculumNode.findMany({
+        where: eq(TrainingCurriculumNode.planId, plan.id),
+        orderBy: asc(TrainingCurriculumNode.orderIndex),
+      }),
+    ]);
 
     if (!profileVersion) {
       return null;
     }
-
-    const nodeRows = await db.query.TrainingCurriculumNode.findMany({
-      where: eq(TrainingCurriculumNode.planId, plan.id),
-      orderBy: asc(TrainingCurriculumNode.orderIndex),
-    });
 
     const nodes = nodeRows.map((node) => ({
       id: node.id,
@@ -444,12 +444,14 @@ export const trainingCurriculumRepository = {
     db: Database;
     nodeId: string;
   }): Promise<UnitContent | null> => {
-    const node = await db.query.TrainingCurriculumNode.findFirst({
-      where: eq(TrainingCurriculumNode.id, nodeId),
-    });
-    const unit = await db.query.TrainingUnitContent.findFirst({
-      where: eq(TrainingUnitContent.nodeId, nodeId),
-    });
+    const [node, unit] = await Promise.all([
+      db.query.TrainingCurriculumNode.findFirst({
+        where: eq(TrainingCurriculumNode.id, nodeId),
+      }),
+      db.query.TrainingUnitContent.findFirst({
+        where: eq(TrainingUnitContent.nodeId, nodeId),
+      }),
+    ]);
 
     if (!node || !unit) {
       return null;

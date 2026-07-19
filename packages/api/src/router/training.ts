@@ -6,7 +6,7 @@ import type { StartingPointTier } from "@acme/validators";
 import { sql } from "@acme/db";
 import {
   StartingPointTierSchema,
-  WorkspaceBootstrapInputSchema,
+  WorkspaceShellInputSchema,
 } from "@acme/validators";
 
 import type { RequestReads } from "../lib/request-reads";
@@ -359,7 +359,7 @@ export const trainingRouter = {
   ),
 
   workspaceShell: protectedProcedure
-    .input(WorkspaceBootstrapInputSchema)
+    .input(WorkspaceShellInputSchema)
     .query(async ({ ctx, input }) =>
       throwOnFailure(
         await getWorkspaceShellWorkflow({
@@ -542,11 +542,7 @@ export const trainingRouter = {
         await getProjectTopicWorkflow({
           sessionId: input.sessionId,
           deps: {
-            getActivePlan: (sessionId) =>
-              trainingCurriculumRepository.getActivePlan({
-                db: ctx.db,
-                sessionId,
-              }),
+            getActivePlan: ctx.reads.getActivePlan,
             getProjectOverview: (sessionId) =>
               trainingCurriculumRepository.getProjectOverview({
                 db: ctx.db,
@@ -595,6 +591,8 @@ export const trainingRouter = {
         await continueLearningProjectWorkflow({
           sessionId: input.sessionId,
           deps: {
+            // Not ctx.reads: the workflow re-reads the plan after
+            // recoverSkillUnits writes, so a memoized read would be stale.
             getActivePlan: (sessionId) =>
               trainingCurriculumRepository.getActivePlan({
                 db: ctx.db,

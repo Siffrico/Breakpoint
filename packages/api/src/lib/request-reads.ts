@@ -15,29 +15,35 @@ export const createRequestReads = (db: Database) => {
     ReturnType<typeof trainingCurriculumRepository.getActivePlan>
   >();
 
+  // Failed reads are evicted so one transient DB error is not replayed to
+  // every later consumer in the same request.
+  const memo = <T>(
+    cache: Map<string, Promise<T>>,
+    sessionId: string,
+    load: () => Promise<T>,
+  ) => {
+    const cached = cache.get(sessionId);
+    if (cached) return cached;
+
+    const pending = load();
+    cache.set(sessionId, pending);
+    pending.catch(() => {
+      if (cache.get(sessionId) === pending) {
+        cache.delete(sessionId);
+      }
+    });
+    return pending;
+  };
+
   return {
-    getSession: (sessionId: string) => {
-      const cached = sessions.get(sessionId);
-      if (cached) return cached;
-
-      const pending = trainingOnboardingRepository.getSession({
-        db,
-        sessionId,
-      });
-      sessions.set(sessionId, pending);
-      return pending;
-    },
-    getActivePlan: (sessionId: string) => {
-      const cached = activePlans.get(sessionId);
-      if (cached) return cached;
-
-      const pending = trainingCurriculumRepository.getActivePlan({
-        db,
-        sessionId,
-      });
-      activePlans.set(sessionId, pending);
-      return pending;
-    },
+    getSession: (sessionId: string) =>
+      memo(sessions, sessionId, () =>
+        trainingOnboardingRepository.getSession({ db, sessionId }),
+      ),
+    getActivePlan: (sessionId: string) =>
+      memo(activePlans, sessionId, () =>
+        trainingCurriculumRepository.getActivePlan({ db, sessionId }),
+      ),
   };
 };
 

@@ -460,22 +460,32 @@ export const resolveWorkspaceTurnEffect = ({
     }
 
     const isRecallTurn = state.recallUnitId !== null;
-    const unitResponses =
-      unit.id === active.unit?.id
-        ? active.responses
-        : yield* reader.getPhaseResponses(unit.id, sessionId);
+    const reusesActiveUnit = unit.id === active.unit?.id;
+    const needsRunRead =
+      !isRecallTurn && !(reusesActiveUnit && active.run !== null);
+    const [unitResponses, existingRun] = yield* Effect.all(
+      [
+        reusesActiveUnit
+          ? Effect.succeed(active.responses)
+          : reader.getPhaseResponses(unit.id, sessionId),
+        needsRunRead
+          ? reader.getUnitRun(sessionId, unit.id)
+          : Effect.succeed<PersistedUnitRun | null>(null),
+      ],
+      { concurrency: 2 },
+    );
     const unitRun = isRecallTurn
       ? resolveRecallRunProjection({
           sessionId,
           unit,
           existing: plannedRecall?.run ?? null,
         })
-      : unit.id === active.unit?.id && active.run
+      : reusesActiveUnit && active.run
         ? active.run
         : resolveUnitRunProjection({
             sessionId,
             unit,
-            existing: yield* reader.getUnitRun(sessionId, unit.id),
+            existing: existingRun,
           });
 
     const resolvedState = {
