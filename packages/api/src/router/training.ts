@@ -25,6 +25,7 @@ import { getProjectTopicWorkflow } from "../domain/training/workflows/get-projec
 import { getUnitWorkflow } from "../domain/training/workflows/get-unit-workflow";
 import { getWorkspaceBootstrapWorkflow } from "../domain/training/workflows/get-workspace-bootstrap-workflow";
 import { getWorkspaceIndexWorkflow } from "../domain/training/workflows/get-workspace-index-workflow";
+import { getWorkspaceShellWorkflow } from "../domain/training/workflows/get-workspace-shell-workflow";
 import { listUnfinishedOnboardingSessionsWorkflow } from "../domain/training/workflows/list-unfinished-onboarding-sessions-workflow";
 import { prepareUnitWorkflow } from "../domain/training/workflows/prepare-unit-workflow";
 import { startOnboardingWorkflow } from "../domain/training/workflows/start-onboarding-workflow";
@@ -354,6 +355,35 @@ export const trainingRouter = {
     }),
   ),
 
+  workspaceShell: protectedProcedure
+    .input(WorkspaceBootstrapInputSchema)
+    .query(async ({ ctx, input }) =>
+      throwOnFailure(
+        await getWorkspaceShellWorkflow({
+          sessionId: input.sessionId,
+          cookieSessionId: input.cookieSessionId,
+          deps: {
+            listProjects: () =>
+              trainingWorkspaceReadRepository.listLearningProjectsForUser({
+                db: ctx.db,
+                userId: ctx.session.user.id,
+              }),
+            ownsSession: async (sessionId) => {
+              const session = await ctx.reads.getSession(sessionId);
+              return session?.userId === ctx.session.user.id;
+            },
+            getActivePlan: ctx.reads.getActivePlan,
+            getOnboardingState: (sessionId) =>
+              trainingOnboardingRepository.getOnboardingState({
+                db: ctx.db,
+                sessionId,
+              }),
+          },
+        }),
+      ),
+    ),
+
+  /** @deprecated Use workspaceShell plus aiWorkspace and unit queries. */
   workspaceBootstrap: protectedProcedure
     .input(WorkspaceBootstrapInputSchema)
     .query(async ({ ctx, input }) => {
