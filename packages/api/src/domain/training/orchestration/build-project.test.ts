@@ -318,7 +318,7 @@ const run = (
   });
 
 describe("buildProjectFromOnboarding", () => {
-  it("prewarms every skill's syllabus but only the unlocked skill's unit", async () => {
+  it("prewarms only the unlocked skill's syllabus and unit", async () => {
     mockCurriculum.mockResolvedValue(curriculum);
     mockOverview.mockResolvedValue(overview);
     const { deps } = makeDeps();
@@ -356,7 +356,12 @@ describe("buildProjectFromOnboarding", () => {
       content:
         "Interest: Vercel: making difficult deployment work feel immediate and simple.",
     });
-    expect(deps.ensureSkillSyllabus).toHaveBeenCalledTimes(skills.length);
+    // Locked skills are not prewarmed — their syllabus is generated with
+    // topics at unlock time by the lazy loadSkill path.
+    expect(deps.ensureSkillSyllabus).toHaveBeenCalledTimes(1);
+    expect(deps.ensureSkillSyllabus).toHaveBeenCalledWith(
+      expect.objectContaining({ clusterNodeId: "skill-1" }),
+    );
     expect(deps.createSkillUnit).toHaveBeenCalledTimes(1);
     expect(deps.createSkillUnit).toHaveBeenCalledWith({
       clusterNodeId: "skill-1",

@@ -177,22 +177,6 @@ export const createUnitCreationRepositoryDeps = ({
               openUnit: openUnit ?? null,
             };
           }
-          let entries = await trainingSyllabusRepository.listEntries({
-            db,
-            clusterNodeId,
-          });
-          if (entries.length === 0) {
-            const plan = await db.query.TrainingCurriculumPlan.findFirst({
-              where: eq(TrainingCurriculumPlan.id, node.planId),
-            });
-            if (!plan) return null;
-            entries =
-              (await ensureSkillSyllabus({
-                db,
-                clusterNodeId,
-                targetIdentity: plan.targetIdentity,
-              })) ?? [];
-          }
           const topics = node.parentNodeId
             ? await db.query.TrainingKnowledgeTopic.findMany({
                 where: eq(
@@ -202,6 +186,33 @@ export const createUnitCreationRepositoryDeps = ({
                 orderBy: [asc(TrainingKnowledgeTopic.orderIndex)],
               })
             : [];
+          let entries = await trainingSyllabusRepository.listEntries({
+            db,
+            clusterNodeId,
+          });
+          if (entries.length === 0) {
+            const plan = await db.query.TrainingCurriculumPlan.findFirst({
+              where: eq(TrainingCurriculumPlan.id, node.planId),
+            });
+            if (!plan) return null;
+            // Locked skills skip the build-time prewarm, so this unlock-time
+            // ensure is their first syllabus generation. It must carry the
+            // ability's topics — syllabi are ensure-once, and a topic-less
+            // write here would stay topic-less for the plan's lifetime.
+            entries =
+              (await ensureSkillSyllabus({
+                db,
+                clusterNodeId,
+                targetIdentity: plan.targetIdentity,
+                topics: topics.map((topic) => ({
+                  id: topic.id,
+                  slug: topic.slug,
+                  title: topic.title,
+                  gloss: topic.gloss,
+                  coreIdea: topic.coreIdea,
+                })),
+              })) ?? [];
+          }
           const topicOrderById = new Map(
             topics.map((topic) => [topic.id, topic.orderIndex]),
           );

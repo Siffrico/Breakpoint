@@ -15,6 +15,7 @@ import type {
 } from "../types/training.types";
 import type { ArtifactFailureKind } from "./agent-runtime";
 import type { ProjectBuildArtifactPreviewInput } from "./project-build-preview";
+import { createTaskLimiter } from "../../../lib/concurrency";
 import { err, ok } from "../../../lib/result";
 import {
   CurriculumDesignerOutputSchema,
@@ -349,8 +350,23 @@ const isModuleNode = (node: { kind: string }): boolean =>
  * v2 `skill` nodes (foundation units) and legacy `skill_cluster`s. Abilities
  * are excluded — their skillset units open only after every skill is mastered.
  */
-const isPrewarmSkillNode = (node: { kind: string }): boolean =>
-  node.kind === "skill" || node.kind === "skill_cluster";
+/**
+ * Skills whose syllabus is prewarmed at build time. v2 `skill` nodes are
+ * gated skill-by-skill: only unlocked (ready) ones need a syllabus now — the
+ * rest are generated lazily at unlock time (loadSkill / recovery both pass
+ * the ability's topics). Legacy `skill_cluster` nodes have no lazy ensure
+ * path, so they are always prewarmed.
+ */
+const isPrewarmSkillNode = (node: { kind: string; status: string }): boolean =>
+  node.kind === "skill_cluster" ||
+  (node.kind === "skill" && node.status === "ready");
+
+/**
+ * Ceiling on concurrent prewarm AI calls (knowledge models + syllabi). The
+ * fan-out previously fired every node at once, which melts the host and
+ * invites provider rate limits.
+ */
+const PREWARM_CONCURRENCY = 3;
 
 const countModules = (plan: CurriculumPlan): number =>
   plan.nodes.filter(isModuleNode).length;
@@ -993,6 +1009,7 @@ export const buildProjectFromOnboarding = async ({
   }
 
   const skills = plan.nodes.filter(isPrewarmSkillNode);
+  const prewarmLimiter = createTaskLimiter(PREWARM_CONCURRENCY);
   const abilityTopics = new Map<
     string,
     Promise<
@@ -1008,45 +1025,42 @@ export const buildProjectFromOnboarding = async ({
   for (const ability of plan.nodes.filter((node) => node.kind === "ability")) {
     abilityTopics.set(
       ability.id,
-      deps
-        .ensureAbilityKnowledgeModel({
+      prewarmLimiter(() =>
+        deps.ensureAbilityKnowledgeModel({
           abilityNodeId: ability.id,
           targetIdentity: plan.targetIdentity,
-        })
-        .catch((error) => {
-          console.error(
-            "Knowledge model prewarm failed; continuing topic-less",
-            {
-              abilityNodeId: ability.id,
-              error: error instanceof Error ? error.message : "Unknown error",
-            },
-          );
-          return [];
         }),
+      ).catch((error) => {
+        console.error("Knowledge model prewarm failed; continuing topic-less", {
+          abilityNodeId: ability.id,
+          error: error instanceof Error ? error.message : "Unknown error",
+        });
+        return [];
+      }),
     );
   }
   for (const skill of skills) {
     const prepareSkill = async () => {
       try {
+        // Topics are awaited outside the limited section so a queued skill
+        // never holds a limiter slot while waiting on its ability's call.
         const topics = skill.parentNodeId
           ? await abilityTopics.get(skill.parentNodeId)
           : undefined;
-        await deps.ensureSkillSyllabus({
-          clusterNodeId: skill.id,
-          targetIdentity: plan.targetIdentity,
-          topics,
-        });
-        // Units are only created for unlocked skills — v2 gates foundations
-        // skill-by-skill, so locked skills get their unit at unlock time
-        // (advanceSkillMapNode), not here. Their syllabus is still prewarmed
-        // above so unlocking is instant.
-        if (userId && skill.status === "ready") {
-          await deps.createSkillUnit({
+        await prewarmLimiter(async () => {
+          await deps.ensureSkillSyllabus({
             clusterNodeId: skill.id,
-            sessionId,
-            userId,
+            targetIdentity: plan.targetIdentity,
+            topics,
           });
-        }
+          if (userId && skill.status === "ready") {
+            await deps.createSkillUnit({
+              clusterNodeId: skill.id,
+              sessionId,
+              userId,
+            });
+          }
+        });
       } catch (error) {
         console.error("Skill syllabus prewarm failed", {
           clusterNodeId: skill.id,
