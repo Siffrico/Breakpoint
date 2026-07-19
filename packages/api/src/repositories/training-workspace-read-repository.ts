@@ -1,6 +1,6 @@
 import type { db as databaseClient } from "@acme/db/client";
 
-import type { LearningProjectSummary } from "../domain/training/workflows/get-workspace-bootstrap-workflow";
+import type { LearningProjectSummary } from "../domain/training/workflows/get-workspace-shell-workflow";
 import { deriveProvisionalProjectTitle } from "../domain/training/services/provisional-project-title";
 import { trainingAttemptRepository } from "./training-attempt-repository";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";

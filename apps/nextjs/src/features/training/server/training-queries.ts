@@ -37,14 +37,6 @@ export const listLearningProjects = async () => {
   return caller.training.listLearningProjects();
 };
 
-export const getWorkspaceBootstrap = async (input: {
-  sessionId?: string;
-  cookieSessionId?: string;
-}) => {
-  const caller = await createCaller();
-  return caller.training.workspaceBootstrap(input);
-};
-
 export const getWorkspaceShell = async (input: {
   sessionId?: string;
   cookieSessionId?: string;

@@ -23,7 +23,6 @@ import { getHomeStateWorkflow } from "../domain/training/workflows/get-home-stat
 import { getProfileWorkflow } from "../domain/training/workflows/get-profile-workflow";
 import { getProjectTopicWorkflow } from "../domain/training/workflows/get-project-topic-workflow";
 import { getUnitWorkflow } from "../domain/training/workflows/get-unit-workflow";
-import { getWorkspaceBootstrapWorkflow } from "../domain/training/workflows/get-workspace-bootstrap-workflow";
 import { getWorkspaceIndexWorkflow } from "../domain/training/workflows/get-workspace-index-workflow";
 import { getWorkspaceShellWorkflow } from "../domain/training/workflows/get-workspace-shell-workflow";
 import { listUnfinishedOnboardingSessionsWorkflow } from "../domain/training/workflows/list-unfinished-onboarding-sessions-workflow";
@@ -191,7 +190,11 @@ const createGetUnitDependencies = (
 ): Parameters<typeof getUnitWorkflow>[0]["deps"] => ({
   getPlanNodesBySession: (sessionId) =>
     reads
-      ? reads.getActivePlan(sessionId).then((plan) => plan?.nodes ?? null)
+      ? // Narrower than the repo read: getActivePlan yields nodes only for an
+        // ACTIVE plan, while getPlanNodesBySession also returns them while the
+        // plan is still generating. Safe here because callers only reach the
+        // unit workflow once a plan is active; revisit if that changes.
+        reads.getActivePlan(sessionId).then((plan) => plan?.nodes ?? null)
       : trainingCurriculumRepository.getPlanNodesBySession({ db, sessionId }),
   getUnitByNodeId: (nodeId) =>
     trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),
@@ -382,63 +385,6 @@ export const trainingRouter = {
         }),
       ),
     ),
-
-  /** @deprecated Use workspaceShell plus aiWorkspace and unit queries. */
-  workspaceBootstrap: protectedProcedure
-    .input(WorkspaceBootstrapInputSchema)
-    .query(async ({ ctx, input }) => {
-      const result = await getWorkspaceBootstrapWorkflow({
-        sessionId: input.sessionId,
-        cookieSessionId: input.cookieSessionId,
-        deps: {
-          listProjects: () =>
-            trainingWorkspaceReadRepository.listLearningProjectsForUser({
-              db: ctx.db,
-              userId: ctx.session.user.id,
-            }),
-          ownsSession: async (sessionId) => {
-            const session = await ctx.reads.getSession(sessionId);
-            return session?.userId === ctx.session.user.id;
-          },
-          getActivePlan: ctx.reads.getActivePlan,
-          getHomeState: (sessionId) =>
-            trainingWorkspaceReadRepository.getHomeState({
-              db: ctx.db,
-              sessionId,
-            }),
-          getAiWorkspace: (sessionId) =>
-            getAiWorkspaceWorkflow({
-              sessionId,
-              deps: createGetAiWorkspaceDependencies(
-                ctx.db,
-                ctx.session.user.id,
-                ctx.reads,
-              ),
-            }),
-          getOnboardingState: (sessionId) =>
-            trainingOnboardingRepository.getOnboardingState({
-              db: ctx.db,
-              sessionId,
-            }),
-          getUnit: (sessionId, nodeId) =>
-            getUnitWorkflow({
-              sessionId,
-              nodeId,
-              deps: createGetUnitDependencies(ctx.db, ctx.reads),
-            }),
-        },
-      });
-      if (!result.success) {
-        if (result.error instanceof UnitNotReadyError) {
-          return raiseUnitPreparationError(result.error);
-        }
-        return throwOnFailure<never>({
-          success: false,
-          error: result.error,
-        });
-      }
-      return result.data;
-    }),
 
   // Read-only transcript of one past chat (a unit's slice of the workspace
   // conversation). Ownership is enforced before any message read, and the node

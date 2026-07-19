@@ -224,25 +224,30 @@ export function WorkspaceShell({
       ? workspaceShellQuery.data.onboardingState
       : null;
 
-  // History classification must not depend on the aiWorkspace query below —
-  // fetching aiWorkspace can trigger server-side unit generation, so it has to
-  // stay disabled while a read-only transcript is open. The shell's next unit
-  // is the cheap fallback until aiWorkspace supplies the exact live node.
+  // The shell's next unit is only a coarse guess at the live node: during a
+  // recall interlude the live chat is a *completed* older node, which only the
+  // aiWorkspace projection can reveal. So history classification uses the
+  // recall-aware activeNodeId below, and aiWorkspace (a read-only projection —
+  // it never triggers unit generation) stays enabled even while a transcript
+  // is open; otherwise a deep link into the live recall chat would lock itself
+  // into a read-only view with no data source left to correct it.
   const fallbackActiveNodeId = resolvedPlan?.nextUnitId ?? null;
-  const isHistorySelected = Boolean(
+  // Coarse pre-query flag, used only to damp polling: a selected chat means
+  // the learner is reading, so background UNIT_PREPARING/advance polling can
+  // pause until they return to the live view.
+  const chatPreselected = Boolean(
     selectedChatId && selectedChatId !== fallbackActiveNodeId,
   );
   const aiWorkspaceQuery = useQuery(
     trpc.training.aiWorkspace.queryOptions(
       { sessionId: selectedSessionId },
       {
-        // History views are static reads; fetching (or UNIT_PREPARING polling)
-        // would re-trigger server-side unit generation for no reason.
-        enabled: !preview && !isOnboardingProject && !isHistorySelected,
+        enabled: !preview && !isOnboardingProject,
         staleTime: Number.POSITIVE_INFINITY,
         refetchOnWindowFocus: false,
         retry: false,
         refetchInterval: (query) => {
+          if (chatPreselected) return false;
           // An optimistic advance is waiting on background unit creation:
           // poll tight so the thinking state resolves in seconds, not the
           // relaxed UNIT_PREPARING cadence.
@@ -260,6 +265,9 @@ export function WorkspaceShell({
   const activeNode = activeNodeId
     ? (resolvedPlan?.nodes.find((node) => node.id === activeNodeId) ?? null)
     : null;
+  const isHistorySelected = Boolean(
+    selectedChatId && selectedChatId !== activeNodeId,
+  );
   const chatHistoryQuery = useQuery(
     trpc.training.chatHistory.queryOptions(
       { sessionId: selectedSessionId, nodeId: selectedChatId ?? "" },

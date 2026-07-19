@@ -46,7 +46,7 @@ export const KnowledgeModelOutputSchema = z.object({
   topics: z.array(KnowledgeTopicSchema).min(1).max(64),
 });
 
-export const WorkspaceBootstrapInputSchema = z.object({
+export const WorkspaceShellInputSchema = z.object({
   sessionId: z.string().uuid().optional(),
   cookieSessionId: z.string().uuid().optional(),
 });

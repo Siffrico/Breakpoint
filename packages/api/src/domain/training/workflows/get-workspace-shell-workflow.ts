@@ -3,8 +3,20 @@ import type {
   CurriculumPlan,
   OnboardingSessionState,
 } from "../types/training.types";
-import type { LearningProjectSummary } from "./get-workspace-bootstrap-workflow";
 import { err, ok } from "../../../lib/result";
+
+export interface LearningProjectSummary {
+  sessionId: string;
+  title: string;
+  headline: string;
+  status: "active" | "building" | "onboarding";
+  lessonPreview: {
+    id: string;
+    title: string;
+    status: string;
+  }[];
+  updatedAt: Date;
+}
 
 export type WorkspaceShell =
   | {
