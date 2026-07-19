@@ -1,5 +1,10 @@
 import type { ScenarioFormat } from "@acme/validators";
 
+import {
+  archetypeDirectiveLines,
+  archetypeOfFormat,
+} from "../scenario-archetypes";
+
 import type { RatingPredictionRecord } from "./apply-evaluation";
 import type { DifficultyBand, ScenarioDirective } from "./decide";
 import type { DifficultyDialPreset } from "./difficulty-priors";
@@ -98,6 +103,7 @@ export const renderScenarioDirective = (
     `- Intent: ${directive.intent}`,
     `- Band: ${band.order}${band.label ? ` (${band.label})` : ""}, rating range ${band.minRating}-${band.maxRating}`,
     `- Format: ${format.label} (${format.kind}, id: ${format.id}). ${format.description}`,
+    ...archetypeDirectiveLines(archetypeOfFormat(format)),
     `- Reasoning path: ${dialPreset.steps[0]}–${dialPreset.steps[1]} steps; list each step in reasoningPathSteps.`,
     `- Withhold ${dialPreset.withheldGivens[0]}–${dialPreset.withheldGivens[1]} key givens; name each in withheldGivens.`,
     `- Embed ${dialPreset.alternatives[0]}–${dialPreset.alternatives[1]} plausible wrong approaches; name each in embeddedAlternatives.`,

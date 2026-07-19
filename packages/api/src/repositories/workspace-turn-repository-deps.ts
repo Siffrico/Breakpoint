@@ -19,6 +19,7 @@ import {
   countVector,
   predictItemRating,
 } from "../domain/training/engine/rating";
+import { resolveScenarioFormats } from "../domain/training/engine/progression-model";
 import {
   recordEvaluation,
   resolveScenarioDirective,
@@ -593,7 +594,7 @@ export const createWorkspaceTurnRepositoryDeps = (
           now,
           bands,
           initialRatingState: seed ?? undefined,
-          scenarioFormats: ratingNode?.skillMap?.scenarioFormats,
+          scenarioFormats: resolveScenarioFormats(ratingNode?.skillMap),
           deps: createTrainingRatingGoldilocksDeps(db),
         }),
       ),

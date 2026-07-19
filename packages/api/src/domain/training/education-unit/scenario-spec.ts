@@ -67,6 +67,29 @@ export const renderScenarioEvolutionConstraint = (
   ].join("\n");
 
 /**
+ * Select-archetype specs carry the Solve check's authored options. Rendered
+ * into the grading context so the evaluator poses exactly these options and
+ * grades the learner's letter against the key — a wrong pick maps to the
+ * chosen distractor's misconceptionCode, so it is diagnostic, not just wrong.
+ */
+const renderMcqOptions = (spec: ScenarioSpec): string | null => {
+  if (!spec.options || spec.options.length === 0 || !spec.correctLetter) {
+    return null;
+  }
+  const options = spec.options
+    .map(
+      (option) =>
+        `${option.letter}. ${option.text}${option.misconceptionCode ? ` [distractor for: ${option.misconceptionCode}]` : ""}`,
+    )
+    .join("\n");
+  return [
+    "Solve check (select archetype) — pose EXACTLY these options as plain Markdown lines lettered as given; never reveal the bracketed diagnostic tags or the key:",
+    options,
+    `Correct letter: ${spec.correctLetter}`,
+  ].join("\n");
+};
+
+/**
  * The evaluator's rubric context for a scored solve answer: the canonical
  * answer it grades toward and the rubric it grades against.
  */
@@ -75,10 +98,13 @@ export const renderEvalRubricContext = (spec: ScenarioSpec): string =>
     "## Grading reference",
     `Target skill: ${spec.targetSkill}`,
     renderWorldState(spec),
+    renderMcqOptions(spec),
     `Canonical answer: ${spec.canonicalAnswer}`,
     `Reasoning path: ${spec.reasoningPath}`,
     `Rubric:\n${spec.rubric}`,
-  ].join("\n");
+  ]
+    .filter((line): line is string => line !== null)
+    .join("\n");
 
 /** The grading reference for the round's already-posed Connect scenario. */
 export const renderConnectGradingContext = (spec: ScenarioSpec): string =>

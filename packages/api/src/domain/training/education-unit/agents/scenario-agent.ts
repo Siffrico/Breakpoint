@@ -17,6 +17,7 @@ import type { PhaseAgentResult } from "./run-phase-agent";
 import {
   BACKWARD_SCENARIO_AUTHORING,
   DIFFICULTY_DIAL,
+  ERROR_CLASSIFICATION_CODES,
   FIRST_SCENARIO_GOAL,
   REQUIRED_UNDERSTANDING_SPEC,
   SCENARIO_DESIGN_CRITERIA,
@@ -90,6 +91,18 @@ canonical answer, the concise reasoning path, and the grading rubric. Then call
 continuePhase with reason="prompted". This pairing is a hard rule for EVERY
 round: any turn where you call continuePhase with reason="prompted" (you are
 presenting a scenario) must also call recordScenarioSpec in the same turn.
+
+The "## Difficulty directive" block names the unit's scenario archetype and
+its Solve presentation contract — obey it. It changes NOTHING about Connect
+(reconstruction always works as described above); it governs what you must
+additionally author into the spec. In particular, when the format is the
+select archetype: alongside the canonical answer, author the Solve check's
+multiple-choice options — exactly one correct, each distractor the natural
+conclusion of one misconception, with its misconceptionCode chosen from:
+${ERROR_CLASSIFICATION_CODES.join(", ")} — and record them in the same
+recordScenarioSpec call via options (lettered A-D) and correctLetter. Do NOT
+show the options during Connect; they belong to the Solve beat. On evolved
+rounds, re-author the options against the evolved world.
 
 If the context contains a "## Scenario evolution constraint" block, obey it:
 KEEP the same world and target skill, escalate as the block directs, and record

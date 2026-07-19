@@ -199,6 +199,27 @@ export const DifficultyBandSchema = z.object({
   label: z.string().min(1).optional(),
 });
 
+/**
+ * The closed library of scenario archetypes, keyed by the learner's response
+ * mode in the Solve beat. The curriculum designer picks exactly ONE per
+ * ability (the response mode that best matches how the target credential or
+ * craft is actually exercised); every unit under that ability uses it.
+ *
+ *   select    — recognition under adversarial distractors (MCQ). SAT/AP-shaped.
+ *   transform — produce the path or artifact that crosses state A → state B.
+ *   judge     — evaluate given artifact(s): find what breaks, or pick and
+ *               justify from the mechanism. Absorbs critique/tradeoff/diagnose.
+ */
+export const ScenarioArchetypeSchema = z.enum(["select", "transform", "judge"]);
+
+/** One MCQ answer option authored into a select-archetype ScenarioSpec. */
+export const ScenarioMcqOptionSchema = z.object({
+  letter: z.enum(["A", "B", "C", "D", "E"]),
+  text: z.string().min(1),
+  /** For distractors: the misconception this option is the natural conclusion of. */
+  misconceptionCode: z.string().min(1).optional(),
+});
+
 export const ScenarioFormatSchema = z
   .object({
     id: z.string().min(1),
@@ -312,6 +333,14 @@ export const UnitScenarioSpecSchema = z.object({
   reasoningPathSteps: z.array(z.string().min(1)).optional(),
   withheldGivens: z.array(z.string()).optional(),
   embeddedAlternatives: z.array(z.string()).optional(),
+  /**
+   * Select archetype only: the Solve beat's answer options, authored at
+   * Connect time alongside the rest of the spec. `correctLetter` names the
+   * key; every other option must carry a misconceptionCode so a wrong pick
+   * is diagnostic, not just wrong.
+   */
+  options: z.array(ScenarioMcqOptionSchema).min(3).max(5).optional(),
+  correctLetter: z.enum(["A", "B", "C", "D", "E"]).optional(),
   canonicalAnswer: z.string().min(1),
   reasoningPath: z.string().min(1),
   rubric: z.string().min(1),
@@ -916,6 +945,8 @@ export type UnitDifficultySnapshot = z.infer<
 >;
 export type UnitScenarioSpec = z.infer<typeof UnitScenarioSpecSchema>;
 export type ScenarioFormat = z.infer<typeof ScenarioFormatSchema>;
+export type ScenarioArchetype = z.infer<typeof ScenarioArchetypeSchema>;
+export type ScenarioMcqOption = z.infer<typeof ScenarioMcqOptionSchema>;
 export type DifficultyVector = z.infer<typeof DifficultyVectorSchema>;
 export type UnitScenarioSpecRecord = z.infer<
   typeof UnitScenarioSpecRecordSchema

@@ -6,7 +6,7 @@ import {
   IdentityReportSchema,
   KnowledgeModelOutputSchema,
   ProjectOverviewSchema,
-  ScenarioFormatSchema,
+  ScenarioArchetypeSchema,
 } from "@acme/validators";
 
 /**
@@ -95,25 +95,16 @@ export const CurriculumPlanDraftSchema = z.object({
         /** ELO tier climb for skillset units only. */
         bandRamp: BandRampSchema,
         masteryContract: MasteryContractSchema,
-        scenarioFormats: z
-          .array(ScenarioFormatSchema)
-          .min(6)
-          .max(8)
-          .superRefine((formats, ctx) => {
-            if (!formats.some((format) => format.kind === "mcq")) {
-              ctx.addIssue({
-                code: "custom",
-                message: "include at least one MCQ format",
-              });
-            }
-            if (!formats.some((format) => format.kind === "frq")) {
-              ctx.addIssue({
-                code: "custom",
-                message: "include at least one gradient FRQ format",
-              });
-            }
-          })
-          .optional(),
+        scenarioArchetype: ScenarioArchetypeSchema.describe(
+          "The ONE Solve response mode for every unit under this ability: select (MCQ under distractors — pick when the target credential is itself selected-response, e.g. SAT/AP/cert MC sections), transform (produce the path/artifact from state A to state B — pick for building/making crafts), judge (evaluate given artifacts and justify from mechanism — pick when the craft's core act is review, diagnosis, or choosing between defensible options).",
+        ),
+        scenarioArchetypeWhy: z
+          .string()
+          .min(1)
+          .max(300)
+          .describe(
+            "One sentence: why this response mode matches how the ability is actually exercised in the learner's target credential or craft.",
+          ),
         /** Dependency-ordered component skills (foundation-unit targets). */
         skills: z.array(AbilitySkillDraftSchema).min(3).max(8),
       }),
@@ -149,18 +140,9 @@ export const CurriculumDesignerOutputSchema = z.object({
   planDraft: CurriculumPlanDraftSchema,
 });
 
-export const NewCurriculumDesignerOutputSchema =
-  CurriculumDesignerOutputSchema.superRefine((output, ctx) => {
-    output.planDraft.abilities.forEach((ability, index) => {
-      if (!ability.scenarioFormats) {
-        ctx.addIssue({
-          code: "custom",
-          message: "scenarioFormats are required for every new ability",
-          path: ["planDraft", "abilities", index, "scenarioFormats"],
-        });
-      }
-    });
-  });
+// scenarioArchetype is required by CurriculumPlanDraftSchema itself, so new
+// plans need no extra refinement beyond the base contract.
+export const NewCurriculumDesignerOutputSchema = CurriculumDesignerOutputSchema;
 
 export const ProjectOverviewOutputSchema = ProjectOverviewSchema.omit({
   generatedAt: true,

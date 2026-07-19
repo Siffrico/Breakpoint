@@ -17,7 +17,9 @@
 // old rows keep working; what changes is that the regime distinction is
 // decided here once instead of being reconstructed per call site.
 
-import type { ScenarioFormat } from "@acme/validators";
+import type { ScenarioArchetype, ScenarioFormat } from "@acme/validators";
+
+import { ARCHETYPE_FORMATS } from "./scenario-archetypes";
 
 export interface StoredSkillMap {
   workflow: { name: string; steps: string[] };
@@ -26,6 +28,9 @@ export interface StoredSkillMap {
     exitCriteria: string[];
     maxRatingDeviation?: number;
   };
+  /** The ability's ONE archetype, picked by the curriculum designer. */
+  scenarioArchetype?: ScenarioArchetype;
+  /** Legacy free-form palette from pre-archetype plans; superseded by scenarioArchetype. */
   scenarioFormats?: ScenarioFormat[];
 }
 
@@ -38,10 +43,14 @@ const LEGACY_SCENARIO_FORMAT: ScenarioFormat = {
 
 export const resolveScenarioFormats = (
   skillMap: StoredSkillMap | null | undefined,
-): readonly ScenarioFormat[] =>
-  skillMap?.scenarioFormats && skillMap.scenarioFormats.length > 0
+): readonly ScenarioFormat[] => {
+  if (skillMap?.scenarioArchetype) {
+    return [ARCHETYPE_FORMATS[skillMap.scenarioArchetype]];
+  }
+  return skillMap?.scenarioFormats && skillMap.scenarioFormats.length > 0
     ? skillMap.scenarioFormats
     : [LEGACY_SCENARIO_FORMAT];
+};
 
 /** Default mastery gate width when the contract does not narrow it. */
 export const DEFAULT_MAX_RATING_DEVIATION = 80;

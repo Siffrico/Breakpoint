@@ -62,7 +62,7 @@ export const buildCurriculumNodes = (
         workflow: ability.workflow,
         bandRamp: ability.bandRamp,
         masteryContract: ability.masteryContract,
-        scenarioFormats: ability.scenarioFormats,
+        scenarioArchetype: ability.scenarioArchetype,
       },
     });
 
@@ -87,7 +87,7 @@ export const buildCurriculumNodes = (
           // foundation regime has no rating gate, so this ramp never gates.
           bandRamp: foundationCalibrationRamp(ability.bandRamp),
           masteryContract: skill.masteryContract,
-          scenarioFormats: ability.scenarioFormats,
+          scenarioArchetype: ability.scenarioArchetype,
         },
       });
     }

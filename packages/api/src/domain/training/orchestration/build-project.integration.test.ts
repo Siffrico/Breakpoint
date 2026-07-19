@@ -111,6 +111,9 @@ const curriculum: CurriculumDesignerOutput = {
             "Diagnoses the causal mechanism from incomplete evidence.",
           ],
         },
+        scenarioArchetype: "judge" as const,
+        scenarioArchetypeWhy:
+          "Diagnosis is evaluated judgment over symptoms and evidence.",
         skills: [
           {
             title: "Trace acknowledgement boundaries",
@@ -170,6 +173,9 @@ const curriculum: CurriculumDesignerOutput = {
         masteryContract: {
           exitCriteria: ["Proves retry safety under ambiguity."],
         },
+        scenarioArchetype: "transform" as const,
+        scenarioArchetypeWhy:
+          "Retry safety is produced by designing the operation itself.",
         skills: [
           {
             title: "Locate side effects",

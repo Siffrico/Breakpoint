@@ -6,6 +6,7 @@ import type {
   RecordEvaluationDependencies,
   ResolveScenarioDirectiveDependencies,
 } from "../domain/training/orchestration/goldilocks";
+import { resolveScenarioFormats } from "../domain/training/engine/progression-model";
 import { trainingRatingRepository } from "./training-rating-repository";
 
 type Database = typeof databaseClient;
@@ -39,7 +40,7 @@ export const createTrainingRatingGoldilocksDeps = (
       }),
     ]);
     if (!attempt) return null;
-    const format = node?.skillMap?.scenarioFormats?.find(
+    const format = resolveScenarioFormats(node?.skillMap).find(
       (candidate) => candidate.id === attempt.difficultyVectorJson?.formatId,
     );
     return {

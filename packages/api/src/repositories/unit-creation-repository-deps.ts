@@ -20,6 +20,7 @@ import {
   difficultyRampOf,
   regimeForNodeKind,
   resolveProgressionModel,
+  resolveScenarioFormats,
 } from "../domain/training/engine/progression-model";
 import {
   createInitialRatingState,
@@ -258,7 +259,7 @@ export const createUnitCreationRepositoryDeps = ({
             cluster?.difficultyBands ??
             expandSkillBands(difficultyRampOf(model)),
           initialRatingState: (await getSeed(clusterNodeId)) ?? undefined,
-          scenarioFormats: cluster?.skillMap?.scenarioFormats,
+          scenarioFormats: resolveScenarioFormats(cluster?.skillMap),
           deps: createTrainingRatingGoldilocksDeps(db),
         });
       }),

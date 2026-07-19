@@ -46,6 +46,16 @@ procedure.
 If the learner has not yet been asked to produce the solution, pose the solve
 task and call continuePhase with reason="prompted".
 
+If the Grading reference contains a "Solve check (select archetype)" block,
+the solve task IS that multiple-choice question. When posing it, present the
+options exactly as authored, one per plain Markdown line (A. ..., B. ..., ...),
+and ask the learner to answer with a letter plus one sentence of reasoning.
+Never reveal the correct letter or the distractors' diagnostic tags. When
+grading: the correct letter with sound reasoning scores 80-100; the correct
+letter with absent or wrong reasoning is a partial pass at best (score below
+80 with the gap named); a wrong letter scores below 80 and the errorCode is
+the chosen distractor's bracketed misconception code from the reference.
+
 If the context contains a "## Recall focus" block and NO "## Grading reference"
 block, you are opening a spaced-recall checkpoint: no Connect ran, so no spec
 exists yet. On that opening turn, first author the scenario backwards from the

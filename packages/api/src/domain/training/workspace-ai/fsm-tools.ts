@@ -110,6 +110,43 @@ export const recordScenarioSpec = tool({
     reasoningPathSteps: true,
     withheldGivens: true,
     embeddedAlternatives: true,
+  }).superRefine((spec, ctx) => {
+    // Select-archetype coherence: options and correctLetter travel together,
+    // the key must be one of the options, and every distractor's
+    // misconceptionCode must be a real ERROR_CLASSIFICATION code — it becomes
+    // the errorCode when the learner picks it, so an invalid code here would
+    // silently break rating evidence downstream.
+    if (!spec.options && !spec.correctLetter) return;
+    if (!spec.options || !spec.correctLetter) {
+      ctx.addIssue({
+        code: "custom",
+        message: "options and correctLetter must be provided together",
+      });
+      return;
+    }
+    const key = spec.options.find(
+      (option) => option.letter === spec.correctLetter,
+    );
+    if (!key) {
+      ctx.addIssue({
+        code: "custom",
+        message: "correctLetter must match one option's letter",
+      });
+    }
+    for (const option of spec.options) {
+      if (option.letter === spec.correctLetter) continue;
+      if (
+        !option.misconceptionCode ||
+        !(ERROR_CLASSIFICATION_CODES as readonly string[]).includes(
+          option.misconceptionCode,
+        )
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          message: `distractor ${option.letter} needs a misconceptionCode from the ERROR_CLASSIFICATION codes`,
+        });
+      }
+    }
   }),
   execute: acknowledge,
 });

@@ -36,6 +36,9 @@ const buildDraft = (
     masteryContract: {
       exitCriteria: ["Chooses a discriminating probe from partial evidence."],
     },
+    scenarioArchetype: "judge" as const,
+    scenarioArchetypeWhy:
+      "Incident diagnosis is evaluated judgment over noisy evidence.",
     skills: Array.from({ length: skillCount }, (_, skillIndex) => ({
       title: `Read incident evidence ${skillIndex + 1}`,
       summary: "Pull the discriminating signal out of noisy evidence.",

@@ -107,6 +107,9 @@ const buildAbility = (index: number) => ({
   masteryContract: {
     exitCriteria: ["Diagnoses the causal mechanism from incomplete evidence."],
   },
+  scenarioArchetype: "judge" as const,
+  scenarioArchetypeWhy:
+    "Diagnosis is evaluated judgment over symptoms and evidence.",
   skills: Array.from({ length: 3 }, (_, skillIndex) =>
     buildComponentSkill(skillIndex),
   ),

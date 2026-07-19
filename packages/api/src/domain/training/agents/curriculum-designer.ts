@@ -19,7 +19,7 @@ For each ability:
 - Set bandRamp.startRating near the lowest scaffoldable whole-task performance and peakRating at genuine expert transfer under ambiguity.
 - Define a mastery contract as observable exit criteria for independent expert performance. Set maxRatingDeviation only when the ability needs a stability threshold different from the default 80.
 - Decompose the ability into 3-8 component SKILLS, in dependency order (earliest = prerequisite for later ones).
-- Choose 6-8 recurring scenarioFormats that fit this ability. Include at least one MCQ with optionCount and at least one vague A→B gradient FRQ. Formats are reusable structural recipes, not one-off topics.
+- Pick scenarioArchetype: the ONE Solve response mode for every unit under this ability. select = answer MCQs under near-miss distractors (pick when the target credential is itself selected-response: SAT, AP, cert MC sections). transform = produce the path or artifact that carries state A to state B (pick for building/making crafts: coding, writing, design, modeling). judge = evaluate given artifacts and justify the verdict from the causal mechanism (pick when the craft's core act is review, diagnosis, or choosing between defensible options). Reason briefly from how the ability is actually exercised in the learner's target, then commit — state that one sentence in scenarioArchetypeWhy.
 
 For each skill (the signal-moment test):
 - Map the ability's real workflow first, then keep ONLY the sparse decision moments where an expert and a novice visibly produce different outcomes. Each surviving moment is one skill. Routine activity where novice and expert converge is noise — cut it.

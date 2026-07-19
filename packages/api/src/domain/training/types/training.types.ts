@@ -39,6 +39,7 @@ import type {
   PracticeSubmission,
   PreSeedUnitContentDraft,
   ProjectOverview,
+  ScenarioArchetype,
   ScenarioEvaluationContract,
   ScenarioFormat,
   SubmitEducationUnitStep,
@@ -127,6 +128,7 @@ export interface CurriculumNodeBlueprint {
       exitCriteria: string[];
       maxRatingDeviation?: number;
     };
+    scenarioArchetype?: ScenarioArchetype;
     scenarioFormats?: ScenarioFormat[];
   } | null;
 }
