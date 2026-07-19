@@ -39,7 +39,6 @@ const ChatHistoryView = dynamic(() =>
   import("./chat-history-view").then((mod) => mod.ChatHistoryView),
 );
 
-type WorkspaceState = RouterOutputs["training"]["home"];
 type PlanState = RouterOutputs["training"]["activePlan"];
 type EducationUnit = RouterOutputs["training"]["unit"];
 type OnboardingState = RouterOutputs["training"]["onboardingState"];
@@ -48,7 +47,7 @@ type EvaluationPlan = NonNullable<AiWorkspace["evaluationPlan"]>;
 type LearningProject =
   RouterOutputs["training"]["listLearningProjects"][number];
 type ChatHistory = RouterOutputs["training"]["chatHistory"];
-type WorkspaceBootstrap = RouterOutputs["training"]["workspaceBootstrap"];
+type WorkspaceShellState = RouterOutputs["training"]["workspaceShell"];
 
 const LAST_SESSION_COOKIE = "bp-last-learning-session";
 const EMPTY_PROJECTS: LearningProject[] = [];
@@ -87,29 +86,21 @@ interface AdvanceMutationContext {
 }
 
 export function WorkspaceShell({
-  workspace = null,
-  plan: _plan,
-  unit = null,
+  plan,
   onboardingState,
-  aiWorkspace,
   projects = EMPTY_PROJECTS,
   sessionId,
   preview = false,
   userName,
   chatHistory = null,
-  initialActiveNodeId = null,
 }: {
-  workspace?: WorkspaceState | null;
   plan: PlanState | null;
-  unit?: EducationUnit | null;
   onboardingState: OnboardingState | null;
-  aiWorkspace?: AiWorkspace | null;
   projects?: LearningProject[];
   sessionId: string;
   preview?: boolean;
   userName?: string;
   chatHistory?: ChatHistory | null;
-  initialActiveNodeId?: string | null;
 }) {
   const router = useRouter();
   const trpc = useTRPC();
@@ -120,9 +111,6 @@ export function WorkspaceShell({
   );
   const [advanceTransition, setAdvanceTransition] =
     useState<AdvanceTransition | null>(null);
-  const [pendingBootstrapSessionId, setPendingBootstrapSessionId] = useState<
-    string | null
-  >(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const projectsQuery = useQuery(
@@ -157,7 +145,7 @@ export function WorkspaceShell({
     useState<UnitCoachTrigger | null>(null);
   const [liveUnitState, setLiveUnitState] = useState({
     sessionId,
-    unit,
+    unit: null as EducationUnit | null,
   });
   const [isSessionRunning, setIsSessionRunning] = useState(false);
   const [onboardingTurnCount, setOnboardingTurnCount] = useState(0);
@@ -200,79 +188,47 @@ export function WorkspaceShell({
   const isOnboardingProject = Boolean(
     selectedProject && selectedProject.status !== "active",
   );
-  const bootstrapQuery = useQuery(
-    trpc.training.workspaceBootstrap.queryOptions(
-      { sessionId: selectedSessionId },
-      { enabled: false, retry: false },
-    ),
+  const initialShell: WorkspaceShellState = onboardingState
+    ? {
+        kind: "onboarding",
+        sessionId,
+        projects,
+        onboardingState,
+      }
+    : plan
+      ? {
+          kind: "workspace",
+          sessionId,
+          projects,
+          plan,
+        }
+      : { kind: "needs-onboarding", projects };
+  const workspaceShellOptions = trpc.training.workspaceShell.queryOptions(
+    { sessionId: selectedSessionId },
+    {
+      enabled: !preview,
+      staleTime: Number.POSITIVE_INFINITY,
+      retry: false,
+    },
   );
-  const selectedBootstrap =
-    bootstrapQuery.data?.kind !== "needs-onboarding" &&
-    bootstrapQuery.data?.sessionId === selectedSessionId
-      ? bootstrapQuery.data
+  const workspaceShellQuery = useQuery({
+    ...workspaceShellOptions,
+    initialData: isInitialSession ? initialShell : undefined,
+  });
+  const resolvedPlan =
+    workspaceShellQuery.data?.kind === "workspace"
+      ? workspaceShellQuery.data.plan
       : null;
-  const bootstrapPending = pendingBootstrapSessionId === selectedSessionId;
-  const planQuery = useQuery(
-    trpc.training.activePlan.queryOptions(
-      { sessionId: selectedSessionId },
-      {
-        enabled:
-          !preview &&
-          !isInitialSession &&
-          !isOnboardingProject &&
-          !bootstrapPending,
-        retry: false,
-      },
-    ),
-  );
-  const workspaceQuery = useQuery(
-    trpc.training.home.queryOptions(
-      { sessionId: selectedSessionId },
-      {
-        enabled:
-          !preview &&
-          !isInitialSession &&
-          !isOnboardingProject &&
-          !bootstrapPending,
-        retry: false,
-      },
-    ),
-  );
-  const onboardingQuery = useQuery(
-    trpc.training.onboardingState.queryOptions(
-      { sessionId: selectedSessionId },
-      {
-        enabled:
-          !preview &&
-          !isInitialSession &&
-          isOnboardingProject &&
-          !bootstrapPending,
-        retry: false,
-      },
-    ),
-  );
-  const resolvedPlan = isInitialSession ? _plan : (planQuery.data ?? null);
-  const resolvedWorkspace = isInitialSession
-    ? workspace
-    : (workspaceQuery.data ?? null);
-  const resolvedOnboardingState = isInitialSession
-    ? onboardingState
-    : (onboardingQuery.data ?? null);
+  const resolvedOnboardingState =
+    workspaceShellQuery.data?.kind === "onboarding"
+      ? workspaceShellQuery.data.onboardingState
+      : null;
 
   // History classification must not depend on the aiWorkspace query below —
   // fetching aiWorkspace can trigger server-side unit generation, so it has to
-  // stay disabled while a read-only transcript is open. The initial session
-  // uses the server's exact classification (which did consult aiWorkspace);
-  // client-navigated projects fall back to plan/home reads, which misses only
-  // the active-recall edge (that chat renders as a transcript instead of live).
-  const fallbackActiveNodeId =
-    (isInitialSession ? initialActiveNodeId : null) ??
-    (selectedBootstrap?.kind === "workspace"
-      ? selectedBootstrap.activeNodeId
-      : null) ??
-    resolvedWorkspace?.nextUnitId ??
-    resolvedPlan?.nextUnitId ??
-    null;
+  // stay disabled while a read-only transcript is open. The shell's next unit
+  // is the cheap fallback until aiWorkspace supplies the exact live node.
+  const fallbackActiveNodeId = resolvedPlan?.nextUnitId ?? null;
   const isHistorySelected = Boolean(
     selectedChatId && selectedChatId !== fallbackActiveNodeId,
   );
@@ -282,12 +238,7 @@ export function WorkspaceShell({
       {
         // History views are static reads; fetching (or UNIT_PREPARING polling)
         // would re-trigger server-side unit generation for no reason.
-        enabled:
-          !preview &&
-          !isOnboardingProject &&
-          !isHistorySelected &&
-          !bootstrapPending,
-        initialData: isInitialSession && aiWorkspace ? aiWorkspace : undefined,
+        enabled: !preview && !isOnboardingProject && !isHistorySelected,
         staleTime: Number.POSITIVE_INFINITY,
         refetchOnWindowFocus: false,
         retry: false,
@@ -301,8 +252,7 @@ export function WorkspaceShell({
       },
     ),
   );
-  const resolvedAiWorkspace =
-    aiWorkspaceQuery.data ?? (isInitialSession ? aiWorkspace : null) ?? null;
+  const resolvedAiWorkspace = aiWorkspaceQuery.data ?? null;
   const activeNodeId =
     resolvedAiWorkspace?.state?.recallUnitId ??
     resolvedAiWorkspace?.state?.activeUnitId ??
@@ -332,20 +282,12 @@ export function WorkspaceShell({
     trpc.training.unit.queryOptions(
       { sessionId: selectedSessionId, nodeId: activeNode?.id ?? "" },
       {
-        enabled:
-          !preview &&
-          !isHistorySelected &&
-          !bootstrapPending &&
-          Boolean(activeNode),
-        initialData:
-          isInitialSession && unit?.nodeId === activeNode?.id
-            ? (unit ?? undefined)
-            : undefined,
+        enabled: !preview && !isHistorySelected && Boolean(activeNode),
         retry: false,
       },
     ),
   );
-  const fetchedUnit = unitQuery.data ?? (isInitialSession ? unit : null);
+  const fetchedUnit = unitQuery.data ?? null;
   const liveUnit =
     liveUnitState.sessionId === selectedSessionId &&
     liveUnitState.unit?.nodeId === fetchedUnit?.nodeId
@@ -574,7 +516,7 @@ export function WorkspaceShell({
           "Start a new learning track")
         : (activeAdvanceTransition?.title ??
           liveUnit?.title ??
-          resolvedWorkspace?.nextUnitTitle ??
+          activeNode?.title ??
           "Preparing your next unit");
 
   const closeUnitCoach = useCallback(() => {
@@ -666,89 +608,8 @@ export function WorkspaceShell({
     [selectedSessionId],
   );
 
-  const seedWorkspaceCaches = useCallback(
-    (bootstrap: WorkspaceBootstrap) => {
-      queryClient.setQueryData(
-        trpc.training.listLearningProjects.queryKey(),
-        bootstrap.projects,
-      );
-      if (bootstrap.kind === "needs-onboarding") return;
-      if (bootstrap.kind === "onboarding") {
-        queryClient.setQueryData(
-          trpc.training.onboardingState.queryKey({
-            sessionId: bootstrap.sessionId,
-          }),
-          bootstrap.onboardingState,
-        );
-        return;
-      }
-
-      const input = { sessionId: bootstrap.sessionId };
-      queryClient.setQueryData(
-        trpc.training.activePlan.queryKey(input),
-        bootstrap.plan,
-      );
-      queryClient.setQueryData(
-        trpc.training.home.queryKey(input),
-        bootstrap.workspace,
-      );
-      if (bootstrap.aiWorkspace) {
-        queryClient.setQueryData(
-          trpc.training.aiWorkspace.queryKey(input),
-          bootstrap.aiWorkspace,
-        );
-      }
-      if (bootstrap.unit) {
-        queryClient.setQueryData(
-          trpc.training.unit.queryKey({
-            sessionId: bootstrap.sessionId,
-            nodeId: bootstrap.unit.nodeId,
-          }),
-          bootstrap.unit,
-        );
-      }
-    },
-    [queryClient, trpc],
-  );
-
-  const loadWorkspaceSession = useCallback(
-    async (nextSessionId: string) => {
-      if (nextSessionId === sessionId) return;
-      setPendingBootstrapSessionId(nextSessionId);
-      try {
-        const bootstrap = await queryClient.fetchQuery(
-          trpc.training.workspaceBootstrap.queryOptions(
-            { sessionId: nextSessionId },
-            // fetchQuery does not inherit the useQuery retry setting; without
-            // this a failed switch backs off through three retries before the
-            // error toast appears.
-            { retry: false },
-          ),
-        );
-        seedWorkspaceCaches(bootstrap);
-        if (bootstrap.kind === "needs-onboarding") {
-          router.push("/onboarding");
-        }
-      } catch (error) {
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : "The learning project could not be opened.",
-        );
-      } finally {
-        setPendingBootstrapSessionId((current) =>
-          current === nextSessionId ? null : current,
-        );
-      }
-    },
-    [queryClient, router, seedWorkspaceCaches, sessionId, trpc],
-  );
-
   const navigateWorkspace = useCallback(
     (nextSessionId: string, nextChatId: string | null) => {
-      if (nextSessionId !== selectedSessionId) {
-        void loadWorkspaceSession(nextSessionId);
-      }
       setSelectedSessionId(nextSessionId);
       setSelectedChatId(nextChatId);
       setMobileSidebarOpen(false);
@@ -757,7 +618,7 @@ export function WorkspaceShell({
       if (nextChatId) params.set("chat", nextChatId);
       window.history.pushState(null, "", `/workspace?${params.toString()}`);
     },
-    [loadWorkspaceSession, selectedSessionId],
+    [],
   );
 
   const handleWorkspaceLink = useCallback(
@@ -1175,8 +1036,10 @@ export function WorkspaceShell({
                           <h2 className="font-display text-foreground text-base font-semibold tracking-[-0.02em]">
                             <AssistantRichText
                               content={
-                                resolvedWorkspace?.nextUnitTitle ??
-                                "Preparing your next unit"
+                                workspaceShellQuery.isError
+                                  ? workspaceShellQuery.error.message
+                                  : (activeNode?.title ??
+                                    "Preparing your next unit")
                               }
                             />
                           </h2>
