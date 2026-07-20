@@ -5,6 +5,7 @@ import { trainingAttemptRepository } from "./training-attempt-repository";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
 import { trainingOnboardingRepository } from "./training-onboarding-repository";
 import { trainingSyllabusRepository } from "./training-syllabus-repository";
+import { withUnitBuildLock } from "./unit-build-lock";
 
 type Database = typeof databaseClient;
 
@@ -30,4 +31,5 @@ export const createUnitPreparationRepositoryDeps = (
     trainingCurriculumRepository.createUnitContentIfAbsent({ db, ...payload }),
   replaceUnitContent: (payload) =>
     trainingCurriculumRepository.replaceUnitContent({ db, ...payload }),
+  withUnitBuildLock: (nodeId, run) => withUnitBuildLock({ db, nodeId, run }),
 });

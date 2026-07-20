@@ -336,7 +336,10 @@ export const trainingOnboardingRepository = {
     turnId: string;
     leaseId: string;
   }): Promise<
-    | { status: "claimed" }
+    // claimedAt is the turn row's original createdAt: lease reclaims and
+    // failed-turn retries update the row without touching it, so it is the
+    // first arrival of this turnId — the server-authoritative submission time.
+    | { status: "claimed"; claimedAt: Date }
     | { status: "processing" }
     | {
         status: "completed";
@@ -391,7 +394,9 @@ export const trainingOnboardingRepository = {
         )
         .returning({ id: TrainingWorkspaceTurn.id });
 
-      return reclaimedTurn ? { status: "claimed" } : { status: "processing" };
+      return reclaimedTurn
+        ? { status: "claimed", claimedAt: existingTurn.createdAt }
+        : { status: "processing" };
     }
 
     if (existingTurn?.status === "failed") {
@@ -414,22 +419,27 @@ export const trainingOnboardingRepository = {
           ),
         )
         .returning({ id: TrainingWorkspaceTurn.id });
-      return retriedTurn ? { status: "claimed" } : { status: "processing" };
+      return retriedTurn
+        ? { status: "claimed", claimedAt: existingTurn.createdAt }
+        : { status: "processing" };
     }
 
     try {
-      await db.insert(TrainingWorkspaceTurn).values({
-        sessionId,
-        turnId,
-        action,
-        slot,
-        unitId,
-        inputContent: content,
-        status: "processing",
-        leaseId,
-        leaseExpiresAt,
-      });
-      return { status: "claimed" };
+      const [insertedTurn] = await db
+        .insert(TrainingWorkspaceTurn)
+        .values({
+          sessionId,
+          turnId,
+          action,
+          slot,
+          unitId,
+          inputContent: content,
+          status: "processing",
+          leaseId,
+          leaseExpiresAt,
+        })
+        .returning({ createdAt: TrainingWorkspaceTurn.createdAt });
+      return { status: "claimed", claimedAt: insertedTurn?.createdAt ?? now };
     } catch (error) {
       if (!isUniqueViolation(error)) {
         throw error;

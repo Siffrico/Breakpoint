@@ -19,10 +19,6 @@
       "types": "./dist/mission-chat.d.ts",
       "default": "./src/mission-chat.ts"
     },
-    "./workspace-events": {
-      "types": "./dist/workspace-events.d.ts",
-      "default": "./src/workspace-events.ts"
-    },
     "./unit-coach": {
       "types": "./dist/unit-coach.d.ts",
       "default": "./src/unit-coach.ts"

@@ -143,7 +143,8 @@ void test("a concurrent unit lease is rejected before running the model", async 
   const runUnitTurn = vi.fn();
   const markWorkspaceTurnFailed = vi.fn(() => Promise.resolve());
   const deps = {
-    claimWorkspaceTurn: () => Promise.resolve({ status: "claimed" as const }),
+    claimWorkspaceTurn: () =>
+      Promise.resolve({ status: "claimed" as const, claimedAt: new Date() }),
     claimWorkspaceUnitLease: () => Promise.resolve(false),
     releaseWorkspaceUnitLease: () => Promise.resolve(),
     markWorkspaceTurnFailed,
@@ -178,7 +179,8 @@ void test("an invalid education-unit result is never persisted", async () => {
   });
 
   const deps = {
-    claimWorkspaceTurn: () => Promise.resolve({ status: "claimed" as const }),
+    claimWorkspaceTurn: () =>
+      Promise.resolve({ status: "claimed" as const, claimedAt: new Date() }),
     claimWorkspaceUnitLease: () => Promise.resolve(true),
     releaseWorkspaceUnitLease: () => Promise.resolve(),
     listUnitMessages: () => Promise.resolve([]),
@@ -221,7 +223,8 @@ void test("interrupting a claimed education turn releases its owned lease", asyn
   const markWorkspaceTurnFailed = vi.fn(() => Promise.resolve());
   const runUnitTurn = vi.fn(() => Effect.never);
   const deps = {
-    claimWorkspaceTurn: () => Promise.resolve({ status: "claimed" as const }),
+    claimWorkspaceTurn: () =>
+      Promise.resolve({ status: "claimed" as const, claimedAt: new Date() }),
     claimWorkspaceUnitLease: () => Promise.resolve(true),
     releaseWorkspaceUnitLease: () => Promise.resolve(),
     listUnitMessages: () => Promise.resolve([]),
@@ -262,7 +265,8 @@ void test("interrupting a claimed education turn releases its owned lease", asyn
 void test("a post-claim transcript load failure releases the lease", async () => {
   const markWorkspaceTurnFailed = vi.fn(() => Promise.resolve());
   const deps = {
-    claimWorkspaceTurn: () => Promise.resolve({ status: "claimed" as const }),
+    claimWorkspaceTurn: () =>
+      Promise.resolve({ status: "claimed" as const, claimedAt: new Date() }),
     claimWorkspaceUnitLease: () => Promise.resolve(true),
     releaseWorkspaceUnitLease: () => Promise.resolve(),
     listUnitMessages: () => Promise.reject(new Error("message read failed")),
@@ -302,7 +306,8 @@ void test("an education turn returns the committed assistant message", async () 
     metadata: null,
   };
   const deps = {
-    claimWorkspaceTurn: () => Promise.resolve({ status: "claimed" as const }),
+    claimWorkspaceTurn: () =>
+      Promise.resolve({ status: "claimed" as const, claimedAt: new Date() }),
     claimWorkspaceUnitLease: () => Promise.resolve(true),
     releaseWorkspaceUnitLease: () => Promise.resolve(),
     markWorkspaceTurnFailed: () => Promise.resolve(),
@@ -376,7 +381,8 @@ void test("a mastered unit checks off every target even when the evaluator omits
     metadata: null,
   };
   const deps = {
-    claimWorkspaceTurn: () => Promise.resolve({ status: "claimed" as const }),
+    claimWorkspaceTurn: () =>
+      Promise.resolve({ status: "claimed" as const, claimedAt: new Date() }),
     claimWorkspaceUnitLease: () => Promise.resolve(true),
     releaseWorkspaceUnitLease: () => Promise.resolve(),
     markWorkspaceTurnFailed: () => Promise.resolve(),
@@ -436,4 +442,89 @@ void test("a mastered unit checks off every target even when the evaluator omits
     "entry-1",
     "entry-2",
   ]);
+});
+
+void test("solve timing anchors on the turn claim, not the post-grading clock", async () => {
+  // Fixture dates are deliberately in the past: if timing ever regresses to a
+  // clock read taken after the model call, elapsed becomes weeks and the
+  // wasOverTime assertion below fails.
+  const solvePresentedAt = new Date("2026-07-01T10:00:00.000Z");
+  const claimedAt = new Date("2026-07-01T10:02:00.000Z");
+  const captured: { committed?: WorkspaceEducationTurnCommit } = {};
+  const assistantMessage = {
+    id: "message-2",
+    role: "assistant" as const,
+    content: "Correct — the second probe isolates the fault.",
+    sequence: 2,
+    slot: "education_unit" as const,
+    unitId: node.id,
+    metadata: null,
+  };
+  const ratedTurn = {
+    ...turn,
+    unitResponses: [
+      {
+        phase: "ai_education",
+        metadata: { scenarioAttemptId: "attempt-1" },
+      },
+    ],
+  } as unknown as ResolvedWorkspaceTurn;
+  const deps = {
+    claimWorkspaceTurn: () =>
+      Promise.resolve({ status: "claimed" as const, claimedAt }),
+    claimWorkspaceUnitLease: () => Promise.resolve(true),
+    releaseWorkspaceUnitLease: () => Promise.resolve(),
+    markWorkspaceTurnFailed: () => Promise.resolve(),
+    listUnitMessages: () => Promise.resolve([]),
+    listMemories: () => Promise.resolve([]),
+    resolveDifficultyDirective: () => fail("resolveDifficultyDirective"),
+    getScenarioAttempt: () =>
+      Promise.resolve({ id: "attempt-1", solvePresentedAt }),
+    runUnitTurn: () =>
+      Effect.succeed({
+        assistantMessage: assistantMessage.content,
+        event: {
+          type: "solution_graded" as const,
+          passed: true,
+          score: 78,
+          errorCodes: [],
+        },
+        nextState: { ...unitRun, phase: "solve" as const, pass: 2 },
+        forcedConnectAdvance: false,
+        gradeReasoning: "The fix addressed the measured fault.",
+        ratingWrite: { score: 78, errorCodes: [] },
+        syllabusCheckOff: null,
+        scenarioSpec: null,
+      }),
+    getUnitByNodeId: () => Promise.resolve(turn.unit),
+    ...noRecallProjectionDeps,
+    getPhaseResponses: () => Promise.resolve([]),
+    getUnitRun: () => Promise.resolve(unitRun),
+    getInFlightRecallRun: () => Promise.resolve(null),
+  } as unknown as WorkspaceTurnOrchestrationDependencies;
+
+  await runEducationTest(
+    runEducationUnitTurn({
+      sessionId: unitRun.sessionId,
+      userId: "user-1",
+      turnId: "turn-1",
+      turnLeaseId: "lease-1",
+      message: "Swap the sensor and re-run the failing case.",
+      turn: ratedTurn,
+      deps,
+    }),
+    (commit) => {
+      captured.committed = commit;
+      return Effect.succeed({ assistantMessage });
+    },
+  );
+
+  const evaluation = captured.committed?.ratingEvaluation;
+  assert.ok(evaluation, "expected a rating evaluation on the commit");
+  assert.equal(evaluation.scenarioAttemptId, "attempt-1");
+  // 120s elapsed against a 300s budget — in time when measured from the claim.
+  assert.equal(evaluation.wasOverTime, false);
+  // occurredAt stays grading time: it orders evidence and is divorced from
+  // the learner-facing timing measurement.
+  assert.ok(evaluation.occurredAt.getTime() > claimedAt.getTime());
 });

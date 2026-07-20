@@ -105,6 +105,12 @@ type LoadedTurnTranscript =
       messages: WorkspaceAiMessage[];
       transcript: WorkspaceAiMessage[];
       claimedDurableTurn: boolean;
+      /**
+       * When the learner's message first reached the server (the durable turn
+       * claim). Attempt timing must anchor here, never on a timestamp taken
+       * after the model call — evaluator latency is not the learner's time.
+       */
+      claimedAt: Date;
     };
 
 const persistPromise = <A>(
@@ -281,6 +287,7 @@ const claimTurnAndLoadTranscript = ({
       messages,
       transcript: boundTranscript(messages),
       claimedDurableTurn: true,
+      claimedAt: claim.claimedAt,
     };
   });
 
@@ -497,6 +504,9 @@ export const runEducationUnitTurn = ({
     // atomically opened at presentation. The attempt row itself is the
     // exactly-once guard: getScenarioAttempt returns open attempts only, so a
     // repair turn after a recorded verdict finds none and skips rating.
+    // Timing anchors on the durable turn claim (claimedAt), not on a clock
+    // read here — by now the grader has run, and its latency (up to ~135s
+    // with retries) must not count against the learner's solve budget.
     let ratingEvaluation: WorkspaceRatingEvaluationCommit | null = null;
     if (turnResult.ratingWrite) {
       if (!scenarioAttemptId) {
@@ -505,7 +515,7 @@ export const runEducationUnitTurn = ({
             "Pass-2 evaluation requires the scenario attempt opened at presentation.",
         });
       }
-      const now = new Date();
+      const gradedAt = new Date();
       const getScenarioAttempt = deps.getScenarioAttempt;
       if (!getScenarioAttempt) {
         return yield* new RatingEvidenceError({
@@ -528,7 +538,7 @@ export const runEducationUnitTurn = ({
         }
         const timing = deriveServerAttemptTiming({
           presentedAt: attempt.solvePresentedAt,
-          submittedAt: now,
+          submittedAt: loadedTranscript.claimedAt,
           timeLimitSeconds: recipe.grade.solveTimeLimitSeconds,
         });
         if (!timing) {
@@ -543,7 +553,7 @@ export const runEducationUnitTurn = ({
           score: turnResult.ratingWrite.score,
           errorCodes: turnResult.ratingWrite.errorCodes,
           wasOverTime: timing.wasOverTime,
-          occurredAt: now,
+          occurredAt: gradedAt,
           bands: ratingScope.bands,
         };
       }

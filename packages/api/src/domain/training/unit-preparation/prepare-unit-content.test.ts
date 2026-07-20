@@ -112,6 +112,7 @@ const makeDeps = (
   ),
   createUnitContentIfAbsent: vi.fn(() => Promise.resolve(unit)),
   replaceUnitContent: vi.fn(() => Promise.resolve(unit)),
+  withUnitBuildLock: (_nodeId, run) => run(),
   ...overrides,
 });
 

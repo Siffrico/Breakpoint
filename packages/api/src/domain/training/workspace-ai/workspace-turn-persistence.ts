@@ -40,7 +40,9 @@ export interface WorkspaceTurnPersistenceDependencies
     turnId: string;
     leaseId: string;
   }) => Promise<
-    | { status: "claimed" }
+    // claimedAt: first arrival of this turnId, durable across lease reclaims
+    // and failed-turn retries — anchors server-side attempt timing.
+    | { status: "claimed"; claimedAt: Date }
     | { status: "processing" }
     | {
         status: "completed";

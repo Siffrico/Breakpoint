@@ -1,5 +1,5 @@
 import type { db as databaseClient } from "@acme/db/client";
-import { and, asc, desc, eq, inArray, sql } from "@acme/db";
+import { and, asc, desc, eq, inArray } from "@acme/db";
 import {
   TrainingCurriculumNode,
   TrainingCurriculumPlan,
@@ -571,11 +571,12 @@ export const trainingCurriculumRepository = {
     scenario: UnitContent["scenario"];
     unitMasteryContract?: UnitContent["unitMasteryContract"];
   }): Promise<UnitContent | null> => {
+    // Build-level mutual exclusion lives in unit-build-lock.ts and is held by
+    // the caller for the whole prepare. Taking the same advisory lock here on
+    // a second pooled connection would self-deadlock against that holder, so
+    // this write relies on onConflictDoNothing alone for row-level dedup.
     return db.transaction(async (tx) => {
       const transactionDb = tx as unknown as Database;
-      await transactionDb.execute(
-        sql`select pg_advisory_xact_lock(hashtext(${nodeId}), hashtext('prepare-unit-content'))`,
-      );
       await transactionDb
         .insert(TrainingUnitContent)
         .values({

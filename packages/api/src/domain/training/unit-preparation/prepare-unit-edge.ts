@@ -64,8 +64,14 @@ export const translateUnitPreparationErrors = <A, R>(
 export const runPrepareUnit = async (
   input: PrepareUnitContentInput,
 ): Promise<UnitContent> => {
-  const exit = await Effect.runPromiseExit(
-    translateUnitPreparationErrors(prepareUnitContent(input)),
+  // The build lock spans the entire prepare. A concurrent prepare for the
+  // same node blocks on acquisition, then hits the existing-row fast path
+  // inside prepareUnitContent and returns without a second LLM build; the
+  // holder's commit is also what wakes readiness waiters.
+  const exit = await input.deps.withUnitBuildLock(input.node.id, () =>
+    Effect.runPromiseExit(
+      translateUnitPreparationErrors(prepareUnitContent(input)),
+    ),
   );
 
   if (Exit.isSuccess(exit)) return exit.value;

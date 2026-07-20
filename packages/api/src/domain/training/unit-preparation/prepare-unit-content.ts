@@ -68,6 +68,15 @@ export interface UnitPreparationDependencies {
     teachbackSetup: UnitContent["teachbackSetup"];
     scenario: UnitContent["scenario"];
   }) => Promise<UnitContent | null>;
+  /**
+   * Holds this node's build lock while `run` executes. Concurrent prepares
+   * for the same node must serialize here (the loser re-checks and skips),
+   * and readiness waiters park on the same lock until the holder commits.
+   */
+  readonly withUnitBuildLock: <T>(
+    nodeId: string,
+    run: () => Promise<T>,
+  ) => Promise<T>;
 }
 
 export interface PrepareUnitContentInput {

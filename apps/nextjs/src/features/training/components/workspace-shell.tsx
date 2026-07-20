@@ -1,78 +1,37 @@
 "use client";
 
 import type { MouseEvent } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import dynamic from "next/dynamic";
-import Link from "next/link";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Lightbulb, SidebarSimple } from "@phosphor-icons/react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import type { RouterOutputs } from "@acme/api";
-import { Button } from "@acme/ui/button";
 import { toast } from "@acme/ui/toast";
 
+import type {
+  ChatHistory,
+  EducationUnit,
+  LearningProject,
+  OnboardingState,
+  PlanState,
+  WorkspaceMode,
+} from "./use-workspace-session";
+import type { WorkspaceTheme } from "./workspace-sidebar";
 import type {
   UnitCoachCommandIntent,
   UnitCoachTrigger,
 } from "~/features/training/lib/unit-coach-commands";
 import { useLocalStorage } from "~/hooks/use-local-storage";
 import { useTRPC } from "~/trpc/react";
-import { AssistantRichText } from "./assistant-rich-text";
-import { WorkspaceHeaderTimer } from "./workspace-header-timer";
-
-const CurriculumSidebar = dynamic(() =>
-  import("./curriculum-sidebar").then((mod) => mod.CurriculumSidebar),
-);
-const EducationUnitWorkspace = dynamic(() =>
-  import("./education-unit/education-unit-workspace").then(
-    (mod) => mod.EducationUnitWorkspace,
-  ),
-);
-const OnboardingShell = dynamic(() =>
-  import("./onboarding-shell").then((mod) => mod.OnboardingShell),
-);
-const UnitCoachPanel = dynamic(() =>
-  import("./unit-coach-panel").then((mod) => mod.UnitCoachPanel),
-);
-const ChatHistoryView = dynamic(() =>
-  import("./chat-history-view").then((mod) => mod.ChatHistoryView),
-);
-
-type PlanState = RouterOutputs["training"]["activePlan"];
-type EducationUnit = RouterOutputs["training"]["unit"];
-type OnboardingState = RouterOutputs["training"]["onboardingState"];
-type AiWorkspace = RouterOutputs["training"]["aiWorkspace"];
-type EvaluationPlan = NonNullable<AiWorkspace["evaluationPlan"]>;
-type LearningProject =
-  RouterOutputs["training"]["listLearningProjects"][number];
-type ChatHistory = RouterOutputs["training"]["chatHistory"];
-type WorkspaceShellState = RouterOutputs["training"]["workspaceShell"];
+import { useWorkspaceSession } from "./use-workspace-session";
+import { WorkspaceHeader } from "./workspace-header";
+import { WorkspaceLiveWorkspace } from "./workspace-live-workspace";
+import { WorkspaceSidebar } from "./workspace-sidebar";
 
 const LAST_SESSION_COOKIE = "bp-last-learning-session";
 const EMPTY_PROJECTS: LearningProject[] = [];
 const MAX_COACH_ANSWER_CHARS = 3_200;
+const LOCKED_UNIT_ADVANCE_GATE = { status: "locked" } as const;
 
-const isUnitPreparingError = (error: unknown) => {
-  if (!error || typeof error !== "object") return false;
-  const candidate = error as {
-    message?: string;
-    data?: { code?: string };
-  };
-  return (
-    candidate.data?.code === "PRECONDITION_FAILED" &&
-    candidate.message === "UNIT_PREPARING"
-  );
-};
-
-const getUnitPreparingNodeId = (error: unknown) => {
-  if (!isUnitPreparingError(error)) return null;
-  const candidate = error as { data?: { unitNodeId?: string | null } };
-  return candidate.data?.unitNodeId ?? null;
-};
-
-type WorkspaceMode = "history" | "onboarding" | "unit" | "idle";
-type WorkspaceTheme = "light" | "dark" | "warm";
 interface AdvanceTransition {
   sessionId: string;
   completedNodeId: string;
@@ -113,32 +72,25 @@ export function WorkspaceShell({
     useState<AdvanceTransition | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const projectsQuery = useQuery(
-    trpc.training.listLearningProjects.queryOptions(undefined, {
-      initialData: projects,
-      staleTime: Number.POSITIVE_INFINITY,
-    }),
-  );
-  const serverProjects = projectsQuery.data;
-
   const toggleSidebar = useCallback(() => {
-    setSidebarCollapsed((prev) => !prev);
+    setSidebarCollapsed((collapsed) => !collapsed);
   }, []);
-
+  const openMobileSidebar = useCallback(() => {
+    setMobileSidebarOpen(true);
+  }, []);
   const closeMobileSidebar = useCallback(() => {
     setMobileSidebarOpen(false);
   }, []);
 
   useEffect(() => {
     if (!mobileSidebarOpen) return;
-
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setMobileSidebarOpen(false);
     };
-
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [mobileSidebarOpen]);
+
   const [unitCoachOpen, setUnitCoachOpen] = useState(false);
   const [unitCoachFocused, setUnitCoachFocused] = useState(false);
   const [unitCoachTrigger, setUnitCoachTrigger] =
@@ -148,7 +100,10 @@ export function WorkspaceShell({
     unit: null as EducationUnit | null,
   });
   const [isSessionRunning, setIsSessionRunning] = useState(false);
-  const [onboardingTurnCount, setOnboardingTurnCount] = useState(0);
+  const [onboardingTurnState, setOnboardingTurnState] = useState({
+    count: 0,
+    sessionId,
+  });
   const [workspaceTheme, setWorkspaceTheme] = useLocalStorage<WorkspaceTheme>(
     "bp-workspace-theme",
     "warm",
@@ -157,195 +112,35 @@ export function WorkspaceShell({
     advanceTransition?.sessionId === selectedSessionId
       ? advanceTransition
       : null;
-  const resolvedProjects = activeAdvanceTransition
-    ? serverProjects.map((project) => {
-        if (
-          project.sessionId !== selectedSessionId ||
-          project.lessonPreview.some(
-            (lesson) => lesson.id === activeAdvanceTransition.projectedNodeId,
-          )
-        ) {
-          return project;
-        }
-
-        return {
-          ...project,
-          lessonPreview: [
-            {
-              id: activeAdvanceTransition.projectedNodeId,
-              title: activeAdvanceTransition.title,
-              status: "ready" as const,
-            },
-            ...project.lessonPreview,
-          ],
-        };
-      })
-    : serverProjects;
-  const selectedProject = resolvedProjects.find(
-    (project) => project.sessionId === selectedSessionId,
-  );
-  const isInitialSession = selectedSessionId === sessionId;
-  const isOnboardingProject = Boolean(
-    selectedProject && selectedProject.status !== "active",
-  );
-  const initialShell: WorkspaceShellState = onboardingState
-    ? {
-        kind: "onboarding",
-        sessionId,
-        projects,
-        onboardingState,
-      }
-    : plan
-      ? {
-          kind: "workspace",
-          sessionId,
-          projects,
-          plan,
-        }
-      : { kind: "needs-onboarding", projects };
-  const workspaceShellOptions = trpc.training.workspaceShell.queryOptions(
-    { sessionId: selectedSessionId },
-    {
-      enabled: !preview,
-      staleTime: Number.POSITIVE_INFINITY,
-      retry: false,
-    },
-  );
-  const workspaceShellQuery = useQuery({
-    ...workspaceShellOptions,
-    initialData: isInitialSession ? initialShell : undefined,
+  const {
+    aiWorkspace,
+    activeNode,
+    activeNodeId,
+    chatHistoryQuery,
+    fetchedUnit,
+    isHistorySelected,
+    resolvedChatHistory,
+    resolvedOnboardingState,
+    selectedProject,
+    serverProjects,
+    unitPreparing,
+    workspaceShellQuery,
+  } = useWorkspaceSession({
+    plan,
+    onboardingState,
+    projects,
+    sessionId,
+    selectedSessionId,
+    selectedChatId,
+    chatHistory,
+    preview,
+    activeAdvanceTransition,
   });
-  const resolvedPlan =
-    workspaceShellQuery.data?.kind === "workspace"
-      ? workspaceShellQuery.data.plan
-      : null;
-  const resolvedOnboardingState =
-    workspaceShellQuery.data?.kind === "onboarding"
-      ? workspaceShellQuery.data.onboardingState
-      : null;
-
-  // The shell's next unit is only a coarse guess at the live node: during a
-  // recall interlude the live chat is a *completed* older node, which only the
-  // aiWorkspace projection can reveal. So history classification uses the
-  // recall-aware activeNodeId below, and aiWorkspace (a read-only projection —
-  // it never triggers unit generation) stays enabled even while a transcript
-  // is open; otherwise a deep link into the live recall chat would lock itself
-  // into a read-only view with no data source left to correct it.
-  const fallbackActiveNodeId = resolvedPlan?.nextUnitId ?? null;
-  // Coarse pre-query flag, used only to damp polling: a selected chat means
-  // the learner is reading, so background UNIT_PREPARING/advance polling can
-  // pause until they return to the live view.
-  const chatPreselected = Boolean(
-    selectedChatId && selectedChatId !== fallbackActiveNodeId,
-  );
-  const aiWorkspaceQuery = useQuery(
-    trpc.training.aiWorkspace.queryOptions(
-      { sessionId: selectedSessionId },
-      {
-        enabled: !preview && !isOnboardingProject,
-        staleTime: Number.POSITIVE_INFINITY,
-        refetchOnWindowFocus: false,
-        retry: false,
-        refetchInterval: (query) => {
-          if (chatPreselected) return false;
-          // An optimistic advance is waiting on background unit creation:
-          // poll tight so the thinking state resolves in seconds, not the
-          // relaxed UNIT_PREPARING cadence.
-          if (activeAdvanceTransition) return 5_000;
-          return isUnitPreparingError(query.state.error) ? 60_000 : false;
-        },
-      },
-    ),
-  );
-  const resolvedAiWorkspace = aiWorkspaceQuery.data ?? null;
-  const activeNodeId =
-    resolvedAiWorkspace?.state?.recallUnitId ??
-    resolvedAiWorkspace?.state?.activeUnitId ??
-    fallbackActiveNodeId;
-  const activeNode = activeNodeId
-    ? (resolvedPlan?.nodes.find((node) => node.id === activeNodeId) ?? null)
-    : null;
-  const isHistorySelected = Boolean(
-    selectedChatId && selectedChatId !== activeNodeId,
-  );
-  const chatHistoryQuery = useQuery(
-    trpc.training.chatHistory.queryOptions(
-      { sessionId: selectedSessionId, nodeId: selectedChatId ?? "" },
-      {
-        enabled: !preview && isHistorySelected,
-        initialData:
-          isInitialSession && chatHistory?.node.id === selectedChatId
-            ? chatHistory
-            : undefined,
-        staleTime: Number.POSITIVE_INFINITY,
-        refetchOnWindowFocus: false,
-        retry: false,
-      },
-    ),
-  );
-  const resolvedChatHistory = isHistorySelected
-    ? (chatHistoryQuery.data ?? null)
-    : null;
-  const unitQuery = useQuery(
-    trpc.training.unit.queryOptions(
-      { sessionId: selectedSessionId, nodeId: activeNode?.id ?? "" },
-      {
-        enabled: !preview && !isHistorySelected && Boolean(activeNode),
-        retry: false,
-      },
-    ),
-  );
-  const fetchedUnit = unitQuery.data ?? null;
   const liveUnit =
     liveUnitState.sessionId === selectedSessionId &&
     liveUnitState.unit?.nodeId === fetchedUnit?.nodeId
       ? liveUnitState.unit
       : fetchedUnit;
-  const workspaceError =
-    aiWorkspaceQuery.failureReason ?? aiWorkspaceQuery.error;
-  const unitPreparing = isUnitPreparingError(workspaceError);
-  const preparingNodeId = getUnitPreparingNodeId(workspaceError);
-  useEffect(() => {
-    if (!unitPreparing || !preparingNodeId || preview || isHistorySelected)
-      return;
-
-    const events = new EventSource(
-      `/api/workspace/events?sessionId=${encodeURIComponent(selectedSessionId)}&nodeId=${encodeURIComponent(preparingNodeId)}`,
-    );
-    const handleUnitReady = () => {
-      void queryClient.invalidateQueries({
-        queryKey: trpc.training.aiWorkspace.queryKey({
-          sessionId: selectedSessionId,
-        }),
-      });
-    };
-    events.addEventListener("unit_ready", handleUnitReady);
-
-    return () => {
-      events.removeEventListener("unit_ready", handleUnitReady);
-      events.close();
-    };
-  }, [
-    isHistorySelected,
-    preview,
-    preparingNodeId,
-    queryClient,
-    selectedSessionId,
-    trpc.training.aiWorkspace,
-    unitPreparing,
-  ]);
-
-  useEffect(() => {
-    // Non-sensitive "last opened session" breadcrumb, not an auth secret; it
-    // must stay client-readable, so it is deliberately not httpOnly.
-    document.cookie = `${LAST_SESSION_COOKIE}=${selectedSessionId}; path=/; SameSite=Lax`;
-    const params = new URLSearchParams(window.location.search);
-    if (!params.has("session")) {
-      params.set("session", selectedSessionId);
-      window.history.replaceState(null, "", `/workspace?${params.toString()}`);
-    }
-  }, [selectedSessionId]);
-
   const mode: WorkspaceMode = isHistorySelected
     ? "history"
     : resolvedOnboardingState
@@ -353,27 +148,40 @@ export function WorkspaceShell({
       : liveUnit
         ? "unit"
         : "idle";
-  // Education units are not timed under the v4 FSM — the server never emits an
-  // evaluationPlan for them — so this resolves to null and the timer stays
-  // dormant. Sourced from the server field (rather than a literal null) so the
-  // timer code paths remain type-valid if timed scenarios are reintroduced.
-  const activeEvaluationPlan: EvaluationPlan | null =
-    resolvedAiWorkspace?.evaluationPlan ?? null;
-  const unitAdvanceGate = resolvedAiWorkspace?.unitAdvanceGate ?? {
-    status: "locked",
-  };
+  const activeEvaluationPlan = aiWorkspace?.evaluationPlan ?? null;
+  const attemptStartedAt =
+    aiWorkspace?.evaluationProgress?.attemptStartedAt?.getTime() ?? null;
+  const runningEvaluationPlan =
+    activeEvaluationPlan && attemptStartedAt != null
+      ? activeEvaluationPlan
+      : null;
+  const unitAdvanceGate =
+    aiWorkspace?.unitAdvanceGate ?? LOCKED_UNIT_ADVANCE_GATE;
   const canAdvanceUnit =
     mode === "unit" &&
     activeAdvanceTransition == null &&
-    resolvedAiWorkspace?.state?.recallUnitId == null &&
+    aiWorkspace?.state?.recallUnitId == null &&
     unitAdvanceGate.status === "enabled";
   const pendingActiveLessonId =
     activeAdvanceTransition?.projectedNodeId ?? null;
+  const effectiveSidebarCollapsed =
+    mode === "onboarding" ? true : sidebarCollapsed;
+  const onboardingTurnCount =
+    onboardingTurnState.sessionId === selectedSessionId
+      ? onboardingTurnState.count
+      : 0;
+
+  useEffect(() => {
+    const frameId = window.requestAnimationFrame(() => {
+      setSidebarCollapsed(mode === "onboarding");
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [mode]);
 
   useEffect(() => {
     if (!activeAdvanceTransition) return;
 
-    const serverActiveNodeId = resolvedAiWorkspace?.state?.activeUnitId;
+    const serverActiveNodeId = aiWorkspace?.state?.activeUnitId;
     const serverProject = serverProjects.find(
       (project) => project.sessionId === activeAdvanceTransition.sessionId,
     );
@@ -389,9 +197,12 @@ export function WorkspaceShell({
     );
 
     if (serverAdvanced && serverProjectHasNextNode) {
-      setAdvanceTransition((current) =>
-        current === activeAdvanceTransition ? null : current,
-      );
+      const frameId = window.requestAnimationFrame(() => {
+        setAdvanceTransition((current) =>
+          current === activeAdvanceTransition ? null : current,
+        );
+      });
+      return () => window.cancelAnimationFrame(frameId);
     } else if (serverAdvanced) {
       void queryClient.invalidateQueries({
         queryKey: trpc.training.listLearningProjects.queryKey(),
@@ -400,7 +211,7 @@ export function WorkspaceShell({
   }, [
     activeAdvanceTransition,
     queryClient,
-    resolvedAiWorkspace,
+    aiWorkspace,
     serverProjects,
     trpc.training.listLearningProjects,
   ]);
@@ -476,62 +287,24 @@ export function WorkspaceShell({
       },
     }),
   );
-  const timerIsActive = activeEvaluationPlan != null;
-  const attemptStartedAt =
-    resolvedAiWorkspace?.evaluationProgress?.attemptStartedAt?.getTime() ??
-    null;
-  const runningEvaluationPlan =
-    timerIsActive && attemptStartedAt != null ? activeEvaluationPlan : null;
-
   useEffect(() => {
-    setIsSessionRunning(false);
-  }, [mode, selectedSessionId]);
-
-  // Auto-collapse the sidebar to a rail when entering onboarding for a new
-  // topic, and auto-expand once the curriculum is ready and we move on.
-  const lastModeRef = useRef<WorkspaceMode | null>(null);
-  useEffect(() => {
-    const prev = lastModeRef.current;
-    lastModeRef.current = mode;
-    if (prev === mode) return;
-    if (mode === "onboarding") {
-      setSidebarCollapsed(true);
-    } else if (prev === "onboarding") {
-      setSidebarCollapsed(false);
+    document.cookie = `${LAST_SESSION_COOKIE}=${selectedSessionId}; path=/; SameSite=Lax`;
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has("session")) {
+      params.set("session", selectedSessionId);
+      window.history.replaceState(null, "", `/workspace?${params.toString()}`);
     }
-  }, [mode]);
+  }, [selectedSessionId]);
 
-  // Reset the onboarding turn counter when the session or mode changes so the
-  // header doesn't display a stale count between sessions.
-  useEffect(() => {
-    setOnboardingTurnCount(0);
-  }, [mode, selectedSessionId]);
-
-  const handleExitOnboarding = () => {
+  const handleExitOnboarding = useCallback(() => {
     router.push("/");
-  };
-
-  const manualSetupHref =
-    mode === "onboarding"
-      ? preview
-        ? "/ui/profile"
-        : `/settings/topics?session=${encodeURIComponent(selectedSessionId)}`
-      : null;
-
-  const shellTitle =
-    mode === "history"
-      ? (resolvedChatHistory?.node.title ??
-        selectedProject?.lessonPreview.find(
-          (lesson) => lesson.id === selectedChatId,
-        )?.title ??
-        "Chat history")
-      : mode === "onboarding"
-        ? (resolvedOnboardingState?.activeQuestion?.prompt ??
-          "Start a new learning track")
-        : (activeAdvanceTransition?.title ??
-          liveUnit?.title ??
-          activeNode?.title ??
-          "Preparing your next unit");
+  }, [router]);
+  const handleOnboardingTurnCount = useCallback(
+    (count: number) => {
+      setOnboardingTurnState({ count, sessionId: selectedSessionId });
+    },
+    [selectedSessionId],
+  );
 
   const closeUnitCoach = useCallback(() => {
     setUnitCoachFocused(false);
@@ -594,12 +367,12 @@ export function WorkspaceShell({
     [liveUnit],
   );
 
-  const toggleUnitCoach = () => {
+  const toggleUnitCoach = useCallback(() => {
     setUnitCoachTrigger(null);
     setUnitCoachOpen((open) => (unitCoachFocused ? true : !open));
-  };
+  }, [unitCoachFocused]);
 
-  const handleAdvanceCompletedUnit = () => {
+  const handleAdvanceCompletedUnit = useCallback(() => {
     if (
       !canAdvanceUnit ||
       preview ||
@@ -613,7 +386,14 @@ export function WorkspaceShell({
       sessionId: selectedSessionId,
       nodeId: unitAdvanceGate.unitId,
     });
-  };
+  }, [
+    advanceCompletedUnit,
+    canAdvanceUnit,
+    isSessionRunning,
+    preview,
+    selectedSessionId,
+    unitAdvanceGate,
+  ]);
 
   const handleUnitStateChange = useCallback(
     (nextUnit: EducationUnit) => {
@@ -732,360 +512,145 @@ export function WorkspaceShell({
       selectedSessionId,
     ],
   );
+  const handleBackToCurrentChat = useCallback(
+    (event: MouseEvent<HTMLAnchorElement>) => {
+      handleWorkspaceLink(event, selectedSessionId, null);
+    },
+    [handleWorkspaceLink, selectedSessionId],
+  );
 
-  useEffect(() => {
-    const handlePopState = () => {
-      const params = new URLSearchParams(window.location.search);
-      setSelectedSessionId(params.get("session") ?? sessionId);
-      setSelectedChatId(params.get("chat"));
-    };
-
-    window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, [sessionId]);
-
-  // Flat Mac/T3 toolbar control: a real filled *material* (subtle surface +
-  // soft border + theme-specific shadow), not a transparent bordered box.
-  // Surface/border/shadow come from --bp-toolbar-* vars (styles.css) that flip
-  // with data-workspace-theme. 9px radius, icons brighter (foreground/70 @ 85%)
-  // so they don't read as ghosted. Custom <button> so our Button's `outline`
-  // variant (primary-flip hover) doesn't override these. Same h-7 size.
-  const headerActionClass =
-    "relative inline-flex h-7 shrink-0 cursor-pointer items-center justify-center gap-1 whitespace-nowrap rounded-[9px] border border-[var(--bp-toolbar-border)] bg-[var(--bp-toolbar-surface)] bg-clip-padding px-3 text-sm font-medium text-foreground shadow-[var(--bp-toolbar-shadow)] outline-none transition-colors hover:bg-[var(--bp-toolbar-surface-hover)] focus-visible:ring-2 focus-visible:ring-foreground/20 disabled:pointer-events-none disabled:opacity-64 [&_svg]:pointer-events-none [&_svg]:-mx-0.5 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg:not([class*='opacity-'])]:opacity-85 [&_svg:not([class*='text-'])]:text-foreground/70";
+  const resolvedProjects = activeAdvanceTransition
+    ? serverProjects.map((project) => {
+        if (
+          project.sessionId !== selectedSessionId ||
+          project.lessonPreview.some(
+            (lesson) => lesson.id === activeAdvanceTransition.projectedNodeId,
+          )
+        ) {
+          return project;
+        }
+        return {
+          ...project,
+          lessonPreview: [
+            {
+              id: activeAdvanceTransition.projectedNodeId,
+              title: activeAdvanceTransition.title,
+              status: "ready" as const,
+            },
+            ...project.lessonPreview,
+          ],
+        };
+      })
+    : serverProjects;
+  const manualSetupHref =
+    mode === "onboarding"
+      ? preview
+        ? "/ui/profile"
+        : `/settings/topics?session=${encodeURIComponent(selectedSessionId)}`
+      : null;
+  const shellTitle =
+    mode === "history"
+      ? (resolvedChatHistory?.node.title ??
+        selectedProject?.lessonPreview.find(
+          (lesson) => lesson.id === selectedChatId,
+        )?.title ??
+        "Chat history")
+      : mode === "onboarding"
+        ? (resolvedOnboardingState?.activeQuestion?.prompt ??
+          "Start a new learning track")
+        : (activeAdvanceTransition?.title ??
+          liveUnit?.title ??
+          activeNode?.title ??
+          "Preparing your next unit");
 
   return (
     <div
       className="bp-workspace-theme bg-background text-foreground flex h-dvh overflow-hidden"
       data-workspace-theme={workspaceTheme}
     >
-      <div
-        inert={sidebarCollapsed ? true : undefined}
-        className={[
-          "hidden shrink-0 overflow-hidden transition-[width] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] md:block",
-          sidebarCollapsed ? "w-0" : "bg-sidebar w-[220px]",
-        ].join(" ")}
-      >
-        <div className="h-full w-[220px]">
-          <CurriculumSidebar
-            projects={resolvedProjects}
-            currentSessionId={selectedSessionId}
-            preview={preview}
-            collapsed={false}
-            onToggleCollapsed={toggleSidebar}
-            userName={userName}
-            activeLessonId={
-              pendingActiveLessonId ??
-              resolvedChatHistory?.node.id ??
-              liveUnit?.nodeId ??
-              null
-            }
-            isSessionRunning={isSessionRunning}
-            workspaceTheme={workspaceTheme}
-            onWorkspaceThemeChange={setWorkspaceTheme}
-            onSelectProject={handleSelectProject}
-            onPrefetchProject={prefetchProject}
-            onSelectChat={handleSelectChat}
-            onPrefetchChat={prefetchChat}
-          />
-        </div>
-      </div>
-
-      {mobileSidebarOpen ? (
-        <div className="fixed inset-0 z-50 md:hidden">
-          <button
-            type="button"
-            aria-label="Close sidebar"
-            className="bg-foreground/20 absolute inset-0 backdrop-blur-[1px]"
-            onClick={closeMobileSidebar}
-          />
-          <div
-            className="bg-sidebar relative h-full w-[min(86vw,320px)] shadow-2xl"
-            onClick={(event) => {
-              if ((event.target as HTMLElement).closest("a")) {
-                setMobileSidebarOpen(false);
-              }
-            }}
-          >
-            <CurriculumSidebar
-              projects={resolvedProjects}
-              currentSessionId={selectedSessionId}
-              preview={preview}
-              collapsed={false}
-              onToggleCollapsed={closeMobileSidebar}
-              userName={userName}
-              activeLessonId={
-                pendingActiveLessonId ??
-                resolvedChatHistory?.node.id ??
-                liveUnit?.nodeId ??
-                null
-              }
-              isSessionRunning={isSessionRunning}
-              workspaceTheme={workspaceTheme}
-              onWorkspaceThemeChange={setWorkspaceTheme}
-              onNavigate={closeMobileSidebar}
-              onSelectProject={handleSelectProject}
-              onPrefetchProject={prefetchProject}
-              onSelectChat={handleSelectChat}
-              onPrefetchChat={prefetchChat}
-            />
-          </div>
-        </div>
-      ) : null}
+      <WorkspaceSidebar
+        projects={resolvedProjects}
+        selectedSessionId={selectedSessionId}
+        activeLessonId={
+          pendingActiveLessonId ??
+          resolvedChatHistory?.node.id ??
+          liveUnit?.nodeId ??
+          null
+        }
+        preview={preview}
+        collapsed={effectiveSidebarCollapsed}
+        mobileOpen={mobileSidebarOpen}
+        userName={userName}
+        isSessionRunning={isSessionRunning}
+        workspaceTheme={workspaceTheme}
+        onWorkspaceThemeChange={setWorkspaceTheme}
+        onToggleCollapsed={toggleSidebar}
+        onCloseMobile={closeMobileSidebar}
+        onSelectProject={handleSelectProject}
+        onPrefetchProject={prefetchProject}
+        onSelectChat={handleSelectChat}
+        onPrefetchChat={prefetchChat}
+      />
 
       <div className="border-foreground/[0.08] flex min-w-0 flex-1 flex-col md:border-l">
-        <header className="border-foreground/[0.08] relative flex h-14 shrink-0 items-center justify-between gap-2 border-b px-3 sm:px-6">
-          <div className="flex min-w-0 items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setMobileSidebarOpen(true)}
-              aria-label="Open sidebar"
-              className="text-foreground/40 hover:text-foreground/80 hover:bg-foreground/[0.04] flex size-7 shrink-0 items-center justify-center rounded-[6px] transition-colors outline-none focus:outline-none focus-visible:outline-none md:hidden"
-            >
-              <SidebarSimple size={15} />
-            </button>
-            {sidebarCollapsed ? (
-              <button
-                type="button"
-                onClick={toggleSidebar}
-                aria-label="Open sidebar"
-                className="text-foreground/40 hover:text-foreground/80 hover:bg-foreground/[0.04] -ml-1.5 hidden size-7 shrink-0 items-center justify-center rounded-[6px] transition-colors outline-none focus:outline-none focus-visible:outline-none md:flex"
-              >
-                <SidebarSimple size={15} />
-              </button>
-            ) : null}
-            {mode === "onboarding" ? (
-              <>
-                <h1 className="font-display text-foreground/82 text-[14px] tracking-[-0.01em]">
-                  Defining your track
-                </h1>
-                <span
-                  aria-live="polite"
-                  className="text-foreground/40 text-[11px]"
-                >
-                  {isSessionRunning
-                    ? "Still calibrating..."
-                    : onboardingTurnCount > 0
-                      ? `Question ${onboardingTurnCount + 1}`
-                      : "Tell me who you want to become"}
-                </span>
-              </>
-            ) : (
-              <h1 className="font-display text-foreground min-w-0 text-[16px] tracking-[-0.02em]">
-                <AssistantRichText
-                  content={shellTitle}
-                  className="overflow-hidden [&>*]:overflow-hidden [&>*]:text-ellipsis [&>*]:whitespace-nowrap"
-                />
-              </h1>
-            )}
-          </div>
-
-          {runningEvaluationPlan && attemptStartedAt != null ? (
-            <WorkspaceHeaderTimer
-              plan={runningEvaluationPlan}
-              attemptStartedAt={attemptStartedAt}
-            />
-          ) : null}
-
-          {mode === "onboarding" && manualSetupHref ? (
-            <div className="flex shrink-0 items-center gap-1.5">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={handleExitOnboarding}
-                className="text-foreground/52 hover:text-foreground hover:bg-foreground/[0.04] h-7 rounded-none px-2 text-[12px] before:rounded-none"
-              >
-                Exit
-              </Button>
-              <Button
-                render={<Link href={manualSetupHref} />}
-                variant="outline"
-                size="sm"
-                className="border-foreground/12 bg-background text-foreground/72 hover:border-foreground/22 hover:bg-foreground/[0.04] hover:text-foreground h-7 rounded-none px-2.5 text-[12px] before:rounded-none"
-              >
-                Do manually
-              </Button>
-            </div>
-          ) : mode === "unit" && liveUnit ? (
-            <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-              <button
-                type="button"
-                onClick={toggleUnitCoach}
-                aria-label="Ask coach"
-                className={headerActionClass}
-              >
-                <Lightbulb weight="regular" />
-                <span className="hidden sm:inline">Ask coach</span>
-              </button>
-              <button
-                type="button"
-                aria-label={
-                  advanceCompletedUnit.isPending ? "Advancing" : "Next Unit"
-                }
-                disabled={
-                  preview ||
-                  isSessionRunning ||
-                  !canAdvanceUnit ||
-                  advanceCompletedUnit.isPending
-                }
-                onClick={handleAdvanceCompletedUnit}
-                title={
-                  canAdvanceUnit
-                    ? unitAdvanceGate.nextTitle
-                      ? `Continue to ${unitAdvanceGate.nextTitle}`
-                      : "Continue"
-                    : "Complete this unit to unlock"
-                }
-                className={headerActionClass}
-              >
-                <span className="hidden sm:inline">
-                  {advanceCompletedUnit.isPending
-                    ? "Advancing..."
-                    : "Next Unit"}
-                </span>
-                <ArrowRight weight="regular" className="-ml-1" />
-              </button>
-            </div>
-          ) : null}
-        </header>
-
-        <div className="relative flex min-h-0 flex-1">
-          <div className="bg-background flex min-w-0 flex-1 flex-col overflow-hidden">
-            <div className="flex min-h-0 flex-1 overflow-hidden">
-              {!unitCoachFocused && (
-                <main
-                  className={[
-                    "flex min-w-0 flex-1 flex-col",
-                    // Unit mode scrolls inside the workspace's receipt trail,
-                    // not at the main level — the scenario anchor and composer
-                    // stay viewport-fixed.
-                    mode === "onboarding"
-                      ? "min-h-0 overflow-hidden"
-                      : mode === "unit"
-                        ? "min-h-0 overflow-hidden px-6 sm:px-10"
-                        : "overflow-y-auto px-6 pt-1 pb-2 sm:px-10 sm:pt-2",
-                  ].join(" ")}
-                >
-                  <div
-                    className={
-                      mode === "onboarding" || mode === "unit"
-                        ? "flex min-h-0 w-full flex-1 flex-col"
-                        : mode === "history"
-                          ? "flex min-h-full flex-col"
-                          : "bp-prose flex min-h-full flex-col"
-                    }
-                  >
-                    {mode === "history" && resolvedChatHistory ? (
-                      <ChatHistoryView
-                        messages={resolvedChatHistory.messages}
-                        currentChatHref={
-                          preview
-                            ? "/ui/workspace"
-                            : `/workspace?session=${encodeURIComponent(selectedSessionId)}`
-                        }
-                        onBackToCurrentChat={(event) =>
-                          handleWorkspaceLink(event, selectedSessionId, null)
-                        }
-                      />
-                    ) : null}
-
-                    {mode === "history" && !resolvedChatHistory ? (
-                      <div className="text-foreground/48 py-16 text-center text-[13px]">
-                        {chatHistoryQuery.isError
-                          ? chatHistoryQuery.error.message
-                          : "Loading chat..."}
-                      </div>
-                    ) : null}
-
-                    {mode === "onboarding" && resolvedOnboardingState ? (
-                      <OnboardingShell
-                        // OnboardingShell seeds its session id and transcript
-                        // from props on mount only; without the key, switching
-                        // between two onboarding projects would keep chatting
-                        // against the previous session.
-                        key={selectedSessionId}
-                        embedded
-                        variant="landscape"
-                        initialState={resolvedOnboardingState}
-                        sessionId={selectedSessionId}
-                        onRunningChange={setIsSessionRunning}
-                        onTurnCountChange={setOnboardingTurnCount}
-                      />
-                    ) : null}
-
-                    {mode === "unit" && liveUnit ? (
-                      <EducationUnitWorkspace
-                        // Remount on session switch so refs (pending turn ids,
-                        // drafts) never leak across projects, matching the old
-                        // full-page-navigation semantics.
-                        key={selectedSessionId}
-                        unit={liveUnit}
-                        sessionId={selectedSessionId}
-                        preview={preview}
-                        embedded
-                        aiWorkspace={resolvedAiWorkspace}
-                        advancePending={activeAdvanceTransition != null}
-                        onAdvanceUnit={handleAdvanceCompletedUnit}
-                        onStateChange={handleUnitStateChange}
-                        onRunningChange={setIsSessionRunning}
-                        onRunCommand={openUnitCoachWithCommand}
-                        onAskCoachAboutAnswer={openUnitCoachForAnswer}
-                        onAskCoachAboutSelection={openUnitCoachForSelection}
-                      />
-                    ) : null}
-
-                    {mode === "idle" ? (
-                      <div className="flex min-h-[60vh] flex-col justify-center">
-                        <div className="border-foreground/[0.08] border px-7 py-6">
-                          <h2 className="font-display text-foreground text-base font-semibold tracking-[-0.02em]">
-                            <AssistantRichText
-                              content={
-                                workspaceShellQuery.isError
-                                  ? workspaceShellQuery.error.message
-                                  : (activeNode?.title ??
-                                    "Preparing your next unit")
-                              }
-                            />
-                          </h2>
-                          <div className="text-foreground/52 mt-3 text-[13px] leading-6">
-                            <AssistantRichText
-                              content={
-                                unitPreparing
-                                  ? "Your next learning step is being prepared. This page will continue automatically."
-                                  : "Your next learning step is being prepared."
-                              }
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                </main>
-              )}
-
-              {unitCoachOpen && liveUnit ? (
-                <div
-                  className={[
-                    "min-w-0 transition-[width] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)]",
-                    unitCoachFocused ? "w-full" : "w-[380px]",
-                  ].join(" ")}
-                >
-                  <UnitCoachPanel
-                    key={`${selectedSessionId}:${liveUnit.nodeId}`}
-                    unit={liveUnit}
-                    sessionId={selectedSessionId}
-                    trigger={unitCoachTrigger}
-                    preview={preview}
-                    isFocused={unitCoachFocused}
-                    onClose={closeUnitCoach}
-                    onToggleFocus={toggleUnitCoachFocus}
-                    onReturnToUnit={returnToUnit}
-                  />
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </div>
+        <WorkspaceHeader
+          mode={mode}
+          title={shellTitle}
+          sidebarCollapsed={effectiveSidebarCollapsed}
+          isSessionRunning={isSessionRunning}
+          onboardingTurnCount={onboardingTurnCount}
+          manualSetupHref={manualSetupHref}
+          runningEvaluationPlan={runningEvaluationPlan}
+          attemptStartedAt={attemptStartedAt}
+          hasLiveUnit={liveUnit != null}
+          canAdvanceUnit={canAdvanceUnit}
+          advancePending={advanceCompletedUnit.isPending}
+          preview={preview}
+          nextUnitTitle={
+            unitAdvanceGate.status === "enabled"
+              ? (unitAdvanceGate.nextTitle ?? undefined)
+              : undefined
+          }
+          onOpenMobileSidebar={openMobileSidebar}
+          onToggleSidebar={toggleSidebar}
+          onExitOnboarding={handleExitOnboarding}
+          onToggleCoach={toggleUnitCoach}
+          onAdvanceUnit={handleAdvanceCompletedUnit}
+        />
+        <WorkspaceLiveWorkspace
+          mode={mode}
+          selectedSessionId={selectedSessionId}
+          chatHistory={resolvedChatHistory}
+          chatHistoryError={
+            chatHistoryQuery.isError ? chatHistoryQuery.error.message : null
+          }
+          onboardingState={resolvedOnboardingState}
+          liveUnit={liveUnit}
+          aiWorkspace={aiWorkspace}
+          activeNodeTitle={activeNode?.title ?? null}
+          workspaceShellError={
+            workspaceShellQuery.isError
+              ? workspaceShellQuery.error.message
+              : null
+          }
+          unitPreparing={unitPreparing}
+          preview={preview}
+          advancePending={activeAdvanceTransition != null}
+          unitCoachOpen={unitCoachOpen}
+          unitCoachFocused={unitCoachFocused}
+          unitCoachTrigger={unitCoachTrigger}
+          onBackToCurrentChat={handleBackToCurrentChat}
+          onRunningChange={setIsSessionRunning}
+          onTurnCountChange={handleOnboardingTurnCount}
+          onUnitStateChange={handleUnitStateChange}
+          onAdvanceUnit={handleAdvanceCompletedUnit}
+          onRunCommand={openUnitCoachWithCommand}
+          onAskCoachAboutAnswer={openUnitCoachForAnswer}
+          onAskCoachAboutSelection={openUnitCoachForSelection}
+          onCloseCoach={closeUnitCoach}
+          onToggleCoachFocus={toggleUnitCoachFocus}
+          onReturnToUnit={returnToUnit}
+        />
       </div>
     </div>
   );

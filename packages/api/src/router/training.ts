@@ -42,6 +42,7 @@ import {
   createUnitCreationRepositoryDeps,
   loadProgressionState,
 } from "../repositories/unit-creation-repository-deps";
+import { awaitUnitBuildSettled } from "../repositories/unit-build-lock";
 import { createUnitPreparationRepositoryDeps } from "../repositories/unit-preparation-repository-deps";
 import { createWorkspaceTurnRepositoryDeps } from "../repositories/workspace-turn-repository-deps";
 import { protectedProcedure } from "../trpc";
@@ -68,6 +69,11 @@ const NodeSessionSchema = z.object({
   nodeId: z.string().uuid(),
   sessionId: z.string().uuid(),
 });
+
+// How long awaitUnit parks on the build lock before telling the client to
+// re-park. Kept under serverless response limits; each parked request holds
+// one pooled DB connection, so the bound also caps connection dwell time.
+const AWAIT_UNIT_TIMEOUT_MS = 20_000;
 
 const CreateLearningProjectSchema = z.object({
   title: z.string().min(2).max(120),
@@ -743,6 +749,39 @@ export const trainingRouter = {
           deps: createGetUnitDependencies(ctx.db, ctx.reads),
         }),
       );
+    }),
+
+  // Bounded long-poll for unit readiness: parks on the unit-build advisory
+  // lock and returns at the builder's commit (or at the deadline), so waiting
+  // clients hold one open request instead of polling. Read-only — it never
+  // triggers unit generation.
+  awaitUnit: protectedProcedure
+    .input(NodeSessionSchema)
+    .query(async ({ ctx, input }) => {
+      await requireSessionOwner({ ctx, sessionId: input.sessionId });
+
+      // The node must belong to this session's plan — without this check,
+      // readiness would be a cross-tenant existence oracle for node ids.
+      const planNodes = await trainingCurriculumRepository.getPlanNodesBySession(
+        { db: ctx.db, sessionId: input.sessionId },
+      );
+      if (!planNodes?.some((node) => node.id === input.nodeId)) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Unit node does not exist in this learning project.",
+        });
+      }
+
+      await awaitUnitBuildSettled({
+        db: ctx.db,
+        nodeId: input.nodeId,
+        timeoutMs: AWAIT_UNIT_TIMEOUT_MS,
+      });
+      const unit = await trainingCurriculumRepository.getUnitByNodeId({
+        db: ctx.db,
+        nodeId: input.nodeId,
+      });
+      return { ready: Boolean(unit) };
     }),
 
   home: protectedProcedure
