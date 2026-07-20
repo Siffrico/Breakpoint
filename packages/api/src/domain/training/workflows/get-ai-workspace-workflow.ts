@@ -14,7 +14,6 @@ import type {
   WorkspaceProjectionReaderSource,
 } from "../workspace-ai/workspace-reader";
 import { err, ok } from "../../../lib/result";
-import { UnitNotReadyError } from "../unit-preparation/errors";
 import { getEvaluationProgress } from "../workspace-ai/evaluation-plan";
 import { planWorkspaceTurn } from "../workspace-ai/orchestrator";
 import { CurriculumNotReadyError } from "../workspace-ai/workspace-errors";
@@ -53,8 +52,18 @@ export interface AiWorkspaceView {
 }
 
 /**
- * Takes a learning session id; produces the current AI workspace view; fails
- * only when the curriculum does not exist or the active unit is not ready.
+ * Unit readiness is data, not an error: "preparing" is an expected state the
+ * client polls through, so it travels in-band and error channels stay reserved
+ * for genuine failures.
+ */
+export type AiWorkspaceResult =
+  | { kind: "preparing"; nodeId: string | null }
+  | { kind: "ready"; workspace: AiWorkspaceView };
+
+/**
+ * Takes a learning session id; produces the current AI workspace view, or a
+ * "preparing" marker while the active unit is still building; fails only when
+ * the curriculum does not exist.
  *
  * Shares the send path's turn resolution (next-ready projection + planned
  * recall), so what the learner sees on load is exactly the turn a submit would
@@ -66,8 +75,8 @@ export const getAiWorkspaceWorkflowEffect = ({
 }: {
   sessionId: string;
 }): EffectType.Effect<
-  AiWorkspaceView,
-  DbError | CurriculumNotReadyError | UnitNotReadyError,
+  AiWorkspaceResult,
+  DbError | CurriculumNotReadyError,
   WorkspaceProjectionReader | AiWorkspaceReader
 > =>
   Effect.gen(function* () {
@@ -89,10 +98,7 @@ export const getAiWorkspaceWorkflowEffect = ({
       { concurrency: 2 },
     );
     if (active.node && !active.unit) {
-      return yield* new UnitNotReadyError({
-        message: "UNIT_PREPARING",
-        nodeId: active.node.id,
-      });
+      return { kind: "preparing", nodeId: active.node.id } as const;
     }
 
     const activeScenarioAttemptId = active.responses
@@ -151,10 +157,7 @@ export const getAiWorkspaceWorkflowEffect = ({
         ? yield* projectionReader.getUnitByNodeId(recallNode.id)
         : null;
       if (!recallUnit) {
-        return yield* new UnitNotReadyError({
-          message: "UNIT_PREPARING",
-          nodeId: recallNode?.id,
-        });
+        return { kind: "preparing", nodeId: recallNode?.id ?? null } as const;
       }
       const recallRun = resolveRecallRunProjection({
         sessionId,
@@ -202,33 +205,36 @@ export const getAiWorkspaceWorkflowEffect = ({
           ) ?? null);
 
     return {
-      plan,
-      state: resolvedState,
-      messages,
-      evaluationPlan: isActiveUnitEducation
-        ? evaluationProgress.latestPlan
-        : null,
-      evaluationProgress:
-        isActiveUnitEducation && evaluationProgress.latestPlan
-          ? {
-              completedAttempts: evaluationProgress.completedAttempts,
-              scenarioCount: evaluationProgress.latestPlan.scenarioCount,
-              attemptStartedAt,
-            }
-          : null,
-      unitAdvanceGate:
-        resolvedState?.recallUnitId != null
-          ? { status: "locked" }
-          : getUnitAdvanceGate({
-              node: active.node,
-              run: active.run,
-              nextNode: nextLearningNode,
-            }),
-      introMessage: buildWorkspaceIntroMessage({
+      kind: "ready",
+      workspace: {
         plan,
         state: resolvedState,
-      }),
-    };
+        messages,
+        evaluationPlan: isActiveUnitEducation
+          ? evaluationProgress.latestPlan
+          : null,
+        evaluationProgress:
+          isActiveUnitEducation && evaluationProgress.latestPlan
+            ? {
+                completedAttempts: evaluationProgress.completedAttempts,
+                scenarioCount: evaluationProgress.latestPlan.scenarioCount,
+                attemptStartedAt,
+              }
+            : null,
+        unitAdvanceGate:
+          resolvedState?.recallUnitId != null
+            ? { status: "locked" }
+            : getUnitAdvanceGate({
+                node: active.node,
+                run: active.run,
+                nextNode: nextLearningNode,
+              }),
+        introMessage: buildWorkspaceIntroMessage({
+          plan,
+          state: resolvedState,
+        }),
+      },
+    } as const;
   });
 
 export const getAiWorkspaceWorkflow = async ({
@@ -237,7 +243,7 @@ export const getAiWorkspaceWorkflow = async ({
 }: {
   sessionId: string;
   deps: GetAiWorkspaceDependencies;
-}): Promise<Result<AiWorkspaceView, string | UnitNotReadyError>> => {
+}): Promise<Result<AiWorkspaceResult, string>> => {
   const exit = await Effect.runPromiseExit(
     getAiWorkspaceWorkflowEffect({ sessionId }).pipe(
       Effect.provideService(
@@ -253,9 +259,6 @@ export const getAiWorkspaceWorkflow = async ({
   const failure = Cause.squash(exit.cause);
   if (failure instanceof CurriculumNotReadyError) {
     return err(failure.message);
-  }
-  if (failure instanceof UnitNotReadyError) {
-    return err(failure);
   }
   throw failure;
 };

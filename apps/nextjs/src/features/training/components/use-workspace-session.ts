@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { RouterOutputs } from "@acme/api";
@@ -10,31 +10,26 @@ import { useTRPC } from "~/trpc/react";
 export type PlanState = RouterOutputs["training"]["activePlan"];
 export type EducationUnit = RouterOutputs["training"]["unit"];
 export type OnboardingState = RouterOutputs["training"]["onboardingState"];
-export type AiWorkspace = RouterOutputs["training"]["aiWorkspace"];
+export type AiWorkspaceResult = RouterOutputs["training"]["aiWorkspace"];
+export type AiWorkspace = Extract<
+  AiWorkspaceResult,
+  { kind: "ready" }
+>["workspace"];
+export type UnitAdvanceGate = AiWorkspace["unitAdvanceGate"];
 export type LearningProject =
   RouterOutputs["training"]["listLearningProjects"][number];
 export type ChatHistory = RouterOutputs["training"]["chatHistory"];
 export type WorkspaceShellState = RouterOutputs["training"]["workspaceShell"];
 export type WorkspaceMode = "history" | "onboarding" | "unit" | "idle";
 
-const isUnitPreparingError = (error: unknown) => {
-  if (!error || typeof error !== "object") return false;
-  const candidate = error as {
-    message?: string;
-    data?: { code?: string };
-  };
-  return (
-    candidate.data?.code === "PRECONDITION_FAILED" &&
-    candidate.message === "UNIT_PREPARING"
-  );
-};
+const LOCKED_UNIT_ADVANCE_GATE = { status: "locked" } as const;
 
-const getUnitPreparingNodeId = (error: unknown) => {
-  if (!isUnitPreparingError(error)) return null;
-  const candidate = error as { data?: { unitNodeId?: string | null } };
-  return candidate.data?.unitNodeId ?? null;
-};
-
+/**
+ * The canonical workspace view model: every query the workspace needs, plus
+ * the single source of truth for `mode` and the live unit. The optimistic
+ * unit overlay lives here — next to the fetched unit it shadows — so no other
+ * layer can compute a second, divergent projection.
+ */
 export function useWorkspaceSession({
   plan,
   onboardingState,
@@ -44,7 +39,6 @@ export function useWorkspaceSession({
   selectedChatId,
   chatHistory,
   preview,
-  activeAdvanceTransition,
 }: {
   plan: PlanState | null;
   onboardingState: OnboardingState | null;
@@ -54,10 +48,6 @@ export function useWorkspaceSession({
   selectedChatId: string | null;
   chatHistory: ChatHistory | null;
   preview: boolean;
-  activeAdvanceTransition: {
-    sessionId: string;
-    projectedNodeId: string;
-  } | null;
 }) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -110,9 +100,6 @@ export function useWorkspaceSession({
       ? workspaceShellQuery.data.onboardingState
       : null;
   const fallbackActiveNodeId = resolvedPlan?.nextUnitId ?? null;
-  const chatPreselected = Boolean(
-    selectedChatId && selectedChatId !== fallbackActiveNodeId,
-  );
   const aiWorkspaceQuery = useQuery(
     trpc.training.aiWorkspace.queryOptions(
       { sessionId: selectedSessionId },
@@ -121,14 +108,16 @@ export function useWorkspaceSession({
         staleTime: Number.POSITIVE_INFINITY,
         refetchOnWindowFocus: false,
         retry: false,
-        refetchInterval: () => {
-          if (chatPreselected) return false;
-          return activeAdvanceTransition ? 30_000 : false;
-        },
       },
     ),
   );
-  const aiWorkspace = aiWorkspaceQuery.data ?? null;
+  // Readiness arrives in-band: "preparing" is data, not an error to sniff.
+  const workspaceResult = aiWorkspaceQuery.data ?? null;
+  const aiWorkspace =
+    workspaceResult?.kind === "ready" ? workspaceResult.workspace : null;
+  const unitPreparing = workspaceResult?.kind === "preparing";
+  const preparingNodeId =
+    workspaceResult?.kind === "preparing" ? workspaceResult.nodeId : null;
   const activeNodeId =
     aiWorkspace?.state?.recallUnitId ??
     aiWorkspace?.state?.activeUnitId ??
@@ -161,15 +150,15 @@ export function useWorkspaceSession({
     trpc.training.unit.queryOptions(
       { sessionId: selectedSessionId, nodeId: activeNode?.id ?? "" },
       {
-        enabled: !preview && !isHistorySelected && Boolean(activeNode),
+        enabled:
+          !preview &&
+          !isHistorySelected &&
+          !unitPreparing &&
+          Boolean(activeNode),
         retry: false,
       },
     ),
   );
-  const workspaceError =
-    aiWorkspaceQuery.failureReason ?? aiWorkspaceQuery.error;
-  const unitPreparing = isUnitPreparingError(workspaceError);
-  const preparingNodeId = getUnitPreparingNodeId(workspaceError);
   const awaitUnitQuery = useQuery(
     trpc.training.awaitUnit.queryOptions(
       { sessionId: selectedSessionId, nodeId: preparingNodeId ?? "" },
@@ -200,25 +189,60 @@ export function useWorkspaceSession({
     trpc.training.aiWorkspace,
   ]);
 
+  // Optimistic unit overlay: a running turn streams unit-state updates faster
+  // than the unit query refetches. The overlay only shadows the same unit in
+  // the same session; anything else falls back to the fetched unit.
+  const [liveUnitState, setLiveUnitState] = useState({
+    sessionId,
+    unit: null as EducationUnit | null,
+  });
+  const fetchedUnit = unitQuery.data ?? null;
+  const liveUnit =
+    liveUnitState.sessionId === selectedSessionId &&
+    liveUnitState.unit?.nodeId === fetchedUnit?.nodeId
+      ? liveUnitState.unit
+      : fetchedUnit;
+  const onUnitStateChange = useCallback(
+    (nextUnit: EducationUnit) => {
+      setLiveUnitState({ sessionId: selectedSessionId, unit: nextUnit });
+    },
+    [selectedSessionId],
+  );
+
+  const mode: WorkspaceMode = isHistorySelected
+    ? "history"
+    : resolvedOnboardingState
+      ? "onboarding"
+      : liveUnit
+        ? "unit"
+        : "idle";
+
+  const unitAdvanceGate =
+    aiWorkspace?.unitAdvanceGate ?? LOCKED_UNIT_ADVANCE_GATE;
+  const attemptStartedAt =
+    aiWorkspace?.evaluationProgress?.attemptStartedAt?.getTime() ?? null;
+  const runningEvaluationPlan =
+    aiWorkspace?.evaluationPlan && attemptStartedAt != null
+      ? aiWorkspace.evaluationPlan
+      : null;
+
   return {
     aiWorkspace,
     activeNode,
     activeNodeId,
+    attemptStartedAt,
     chatHistoryQuery,
-    fetchedUnit: unitQuery.data ?? null,
     isHistorySelected,
     isInitialSession,
-    mode: (isHistorySelected
-      ? "history"
-      : resolvedOnboardingState
-        ? "onboarding"
-        : unitQuery.data
-          ? "unit"
-          : "idle") as WorkspaceMode,
+    liveUnit,
+    mode,
+    onUnitStateChange,
     resolvedChatHistory,
     resolvedOnboardingState,
+    runningEvaluationPlan,
     selectedProject,
     serverProjects,
+    unitAdvanceGate,
     unitPreparing,
     workspaceShellQuery,
   };

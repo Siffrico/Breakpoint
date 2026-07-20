@@ -4,6 +4,7 @@ import type { MouseEvent } from "react";
 import { memo } from "react";
 import dynamic from "next/dynamic";
 
+import type { UnitCoachController } from "./use-unit-coach-controller";
 import type {
   AiWorkspace,
   ChatHistory,
@@ -11,10 +12,6 @@ import type {
   OnboardingState,
   WorkspaceMode,
 } from "./use-workspace-session";
-import type {
-  UnitCoachCommandIntent,
-  UnitCoachTrigger,
-} from "~/features/training/lib/unit-coach-commands";
 import { AssistantRichText } from "./assistant-rich-text";
 
 const EducationUnitWorkspace = dynamic(() =>
@@ -45,20 +42,12 @@ interface WorkspaceLiveWorkspaceProps {
   unitPreparing: boolean;
   preview: boolean;
   advancePending: boolean;
-  unitCoachOpen: boolean;
-  unitCoachFocused: boolean;
-  unitCoachTrigger: UnitCoachTrigger | null;
+  coach: UnitCoachController;
   onBackToCurrentChat: (event: MouseEvent<HTMLAnchorElement>) => void;
   onRunningChange: (running: boolean) => void;
   onTurnCountChange: (count: number) => void;
   onUnitStateChange: (unit: EducationUnit) => void;
   onAdvanceUnit: () => void;
-  onRunCommand: (intent: UnitCoachCommandIntent) => void;
-  onAskCoachAboutAnswer: (answer: string) => void;
-  onAskCoachAboutSelection: (selection: string) => void;
-  onCloseCoach: () => void;
-  onToggleCoachFocus: () => void;
-  onReturnToUnit: () => void;
 }
 
 function WorkspaceLiveWorkspaceComponent({
@@ -74,26 +63,18 @@ function WorkspaceLiveWorkspaceComponent({
   unitPreparing,
   preview,
   advancePending,
-  unitCoachOpen,
-  unitCoachFocused,
-  unitCoachTrigger,
+  coach,
   onBackToCurrentChat,
   onRunningChange,
   onTurnCountChange,
   onUnitStateChange,
   onAdvanceUnit,
-  onRunCommand,
-  onAskCoachAboutAnswer,
-  onAskCoachAboutSelection,
-  onCloseCoach,
-  onToggleCoachFocus,
-  onReturnToUnit,
 }: WorkspaceLiveWorkspaceProps) {
   return (
     <div className="relative flex min-h-0 flex-1">
       <div className="bg-background flex min-w-0 flex-1 flex-col overflow-hidden">
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          {!unitCoachFocused ? (
+          {!coach.focused ? (
             <main
               className={[
                 "flex min-w-0 flex-1 flex-col",
@@ -152,9 +133,9 @@ function WorkspaceLiveWorkspaceComponent({
                     onAdvanceUnit={onAdvanceUnit}
                     onStateChange={onUnitStateChange}
                     onRunningChange={onRunningChange}
-                    onRunCommand={onRunCommand}
-                    onAskCoachAboutAnswer={onAskCoachAboutAnswer}
-                    onAskCoachAboutSelection={onAskCoachAboutSelection}
+                    onRunCommand={coach.runCommand}
+                    onAskCoachAboutAnswer={coach.askAboutAnswer}
+                    onAskCoachAboutSelection={coach.askAboutSelection}
                   />
                 ) : null}
                 {mode === "idle" ? (
@@ -185,23 +166,23 @@ function WorkspaceLiveWorkspaceComponent({
             </main>
           ) : null}
 
-          {unitCoachOpen && liveUnit ? (
+          {coach.open && liveUnit ? (
             <div
               className={[
                 "min-w-0 transition-[width] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)]",
-                unitCoachFocused ? "w-full" : "w-[380px]",
+                coach.focused ? "w-full" : "w-[380px]",
               ].join(" ")}
             >
               <UnitCoachPanel
                 key={`${selectedSessionId}:${liveUnit.nodeId}`}
                 unit={liveUnit}
                 sessionId={selectedSessionId}
-                trigger={unitCoachTrigger}
+                trigger={coach.trigger}
                 preview={preview}
-                isFocused={unitCoachFocused}
-                onClose={onCloseCoach}
-                onToggleFocus={onToggleCoachFocus}
-                onReturnToUnit={onReturnToUnit}
+                isFocused={coach.focused}
+                onClose={coach.close}
+                onToggleFocus={coach.toggleFocus}
+                onReturnToUnit={coach.returnToUnit}
               />
             </div>
           ) : null}

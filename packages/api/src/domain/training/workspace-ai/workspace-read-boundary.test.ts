@@ -151,9 +151,12 @@ describe("workspace read preparation boundary", () => {
       },
     });
 
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(result.error).toBeInstanceOf(UnitNotReadyError);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toEqual({
+        kind: "preparing",
+        nodeId: expect.any(String) as string,
+      });
     }
     expect(prepareUnit).not.toHaveBeenCalled();
     expect(scheduleBackgroundTask).not.toHaveBeenCalled();
@@ -330,6 +333,18 @@ describe("durable recall projection", () => {
 });
 
 describe("workspace view reads", () => {
+  const readyView = (
+    result: Awaited<ReturnType<typeof getAiWorkspaceWorkflow>>,
+  ) => {
+    if (!result.success) {
+      throw new Error(`expected success, got ${String(result.error)}`);
+    }
+    if (result.data.kind !== "ready") {
+      throw new Error(`expected ready workspace, got ${result.data.kind}`);
+    }
+    return result.data.workspace;
+  };
+
   const unitMessage = (unitId: string, content: string) => ({
     role: "assistant" as const,
     content,
@@ -361,18 +376,16 @@ describe("workspace view reads", () => {
       },
     });
 
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.state).toMatchObject({
-        activeUnitId: readyNode.id,
-        recallUnitId: null,
-        educationStage: "orient",
-      });
-      expect(result.data.messages).toEqual([
-        unitMessage(readyNode.id, "Scenario prompt"),
-      ]);
-      expect(result.data.introMessage).toBeNull();
-    }
+    const view = readyView(result);
+    expect(view.state).toMatchObject({
+      activeUnitId: readyNode.id,
+      recallUnitId: null,
+      educationStage: "orient",
+    });
+    expect(view.messages).toEqual([
+      unitMessage(readyNode.id, "Scenario prompt"),
+    ]);
+    expect(view.introMessage).toBeNull();
     expect(listUnitMessages).toHaveBeenCalledWith("session-1", readyNode.id);
   });
 
@@ -398,22 +411,20 @@ describe("workspace view reads", () => {
       },
     });
 
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.state).toMatchObject({
-        recallUnitId: completedNode.id,
-        activeUnitId: null,
-        workflowId: "recall-v1",
-        educationStage: "solve",
-      });
-      expect(result.data.messages).toEqual([
-        unitMessage(completedNode.id, `Chat for ${completedNode.id}`),
-      ]);
-      expect(result.data.introMessage).toMatchObject({ helper: "Recall" });
-      // A recall interlude has no scenario plan of its own.
-      expect(result.data.evaluationPlan).toBeNull();
-      expect(result.data.evaluationProgress).toBeNull();
-    }
+    const view = readyView(result);
+    expect(view.state).toMatchObject({
+      recallUnitId: completedNode.id,
+      activeUnitId: null,
+      workflowId: "recall-v1",
+      educationStage: "solve",
+    });
+    expect(view.messages).toEqual([
+      unitMessage(completedNode.id, `Chat for ${completedNode.id}`),
+    ]);
+    expect(view.introMessage).toMatchObject({ helper: "Recall" });
+    // A recall interlude has no scenario plan of its own.
+    expect(view.evaluationPlan).toBeNull();
+    expect(view.evaluationProgress).toBeNull();
     expect(listUnitMessages).toHaveBeenCalledWith(
       "session-1",
       completedNode.id,
@@ -456,14 +467,12 @@ describe("workspace view reads", () => {
       },
     });
 
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.state).toMatchObject({
-        recallUnitId: completedNode.id,
-        activeUnitId: null,
-      });
-      expect(result.data.unitAdvanceGate).toEqual({ status: "locked" });
-    }
+    const view = readyView(result);
+    expect(view.state).toMatchObject({
+      recallUnitId: completedNode.id,
+      activeUnitId: null,
+    });
+    expect(view.unitAdvanceGate).toEqual({ status: "locked" });
     expect(getMostOverdueRecallCandidate).toHaveBeenCalledOnce();
     expect(getRecallCompanionCandidate).toHaveBeenCalledWith(
       recallCandidate.clusterNodeId,
@@ -485,13 +494,11 @@ describe("workspace view reads", () => {
       deps,
     });
 
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.state).toMatchObject({
-        activeUnitId: readyNode.id,
-        recallUnitId: null,
-      });
-    }
+    const view = readyView(result);
+    expect(view.state).toMatchObject({
+      activeUnitId: readyNode.id,
+      recallUnitId: null,
+    });
     expect(deps.retireInFlightRecallRun).not.toHaveBeenCalled();
   });
 
@@ -517,11 +524,9 @@ describe("workspace view reads", () => {
       },
     });
 
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.state).toBeNull();
-      expect(result.data.messages).toEqual([]);
-    }
+    const view = readyView(result);
+    expect(view.state).toBeNull();
+    expect(view.messages).toEqual([]);
     expect(listUnitMessages).not.toHaveBeenCalled();
   });
 });

@@ -40,7 +40,10 @@ import {
 import { WorkspaceComposerInput } from "./workspace-composer-input";
 
 type EducationUnit = RouterOutputs["training"]["unit"];
-type AiWorkspace = RouterOutputs["training"]["aiWorkspace"];
+type AiWorkspace = Extract<
+  RouterOutputs["training"]["aiWorkspace"],
+  { kind: "ready" }
+>["workspace"];
 interface AiWorkspaceIntroMessage {
   prompt: string;
   helper: string | null;

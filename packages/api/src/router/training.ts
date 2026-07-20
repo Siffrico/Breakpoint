@@ -11,8 +11,6 @@ import {
 
 import { createNextUnit } from "../domain/training/unit-creation/create-next-unit";
 import { ADVANCE_COMPLETED_UNIT_LOCK_KEY } from "../domain/training/unit-creation/pregenerate-next-unit";
-import { UnitNotReadyError } from "../domain/training/unit-preparation/errors";
-import { raiseUnitPreparationError } from "../domain/training/unit-preparation/prepare-unit-edge";
 import { advanceCompletedUnitWorkflow } from "../domain/training/workflows/advance-completed-unit-workflow";
 import { continueLearningProjectWorkflow } from "../domain/training/workflows/continue-learning-project-workflow";
 import { createLearningProjectWorkflow } from "../domain/training/workflows/create-learning-project-workflow";
@@ -36,12 +34,12 @@ import { trainingOnboardingRepository } from "../repositories/training-onboardin
 import { trainingRatingRepository } from "../repositories/training-rating-repository";
 import { trainingUnitRunRepository } from "../repositories/training-unit-run-repository";
 import { trainingWorkspaceReadRepository } from "../repositories/training-workspace-read-repository";
+import { awaitUnitBuildSettled } from "../repositories/unit-build-lock";
 import {
   advanceSkillMapNode,
   createUnitCreationRepositoryDeps,
   loadProgressionState,
 } from "../repositories/unit-creation-repository-deps";
-import { awaitUnitBuildSettled } from "../repositories/unit-build-lock";
 import { createUnitPreparationRepositoryDeps } from "../repositories/unit-preparation-repository-deps";
 import { createWorkspaceTurnRepositoryDeps } from "../repositories/workspace-turn-repository-deps";
 import { protectedProcedure } from "../trpc";
@@ -574,19 +572,12 @@ export const trainingRouter = {
     .input(SessionIdSchema)
     .query(async ({ ctx, input }) => {
       await requireSessionOwner({ ctx, sessionId: input.sessionId });
-      const result = await getAiWorkspaceWorkflow({
-        sessionId: input.sessionId,
-        deps: createGetAiWorkspaceDependencies(ctx.db, ctx.session.user.id),
-      });
-      if (!result.success) {
-        const failure = result.error;
-        if (failure instanceof UnitNotReadyError) {
-          return raiseUnitPreparationError(failure);
-        }
-        // `success: false` always throws; <never> keeps the return type sound.
-        return throwOnFailure<never>({ success: false, error: failure });
-      }
-      return result.data;
+      return throwOnFailure(
+        await getAiWorkspaceWorkflow({
+          sessionId: input.sessionId,
+          deps: createGetAiWorkspaceDependencies(ctx.db, ctx.session.user.id),
+        }),
+      );
     }),
 
   continueLearningProject: protectedProcedure
@@ -761,9 +752,11 @@ export const trainingRouter = {
 
       // The node must belong to this session's plan — without this check,
       // readiness would be a cross-tenant existence oracle for node ids.
-      const planNodes = await trainingCurriculumRepository.getPlanNodesBySession(
-        { db: ctx.db, sessionId: input.sessionId },
-      );
+      const planNodes =
+        await trainingCurriculumRepository.getPlanNodesBySession({
+          db: ctx.db,
+          sessionId: input.sessionId,
+        });
       if (!planNodes?.some((node) => node.id === input.nodeId)) {
         throw new TRPCError({
           code: "NOT_FOUND",

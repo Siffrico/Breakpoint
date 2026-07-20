@@ -4,7 +4,10 @@ import { useEffect, useState } from "react";
 
 import type { RouterOutputs } from "@acme/api";
 
-type AiWorkspace = RouterOutputs["training"]["aiWorkspace"];
+type AiWorkspace = Extract<
+  RouterOutputs["training"]["aiWorkspace"],
+  { kind: "ready" }
+>["workspace"];
 type EvaluationPlan = NonNullable<AiWorkspace["evaluationPlan"]>;
 
 const formatTimerSeconds = (seconds: number) => {

@@ -31,8 +31,6 @@ const logFields = (error: UnitPreparationError): Record<string, unknown> => {
         message: error.message,
         ...causeFields(error.cause),
       };
-    case "UnitNotReadyError":
-      return { tag: error._tag, nodeId: error.nodeId };
   }
 };
 
@@ -50,8 +48,6 @@ export const translateUnitPreparationErrors = <A, R>(
       Effect.logError("Unit preparation failed.", logFields(error)),
     ),
     Effect.catchTags({
-      UnitNotReadyError: (error) =>
-        trpcFailure(error, "PRECONDITION_FAILED", "UNIT_PREPARING"),
       UnitContextMissingError: (error) =>
         trpcFailure(error, "BAD_REQUEST", error.message),
       UnitScaffoldError: (error) =>
@@ -78,14 +74,4 @@ export const runPrepareUnit = async (
 
   if (Exit.isSuccess(exit)) return exit.value;
   throw Cause.squash(exit.cause);
-};
-
-export const raiseUnitPreparationError = async (
-  error: UnitPreparationError,
-): Promise<never> => {
-  const exit = await Effect.runPromiseExit(
-    translateUnitPreparationErrors(Effect.fail(error)),
-  );
-  if (Exit.isFailure(exit)) throw Cause.squash(exit.cause);
-  throw new Error("Unit preparation failure unexpectedly succeeded.");
 };
