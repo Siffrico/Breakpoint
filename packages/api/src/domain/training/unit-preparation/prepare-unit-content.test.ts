@@ -95,26 +95,29 @@ const unit = {
 
 const makeDeps = (
   overrides: Partial<UnitPreparationDependencies> = {},
-): UnitPreparationDependencies => ({
-  getUnitByNodeId: vi.fn(() => Promise.resolve(null)),
-  getPlanNodesBySession: vi.fn(() => Promise.resolve(planNodes)),
-  getTargetIdentity: vi.fn(() => Promise.resolve("Incident commander")),
-  listAttemptHistory: vi.fn(() => Promise.resolve([])),
-  getUnitSyllabusContext: vi.fn(() =>
-    Promise.resolve({
-      workflow: { name: "Diagnose an incident", steps: ["Choose a probe"] },
-      framing: null,
-      checked: [],
-      targets: [
-        { id: "entry-1", label: "Causal probe", gloss: "Separate causes." },
-      ],
-    }),
-  ),
-  createUnitContentIfAbsent: vi.fn(() => Promise.resolve(unit)),
-  replaceUnitContent: vi.fn(() => Promise.resolve(unit)),
-  withUnitBuildLock: (_nodeId, run) => run(),
-  ...overrides,
-});
+): UnitPreparationDependencies => {
+  const deps: UnitPreparationDependencies = {
+    getUnitByNodeId: vi.fn(() => Promise.resolve(null)),
+    getPlanNodesBySession: vi.fn(() => Promise.resolve(planNodes)),
+    getTargetIdentity: vi.fn(() => Promise.resolve("Incident commander")),
+    listAttemptHistory: vi.fn(() => Promise.resolve([])),
+    getUnitSyllabusContext: vi.fn(() =>
+      Promise.resolve({
+        workflow: { name: "Diagnose an incident", steps: ["Choose a probe"] },
+        framing: null,
+        checked: [],
+        targets: [
+          { id: "entry-1", label: "Causal probe", gloss: "Separate causes." },
+        ],
+      }),
+    ),
+    createUnitContentIfAbsent: vi.fn(() => Promise.resolve(unit)),
+    replaceUnitContent: vi.fn(() => Promise.resolve(unit)),
+    withUnitBuildLock: (_nodeId, run) => run(deps),
+    ...overrides,
+  };
+  return deps;
+};
 
 afterEach(() => {
   runSeedStageMock.mockReset();

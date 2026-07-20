@@ -67,7 +67,7 @@ describe("explicit unit preparation recovery", () => {
         return Promise.resolve(unit);
       });
 
-    const deps = {
+    const deps: Parameters<typeof prepareUnitWorkflow>[0]["deps"] = {
       getPlanNodesBySession: () => Promise.resolve([node]),
       getUnitByNodeId: () => Promise.resolve(storedUnit),
       getPhaseResponses: () => Promise.resolve([]),
@@ -89,7 +89,7 @@ describe("explicit unit preparation recovery", () => {
       createUnitContentIfAbsent: () => Promise.resolve(unit),
       replaceUnitContent: () => Promise.resolve(unit),
       saveNodeBriefing: () => Promise.resolve(null),
-      withUnitBuildLock: <T,>(_nodeId: string, run: () => Promise<T>) => run(),
+      withUnitBuildLock: (_nodeId, run) => run(deps),
     };
 
     const failedPrewarm = await prepareUnitWorkflow({

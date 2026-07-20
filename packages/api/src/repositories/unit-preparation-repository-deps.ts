@@ -31,5 +31,13 @@ export const createUnitPreparationRepositoryDeps = (
     trainingCurriculumRepository.createUnitContentIfAbsent({ db, ...payload }),
   replaceUnitContent: (payload) =>
     trainingCurriculumRepository.replaceUnitContent({ db, ...payload }),
-  withUnitBuildLock: (nodeId, run) => withUnitBuildLock({ db, nodeId, run }),
+  // Rebinds the deps to the lock's own connection so the whole build rides
+  // one pooled connection instead of holding the lock on one and querying
+  // through others (which can deadlock an exhausted pool).
+  withUnitBuildLock: (nodeId, run) =>
+    withUnitBuildLock({
+      db,
+      nodeId,
+      run: (lockDb) => run(createUnitPreparationRepositoryDeps(lockDb)),
+    }),
 });

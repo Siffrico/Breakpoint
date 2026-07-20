@@ -68,9 +68,11 @@ export const runPrepareUnit = async (
   // same node blocks on acquisition, then hits the existing-row fast path
   // inside prepareUnitContent and returns without a second LLM build; the
   // holder's commit is also what wakes readiness waiters.
-  const exit = await input.deps.withUnitBuildLock(input.node.id, () =>
+  const exit = await input.deps.withUnitBuildLock(input.node.id, (lockedDeps) =>
     Effect.runPromiseExit(
-      translateUnitPreparationErrors(prepareUnitContent(input)),
+      translateUnitPreparationErrors(
+        prepareUnitContent({ ...input, deps: lockedDeps }),
+      ),
     ),
   );
 

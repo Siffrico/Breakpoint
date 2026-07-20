@@ -71,11 +71,13 @@ export interface UnitPreparationDependencies {
   /**
    * Holds this node's build lock while `run` executes. Concurrent prepares
    * for the same node must serialize here (the loser re-checks and skips),
-   * and readiness waiters park on the same lock until the holder commits.
+   * and readiness waiters observe the same lock until the holder commits.
+   * `run` receives deps bound to the lock's own connection; the build must
+   * use those so it never waits on a second connection from the pool.
    */
   readonly withUnitBuildLock: <T>(
     nodeId: string,
-    run: () => Promise<T>,
+    run: (lockedDeps: UnitPreparationDependencies) => Promise<T>,
   ) => Promise<T>;
 }
 
