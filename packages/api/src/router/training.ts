@@ -9,7 +9,6 @@ import {
   WorkspaceShellInputSchema,
 } from "@acme/validators";
 
-import type { RequestReads } from "../lib/request-reads";
 import { createNextUnit } from "../domain/training/unit-creation/create-next-unit";
 import { ADVANCE_COMPLETED_UNIT_LOCK_KEY } from "../domain/training/unit-creation/pregenerate-next-unit";
 import { UnitNotReadyError } from "../domain/training/unit-preparation/errors";
@@ -113,12 +112,8 @@ const getErrorCode = (message: string) => {
   return "INTERNAL_SERVER_ERROR" as const;
 };
 
-const createGetAiWorkspaceDependencies = (
-  db: Database,
-  userId: string,
-  reads?: RequestReads,
-) => ({
-  ...createWorkspaceTurnRepositoryDeps(db, reads),
+const createGetAiWorkspaceDependencies = (db: Database, userId: string) => ({
+  ...createWorkspaceTurnRepositoryDeps(db),
   getScenarioAttemptStartedAt: async ({
     scenarioAttemptId,
     nodeId,
@@ -157,12 +152,14 @@ const requireSessionOwner = async ({
 }: {
   ctx: {
     db: Database;
-    reads: RequestReads;
     session: { user: { id: string } } | null;
   };
   sessionId: string;
 }) => {
-  const session = await ctx.reads.getSession(sessionId);
+  const session = await trainingOnboardingRepository.getSession({
+    db: ctx.db,
+    sessionId,
+  });
 
   if (!session) {
     throw new TRPCError({
@@ -192,16 +189,9 @@ const requireSessionOwner = async ({
 
 const createGetUnitDependencies = (
   db: Database,
-  reads?: RequestReads,
 ): Parameters<typeof getUnitWorkflow>[0]["deps"] => ({
   getPlanNodesBySession: (sessionId) =>
-    reads
-      ? // Narrower than the repo read: getActivePlan yields nodes only for an
-        // ACTIVE plan, while getPlanNodesBySession also returns them while the
-        // plan is still generating. Safe here because callers only reach the
-        // unit workflow once a plan is active; revisit if that changes.
-        reads.getActivePlan(sessionId).then((plan) => plan?.nodes ?? null)
-      : trainingCurriculumRepository.getPlanNodesBySession({ db, sessionId }),
+    trainingCurriculumRepository.getPlanNodesBySession({ db, sessionId }),
   getUnitByNodeId: (nodeId) =>
     trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),
   getPhaseResponses: (unitContentId, sessionId) =>
@@ -378,10 +368,17 @@ export const trainingRouter = {
                 userId: ctx.session.user.id,
               }),
             ownsSession: async (sessionId) => {
-              const session = await ctx.reads.getSession(sessionId);
+              const session = await trainingOnboardingRepository.getSession({
+                db: ctx.db,
+                sessionId,
+              });
               return session?.userId === ctx.session.user.id;
             },
-            getActivePlan: ctx.reads.getActivePlan,
+            getActivePlan: (sessionId) =>
+              trainingCurriculumRepository.getActivePlan({
+                db: ctx.db,
+                sessionId,
+              }),
             getOnboardingState: (sessionId) =>
               trainingOnboardingRepository.getOnboardingState({
                 db: ctx.db,
@@ -511,7 +508,11 @@ export const trainingRouter = {
         await getActivePlanWorkflow({
           sessionId: input.sessionId,
           deps: {
-            getActivePlan: ctx.reads.getActivePlan,
+            getActivePlan: (sessionId) =>
+              trainingCurriculumRepository.getActivePlan({
+                db: ctx.db,
+                sessionId,
+              }),
           },
         }),
       );
@@ -548,7 +549,11 @@ export const trainingRouter = {
         await getProjectTopicWorkflow({
           sessionId: input.sessionId,
           deps: {
-            getActivePlan: ctx.reads.getActivePlan,
+            getActivePlan: (sessionId) =>
+              trainingCurriculumRepository.getActivePlan({
+                db: ctx.db,
+                sessionId,
+              }),
             getProjectOverview: (sessionId) =>
               trainingCurriculumRepository.getProjectOverview({
                 db: ctx.db,
@@ -571,11 +576,7 @@ export const trainingRouter = {
       await requireSessionOwner({ ctx, sessionId: input.sessionId });
       const result = await getAiWorkspaceWorkflow({
         sessionId: input.sessionId,
-        deps: createGetAiWorkspaceDependencies(
-          ctx.db,
-          ctx.session.user.id,
-          ctx.reads,
-        ),
+        deps: createGetAiWorkspaceDependencies(ctx.db, ctx.session.user.id),
       });
       if (!result.success) {
         const failure = result.error;
@@ -597,8 +598,6 @@ export const trainingRouter = {
         await continueLearningProjectWorkflow({
           sessionId: input.sessionId,
           deps: {
-            // Not ctx.reads: the workflow re-reads the plan after
-            // recoverSkillUnits writes, so a memoized read would be stale.
             getActivePlan: (sessionId) =>
               trainingCurriculumRepository.getActivePlan({
                 db: ctx.db,
@@ -746,7 +745,7 @@ export const trainingRouter = {
         await getUnitWorkflow({
           nodeId: input.nodeId,
           sessionId: input.sessionId,
-          deps: createGetUnitDependencies(ctx.db, ctx.reads),
+          deps: createGetUnitDependencies(ctx.db),
         }),
       );
     }),

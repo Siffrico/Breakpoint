@@ -14,7 +14,6 @@ import type { Auth } from "@acme/auth";
 import { db } from "@acme/db/client";
 
 import { UnitNotReadyError } from "./domain/training/unit-preparation/errors";
-import { createRequestReads } from "./lib/request-reads";
 
 /**
  * 1. CONTEXT
@@ -65,8 +64,6 @@ export const createTRPCContext = async (opts: {
     authApi,
     session,
     db,
-    // Mutations must not use these reads after writing; the cached promise is stale.
-    reads: createRequestReads(db),
     scheduleBackgroundTask: opts.scheduleBackgroundTask,
   };
 };

@@ -14,7 +14,6 @@ import type { DifficultyBand } from "../domain/training/types/training.types";
 import type { WorkspaceAiMessage } from "../domain/training/workspace-ai/types";
 import type { WorkspaceTurnOrchestrationDependencies } from "../domain/training/workspace-ai/workspace-turn-orchestration";
 import type { WorkspaceEducationTurnCommit } from "../domain/training/workspace-ai/workspace-turn-persistence";
-import type { RequestReads } from "../lib/request-reads";
 import { resolveScenarioFormats } from "../domain/training/engine/progression-model";
 import {
   auditDialCompliance,
@@ -481,7 +480,6 @@ export const workspaceTurnRepoLayer = (db: Database) =>
 
 export const createWorkspaceTurnRepositoryDeps = (
   db: Database,
-  reads?: Pick<RequestReads, "getActivePlan">,
 ): WorkspaceTurnOrchestrationDependencies => {
   // Per-request seed cache: a multi-touch turn reads each node's seed once.
   const seedCache = new Map<string, Promise<JobRatingState | null>>();
@@ -495,7 +493,6 @@ export const createWorkspaceTurnRepositoryDeps = (
 
   return {
     getActivePlan: (sessionId: string) =>
-      reads?.getActivePlan(sessionId) ??
       trainingCurriculumRepository.getActivePlan({ db, sessionId }),
     listUnitMessages: (sessionId: string, unitId: string) =>
       trainingOnboardingRepository.listWorkspaceMessagesByUnit({
