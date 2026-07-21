@@ -18,14 +18,14 @@ export const PriorLearningRecordSchema = z.object({
 export const UnitBuilderContextSchema = z.object({
   node: z.object({
     id: z.string().min(1),
-    kind: z.enum(["unit", "integration"]),
+    kind: z.literal("unit"),
     title: z.string().min(1),
     summary: z.string().min(1),
     whyItMatters: z.string().min(1),
     orderIndex: z.number().int().min(0),
   }),
   planContext: z.object({
-    /** Parent regime: skill → foundation, ability/skill_cluster → skillset. */
+    /** Parent regime: skill → foundation, ability → skillset. */
     regime: z.enum(["foundation", "skillset"]).nullable(),
     slotIndex: z.number().int().min(1),
     totalSlots: z.number().int().min(1),
@@ -34,11 +34,6 @@ export const UnitBuilderContextSchema = z.object({
         title: z.string().min(1),
         summary: z.string().min(1),
         whyItMatters: z.string().min(1),
-      })
-      .nullable(),
-    integrationContext: z
-      .object({
-        completedClusterTitles: z.array(z.string().min(1)),
       })
       .nullable(),
   }),

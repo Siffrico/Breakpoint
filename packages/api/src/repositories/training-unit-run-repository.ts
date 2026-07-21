@@ -165,7 +165,7 @@ export const trainingUnitRunRepository = {
           // Write-once WITHIN a live run. A recipe change (a recall run resets
           // a mastered education row, or vice versa) is a new run — and so is
           // a fresh cursor over a mastered row on the SAME recipe (recall
-          // recurs on recall-v1; passed or retired, the old row is finished):
+          // recurs on recall-v2; passed or retired, the old row is finished):
           // the incoming snapshot replaces the old one wholesale.
           difficultySnapshotJson: sql`case when ${TrainingUnitRun.recipeVersion} = excluded.recipe_version and ${TrainingUnitRun.phase} != 'mastered' then coalesce(${TrainingUnitRun.difficultySnapshotJson}, excluded.difficulty_snapshot_json) else excluded.difficulty_snapshot_json end`,
           // Replaceable, unlike difficulty (which is coalesced write-once): a

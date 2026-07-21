@@ -11,23 +11,12 @@ import {
   writesGoldilocks,
 } from "./fsm";
 
-/** v1 shape: 2 rounds, force-advance once the grill budget is spent. */
-const v1: TransitionRecipe = {
-  passes: 2,
-  policy: {
-    maxGrillsBeforeTeach: 2,
-    maxRepairsBeforeMicroTeach: 2,
-    advanceOnMaxGrills: true,
-  },
-};
-
 /** v2 shape: 3 rounds, connect loops forever with help escalation. */
 const v2: TransitionRecipe = {
   passes: 3,
   policy: {
     maxGrillsBeforeTeach: 2,
     maxRepairsBeforeMicroTeach: 2,
-    advanceOnMaxGrills: false,
   },
 };
 
@@ -72,15 +61,6 @@ describe("transition", () => {
       v2,
     );
     expect(next).toEqual(current);
-  });
-
-  it("v1 connect force-advances to solve once the grill limit is hit", () => {
-    const next = transition(
-      state({ phase: "connect", pass: 1, connectGrills: 1 }),
-      { type: "connection_graded", connected: false },
-      v1,
-    );
-    expect(next).toMatchObject({ phase: "solve", pass: 1, connectGrills: 0 });
   });
 
   it("v2 connect NEVER force-advances — it keeps looping past the grill limit", () => {
@@ -131,15 +111,6 @@ describe("transition", () => {
       v2,
     );
     expect(next).toMatchObject({ phase: "mastered", pass: 3 });
-  });
-
-  it("solve -> mastered on the final round pass (v1: round 2)", () => {
-    const next = transition(
-      state({ phase: "solve", pass: 2 }),
-      { type: "solution_graded", passed: true, score: 90, errorCodes: [] },
-      v1,
-    );
-    expect(next).toMatchObject({ phase: "mastered", pass: 2 });
   });
 
   it("solve loops on itself forever on repeated failure (no FSM-driven escape)", () => {

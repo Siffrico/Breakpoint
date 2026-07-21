@@ -8,14 +8,8 @@
 //     every concept reaches the coverage target. Has NO rating gate: its
 //     bandRamp is a calibration artifact (scenario difficulty only), derived
 //     from the ability's floor, and can never gate mastery.
-//   skillset (ability / legacy cluster) — the ELO tier climb. Mastered at
-//     peak rating with a tight deviation. Legacy clusters additionally hold
-//     their syllabus frontier honest (`checksSyllabusFrontier`); v2 abilities
-//     own no syllabus of their own.
-//
-// The model deliberately reads the EXISTING stored `skillMap` jsonb shape —
-// old rows keep working; what changes is that the regime distinction is
-// decided here once instead of being reconstructed per call site.
+//   skillset (ability) — the ELO tier climb. Mastered at peak rating with a
+//     tight deviation. Abilities own no syllabus; their child skills do.
 
 import type { ScenarioArchetype, ScenarioFormat } from "@acme/validators";
 
@@ -29,28 +23,12 @@ export interface StoredSkillMap {
     maxRatingDeviation?: number;
   };
   /** The ability's ONE archetype, picked by the curriculum designer. */
-  scenarioArchetype?: ScenarioArchetype;
-  /** Legacy free-form palette from pre-archetype plans; superseded by scenarioArchetype. */
-  scenarioFormats?: ScenarioFormat[];
+  scenarioArchetype: ScenarioArchetype;
 }
 
-const LEGACY_SCENARIO_FORMAT: ScenarioFormat = {
-  id: "legacy_frq",
-  label: "Legacy free response",
-  kind: "frq",
-  description: "A free-response scenario using the legacy authoring contract.",
-};
-
-export const resolveScenarioFormats = (
-  skillMap: StoredSkillMap | null | undefined,
-): readonly ScenarioFormat[] => {
-  if (skillMap?.scenarioArchetype) {
-    return [ARCHETYPE_FORMATS[skillMap.scenarioArchetype]];
-  }
-  return skillMap?.scenarioFormats && skillMap.scenarioFormats.length > 0
-    ? skillMap.scenarioFormats
-    : [LEGACY_SCENARIO_FORMAT];
-};
+export const resolveScenarioFormat = (
+  skillMap: StoredSkillMap,
+): ScenarioFormat => ARCHETYPE_FORMATS[skillMap.scenarioArchetype];
 
 /** Default mastery gate width when the contract does not narrow it. */
 export const DEFAULT_MAX_RATING_DEVIATION = 80;
@@ -81,8 +59,6 @@ export type ProgressionModel =
       workflow: StoredSkillMap["workflow"];
       bandRamp: { startRating: number; peakRating: number };
       mastery: { peakRating: number; maxRatingDeviation: number };
-      /** Legacy skill_cluster: unchecked syllabus entries also block mastery. */
-      checksSyllabusFrontier: boolean;
     };
 
 /**
@@ -96,7 +72,6 @@ export const regimeForNodeKind = (
     case "skill":
       return "foundation";
     case "ability":
-    case "skill_cluster":
       return "skillset";
     default:
       return null;
@@ -132,7 +107,6 @@ export const resolveProgressionModel = (node: {
           maxRatingDeviation:
             masteryContract.maxRatingDeviation ?? DEFAULT_MAX_RATING_DEVIATION,
         },
-        checksSyllabusFrontier: node.kind === "skill_cluster",
       };
   }
 };
@@ -163,9 +137,9 @@ const ABILITY_STAGES: readonly AbilityStage[] = [
   "mastered",
 ];
 
-export const parseAbilityStage = (
-  value: string | null | undefined,
-): AbilityStage | null =>
-  value && (ABILITY_STAGES as readonly string[]).includes(value)
-    ? (value as AbilityStage)
-    : null;
+export const requireAbilityStage = (value: string | null): AbilityStage => {
+  if ((ABILITY_STAGES as readonly string[]).includes(value ?? "")) {
+    return value as AbilityStage;
+  }
+  throw new Error("Ability node is missing a valid progression stage.");
+};

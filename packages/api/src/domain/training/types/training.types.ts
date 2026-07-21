@@ -41,7 +41,6 @@ import type {
   ProjectOverview,
   ScenarioArchetype,
   ScenarioEvaluationContract,
-  ScenarioFormat,
   SubmitEducationUnitStep,
   TeachbackMessage,
   TeachbackRoundResult,
@@ -119,7 +118,7 @@ export interface CurriculumNodeBlueprint {
   positionColumn: number;
   positionRow: number;
   difficultyBands: DifficultyBand[] | null;
-  /** Executable stage for ability nodes (progression-model.ts AbilityStage). */
+  /** Null outside ability nodes; ability nodes always carry a valid stage. */
   abilityStage: "foundations" | "skillset" | "mastered" | null;
   skillMap: {
     workflow: { name: string; steps: string[] };
@@ -128,8 +127,7 @@ export interface CurriculumNodeBlueprint {
       exitCriteria: string[];
       maxRatingDeviation?: number;
     };
-    scenarioArchetype?: ScenarioArchetype;
-    scenarioFormats?: ScenarioFormat[];
+    scenarioArchetype: ScenarioArchetype;
   } | null;
 }
 

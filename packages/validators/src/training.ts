@@ -191,17 +191,11 @@ export const BeforeAfterProfileSchema = z.object({
   firstShift: z.string().min(1),
 });
 
-// "ability" and "skill" are the v2 hierarchy (topic → ability → skill → unit).
-// "skill_cluster", "integration" and "simulation" remain parseable for plans
-// created before the ability/skill split; new plans never emit them.
 export const CurriculumNodeKindSchema = z.enum([
   "root",
   "ability",
   "skill",
-  "skill_cluster",
   "unit",
-  "integration",
-  "simulation",
 ]);
 
 export const CurriculumNodeStatusSchema = z.enum([
@@ -510,43 +504,13 @@ export const WORKSPACE_EDUCATION_STAGE_IDS = [
   "mastered",
 ] as const;
 
-// Maps any stale persisted stage id (the retired 9-step rulebook, and its own
-// even-older legacy ids) onto the nearest v4 phase so historical
-// phase-response metadata still parses. New runs never write these.
-const LEGACY_WORKSPACE_EDUCATION_STAGE_IDS: Record<string, string> = {
-  diagnostic_scenario: "connect",
-  concept_instruction: "connect",
-  guided_application: "solve",
-  performance_evaluation: "solve",
-  transfer_scenario: "connect",
-  Diagnose: "connect",
-  BreakDown: "connect",
-  Grill: "connect",
-  Solve: "solve",
-  Review: "solve",
-  TeachGap: "teach",
-  NameIdea: "teach",
-  Test: "connect",
-  Check: "solve",
-  completed: "mastered",
-};
-
-export const normalizeWorkspaceEducationStage = (value: unknown): unknown =>
-  typeof value === "string"
-    ? (LEGACY_WORKSPACE_EDUCATION_STAGE_IDS[value] ?? value)
-    : value;
-
-export const WorkspaceEducationStageSchema = z.preprocess(
-  normalizeWorkspaceEducationStage,
-  z.enum(WORKSPACE_EDUCATION_STAGE_IDS),
+export const WorkspaceEducationStageSchema = z.enum(
+  WORKSPACE_EDUCATION_STAGE_IDS,
 );
 
 // The phases a scenario-evaluation contract can be attached to. Only the two
 // graded phases produce scenarios; recall carries its own.
-const WorkspaceScenarioStageSchema = z.preprocess(
-  normalizeWorkspaceEducationStage,
-  z.enum(["connect", "solve", "recall"]),
-);
+const WorkspaceScenarioStageSchema = z.enum(["connect", "solve", "recall"]);
 
 export const ScenarioEvaluationDimensionSchema = z.object({
   dimensionId: ContractDimensionIdSchema,

@@ -16,13 +16,12 @@ const baseInput = (
     clusterArcFrame: "This advances causal diagnosis.",
     unitMasteryContract: null,
   },
-  state: initialState("unit-1", "education-unit-v1"),
+  state: initialState("unit-1", "education-unit-v2"),
   policy: {
     maxGrillsBeforeTeach: 2,
     maxRepairsBeforeMicroTeach: 2,
-    advanceOnMaxGrills: true,
   },
-  passes: 2,
+  passes: 3,
   memories: [],
   difficultyLine: null,
   pendingConnectTeach: false,
@@ -36,7 +35,7 @@ describe("buildUnitTurnContext", () => {
     const context = buildUnitTurnContext(
       baseInput({
         state: {
-          ...initialState("unit-1", "education-unit-v1"),
+          ...initialState("unit-1", "education-unit-v2"),
           phase: "connect",
           pass: 2,
         },
@@ -47,7 +46,7 @@ describe("buildUnitTurnContext", () => {
       }),
     );
 
-    expect(context).toContain("Phase: connect (round 2 of 2)");
+    expect(context).toContain("Phase: connect (round 2 of 3)");
     expect(context).toContain("Target the learner at rating 1200.");
     expect(context).toContain("They over-index on the first visible symptom.");
   });
@@ -56,7 +55,7 @@ describe("buildUnitTurnContext", () => {
     const solveContext = buildUnitTurnContext(
       baseInput({
         state: {
-          ...initialState("unit-1", "education-unit-v1"),
+          ...initialState("unit-1", "education-unit-v2"),
           phase: "solve",
         },
         pendingConnectTeach: true,
@@ -69,7 +68,7 @@ describe("buildUnitTurnContext", () => {
     const connectContext = buildUnitTurnContext(
       baseInput({
         state: {
-          ...initialState("unit-1", "education-unit-v1"),
+          ...initialState("unit-1", "education-unit-v2"),
           phase: "connect",
         },
         pendingConnectTeach: true,
@@ -84,7 +83,7 @@ describe("buildUnitTurnContext", () => {
     const belowThreshold = buildUnitTurnContext(
       baseInput({
         state: {
-          ...initialState("unit-1", "education-unit-v1"),
+          ...initialState("unit-1", "education-unit-v2"),
           phase: "solve",
           solveRepairs: 1,
         },
@@ -95,7 +94,7 @@ describe("buildUnitTurnContext", () => {
     const atThreshold = buildUnitTurnContext(
       baseInput({
         state: {
-          ...initialState("unit-1", "education-unit-v1"),
+          ...initialState("unit-1", "education-unit-v2"),
           phase: "solve",
           solveRepairs: 2,
         },
@@ -104,7 +103,7 @@ describe("buildUnitTurnContext", () => {
     expect(atThreshold).toContain("MICRO-TEACH");
   });
 
-  it("gates the pass-2 spec blocks on which pass recorded the spec", () => {
+  it("gates scenario-spec blocks on which round recorded the spec", () => {
     const spec = (pass: 1 | 2 | undefined) => ({
       targetSkill: "Separate correlation from causation",
       surface: "A slow release",
@@ -117,7 +116,7 @@ describe("buildUnitTurnContext", () => {
       buildUnitTurnContext(
         baseInput({
           state: {
-            ...initialState("unit-1", "education-unit-v1"),
+            ...initialState("unit-1", "education-unit-v2"),
             phase,
             pass: 2,
           },
@@ -143,14 +142,15 @@ describe("buildUnitTurnContext", () => {
     const teachContext = buildUnitTurnContext(
       baseInput({
         state: {
-          ...initialState("unit-1", "education-unit-v1"),
+          ...initialState("unit-1", "education-unit-v2"),
           phase: "teach",
+          pass: 2,
         },
-        scenarioSpec: spec(1),
+        scenarioSpec: spec(2),
       }),
     );
     expect(teachContext).toContain("## Scenario evolution constraint");
-    // Evolving into round 2 of a 2-round recipe is the final round: the
+    // Evolving into round 3 is the final round: the
     // transfer mutation directive must be present.
     expect(teachContext).toContain("FINAL ROUND");
   });

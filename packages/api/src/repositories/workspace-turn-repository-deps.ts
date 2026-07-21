@@ -14,7 +14,7 @@ import type { DifficultyBand } from "../domain/training/types/training.types";
 import type { WorkspaceAiMessage } from "../domain/training/workspace-ai/types";
 import type { WorkspaceTurnOrchestrationDependencies } from "../domain/training/workspace-ai/workspace-turn-orchestration";
 import type { WorkspaceEducationTurnCommit } from "../domain/training/workspace-ai/workspace-turn-persistence";
-import { resolveScenarioFormats } from "../domain/training/engine/progression-model";
+import { resolveScenarioFormat } from "../domain/training/engine/progression-model";
 import {
   auditDialCompliance,
   countVector,
@@ -587,17 +587,20 @@ export const createWorkspaceTurnRepositoryDeps = (
         db.query.TrainingCurriculumNode.findFirst({
           where: eq(TrainingCurriculumNode.id, nodeId),
         }),
-      ]).then(([seed, ratingNode]) =>
-        resolveScenarioDirective({
+      ]).then(([seed, ratingNode]) => {
+        if (!ratingNode?.skillMap) {
+          throw new Error("Rating ability is missing its scenario contract.");
+        }
+        return resolveScenarioDirective({
           userId,
           nodeId,
           now,
           bands,
           initialRatingState: seed ?? undefined,
-          scenarioFormats: resolveScenarioFormats(ratingNode?.skillMap),
+          scenarioFormat: resolveScenarioFormat(ratingNode.skillMap),
           deps: createTrainingRatingGoldilocksDeps(db),
-        }),
-      ),
+        });
+      }),
     getScenarioAttempt: ({ scenarioAttemptId, userId, nodeId }) =>
       trainingRatingRepository.getOpenScenarioById({
         db,

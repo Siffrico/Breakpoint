@@ -34,11 +34,8 @@ const statusLabel: Record<PlanNode["status"], string> = {
 
 const kindLabel: Record<PlanNode["kind"], string> = {
   ability: "Ability",
-  integration: "Integration",
   root: "Path",
-  simulation: "Simulation",
   skill: "Skill",
-  skill_cluster: "Cluster",
   unit: "Unit",
 };
 
@@ -175,7 +172,7 @@ async function SavedCurriculumPlan() {
 
   const tree = buildCurriculumTree(plan.nodes);
   const trainableNodes = plan.nodes.filter(
-    (node) => node.kind === "unit" || node.kind === "integration",
+    (node) => node.kind === "unit",
   );
   const completedNodes = trainableNodes.filter(
     (node) => node.status === "completed",

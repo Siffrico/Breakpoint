@@ -6,7 +6,7 @@ import { getProjectTopicWorkflow } from "./get-project-topic-workflow";
 const makeNode = (overrides: Partial<CurriculumNode>): CurriculumNode => ({
   id: "node",
   parentNodeId: null,
-  kind: "skill_cluster",
+  kind: "ability",
   title: "Cluster",
   summary: "Cluster summary",
   whyItMatters: "Because",
@@ -36,7 +36,6 @@ describe("getProjectTopicWorkflow", () => {
     const plan = makePlan([
       makeNode({ id: "ability-a", kind: "ability", title: "A" }),
       makeNode({ id: "ability-b", kind: "ability", title: "B" }),
-      makeNode({ id: "legacy-cluster", kind: "skill_cluster", title: "Legacy" }),
       makeNode({ id: "unit-1", kind: "unit", title: "Unit" }),
     ]);
     const getJobProgress = vi.fn().mockResolvedValue([
@@ -60,7 +59,7 @@ describe("getProjectTopicWorkflow", () => {
     expect(result.success).toBe(true);
     if (!result.success) return;
 
-    // Only abilities; legacy clusters and units are excluded.
+    // Only abilities are rated; units are excluded.
     expect(result.data.abilities.map((ability) => ability.nodeId)).toEqual([
       "ability-a",
       "ability-b",

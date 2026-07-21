@@ -45,7 +45,7 @@ export const getUnitWorkflow = async ({
   if (!node) {
     return err("Unit node does not exist in this learning project.");
   }
-  if (node.kind !== "unit" && node.kind !== "integration") {
+  if (node.kind !== "unit") {
     return err("This node is not an education unit.");
   }
 

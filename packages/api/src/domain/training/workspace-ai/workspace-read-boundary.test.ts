@@ -52,7 +52,7 @@ const recallRun = {
   unitId: recallUnit.id,
   sessionId: "session-1",
   userId: "user-1",
-  recipeVersion: "recall-v1",
+  recipeVersion: "recall-v2",
   phase: "solve",
   pass: 2,
   connectGrills: 0,
@@ -273,7 +273,7 @@ describe("durable recall projection", () => {
     expect(turn.state).toMatchObject({
       recallUnitId: completedNode.id,
       activeUnitId: null,
-      workflowId: "recall-v1",
+      workflowId: "recall-v2",
       educationStage: "solve",
     });
     expect(turn.unitRun).toBe(recallRun);
@@ -415,7 +415,7 @@ describe("workspace view reads", () => {
     expect(view.state).toMatchObject({
       recallUnitId: completedNode.id,
       activeUnitId: null,
-      workflowId: "recall-v1",
+      workflowId: "recall-v2",
       educationStage: "solve",
     });
     expect(view.messages).toEqual([

@@ -20,7 +20,7 @@ import {
   difficultyRampOf,
   regimeForNodeKind,
   resolveProgressionModel,
-  resolveScenarioFormats,
+  resolveScenarioFormat,
 } from "../domain/training/engine/progression-model";
 import {
   createInitialRatingState,
@@ -116,6 +116,7 @@ export const createUnitCreationRepositoryDeps = ({
         });
         if (!node?.skillMap) return null;
         const regime = regimeForNodeKind(node.kind);
+        if (!regime) return null;
         const mapEntry = (entry: {
           id: string;
           label: string;
@@ -230,36 +231,24 @@ export const createUnitCreationRepositoryDeps = ({
             openUnit: openUnit ?? null,
           };
         }
-
-        // Legacy skill_cluster path — unchanged.
-        const entries = await trainingSyllabusRepository.listEntries({
-          db,
-          clusterNodeId,
-        });
-        return {
-          title: node.title,
-          whyItMatters: node.whyItMatters,
-          regime,
-          entries: entries.map(mapEntry),
-          openUnit: openUnit ?? null,
-        };
+        return null;
       }),
     resolveDirective: (clusterNodeId) =>
       queryWithClient(db, "resolveUnitCreationDirective", async () => {
         const cluster = await db.query.TrainingCurriculumNode.findFirst({
           where: eq(TrainingCurriculumNode.id, clusterNodeId),
         });
-        const model = cluster ? resolveProgressionModel(cluster) : null;
-        if (!model) throw new Error("Skill map is missing.");
+        if (!cluster?.skillMap) throw new Error("Skill map is missing.");
+        const model = resolveProgressionModel(cluster);
+        if (!model) throw new Error("Skill map node is invalid.");
         return resolveScenarioDirective({
           userId,
           nodeId: clusterNodeId,
           now: new Date(),
           bands:
-            cluster?.difficultyBands ??
-            expandSkillBands(difficultyRampOf(model)),
+            cluster.difficultyBands ?? expandSkillBands(difficultyRampOf(model)),
           initialRatingState: (await getSeed(clusterNodeId)) ?? undefined,
-          scenarioFormats: resolveScenarioFormats(cluster?.skillMap),
+          scenarioFormat: resolveScenarioFormat(cluster.skillMap),
           deps: createTrainingRatingGoldilocksDeps(db),
         });
       }),
@@ -319,22 +308,15 @@ export const loadProgressionState = async ({
     }
     case "skillset": {
       const seed = await resolvePlanSeedRating({ db, nodeId: clusterNodeId });
-      const [entries, progress] = await Promise.all([
-        model.checksSyllabusFrontier
-          ? trainingSyllabusRepository.listEntries({ db, clusterNodeId })
-          : Promise.resolve([]),
-        trainingRatingRepository.loadJobProgress({
+      const progress = await trainingRatingRepository.loadJobProgress({
           db,
           userId,
           nodeId: clusterNodeId,
           initialRatingState: seed ?? createInitialRatingState(),
-        }),
-      ]);
+        });
       return {
         regime: "skillset",
-        uncheckedEntryCount: entries.filter(
-          (entry) => entry.status !== "checked",
-        ).length,
+        uncheckedEntryCount: 0,
         learnerRating: progress.ratingState.rating,
         ratingDeviation: progress.ratingState.ratingDeviation,
         peakRating: model.mastery.peakRating,

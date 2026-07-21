@@ -341,25 +341,16 @@ export interface BuildProjectDeps {
   }) => Promise<unknown>;
 }
 
-/** v2 plans decompose into abilities; legacy plans into skill clusters. */
 const isModuleNode = (node: { kind: string }): boolean =>
-  node.kind === "ability" || node.kind === "skill_cluster";
+  node.kind === "ability";
 
 /**
- * The skillMap nodes whose syllabus/first-unit are prewarmed after a build:
- * v2 `skill` nodes (foundation units) and legacy `skill_cluster`s. Abilities
- * are excluded — their skillset units open only after every skill is mastered.
- */
-/**
- * Skills whose syllabus is prewarmed at build time. v2 `skill` nodes are
- * gated skill-by-skill: only unlocked (ready) ones need a syllabus now — the
- * rest are generated lazily at unlock time (loadSkill / recovery both pass
- * the ability's topics). Legacy `skill_cluster` nodes have no lazy ensure
- * path, so they are always prewarmed.
+ * Skills whose syllabus is prewarmed at build time. Skills are gated
+ * skill-by-skill: only unlocked (ready) ones need a syllabus now — the rest
+ * are generated lazily at unlock time.
  */
 const isPrewarmSkillNode = (node: { kind: string; status: string }): boolean =>
-  node.kind === "skill_cluster" ||
-  (node.kind === "skill" && node.status === "ready");
+  node.kind === "skill" && node.status === "ready";
 
 /**
  * Ceiling on concurrent prewarm AI calls (knowledge models + syllabi). The
@@ -987,7 +978,7 @@ export const buildProjectFromOnboarding = async ({
 
   const firstReadyUnit = plan.nodes.find(
     (node) =>
-      (node.kind === "unit" || node.kind === "integration") &&
+      node.kind === "unit" &&
       node.status === "ready",
   );
   if (firstReadyUnit) {

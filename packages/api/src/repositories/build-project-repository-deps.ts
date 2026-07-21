@@ -5,7 +5,7 @@ import { StartingPointTierSchema } from "@acme/validators";
 
 import type { BuildProjectDeps } from "../domain/training/orchestration/build-project";
 import { decideMasteryProgression } from "../domain/training/engine/plan-progression";
-import { parseAbilityStage } from "../domain/training/engine/progression-model";
+import { requireAbilityStage } from "../domain/training/engine/progression-model";
 import { ArtifactBuildError } from "../domain/training/orchestration/agent-runtime";
 import {
   getMemoryContentHash,
@@ -68,49 +68,13 @@ export const recoverSkillUnits = async ({
     db,
     planIds: [plan.id],
   });
-  const usesDynamicSkills = rawNodes.some((node) => node.skillMap != null);
-  if (!usesDynamicSkills) {
-    const hasReadyUnit = rawNodes.some(
-      (node) =>
-        (node.kind === "unit" || node.kind === "integration") &&
-        node.status === "ready",
-    );
-    const latestCompletedUnit = rawNodes
-      .filter(
-        (node) =>
-          (node.kind === "unit" || node.kind === "integration") &&
-          node.status === "completed",
-      )
-      .at(-1);
-    if (!hasReadyUnit && latestCompletedUnit) {
-      await trainingCurriculumRepository.advancePlanAfterCompletion({
-        db,
-        nodeId: latestCompletedUnit.id,
-      });
-    }
-    return;
-  }
-
-  // The recoverable frontier: every non-completed, ready skillMap node —
-  // v2 `skill` nodes (foundation units), `ability` nodes whose skillset climb
-  // has opened, and legacy `skill_cluster`s. Planned-but-locked nodes are the
-  // progression engine's to open, not recovery's. An ability's `ready` status
-  // only means its track is visible; whether its skillset climb is open is an
-  // explicit stage the advancement engine records. Rows that predate the
-  // stage column fall back to deriving it from child-skill completion.
+  // The recoverable frontier: ready skills and abilities with an open skillset
+  // stage. Planned-but-locked nodes are the progression engine's to open.
   const skills = rawNodes.filter((node) => {
     if (node.status !== "ready" || node.skillMap == null) return false;
-    if (node.kind === "skill" || node.kind === "skill_cluster") return true;
+    if (node.kind === "skill") return true;
     if (node.kind !== "ability") return false;
-    const stage = parseAbilityStage(node.abilityStage);
-    if (stage) return stage === "skillset";
-    const childSkills = rawNodes.filter(
-      (child) => child.kind === "skill" && child.parentNodeId === node.id,
-    );
-    return (
-      childSkills.length > 0 &&
-      childSkills.every((child) => child.status === "completed")
-    );
+    return requireAbilityStage(node.abilityStage) === "skillset";
   });
 
   // Recovery generates syllabi for skills whose build prewarm never ran, so it

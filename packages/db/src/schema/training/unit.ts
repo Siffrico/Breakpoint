@@ -201,13 +201,11 @@ export const TrainingUnitRun = pgTable(
       .notNull()
       .references(() => TrainingOnboardingSession.id, { onDelete: "cascade" }),
     userId: t.text().references(() => user.id, { onDelete: "set null" }),
-    // The durable cursor for the education-unit FSM (see education-unit/unit.ts
-    // UnitState). recipeVersion pins the recipe a run started on so an in-flight
-    // unit finishes on the recipe it began with.
+    // The durable cursor for the education-unit FSM (see education-unit/unit.ts).
     recipeVersion: t
       .varchar({ length: 96 })
       .notNull()
-      .default("education-unit-v1"),
+      .default("education-unit-v2"),
     phase: t.varchar({ length: 32 }).notNull().default("orient"),
     pass: t.integer().notNull().default(1),
     connectGrills: t.integer().notNull().default(0),

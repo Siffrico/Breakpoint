@@ -49,7 +49,7 @@ const masteredRun = {
   unitId: unit.id,
   sessionId: "session-1",
   userId: "user-1",
-  recipeVersion: "education-unit-v1",
+  recipeVersion: "education-unit-v2",
   phase: "mastered",
   pass: 2,
   connectGrills: 0,

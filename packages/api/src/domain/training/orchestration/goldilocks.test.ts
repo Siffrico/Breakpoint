@@ -14,6 +14,13 @@ const progress = {
   supportLevel: "worked_example" as const,
 };
 
+const scenarioFormat = {
+  id: "judge",
+  label: "Judgment",
+  kind: "frq" as const,
+  description: "Evaluate an artifact and justify the decision.",
+};
+
 const jobProgress = () => ({
   ratingState: createInitialRatingState(),
   progress,
@@ -28,6 +35,7 @@ void test("resolving difficulty is read-only", async () => {
     nodeId: "cluster-1",
     now: new Date("2026-01-01T00:00:00.000Z"),
     bands: deriveDefaultBands(),
+    scenarioFormat,
     deps: {
       loadJobProgress: () => Promise.resolve(jobProgress()),
       listRecentPredictions: () => Promise.resolve([]),
@@ -36,33 +44,11 @@ void test("resolving difficulty is read-only", async () => {
 
   assert.equal(result.learnerRating, createInitialRatingState().rating);
   assert.match(result.promptBlock, /Difficulty directive/);
-  assert.equal(result.format.id, "legacy_frq");
+  assert.equal(result.format.id, "judge");
   assert.doesNotMatch(result.promptBlock, /Target item rating/);
 });
 
-void test("probe prefers MCQ and format selection rotates deterministically", async () => {
-  const formats = [
-    {
-      id: "frq",
-      label: "FRQ",
-      kind: "frq" as const,
-      description: "Free response",
-    },
-    {
-      id: "mcq-a",
-      label: "MCQ A",
-      kind: "mcq" as const,
-      description: "Choice",
-      optionCount: 4,
-    },
-    {
-      id: "mcq-b",
-      label: "MCQ B",
-      kind: "mcq" as const,
-      description: "Choice",
-      optionCount: 3,
-    },
-  ];
+void test("uses the curriculum's declared scenario format", async () => {
   const loaded = {
     ...jobProgress(),
     recentAttempts: [
@@ -85,13 +71,13 @@ void test("probe prefers MCQ and format selection rotates deterministically", as
     nodeId: "cluster-1",
     now: new Date("2026-01-01T00:00:00Z"),
     bands: deriveDefaultBands(),
-    scenarioFormats: formats,
+    scenarioFormat,
     deps: {
       loadJobProgress: () => Promise.resolve(loaded),
       listRecentPredictions: () => Promise.resolve([]),
     },
   });
-  assert.equal(result.format.id, "mcq-b");
+  assert.equal(result.format.id, "judge");
 });
 
 void test("defaults the initial rating state when no seed is supplied", async () => {
@@ -101,6 +87,7 @@ void test("defaults the initial rating state when no seed is supplied", async ()
     nodeId: "cluster-1",
     now: new Date("2026-01-01T00:00:00.000Z"),
     bands: deriveDefaultBands(),
+    scenarioFormat,
     deps: {
       loadJobProgress: ({ initialRatingState }) => {
         seenInitial = initialRatingState.rating;
@@ -127,6 +114,7 @@ void test("passes a supplied seed as the initial rating state", async () => {
     now: new Date("2026-01-01T00:00:00.000Z"),
     bands: deriveDefaultBands(),
     initialRatingState: seed,
+    scenarioFormat,
     deps: {
       loadJobProgress: ({ initialRatingState }) => {
         seenInitial = initialRatingState.rating;

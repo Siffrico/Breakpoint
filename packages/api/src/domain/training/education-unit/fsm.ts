@@ -100,23 +100,10 @@ export const transition = (
         return enter(current, "solve", current.pass); // got the core — go solve
       }
       const grills = current.connectGrills + 1;
-      // Missed it. v1 recipes force-advance once the grill budget is spent so
-      // the learner is never trapped (callers that need "did we force them
-      // through?" must check shouldTeachMissedConnection() against the
-      // pre-transition state/event — enter() resets the counter). v2 recipes
-      // keep looping: spending the budget arms connectTeachDue, telling the
-      // next turn to escalate to a teach of the missing idea.
-      if (
-        recipe.policy.advanceOnMaxGrills &&
-        grills >= recipe.policy.maxGrillsBeforeTeach
-      ) {
-        return enter(current, "solve", current.pass);
-      }
       return {
         ...current,
         connectGrills: grills,
         connectTeachDue:
-          !recipe.policy.advanceOnMaxGrills &&
           grills >= recipe.policy.maxGrillsBeforeTeach,
       };
     }
@@ -162,9 +149,7 @@ export const isTerminal = (state: UnitState): boolean =>
 /**
  * Call this BEFORE transition() — it reads the pre-transition grill counter.
  * True means the upcoming Connect failure crosses the grill budget, so the
- * next prompt must teach the missed idea. Under v1 recipes that teach precedes
- * a forced advance; under v2 it precedes a re-pose of the same connect —
- * escalating help, never a forced pass.
+ * next prompt must teach the missed idea before re-posing the same connect.
  */
 export const shouldTeachMissedConnection = (
   state: UnitState,

@@ -29,7 +29,7 @@ export const continueLearningProjectWorkflow = async ({
   }
 
   let learningNodes = plan.nodes
-    .filter((node) => node.kind === "unit" || node.kind === "integration")
+    .filter((node) => node.kind === "unit")
     .sort((left, right) => left.orderIndex - right.orderIndex);
   let nextNode = learningNodes.find((node) => node.status === "ready");
 
@@ -38,7 +38,7 @@ export const continueLearningProjectWorkflow = async ({
     plan = await deps.getActivePlan(sessionId);
     if (!plan) return err("This project's curriculum is not ready yet.");
     learningNodes = plan.nodes
-      .filter((node) => node.kind === "unit" || node.kind === "integration")
+      .filter((node) => node.kind === "unit")
       .sort((left, right) => left.orderIndex - right.orderIndex);
     nextNode = learningNodes.find((node) => node.status === "ready");
   }

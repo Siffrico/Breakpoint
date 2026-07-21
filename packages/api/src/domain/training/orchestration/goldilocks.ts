@@ -12,7 +12,6 @@ import type {
   RatingPredictionRecord,
   ScenarioDirective,
 } from "../engine/rating";
-import { resolveScenarioFormats } from "../engine/progression-model";
 import {
   applyEvaluation,
   BAND_DIAL_PRESETS,
@@ -161,7 +160,7 @@ export const resolveScenarioDirective = async ({
   now,
   bands,
   initialRatingState,
-  scenarioFormats,
+  scenarioFormat,
   deps,
 }: {
   userId: string;
@@ -171,7 +170,7 @@ export const resolveScenarioDirective = async ({
   /** Seed for a learner who has no rating on this job yet (from the plan's
    *  onboarding starting point). Falls back to the policy default. */
   initialRatingState?: JobRatingState;
-  scenarioFormats?: readonly ScenarioFormat[];
+  scenarioFormat: ScenarioFormat;
   deps: ResolveScenarioDirectiveDependencies;
 }): Promise<GoldilocksDirectiveResult> => {
   const resolvedBands = resolveBands({ bands, nodeId });
@@ -199,17 +198,7 @@ export const resolveScenarioDirective = async ({
   }
 
   const calibration = buildGeneratorCalibrationNote(predictions);
-  const formats =
-    scenarioFormats && scenarioFormats.length > 0
-      ? scenarioFormats
-      : resolveScenarioFormats(null);
-  const eligible =
-    directive.intent === "probe"
-      ? formats.filter((format) => format.kind === "mcq")
-      : formats;
-  const rotation = eligible.length > 0 ? eligible : formats;
-  const format = rotation[loaded.recentAttempts.length % rotation.length];
-  if (!format) throw new RangeError("no scenario format is available");
+  const format = scenarioFormat;
   const dialPreset =
     BAND_DIAL_PRESETS[directive.bandOrder] ?? BAND_DIAL_PRESETS[2];
   if (!dialPreset) throw new RangeError("difficulty dial presets are empty");

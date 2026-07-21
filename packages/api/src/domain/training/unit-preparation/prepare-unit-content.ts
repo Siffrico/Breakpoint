@@ -121,7 +121,7 @@ const assembleSeedContext = ({
   }
 
   const node = planNodes.find((candidate) => candidate.id === nodeId);
-  if (!node || (node.kind !== "unit" && node.kind !== "integration")) {
+  if (node?.kind !== "unit") {
     return Effect.fail(contextMissing("Education unit plan node is missing."));
   }
   if (!targetIdentity?.trim()) {
@@ -131,13 +131,6 @@ const assembleSeedContext = ({
     ? (planNodes.find((candidate) => candidate.id === node.parentNodeId) ??
       null)
     : null;
-  if (
-    parentNode?.kind === "skill_cluster" &&
-    parentNode.skillMap &&
-    !syllabus
-  ) {
-    return Effect.fail(contextMissing("Unit syllabus targets are missing."));
-  }
   const siblingUnits = planNodes
     .filter(
       (candidate) =>
@@ -149,19 +142,6 @@ const assembleSeedContext = ({
     siblingUnits.findIndex((candidate) => candidate.id === node.id) + 1,
     1,
   );
-  const completedClusterTitles = planNodes
-    .filter((candidate) => candidate.kind === "skill_cluster")
-    .filter((cluster) => {
-      const children = planNodes.filter(
-        (candidate) =>
-          candidate.parentNodeId === cluster.id && candidate.kind === "unit",
-      );
-      return (
-        children.length > 0 &&
-        children.every((candidate) => candidate.status === "completed")
-      );
-    })
-    .map((candidate) => candidate.title);
 
   return Effect.succeed({
     node: {
@@ -183,8 +163,6 @@ const assembleSeedContext = ({
             whyItMatters: parentNode.whyItMatters,
           }
         : null,
-      integrationContext:
-        node.kind === "integration" ? { completedClusterTitles } : null,
     },
     learner: { targetIdentity: targetIdentity.trim(), priorLearning },
     syllabus,

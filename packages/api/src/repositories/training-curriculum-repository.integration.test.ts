@@ -188,7 +188,7 @@ describe("trainingSyllabusRepository persistence", () => {
         .values([
           {
             planId: plan.id,
-            kind: "skill_cluster",
+            kind: "ability",
             status: "ready",
             title: "Diagnose incidents",
             summary: "Trace evidence to causes.",

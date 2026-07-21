@@ -59,7 +59,7 @@ const state = {
   mode: "education_unit",
   promptKind: "education_unit",
   educationStage: "solve",
-  workflowId: "education-unit-v1",
+  workflowId: "education-unit-v2",
   activeUnitId: "node-1",
   activeUnitTitle: "Diagnose workflow failure",
   recallUnitId: null,
@@ -71,7 +71,7 @@ const masteredTurn: UnitTurnResult = {
   event: { type: "solution_graded", passed: true, score: 90, errorCodes: [] },
   nextState: {
     unitId: "unit-content-1",
-    recipeVersion: "education-unit-v1",
+    recipeVersion: "education-unit-v2",
     phase: "mastered",
     pass: 2,
     connectGrills: 0,
@@ -218,7 +218,7 @@ void test("saveUnitPhaseResult persists transitions and non-grading continuation
     event: { type: "phase_continues", reason: "prompted" },
     nextState: {
       unitId: "unit-content-1",
-      recipeVersion: "education-unit-v1",
+      recipeVersion: "education-unit-v2",
       phase: "connect",
       pass: 1,
       connectGrills: 0,

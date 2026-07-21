@@ -23,11 +23,7 @@ import { runEvaluatorAgent } from "./agents/evaluator-agent";
 import { PhaseAgentOutputSchema } from "./agents/output-schema";
 import { runScenarioAgent } from "./agents/scenario-agent";
 import { runTeachAgent } from "./agents/teach-agent";
-import {
-  shouldTeachMissedConnection,
-  transition,
-  writesGoldilocks,
-} from "./fsm";
+import { transition, writesGoldilocks } from "./fsm";
 import { ScenarioSpecSchema } from "./scenario-spec";
 
 // A turn that cannot be interpreted because its output violates the current
@@ -376,13 +372,7 @@ export const runUnitTurn = (
       );
     }
 
-    // Capture the teach-help signal BEFORE transition wipes connectGrills.
-    // Only v1 recipes actually advance on it; v2 keeps looping with escalated
-    // help, so the "forced advance" flag stays false there by construction.
-    const forcedConnectAdvance =
-      recipe.policy.advanceOnMaxGrills &&
-      event.type === "connection_graded" &&
-      shouldTeachMissedConnection(state, event, recipe);
+    const forcedConnectAdvance = false;
 
     const nextState = transition(state, event, recipe);
 

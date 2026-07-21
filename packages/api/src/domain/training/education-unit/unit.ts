@@ -119,12 +119,6 @@ export type PersistedUnitRun = UnitState & {
 export interface LoopPolicy {
   maxGrillsBeforeTeach: number; // connect: after N failed grills, teach the missing idea
   maxRepairsBeforeMicroTeach: number; // solve: after N failed repairs, micro-teach, then retry
-  /**
-   * v1 behavior: exhausting the grill budget force-advances to Solve. v2 sets
-   * this false — Connect loops (with teach-help) until the learner connects,
-   * because understanding the problem is most of solving it.
-   */
-  advanceOnMaxGrills: boolean;
 }
 
 /**
@@ -171,11 +165,7 @@ export interface UnitRecipe {
   goldilocks: GoldilocksWiring;
 }
 
-const RECIPE_VERSIONS = [
-  "education-unit-v1",
-  "education-unit-v2",
-  "recall-v1",
-] as const;
+const RECIPE_VERSIONS = ["education-unit-v2", "recall-v2"] as const;
 type RecipeVersion = (typeof RECIPE_VERSIONS)[number];
 
 /** The recipe version every new unit run starts on. */
@@ -186,7 +176,7 @@ export const CURRENT_RECIPE_VERSION: RecipeVersion = "education-unit-v2";
  * round — the scored transfer moment — and skips every teaching beat. One
  * composed scenario, one first-verdict rating write, optional repairs, mastered.
  */
-export const RECALL_RECIPE_VERSION: RecipeVersion = "recall-v1";
+export const RECALL_RECIPE_VERSION: RecipeVersion = "recall-v2";
 
 export const isRecallRecipe = (version: string): boolean =>
   version === RECALL_RECIPE_VERSION;
@@ -197,11 +187,10 @@ const isRecipeVersion = (version: string): version is RecipeVersion =>
 /** Round count and grill behavior per recipe version. */
 const RECIPE_SHAPES: Record<
   RecipeVersion,
-  { passes: PassIndex; writeOnPass: PassIndex; advanceOnMaxGrills: boolean }
+  { passes: PassIndex; writeOnPass: PassIndex }
 > = {
-  "education-unit-v1": { passes: 2, writeOnPass: 2, advanceOnMaxGrills: true },
-  "education-unit-v2": { passes: 3, writeOnPass: 3, advanceOnMaxGrills: false },
-  "recall-v1": { passes: 2, writeOnPass: 2, advanceOnMaxGrills: true },
+  "education-unit-v2": { passes: 3, writeOnPass: 3 },
+  "recall-v2": { passes: 2, writeOnPass: 2 },
 };
 
 /**
@@ -228,7 +217,6 @@ export function getUnitRecipe(
     policy: {
       maxGrillsBeforeTeach: 2,
       maxRepairsBeforeMicroTeach: 2,
-      advanceOnMaxGrills: shape.advanceOnMaxGrills,
     },
     grade: {
       passAt: 80,

@@ -39,12 +39,6 @@ export interface StageChange {
   stage: AbilityStage;
 }
 
-export interface AdvanceResult {
-  /** The node newly unlocked to `ready`, or null when nothing advanced. */
-  advancedNodeId: string | null;
-  changes: StatusChange[];
-}
-
 export type MasteryProgressionDecision =
   | { intent: "create_unit" }
   | { intent: "node_complete" };
@@ -56,10 +50,8 @@ export type MasteryProgressionDecision =
  *   - "foundation" (parent is a `skill`): criterion-referenced. Mastered when
  *     every concept has reached the coverage target. No rating is consulted —
  *     concept #20 is judged exactly like concept #1.
- *   - "skillset" (parent is an `ability`, or a legacy `skill_cluster`): the
- *     ELO tier climb. Mastered at peak rating with a tight deviation. The
- *     optional uncheckedEntryCount keeps legacy clusters honest about their
- *     syllabus frontier; v2 abilities pass 0.
+ *   - "skillset" (parent is an `ability`): the ELO tier climb. Mastered at
+ *     peak rating with a tight deviation.
  */
 export type MasteryProgressionState =
   | {
@@ -79,8 +71,7 @@ export type MasteryProgressionState =
 /**
  * Whether a completed node's progression is owned by the dynamic mastery loop
  * (create_unit/node_complete decisions) instead of list advancement. Only
- * nodes whose parent has a skill map qualify — legacy and imported plans have
- * no skill map, so their units keep advancing via {@link planAdvancement}.
+ * nodes whose parent has a skill map qualify.
  */
 export const usesDynamicMasteryLoop = ({
   nodeKind,
@@ -89,7 +80,7 @@ export const usesDynamicMasteryLoop = ({
   nodeKind: CurriculumNodeKind;
   parentHasSkillMap: boolean;
 }): boolean =>
-  (nodeKind === "simulation" || nodeKind === "unit") && parentHasSkillMap;
+  nodeKind === "unit" && parentHasSkillMap;
 
 export const decideMasteryProgression: (
   state: MasteryProgressionState,
@@ -200,11 +191,11 @@ export const planSkillMapAdvancement = (
     return { kind: "none", changes, stageChanges };
   }
 
-  if (mastered.kind === "ability" || mastered.kind === "skill_cluster") {
+  if (mastered.kind === "ability") {
     stageChanges.push({ nodeId: masteredNodeId, stage: "mastered" });
     const nextAbility = ordered.find(
       (node) =>
-        (node.kind === "ability" || node.kind === "skill_cluster") &&
+        node.kind === "ability" &&
         node.parentNodeId === mastered.parentNodeId &&
         node.orderIndex > mastered.orderIndex,
     );
@@ -229,9 +220,6 @@ export const planSkillMapAdvancement = (
         stageChanges,
       };
     }
-    // Legacy cluster with no skill children: its units are created directly
-    // under it by the mastery loop, so its climb opens immediately.
-    stageChanges.push({ nodeId: nextAbility.id, stage: "skillset" });
     return { kind: "none", changes, stageChanges };
   }
 
@@ -306,88 +294,4 @@ export const planCompletion = (
     changes.push(rollup);
   }
   return changes;
-};
-
-/**
- * Decide which node unlocks after `completedNodeId` is completed, in priority
- * order:
- *   1. finishing every unit in a cluster unlocks that cluster's simulation;
- *   2. otherwise the next still-planned unit (by order) unlocks;
- *   3. once every unit is complete, the next integration layer unlocks.
- *
- * The just-completed node is treated as completed regardless of the snapshot it
- * is read in, so the result does not depend on read-after-write ordering.
- */
-export const planAdvancement = (
-  nodes: readonly ProgressionNode[],
-  completedNodeId: string,
-): AdvanceResult => {
-  const completed = nodes.find((node) => node.id === completedNodeId);
-  if (!completed) {
-    return { advancedNodeId: null, changes: [] };
-  }
-
-  const ordered = [...nodes].sort((a, b) => a.orderIndex - b.orderIndex);
-  const statusOf = (node: ProgressionNode): CurriculumNodeStatus =>
-    node.id === completedNodeId ? "completed" : node.status;
-
-  const unlock = (
-    nodeId: string,
-    parentNodeId: string | null,
-  ): AdvanceResult => {
-    const changes: StatusChange[] = [{ nodeId, status: "ready" }];
-    const rollup = parentRollup(nodes, parentNodeId, {
-      [completedNodeId]: "completed",
-      [nodeId]: "ready",
-    });
-    if (rollup) {
-      changes.push(rollup);
-    }
-    return { advancedNodeId: nodeId, changes };
-  };
-
-  if (completed.kind === "unit" && completed.parentNodeId) {
-    const siblingUnits = ordered.filter(
-      (node) =>
-        node.parentNodeId === completed.parentNodeId && node.kind === "unit",
-    );
-    const clusterFinished =
-      siblingUnits.length > 0 &&
-      siblingUnits.every((node) => statusOf(node) === "completed");
-
-    if (clusterFinished) {
-      const simulation = ordered.find(
-        (node) =>
-          node.parentNodeId === completed.parentNodeId &&
-          node.kind === "simulation" &&
-          statusOf(node) === "planned",
-      );
-      if (simulation) {
-        return unlock(simulation.id, simulation.parentNodeId);
-      }
-    }
-  }
-
-  const nextPlannedUnit = ordered.find(
-    (node) => node.kind === "unit" && statusOf(node) === "planned",
-  );
-  if (nextPlannedUnit) {
-    return unlock(nextPlannedUnit.id, nextPlannedUnit.parentNodeId);
-  }
-
-  const units = ordered.filter((node) => node.kind === "unit");
-  const allUnitsComplete =
-    units.length > 0 && units.every((node) => statusOf(node) === "completed");
-  if (!allUnitsComplete) {
-    return { advancedNodeId: null, changes: [] };
-  }
-
-  const nextIntegration = ordered.find(
-    (node) => node.kind === "integration" && statusOf(node) === "planned",
-  );
-  if (nextIntegration) {
-    return unlock(nextIntegration.id, nextIntegration.parentNodeId);
-  }
-
-  return { advancedNodeId: null, changes: [] };
 };

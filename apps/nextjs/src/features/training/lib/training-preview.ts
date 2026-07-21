@@ -316,7 +316,7 @@ export const previewPlanState: PlanState = {
     {
       id: "node-cluster-1",
       parentNodeId: "node-root",
-      kind: "skill_cluster",
+      kind: "ability",
       title: "Replication and Quorum",
       summary: "Model how writes, reads, and acknowledgements move across replicas.",
       whyItMatters: "Most distributed failures become visible here first.",
@@ -348,7 +348,7 @@ export const previewPlanState: PlanState = {
     {
       id: "node-cluster-2",
       parentNodeId: "node-root",
-      kind: "skill_cluster",
+      kind: "ability",
       title: "Coordination and Recovery",
       summary: "Reason through leader election, retries, replay, and safe failover.",
       whyItMatters: "Recovery paths determine whether the system is merely slow or actually wrong.",

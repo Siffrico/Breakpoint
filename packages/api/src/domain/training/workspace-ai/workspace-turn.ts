@@ -55,13 +55,13 @@ interface PlannedRecall {
 export const getNextReadyLearningNode = (nodes: CurriculumNode[]) =>
   nodes.find(
     (node) =>
-      (node.kind === "unit" || node.kind === "integration") &&
+      node.kind === "unit" &&
       node.status === "ready",
   ) ?? null;
 
 const isLearningUnit = <T extends Pick<CurriculumNode, "kind">>(
   node: T | null,
-): node is T => node?.kind === "unit" || node?.kind === "integration";
+): node is T => node?.kind === "unit";
 
 export type UnitAdvanceGate =
   | { status: "locked" }

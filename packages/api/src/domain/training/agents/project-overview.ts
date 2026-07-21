@@ -137,7 +137,7 @@ Target identity: ${curriculum.targetIdentity}
 
 Abilities:
 ${curriculum.nodes
-  .filter((node) => node.kind === "ability" || node.kind === "skill_cluster")
+  .filter((node) => node.kind === "ability")
   .map(
     (node) =>
       `- ${node.title}: ${node.summary}\n  Why it matters: ${node.whyItMatters}\n  Learning goal: ${node.learningGoal}`,

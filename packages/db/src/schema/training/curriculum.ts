@@ -1,7 +1,8 @@
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
-import { index, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { check, index, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
 
-import type { ScenarioFormat } from "@acme/validators";
+import type { ScenarioArchetype } from "@acme/validators";
 
 import { user } from "../../auth-schema";
 import { TrainingOnboardingSession } from "./onboarding";
@@ -72,11 +73,7 @@ export const TrainingCurriculumNode = pgTable(
     parentNodeId: t.uuid(),
     kind: t.varchar({ length: 32 }).notNull(),
     status: t.varchar({ length: 32 }).notNull().default("planned"),
-    // Executable progression stage for ability-like nodes, kept separate from
-    // the lifecycle status above: "ready" only means the track is visible;
-    // this says what may RUN ("foundations" | "skillset" | "mastered").
-    // Null on non-ability nodes and on rows written before the column existed
-    // (readers fall back to deriving the stage from child-skill completion).
+    // `ability` nodes always have a stage; structural and skill/unit nodes never do.
     abilityStage: t.varchar({ length: 16 }),
     title: t.varchar({ length: 240 }).notNull(),
     summary: t.text().notNull(),
@@ -103,7 +100,7 @@ export const TrainingCurriculumNode = pgTable(
         exitCriteria: string[];
         maxRatingDeviation?: number;
       };
-      scenarioFormats?: ScenarioFormat[];
+      scenarioArchetype: ScenarioArchetype;
     }>(),
     orderIndex: t.integer().notNull(),
     depth: t.integer().notNull(),
@@ -122,6 +119,27 @@ export const TrainingCurriculumNode = pgTable(
     index("becoming_curriculum_node_parent_order_idx").on(
       table.parentNodeId,
       table.orderIndex,
+    ),
+    check(
+      "becoming_curriculum_node_v4_shape",
+      sql`(
+        (
+          kind = 'ability'
+          and ability_stage is not null
+          and ability_stage in ('foundations', 'skillset', 'mastered')
+        )
+        or (kind <> 'ability' and ability_stage is null)
+      )
+      and kind in ('root', 'ability', 'skill', 'unit')
+      and (
+        (
+          kind in ('ability', 'skill')
+          and skill_map is not null
+          and coalesce(skill_map ->> 'scenarioArchetype', '') in ('select', 'transform', 'judge')
+          and not (skill_map ? 'scenarioFormats')
+        )
+        or (kind in ('root', 'unit') and skill_map is null)
+      )`,
     ),
   ],
 );
@@ -176,9 +194,8 @@ export const TrainingSyllabusEntry = pgTable(
   "becoming_training_syllabus_entry",
   (t) => ({
     id: t.uuid().notNull().primaryKey().defaultRandom(),
-    // The node this entry's concepts belong to. On v2 plans this is a `skill`
-    // node (each skill owns its concept list); on pre-v2 plans it is the
-    // `skill_cluster`. The column name is kept to avoid a rename migration.
+    // The skill node this entry's concepts belong to. The historical column
+    // name is retained because it is an internal storage detail.
     clusterNodeId: t
       .uuid()
       .notNull()

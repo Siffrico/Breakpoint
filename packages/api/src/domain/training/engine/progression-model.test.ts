@@ -5,7 +5,7 @@ import {
   difficultyRampOf,
   FOUNDATION_RAMP_SPAN,
   foundationCalibrationRamp,
-  parseAbilityStage,
+  requireAbilityStage,
   regimeForNodeKind,
   resolveProgressionModel,
 } from "./progression-model";
@@ -14,13 +14,13 @@ const skillMap = {
   workflow: { name: "Debug", steps: ["observe", "isolate", "fix"] },
   bandRamp: { startRating: 1000, peakRating: 1400 },
   masteryContract: { exitCriteria: ["ships a fix"] },
+  scenarioArchetype: "judge" as const,
 };
 
 describe("regimeForNodeKind", () => {
   it("maps each kind to exactly one regime", () => {
     expect(regimeForNodeKind("skill")).toBe("foundation");
     expect(regimeForNodeKind("ability")).toBe("skillset");
-    expect(regimeForNodeKind("skill_cluster")).toBe("skillset");
     expect(regimeForNodeKind("unit")).toBeNull();
     expect(regimeForNodeKind("root")).toBeNull();
   });
@@ -54,22 +54,6 @@ describe("resolveProgressionModel", () => {
         peakRating: 1400,
         maxRatingDeviation: DEFAULT_MAX_RATING_DEVIATION,
       },
-      checksSyllabusFrontier: false,
-    });
-  });
-
-  it("legacy cluster: skillset regime that still checks its syllabus", () => {
-    const model = resolveProgressionModel({
-      kind: "skill_cluster",
-      skillMap: {
-        ...skillMap,
-        masteryContract: { exitCriteria: [], maxRatingDeviation: 60 },
-      },
-    });
-    expect(model).toMatchObject({
-      regime: "skillset",
-      mastery: { maxRatingDeviation: 60 },
-      checksSyllabusFrontier: true,
     });
   });
 });
@@ -85,13 +69,10 @@ describe("difficultyRampOf", () => {
   });
 });
 
-describe("parseAbilityStage", () => {
-  it("accepts only real stages", () => {
-    expect(parseAbilityStage("foundations")).toBe("foundations");
-    expect(parseAbilityStage("skillset")).toBe("skillset");
-    expect(parseAbilityStage("mastered")).toBe("mastered");
-    expect(parseAbilityStage("ready")).toBeNull();
-    expect(parseAbilityStage(null)).toBeNull();
-    expect(parseAbilityStage(undefined)).toBeNull();
+describe("requireAbilityStage", () => {
+  it("rejects a missing or invalid stage", () => {
+    expect(requireAbilityStage("foundations")).toBe("foundations");
+    expect(() => requireAbilityStage("ready")).toThrow();
+    expect(() => requireAbilityStage(null)).toThrow();
   });
 });

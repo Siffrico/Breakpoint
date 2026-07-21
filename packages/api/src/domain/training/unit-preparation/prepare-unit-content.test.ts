@@ -32,7 +32,7 @@ const planNodes = [
   {
     id: "cluster-1",
     parentNodeId: null,
-    kind: "skill_cluster",
+    kind: "ability",
     title: "Diagnosis",
     summary: "Find causes before fixes.",
     whyItMatters: "Bad diagnosis compounds errors.",

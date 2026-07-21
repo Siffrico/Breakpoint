@@ -6,7 +6,7 @@ import type {
   RecordEvaluationDependencies,
   ResolveScenarioDirectiveDependencies,
 } from "../domain/training/orchestration/goldilocks";
-import { resolveScenarioFormats } from "../domain/training/engine/progression-model";
+import { resolveScenarioFormat } from "../domain/training/engine/progression-model";
 import { trainingRatingRepository } from "./training-rating-repository";
 
 type Database = typeof databaseClient;
@@ -40,13 +40,14 @@ export const createTrainingRatingGoldilocksDeps = (
       }),
     ]);
     if (!attempt) return null;
-    const format = resolveScenarioFormats(node?.skillMap).find(
-      (candidate) => candidate.id === attempt.difficultyVectorJson?.formatId,
-    );
+    if (!node?.skillMap) {
+      throw new Error("Rating ability is missing its scenario contract.");
+    }
+    const format = resolveScenarioFormat(node.skillMap);
     return {
       ...attempt,
       guessChance:
-        format?.kind === "mcq" && format.optionCount
+        format.kind === "mcq" && format.optionCount
           ? 1 / format.optionCount
           : 0,
     };

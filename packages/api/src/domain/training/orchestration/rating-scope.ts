@@ -7,18 +7,17 @@ import type {
 /**
  * Which node a Goldilocks rating belongs to.
  *
- * A learner's skill is the `skill_cluster` node, not the individual education
- * `unit` leaves beneath it. Every rating read and write resolves the unit it is
- * working on up to that cluster, so one cumulative rating accrues across all of
- * a skill's units instead of a fresh, evidence-starved rating per unit.
+ * A learner's ability owns the rating, not the individual education-unit
+ * leaves beneath it. Every rating read and write resolves a unit up to that
+ * ability, so one cumulative rating accrues across integrated practice.
  *
- * The bands travel with the rating: they are read from the same cluster node so
+ * The bands travel with the rating: they are read from the same ability so
  * the difficulty ladder stays stable across the cluster's units. If the cluster
  * has no bands the unit's own bands are used, and the rating engine falls back
  * to defaults when both are absent.
  */
 export interface RatingScope {
-  /** Node the rating state is keyed on (the skill cluster, when one exists). */
+  /** Node the rating state is keyed on (the ability). */
   nodeId: string;
   /** Difficulty ladder for that node, or null to let the engine default it. */
   bands: readonly DifficultyBand[] | null;
@@ -33,14 +32,10 @@ export class CurriculumInvariantError extends Error {
   }
 }
 
-/** The node kinds a rating can be keyed on: v2 abilities, legacy clusters. */
-const RATING_SCOPE_KINDS = new Set<CurriculumNode["kind"]>([
-  "ability",
-  "skill_cluster",
-]);
+const RATING_SCOPE_KINDS = new Set<CurriculumNode["kind"]>(["ability"]);
 
 /**
- * Walk a unit up to its nearest `ability` (or legacy `skill_cluster`) ancestor
+ * Walk a unit up to its nearest `ability` ancestor
  * and return that node as the rating scope. Foundation units (under `skill`
  * nodes) walk one level further — they READ the ability's difficulty but never
  * write it (see GoldilocksWiring.writesRating); skillset units sit directly

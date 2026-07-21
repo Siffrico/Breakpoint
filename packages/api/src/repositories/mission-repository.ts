@@ -78,7 +78,7 @@ export const missionRepository = {
       node,
       eligible:
         run.phase === "mastered" &&
-        (parent?.kind === "ability" || parent?.kind === "skill_cluster"),
+        parent?.kind === "ability",
     };
   },
 

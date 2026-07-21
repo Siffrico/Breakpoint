@@ -24,11 +24,7 @@ import type {
   UnitContent,
   UpdateUnitContentInput,
 } from "../domain/training/types/training.types";
-import {
-  planAdvancement,
-  planCompletion,
-  usesDynamicMasteryLoop,
-} from "../domain/training/engine/plan-progression";
+import { planCompletion } from "../domain/training/engine/plan-progression";
 import { insertBlueprintNodes } from "./training-curriculum-node-writer";
 
 type Database = typeof databaseClient;
@@ -308,9 +304,7 @@ export const trainingCurriculumRepository = {
 
     const nextUnitNode = nodeRows.find(
       (node) =>
-        (node.kind === "unit" ||
-          node.kind === "integration" ||
-          node.kind === "simulation") &&
+        node.kind === "unit" &&
         node.status === "ready",
     );
 
@@ -923,60 +917,14 @@ export const trainingCurriculumRepository = {
     );
   },
 
-  advancePlanAfterCompletion: async ({
-    db,
-    nodeId,
-  }: {
-    db: Database;
-    nodeId: string;
-  }): Promise<CurriculumNodeRow | null> => {
-    const loaded = await loadPlanNodes(db, nodeId);
-    if (!loaded) {
-      return null;
-    }
-
-    const { advancedNodeId, changes } = planAdvancement(
-      toProgressionNodes(loaded.planNodes),
-      nodeId,
-    );
-    await applyStatusChanges(db, changes);
-
-    return advancedNodeId
-      ? (loaded.planNodes.find((node) => node.id === advancedNodeId) ?? null)
-      : null;
-  },
-
   completeNode: async ({ db, nodeId }: { db: Database; nodeId: string }) => {
     const node = await trainingCurriculumRepository.getNodeById({ db, nodeId });
-    const parent = node?.parentNodeId
-      ? await trainingCurriculumRepository.getNodeById({
-          db,
-          nodeId: node.parentNodeId,
-        })
-      : null;
-    const usesDynamicLoop =
-      node &&
-      usesDynamicMasteryLoop({
-        nodeKind: node.kind as CurriculumNodeKind,
-        parentHasSkillMap: Boolean(parent?.skillMap),
-      });
-
-    if (usesDynamicLoop) {
-      await db
-        .update(TrainingCurriculumNode)
-        .set({ status: "completed" })
-        .where(eq(TrainingCurriculumNode.id, nodeId));
-      return node;
-    }
-
-    await trainingCurriculumRepository.markNodeCompleted({
-      db,
-      nodeId,
-    });
-    return trainingCurriculumRepository.advancePlanAfterCompletion({
-      db,
-      nodeId,
-    });
+    if (node?.kind !== "unit") return null;
+    await db
+      .update(TrainingCurriculumNode)
+      .set({ status: "completed" })
+      .where(eq(TrainingCurriculumNode.id, nodeId));
+    return node;
   },
 
   /** Promotes a pre-generated planned node into the live ready slot. */

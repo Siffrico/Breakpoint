@@ -108,7 +108,6 @@ ${regimeBlock(context)}
 Rules:
 - Stay within the current slot's scope.
 - Earlier slots should build leverage. Later slots should stress transfer and edge cases.
-- If this is an integration slot, synthesize across completed clusters rather than teaching an isolated micro-skill.
 - seedPrompt is the Scenario step in SACTRE, not a practice prompt and not a definition question.
 - seedPrompt must place the learner inside a concrete situation where they must judge, choose, diagnose, or explain what is happening using only prior knowledge.
 - seedPrompt must contain no new teaching, no concept naming, and no wording like "what do you think this concept means?"
@@ -122,7 +121,7 @@ Rules:
 - workedExampleBrief should tell the Build stage what kind of example would best unlock the concept.
 - clusterArcFrame must not answer the seed prompt or teach the lesson content.
 - complexityBudget 1 = foundational, 2 = intermediate, 3 = advanced.
-- Earlier non-integration slots should usually stay at 1 or 2 unless there is a clear reason the concept is inherently dense.
+- Foundation units should usually stay at 1 or 2 unless there is a clear reason the concept is inherently dense.
 - Force the unit's target syllabus entries through the scenario; they are the non-negotiable discriminations for this unit.
 - Treat checked syllabus entries as assumed-known. Do not re-teach them except where they are load-bearing context.
 
@@ -135,9 +134,6 @@ const formatUnitBuilderContext = (context: UnitBuilderContext): string => {
   const clusterContext = context.planContext.clusterContext
     ? `${context.planContext.clusterContext.title}: ${context.planContext.clusterContext.summary} | Why it matters: ${context.planContext.clusterContext.whyItMatters}`
     : "None";
-  const integrationContext = context.planContext.integrationContext
-    ? context.planContext.integrationContext.completedClusterTitles.join(", ")
-    : "None";
   const priorLearning =
     context.learner.priorLearning.length > 0
       ? context.learner.priorLearning
@@ -149,13 +145,12 @@ const formatUnitBuilderContext = (context: UnitBuilderContext): string => {
       : "No prior learning recorded.";
 
   return `Node kind: ${context.node.kind}
-Unit regime: ${context.planContext.regime ?? "legacy"}
+Unit regime: ${context.planContext.regime ?? "foundation"}
 Node title: ${context.node.title}
 Node summary: ${context.node.summary}
 Why it matters: ${context.node.whyItMatters}
 Slot position: ${context.planContext.slotIndex} of ${context.planContext.totalSlots}
 Cluster context: ${clusterContext}
-Completed clusters for integration: ${integrationContext}
 Target identity: ${context.learner.targetIdentity}
 Prior learning:
 ${priorLearning}
@@ -165,6 +160,6 @@ ${
 Workflow spine: ${context.syllabus.workflow.steps.join(" -> ")}
 Already checked (assume known): ${context.syllabus.checked.map((entry) => `${entry.label}: ${entry.gloss}`).join("; ") || "None"}
 This unit must land: ${context.syllabus.targets.map((entry) => `${entry.label}: ${entry.gloss}`).join("; ")}`
-    : "Legacy curriculum: follow the node learning goal and sequence context; no syllabus frontier is attached."
+    : "No syllabus targets are attached."
 }`;
 };

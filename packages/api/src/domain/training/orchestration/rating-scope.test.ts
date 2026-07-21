@@ -33,10 +33,10 @@ const unit = (nodeId: string, bands: DifficultyBand[] | null = null) => ({
   difficultyBands: bands,
 });
 
-void test("rates against the unit's skill_cluster ancestor", () => {
+void test("rates against the unit's ability ancestor", () => {
   const planNodes = [
     node({ id: "root", kind: "root" }),
-    node({ id: "cluster", kind: "skill_cluster", parentNodeId: "root" }),
+    node({ id: "cluster", kind: "ability", parentNodeId: "root" }),
     node({ id: "unit-a", kind: "unit", parentNodeId: "cluster" }),
     node({ id: "unit-b", kind: "unit", parentNodeId: "cluster" }),
   ];
@@ -53,7 +53,7 @@ void test("prefers the cluster's bands over the unit's", () => {
   const planNodes = [
     node({
       id: "cluster",
-      kind: "skill_cluster",
+      kind: "ability",
       difficultyBands: [band(0)],
     }),
     node({ id: "unit-a", kind: "unit", parentNodeId: "cluster" }),
@@ -70,7 +70,7 @@ void test("prefers the cluster's bands over the unit's", () => {
 
 void test("falls back to the unit's bands when the cluster has none", () => {
   const planNodes = [
-    node({ id: "cluster", kind: "skill_cluster" }),
+    node({ id: "cluster", kind: "ability" }),
     node({ id: "unit-a", kind: "unit", parentNodeId: "cluster" }),
   ];
 
@@ -101,8 +101,8 @@ void test("rejects a unit without a skill cluster", () => {
 
 void test("walks through an intermediate ancestor to reach the cluster", () => {
   const planNodes = [
-    node({ id: "cluster", kind: "skill_cluster" }),
-    node({ id: "integration", kind: "integration", parentNodeId: "cluster" }),
+    node({ id: "cluster", kind: "ability" }),
+    node({ id: "integration", kind: "skill", parentNodeId: "cluster" }),
     node({ id: "unit-a", kind: "unit", parentNodeId: "integration" }),
   ];
 
@@ -116,7 +116,7 @@ void test("rejects a missing unit node", () => {
     () =>
       resolveRatingScope({
         unit: unit("ghost", [band(0)]),
-        planNodes: [node({ id: "cluster", kind: "skill_cluster" })],
+        planNodes: [node({ id: "cluster", kind: "ability" })],
       }),
     CurriculumInvariantError,
   );

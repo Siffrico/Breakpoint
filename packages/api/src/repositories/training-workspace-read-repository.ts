@@ -91,7 +91,7 @@ export const trainingWorkspaceReadRepository = {
       if (!title) return [];
 
       const lessonPreview = (projectNodesBySessionId.get(session.id) ?? [])
-        .filter((node) => node.kind === "unit" || node.kind === "integration")
+        .filter((node) => node.kind === "unit")
         .filter((node) => chatUnitIdsBySessionId.get(session.id)?.has(node.id))
         .sort((left, right) => right.orderIndex - left.orderIndex)
         .slice(0, 10)
@@ -145,7 +145,7 @@ export const trainingWorkspaceReadRepository = {
     if (!profile || !plan || !summary) return null;
 
     const learningNodes = plan.nodes.filter(
-      (node) => node.kind === "unit" || node.kind === "integration",
+      (node) => node.kind === "unit",
     );
     const nextNode = plan.nodes.find((node) => node.id === plan.nextUnitId);
     const lastAttempt = attemptHistory.at(-1) ?? null;
@@ -175,9 +175,7 @@ export const trainingWorkspaceReadRepository = {
       nextUnitTitle:
         summary.currentUnit?.title ??
         (nextNode
-          ? nextNode.kind === "integration"
-            ? "Integration unit ready"
-            : "Next unit ready"
+          ? "Next unit ready"
           : null),
       blockingSignals:
         summary.recentFailureTags.length > 0

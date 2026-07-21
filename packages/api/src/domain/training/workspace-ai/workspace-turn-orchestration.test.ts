@@ -53,7 +53,7 @@ const node = {
 const clusterNode = {
   id: "cluster-1",
   parentNodeId: null,
-  kind: "skill_cluster",
+  kind: "ability",
   title: "Cluster",
   summary: "Cluster summary",
   whyItMatters: "Cluster importance",
@@ -70,7 +70,7 @@ const unitRun = {
   unitId: "00000000-0000-0000-0000-000000000003",
   sessionId: "00000000-0000-0000-0000-000000000010",
   userId: "user-1",
-  recipeVersion: "education-unit-v1",
+  recipeVersion: "education-unit-v2",
   phase: "connect",
   pass: 1,
   connectGrills: 0,

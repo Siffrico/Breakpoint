@@ -75,7 +75,6 @@ const AWAIT_UNIT_TIMEOUT_MS = 20_000;
 const CreateLearningProjectSchema = z.object({
   title: z.string().min(2).max(120),
   targetIdentity: z.string().max(240).optional(),
-  curriculumMarkdown: z.string().max(120_000).optional(),
 });
 
 type Database = Parameters<
@@ -226,17 +225,11 @@ export const trainingRouter = {
             userId: ctx.session.user.id,
             title: input.title,
             targetIdentity: input.targetIdentity,
-            curriculumMarkdown: input.curriculumMarkdown,
             deps: {
               createSession: (userId) =>
                 trainingOnboardingRepository.createSession({ db, userId }),
               createProfileVersion: (payload) =>
                 trainingOnboardingRepository.createProfileVersion({
-                  db,
-                  ...payload,
-                }),
-              createPlan: (payload) =>
-                trainingCurriculumRepository.createPlan({
                   db,
                   ...payload,
                 }),

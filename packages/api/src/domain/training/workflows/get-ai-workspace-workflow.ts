@@ -200,7 +200,7 @@ export const getAiWorkspaceWorkflowEffect = ({
         ? null
         : (plan.nodes.find(
             (node) =>
-              (node.kind === "unit" || node.kind === "integration") &&
+              node.kind === "unit" &&
               node.orderIndex > activeNode.orderIndex,
           ) ?? null);
 

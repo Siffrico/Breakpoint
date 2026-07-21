@@ -18,7 +18,7 @@ import {
 } from "./orchestrate-unit-turn";
 import { getUnitRecipe } from "./unit";
 
-const recipe = getUnitRecipe("education-unit-v1", {
+const recipe = getUnitRecipe("education-unit-v2", {
   nodeId: "cluster-1",
   bands: null,
 });
@@ -59,104 +59,6 @@ const runWithResult = (
   );
 
 describe("runUnitTurn contract", () => {
-  it("executes the complete two-pass workflow without a live model", async () => {
-    const script = [
-      phaseResult("Orient the learner."),
-      phaseResult("Here is the connection scenario.", [
-        { toolName: "recordScenarioSpec", input: specInput("A slow release") },
-        { toolName: "continuePhase", input: { reason: "prompted" } },
-      ]),
-      phaseResult("You reconstructed the connection.", [
-        {
-          toolName: "gradeConnection",
-          input: { connected: true, reasoning: "Named the causal link." },
-        },
-      ]),
-      phaseResult("Now propose a solution.", [
-        { toolName: "continuePhase", input: { reason: "prompted" } },
-      ]),
-      phaseResult("The first solution works.", [
-        {
-          toolName: "gradeSolution",
-          input: { score: 86, reasoning: "Correct mechanism." },
-        },
-      ]),
-      phaseResult("Teach the concept, then ask the transfer why-probe.", [
-        {
-          toolName: "recordScenarioSpec",
-          input: specInput("A flaky churn dashboard"),
-        },
-      ]),
-      phaseResult("The transfer connection is correct.", [
-        {
-          toolName: "gradeConnection",
-          input: { connected: true, reasoning: "Transferred the mechanism." },
-        },
-      ]),
-      phaseResult("Solve the transfer case.", [
-        { toolName: "continuePhase", input: { reason: "prompted" } },
-      ]),
-      phaseResult("Mastered.", [
-        {
-          toolName: "gradeSolution",
-          input: { score: 93, reasoning: "Clear transfer." },
-        },
-        {
-          toolName: "checkOffSyllabus",
-          input: {
-            entryIds: ["entry-1"],
-            evidence: "The learner separated correlation from causality.",
-          },
-        },
-      ]),
-    ];
-
-    const expectedStates = [
-      ["connect", 1],
-      ["connect", 1],
-      ["solve", 1],
-      ["solve", 1],
-      ["teach", 1],
-      ["connect", 2],
-      ["solve", 2],
-      ["solve", 2],
-      ["mastered", 2],
-    ] as const;
-
-    // Mirrors persistence: a recorded spec overwrites, null coalesces onto
-    // the stored one.
-    let storedSpec: UnitTurnInput["storedScenarioSpec"] = null;
-    let state = initialState("unit-1", "education-unit-v1");
-    for (const [index, result] of script.entries()) {
-      const turn = await runWithResult(state, result, [], storedSpec);
-      const [phase, pass] = expectedStates[index] ?? [];
-      expect(turn.nextState).toMatchObject({ phase, pass });
-      if (turn.scenarioSpec) {
-        // Teach's why-probe is the pass-2 scenario even though Teach itself
-        // is still represented by the pass-1 seam state.
-        expect(turn.scenarioSpec.pass).toBe(
-          state.phase === "teach" ? 2 : state.pass,
-        );
-        storedSpec = turn.scenarioSpec;
-      }
-      expect(turn.assistantMessage).toBe(result.object.assistantMessage);
-      expect(turn.ratingWrite).toEqual(
-        index === script.length - 1 ? { score: 93, errorCodes: [] } : null,
-      );
-      expect(turn.syllabusCheckOff).toEqual(
-        index === script.length - 1
-          ? {
-              entryIds: ["entry-1"],
-              evidence: "The learner separated correlation from causality.",
-            }
-          : null,
-      );
-      state = turn.nextState;
-    }
-
-    expect(state).toMatchObject({ phase: "mastered", pass: 2 });
-  });
-
   it("passes context separately and preserves the transcript prefix", async () => {
     const transcript: ModelMessage[] = [
       { role: "assistant", content: "Earlier assistant message" },
@@ -169,7 +71,7 @@ describe("runUnitTurn contract", () => {
     await Effect.runPromise(
       runUnitTurn(
         {
-          state: initialState("unit-1", "education-unit-v1"),
+          state: initialState("unit-1", "education-unit-v2"),
           recipe,
           contextBlock: "## Context\nFirst",
           transcript,
@@ -191,7 +93,7 @@ describe("runUnitTurn contract", () => {
     const pass1Spec = { ...specInput("A slow release"), pass: 1 as const };
     const turn = await runWithResult(
       {
-        ...initialState("unit-1", "education-unit-v1"),
+        ...initialState("unit-1", "education-unit-v2"),
         phase: "teach",
       },
       phaseResult("Teach, then ask the why-probe.", [
@@ -217,7 +119,7 @@ describe("runUnitTurn contract", () => {
   it("does not count a continuation as a failed attempt", async () => {
     const connect = await runWithResult(
       {
-        ...initialState("unit-1", "education-unit-v1"),
+        ...initialState("unit-1", "education-unit-v2"),
         phase: "connect",
         connectGrills: 1,
       },
@@ -253,10 +155,10 @@ describe("runUnitTurn contract", () => {
     expect(solve.nextState).toMatchObject({ phase: "solve", solveRepairs: 1 });
   });
 
-  it("marks only the threshold Connect failure as a forced advance", async () => {
+  it("arms teaching after the threshold Connect failure", async () => {
     const result = await runWithResult(
       {
-        ...initialState("unit-1", "education-unit-v1"),
+        ...initialState("unit-1", "education-unit-v2"),
         phase: "connect",
         connectGrills: 1,
       },
@@ -268,19 +170,20 @@ describe("runUnitTurn contract", () => {
       ]),
     );
 
-    expect(result.forcedConnectAdvance).toBe(true);
+    expect(result.forcedConnectAdvance).toBe(false);
     expect(result.nextState).toMatchObject({
-      phase: "solve",
-      connectGrills: 0,
+      phase: "connect",
+      connectGrills: 2,
+      connectTeachDue: true,
     });
   });
 
-  it("exposes the first pass-2 Solve failure as rating evidence", async () => {
+  it("exposes the first final-round Solve failure as rating evidence", async () => {
     const result = await runWithResult(
       {
-        ...initialState("unit-1", "education-unit-v1"),
+        ...initialState("unit-1", "education-unit-v2"),
         phase: "solve",
-        pass: 2,
+        pass: 3,
       },
       phaseResult("The solution still misses the constraint.", [
         {
@@ -304,7 +207,7 @@ describe("runUnitTurn contract", () => {
   it("rejects a Connect scenario posed without a recorded ScenarioSpec", async () => {
     await expect(
       runWithResult(
-        { ...initialState("unit-1", "education-unit-v1"), phase: "connect" },
+        { ...initialState("unit-1", "education-unit-v2"), phase: "connect" },
         phaseResult("Here is the scenario.", [
           { toolName: "continuePhase", input: { reason: "prompted" } },
         ]),
@@ -314,7 +217,7 @@ describe("runUnitTurn contract", () => {
 
   it("rejects a pass-2 Solve presented without a pass-2 grading spec", async () => {
     const state: UnitState = {
-      ...initialState("unit-1", "education-unit-v1"),
+      ...initialState("unit-1", "education-unit-v2"),
       phase: "solve",
       pass: 2,
     };
@@ -345,7 +248,7 @@ describe("runUnitTurn contract", () => {
     // A spec recorded on the posing turn itself (the recall opening) is
     // accepted and comes back stamped with pass 2.
     const recall = await runWithResult(
-      { ...state, recipeVersion: "recall-v1" },
+      { ...state, recipeVersion: "recall-v2" },
       phaseResult("Recall checkpoint scenario.", [
         { toolName: "recordScenarioSpec", input: specInput("A recall case") },
         { toolName: "continuePhase", input: { reason: "prompted" } },
@@ -362,7 +265,7 @@ describe("runUnitTurn contract", () => {
     {
       name: "missing event",
       state: {
-        ...initialState("unit-1", "education-unit-v1"),
+        ...initialState("unit-1", "education-unit-v2"),
         phase: "connect",
       },
       result: phaseResult("No explicit event."),
@@ -370,7 +273,7 @@ describe("runUnitTurn contract", () => {
     {
       name: "wrong-phase event",
       state: {
-        ...initialState("unit-1", "education-unit-v1"),
+        ...initialState("unit-1", "education-unit-v2"),
         phase: "connect",
       },
       result: phaseResult("Wrong tool.", [
@@ -382,7 +285,7 @@ describe("runUnitTurn contract", () => {
     },
     {
       name: "duplicate events",
-      state: { ...initialState("unit-1", "education-unit-v1"), phase: "solve" },
+      state: { ...initialState("unit-1", "education-unit-v2"), phase: "solve" },
       result: phaseResult("Conflicting tools.", [
         { toolName: "continuePhase", input: { reason: "needs_more_work" } },
         {
@@ -394,7 +297,7 @@ describe("runUnitTurn contract", () => {
     {
       name: "invalid arguments",
       state: {
-        ...initialState("unit-1", "education-unit-v1"),
+        ...initialState("unit-1", "education-unit-v2"),
         phase: "connect",
       },
       result: phaseResult("Invalid args.", [
@@ -403,7 +306,7 @@ describe("runUnitTurn contract", () => {
     },
     {
       name: "unexpected Orient tool",
-      state: initialState("unit-1", "education-unit-v1"),
+      state: initialState("unit-1", "education-unit-v2"),
       result: phaseResult("Orient with a tool.", [
         { toolName: "continuePhase", input: { reason: "prompted" } },
       ]),
@@ -411,7 +314,7 @@ describe("runUnitTurn contract", () => {
     {
       name: "Teach without a pass-2 scenario spec",
       state: {
-        ...initialState("unit-1", "education-unit-v1"),
+        ...initialState("unit-1", "education-unit-v2"),
         phase: "teach",
       },
       result: phaseResult("Teach without a why-probe contract."),
@@ -419,7 +322,7 @@ describe("runUnitTurn contract", () => {
     {
       name: "pass-2 Connect replaces the active Teach probe",
       state: {
-        ...initialState("unit-1", "education-unit-v1"),
+        ...initialState("unit-1", "education-unit-v2"),
         phase: "connect",
         pass: 2,
       },
@@ -453,7 +356,7 @@ describe("runUnitTurn contract", () => {
     } as PhaseAgentResult<PhaseAgentOutput>;
 
     await expect(
-      runWithResult(initialState("unit-1", "education-unit-v1"), invalid),
+      runWithResult(initialState("unit-1", "education-unit-v2"), invalid),
     ).rejects.toBeInstanceOf(EducationUnitContractError);
   });
 
@@ -464,7 +367,7 @@ describe("runUnitTurn contract", () => {
         runUnitTurn(
           {
             state: {
-              ...initialState("unit-1", "education-unit-v1"),
+              ...initialState("unit-1", "education-unit-v2"),
               phase: "mastered",
               pass: 2,
             },
@@ -490,7 +393,7 @@ describe("runUnitTurn contract", () => {
       Effect.runPromise(
         runUnitTurn(
           {
-            state: initialState("unit-1", "education-unit-v1"),
+            state: initialState("unit-1", "education-unit-v2"),
             recipe,
             contextBlock: "context",
             transcript: [],

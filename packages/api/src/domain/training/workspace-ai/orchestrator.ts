@@ -12,7 +12,7 @@ type RuntimeNode = Pick<
 >;
 
 const isLearningUnit = (node: RuntimeNode) =>
-  node.kind === "unit" || node.kind === "integration";
+  node.kind === "unit";
 
 const getNextReadyUnit = (nodes: RuntimeNode[]) =>
   nodes
