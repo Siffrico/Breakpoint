@@ -5,6 +5,7 @@ import {
   createUIMessageStreamResponse,
   hasToolCall,
   isTextUIPart,
+  safeValidateUIMessages,
   smoothStream,
   stepCountIs,
   streamText,
@@ -64,12 +65,46 @@ interface ProjectBuildData extends Record<string, unknown> {
 
 export type OnboardingChatUIMessage = UIMessage<unknown, ProjectBuildData>;
 
+const MAX_ONBOARDING_MESSAGE_CHARS = 4_000;
+const MAX_ONBOARDING_HISTORY_CHARS = 32_000;
+
 const extractText = (message: UIMessage): string =>
   message.parts
     .filter(isTextUIPart)
     .map((part) => part.text)
     .join("\n")
     .trim();
+
+export const validateOnboardingMessages = async (messages: unknown) => {
+  const result = await safeValidateUIMessages<OnboardingChatUIMessage>({
+    messages,
+  });
+  if (!result.success) return result;
+
+  let totalChars = 0;
+  for (const message of result.data) {
+    if (message.role === "system") {
+      return {
+        success: false as const,
+        error: new Error("System messages are not allowed."),
+      };
+    }
+
+    const text = extractText(message);
+    totalChars += text.length;
+    if (
+      text.length > MAX_ONBOARDING_MESSAGE_CHARS ||
+      totalChars > MAX_ONBOARDING_HISTORY_CHARS
+    ) {
+      return {
+        success: false as const,
+        error: new Error("Onboarding message history is too large."),
+      };
+    }
+  }
+
+  return result;
+};
 
 /**
  * The newest answered `askStartingPoint` tool part across the transcript, if
@@ -109,18 +144,26 @@ export const streamOnboardingChat = async ({
   db: Database;
   sessionId: string;
   userId: string;
-  messages: UIMessage[];
+  messages: unknown;
   modelName?: string | null;
   /** Next.js `after` seam so post-build prewarm survives the response. */
   scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }): Promise<Response> =>
   withAiModelPreference(modelName, () =>
-    runOnboardingChat({
-      db,
-      sessionId,
-      userId,
-      messages,
-      scheduleBackgroundTask,
+    validateOnboardingMessages(messages).then((validatedMessages) => {
+      if (!validatedMessages.success) {
+        return new Response("Invalid onboarding conversation.", {
+          status: 400,
+        });
+      }
+
+      return runOnboardingChat({
+        db,
+        sessionId,
+        userId,
+        messages: validatedMessages.data,
+        scheduleBackgroundTask,
+      });
     }),
   );
 

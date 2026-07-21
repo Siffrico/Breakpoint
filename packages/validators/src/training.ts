@@ -2,6 +2,8 @@ import { z } from "zod/v4";
 
 export const WORKSPACE_CHAT_MESSAGE_MAX_CHARS = 12_000;
 export const WORKSPACE_CHAT_BODY_MAX_BYTES = 64 * 1024;
+export const ONBOARDING_CHAT_BODY_MAX_BYTES = 64 * 1024;
+export const ONBOARDING_CHAT_MAX_MESSAGES = 32;
 
 const WorkspaceChatMessageSchema = z.looseObject({
   role: z.enum(["system", "user", "assistant"]),
@@ -27,6 +29,22 @@ export const WorkspaceChatRequestSchema = z
     (body) => typeof body.message === "string" || Array.isArray(body.messages),
     { message: "A message is required." },
   );
+
+export const OnboardingChatRequestSchema = z
+  .object({
+    id: z.string().max(128).optional(),
+    model: z.string().max(120).optional(),
+    messages: z
+      .array(z.unknown())
+      .min(1)
+      .max(ONBOARDING_CHAT_MAX_MESSAGES)
+      .optional(),
+    resumeBuild: z.boolean().optional(),
+    sessionId: z.string().uuid(),
+  })
+  .refine((body) => body.resumeBuild === true || Array.isArray(body.messages), {
+    message: "A conversation is required.",
+  });
 
 export const KnowledgeTopicSchema = z.object({
   slug: z

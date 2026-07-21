@@ -1,5 +1,4 @@
 import type { NextRequest } from "next/server";
-import type { UIMessage } from "ai";
 import { after } from "next/server";
 
 import {
@@ -7,7 +6,11 @@ import {
   streamProjectBuildResume,
 } from "@acme/api/onboarding-chat";
 import { db } from "@acme/db/client";
-import { AiModelPreferenceSchema } from "@acme/validators";
+import {
+  AiModelPreferenceSchema,
+  ONBOARDING_CHAT_BODY_MAX_BYTES,
+  OnboardingChatRequestSchema,
+} from "@acme/validators";
 
 import { auth } from "~/auth/server";
 
@@ -19,15 +22,6 @@ export const runtime = "nodejs";
 // (Vercel Hobby caps below 300), then keep STALE_BUILD_RECLAIM_MS above it.
 export const maxDuration = 300;
 
-interface ChatRequestBody {
-  id?: string;
-  model?: string;
-  messages?: UIMessage[];
-  sessionId?: string;
-  /** When true, replay the project build into the card instead of a chat turn. */
-  resumeBuild?: boolean;
-}
-
 const AI_MODEL_COOKIE = "bp-ai-model";
 
 const resolveModelPreference = (req: NextRequest, model?: string) => {
@@ -38,24 +32,68 @@ const resolveModelPreference = (req: NextRequest, model?: string) => {
   return parsed.success ? parsed.data : null;
 };
 
+const readJsonBody = async (req: NextRequest) => {
+  const declaredLength = Number(req.headers.get("content-length"));
+  if (
+    Number.isFinite(declaredLength) &&
+    declaredLength > ONBOARDING_CHAT_BODY_MAX_BYTES
+  ) {
+    return { status: "too_large" as const };
+  }
+
+  if (!req.body) return { status: "invalid" as const };
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > ONBOARDING_CHAT_BODY_MAX_BYTES) {
+      await reader.cancel();
+      return { status: "too_large" as const };
+    }
+    chunks.push(value);
+  }
+
+  try {
+    const bytes = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return {
+      status: "ok" as const,
+      body: JSON.parse(new TextDecoder().decode(bytes)) as unknown,
+    };
+  } catch {
+    return { status: "invalid" as const };
+  }
+};
+
 export const POST = async (req: NextRequest) => {
-  const session = await auth.api.getSession({ headers: req.headers });
+  const [session, bodyResult] = await Promise.all([
+    auth.api.getSession({ headers: req.headers }),
+    readJsonBody(req),
+  ]);
   const userId = session?.user.id;
   if (!userId) {
     return new Response("Unauthorized", { status: 401 });
   }
 
-  let body: ChatRequestBody;
-  try {
-    body = (await req.json()) as ChatRequestBody;
-  } catch {
+  if (bodyResult.status === "too_large") {
+    return new Response("Request body too large", { status: 413 });
+  }
+  if (bodyResult.status === "invalid") {
     return new Response("Invalid JSON", { status: 400 });
   }
-
-  const { sessionId, messages } = body;
-  if (!sessionId || typeof sessionId !== "string") {
+  const parsed = OnboardingChatRequestSchema.safeParse(bodyResult.body);
+  if (!parsed.success) {
     return new Response("Invalid request body", { status: 400 });
   }
+  const body = parsed.data;
+  const { sessionId } = body;
 
   // Resume replays the deterministic build into the existing build card; it
   // needs only the session, not the chat transcript the model turn requires.
@@ -69,7 +107,7 @@ export const POST = async (req: NextRequest) => {
     });
   }
 
-  if (!Array.isArray(messages)) {
+  if (!body.messages) {
     return new Response("Invalid request body", { status: 400 });
   }
 
@@ -77,7 +115,7 @@ export const POST = async (req: NextRequest) => {
     db,
     sessionId,
     userId,
-    messages,
+    messages: body.messages,
     modelName: resolveModelPreference(req, body.model),
     scheduleBackgroundTask: (task) => after(task),
   });
