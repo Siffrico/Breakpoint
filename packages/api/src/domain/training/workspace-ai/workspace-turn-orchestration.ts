@@ -61,7 +61,12 @@ export interface WorkspaceTurnOrchestrationDependencies
     clusterNodeId: string;
     workflow: { name: string; steps: string[] };
     checked: { label: string; gloss: string }[];
-    targets: { id: string; label: string; gloss: string }[];
+    targets: {
+      id: string;
+      label: string;
+      gloss: string;
+      mechanism: string | null;
+    }[];
   } | null>;
   resolveDifficultyDirective: (input: {
     userId: string;

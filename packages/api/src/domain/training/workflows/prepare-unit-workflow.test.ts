@@ -83,6 +83,8 @@ describe("explicit unit preparation recovery", () => {
               id: "entry-1",
               label: "Causal probe",
               gloss: "Separate causes.",
+              mechanism:
+                "A probe that both hypotheses predict identically cannot separate them.",
             },
           ],
         }),

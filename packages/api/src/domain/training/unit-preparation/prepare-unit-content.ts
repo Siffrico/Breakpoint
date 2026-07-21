@@ -46,7 +46,12 @@ export interface UnitPreparationDependencies {
       part: number;
     } | null;
     checked: { label: string; gloss: string }[];
-    targets: { id: string; label: string; gloss: string }[];
+    targets: {
+      id: string;
+      label: string;
+      gloss: string;
+      mechanism: string | null;
+    }[];
   } | null>;
   readonly createUnitContentIfAbsent: (input: {
     nodeId: string;

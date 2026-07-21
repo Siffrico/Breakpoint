@@ -107,7 +107,13 @@ const makeDeps = (
         framing: null,
         checked: [],
         targets: [
-          { id: "entry-1", label: "Causal probe", gloss: "Separate causes." },
+          {
+            id: "entry-1",
+            label: "Causal probe",
+            gloss: "Separate causes.",
+            mechanism:
+              "A probe that both hypotheses predict identically cannot separate them.",
+          },
         ],
       }),
     ),

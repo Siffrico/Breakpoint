@@ -227,7 +227,15 @@ export const trainingSyllabusRepository = {
       checked: entries
         .filter((entry) => entry.status === "checked")
         .map(({ label, gloss }) => ({ label, gloss })),
-      targets: targeted.map(({ id, label, gloss }) => ({ id, label, gloss })),
+      // `mechanism` rides along because the scenario is supposed to be an
+      // INSTANCE of the concept's causal claim, not a fresh invention from its
+      // label (see the backwards-authoring prompt in shared-instructions.ts).
+      targets: targeted.map(({ id, label, gloss, mechanism }) => ({
+        id,
+        label,
+        gloss,
+        mechanism,
+      })),
     };
   },
 

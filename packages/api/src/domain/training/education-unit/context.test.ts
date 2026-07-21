@@ -171,6 +171,8 @@ describe("buildUnitTurnContext", () => {
               id: "entry-2",
               label: "Correlated versus causal",
               gloss: "Demand a discriminating prediction.",
+              mechanism:
+                "Acting on a correlation whose confound is unmeasured changes the proxy without moving the outcome.",
             },
           ],
         },
@@ -181,5 +183,32 @@ describe("buildUnitTurnContext", () => {
     expect(context).toContain("Workflow: Diagnose an incident");
     expect(context).toContain("Already checked (assume known; build on these)");
     expect(context).toContain("entry-2 — Correlated versus causal");
+    // The chasm is authored FROM this line (see the backwards-authoring
+    // prompt), so it has to survive into the block, not just into the row.
+    expect(context).toContain(
+      "mechanism: Acting on a correlation whose confound is unmeasured",
+    );
+  });
+
+  it("omits the mechanism line for pre-v2 entries that have none", () => {
+    const context = buildUnitTurnContext(
+      baseInput({
+        syllabus: {
+          workflow: { name: "Diagnose an incident", steps: ["Collect signals"] },
+          checked: [],
+          targets: [
+            {
+              id: "entry-3",
+              label: "Legacy entry",
+              gloss: "Written before mechanisms existed.",
+              mechanism: null,
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(context).toContain("entry-3 — Legacy entry");
+    expect(context).not.toContain("mechanism:");
   });
 });

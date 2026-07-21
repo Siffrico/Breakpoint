@@ -60,7 +60,20 @@ export interface UnitTurnContextInput {
   syllabus: {
     workflow: { name: string; steps: readonly string[] };
     checked: readonly { label: string; gloss: string }[];
-    targets: readonly { id: string; label: string; gloss: string }[];
+    /**
+     * `mechanism` is the concept's falsifiable causal claim ("X under Y causes
+     * Z"), authored by the syllabus designer specifically so a scenario can be
+     * built from that sentence alone. Backwards authoring tells the posing
+     * agent to take the chasm from these lines, so they must reach the prompt —
+     * a target rendered as label+gloss only leaves the model to re-invent the
+     * claim from a three-word label. Null on pre-v2 entries.
+     */
+    targets: readonly {
+      id: string;
+      label: string;
+      gloss: string;
+      mechanism: string | null;
+    }[];
   } | null;
   /**
    * Set on recall interludes: the decayed skill this scenario must make the
@@ -156,11 +169,17 @@ export const buildUnitTurnContext = (input: UnitTurnContextInput): string => {
             ),
           )
         : "- None yet";
-    const targets = bullet(
-      input.syllabus.targets.map(
-        (entry) => `${entry.id} — ${entry.label}: ${entry.gloss}`,
-      ),
-    );
+    // The mechanism goes on its own indented line rather than inline: it is the
+    // sentence the scenario's chasm must instantiate, so it has to read as the
+    // concept's definition, not as a trailing clause on the gloss.
+    const targets = input.syllabus.targets
+      .map((entry) => {
+        const head = `- ${entry.id} — ${entry.label}: ${entry.gloss}`;
+        return entry.mechanism
+          ? `${head}\n    mechanism: ${entry.mechanism}`
+          : head;
+      })
+      .join("\n");
     sections.push(
       `## Syllabus\nWorkflow: ${input.syllabus.workflow.name}\nSpine:\n${bullet(input.syllabus.workflow.steps)}\n\nAlready checked (assume known; build on these):\n${checked}\n\nThis unit must land:\n${targets}`,
     );
