@@ -1,7 +1,7 @@
 "use client";
 
 import type { UIMessage } from "ai";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useChat } from "@ai-sdk/react";
 import {
@@ -462,7 +462,6 @@ function EducationUnitWorkspaceComponent({
   const shouldAutoFollowRef = useRef(true);
   const pendingSubmissionRef = useRef<string | null>(null);
   const pendingDraftKeyRef = useRef<string | null>(null);
-  const errorHandledRef = useRef(false);
   const pendingTurnIdRef = useRef<string | null>(null);
   const initialChatMessages = useMemo(
     () => transcriptToChatMessages(aiWorkspace, sessionId),
@@ -676,6 +675,39 @@ function EducationUnitWorkspaceComponent({
     enabled: !preview,
     storageKey: responseDraftKey,
   });
+
+  const recoverFailedSubmission = useCallback(
+    (
+      expectedTurnId?: string,
+      toastMessage = "AI feedback could not be prepared.",
+    ) => {
+      const pendingSubmission = pendingSubmissionRef.current;
+      const failedTurnId = pendingTurnIdRef.current;
+
+      if (
+        !pendingSubmission ||
+        !failedTurnId ||
+        (expectedTurnId != null && failedTurnId !== expectedTurnId)
+      ) {
+        return;
+      }
+
+      const pendingDraftKey = pendingDraftKeyRef.current;
+      pendingSubmissionRef.current = null;
+      pendingDraftKeyRef.current = null;
+      pendingTurnIdRef.current = null;
+      restoreSubmittedDraft(pendingDraftKey, pendingSubmission);
+      setMessages((current) =>
+        current.map((message) =>
+          message.role === "user" && message.metadata?.turnId === failedTurnId
+            ? { ...message, metadata: { ...message.metadata, failed: true } }
+            : message,
+        ),
+      );
+      toast.error(toastMessage);
+    },
+    [restoreSubmittedDraft, setMessages],
+  );
   const awaitingUnitAdvance =
     aiWorkspace?.unitAdvanceGate.status === "enabled" ||
     streamState?.educationStage === "mastered";
@@ -725,36 +757,14 @@ function EducationUnitWorkspaceComponent({
   }, [effectiveIsRunning, onRunningChange]);
 
   useEffect(() => {
-    if (status !== "error" || !error || errorHandledRef.current) return;
+    if (status !== "error" || !error) return;
 
     const errorTimer = window.setTimeout(() => {
-      if (errorHandledRef.current) return;
-      errorHandledRef.current = true;
-      const pendingSubmission = pendingSubmissionRef.current;
-      if (pendingSubmission) {
-        restoreSubmittedDraft(pendingDraftKeyRef.current, pendingSubmission);
-      }
-      pendingDraftKeyRef.current = null;
-      pendingSubmissionRef.current = null;
-      const failedTurnId = pendingTurnIdRef.current;
-      setMessages((current) =>
-        current.map((message) =>
-          message.role === "user" && message.metadata?.turnId === failedTurnId
-            ? { ...message, metadata: { ...message.metadata, failed: true } }
-            : message,
-        ),
-      );
-      toast.error("AI feedback could not be prepared.");
+      recoverFailedSubmission();
     }, 0);
 
     return () => window.clearTimeout(errorTimer);
-  }, [error, restoreSubmittedDraft, setMessages, status]);
-
-  useEffect(() => {
-    if (status !== "error") {
-      errorHandledRef.current = false;
-    }
-  }, [status]);
+  }, [error, recoverFailedSubmission, status]);
 
   const handleSubmit = async (override?: string, retryTurnId?: string) => {
     const message = (override ?? response).trim();
@@ -814,21 +824,7 @@ function EducationUnitWorkspaceComponent({
         },
       );
     } catch {
-      if (!errorHandledRef.current) {
-        errorHandledRef.current = true;
-        const pendingDraftKey = pendingDraftKeyRef.current;
-        pendingSubmissionRef.current = null;
-        pendingDraftKeyRef.current = null;
-        restoreSubmittedDraft(pendingDraftKey, message);
-        setMessages((current) =>
-          current.map((item) =>
-            item.role === "user" && item.metadata?.turnId === turnId
-              ? { ...item, metadata: { ...item.metadata, failed: true } }
-              : item,
-          ),
-        );
-        toast.error("AI feedback could not be prepared.");
-      }
+      recoverFailedSubmission(turnId);
     }
   };
 
@@ -852,6 +848,10 @@ function EducationUnitWorkspaceComponent({
       setPreviewIsRunning(false);
       return;
     }
+    recoverFailedSubmission(
+      pendingTurnIdRef.current ?? undefined,
+      "Generation stopped. Your answer is ready to retry.",
+    );
     void stop();
   };
 
