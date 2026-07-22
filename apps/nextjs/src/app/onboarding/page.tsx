@@ -52,7 +52,10 @@ export default async function OnboardingPage({
 
   return (
     <TRPCReactProvider>
-      <OnboardingShell initialState={initialState} />
+      <OnboardingShell
+        key={initialState?.sessionId ?? "new"}
+        initialState={initialState}
+      />
     </TRPCReactProvider>
   );
 }

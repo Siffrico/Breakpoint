@@ -59,6 +59,18 @@ export function useWorkspaceNavigation({
     }
   }, [selectedSessionId]);
 
+  useEffect(() => {
+    const syncSelectionFromUrl = () => {
+      const params = new URLSearchParams(window.location.search);
+      setSelectedSessionId(params.get("session") ?? initialSessionId);
+      setSelectedChatId(params.get("chat"));
+      setMobileSidebarOpen(false);
+    };
+
+    window.addEventListener("popstate", syncSelectionFromUrl);
+    return () => window.removeEventListener("popstate", syncSelectionFromUrl);
+  }, [initialSessionId]);
+
   const navigate = useCallback(
     (nextSessionId: string, nextChatId: string | null) => {
       setSelectedSessionId(nextSessionId);
