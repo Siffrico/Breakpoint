@@ -10,14 +10,14 @@ import { eq } from "@acme/db";
 import {
   TrainingCurriculumNode,
   TrainingCurriculumPlan,
+  TrainingKnowledgeItem,
   TrainingOnboardingSession,
-  TrainingSyllabusEntry,
   TrainingUnitContent,
 } from "@acme/db/schema";
 
 import { appendDynamicUnitNode } from "./training-curriculum-node-writer";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
-import { trainingSyllabusRepository } from "./training-syllabus-repository";
+import { skillKnowledgeRepository } from "./skill-knowledge-repository";
 
 const loadPostgresUrlFromDotenv = () => {
   if (process.env.POSTGRES_URL) return;
@@ -150,7 +150,7 @@ describe("trainingCurriculumRepository conflict handling", () => {
   );
 });
 
-describe("trainingSyllabusRepository persistence", () => {
+describe("skillKnowledgeRepository persistence", () => {
   afterEach(async () => {
     if (!process.env.POSTGRES_URL || createdSessionIds.length === 0) return;
     const { db } = await import("@acme/db/client");
@@ -188,11 +188,20 @@ describe("trainingSyllabusRepository persistence", () => {
         .values([
           {
             planId: plan.id,
-            kind: "ability",
+            kind: "skill",
             status: "ready",
             title: "Diagnose incidents",
             summary: "Trace evidence to causes.",
             whyItMatters: "Fast guesses compound failures.",
+            skillMap: {
+              workflow: {
+                name: "Diagnose an incident",
+                steps: ["Collect evidence", "Compare hypotheses", "Act"],
+              },
+              bandRamp: { startRating: 900, peakRating: 1400 },
+              masteryContract: { exitCriteria: ["Finds the causal fault."] },
+              scenarioArchetype: "judge",
+            },
             orderIndex: 1,
             depth: 1,
             positionColumn: 0,
@@ -214,55 +223,57 @@ describe("trainingSyllabusRepository persistence", () => {
         .returning({ id: TrainingCurriculumNode.id });
       if (!cluster || !evidence) throw new Error("Expected curriculum nodes.");
 
-      const entries = Array.from({ length: 20 }, (_, index) => ({
-        label: `Discrimination ${index + 1}`,
-        kind: "discrimination" as const,
-        gloss: `Tell signal ${index + 1} from its plausible surrogate.`,
-        mechanism: `Collapsing signal ${index + 1} with its surrogate under load causes the wrong repair.`,
+      const questions = Array.from({ length: 4 }, (_, questionIndex) => ({
+        question: `How do you diagnose situation ${questionIndex + 1}?`,
+        items: Array.from({ length: 5 }, (_, itemIndex) => ({
+          kind: "concept" as const,
+          label: `Discrimination ${questionIndex + 1}.${itemIndex + 1}`,
+          content: `Tell signal ${itemIndex + 1} from its plausible surrogate.`,
+        })),
       }));
-      const first = await trainingSyllabusRepository.ensureSyllabus({
+      const first = await skillKnowledgeRepository.ensureKnowledge({
         db,
-        clusterNodeId: cluster.id,
-        entries,
+        skillNodeId: cluster.id,
+        questions,
       });
-      const second = await trainingSyllabusRepository.ensureSyllabus({
+      const second = await skillKnowledgeRepository.ensureKnowledge({
         db,
-        clusterNodeId: cluster.id,
-        entries: [...entries].reverse(),
+        skillNodeId: cluster.id,
+        questions: [...questions].reverse(),
       });
       expect(second.map((entry) => entry.id)).toEqual(
         first.map((entry) => entry.id),
       );
 
       const target = first[0];
-      if (!target) throw new Error("Expected a syllabus entry.");
+      if (!target) throw new Error("Expected a knowledge item.");
       const created = await appendDynamicUnitNode({
         db,
-        clusterNodeId: cluster.id,
+        skillNodeId: cluster.id,
         title: target.label,
-        summary: target.gloss,
+        summary: target.content,
         whyItMatters: "The next frontier must persist atomically.",
         difficultyBands: [
           { order: 0, minRating: 900, maxRating: 1000 },
           { order: 1, minRating: 1000, maxRating: 1100 },
           { order: 2, minRating: 1100, maxRating: 1200 },
         ],
-        targetEntryIds: [target.id],
+        targetKnowledgeIds: [target.id],
       });
       expect(created.created).toBe(true);
       expect(created.node.parentNodeId).toBe(cluster.id);
 
-      const result = await trainingSyllabusRepository.checkOffEntries({
+      const result = await skillKnowledgeRepository.checkOffKnowledge({
         db,
-        requestedEntryIds: [target.id, "00000000-0000-0000-0000-000000000000"],
-        targetedEntryIds: [target.id],
+        requestedKnowledgeIds: [target.id, "00000000-0000-0000-0000-000000000000"],
+        targetedKnowledgeIds: [target.id],
         evidenceNodeId: created.node.id,
       });
       expect(result.checked).toEqual([target.id]);
       expect(result.deferred).toEqual(["00000000-0000-0000-0000-000000000000"]);
 
-      const persisted = await db.query.TrainingSyllabusEntry.findFirst({
-        where: eq(TrainingSyllabusEntry.id, target.id),
+      const persisted = await db.query.TrainingKnowledgeItem.findFirst({
+        where: eq(TrainingKnowledgeItem.id, target.id),
       });
       expect(persisted?.status).toBe("checked");
       expect(persisted?.evidenceNodeId).toBe(created.node.id);

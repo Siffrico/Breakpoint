@@ -4,7 +4,7 @@ import { Cause, Effect, Exit } from "effect";
 import type { DbError } from "../../../effect/errors";
 import type { PersistedUnitRun } from "../education-unit/unit";
 import type {
-  RecallCandidateEntry,
+  RecallCandidate,
   RecallTarget,
 } from "../policies/recall-decay";
 import type {
@@ -165,13 +165,13 @@ export const resolveRecallRunProjection = ({
 
 /** Rehydrates the persisted one-or-two entry recall target. */
 const rehydrateRecallTarget = ({
-  entryIds,
+  knowledgeIds,
   candidates,
 }: {
-  entryIds: readonly string[];
-  candidates: readonly RecallCandidateEntry[];
+  knowledgeIds: readonly string[];
+  candidates: readonly RecallCandidate[];
 }): RecallTarget | null => {
-  const [primaryId, companionId, ...unexpectedIds] = entryIds;
+  const [primaryId, companionId, ...unexpectedIds] = knowledgeIds;
   if (!primaryId || unexpectedIds.length > 0) return null;
 
   const primary = candidates.find((entry) => entry.id === primaryId);
@@ -179,11 +179,11 @@ const rehydrateRecallTarget = ({
     ? (candidates.find((entry) => entry.id === companionId) ?? null)
     : null;
   if (!primary?.evidenceNodeId || (companionId && !companion)) return null;
-  if (companion && companion.clusterNodeId !== primary.clusterNodeId)
+  if (companion && companion.skillNodeId !== primary.skillNodeId)
     return null;
 
   return {
-    clusterNodeId: primary.clusterNodeId,
+    skillNodeId: primary.skillNodeId,
     evidenceNodeId: primary.evidenceNodeId,
     primary,
     companion,
@@ -199,14 +199,14 @@ const resolvePersistedRecall = ({
   plan: CurriculumPlan;
   run: PersistedUnitRun;
   responses: readonly PhaseResponseRecord[];
-  candidates: readonly RecallCandidateEntry[];
+  candidates: readonly RecallCandidate[];
 }): PlannedRecall | null => {
-  const entryIds = [...responses]
+  const knowledgeIds = [...responses]
     .reverse()
     .find((response) => response.metadata?.recallEntryIds)
     ?.metadata?.recallEntryIds;
-  const target = entryIds
-    ? rehydrateRecallTarget({ entryIds, candidates })
+  const target = knowledgeIds
+    ? rehydrateRecallTarget({ knowledgeIds, candidates })
     : null;
   if (!target) return null;
 
@@ -239,12 +239,12 @@ export const loadPlannedRecall = ({
         inFlightRun.unitId,
         sessionId,
       );
-      const entryIds = [...responses]
+      const knowledgeIds = [...responses]
         .reverse()
         .find((response) => response.metadata?.recallEntryIds)
         ?.metadata?.recallEntryIds;
-      const candidates = entryIds
-        ? yield* reader.getRecallCandidatesByIds(plan.id, entryIds)
+      const candidates = knowledgeIds
+        ? yield* reader.getRecallCandidatesByIds(plan.id, knowledgeIds)
         : [];
       const resumed = resolvePersistedRecall({
         plan,
@@ -289,13 +289,13 @@ export const loadPlannedRecall = ({
     const node = plan.nodes.find((item) => item.id === primary.evidenceNodeId);
     if (node?.status !== "completed") return null;
     const companion = yield* reader.getRecallCompanionCandidate(
-      primary.clusterNodeId,
+      primary.skillNodeId,
       primary,
       now,
     );
     return {
       target: {
-        clusterNodeId: primary.clusterNodeId,
+        skillNodeId: primary.skillNodeId,
         evidenceNodeId: primary.evidenceNodeId,
         primary,
         companion,

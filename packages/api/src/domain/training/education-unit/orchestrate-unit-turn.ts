@@ -18,7 +18,7 @@ import type { PhaseAgentResult } from "./agents/run-phase-agent";
 import type { ScenarioSpecRecord } from "./scenario-spec";
 import type { UnitEvent, UnitRecipe, UnitState } from "./unit";
 import { toUnitEvent } from "../workspace-ai/fsm-tools";
-import { CheckOffSyllabusInputSchema } from "./agents/check-off-syllabus.tool";
+import { CheckOffSyllabusInputSchema } from "./agents/check-off-knowledge.tool";
 import { runEvaluatorAgent } from "./agents/evaluator-agent";
 import { PhaseAgentOutputSchema } from "./agents/output-schema";
 import { runScenarioAgent } from "./agents/scenario-agent";
@@ -72,7 +72,7 @@ export interface UnitTurnResult {
    * exactly-once guard before feeding this score to Goldilocks.
    */
   ratingWrite: { score: number; errorCodes: readonly string[] } | null;
-  syllabusCheckOff: { entryIds: string[]; evidence: string } | null;
+  knowledgeCheckOff: { knowledgeIds: string[]; evidence: string } | null;
   /**
    * The ScenarioSpec the posing agent reverse-engineered this turn, stamped
    * with the pass it was recorded on. Null on every turn that doesn't record
@@ -389,7 +389,7 @@ export const runUnitTurn = (
     const parsedCheckOff = CheckOffSyllabusInputSchema.safeParse(
       checkOffCall?.input,
     );
-    const syllabusCheckOff =
+    const knowledgeCheckOff =
       state.phase === "solve" &&
       state.pass === recipe.passes &&
       event.type === "solution_graded" &&
@@ -405,7 +405,7 @@ export const runUnitTurn = (
       forcedConnectAdvance,
       gradeReasoning: reasoning,
       ratingWrite,
-      syllabusCheckOff,
+      knowledgeCheckOff,
       scenarioSpec: recordedSpec,
     };
   });

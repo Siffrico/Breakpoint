@@ -1,6 +1,6 @@
 import type { db as databaseClient } from "@acme/db/client";
 import { and, desc, eq, inArray, sql } from "@acme/db";
-import { TrainingCurriculumNode, TrainingSyllabusEntry } from "@acme/db/schema";
+import { TrainingCurriculumNode, TrainingKnowledgeItem } from "@acme/db/schema";
 
 import type { CurriculumBlueprint } from "../domain/training/types/training.types";
 
@@ -63,16 +63,16 @@ export const insertBlueprintNodes = async ({
 
 export const appendDynamicUnitNode = async ({
   db,
-  clusterNodeId,
+  skillNodeId,
   title,
   summary,
   whyItMatters,
   difficultyBands,
-  targetEntryIds,
+  targetKnowledgeIds,
   status = "ready",
 }: {
   db: Database;
-  clusterNodeId: string;
+  skillNodeId: string;
   title: string;
   summary: string;
   whyItMatters: string;
@@ -82,16 +82,16 @@ export const appendDynamicUnitNode = async ({
     maxRating: number;
     label?: string;
   }[];
-  targetEntryIds: string[];
+  targetKnowledgeIds: string[];
   status?: "planned" | "ready";
 }) =>
   db.transaction(async (tx) => {
     const transactionDb = tx as unknown as Database;
     await transactionDb.execute(
-      sql`select pg_advisory_xact_lock(hashtext(${clusterNodeId}))`,
+      sql`select pg_advisory_xact_lock(hashtext(${skillNodeId}))`,
     );
     const cluster = await transactionDb.query.TrainingCurriculumNode.findFirst({
-      where: eq(TrainingCurriculumNode.id, clusterNodeId),
+      where: eq(TrainingCurriculumNode.id, skillNodeId),
     });
     if (!cluster) throw new Error("Skill cluster was not found.");
     await transactionDb.execute(
@@ -100,7 +100,7 @@ export const appendDynamicUnitNode = async ({
 
     const open = await transactionDb.query.TrainingCurriculumNode.findFirst({
       where: and(
-        eq(TrainingCurriculumNode.parentNodeId, clusterNodeId),
+        eq(TrainingCurriculumNode.parentNodeId, skillNodeId),
         eq(TrainingCurriculumNode.kind, "unit"),
         eq(TrainingCurriculumNode.status, status),
       ),
@@ -114,7 +114,7 @@ export const appendDynamicUnitNode = async ({
     });
     const latestSibling =
       await transactionDb.query.TrainingCurriculumNode.findFirst({
-        where: eq(TrainingCurriculumNode.parentNodeId, clusterNodeId),
+        where: eq(TrainingCurriculumNode.parentNodeId, skillNodeId),
         orderBy: [desc(TrainingCurriculumNode.positionRow)],
       });
     const [node] = await transactionDb
@@ -140,11 +140,11 @@ export const appendDynamicUnitNode = async ({
     // entries owned by the ability's CHILD skills, so scoping by the unit's
     // own parent id would match nothing. Entry ids are primary keys and were
     // loaded from this unit's frontier, so id scoping is exact.
-    if (targetEntryIds.length > 0) {
+    if (targetKnowledgeIds.length > 0) {
       await transactionDb
-        .update(TrainingSyllabusEntry)
+        .update(TrainingKnowledgeItem)
         .set({ status: "targeted" })
-        .where(inArray(TrainingSyllabusEntry.id, targetEntryIds));
+        .where(inArray(TrainingKnowledgeItem.id, targetKnowledgeIds));
     }
     return { node, created: true } as const;
   });

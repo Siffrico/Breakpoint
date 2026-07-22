@@ -57,15 +57,16 @@ export interface WorkspaceTurnOrchestrationDependencies
   extends WorkspaceTurnDependencies,
     WorkspaceTurnPersistenceDependencies {
   listMemories: (userId: string) => Promise<Memory[]>;
-  getUnitSyllabusContext?: (unitNodeId: string) => Promise<{
-    clusterNodeId: string;
+  getUnitKnowledgeContext?: (unitNodeId: string) => Promise<{
+    skillNodeId: string;
     workflow: { name: string; steps: string[] };
-    checked: { label: string; gloss: string }[];
+    framing: { question: string; part: number } | null;
+    checked: { label: string; content: string }[];
     targets: {
       id: string;
+      kind: "concept" | "mechanism";
       label: string;
-      gloss: string;
-      mechanism: string | null;
+      content: string;
     }[];
   } | null>;
   resolveDifficultyDirective: (input: {
@@ -84,7 +85,7 @@ export interface WorkspaceTurnOrchestrationDependencies
   pregenerateNextUnit?: (input: {
     sessionId: string;
     userId: string;
-    clusterNodeId: string;
+    skillNodeId: string;
   }) => Promise<void>;
   scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }
@@ -383,19 +384,19 @@ export const runEducationUnitTurn = ({
     }
     const ratingScope = resolveRatingScope({ unit, planNodes: plan.nodes });
     const recallFocus = turn.recallFocus;
-    // Syllabus context depends only on the unit id (recall interludes skip it
+    // Knowledge context depends only on the unit id (recall interludes skip it
     // — they reinforce old entries, never check off new ones), so it loads in
     // parallel with memories and the difficulty directive instead of waiting
     // for them, saving a DB round-trip on every non-recall education turn.
-    const getUnitSyllabusContext = deps.getUnitSyllabusContext;
-    const loadSyllabus =
-      !recallFocus && getUnitSyllabusContext
-        ? persistPromise("getUnitSyllabusContext", () =>
-            getUnitSyllabusContext(unit.nodeId),
+    const getUnitKnowledgeContext = deps.getUnitKnowledgeContext;
+    const loadKnowledge =
+      !recallFocus && getUnitKnowledgeContext
+        ? persistPromise("getUnitKnowledgeContext", () =>
+            getUnitKnowledgeContext(unit.nodeId),
           )
         : Effect.succeed(null);
 
-    const [memories, resolvedDifficulty, syllabus] = yield* Effect.all(
+    const [memories, resolvedDifficulty, knowledge] = yield* Effect.all(
       [
         persistPromise("listMemories", () => deps.listMemories(userId)),
         unitRun.difficultySnapshot
@@ -408,7 +409,7 @@ export const runEducationUnitTurn = ({
                 bands: ratingScope.bands,
               }),
             ),
-        loadSyllabus,
+        loadKnowledge,
       ],
       { concurrency: 3 },
     );
@@ -458,17 +459,17 @@ export const runEducationUnitTurn = ({
       difficultyLine: difficultySnapshot.promptBlock,
       pendingConnectTeach: readPendingConnectTeach(unitResponses),
       scenarioSpec: unitRun.scenarioSpec,
-      syllabus,
+      knowledge,
       recallFocus: recallFocus
         ? {
             primary: {
               label: recallFocus.primary.label,
-              gloss: recallFocus.primary.gloss,
+              content: recallFocus.primary.content,
             },
             companion: recallFocus.companion
               ? {
                   label: recallFocus.companion.label,
-                  gloss: recallFocus.companion.gloss,
+                  content: recallFocus.companion.content,
                   relation: companionRelation(
                     recallFocus.primary,
                     recallFocus.companion,
@@ -489,11 +490,11 @@ export const runEducationUnitTurn = ({
     });
     // Check-offs ride the atomic turn commit (lease-guarded), never the outer
     // connection — a lost lease or failed commit must not leave phantom mastery.
-    const syllabusCheckOff =
-      turnResult.nextState.phase === "mastered" && syllabus
+    const knowledgeCheckOff =
+      turnResult.nextState.phase === "mastered" && knowledge
         ? {
-            requestedEntryIds: syllabus.targets.map((entry) => entry.id),
-            targetedEntryIds: syllabus.targets.map((entry) => entry.id),
+            requestedKnowledgeIds: knowledge.targets.map((entry) => entry.id),
+            targetedKnowledgeIds: knowledge.targets.map((entry) => entry.id),
             evidenceNodeId: unit.nodeId,
           }
         : null;
@@ -581,12 +582,12 @@ export const runEducationUnitTurn = ({
           ...(recallFocus.companion ? [recallFocus.companion.id] : []),
         ]
       : [];
-    const syllabusReinforcement =
+    const knowledgeReinforcement =
       recallFocus &&
       ratingEvaluation &&
       turnResult.event.type === "solution_graded"
         ? {
-            entryIds: presentedRecallEntryIds ?? composedEntryIds,
+            knowledgeIds: presentedRecallEntryIds ?? composedEntryIds,
             passed: turnResult.event.passed,
           }
         : null;
@@ -597,11 +598,11 @@ export const runEducationUnitTurn = ({
     // so it rides the same atomic commit as the verdict.
     const conceptCoverage =
       !recallFocus &&
-      syllabus &&
+      knowledge &&
       turnResult.event.type === "solution_graded" &&
       turnResult.event.passed
         ? {
-            entryIds: syllabus.targets.map((entry) => entry.id),
+            knowledgeIds: knowledge.targets.map((entry) => entry.id),
             helpLevel: difficultySnapshot.directive.supportLevel,
           }
         : null;
@@ -615,8 +616,8 @@ export const runEducationUnitTurn = ({
       plan,
       turnResult,
       ratingEvaluation,
-      syllabusCheckOff,
-      syllabusReinforcement,
+      knowledgeCheckOff,
+      knowledgeReinforcement,
       conceptCoverage,
       writeOnPass: recipe.goldilocks.writeOnPass,
       writesRating: recipe.goldilocks.writesRating,
@@ -633,14 +634,14 @@ export const runEducationUnitTurn = ({
       ).length,
       deps,
     });
-    const clusterNodeId = node.parentNodeId;
+    const skillNodeId = node.parentNodeId;
     if (
       turnResult.nextState.phase === "mastered" &&
       // A recall run masters a reopened unit, not the live frontier — its
       // parent cluster must not pre-generate (the locked advance-gate check
       // would also reject it, but the intent belongs here).
       recallFocus === null &&
-      clusterNodeId &&
+      skillNodeId &&
       deps.pregenerateNextUnit
     ) {
       const pregenerateNextUnit = deps.pregenerateNextUnit;
@@ -649,12 +650,12 @@ export const runEducationUnitTurn = ({
       const runPregeneration = () =>
         Effect.runPromise(
           Effect.tryPromise(() =>
-            pregenerateNextUnit({ sessionId, userId, clusterNodeId }),
+            pregenerateNextUnit({ sessionId, userId, skillNodeId }),
           ).pipe(
             Effect.tapCause((cause) =>
               Effect.logError("next unit pre-generation failed", {
                 sessionId,
-                clusterNodeId,
+                skillNodeId,
                 cause,
               }),
             ),

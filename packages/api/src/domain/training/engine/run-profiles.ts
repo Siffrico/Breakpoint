@@ -22,13 +22,7 @@ export const RUN_PROFILES = {
     maxSteps: 10,
     search: false,
   },
-  syllabus: {
-    reasoningBudgetTokens: 16_384,
-    maxOutputTokens: 8_192,
-    maxSteps: 8,
-    search: true,
-  },
-  knowledgeModel: {
+  knowledge: {
     reasoningBudgetTokens: 16_384,
     maxOutputTokens: 8_192,
     maxSteps: 8,

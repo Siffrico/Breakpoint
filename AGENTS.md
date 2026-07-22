@@ -2,6 +2,15 @@
 
 This file defines project-specific guidance for agents working on Breakpoint.
 
+## Working Agreement
+
+- Do not edit code or run mutating commands unless the user explicitly asks for implementation.
+- Before proposing a solution, restate the intent, inspect the relevant existing flow, and ask about missing information that could change the design.
+- Before implementation, propose the smallest plan and stress-test its failure modes, edge cases, data flow, and tests. Wait for approval unless the user explicitly asks to implement immediately.
+- Do not add speculative abstractions, dependencies, configuration, refactors, or scope.
+- Do not use or inspect a skill unless the user explicitly names it.
+- Keep responses short, direct, and in plain language. State uncertainty instead of inventing requirements.
+
 ## Breakpoint Philosophy
 
 Breakpoint is built inside one product: a zero-friction AI learning experience. Assume every learner-facing workflow happens in Breakpoint, primarily through a chat-first interface. Do not design flows that require the learner to leave the product, manually write huge artifacts, or spend long sessions producing thousands of lines of code just to advance.

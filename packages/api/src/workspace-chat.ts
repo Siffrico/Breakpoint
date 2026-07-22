@@ -212,7 +212,7 @@ const streamWorkspaceChatWithModelPreference = async ({
         pregenerateNextUnit: (input: {
           sessionId: string;
           userId: string;
-          clusterNodeId: string;
+          skillNodeId: string;
         }) =>
           Effect.runPromise(
             pregenerateNextUnit<UnitCreationNode>({
@@ -228,7 +228,7 @@ const streamWorkspaceChatWithModelPreference = async ({
                       return Effect.runPromise(
                         run({
                           isAwaitingUnitAdvance: ({
-                            clusterNodeId,
+                            skillNodeId,
                             sessionId,
                           }) =>
                             queryWithClient(
@@ -244,7 +244,7 @@ const streamWorkspaceChatWithModelPreference = async ({
                                     (candidate) =>
                                       candidate.kind === "unit" &&
                                       candidate.parentNodeId ===
-                                        clusterNodeId &&
+                                        skillNodeId &&
                                       candidate.status === "ready",
                                   ) ?? null;
                                 const unit = node
@@ -262,27 +262,27 @@ const streamWorkspaceChatWithModelPreference = async ({
                                 return unitRun?.phase === "mastered";
                               },
                             ),
-                          getProgressionState: ({ clusterNodeId, userId }) =>
+                          getProgressionState: ({ skillNodeId, userId }) =>
                             queryWithClient(
                               transactionDb,
                               "loadPregenerationProgressionState",
                               () =>
                                 loadProgressionState({
                                   db: transactionDb,
-                                  clusterNodeId,
+                                  skillNodeId,
                                   userId,
                                 }),
                             ),
                           // Node row only — the transaction (and the advance
                           // lock it holds) must commit before any LLM call.
                           createUnitNode: ({
-                            clusterNodeId,
+                            skillNodeId,
                             sessionId,
                             userId,
                             status,
                           }) =>
                             createNextUnitNode({
-                              clusterNodeId,
+                              skillNodeId,
                               status,
                               deps: createUnitCreationRepositoryDeps({
                                 db: transactionDb,

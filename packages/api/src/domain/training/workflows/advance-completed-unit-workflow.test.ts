@@ -153,7 +153,7 @@ describe("advanceCompletedUnitWorkflow", () => {
       data: { advanced: true, nextReadyNode: null },
     });
     expect(createUnit).toHaveBeenCalledWith({
-      clusterNodeId: "cluster-1",
+      skillNodeId: "cluster-1",
       sessionId: "session-1",
       userId: "user-1",
     });

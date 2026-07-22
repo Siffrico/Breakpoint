@@ -38,7 +38,7 @@ describe("workspace turn lease fencing", () => {
         userResponse: "Answer",
       },
       ratingEvaluation: null,
-      syllabusCheckOff: null,
+      knowledgeCheckOff: null,
       scenarioPresentation: null,
       solvePresentation: null,
       nextRun: {
@@ -104,7 +104,7 @@ describe("workspace turn lease fencing", () => {
         userResponse: "Answer",
       },
       ratingEvaluation: null,
-      syllabusCheckOff: null,
+      knowledgeCheckOff: null,
       scenarioPresentation: null,
       solvePresentation: null,
       nextRun: {

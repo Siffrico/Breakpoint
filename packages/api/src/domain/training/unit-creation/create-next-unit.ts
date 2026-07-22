@@ -3,74 +3,17 @@ import { Data, Effect } from "effect";
 import type { DbError } from "../../../effect/errors";
 import type { ScenarioDirective } from "../engine/rating";
 import type { UnitPreparationError } from "../unit-preparation/errors";
+import type {
+  FrontierItem,
+  UnitCreationRegime,
+  UnitTargetSelector,
+} from "./target-selection";
 
-export interface FrontierEntry {
-  id: string;
-  label: string;
-  gloss: string;
-  kind: "discrimination" | "concept" | "subskill" | "vocabulary";
-  status: string;
-  topicId?: string | null;
-  topicOrderIndex?: number | null;
-}
-
-/**
- * Max syllabus entries one foundation sitting can give real reps to. A
- * question owning more entries than this is paginated: the unit takes the
- * first cap-full and the next unit for the same topic picks up the rest.
- */
-export const FOUNDATION_UNIT_ENTRY_CAP = 4;
-
-export type UnitCreationRegime = "foundation" | "skillset" | null;
-
-export const sliceSyllabusFrontier = (
-  entries: readonly FrontierEntry[],
-  complexityBudget: 1 | 2 | 3,
-): FrontierEntry[] =>
-  entries
-    .filter((entry) => entry.status === "unchecked")
-    .slice(0, complexityBudget);
-
-const selectCreationTargets = (
-  entries: readonly FrontierEntry[],
-  complexityBudget: 1 | 2 | 3,
-  regime: UnitCreationRegime,
-) => {
-  const unchecked = entries.filter((entry) => entry.status === "unchecked");
-  const firstTopicId = [...unchecked]
-    .filter((entry) => entry.topicId)
-    .sort(
-      (left, right) =>
-        (left.topicOrderIndex ?? Number.MAX_SAFE_INTEGER) -
-        (right.topicOrderIndex ?? Number.MAX_SAFE_INTEGER),
-    )[0]?.topicId;
-  const topicEntries = firstTopicId
-    ? unchecked.filter((entry) => entry.topicId === firstTopicId)
-    : [];
-  // Topic-less entries (a topicSlug the resolver couldn't match) keep their
-  // syllabus dependency position instead of starving behind every topic: any
-  // that precede the selected topic's first entry ride in ahead of it.
-  const firstTopicPosition = topicEntries[0]
-    ? unchecked.indexOf(topicEntries[0])
-    : unchecked.length;
-  const orphansBefore = unchecked.filter(
-    (entry, position) => !entry.topicId && position < firstTopicPosition,
-  );
-  // Foundation units are sized by the question (the topic), not by a fixed
-  // budget: the whole topic rides in, capped at what one sitting can carry.
-  // Skillset and orphan-only frontiers keep the small fixed budget.
-  const capacity =
-    regime === "foundation" && firstTopicId
-      ? FOUNDATION_UNIT_ENTRY_CAP
-      : complexityBudget;
-  const frontier = firstTopicId
-    ? [...orphansBefore, ...topicEntries].slice(0, capacity)
-    : sliceSyllabusFrontier(entries, complexityBudget);
-  if (frontier.length > 0) return frontier;
-  return entries
-    .filter((entry) => entry.status === "checked")
-    .slice(-complexityBudget);
-};
+export type {
+  FrontierItem,
+  UnitCreationRegime,
+  UnitTargetSelector,
+} from "./target-selection";
 
 /**
  * Fallback-only. Rating reads resolve bands from the parent skill cluster
@@ -107,19 +50,19 @@ export const buildDynamicUnitDifficultyBands = (
 
 export interface CreateNextUnitDependencies<TNode> {
   loadSkill: (
-    clusterNodeId: string,
+    skillNodeId: string,
     unitStatus: "planned" | "ready",
   ) => Effect.Effect<
     {
       title: string;
       whyItMatters: string;
       regime: UnitCreationRegime;
-      entries: FrontierEntry[];
+      entries: FrontierItem[];
       openUnit: TNode | null;
     } | null,
     DbError
   >;
-  resolveDirective: (clusterNodeId: string) => Effect.Effect<
+  resolveDirective: (skillNodeId: string) => Effect.Effect<
     {
       directive: ScenarioDirective;
       promptBlock: string;
@@ -127,33 +70,39 @@ export interface CreateNextUnitDependencies<TNode> {
     DbError
   >;
   appendUnit: (input: {
-    clusterNodeId: string;
+    skillNodeId: string;
     title: string;
     summary: string;
     whyItMatters: string;
     difficultyBands: ReturnType<typeof buildDynamicUnitDifficultyBands>;
-    targetEntryIds: string[];
+    targetKnowledgeIds: string[];
     status: "planned" | "ready";
   }) => Effect.Effect<{ node: TNode; created: boolean }, DbError>;
   hasUnitContent: (nodeId: string) => Effect.Effect<boolean, DbError>;
   prepareUnitEffect: (
     node: TNode,
   ) => Effect.Effect<unknown, UnitPreparationError>;
+  /**
+   * Which entries the new unit is accountable for. Injected because it is the
+   * only step that differs between foundation and skillset units — see
+   * target-selection.ts for the two strategies and the default wiring.
+   */
+  selectTargets: UnitTargetSelector;
 }
 
 export class SkillClusterNotFoundError extends Data.TaggedError(
   "SkillClusterNotFoundError",
-)<{ readonly clusterNodeId: string }> {}
+)<{ readonly skillNodeId: string }> {}
 
-export class SyllabusTargetsMissingError extends Data.TaggedError(
-  "SyllabusTargetsMissingError",
-)<{ readonly clusterNodeId: string }> {}
+export class KnowledgeTargetsMissingError extends Data.TaggedError(
+  "KnowledgeTargetsMissingError",
+)<{ readonly skillNodeId: string }> {}
 
 export type CreateNextUnitError =
   | DbError
   | UnitPreparationError
   | SkillClusterNotFoundError
-  | SyllabusTargetsMissingError;
+  | KnowledgeTargetsMissingError;
 
 /**
  * The node-only half of unit creation: resolves or appends the frontier unit
@@ -162,12 +111,12 @@ export type CreateNextUnitError =
  * node quickly and run content preparation afterwards.
  */
 export const createNextUnitNode = <TNode extends { id: string }>({
-  clusterNodeId,
+  skillNodeId,
   complexityBudget = 2,
   status = "ready",
   deps,
 }: {
-  clusterNodeId: string;
+  skillNodeId: string;
   complexityBudget?: 1 | 2 | 3;
   status?: "planned" | "ready";
   deps: CreateNextUnitDependencies<TNode>;
@@ -176,31 +125,36 @@ export const createNextUnitNode = <TNode extends { id: string }>({
   CreateNextUnitError
 > =>
   Effect.gen(function* () {
-    const skill = yield* deps.loadSkill(clusterNodeId, status);
+    const skill = yield* deps.loadSkill(skillNodeId, status);
     if (!skill) {
-      return yield* new SkillClusterNotFoundError({ clusterNodeId });
+      return yield* new SkillClusterNotFoundError({ skillNodeId });
     }
     if (skill.openUnit) {
       const hasContent = yield* deps.hasUnitContent(skill.openUnit.id);
       return { node: skill.openUnit, needsContent: !hasContent };
     }
 
-    const targets = selectCreationTargets(
-      skill.entries,
+    const targets = yield* deps.selectTargets({
+      skillNodeId,
+      regime: skill.regime,
+      entries: skill.entries,
       complexityBudget,
-      skill.regime,
-    );
+    });
     if (targets.length === 0) {
-      return yield* new SyllabusTargetsMissingError({ clusterNodeId });
+      return yield* new KnowledgeTargetsMissingError({ skillNodeId });
     }
-    const calibrated = yield* deps.resolveDirective(clusterNodeId);
+    const calibrated = yield* deps.resolveDirective(skillNodeId);
+    const foundationQuestion =
+      skill.regime === "foundation" ? targets[0]?.question : null;
     const persisted = yield* deps.appendUnit({
-      clusterNodeId,
-      title: `Practice ${targets.map((entry) => entry.label).join(" and ")}`,
-      summary: `Practice ${targets.map((entry) => entry.gloss).join(" ")}`,
+      skillNodeId,
+      title:
+        foundationQuestion ??
+        `Practice ${targets.map((entry) => entry.label).join(" and ")}`,
+      summary: targets.map((entry) => entry.content).join(" "),
       whyItMatters: skill.whyItMatters,
       difficultyBands: buildDynamicUnitDifficultyBands(calibrated.directive),
-      targetEntryIds: targets.map((entry) => entry.id),
+      targetKnowledgeIds: targets.map((entry) => entry.id),
       status,
     });
     return { node: persisted.node, needsContent: persisted.created };
@@ -211,19 +165,19 @@ export const createNextUnitNode = <TNode extends { id: string }>({
  * only when the skill is missing or its database/scaffold preparation fails.
  */
 export const createNextUnit = <TNode extends { id: string }>({
-  clusterNodeId,
+  skillNodeId,
   complexityBudget = 2,
   status = "ready",
   deps,
 }: {
-  clusterNodeId: string;
+  skillNodeId: string;
   complexityBudget?: 1 | 2 | 3;
   status?: "planned" | "ready";
   deps: CreateNextUnitDependencies<TNode>;
 }): Effect.Effect<TNode | null, CreateNextUnitError> =>
   Effect.gen(function* () {
     const created = yield* createNextUnitNode({
-      clusterNodeId,
+      skillNodeId,
       complexityBudget,
       status,
       deps,

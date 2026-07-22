@@ -13,8 +13,7 @@ import { getRunProfile } from "../engine/run-profiles";
 type ArtifactAgentId = Extract<
   AgentId,
   | "curriculumDesigner"
-  | "syllabusDesigner"
-  | "knowledgeModelDesigner"
+  | "knowledgeMapper"
   | "buildContent"
   | "projectOverview"
 >;

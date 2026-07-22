@@ -32,16 +32,10 @@ export const AGENT_CONFIG = {
     purpose: "curriculum",
     limits: "purpose-profile",
   },
-  syllabusDesigner: {
+  knowledgeMapper: {
     description:
-      "Sequences the curriculum architecture into concrete modules and education units.",
-    purpose: "syllabus",
-    limits: "purpose-profile",
-  },
-  knowledgeModelDesigner: {
-    description:
-      "Maps the knowledge, judgments, dependencies, and failure modes required by the curriculum.",
-    purpose: "knowledgeModel",
+      "Maps one skill into authored practitioner questions and their required concepts or executable mechanisms.",
+    purpose: "knowledge",
     limits: "purpose-profile",
   },
   buildContent: {

@@ -290,12 +290,9 @@ const makeDeps = (
     prepareUnit: vi.fn<BuildProjectDeps["prepareUnit"]>(() =>
       Promise.resolve(),
     ),
-    ensureSkillSyllabus: vi.fn<BuildProjectDeps["ensureSkillSyllabus"]>(() =>
+    ensureSkillKnowledge: vi.fn<BuildProjectDeps["ensureSkillKnowledge"]>(() =>
       Promise.resolve(),
     ),
-    ensureAbilityKnowledgeModel: vi.fn<
-      BuildProjectDeps["ensureAbilityKnowledgeModel"]
-    >(() => Promise.resolve([])),
     createSkillUnit: vi.fn<BuildProjectDeps["createSkillUnit"]>(() =>
       Promise.resolve(),
     ),
@@ -321,7 +318,7 @@ const run = (
   });
 
 describe("buildProjectFromOnboarding", () => {
-  it("prewarms only the unlocked skill's syllabus and unit", async () => {
+  it("prewarms only the unlocked skill's knowledge map and unit", async () => {
     mockCurriculum.mockResolvedValue(curriculum);
     mockOverview.mockResolvedValue(overview);
     const { deps } = makeDeps();
@@ -359,15 +356,15 @@ describe("buildProjectFromOnboarding", () => {
       content:
         "Interest: Vercel: making difficult deployment work feel immediate and simple.",
     });
-    // Locked skills are not prewarmed — their syllabus is generated with
-    // topics at unlock time by the lazy loadSkill path.
-    expect(deps.ensureSkillSyllabus).toHaveBeenCalledTimes(1);
-    expect(deps.ensureSkillSyllabus).toHaveBeenCalledWith(
-      expect.objectContaining({ clusterNodeId: "skill-1" }),
+    // Locked skills are not prewarmed; their knowledge map is generated at
+    // unlock time by the lazy loadSkill path.
+    expect(deps.ensureSkillKnowledge).toHaveBeenCalledTimes(1);
+    expect(deps.ensureSkillKnowledge).toHaveBeenCalledWith(
+      expect.objectContaining({ skillNodeId: "skill-1" }),
     );
     expect(deps.createSkillUnit).toHaveBeenCalledTimes(1);
     expect(deps.createSkillUnit).toHaveBeenCalledWith({
-      clusterNodeId: "skill-1",
+      skillNodeId: "skill-1",
       sessionId: "session-id",
       userId: "user-id",
     });

@@ -152,18 +152,18 @@ export interface WorkspaceEducationTurnCommit {
    * Mastery check-offs commit atomically with the turn — a lost lease or a
    * failed commit must never leave checked entries without a mastered turn.
    */
-  syllabusCheckOff: WorkspaceSyllabusCheckOffCommit | null;
+  knowledgeCheckOff: WorkspaceKnowledgeCheckOffCommit | null;
   /**
-   * Recall verdicts strengthen or weaken the composed syllabus entries
+   * Recall verdicts strengthen or weaken the composed knowledge items
    * atomically with the rated turn (see policies/recall-decay.ts).
    */
-  syllabusReinforcement?: { entryIds: string[]; passed: boolean } | null;
+  knowledgeReinforcement?: { knowledgeIds: string[]; passed: boolean } | null;
   /**
    * Every passed solve credits the unit's target concepts with one coverage
    * rep (the foundation regime's mastery counter — engine/concept-coverage.ts),
    * atomically with the verdict that earned it.
    */
-  conceptCoverage?: { entryIds: string[]; helpLevel: string } | null;
+  conceptCoverage?: { knowledgeIds: string[] } | null;
   scenarioPresentation: {
     userId: string;
     nodeId: string;
@@ -186,9 +186,9 @@ export interface WorkspaceEducationTurnCommit {
   touchSessionId: string;
 }
 
-export interface WorkspaceSyllabusCheckOffCommit {
-  requestedEntryIds: string[];
-  targetedEntryIds: string[];
+export interface WorkspaceKnowledgeCheckOffCommit {
+  requestedKnowledgeIds: string[];
+  targetedKnowledgeIds: string[];
   evidenceNodeId: string;
 }
 
@@ -257,8 +257,8 @@ export const saveUnitPhaseResult = ({
   plan,
   turnResult,
   ratingEvaluation,
-  syllabusCheckOff = null,
-  syllabusReinforcement = null,
+  knowledgeCheckOff = null,
+  knowledgeReinforcement = null,
   conceptCoverage = null,
   writeOnPass = 2,
   writesRating = true,
@@ -281,9 +281,9 @@ export const saveUnitPhaseResult = ({
   plan: CurriculumPlan;
   turnResult: UnitTurnResult;
   ratingEvaluation: WorkspaceRatingEvaluationCommit | null;
-  syllabusCheckOff?: WorkspaceSyllabusCheckOffCommit | null;
-  syllabusReinforcement?: { entryIds: string[]; passed: boolean } | null;
-  conceptCoverage?: { entryIds: string[]; helpLevel: string } | null;
+  knowledgeCheckOff?: WorkspaceKnowledgeCheckOffCommit | null;
+  knowledgeReinforcement?: { knowledgeIds: string[]; passed: boolean } | null;
+  conceptCoverage?: { knowledgeIds: string[] } | null;
   /** The recipe's measured round (goldilocks.writeOnPass); v1/recall 2, v2 3. */
   writeOnPass?: PersistedUnitRun["pass"];
   /** Foundation units are criterion-referenced and never open rating attempts. */
@@ -442,8 +442,8 @@ export const saveUnitPhaseResult = ({
       contracts: null,
       phaseResponse,
       ratingEvaluation,
-      syllabusCheckOff,
-      syllabusReinforcement,
+      knowledgeCheckOff,
+      knowledgeReinforcement,
       conceptCoverage,
       scenarioPresentation,
       solvePresentation,

@@ -9,7 +9,7 @@
 //     bandRamp is a calibration artifact (scenario difficulty only), derived
 //     from the ability's floor, and can never gate mastery.
 //   skillset (ability) — the ELO tier climb. Mastered at peak rating with a
-//     tight deviation. Abilities own no syllabus; their child skills do.
+//     tight deviation. Abilities own no knowledge map; their child skills do.
 
 import type { ScenarioArchetype, ScenarioFormat } from "@acme/validators";
 

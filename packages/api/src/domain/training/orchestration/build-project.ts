@@ -311,31 +311,12 @@ export interface BuildProjectDeps {
     node: CurriculumPlan["nodes"][number];
     sessionId: string;
   }) => Promise<unknown>;
-  ensureSkillSyllabus: (input: {
-    clusterNodeId: string;
+  ensureSkillKnowledge: (input: {
+    skillNodeId: string;
     targetIdentity: string;
-    topics?: {
-      id: string;
-      slug: string;
-      title: string;
-      gloss: string;
-      coreIdea: string;
-    }[];
   }) => Promise<unknown>;
-  ensureAbilityKnowledgeModel: (input: {
-    abilityNodeId: string;
-    targetIdentity: string;
-  }) => Promise<
-    {
-      id: string;
-      slug: string;
-      title: string;
-      gloss: string;
-      coreIdea: string;
-    }[]
-  >;
   createSkillUnit: (input: {
-    clusterNodeId: string;
+    skillNodeId: string;
     sessionId: string;
     userId: string;
   }) => Promise<unknown>;
@@ -345,15 +326,15 @@ const isModuleNode = (node: { kind: string }): boolean =>
   node.kind === "ability";
 
 /**
- * Skills whose syllabus is prewarmed at build time. Skills are gated
- * skill-by-skill: only unlocked (ready) ones need a syllabus now — the rest
+ * Skills whose knowledge map is prewarmed at build time. Skills are gated
+ * skill-by-skill: only unlocked (ready) ones need a knowledge map now — the rest
  * are generated lazily at unlock time.
  */
 const isPrewarmSkillNode = (node: { kind: string; status: string }): boolean =>
   node.kind === "skill" && node.status === "ready";
 
 /**
- * Ceiling on concurrent prewarm AI calls (knowledge models + syllabi). The
+ * Ceiling on concurrent knowledge-map AI calls. The
  * fan-out previously fired every node at once, which melts the host and
  * invites provider rate limits.
  */
@@ -1001,60 +982,25 @@ export const buildProjectFromOnboarding = async ({
 
   const skills = plan.nodes.filter(isPrewarmSkillNode);
   const prewarmLimiter = createTaskLimiter(PREWARM_CONCURRENCY);
-  const abilityTopics = new Map<
-    string,
-    Promise<
-      {
-        id: string;
-        slug: string;
-        title: string;
-        gloss: string;
-        coreIdea: string;
-      }[]
-    >
-  >();
-  for (const ability of plan.nodes.filter((node) => node.kind === "ability")) {
-    abilityTopics.set(
-      ability.id,
-      prewarmLimiter(() =>
-        deps.ensureAbilityKnowledgeModel({
-          abilityNodeId: ability.id,
-          targetIdentity: plan.targetIdentity,
-        }),
-      ).catch((error) => {
-        console.error("Knowledge model prewarm failed; continuing topic-less", {
-          abilityNodeId: ability.id,
-          error: error instanceof Error ? error.message : "Unknown error",
-        });
-        return [];
-      }),
-    );
-  }
   for (const skill of skills) {
     const prepareSkill = async () => {
       try {
-        // Topics are awaited outside the limited section so a queued skill
-        // never holds a limiter slot while waiting on its ability's call.
-        const topics = skill.parentNodeId
-          ? await abilityTopics.get(skill.parentNodeId)
-          : undefined;
         await prewarmLimiter(async () => {
-          await deps.ensureSkillSyllabus({
-            clusterNodeId: skill.id,
+          await deps.ensureSkillKnowledge({
+            skillNodeId: skill.id,
             targetIdentity: plan.targetIdentity,
-            topics,
           });
           if (userId && skill.status === "ready") {
             await deps.createSkillUnit({
-              clusterNodeId: skill.id,
+              skillNodeId: skill.id,
               sessionId,
               userId,
             });
           }
         });
       } catch (error) {
-        console.error("Skill syllabus prewarm failed", {
-          clusterNodeId: skill.id,
+        console.error("Skill knowledge prewarm failed", {
+          skillNodeId: skill.id,
           error,
         });
       }

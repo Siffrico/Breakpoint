@@ -666,20 +666,20 @@ export const trainingRouter = {
                     }),
                 });
               }),
-            createUnit: ({ clusterNodeId, sessionId, userId }) =>
+            createUnit: ({ skillNodeId, sessionId, userId }) =>
               createNextUnit({
-                clusterNodeId,
+                skillNodeId,
                 deps: createUnitCreationRepositoryDeps({
                   db: ctx.db,
                   sessionId,
                   userId,
                 }),
               }),
-            getProgressionState: ({ clusterNodeId, userId }) =>
+            getProgressionState: ({ skillNodeId, userId }) =>
               queryWithClient(ctx.db, "loadProgressionState", () =>
                 loadProgressionState({
                   db: ctx.db,
-                  clusterNodeId,
+                  skillNodeId,
                   userId,
                 }),
               ),
@@ -691,11 +691,11 @@ export const trainingRouter = {
                   sessionId,
                 }).pipe(Effect.provide(missionLayer(ctx.db))),
               ),
-            advanceSkillMapNode: ({ clusterNodeId, sessionId, userId }) =>
+            advanceSkillMapNode: ({ skillNodeId, sessionId, userId }) =>
               queryWithClient(ctx.db, "advanceSkillMapNode", () =>
                 advanceSkillMapNode({
                   db: ctx.db,
-                  nodeId: clusterNodeId,
+                  nodeId: skillNodeId,
                   sessionId,
                   userId,
                 }),

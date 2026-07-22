@@ -59,8 +59,7 @@ const getActiveStack = (): ModelStack =>
 export type AiModelPurpose =
   | "onboarding"
   | "curriculum"
-  | "syllabus"
-  | "knowledgeModel"
+  | "knowledge"
   | "buildContent"
   | "failure"
   | "ghost"
@@ -75,8 +74,7 @@ export type AiModelPurpose =
 const PURPOSE_TIER: Record<AiModelPurpose, ModelTier> = {
   onboarding: "critical",
   curriculum: "critical",
-  syllabus: "critical",
-  knowledgeModel: "critical",
+  knowledge: "critical",
   buildContent: "critical",
   failure: "critical",
   ghost: "critical",

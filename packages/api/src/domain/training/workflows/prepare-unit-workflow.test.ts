@@ -73,7 +73,7 @@ describe("explicit unit preparation recovery", () => {
       getPhaseResponses: () => Promise.resolve([]),
       getTargetIdentity: () => Promise.resolve("Incident commander"),
       listAttemptHistory: () => Promise.resolve([]),
-      getUnitSyllabusContext: () =>
+      getUnitKnowledgeContext: () =>
         Promise.resolve({
           workflow: { name: "Diagnose an incident", steps: ["Choose a probe"] },
           framing: null,
@@ -81,9 +81,9 @@ describe("explicit unit preparation recovery", () => {
           targets: [
             {
               id: "entry-1",
+              kind: "concept",
               label: "Causal probe",
-              gloss: "Separate causes.",
-              mechanism:
+              content:
                 "A probe that both hypotheses predict identically cannot separate them.",
             },
           ],

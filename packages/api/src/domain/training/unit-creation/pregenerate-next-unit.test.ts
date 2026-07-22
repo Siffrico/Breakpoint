@@ -82,7 +82,7 @@ describe("pregenerateNextUnit", () => {
       pregenerateNextUnit({
         sessionId: "session-1",
         userId: "user-1",
-        clusterNodeId: "cluster-1",
+        skillNodeId: "cluster-1",
         deps,
       }),
     );
@@ -98,7 +98,7 @@ describe("pregenerateNextUnit", () => {
       { sessionId: "session-1", key: ADVANCE_COMPLETED_UNIT_LOCK_KEY },
     ]);
     expect(createUnitNode).toHaveBeenCalledWith({
-      clusterNodeId: "cluster-1",
+      skillNodeId: "cluster-1",
       sessionId: "session-1",
       userId: "user-1",
       status: "planned",
@@ -109,7 +109,7 @@ describe("pregenerateNextUnit", () => {
       pregenerateNextUnit({
         sessionId: "session-1",
         userId: "user-1",
-        clusterNodeId: "cluster-1",
+        skillNodeId: "cluster-1",
         deps,
       }),
     );
@@ -133,7 +133,7 @@ describe("pregenerateNextUnit", () => {
       pregenerateNextUnit({
         sessionId: "session-1",
         userId: "user-1",
-        clusterNodeId: "cluster-1",
+        skillNodeId: "cluster-1",
         deps,
       }),
     );
@@ -154,7 +154,7 @@ describe("pregenerateNextUnit", () => {
       pregenerateNextUnit({
         sessionId: "session-1",
         userId: "user-1",
-        clusterNodeId: "cluster-1",
+        skillNodeId: "cluster-1",
         deps,
       }),
     );

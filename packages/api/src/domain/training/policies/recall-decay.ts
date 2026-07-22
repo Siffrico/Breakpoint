@@ -3,7 +3,7 @@
 // The recall scheduling algorithm. Pure — no DB, no clock reads; callers pass
 // `now` and the candidate entries.
 //
-// Model: a syllabus entry is "alive" while it keeps getting used. Check-off at
+// Model: a knowledge item is "alive" while it keeps getting used. Check-off at
 // unit mastery starts the clock (strength 0, anchored on checkedAt). Each
 // scored recall that composes the entry either reinforces it (strength + 1,
 // which widens the spacing interval) or weakens it (strength − 1, which
@@ -16,19 +16,22 @@
 // so a strong, non-due sibling entry from the same cluster is composed into
 // the same scenario. New learning stays single-skill; recall interleaves.
 //
-// Companion choice is chain-first. Knowledge topics are the job's situations
-// in prerequisite order, so an entry answering the topic *next to* the
-// primary's is a stage the practitioner passes through on the way in or out
-// of the decayed one — composing it yields one continuous whole task instead
-// of two facts stapled together. Preference ladder: neighboring topic
-// (upstream beats downstream, nearer beats farther), then a same-topic peer,
-// then topic-less legacy entries; ties go to the most recently reinforced.
+// Companion choice is chain-first. A skill's entries are authored in
+// dependency order, so the entry *next to* the primary in that order is a
+// stage the practitioner passes through on the way in or out of the decayed
+// one — composing it yields one continuous whole task instead of two facts
+// stapled together. Preference ladder: nearest neighbour first, upstream
+// beating downstream at equal distance; ties go to the most recently
+// reinforced.
 
-export interface RecallCandidateEntry {
+export interface RecallCandidate {
   id: string;
-  clusterNodeId: string;
+  questionId: string;
+  skillNodeId: string;
+  questionOrderIndex: number;
+  orderIndex: number;
   label: string;
-  gloss: string;
+  content: string;
   /** When the entry was first checked off by a mastered unit. */
   checkedAt: Date;
   /** Consecutive scored reinforcements survived. */
@@ -36,19 +39,15 @@ export interface RecallCandidateEntry {
   lastReinforcedAt: Date | null;
   /** The unit node whose content taught this entry; recall reuses it. */
   evidenceNodeId: string | null;
-  /** Knowledge topic (situation question) this entry answers, when mapped. */
-  topicId: string | null;
-  /** The topic's position in the ability's prerequisite order. */
-  topicOrderIndex: number | null;
 }
 
 export interface RecallTarget {
-  clusterNodeId: string;
+  skillNodeId: string;
   /** Unit node whose content the recall run reuses (primary's evidence). */
   evidenceNodeId: string;
-  primary: RecallCandidateEntry;
+  primary: RecallCandidate;
   /** A strong sibling skill composed into the same scenario, when one exists. */
-  companion: RecallCandidateEntry | null;
+  companion: RecallCandidate | null;
 }
 
 /**
@@ -73,7 +72,7 @@ export const recallIntervalDaysFor = (strength: number): number => {
 const intervalMsFor = (strength: number): number =>
   recallIntervalDaysFor(strength) * DAY_MS;
 
-const anchorOf = (entry: RecallCandidateEntry): Date =>
+const anchorOf = (entry: RecallCandidate): Date =>
   entry.lastReinforcedAt ?? entry.checkedAt;
 
 /**
@@ -82,70 +81,59 @@ const anchorOf = (entry: RecallCandidateEntry): Date =>
  * outranks a 22-day-old strength-2 entry (ratio ~1.05).
  */
 export const overdueRatio = (
-  entry: RecallCandidateEntry,
+  entry: RecallCandidate,
   now: Date,
 ): number => {
   const elapsed = now.getTime() - anchorOf(entry).getTime();
   return elapsed / intervalMsFor(entry.strength);
 };
 
-export const isEntryDue = (entry: RecallCandidateEntry, now: Date): boolean =>
+export const isEntryDue = (entry: RecallCandidate, now: Date): boolean =>
   overdueRatio(entry, now) >= 1;
 
 /**
- * How the companion's situation relates to the primary's in the scenario:
- * "setup" opens the scenario a stage earlier and hands off to the target,
- * "continuation" carries it a stage past the target, "peer" shares the
- * target's own situation.
+ * How the companion's stage relates to the primary's in the scenario: "setup"
+ * opens the scenario a stage earlier and hands off to the target,
+ * "continuation" carries it a stage past the target, "peer" sits at the same
+ * position (only reachable for entries authored at the same order).
  */
 export type CompanionRelation = "setup" | "continuation" | "peer";
 
 export const companionRelation = (
-  primary: Pick<RecallCandidateEntry, "topicId" | "topicOrderIndex">,
-  companion: Pick<RecallCandidateEntry, "topicId" | "topicOrderIndex">,
+  primary: Pick<RecallCandidate, "questionId" | "questionOrderIndex">,
+  companion: Pick<RecallCandidate, "questionId" | "questionOrderIndex">,
 ): CompanionRelation => {
-  if (
-    primary.topicId === null ||
-    companion.topicId === null ||
-    companion.topicId === primary.topicId ||
-    primary.topicOrderIndex === null ||
-    companion.topicOrderIndex === null
-  ) {
-    return "peer";
-  }
-  return companion.topicOrderIndex < primary.topicOrderIndex
+  if (companion.questionId === primary.questionId) return "peer";
+  return companion.questionOrderIndex < primary.questionOrderIndex
     ? "setup"
     : "continuation";
 };
 
 /**
  * Sort key for the companion preference ladder; lower tuples win. Mirrors the
- * ORDER BY in training-syllabus-repository.ts — keep them equivalent.
+ * ORDER BY in skill-knowledge-repository.ts — keep them equivalent.
  */
 const companionRank = (
-  primary: RecallCandidateEntry,
-  entry: RecallCandidateEntry,
-): [tier: number, gap: number, downstream: number] => {
-  if (
-    primary.topicId === null ||
-    entry.topicId === null ||
-    primary.topicOrderIndex === null ||
-    entry.topicOrderIndex === null
-  ) {
-    return [2, 0, 0];
-  }
-  if (entry.topicId === primary.topicId) return [1, 0, 0];
-  const delta = entry.topicOrderIndex - primary.topicOrderIndex;
-  return [0, Math.abs(delta), delta > 0 ? 1 : 0];
+  primary: RecallCandidate,
+  entry: RecallCandidate,
+): [sameQuestion: number, gap: number, itemGap: number, downstream: number] => {
+  const delta = entry.questionOrderIndex - primary.questionOrderIndex;
+  const itemDelta = entry.orderIndex - primary.orderIndex;
+  return [
+    entry.questionId === primary.questionId ? 0 : 1,
+    Math.abs(delta),
+    Math.abs(itemDelta),
+    (entry.questionId === primary.questionId ? itemDelta : delta) > 0 ? 1 : 0,
+  ];
 };
 
 /**
- * Takes every checked syllabus entry in the plan and the current time;
+ * Takes every checked knowledge item in the plan and the current time;
  * produces the next recall target, or null when nothing has decayed. Entries
  * without an evidence unit cannot be run and are skipped.
  */
 export const selectRecallTarget = (
-  entries: readonly RecallCandidateEntry[],
+  entries: readonly RecallCandidate[],
   now: Date,
 ): RecallTarget | null => {
   const due = entries
@@ -159,30 +147,29 @@ export const selectRecallTarget = (
     entries
       .filter(
         (entry) =>
-          entry.clusterNodeId === primary.clusterNodeId &&
+          entry.skillNodeId === primary.skillNodeId &&
           entry.id !== primary.id &&
           entry.strength >= RECALL_COMPANION_MIN_STRENGTH &&
           !isEntryDue(entry, now),
       )
       .sort((left, right) => {
-        const [leftTier, leftGap, leftDownstream] = companionRank(
+        const [leftSame, leftGap, leftItemGap, leftDownstream] = companionRank(
           primary,
           left,
         );
-        const [rightTier, rightGap, rightDownstream] = companionRank(
-          primary,
-          right,
-        );
+        const [rightSame, rightGap, rightItemGap, rightDownstream] =
+          companionRank(primary, right);
         return (
-          leftTier - rightTier ||
+          leftSame - rightSame ||
           leftGap - rightGap ||
+          leftItemGap - rightItemGap ||
           leftDownstream - rightDownstream ||
           anchorOf(right).getTime() - anchorOf(left).getTime()
         );
       })[0] ?? null;
 
   return {
-    clusterNodeId: primary.clusterNodeId,
+    skillNodeId: primary.skillNodeId,
     evidenceNodeId: primary.evidenceNodeId,
     primary,
     companion,

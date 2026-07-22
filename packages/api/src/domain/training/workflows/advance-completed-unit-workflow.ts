@@ -31,13 +31,13 @@ interface AdvanceCompletedUnitDependencies {
     run: (deps: AdvanceCompletedUnitTransactionDependencies) => Promise<A>,
   ) => Promise<A>;
   createUnit: (input: {
-    clusterNodeId: string;
+    skillNodeId: string;
     sessionId: string;
     userId: string;
   }) => Effect.Effect<unknown, CreateNextUnitError>;
   /** Resolves null when the parent has no skill map (legacy/imported plans). */
   getProgressionState: (input: {
-    clusterNodeId: string;
+    skillNodeId: string;
     userId: string;
   }) => Effect.Effect<MasteryProgressionState | null, DbError>;
   getMissionStatus: (input: {
@@ -54,7 +54,7 @@ interface AdvanceCompletedUnitDependencies {
    * ability), and create the unlocked unit.
    */
   advanceSkillMapNode: (input: {
-    clusterNodeId: string;
+    skillNodeId: string;
     sessionId: string;
     userId: string;
   }) => Effect.Effect<unknown, DbError>;
@@ -124,7 +124,7 @@ export const advanceCompletedUnitWorkflow = async ({
 
   let progression:
     | {
-        clusterNodeId: string;
+        skillNodeId: string;
         userId: string;
         decision: ReturnType<typeof decideMasteryProgression>;
       }
@@ -134,10 +134,10 @@ export const advanceCompletedUnitWorkflow = async ({
     completed.node.parentNodeId &&
     completed.run.userId
   ) {
-    const clusterNodeId = completed.node.parentNodeId;
+    const skillNodeId = completed.node.parentNodeId;
     const userId = completed.run.userId;
     const state = await Effect.runPromise(
-      deps.getProgressionState({ clusterNodeId, userId }),
+      deps.getProgressionState({ skillNodeId, userId }),
     );
     if (state) {
       const decision = decideMasteryProgression(state);
@@ -161,7 +161,7 @@ export const advanceCompletedUnitWorkflow = async ({
           });
         }
       }
-      progression = { clusterNodeId, userId, decision };
+      progression = { skillNodeId, userId, decision };
     }
   }
 
@@ -207,7 +207,7 @@ export const advanceCompletedUnitWorkflow = async ({
   const nextReadyNode = promoted?.node ?? null;
 
   if (progression) {
-    const { clusterNodeId, userId, decision } = progression;
+    const { skillNodeId, userId, decision } = progression;
     const promotedHadContent = promoted?.hadContent ?? false;
     const createNextUnitTask = Effect.gen(function* () {
       if (decision.intent === "create_unit") {
@@ -216,13 +216,13 @@ export const advanceCompletedUnitWorkflow = async ({
         // it as the open ready unit and generates its content.
         if (promotedHadContent) return;
         yield* deps.createUnit({
-          clusterNodeId,
+          skillNodeId,
           sessionId,
           userId,
         });
       } else {
         // The parent skill/ability is mastered — advance the hierarchy.
-        yield* deps.advanceSkillMapNode({ clusterNodeId, sessionId, userId });
+        yield* deps.advanceSkillMapNode({ skillNodeId, sessionId, userId });
       }
     }).pipe(
       Effect.retry({
@@ -234,7 +234,7 @@ export const advanceCompletedUnitWorkflow = async ({
       }),
       Effect.tapCause((cause) =>
         Effect.logError("unit creation failed permanently", {
-          clusterNodeId,
+          skillNodeId,
           cause,
         }),
       ),

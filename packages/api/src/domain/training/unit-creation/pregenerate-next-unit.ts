@@ -9,16 +9,16 @@ export const ADVANCE_COMPLETED_UNIT_LOCK_KEY = "advance-completed-unit";
 
 interface LockedPregenerationDependencies<TNode> {
   isAwaitingUnitAdvance: (input: {
-    clusterNodeId: string;
+    skillNodeId: string;
     sessionId: string;
   }) => Effect.Effect<boolean, DbError>;
   getProgressionState: (input: {
-    clusterNodeId: string;
+    skillNodeId: string;
     userId: string;
   }) => Effect.Effect<MasteryProgressionState | null, DbError>;
   /** Node row only — content generation happens outside the lock. */
   createUnitNode: (input: {
-    clusterNodeId: string;
+    skillNodeId: string;
     sessionId: string;
     userId: string;
     status: "planned";
@@ -53,12 +53,12 @@ export interface PregenerateNextUnitDependencies<TNode> {
 export const pregenerateNextUnit = <TNode>({
   sessionId,
   userId,
-  clusterNodeId,
+  skillNodeId,
   deps,
 }: {
   sessionId: string;
   userId: string;
-  clusterNodeId: string;
+  skillNodeId: string;
   deps: PregenerateNextUnitDependencies<TNode>;
 }): Effect.Effect<void, DbError | CreateNextUnitError> =>
   Effect.gen(function* () {
@@ -68,7 +68,7 @@ export const pregenerateNextUnit = <TNode>({
       run: (locked) =>
         Effect.gen(function* () {
           const state = yield* locked.getProgressionState({
-            clusterNodeId,
+            skillNodeId,
             userId,
           });
           if (
@@ -78,13 +78,13 @@ export const pregenerateNextUnit = <TNode>({
             return null;
           }
           const isAwaitingAdvance = yield* locked.isAwaitingUnitAdvance({
-            clusterNodeId,
+            skillNodeId,
             sessionId,
           });
           if (!isAwaitingAdvance) return null;
 
           return yield* locked.createUnitNode({
-            clusterNodeId,
+            skillNodeId,
             sessionId,
             userId,
             status: "planned",

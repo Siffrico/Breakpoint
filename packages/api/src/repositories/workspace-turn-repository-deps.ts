@@ -9,7 +9,7 @@ import {
 } from "@acme/db/schema";
 
 import type { JobRatingState } from "../domain/training/engine/rating";
-import type { RecallCandidateEntry } from "../domain/training/policies/recall-decay";
+import type { RecallCandidate } from "../domain/training/policies/recall-decay";
 import type { DifficultyBand } from "../domain/training/types/training.types";
 import type { WorkspaceAiMessage } from "../domain/training/workspace-ai/types";
 import type { WorkspaceTurnOrchestrationDependencies } from "../domain/training/workspace-ai/workspace-turn-orchestration";
@@ -33,7 +33,7 @@ import { trainingCurriculumRepository } from "./training-curriculum-repository";
 import { trainingOnboardingRepository } from "./training-onboarding-repository";
 import { createTrainingRatingGoldilocksDeps } from "./training-rating-goldilocks-deps";
 import { trainingRatingRepository } from "./training-rating-repository";
-import { trainingSyllabusRepository } from "./training-syllabus-repository";
+import { skillKnowledgeRepository } from "./skill-knowledge-repository";
 import { trainingUnitRunRepository } from "./training-unit-run-repository";
 
 type Database = typeof databaseClient;
@@ -404,27 +404,26 @@ const commitEducationTurn = async ({
       run: input.nextRun,
     });
 
-    if (input.syllabusCheckOff) {
-      await trainingSyllabusRepository.checkOffEntries({
+    if (input.knowledgeCheckOff) {
+      await skillKnowledgeRepository.checkOffKnowledge({
         db: txDb,
-        ...input.syllabusCheckOff,
+        ...input.knowledgeCheckOff,
       });
     }
 
-    if (input.syllabusReinforcement) {
-      await trainingSyllabusRepository.applyReinforcement({
+    if (input.knowledgeReinforcement) {
+      await skillKnowledgeRepository.applyReinforcement({
         db: txDb,
-        entryIds: input.syllabusReinforcement.entryIds,
-        passed: input.syllabusReinforcement.passed,
+        knowledgeIds: input.knowledgeReinforcement.knowledgeIds,
+        passed: input.knowledgeReinforcement.passed,
         occurredAt: new Date(),
       });
     }
 
     if (input.conceptCoverage) {
-      await trainingSyllabusRepository.incrementCoverage({
+      await skillKnowledgeRepository.incrementCoverage({
         db: txDb,
-        entryIds: input.conceptCoverage.entryIds,
-        helpLevel: input.conceptCoverage.helpLevel,
+        knowledgeIds: input.conceptCoverage.knowledgeIds,
       });
     }
 
@@ -536,26 +535,29 @@ export const createWorkspaceTurnRepositoryDeps = (
       }),
     getUnitByNodeId: (nodeId: string) =>
       trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),
-    getRecallCandidatesByIds: (planId: string, entryIds: readonly string[]) =>
-      trainingSyllabusRepository.getRecallCandidatesByIds({
+    getRecallCandidatesByIds: (planId: string, knowledgeIds: readonly string[]) =>
+      skillKnowledgeRepository.getRecallCandidatesByIds({
         db,
         planId,
-        entryIds,
+        knowledgeIds,
       }),
     getMostOverdueRecallCandidate: (planId: string, now: Date) =>
-      trainingSyllabusRepository.getMostOverdueRecallCandidate({
+      skillKnowledgeRepository.getMostOverdueRecallCandidate({
         db,
         planId,
         now,
       }),
     getRecallCompanionCandidate: (
-      clusterNodeId: string,
-      primary: Pick<RecallCandidateEntry, "id" | "topicId" | "topicOrderIndex">,
+      skillNodeId: string,
+      primary: Pick<
+        RecallCandidate,
+        "id" | "questionId" | "questionOrderIndex" | "orderIndex"
+      >,
       now: Date,
     ) =>
-      trainingSyllabusRepository.getRecallCompanionCandidate({
+      skillKnowledgeRepository.getRecallCompanionCandidate({
         db,
-        clusterNodeId,
+        skillNodeId,
         primary,
         now,
       }),
@@ -569,8 +571,8 @@ export const createWorkspaceTurnRepositoryDeps = (
 
       return result.success ? result.data : [];
     },
-    getUnitSyllabusContext: (unitNodeId: string) =>
-      trainingSyllabusRepository.getUnitContext({ db, unitNodeId }),
+    getUnitKnowledgeContext: (unitNodeId: string) =>
+      skillKnowledgeRepository.getUnitContext({ db, unitNodeId }),
     resolveDifficultyDirective: ({
       userId,
       nodeId,

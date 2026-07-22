@@ -57,22 +57,15 @@ export interface UnitTurnContextInput {
    * reference, and the eval grading reference. Null before a spec is recorded.
    */
   scenarioSpec: ScenarioSpecRecord | null;
-  syllabus: {
+  knowledge: {
     workflow: { name: string; steps: readonly string[] };
-    checked: readonly { label: string; gloss: string }[];
-    /**
-     * `mechanism` is the concept's falsifiable causal claim ("X under Y causes
-     * Z"), authored by the syllabus designer specifically so a scenario can be
-     * built from that sentence alone. Backwards authoring tells the posing
-     * agent to take the chasm from these lines, so they must reach the prompt —
-     * a target rendered as label+gloss only leaves the model to re-invent the
-     * claim from a three-word label. Null on pre-v2 entries.
-     */
+    framing: { question: string; part: number } | null;
+    checked: readonly { label: string; content: string }[];
     targets: readonly {
       id: string;
+      kind: "concept" | "mechanism";
       label: string;
-      gloss: string;
-      mechanism: string | null;
+      content: string;
     }[];
   } | null;
   /**
@@ -82,10 +75,10 @@ export interface UnitTurnContextInput {
    * problem where the primary skill is load-bearing.
    */
   recallFocus?: {
-    primary: { label: string; gloss: string };
+    primary: { label: string; content: string };
     companion: {
       label: string;
-      gloss: string;
+      content: string;
       /**
        * How the companion's situation chains with the primary's: "setup"
        * opens the scenario a stage earlier and hands off to the target,
@@ -160,28 +153,26 @@ export const buildUnitTurnContext = (input: UnitTurnContextInput): string => {
     sections.push(`## How this unit fits\n${unit.clusterArcFrame}`);
   }
 
-  if (input.syllabus) {
+  if (input.knowledge) {
     const checked =
-      input.syllabus.checked.length > 0
+      input.knowledge.checked.length > 0
         ? bullet(
-            input.syllabus.checked.map(
-              (entry) => `${entry.label}: ${entry.gloss}`,
+            input.knowledge.checked.map(
+              (entry) => `${entry.label}: ${entry.content}`,
             ),
           )
         : "- None yet";
-    // The mechanism goes on its own indented line rather than inline: it is the
-    // sentence the scenario's chasm must instantiate, so it has to read as the
-    // concept's definition, not as a trailing clause on the gloss.
-    const targets = input.syllabus.targets
-      .map((entry) => {
-        const head = `- ${entry.id} — ${entry.label}: ${entry.gloss}`;
-        return entry.mechanism
-          ? `${head}\n    mechanism: ${entry.mechanism}`
-          : head;
-      })
+    const targets = input.knowledge.targets
+      .map(
+        (entry) =>
+          `- ${entry.id} — ${entry.kind} — ${entry.label}: ${entry.content}`,
+      )
       .join("\n");
+    const framing = input.knowledge.framing
+      ? `\nAuthored question: ${input.knowledge.framing.question}${input.knowledge.framing.part > 1 ? ` (part ${input.knowledge.framing.part})` : ""}`
+      : "";
     sections.push(
-      `## Syllabus\nWorkflow: ${input.syllabus.workflow.name}\nSpine:\n${bullet(input.syllabus.workflow.steps)}\n\nAlready checked (assume known; build on these):\n${checked}\n\nThis unit must land:\n${targets}`,
+      `## Knowledge\nWorkflow: ${input.knowledge.workflow.name}${framing}\nSpine:\n${bullet(input.knowledge.workflow.steps)}\n\nAlready checked (assume known; build on these):\n${checked}\n\nThis unit must land:\n${targets}`,
     );
   }
 
@@ -202,10 +193,10 @@ export const buildUnitTurnContext = (input: UnitTurnContextInput): string => {
       peer: "Compose it with this well-known skill from the same situation",
     };
     const companion = input.recallFocus.companion
-      ? `\n${companionFraming[input.recallFocus.companion.relation]} (assume solid; no review needed): ${input.recallFocus.companion.label} — ${input.recallFocus.companion.gloss}`
+      ? `\n${companionFraming[input.recallFocus.companion.relation]} (assume solid; no review needed): ${input.recallFocus.companion.label} — ${input.recallFocus.companion.content}`
       : "";
     sections.push(
-      `## Recall focus\nThis is a spaced-recall checkpoint, not a lesson. Pose ONE realistic scenario in which the learner must retrieve and apply: ${input.recallFocus.primary.label} — ${input.recallFocus.primary.gloss}${companion}\nDo not re-teach the skill before they attempt it. Frame it briefly as a quick checkpoint before their next unit.`,
+      `## Recall focus\nThis is a spaced-recall checkpoint, not a lesson. Pose ONE realistic scenario in which the learner must retrieve and apply: ${input.recallFocus.primary.label} — ${input.recallFocus.primary.content}${companion}\nDo not re-teach the skill before they attempt it. Frame it briefly as a quick checkpoint before their next unit.`,
     );
   }
 

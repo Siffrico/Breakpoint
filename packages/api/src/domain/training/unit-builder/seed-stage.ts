@@ -45,32 +45,18 @@ const DERIVED_QUESTION_RULES = `- Title the unit as the single practitioner ques
 
 const regimeBlock = (context: UnitBuilderContext): string => {
   const regime = context.planContext.regime;
-  const framing = context.syllabus?.framing ?? null;
+  const framing = context.knowledge?.framing ?? null;
 
   if (regime === "foundation") {
-    if (framing) {
-      return `Regime: FOUNDATION — framed reasoning.
-This unit answers exactly one practitioner question. The learner must always know which question they are answering; what they must never be handed is its answer.
-
-The question this unit answers: ${framing.question}
-The mental model behind it — your private compass for designing the scenario, never stated to the learner: ${framing.coreIdea}
-The misconception this unit must pressure: ${framing.misconception}
+    return `Regime: FOUNDATION — framed reasoning.
+This unit answers exactly one authored practitioner question. The learner must always know which question they are answering; what they must never be handed is its answer.
 
 Regime rules:
 - title: ${
-        framing.part > 1
-          ? `the question above with the suffix " — Part ${framing.part}", because earlier sittings already covered part of it.`
-          : `the question above, verbatim.`
-      }
-- Build the seedPrompt as one concrete situation that makes exactly this question urgent — the situation itself should be asking the question, so the learner feels it without being told.
-- The question may be visible to the learner; the answer may not. Never name the target mechanisms, never state the mental model, never let the scenario resolve its own pressure.
-- misconceptionTarget: specialize the stored misconception above to the concrete scenario you build. Do not invent an unrelated one.`;
+      framing
+        ? `${framing.question}${framing.part > 1 ? ` — Part ${framing.part}` : ""}`
+        : `derive one practitioner question from the targets. ${DERIVED_QUESTION_RULES}`
     }
-    return `Regime: FOUNDATION — framed reasoning.
-This unit answers exactly one practitioner question, which you must derive from its target syllabus entries. The learner must always know which question they are answering; what they must never be handed is its answer.
-
-Regime rules:
-${DERIVED_QUESTION_RULES}
 - Build the seedPrompt as one concrete situation that makes exactly that question urgent — the situation itself should be asking the question, so the learner feels it without being told.
 - The question may be visible to the learner; the answer may not. Never name the target mechanisms and never let the scenario resolve its own pressure.`;
   }
@@ -82,7 +68,7 @@ The learner already has local competence on this ability's questions. This unit 
 Regime rules:
 - title: a task-worded directive naming the realistic whole-task the learner performs — e.g. "Modify this checkout flow to be frictionless". Never phrase it as a question.
 - Build the seedPrompt as a whole task from A to B: one concrete initial state, one desired end state, no route prescribed between them.
-- Name no concepts, no skills, and no framing questions anywhere the learner can see. The target syllabus entries steer what the task must exercise; they stay invisible.
+- Name no concepts, no skills, and no framing questions anywhere the learner can see. The target knowledge items steer what the task must exercise; they stay invisible.
 - Difficulty comes from ambiguity and interacting constraints the practitioner would realistically face — never from withholding information they would realistically have.`;
   }
 
@@ -122,8 +108,8 @@ Rules:
 - clusterArcFrame must not answer the seed prompt or teach the lesson content.
 - complexityBudget 1 = foundational, 2 = intermediate, 3 = advanced.
 - Foundation units should usually stay at 1 or 2 unless there is a clear reason the concept is inherently dense.
-- Force the unit's target syllabus entries through the scenario; they are the non-negotiable discriminations for this unit.
-- Treat checked syllabus entries as assumed-known. Do not re-teach them except where they are load-bearing context.
+- Force the unit's target knowledge items through the scenario; they are the non-negotiable discriminations for this unit.
+- Treat checked knowledge items as assumed-known. Do not re-teach them except where they are load-bearing context.
 
 Context:
 ${formatUnitBuilderContext(context)}`,
@@ -155,11 +141,12 @@ Target identity: ${context.learner.targetIdentity}
 Prior learning:
 ${priorLearning}
 ${
-  context.syllabus
-    ? `Workflow: ${context.syllabus.workflow.name}
-Workflow spine: ${context.syllabus.workflow.steps.join(" -> ")}
-Already checked (assume known): ${context.syllabus.checked.map((entry) => `${entry.label}: ${entry.gloss}`).join("; ") || "None"}
-This unit must land: ${context.syllabus.targets.map((entry) => `${entry.label}: ${entry.gloss}`).join("; ")}`
-    : "No syllabus targets are attached."
+  context.knowledge
+    ? `Workflow: ${context.knowledge.workflow.name}
+Workflow spine: ${context.knowledge.workflow.steps.join(" -> ")}
+Authored question: ${context.knowledge.framing?.question ?? "None"}
+Already checked (assume known): ${context.knowledge.checked.map((entry) => `${entry.label}: ${entry.content}`).join("; ") || "None"}
+This unit must land: ${context.knowledge.targets.map((entry) => `${entry.kind} — ${entry.label}: ${entry.content}`).join("; ")}`
+    : "No knowledge targets are attached."
 }`;
 };

@@ -26,7 +26,7 @@ const baseInput = (
   difficultyLine: null,
   pendingConnectTeach: false,
   scenarioSpec: null,
-  syllabus: null,
+  knowledge: null,
   ...overrides,
 });
 
@@ -158,57 +158,62 @@ describe("buildUnitTurnContext", () => {
   it("renders the workflow, assumed knowledge, and exact targets", () => {
     const context = buildUnitTurnContext(
       baseInput({
-        syllabus: {
+        knowledge: {
           workflow: {
             name: "Diagnose an incident",
             steps: ["Collect signals", "Separate hypotheses"],
           },
+          framing: {
+            question: "How do you separate symptoms from causes?",
+            part: 1,
+          },
           checked: [
-            { label: "Symptom versus cause", gloss: "Do not conflate them." },
+            { label: "Symptom versus cause", content: "Do not conflate them." },
           ],
           targets: [
             {
               id: "entry-2",
+              kind: "mechanism",
               label: "Correlated versus causal",
-              gloss: "Demand a discriminating prediction.",
-              mechanism:
-                "Acting on a correlation whose confound is unmeasured changes the proxy without moving the outcome.",
+              content:
+                "Demand a prediction that differs between the competing explanations.",
             },
           ],
         },
       }),
     );
 
-    expect(context).toContain("## Syllabus");
+    expect(context).toContain("## Knowledge");
     expect(context).toContain("Workflow: Diagnose an incident");
-    expect(context).toContain("Already checked (assume known; build on these)");
-    expect(context).toContain("entry-2 — Correlated versus causal");
-    // The chasm is authored FROM this line (see the backwards-authoring
-    // prompt), so it has to survive into the block, not just into the row.
     expect(context).toContain(
-      "mechanism: Acting on a correlation whose confound is unmeasured",
+      "Authored question: How do you separate symptoms from causes?",
+    );
+    expect(context).toContain("Already checked (assume known; build on these)");
+    expect(context).toContain("entry-2 — mechanism — Correlated versus causal");
+    expect(context).toContain(
+      "Demand a prediction that differs between the competing explanations.",
     );
   });
 
-  it("omits the mechanism line for pre-v2 entries that have none", () => {
+  it("renders declarative concepts distinctly from executable mechanisms", () => {
     const context = buildUnitTurnContext(
       baseInput({
-        syllabus: {
+        knowledge: {
           workflow: { name: "Diagnose an incident", steps: ["Collect signals"] },
+          framing: null,
           checked: [],
           targets: [
             {
               id: "entry-3",
-              label: "Legacy entry",
-              gloss: "Written before mechanisms existed.",
-              mechanism: null,
+              kind: "concept",
+              label: "Signal provenance",
+              content: "A signal is only as trustworthy as its collection path.",
             },
           ],
         },
       }),
     );
 
-    expect(context).toContain("entry-3 — Legacy entry");
-    expect(context).not.toContain("mechanism:");
+    expect(context).toContain("entry-3 — concept — Signal provenance");
   });
 });

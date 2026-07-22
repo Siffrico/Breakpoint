@@ -1,4 +1,3 @@
-import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { check, index, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
 
@@ -144,84 +143,49 @@ export const TrainingCurriculumNode = pgTable(
   ],
 );
 
-export const TrainingKnowledgeTopic = pgTable(
-  "becoming_knowledge_topic",
+export const TrainingKnowledgeQuestion = pgTable(
+  "becoming_knowledge_question",
   (t) => ({
     id: t.uuid().notNull().primaryKey().defaultRandom(),
-    planId: t
-      .uuid()
-      .notNull()
-      .references(() => TrainingCurriculumPlan.id, { onDelete: "cascade" }),
-    abilityNodeId: t
+    skillNodeId: t
       .uuid()
       .notNull()
       .references(() => TrainingCurriculumNode.id, { onDelete: "cascade" }),
-    parentTopicId: t
-      .uuid()
-      .references((): AnyPgColumn => TrainingKnowledgeTopic.id, {
-        onDelete: "cascade",
-      }),
-    slug: t.varchar({ length: 120 }).notNull(),
-    title: t.varchar({ length: 240 }).notNull(),
-    gloss: t.text().notNull(),
-    coreIdea: t.text().notNull(),
-    misconception: t.text().notNull(),
     orderIndex: t.integer().notNull(),
-    strength: t.integer().notNull().default(0),
-    lastReinforcedAt: t.timestamp({ mode: "date", withTimezone: true }),
-    checkedAt: t.timestamp({ mode: "date", withTimezone: true }),
-    evidenceNodeId: t
-      .uuid()
-      .references(() => TrainingCurriculumNode.id, { onDelete: "set null" }),
+    question: t.text().notNull(),
     createdAt: t
       .timestamp({ mode: "date", withTimezone: true })
       .defaultNow()
       .notNull(),
   }),
   (table) => [
-    uniqueIndex("becoming_knowledge_topic_ability_slug_idx").on(
-      table.abilityNodeId,
-      table.slug,
-    ),
-    index("becoming_knowledge_topic_parent_order_idx").on(
-      table.parentTopicId,
+    uniqueIndex("becoming_knowledge_question_skill_order_idx").on(
+      table.skillNodeId,
       table.orderIndex,
     ),
   ],
 );
 
-export const TrainingSyllabusEntry = pgTable(
-  "becoming_training_syllabus_entry",
+export const TrainingKnowledgeItem = pgTable(
+  "becoming_knowledge_item",
   (t) => ({
     id: t.uuid().notNull().primaryKey().defaultRandom(),
-    // The skill node this entry's concepts belong to. The historical column
-    // name is retained because it is an internal storage detail.
-    clusterNodeId: t
+    questionId: t
       .uuid()
       .notNull()
-      .references(() => TrainingCurriculumNode.id, { onDelete: "cascade" }),
-    topicId: t.uuid().references(() => TrainingKnowledgeTopic.id, {
-      onDelete: "set null",
-    }),
+      .references(() => TrainingKnowledgeQuestion.id, { onDelete: "cascade" }),
     orderIndex: t.integer().notNull(),
-    label: t.text().notNull(),
     kind: t.varchar({ length: 32 }).notNull(),
-    gloss: t.text().notNull(),
-    // v2 concept model: the causal claim this concept IS ("X under Y causes Z").
-    // A mechanism-form concept is a scenario template — the scenario agent
-    // instantiates it instead of inventing a surface. Null on pre-v2 entries.
-    mechanism: t.text(),
-    // How many scored solves this concept was load-bearing in. Skill mastery
-    // requires every concept to reach the coverage target (see
+    label: t.text().notNull(),
+    content: t.text().notNull(),
+    // How many scored solves this item was load-bearing in. Skill mastery
+    // requires every item to reach the coverage target (see
     // engine/concept-coverage.ts) — never a drifting rating.
     coverageCount: t.integer().notNull().default(0),
-    // Support level of the most recent covering solve ("worked_example" |
-    // "guided" | "none"). Coverage earned unaided is what mastery counts.
-    lastHelpLevel: t.varchar({ length: 32 }),
     status: t.varchar({ length: 32 }).notNull().default("unchecked"),
     checkedAt: t.timestamp({ mode: "date", withTimezone: true }),
     // Spaced-reinforcement state: how many consecutive scored recalls this
-    // entry has survived, and when it last earned (or lost) one. checkedAt is
+    // item has survived, and when it last earned (or lost) one. checkedAt is
     // the anchor until the first reinforcement. See policies/recall-decay.ts.
     strength: t.integer().notNull().default(0),
     lastReinforcedAt: t.timestamp({ mode: "date", withTimezone: true }),
@@ -234,10 +198,14 @@ export const TrainingSyllabusEntry = pgTable(
       .notNull(),
   }),
   (table) => [
-    uniqueIndex("becoming_syllabus_cluster_order_idx").on(
-      table.clusterNodeId,
+    uniqueIndex("becoming_knowledge_item_question_order_idx").on(
+      table.questionId,
       table.orderIndex,
     ),
-    index("becoming_syllabus_evidence_node_idx").on(table.evidenceNodeId),
+    index("becoming_knowledge_item_evidence_node_idx").on(table.evidenceNodeId),
+    check(
+      "becoming_knowledge_item_kind",
+      sql`${table.kind} in ('concept', 'mechanism')`,
+    ),
   ],
 );

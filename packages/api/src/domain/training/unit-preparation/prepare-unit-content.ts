@@ -37,20 +37,15 @@ export interface UnitPreparationDependencies {
   readonly listAttemptHistory: (
     sessionId: string,
   ) => Promise<PriorLearningRecord[]>;
-  readonly getUnitSyllabusContext: (unitNodeId: string) => Promise<{
+  readonly getUnitKnowledgeContext: (unitNodeId: string) => Promise<{
     workflow: { name: string; steps: string[] };
-    framing: {
-      question: string;
-      coreIdea: string;
-      misconception: string;
-      part: number;
-    } | null;
-    checked: { label: string; gloss: string }[];
+    framing: { question: string; part: number } | null;
+    checked: { label: string; content: string }[];
     targets: {
       id: string;
+      kind: "concept" | "mechanism";
       label: string;
-      gloss: string;
-      mechanism: string | null;
+      content: string;
     }[];
   } | null>;
   readonly createUnitContentIfAbsent: (input: {
@@ -106,14 +101,14 @@ const assembleSeedContext = ({
   planNodes,
   targetIdentity,
   priorLearning,
-  syllabus,
+  knowledge,
 }: {
   nodeId: string;
   planNodes: PlanNodeContext[] | null;
   targetIdentity: string | null;
   priorLearning: PriorLearningRecord[];
-  syllabus: Awaited<
-    ReturnType<UnitPreparationDependencies["getUnitSyllabusContext"]>
+  knowledge: Awaited<
+    ReturnType<UnitPreparationDependencies["getUnitKnowledgeContext"]>
   >;
 }): Effect.Effect<UnitBuilderContext, UnitContextMissingError> => {
   if (!planNodes) {
@@ -165,7 +160,7 @@ const assembleSeedContext = ({
         : null,
     },
     learner: { targetIdentity: targetIdentity.trim(), priorLearning },
-    syllabus,
+    knowledge,
   });
 };
 
@@ -193,14 +188,14 @@ export const prepareUnitContent = ({
     });
     if (existing && !forceRefresh) return existing;
 
-    const [planNodes, targetIdentity, priorLearning, syllabus] =
+    const [planNodes, targetIdentity, priorLearning, knowledge] =
       yield* Effect.tryPromise({
         try: () =>
           Promise.all([
             deps.getPlanNodesBySession(sessionId),
             deps.getTargetIdentity(sessionId),
             deps.listAttemptHistory(sessionId),
-            deps.getUnitSyllabusContext(node.id),
+            deps.getUnitKnowledgeContext(node.id),
           ]),
         catch: (cause) =>
           contextMissing(
@@ -213,7 +208,7 @@ export const prepareUnitContent = ({
       planNodes,
       targetIdentity,
       priorLearning,
-      syllabus,
+      knowledge,
     });
 
     const setup = yield* Effect.tryPromise({

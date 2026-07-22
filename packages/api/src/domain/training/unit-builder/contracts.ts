@@ -2,7 +2,7 @@ import { z } from "zod/v4";
 
 import { PreSeedUnitContentDraftSchema } from "@acme/validators";
 
-import { FOUNDATION_UNIT_ENTRY_CAP } from "../unit-creation/create-next-unit";
+import { FOUNDATION_UNIT_KNOWLEDGE_CAP } from "../unit-creation/target-selection";
 
 export const PriorLearningRecordSchema = z.object({
   title: z.string().min(1),
@@ -41,35 +41,32 @@ export const UnitBuilderContextSchema = z.object({
     targetIdentity: z.string().min(1),
     priorLearning: z.array(PriorLearningRecordSchema),
   }),
-  syllabus: z
+  knowledge: z
     .object({
       workflow: z.object({
         name: z.string().min(1),
         steps: z.array(z.string().min(1)).min(1),
       }),
-      /** The knowledge-topic question this unit answers; null = unframed. */
       framing: z
         .object({
           question: z.string().min(1),
-          coreIdea: z.string().min(1),
-          misconception: z.string().min(1),
-          /** 1-based sitting number when the question spans multiple units. */
           part: z.number().int().min(1),
         })
         .nullable(),
       checked: z.array(
-        z.object({ label: z.string().min(1), gloss: z.string().min(1) }),
+        z.object({ label: z.string().min(1), content: z.string().min(1) }),
       ),
       targets: z
         .array(
           z.object({
             id: z.string().min(1),
+            kind: z.enum(["concept", "mechanism"]),
             label: z.string().min(1),
-            gloss: z.string().min(1),
+            content: z.string().min(1),
           }),
         )
         .min(1)
-        .max(FOUNDATION_UNIT_ENTRY_CAP),
+        .max(FOUNDATION_UNIT_KNOWLEDGE_CAP),
     })
     .nullable(),
 });

@@ -389,9 +389,9 @@ void test("a mastered unit checks off every target even when the evaluator omits
     listUnitMessages: () => Promise.resolve([]),
     listMemories: () => Promise.resolve([]),
     resolveDifficultyDirective: () => fail("resolveDifficultyDirective"),
-    getUnitSyllabusContext: () =>
+    getUnitKnowledgeContext: () =>
       Promise.resolve({
-        clusterNodeId: clusterNode.id,
+        skillNodeId: clusterNode.id,
         workflow: { name: "Diagnose", steps: ["Observe", "Explain"] },
         checked: [],
         targets: [
@@ -412,7 +412,7 @@ void test("a mastered unit checks off every target even when the evaluator omits
         forcedConnectAdvance: false,
         gradeReasoning: "Both target mechanisms were applied.",
         ratingWrite: null,
-        syllabusCheckOff: null,
+        knowledgeCheckOff: null,
         scenarioSpec: null,
       }),
     getUnitByNodeId: () => Promise.resolve(turn.unit),
@@ -438,7 +438,7 @@ void test("a mastered unit checks off every target even when the evaluator omits
     },
   );
 
-  assert.deepEqual(captured.committed?.syllabusCheckOff?.requestedEntryIds, [
+  assert.deepEqual(captured.committed?.knowledgeCheckOff?.requestedKnowledgeIds, [
     "entry-1",
     "entry-2",
   ]);
@@ -493,7 +493,7 @@ void test("solve timing anchors on the turn claim, not the post-grading clock", 
         forcedConnectAdvance: false,
         gradeReasoning: "The fix addressed the measured fault.",
         ratingWrite: { score: 78, errorCodes: [] },
-        syllabusCheckOff: null,
+        knowledgeCheckOff: null,
         scenarioSpec: null,
       }),
     getUnitByNodeId: () => Promise.resolve(turn.unit),

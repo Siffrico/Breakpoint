@@ -46,24 +46,6 @@ export const OnboardingChatRequestSchema = z
     message: "A conversation is required.",
   });
 
-export const KnowledgeTopicSchema = z.object({
-  slug: z
-    .string()
-    .min(1)
-    .max(120)
-    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
-  parentSlug: z.string().min(1).max(120).nullable(),
-  title: z.string().min(1).max(240),
-  gloss: z.string().min(1).max(1_000),
-  coreIdea: z.string().min(1).max(2_000),
-  misconception: z.string().min(1).max(2_000),
-  orderIndex: z.number().int().min(0),
-});
-
-export const KnowledgeModelOutputSchema = z.object({
-  topics: z.array(KnowledgeTopicSchema).min(1).max(64),
-});
-
 export const WorkspaceShellInputSchema = z.object({
   sessionId: z.string().uuid().optional(),
   cookieSessionId: z.string().uuid().optional(),

@@ -26,7 +26,7 @@ import {
   gradeSolution,
   recordScenarioSpec,
 } from "../../workspace-ai/fsm-tools";
-import { checkOffSyllabus } from "./check-off-syllabus.tool";
+import { checkOffSyllabus } from "./check-off-knowledge.tool";
 import { PhaseAgentOutputSchema } from "./output-schema";
 import { runPhaseAgent } from "./run-phase-agent";
 import { STABLE_SYSTEM_PROMPT } from "./system-prompt";

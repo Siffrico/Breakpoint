@@ -4,7 +4,6 @@ import type { OnboardingTranscriptMessageSchema } from "@acme/validators";
 import {
   BeforeAfterProfileSchema,
   IdentityReportSchema,
-  KnowledgeModelOutputSchema,
   ProjectOverviewSchema,
   ScenarioArchetypeSchema,
 } from "@acme/validators";
@@ -113,25 +112,28 @@ export const CurriculumPlanDraftSchema = z.object({
     .max(6),
 });
 
-/**
- * The concept map for one skill: every entry is a causal claim ("X under Y
- * causes Z"), not a topic label. A mechanism-form concept is a scenario
- * template — the scenario agent instantiates it instead of inventing form.
- */
-export const SyllabusOutputSchema = z.object({
-  entries: z
+const KnowledgeItemSchema = z.object({
+  kind: z.enum(["concept", "mechanism"]),
+  label: z.string().min(1),
+  content: z.string().min(1),
+});
+
+/** One skill's authored questions and the knowledge needed to answer them. */
+export const KnowledgeMapOutputSchema = z.object({
+  questions: z
     .array(
       z.object({
-        label: z.string().min(1),
-        kind: z.enum(["discrimination", "concept", "subskill", "vocabulary"]),
-        gloss: z.string().min(1),
-        /** The causal claim: what, under which conditions, causes what. */
-        mechanism: z.string().min(1),
-        topicSlug: z.string().min(1).max(120).nullable().optional(),
+        question: z
+          .string()
+          .min(1)
+          .refine((value) => value.trim().endsWith("?"), {
+            message: "knowledge questions must end with a question mark",
+          }),
+        items: z.array(KnowledgeItemSchema).min(1).max(6),
       }),
     )
-    .min(6)
-    .max(24),
+    .min(1)
+    .max(12),
 });
 
 export const CurriculumDesignerOutputSchema = z.object({
@@ -153,9 +155,7 @@ export type CurriculumDesignerOutput = z.infer<
   typeof CurriculumDesignerOutputSchema
 >;
 export type ProjectOverviewOutput = z.infer<typeof ProjectOverviewOutputSchema>;
-export type SyllabusOutput = z.infer<typeof SyllabusOutputSchema>;
-export type KnowledgeModelOutput = z.infer<typeof KnowledgeModelOutputSchema>;
-export { KnowledgeModelOutputSchema };
+export type KnowledgeMapOutput = z.infer<typeof KnowledgeMapOutputSchema>;
 export type OnboardingTranscript = z.infer<
   typeof OnboardingTranscriptMessageSchema
 >[];

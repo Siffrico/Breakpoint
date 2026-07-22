@@ -101,7 +101,7 @@ const makeDeps = (
     getPlanNodesBySession: vi.fn(() => Promise.resolve(planNodes)),
     getTargetIdentity: vi.fn(() => Promise.resolve("Incident commander")),
     listAttemptHistory: vi.fn(() => Promise.resolve([])),
-    getUnitSyllabusContext: vi.fn(() =>
+    getUnitKnowledgeContext: vi.fn(() =>
       Promise.resolve({
         workflow: { name: "Diagnose an incident", steps: ["Choose a probe"] },
         framing: null,
@@ -109,9 +109,9 @@ const makeDeps = (
         targets: [
           {
             id: "entry-1",
+            kind: "concept" as const,
             label: "Causal probe",
-            gloss: "Separate causes.",
-            mechanism:
+            content:
               "A probe that both hypotheses predict identically cannot separate them.",
           },
         ],
@@ -131,7 +131,7 @@ afterEach(() => {
 });
 
 describe("prepareUnitContent", () => {
-  it("prepares a legacy unit without syllabus targets", async () => {
+  it("prepares a legacy unit without knowledge targets", async () => {
     runSeedStageMock.mockResolvedValue(setup);
     const legacyParent = planNodes[0];
     if (!legacyParent) throw new Error("Expected a legacy parent node.");
@@ -145,7 +145,7 @@ describe("prepareUnitContent", () => {
         sessionId: "session-1",
         deps: makeDeps({
           getPlanNodesBySession: vi.fn(() => Promise.resolve(legacyNodes)),
-          getUnitSyllabusContext: vi.fn(() => Promise.resolve(null)),
+          getUnitKnowledgeContext: vi.fn(() => Promise.resolve(null)),
         }),
       }),
     );

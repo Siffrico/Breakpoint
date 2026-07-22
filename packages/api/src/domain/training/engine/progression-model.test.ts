@@ -45,7 +45,7 @@ describe("resolveProgressionModel", () => {
     expect(model && "mastery" in model).toBe(false);
   });
 
-  it("skillset ability: rating gate from the ramp, no syllabus frontier", () => {
+  it("skillset ability: rating gate from the ramp, no knowledge frontier", () => {
     expect(resolveProgressionModel({ kind: "ability", skillMap })).toEqual({
       regime: "skillset",
       workflow: skillMap.workflow,

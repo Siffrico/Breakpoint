@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PersistedUnitRun } from "../education-unit/unit";
-import type { RecallCandidateEntry } from "../policies/recall-decay";
+import type { RecallCandidate } from "../policies/recall-decay";
 import type {
   CurriculumNode,
   CurriculumPlan,
@@ -62,17 +62,18 @@ const recallRun = {
 } satisfies PersistedUnitRun;
 const recallCandidate = {
   id: "entry-1",
-  clusterNodeId: "cluster-1",
+  questionId: "question-1",
+  skillNodeId: "cluster-1",
+  questionOrderIndex: 0,
   label: "Stable boundaries",
-  gloss: "Keep responsibility at the canonical boundary.",
+  content: "Keep responsibility at the canonical boundary.",
   checkedAt: new Date("2026-01-01T00:00:00Z"),
   strength: 0,
   // A failed verdict just reset the decay clock, so this is deliberately not due.
   lastReinforcedAt: new Date("2026-07-05T00:00:00Z"),
   evidenceNodeId: completedNode.id,
-  topicId: null,
-  topicOrderIndex: null,
-} satisfies RecallCandidateEntry;
+  orderIndex: 0,
+} satisfies RecallCandidate;
 const recallPresentation = {
   id: "response-1",
   unitContentId: recallUnit.id,
@@ -97,7 +98,7 @@ const noRecallProjectionDeps = {
   getRecallCompanionCandidate: () => Promise.resolve(null),
 };
 
-const recallDeps = (entryIds: string[] = [recallCandidate.id]) => ({
+const recallDeps = (knowledgeIds: string[] = [recallCandidate.id]) => ({
   getActivePlan: () => Promise.resolve(recallPlan),
   getPhaseResponses: (unitContentId: string) =>
     Promise.resolve(
@@ -107,7 +108,7 @@ const recallDeps = (entryIds: string[] = [recallCandidate.id]) => ({
               ...recallPresentation,
               metadata: {
                 ...recallPresentation.metadata,
-                recallEntryIds: entryIds,
+                recallEntryIds: knowledgeIds,
               },
             },
           ]
@@ -475,7 +476,7 @@ describe("workspace view reads", () => {
     expect(view.unitAdvanceGate).toEqual({ status: "locked" });
     expect(getMostOverdueRecallCandidate).toHaveBeenCalledOnce();
     expect(getRecallCompanionCandidate).toHaveBeenCalledWith(
-      recallCandidate.clusterNodeId,
+      recallCandidate.skillNodeId,
       recallCandidate,
       expect.any(Date),
     );
