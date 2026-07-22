@@ -1,4 +1,4 @@
-import { Data, Effect } from "effect";
+import { Effect } from "effect";
 import { z } from "zod/v4";
 
 import type { MissionPlan, MissionProof, MissionSpec } from "@acme/validators";
@@ -6,6 +6,7 @@ import type { MissionPlan, MissionProof, MissionSpec } from "@acme/validators";
 import type { MissionEvaluationDraft } from "./mission-evaluation-policy";
 import { invokeStructuredModel } from "../engine/invoke-structured-model";
 import { requireAiModelForPurpose } from "../engine/model-router";
+import { MissionEvaluationError } from "./mission-errors";
 
 const MissionEvaluationDraftSchema = z.object({
   executionScore: z.number().int().min(0).max(40),
@@ -17,13 +18,6 @@ const MissionEvaluationDraftSchema = z.object({
   summary: z.string().min(1).max(1_000),
   nextStep: z.string().min(1).max(500),
 });
-
-export class MissionEvaluationError extends Data.TaggedError(
-  "MissionEvaluationError",
-)<{
-  message: string;
-  cause: unknown;
-}> {}
 
 const MISSION_EVALUATOR_PROMPT = `You evaluate evidence for one short real-world learning mission.
 
@@ -62,9 +56,5 @@ export const evaluateMissionProof = ({
       });
       return await result.output;
     },
-    catch: (cause) =>
-      new MissionEvaluationError({
-        message: "Your proof could not be evaluated. Please try again.",
-        cause,
-      }),
+    catch: (cause) => new MissionEvaluationError({ cause }),
   });

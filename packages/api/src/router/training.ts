@@ -1,5 +1,6 @@
 import type { TRPCRouterRecord } from "@trpc/server";
 import { TRPCError } from "@trpc/server";
+import { Effect } from "effect";
 import { z } from "zod/v4";
 
 import type { StartingPointTier } from "@acme/validators";
@@ -9,6 +10,7 @@ import {
   WorkspaceShellInputSchema,
 } from "@acme/validators";
 
+import { getMissionStatusWorkflow } from "../domain/training/missions/workflows/get-mission-status";
 import { createNextUnit } from "../domain/training/unit-creation/create-next-unit";
 import { ADVANCE_COMPLETED_UNIT_LOCK_KEY } from "../domain/training/unit-creation/pregenerate-next-unit";
 import { advanceCompletedUnitWorkflow } from "../domain/training/workflows/advance-completed-unit-workflow";
@@ -26,9 +28,10 @@ import { listUnfinishedOnboardingSessionsWorkflow } from "../domain/training/wor
 import { prepareUnitWorkflow } from "../domain/training/workflows/prepare-unit-workflow";
 import { startOnboardingWorkflow } from "../domain/training/workflows/start-onboarding-workflow";
 import { queryWithClient } from "../effect/db";
+import { runMission } from "../effect/mission-edge";
+import { missionLayer } from "../effect/runtime";
 import { buildProjectCheckpointRepository } from "../repositories/build-project-checkpoint-repository";
 import { recoverSkillUnits } from "../repositories/build-project-repository-deps";
-import { missionRepository } from "../repositories/mission-repository";
 import { trainingCurriculumRepository } from "../repositories/training-curriculum-repository";
 import { trainingOnboardingRepository } from "../repositories/training-onboarding-repository";
 import { trainingRatingRepository } from "../repositories/training-rating-repository";
@@ -680,21 +683,14 @@ export const trainingRouter = {
                   userId,
                 }),
               ),
-            getMissionStatus: async ({ sessionId, unitContentId, userId }) => {
-              const unitRunId = await missionRepository.findUnitRunId({
-                db: ctx.db,
-                userId,
-                unitContentId,
-                sessionId,
-              });
-              if (!unitRunId) return null;
-              const mission = await missionRepository.getByUnitRun({
-                db: ctx.db,
-                unitRunId,
-                userId,
-              });
-              return { unitRunId, status: mission?.status ?? null };
-            },
+            getMissionStatus: ({ sessionId, unitContentId, userId }) =>
+              runMission(
+                getMissionStatusWorkflow({
+                  userId,
+                  unitContentId,
+                  sessionId,
+                }).pipe(Effect.provide(missionLayer(ctx.db))),
+              ),
             advanceSkillMapNode: ({ clusterNodeId, sessionId, userId }) =>
               queryWithClient(ctx.db, "advanceSkillMapNode", () =>
                 advanceSkillMapNode({

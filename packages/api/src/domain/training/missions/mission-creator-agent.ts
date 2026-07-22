@@ -16,18 +16,21 @@ import {
 
 const CompleteMissionArgsSchema = z.object({});
 
-/** Builds only the tools for one already-authorized mission stream. */
+/**
+ * Builds only the tools for one already-authorized mission stream. Both
+ * plan-writing tools share one callback: omitting `spec` means "keep the
+ * already-chosen mission", and the workflow behind the callback owns that
+ * precondition — a tool must not enforce lifecycle rules itself.
+ */
 export const createMissionCreatorTools = ({
   confirmPlan,
-  getMission,
   submittedProof,
   evaluateMission,
 }: {
   confirmPlan: (input: {
-    spec: MissionSpec;
+    spec?: MissionSpec;
     plan: MissionPlan;
-  }) => Promise<void>;
-  getMission: () => Promise<{ spec: MissionSpec | null } | null>;
+  }) => Promise<{ spec: MissionSpec; plan: MissionPlan }>;
   submittedProof?: MissionProof;
   evaluateMission: (proof: MissionProof) => Promise<MissionEvaluation>;
 }) => ({
@@ -46,22 +49,13 @@ export const createMissionCreatorTools = ({
     description:
       "Confirm the learner's chosen mission and render its concrete plan.",
     inputSchema: FinalizePlanArgsSchema,
-    execute: async ({ spec, plan }) => {
-      await confirmPlan({ spec, plan });
-      return { spec, plan };
-    },
+    execute: ({ spec, plan }) => confirmPlan({ spec, plan }),
   }),
   edit_plan: tool({
     description:
       "Replace the current plan in response to the learner's constraint or request.",
     inputSchema: EditPlanArgsSchema,
-    execute: async ({ plan }) => {
-      const mission = await getMission();
-      if (!mission?.spec)
-        throw new Error("A mission must be chosen before its plan can change.");
-      await confirmPlan({ spec: mission.spec, plan });
-      return { spec: mission.spec, plan };
-    },
+    execute: ({ plan }) => confirmPlan({ plan }),
   }),
   complete_mission: tool({
     description:

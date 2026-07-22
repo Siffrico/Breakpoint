@@ -1,8 +1,13 @@
 import type { TRPCRouterRecord } from "@trpc/server";
-import { TRPCError } from "@trpc/server";
+import { Effect } from "effect";
 import { z } from "zod/v4";
 
-import { missionRepository } from "../repositories/mission-repository";
+import { getMissionEligibilityWorkflow } from "../domain/training/missions/workflows/get-mission-eligibility";
+import { getMissionForUnitRunWorkflow } from "../domain/training/missions/workflows/get-mission-for-unit-run";
+import { listResumableMissionsWorkflow } from "../domain/training/missions/workflows/list-resumable-missions";
+import { startMissionWorkflow } from "../domain/training/missions/workflows/start-mission";
+import { runMission } from "../effect/mission-edge";
+import { missionLayer } from "../effect/runtime";
 import { protectedProcedure } from "../trpc";
 
 const UnitRunInputSchema = z.object({ unitRunId: z.string().uuid() });
@@ -12,107 +17,50 @@ const EligibilityInputSchema = z.union([
   z.object({ unitContentId: z.string().uuid(), sessionId: z.string().uuid() }),
 ]);
 
+/** Every procedure: validate, authorize via ctx, invoke one workflow. Lifecycle
+ * rules and error copy live in the domain and the edge respectively. */
 export const missionsRouter = {
   eligibility: protectedProcedure
     .input(EligibilityInputSchema)
-    .query(async ({ ctx, input }) => {
-      const unitRunId =
-        "unitRunId" in input
-          ? input.unitRunId
-          : await missionRepository.findUnitRunId({
-              db: ctx.db,
-              userId: ctx.session.user.id,
-              unitContentId: input.unitContentId,
-              sessionId: input.sessionId,
-            });
-      if (!unitRunId) return { eligible: false, unitRunId: null };
-      const result = await missionRepository.getEligibleRun({
-        db: ctx.db,
-        userId: ctx.session.user.id,
-        unitRunId,
-      });
-      return {
-        eligible: result?.eligible ?? false,
-        unitRunId: result?.eligible ? unitRunId : null,
-      };
-    }),
+    .query(({ ctx, input }) =>
+      runMission(
+        getMissionEligibilityWorkflow({
+          userId: ctx.session.user.id,
+          input,
+        }).pipe(Effect.provide(missionLayer(ctx.db))),
+      ),
+    ),
+
   getForUnitRun: protectedProcedure
     .input(UnitRunInputSchema)
-    .query(async ({ ctx, input }) => {
-      const result = await missionRepository.getEligibleRun({
-        db: ctx.db,
-        userId: ctx.session.user.id,
-        unitRunId: input.unitRunId,
-      });
-      if (!result)
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Mission unit not found.",
-        });
-      if (!result.eligible)
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "This unit is not eligible for a field mission.",
-        });
-      const mission = await missionRepository.getByUnitRun({
-        db: ctx.db,
-        userId: ctx.session.user.id,
-        unitRunId: input.unitRunId,
-      });
-      if (!mission || !result.node) return null;
-      const evaluations = await missionRepository.listEvaluations({
-        db: ctx.db,
-        missionId: mission.id,
-      });
-      return {
-        ...mission,
-        evaluations,
-        sessionId: result.run.sessionId,
-        nodeId: result.node.id,
-      };
-    }),
+    .query(({ ctx, input }) =>
+      runMission(
+        getMissionForUnitRunWorkflow({
+          userId: ctx.session.user.id,
+          unitRunId: input.unitRunId,
+        }).pipe(Effect.provide(missionLayer(ctx.db))),
+      ),
+    ),
+
   start: protectedProcedure
     .input(UnitRunInputSchema)
-    .mutation(async ({ ctx, input }) => {
-      const result = await missionRepository.getEligibleRun({
-        db: ctx.db,
-        userId: ctx.session.user.id,
-        unitRunId: input.unitRunId,
-      });
-      if (!result?.eligible)
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "This mission cannot be started.",
-        });
-      const mission = await missionRepository.getByUnitRun({
-        db: ctx.db,
-        userId: ctx.session.user.id,
-        unitRunId: input.unitRunId,
-      });
-      if (!mission?.spec || !mission.plan)
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message: "Choose a mission before starting it.",
-        });
-      const updated = await missionRepository.start({
-        db: ctx.db,
-        userId: ctx.session.user.id,
-        unitRunId: input.unitRunId,
-      });
-      if (updated.length === 0)
-        throw new TRPCError({
-          code: "CONFLICT",
-          message: "This mission can no longer be started.",
-        });
-      return { status: "active" as const };
-    }),
+    .mutation(({ ctx, input }) =>
+      runMission(
+        startMissionWorkflow({
+          userId: ctx.session.user.id,
+          unitRunId: input.unitRunId,
+        }).pipe(Effect.provide(missionLayer(ctx.db))),
+      ),
+    ),
+
   resumable: protectedProcedure
     .input(SessionInputSchema)
     .query(({ ctx, input }) =>
-      missionRepository.listResumable({
-        db: ctx.db,
-        userId: ctx.session.user.id,
-        sessionId: input.sessionId,
-      }),
+      runMission(
+        listResumableMissionsWorkflow({
+          userId: ctx.session.user.id,
+          sessionId: input.sessionId,
+        }).pipe(Effect.provide(missionLayer(ctx.db))),
+      ),
     ),
 } satisfies TRPCRouterRecord;
