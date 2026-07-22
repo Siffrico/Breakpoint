@@ -135,6 +135,7 @@ export function ProjectBuildCard({
   onRetry,
   onRegenerateOverview,
   startPending = false,
+  retryDisabled = false,
 }: {
   state: ProjectBuildState;
   preview?: boolean;
@@ -143,6 +144,7 @@ export function ProjectBuildCard({
   onRetry?: () => void;
   onRegenerateOverview?: () => void;
   startPending?: boolean;
+  retryDisabled?: boolean;
 }) {
   const [expanded, setExpanded] = useState<
     Partial<Record<ProjectBuildStep, boolean>>
@@ -176,6 +178,11 @@ export function ProjectBuildCard({
   const overviewMissing = state.gaps?.includes("overview") ?? false;
   const isComplete = state.phase === "complete";
   const isError = state.phase === "error";
+  const overviewGenerating =
+    isComplete &&
+    state.steps.some(
+      (step) => step.id === "overview" && step.status === "active",
+    );
 
   return (
     <div
@@ -196,7 +203,11 @@ export function ProjectBuildCard({
             ) : null}
           </div>
           <div className="text-foreground mt-1.5 text-base font-medium">
-            {isComplete ? "Project ready" : "Building your project"}
+            {overviewGenerating
+              ? "Curriculum ready · overview generating"
+              : isComplete
+                ? "Project ready"
+                : "Building your project"}
           </div>
         </div>
         <div className="text-muted-foreground shrink-0 font-mono text-[11px]">
@@ -205,18 +216,23 @@ export function ProjectBuildCard({
       </div>
 
       <div className="mt-4">
-        <ProgressBar progress={progress} active={!isComplete && !isError} />
+        <ProgressBar
+          progress={overviewGenerating ? Math.min(progress, 98) : progress}
+          active={(!isComplete || overviewGenerating) && !isError}
+        />
         <div className="text-muted-foreground mt-2 flex items-center justify-between gap-3 text-[12px] leading-5">
           <span>
-            {isComplete
-              ? `${state.moduleCount} ${skillLabel} mapped`
-              : activeStep
-                ? `${activeStep.label} · ${
-                    activeHasOutput
-                      ? "agent output streaming"
-                      : "waiting on model"
-                  }`
-                : "Preparing build"}
+            {overviewGenerating
+              ? "Your curriculum is ready. Generating its overview in the background."
+              : isComplete
+                ? `${state.moduleCount} ${skillLabel} mapped`
+                : activeStep
+                  ? `${activeStep.label} · ${
+                      activeHasOutput
+                        ? "agent output streaming"
+                        : "waiting on model"
+                    }`
+                  : "Preparing build"}
           </span>
           <span className="font-mono">{progress}%</span>
         </div>
@@ -299,20 +315,26 @@ export function ProjectBuildCard({
       ) : null}
 
       {isError ? (
-        <div className="border-destructive/30 bg-destructive/[0.06] text-destructive mt-4 flex items-center justify-between gap-3 rounded-md border px-3 py-2 text-[13px]">
+        <div className="border-destructive/30 bg-destructive/[0.06] text-destructive mt-4 rounded-md border px-3 py-2 text-[13px]">
           <span className="leading-6">
             {state.error ?? "Something went wrong building your project."}
           </span>
-          {onRetry ? (
-            <button
-              type="button"
-              onClick={onRetry}
-              className="hover:text-destructive/80 inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium"
-            >
-              <ArrowClockwise size={11} weight="bold" />
-              Try again
-            </button>
-          ) : null}
+        </div>
+      ) : null}
+
+      {!isComplete && onRetry ? (
+        <div className="border-border/60 mt-4 flex items-center justify-end border-t pt-4">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={preview || retryDisabled}
+            onClick={onRetry}
+            className="min-w-28 justify-center"
+          >
+            <ArrowClockwise size={13} weight="bold" aria-hidden="true" />
+            Retry build
+          </Button>
         </div>
       ) : null}
 
@@ -331,7 +353,12 @@ export function ProjectBuildCard({
             type="button"
             variant="ghost"
             size="sm"
-            disabled={preview || !state.sessionId || overviewMissing}
+            disabled={
+              preview ||
+              !state.sessionId ||
+              overviewMissing ||
+              overviewGenerating
+            }
             onClick={onSeeOverview}
           >
             See overview

@@ -22,15 +22,13 @@ export function BillingPanel({ billing }: { billing: BillingState }) {
     <div>
       <SettingsPageHeader title="Billing" />
 
-      <SettingsSection title="Plan">
+      <SettingsSection title="Plan" radius="lg">
         <SettingRow
           label="Current plan"
-          description="Your active Breakpoint subscription."
           control={<Badge variant="muted">{formatPlan(billing.plan)}</Badge>}
         />
         <SettingRow
           label="Manage subscription"
-          description="Update payment method, invoices, or cancel."
           control={
             billing.manageUrl ? (
               <Button

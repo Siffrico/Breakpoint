@@ -3,33 +3,17 @@ import { Data, Effect } from "effect";
 import type { DbError } from "../../../effect/errors";
 import type { ScenarioDirective } from "../engine/rating";
 import type { UnitPreparationError } from "../unit-preparation/errors";
+import type {
+  FrontierItem,
+  UnitCreationRegime,
+  UnitTargetSelector,
+} from "./target-selection";
 
-export interface FrontierEntry {
-  id: string;
-  label: string;
-  gloss: string;
-  kind: "discrimination" | "concept" | "subskill" | "vocabulary";
-  status: string;
-}
-
-export const sliceSyllabusFrontier = (
-  entries: readonly FrontierEntry[],
-  complexityBudget: 1 | 2 | 3,
-): FrontierEntry[] =>
-  entries
-    .filter((entry) => entry.status === "unchecked")
-    .slice(0, complexityBudget);
-
-const selectCreationTargets = (
-  entries: readonly FrontierEntry[],
-  complexityBudget: 1 | 2 | 3,
-) => {
-  const frontier = sliceSyllabusFrontier(entries, complexityBudget);
-  if (frontier.length > 0) return frontier;
-  return entries
-    .filter((entry) => entry.status === "checked")
-    .slice(-complexityBudget);
-};
+export type {
+  FrontierItem,
+  UnitCreationRegime,
+  UnitTargetSelector,
+} from "./target-selection";
 
 /**
  * Fallback-only. Rating reads resolve bands from the parent skill cluster
@@ -65,16 +49,20 @@ export const buildDynamicUnitDifficultyBands = (
 };
 
 export interface CreateNextUnitDependencies<TNode> {
-  loadSkill: (clusterNodeId: string) => Effect.Effect<
+  loadSkill: (
+    skillNodeId: string,
+    unitStatus: "planned" | "ready",
+  ) => Effect.Effect<
     {
       title: string;
       whyItMatters: string;
-      entries: FrontierEntry[];
+      regime: UnitCreationRegime;
+      entries: FrontierItem[];
       openUnit: TNode | null;
     } | null,
     DbError
   >;
-  resolveDirective: (clusterNodeId: string) => Effect.Effect<
+  resolveDirective: (skillNodeId: string) => Effect.Effect<
     {
       directive: ScenarioDirective;
       promptBlock: string;
@@ -82,63 +70,118 @@ export interface CreateNextUnitDependencies<TNode> {
     DbError
   >;
   appendUnit: (input: {
-    clusterNodeId: string;
+    skillNodeId: string;
     title: string;
     summary: string;
     whyItMatters: string;
     difficultyBands: ReturnType<typeof buildDynamicUnitDifficultyBands>;
-    targetEntryIds: string[];
+    targetKnowledgeIds: string[];
+    status: "planned" | "ready";
   }) => Effect.Effect<{ node: TNode; created: boolean }, DbError>;
   hasUnitContent: (nodeId: string) => Effect.Effect<boolean, DbError>;
   prepareUnitEffect: (
     node: TNode,
   ) => Effect.Effect<unknown, UnitPreparationError>;
+  /**
+   * Which entries the new unit is accountable for. Injected because it is the
+   * only step that differs between foundation and skillset units — see
+   * target-selection.ts for the two strategies and the default wiring.
+   */
+  selectTargets: UnitTargetSelector;
 }
 
 export class SkillClusterNotFoundError extends Data.TaggedError(
   "SkillClusterNotFoundError",
-)<{ readonly clusterNodeId: string }> {}
+)<{ readonly skillNodeId: string }> {}
+
+export class KnowledgeTargetsMissingError extends Data.TaggedError(
+  "KnowledgeTargetsMissingError",
+)<{ readonly skillNodeId: string }> {}
 
 export type CreateNextUnitError =
   | DbError
   | UnitPreparationError
-  | SkillClusterNotFoundError;
+  | SkillClusterNotFoundError
+  | KnowledgeTargetsMissingError;
+
+/**
+ * The node-only half of unit creation: resolves or appends the frontier unit
+ * row without generating content. Kept separate so callers that must not hold
+ * a lock or transaction across the LLM call (pre-generation) can create the
+ * node quickly and run content preparation afterwards.
+ */
+export const createNextUnitNode = <TNode extends { id: string }>({
+  skillNodeId,
+  complexityBudget = 2,
+  status = "ready",
+  deps,
+}: {
+  skillNodeId: string;
+  complexityBudget?: 1 | 2 | 3;
+  status?: "planned" | "ready";
+  deps: CreateNextUnitDependencies<TNode>;
+}): Effect.Effect<
+  { node: TNode; needsContent: boolean },
+  CreateNextUnitError
+> =>
+  Effect.gen(function* () {
+    const skill = yield* deps.loadSkill(skillNodeId, status);
+    if (!skill) {
+      return yield* new SkillClusterNotFoundError({ skillNodeId });
+    }
+    if (skill.openUnit) {
+      const hasContent = yield* deps.hasUnitContent(skill.openUnit.id);
+      return { node: skill.openUnit, needsContent: !hasContent };
+    }
+
+    const targets = yield* deps.selectTargets({
+      skillNodeId,
+      regime: skill.regime,
+      entries: skill.entries,
+      complexityBudget,
+    });
+    if (targets.length === 0) {
+      return yield* new KnowledgeTargetsMissingError({ skillNodeId });
+    }
+    const calibrated = yield* deps.resolveDirective(skillNodeId);
+    const foundationQuestion =
+      skill.regime === "foundation" ? targets[0]?.question : null;
+    const persisted = yield* deps.appendUnit({
+      skillNodeId,
+      title:
+        foundationQuestion ??
+        `Practice ${targets.map((entry) => entry.label).join(" and ")}`,
+      summary: targets.map((entry) => entry.content).join(" "),
+      whyItMatters: skill.whyItMatters,
+      difficultyBands: buildDynamicUnitDifficultyBands(calibrated.directive),
+      targetKnowledgeIds: targets.map((entry) => entry.id),
+      status,
+    });
+    return { node: persisted.node, needsContent: persisted.created };
+  });
 
 /**
  * Takes a skill frontier, produces its open or newly created unit, and fails
  * only when the skill is missing or its database/scaffold preparation fails.
  */
 export const createNextUnit = <TNode extends { id: string }>({
-  clusterNodeId,
+  skillNodeId,
   complexityBudget = 2,
+  status = "ready",
   deps,
 }: {
-  clusterNodeId: string;
+  skillNodeId: string;
   complexityBudget?: 1 | 2 | 3;
+  status?: "planned" | "ready";
   deps: CreateNextUnitDependencies<TNode>;
 }): Effect.Effect<TNode | null, CreateNextUnitError> =>
   Effect.gen(function* () {
-    const skill = yield* deps.loadSkill(clusterNodeId);
-    if (!skill) {
-      return yield* new SkillClusterNotFoundError({ clusterNodeId });
-    }
-    if (skill.openUnit) {
-      const hasContent = yield* deps.hasUnitContent(skill.openUnit.id);
-      if (!hasContent) yield* deps.prepareUnitEffect(skill.openUnit);
-      return skill.openUnit;
-    }
-
-    const targets = selectCreationTargets(skill.entries, complexityBudget);
-    if (targets.length === 0) return null;
-    const calibrated = yield* deps.resolveDirective(clusterNodeId);
-    const persisted = yield* deps.appendUnit({
-      clusterNodeId,
-      title: `Practice ${targets.map((entry) => entry.label).join(" and ")}`,
-      summary: `Practice ${targets.map((entry) => entry.gloss).join(" ")}`,
-      whyItMatters: skill.whyItMatters,
-      difficultyBands: buildDynamicUnitDifficultyBands(calibrated.directive),
-      targetEntryIds: targets.map((entry) => entry.id),
+    const created = yield* createNextUnitNode({
+      skillNodeId,
+      complexityBudget,
+      status,
+      deps,
     });
-    if (persisted.created) yield* deps.prepareUnitEffect(persisted.node);
-    return persisted.node;
+    if (created.needsContent) yield* deps.prepareUnitEffect(created.node);
+    return created.node;
   });

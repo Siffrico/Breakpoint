@@ -65,7 +65,7 @@
     --popover-foreground: oklch(0.2 0.005 80);
     --primary: oklch(0.488 0.217 264);
     --primary-foreground: oklch(0.99 0.002 80);
-    --secondary: color-mix(in srgb, black 4%, transparent);
+    --secondary: color-mix(in srgb, black 2%, transparent);
     --secondary-foreground: var(--color-neutral-800);
     --muted: oklch(0.976 0.004 80);
     --muted-foreground: oklch(0.48 0.008 80);

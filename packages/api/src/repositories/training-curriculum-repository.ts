@@ -1,5 +1,5 @@
 import type { db as databaseClient } from "@acme/db/client";
-import { and, asc, desc, eq, inArray, sql } from "@acme/db";
+import { and, asc, desc, eq, inArray } from "@acme/db";
 import {
   TrainingCurriculumNode,
   TrainingCurriculumPlan,
@@ -24,11 +24,7 @@ import type {
   UnitContent,
   UpdateUnitContentInput,
 } from "../domain/training/types/training.types";
-import {
-  planAdvancement,
-  planCompletion,
-  usesDynamicMasteryLoop,
-} from "../domain/training/engine/plan-progression";
+import { planCompletion } from "../domain/training/engine/plan-progression";
 import { insertBlueprintNodes } from "./training-curriculum-node-writer";
 
 type Database = typeof databaseClient;
@@ -276,19 +272,19 @@ export const trainingCurriculumRepository = {
       return null;
     }
 
-    const profileVersion =
-      await db.query.TrainingIdentityProfileVersion.findFirst({
+    const [profileVersion, nodeRows] = await Promise.all([
+      db.query.TrainingIdentityProfileVersion.findFirst({
         where: eq(TrainingIdentityProfileVersion.id, plan.profileVersionId),
-      });
+      }),
+      db.query.TrainingCurriculumNode.findMany({
+        where: eq(TrainingCurriculumNode.planId, plan.id),
+        orderBy: asc(TrainingCurriculumNode.orderIndex),
+      }),
+    ]);
 
     if (!profileVersion) {
       return null;
     }
-
-    const nodeRows = await db.query.TrainingCurriculumNode.findMany({
-      where: eq(TrainingCurriculumNode.planId, plan.id),
-      orderBy: asc(TrainingCurriculumNode.orderIndex),
-    });
 
     const nodes = nodeRows.map((node) => ({
       id: node.id,
@@ -308,9 +304,7 @@ export const trainingCurriculumRepository = {
 
     const nextUnitNode = nodeRows.find(
       (node) =>
-        (node.kind === "unit" ||
-          node.kind === "integration" ||
-          node.kind === "simulation") &&
+        node.kind === "unit" &&
         node.status === "ready",
     );
 
@@ -444,12 +438,14 @@ export const trainingCurriculumRepository = {
     db: Database;
     nodeId: string;
   }): Promise<UnitContent | null> => {
-    const node = await db.query.TrainingCurriculumNode.findFirst({
-      where: eq(TrainingCurriculumNode.id, nodeId),
-    });
-    const unit = await db.query.TrainingUnitContent.findFirst({
-      where: eq(TrainingUnitContent.nodeId, nodeId),
-    });
+    const [node, unit] = await Promise.all([
+      db.query.TrainingCurriculumNode.findFirst({
+        where: eq(TrainingCurriculumNode.id, nodeId),
+      }),
+      db.query.TrainingUnitContent.findFirst({
+        where: eq(TrainingUnitContent.nodeId, nodeId),
+      }),
+    ]);
 
     if (!node || !unit) {
       return null;
@@ -569,11 +565,12 @@ export const trainingCurriculumRepository = {
     scenario: UnitContent["scenario"];
     unitMasteryContract?: UnitContent["unitMasteryContract"];
   }): Promise<UnitContent | null> => {
+    // Build-level mutual exclusion lives in unit-build-lock.ts and is held by
+    // the caller for the whole prepare. Taking the same advisory lock here on
+    // a second pooled connection would self-deadlock against that holder, so
+    // this write relies on onConflictDoNothing alone for row-level dedup.
     return db.transaction(async (tx) => {
       const transactionDb = tx as unknown as Database;
-      await transactionDb.execute(
-        sql`select pg_advisory_xact_lock(hashtext(${nodeId}), hashtext('prepare-unit-content'))`,
-      );
       await transactionDb
         .insert(TrainingUnitContent)
         .values({
@@ -855,34 +852,6 @@ export const trainingCurriculumRepository = {
     }));
   },
 
-  listPhaseResponsesBySession: async ({
-    db,
-    sessionId,
-  }: {
-    db: Database;
-    sessionId: string;
-  }): Promise<PhaseResponseRecord[]> => {
-    const rows = await db.query.TrainingUnitPhaseResponse.findMany({
-      where: eq(TrainingUnitPhaseResponse.sessionId, sessionId),
-      orderBy: [asc(TrainingUnitPhaseResponse.createdAt)],
-    });
-
-    return rows.map((row) => ({
-      id: row.id,
-      unitContentId: row.unitContentId,
-      sessionId: row.sessionId,
-      userId: row.userId,
-      phase: row.phase as PhaseResponseRecord["phase"],
-      sequence: row.sequence,
-      userResponse: row.userResponse,
-      aiResponse: row.aiResponse,
-      passed: row.passed,
-      score: row.score,
-      metadata: row.metadata as PhaseResponseRecord["metadata"],
-      createdAt: row.createdAt,
-    }));
-  },
-
   getLatestFailureIsolation: async ({
     db,
     unitContentId,
@@ -948,53 +917,21 @@ export const trainingCurriculumRepository = {
     );
   },
 
-  advancePlanAfterCompletion: async ({
-    db,
-    nodeId,
-  }: {
-    db: Database;
-    nodeId: string;
-  }): Promise<CurriculumNodeRow | null> => {
-    const loaded = await loadPlanNodes(db, nodeId);
-    if (!loaded) {
-      return null;
-    }
-
-    const { advancedNodeId, changes } = planAdvancement(
-      toProgressionNodes(loaded.planNodes),
-      nodeId,
-    );
-    await applyStatusChanges(db, changes);
-
-    return advancedNodeId
-      ? (loaded.planNodes.find((node) => node.id === advancedNodeId) ?? null)
-      : null;
-  },
-
   completeNode: async ({ db, nodeId }: { db: Database; nodeId: string }) => {
     const node = await trainingCurriculumRepository.getNodeById({ db, nodeId });
-    await trainingCurriculumRepository.markNodeCompleted({
-      db,
-      nodeId,
-    });
-    const parent = node?.parentNodeId
-      ? await trainingCurriculumRepository.getNodeById({
-          db,
-          nodeId: node.parentNodeId,
-        })
-      : null;
-    if (
-      node &&
-      usesDynamicMasteryLoop({
-        nodeKind: node.kind as CurriculumNodeKind,
-        parentHasSkillMap: Boolean(parent?.skillMap),
-      })
-    ) {
-      return node;
-    }
-    return trainingCurriculumRepository.advancePlanAfterCompletion({
-      db,
-      nodeId,
-    });
+    if (node?.kind !== "unit") return null;
+    await db
+      .update(TrainingCurriculumNode)
+      .set({ status: "completed" })
+      .where(eq(TrainingCurriculumNode.id, nodeId));
+    return node;
+  },
+
+  /** Promotes a pre-generated planned node into the live ready slot. */
+  markNodeReady: async ({ db, nodeId }: { db: Database; nodeId: string }) => {
+    await db
+      .update(TrainingCurriculumNode)
+      .set({ status: "ready" })
+      .where(eq(TrainingCurriculumNode.id, nodeId));
   },
 };

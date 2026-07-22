@@ -45,7 +45,7 @@ const parsePhase = (value: string): UnitPhase => {
 };
 
 const parsePass = (value: number): PassIndex => {
-  if (value === 1 || value === 2) {
+  if (value === 1 || value === 2 || value === 3) {
     return value;
   }
   throw new Error(`Unit run has an invalid pass: ${value}.`);
@@ -62,6 +62,7 @@ const mapUnitRun = (
   pass: parsePass(row.pass),
   connectGrills: row.connectGrills,
   solveRepairs: row.solveRepairs,
+  connectTeachDue: row.connectTeachDue,
   difficultySnapshot: row.difficultySnapshotJson,
   scenarioSpec: row.scenarioSpecJson,
 });
@@ -143,6 +144,7 @@ export const trainingUnitRunRepository = {
       pass: run.pass,
       connectGrills: run.connectGrills,
       solveRepairs: run.solveRepairs,
+      connectTeachDue: run.connectTeachDue ?? false,
       difficultySnapshotJson: run.difficultySnapshot,
       scenarioSpecJson: run.scenarioSpec,
     };
@@ -159,10 +161,11 @@ export const trainingUnitRunRepository = {
           pass: values.pass,
           connectGrills: values.connectGrills,
           solveRepairs: values.solveRepairs,
+          connectTeachDue: values.connectTeachDue,
           // Write-once WITHIN a live run. A recipe change (a recall run resets
           // a mastered education row, or vice versa) is a new run — and so is
           // a fresh cursor over a mastered row on the SAME recipe (recall
-          // recurs on recall-v1; passed or retired, the old row is finished):
+          // recurs on recall-v2; passed or retired, the old row is finished):
           // the incoming snapshot replaces the old one wholesale.
           difficultySnapshotJson: sql`case when ${TrainingUnitRun.recipeVersion} = excluded.recipe_version and ${TrainingUnitRun.phase} != 'mastered' then coalesce(${TrainingUnitRun.difficultySnapshotJson}, excluded.difficulty_snapshot_json) else excluded.difficulty_snapshot_json end`,
           // Replaceable, unlike difficulty (which is coalesced write-once): a

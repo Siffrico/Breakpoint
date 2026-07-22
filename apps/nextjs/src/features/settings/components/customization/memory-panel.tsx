@@ -1,26 +1,25 @@
 "use client";
 
 /* eslint-disable react-hooks/refs -- This component performs imperative file input resets in mutation callbacks. */
-
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 
 import type { RouterOutputs } from "@acme/api";
-import {
-  MEMORY_ALLOWED_FILE_EXTENSIONS,
-  MEMORY_MAX_IMPORT_BYTES,
-} from "@acme/validators";
 import { Button } from "@acme/ui/button";
 import { Input } from "@acme/ui/input";
 import { Textarea } from "@acme/ui/textarea";
 import { toast } from "@acme/ui/toast";
+import {
+  MEMORY_ALLOWED_FILE_EXTENSIONS,
+  MEMORY_MAX_IMPORT_BYTES,
+} from "@acme/validators";
 
-import { CHATGPT_MEMORY_IMPORT_PROMPT } from "~/features/settings/lib/chatgpt-prompt";
 import {
   SettingField,
   SettingFooter,
   SettingsSection,
 } from "~/features/settings/components/settings-shell";
+import { CHATGPT_MEMORY_IMPORT_PROMPT } from "~/features/settings/lib/chatgpt-prompt";
 import { useTRPC } from "~/trpc/react";
 
 type Memory = RouterOutputs["memory"]["list"][number];
@@ -35,7 +34,11 @@ const sortMemories = (memories: Memory[]) =>
     return rightTime - leftTime;
   });
 
-export function MemoryPanel({ initialMemories }: { initialMemories: Memory[] }) {
+export function MemoryPanel({
+  initialMemories,
+}: {
+  initialMemories: Memory[];
+}) {
   const trpc = useTRPC();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [memories, setMemories] = useState(() => sortMemories(initialMemories));
@@ -74,13 +77,12 @@ export function MemoryPanel({ initialMemories }: { initialMemories: Memory[] }) 
     }),
   );
 
-   
   const uploadFile = useMutation(
     trpc.memory.uploadFile.mutationOptions({
       onSuccess: (result) => {
         setPanelError(null);
         setOversizeWarning(null);
-         
+
         if (fileInputRef.current) {
           fileInputRef.current.value = "";
         }
@@ -207,21 +209,15 @@ export function MemoryPanel({ initialMemories }: { initialMemories: Memory[] }) 
 
   return (
     <div>
-      <SettingsSection title="Add memory">
-        <SettingField
-          label="New entry"
-          description="What Breakpoint should remember about you across sessions."
-        >
+      <SettingsSection title="Add memory" radius="lg">
+        <SettingField label="New entry">
           <Textarea
             value={manualContent}
             onChange={(event) => setManualContent(event.target.value)}
             placeholder="Paste or type a memory..."
           />
         </SettingField>
-        <SettingField
-          label="Import from file"
-          description="Upload plain text or Markdown under 200 KB."
-        >
+        <SettingField label="Import from file">
           <Input
             ref={fileInputRef}
             type="file"
@@ -252,12 +248,9 @@ export function MemoryPanel({ initialMemories }: { initialMemories: Memory[] }) 
         </SettingFooter>
       </SettingsSection>
 
-      <SettingsSection title="Import from ChatGPT">
-        <SettingField
-          label="Copy this prompt"
-          description="Paste it into ChatGPT to export what it knows about you."
-        >
-          <div className="border-foreground/[0.06] bg-foreground/[0.03] text-foreground/66 whitespace-pre-wrap rounded-lg border p-3 font-mono text-[11px] leading-5">
+      <SettingsSection title="Import from ChatGPT" radius="lg">
+        <SettingField label="Copy this prompt">
+          <div className="border-foreground/[0.06] bg-foreground/[0.03] text-foreground/66 rounded-lg border p-3 font-mono text-[11px] leading-5 whitespace-pre-wrap">
             {CHATGPT_MEMORY_IMPORT_PROMPT}
           </div>
           <div className="mt-3 flex justify-end">
@@ -275,10 +268,7 @@ export function MemoryPanel({ initialMemories }: { initialMemories: Memory[] }) 
             </Button>
           </div>
         </SettingField>
-        <SettingField
-          label="Paste result"
-          description="Paste the export ChatGPT returns."
-        >
+        <SettingField label="Paste result">
           <Textarea
             value={chatGptPaste}
             onChange={(event) => setChatGptPaste(event.target.value)}
@@ -297,7 +287,7 @@ export function MemoryPanel({ initialMemories }: { initialMemories: Memory[] }) 
         </SettingFooter>
       </SettingsSection>
 
-      <SettingsSection title={`Your memories (${memories.length})`}>
+      <SettingsSection title={`Your memories (${memories.length})`} radius="lg">
         {memories.length === 0 ? (
           <div className="text-foreground/48 px-5 py-8 text-center text-[12px]">
             No memories yet. Add one above, upload a file, or import a ChatGPT

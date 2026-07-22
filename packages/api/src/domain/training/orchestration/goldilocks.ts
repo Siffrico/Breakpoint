@@ -1,7 +1,10 @@
+import type { ScenarioFormat } from "@acme/validators";
+
 import type {
   ApplyEvaluationResult,
   AttemptRecord,
   DifficultyBand,
+  DifficultyDialPreset,
   EvaluatedAttempt,
   JobProgressState,
   JobRatingState,
@@ -11,6 +14,7 @@ import type {
 } from "../engine/rating";
 import {
   applyEvaluation,
+  BAND_DIAL_PRESETS,
   buildGeneratorCalibrationNote,
   createInitialRatingState,
   decayRatingState,
@@ -24,6 +28,8 @@ export interface GoldilocksDirectiveResult {
   promptBlock: string;
   ratingSnapshot: string;
   learnerRating: number;
+  format: ScenarioFormat;
+  dialPreset: DifficultyDialPreset;
 }
 
 interface GoldilocksJobProgress {
@@ -38,6 +44,7 @@ interface GoldilocksOpenScenario {
   id: string;
   directiveJson: ScenarioDirective;
   itemRating: number;
+  guessChance?: number;
 }
 
 export interface ResolveScenarioDirectiveDependencies {
@@ -142,22 +149,6 @@ const buildRatingSnapshot = ({
   return `${Math.round(rating)} ±${Math.round(ratingDeviation)}, ${band}, trend: ${trend}`;
 };
 
-export const clampClaimedItemRating = ({
-  claimed,
-  target,
-  window = 100,
-}: {
-  claimed: number | null | undefined;
-  target: number;
-  window?: number;
-}): number => {
-  if (typeof claimed !== "number" || !Number.isFinite(claimed)) return target;
-
-  const value = Math.round(claimed);
-  if (Math.abs(value - target) > window * 3) return target;
-  return Math.min(target + window, Math.max(target - window, value));
-};
-
 /**
  * Reads rating evidence and produces the next calibrated directive. This is a
  * deliberately read-only operation: presenting a scenario is the transaction
@@ -169,6 +160,7 @@ export const resolveScenarioDirective = async ({
   now,
   bands,
   initialRatingState,
+  scenarioFormat,
   deps,
 }: {
   userId: string;
@@ -178,6 +170,7 @@ export const resolveScenarioDirective = async ({
   /** Seed for a learner who has no rating on this job yet (from the plan's
    *  onboarding starting point). Falls back to the policy default. */
   initialRatingState?: JobRatingState;
+  scenarioFormat: ScenarioFormat;
   deps: ResolveScenarioDirectiveDependencies;
 }): Promise<GoldilocksDirectiveResult> => {
   const resolvedBands = resolveBands({ bands, nodeId });
@@ -205,7 +198,17 @@ export const resolveScenarioDirective = async ({
   }
 
   const calibration = buildGeneratorCalibrationNote(predictions);
-  const promptBlock = renderScenarioDirective(directive, band, calibration);
+  const format = scenarioFormat;
+  const dialPreset =
+    BAND_DIAL_PRESETS[directive.bandOrder] ?? BAND_DIAL_PRESETS[2];
+  if (!dialPreset) throw new RangeError("difficulty dial presets are empty");
+  const promptBlock = renderScenarioDirective(
+    directive,
+    band,
+    format,
+    dialPreset,
+    calibration,
+  );
   return {
     directive,
     promptBlock,
@@ -216,6 +219,8 @@ export const resolveScenarioDirective = async ({
       band: bandLabel(resolvedBands, directive.bandOrder),
       lastRatedAt: rating.lastRatedAt,
     }),
+    format,
+    dialPreset,
   };
 };
 
@@ -272,6 +277,7 @@ export const recordEvaluation = async ({
     occurredAt,
     errorCodes: [...new Set(errorCodes.filter(Boolean))],
     targetedMisconceptionCode: directive.targetMisconceptionCode,
+    guessChance: scenario.guessChance,
   };
 
   const result = applyEvaluation({

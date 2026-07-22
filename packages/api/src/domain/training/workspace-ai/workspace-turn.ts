@@ -4,7 +4,7 @@ import { Cause, Effect, Exit } from "effect";
 import type { DbError } from "../../../effect/errors";
 import type { PersistedUnitRun } from "../education-unit/unit";
 import type {
-  RecallCandidateEntry,
+  RecallCandidate,
   RecallTarget,
 } from "../policies/recall-decay";
 import type {
@@ -21,7 +21,6 @@ import {
   isRecallRecipe,
   RECALL_RECIPE_VERSION,
 } from "../education-unit/unit";
-import { selectRecallTarget } from "../policies/recall-decay";
 import { UnitNotReadyError } from "../unit-preparation/errors";
 import { isUnitMidFlight, planWorkspaceTurn } from "./orchestrator";
 import {
@@ -37,7 +36,6 @@ export type WorkspaceTurnDependencies = WorkspaceProjectionReaderSource;
 
 export interface ResolvedWorkspaceTurn {
   plan: CurriculumPlan;
-  allResponses: PhaseResponseRecord[];
   state: WorkspaceAiState;
   node: CurriculumNode;
   unit: UnitContent;
@@ -57,13 +55,13 @@ interface PlannedRecall {
 export const getNextReadyLearningNode = (nodes: CurriculumNode[]) =>
   nodes.find(
     (node) =>
-      (node.kind === "unit" || node.kind === "integration") &&
+      node.kind === "unit" &&
       node.status === "ready",
   ) ?? null;
 
 const isLearningUnit = <T extends Pick<CurriculumNode, "kind">>(
   node: T | null,
-): node is T => node?.kind === "unit" || node?.kind === "integration";
+): node is T => node?.kind === "unit";
 
 export type UnitAdvanceGate =
   | { status: "locked" }
@@ -165,33 +163,15 @@ export const resolveRecallRunProjection = ({
   };
 };
 
-/**
- * Resolves the plan's due recall target (if any) against its nodes. Returns
- * null when nothing has decayed or the evidence unit is no longer in the plan.
- */
-export const resolvePlannedRecall = ({
-  plan,
-  candidates,
-  now,
-}: {
-  plan: CurriculumPlan;
-  candidates: Parameters<typeof selectRecallTarget>[0];
-  now: Date;
-}): { target: RecallTarget; node: CurriculumNode } | null => {
-  const target = selectRecallTarget(candidates, now);
-  if (!target) return null;
-  const node = plan.nodes.find((n) => n.id === target.evidenceNodeId);
-  return node?.status === "completed" ? { target, node } : null;
-};
-
+/** Rehydrates the persisted one-or-two entry recall target. */
 const rehydrateRecallTarget = ({
-  entryIds,
+  knowledgeIds,
   candidates,
 }: {
-  entryIds: readonly string[];
-  candidates: readonly RecallCandidateEntry[];
+  knowledgeIds: readonly string[];
+  candidates: readonly RecallCandidate[];
 }): RecallTarget | null => {
-  const [primaryId, companionId, ...unexpectedIds] = entryIds;
+  const [primaryId, companionId, ...unexpectedIds] = knowledgeIds;
   if (!primaryId || unexpectedIds.length > 0) return null;
 
   const primary = candidates.find((entry) => entry.id === primaryId);
@@ -199,11 +179,11 @@ const rehydrateRecallTarget = ({
     ? (candidates.find((entry) => entry.id === companionId) ?? null)
     : null;
   if (!primary?.evidenceNodeId || (companionId && !companion)) return null;
-  if (companion && companion.clusterNodeId !== primary.clusterNodeId)
+  if (companion && companion.skillNodeId !== primary.skillNodeId)
     return null;
 
   return {
-    clusterNodeId: primary.clusterNodeId,
+    skillNodeId: primary.skillNodeId,
     evidenceNodeId: primary.evidenceNodeId,
     primary,
     companion,
@@ -219,14 +199,14 @@ const resolvePersistedRecall = ({
   plan: CurriculumPlan;
   run: PersistedUnitRun;
   responses: readonly PhaseResponseRecord[];
-  candidates: readonly RecallCandidateEntry[];
+  candidates: readonly RecallCandidate[];
 }): PlannedRecall | null => {
-  const entryIds = [...responses]
+  const knowledgeIds = [...responses]
     .reverse()
     .find((response) => response.metadata?.recallEntryIds)
     ?.metadata?.recallEntryIds;
-  const target = entryIds
-    ? rehydrateRecallTarget({ entryIds, candidates })
+  const target = knowledgeIds
+    ? rehydrateRecallTarget({ knowledgeIds, candidates })
     : null;
   if (!target) return null;
 
@@ -234,16 +214,18 @@ const resolvePersistedRecall = ({
   return node?.status === "completed" ? { target, node, run } : null;
 };
 
-const loadPlannedRecall = ({
+export const loadPlannedRecall = ({
   sessionId,
   plan,
   active,
   inFlightRun,
+  repairStaleRun,
 }: {
   sessionId: string;
   plan: CurriculumPlan;
   active: NextReadyUnitProjection;
   inFlightRun: PersistedUnitRun | null;
+  repairStaleRun: boolean;
 }): EffectType.Effect<
   PlannedRecall | null,
   DbError,
@@ -251,41 +233,45 @@ const loadPlannedRecall = ({
 > =>
   Effect.gen(function* () {
     const reader = yield* WorkspaceProjectionReader;
-    let candidates: Awaited<
-      ReturnType<WorkspaceProjectionReaderSource["listRecallCandidates"]>
-    > | null = null;
 
     if (inFlightRun) {
-      const loaded = yield* Effect.all(
-        [
-          reader.getPhaseResponses(inFlightRun.unitId, sessionId),
-          reader.listRecallCandidates(plan.id),
-        ],
-        { concurrency: 2 },
+      const responses = yield* reader.getPhaseResponses(
+        inFlightRun.unitId,
+        sessionId,
       );
-      candidates = loaded[1];
+      const knowledgeIds = [...responses]
+        .reverse()
+        .find((response) => response.metadata?.recallEntryIds)
+        ?.metadata?.recallEntryIds;
+      const candidates = knowledgeIds
+        ? yield* reader.getRecallCandidatesByIds(plan.id, knowledgeIds)
+        : [];
       const resumed = resolvePersistedRecall({
         plan,
         run: inFlightRun,
-        responses: loaded[0],
+        responses,
         candidates,
       });
       if (resumed) return resumed;
-      yield* Effect.logWarning("Retiring a stale in-flight recall run.", {
-        sessionId,
-        unitContentId: inFlightRun.unitId,
-      });
-      // Best-effort self-healing: a failed retirement must not block the turn
-      // — the stale run simply gets retried on the next resolution.
-      yield* reader.retireInFlightRecallRun(sessionId, inFlightRun.unitId).pipe(
-        Effect.catch((cause) =>
-          Effect.logError("Stale recall retirement failed.", {
-            cause,
-            sessionId,
-            unitContentId: inFlightRun.unitId,
-          }),
-        ),
-      );
+      if (repairStaleRun) {
+        yield* Effect.logWarning("Retiring a stale in-flight recall run.", {
+          sessionId,
+          unitContentId: inFlightRun.unitId,
+        });
+        // Best-effort self-healing: a failed retirement must not block the turn
+        // — the stale run simply gets retried on the next resolution.
+        yield* reader
+          .retireInFlightRecallRun(sessionId, inFlightRun.unitId)
+          .pipe(
+            Effect.catch((cause) =>
+              Effect.logError("Stale recall retirement failed.", {
+                cause,
+                sessionId,
+                unitContentId: inFlightRun.unitId,
+              }),
+            ),
+          );
+      }
     }
 
     if (
@@ -297,13 +283,26 @@ const loadPlannedRecall = ({
       return null;
     }
 
-    candidates ??= yield* reader.listRecallCandidates(plan.id);
-    const scheduled = resolvePlannedRecall({
-      plan,
-      candidates,
-      now: new Date(),
-    });
-    return scheduled ? { ...scheduled, run: null } : null;
+    const now = new Date();
+    const primary = yield* reader.getMostOverdueRecallCandidate(plan.id, now);
+    if (!primary?.evidenceNodeId) return null;
+    const node = plan.nodes.find((item) => item.id === primary.evidenceNodeId);
+    if (node?.status !== "completed") return null;
+    const companion = yield* reader.getRecallCompanionCandidate(
+      primary.skillNodeId,
+      primary,
+      now,
+    );
+    return {
+      target: {
+        skillNodeId: primary.skillNodeId,
+        evidenceNodeId: primary.evidenceNodeId,
+        primary,
+        companion,
+      },
+      node,
+      run: null,
+    };
   });
 
 /**
@@ -402,15 +401,7 @@ export const resolveWorkspaceTurnEffect = ({
 > =>
   Effect.gen(function* () {
     const reader = yield* WorkspaceProjectionReader;
-    const [plan, allResponses] = yield* Effect.all(
-      [
-        authorizedPlan
-          ? Effect.succeed(authorizedPlan)
-          : reader.getActivePlan(sessionId),
-        reader.listPhaseResponsesBySession(sessionId),
-      ],
-      { concurrency: 2 },
-    );
+    const plan = authorizedPlan ?? (yield* reader.getActivePlan(sessionId));
 
     if (!plan) {
       return yield* new CurriculumNotReadyError({
@@ -437,11 +428,11 @@ export const resolveWorkspaceTurnEffect = ({
       plan,
       active,
       inFlightRun,
+      repairStaleRun: true,
     });
 
     const state = planWorkspaceTurn({
       nodes: plan.nodes,
-      allResponses,
       activeUnitResponses: active.responses,
       activeUnitRun: active.run,
       recallTarget: plannedRecall
@@ -469,22 +460,32 @@ export const resolveWorkspaceTurnEffect = ({
     }
 
     const isRecallTurn = state.recallUnitId !== null;
-    const unitResponses =
-      unit.id === active.unit?.id
-        ? active.responses
-        : yield* reader.getPhaseResponses(unit.id, sessionId);
+    const reusesActiveUnit = unit.id === active.unit?.id;
+    const needsRunRead =
+      !isRecallTurn && !(reusesActiveUnit && active.run !== null);
+    const [unitResponses, existingRun] = yield* Effect.all(
+      [
+        reusesActiveUnit
+          ? Effect.succeed(active.responses)
+          : reader.getPhaseResponses(unit.id, sessionId),
+        needsRunRead
+          ? reader.getUnitRun(sessionId, unit.id)
+          : Effect.succeed<PersistedUnitRun | null>(null),
+      ],
+      { concurrency: 2 },
+    );
     const unitRun = isRecallTurn
       ? resolveRecallRunProjection({
           sessionId,
           unit,
           existing: plannedRecall?.run ?? null,
         })
-      : unit.id === active.unit?.id && active.run
+      : reusesActiveUnit && active.run
         ? active.run
         : resolveUnitRunProjection({
             sessionId,
             unit,
-            existing: yield* reader.getUnitRun(sessionId, unit.id),
+            existing: existingRun,
           });
 
     const resolvedState = {
@@ -495,7 +496,6 @@ export const resolveWorkspaceTurnEffect = ({
 
     return {
       plan,
-      allResponses,
       state: resolvedState,
       node,
       unit,
@@ -543,23 +543,22 @@ export const planNextWorkspaceTurn = async ({
   const exit = await Effect.runPromiseExit(
     Effect.gen(function* () {
       const reader = yield* WorkspaceProjectionReader;
-      const [allResponses, active, inFlightRun] = yield* Effect.all(
+      const [active, inFlightRun] = yield* Effect.all(
         [
-          reader.listPhaseResponsesBySession(sessionId),
           loadNextReadyUnitProjection({ sessionId, nodes: plan.nodes }),
           reader.getInFlightRecallRun(sessionId),
         ],
-        { concurrency: 3 },
+        { concurrency: 2 },
       );
       const plannedRecall = yield* loadPlannedRecall({
         sessionId,
         plan,
         active,
         inFlightRun,
+        repairStaleRun: true,
       });
       return planWorkspaceTurn({
         nodes: plan.nodes,
-        allResponses,
         activeUnitResponses: active.responses,
         activeUnitRun: active.run,
         recallTarget: plannedRecall

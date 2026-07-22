@@ -53,6 +53,19 @@ export const TrainingOnboardingMessage = pgTable(
     metadata: t.jsonb().$type<{
       difficultyDirectiveReason?: string;
       hiddenFromTranscript?: boolean;
+      projectProposal?: {
+        whatToLearn?: string;
+        whatToMake?: string;
+        interests?: string[];
+        projectName: string;
+        targetIdentity: string;
+        summary: string;
+        abilities?: string[];
+        startingPoint?: {
+          tier: "fundamentals" | "skip_basics" | "advanced";
+          reason: string;
+        };
+      };
     } | null>(),
     sequence: t.integer().notNull(),
     createdAt: t
@@ -65,6 +78,9 @@ export const TrainingOnboardingMessage = pgTable(
       table.sessionId,
       table.sequence,
     ),
+    index("becoming_onboarding_message_session_unit_sequence_idx")
+      .on(table.sessionId, table.unitId, table.sequence)
+      .where(sql`${table.unitId} is not null`),
     uniqueIndex("becoming_onboarding_message_session_turn_role_idx")
       .on(table.sessionId, table.turnId, table.role)
       .where(sql`${table.turnId} is not null`),
@@ -91,6 +107,11 @@ export const TrainingProjectBuildCheckpoint = pgTable(
     status: t.varchar({ length: 32 }).notNull().default("pending"),
     attempts: t.integer().notNull().default(0),
     failureKind: t.varchar({ length: 32 }),
+    // A build may make model calls only while it owns this renewable lease.
+    // Keeping this outside the JSON payload makes compare-and-swap ownership
+    // enforceable by Postgres instead of relying on application timing.
+    leaseId: t.uuid(),
+    leaseExpiresAt: t.timestamp({ mode: "date", withTimezone: true }),
     createdAt: t
       .timestamp({ mode: "date", withTimezone: true })
       .defaultNow()
@@ -107,6 +128,9 @@ export const TrainingProjectBuildCheckpoint = pgTable(
       table.step,
     ),
     index("becoming_project_build_checkpoint_session_idx").on(table.sessionId),
+    index("becoming_project_build_checkpoint_lease_expiry_idx").on(
+      table.leaseExpiresAt,
+    ),
   ],
 );
 

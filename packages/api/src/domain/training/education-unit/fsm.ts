@@ -4,22 +4,21 @@
 // Nothing here talks to the AI, the database, or Goldilocks. It only answers
 // one question: "given where we are and what just happened, where do we go next?"
 //
-//   Orient ─▶ Connect ─▶ Solve ─▶ Concept teach ─▶ Connect ─▶ Solve ─▶ Mastered
-//              pass 1     pass 1                     pass 2     pass 2
+//   Orient ─▶ Connect ─▶ Solve ─▶ Teach ─▶ Connect ─▶ Solve ─▶ Teach ─▶ Connect ─▶ Solve ─▶ Mastered
+//              round 1    round 1            round 2    round 2           round 3    round 3
 //
-//   Connect loops on itself while the learner misses the core connection.
+//   Connect loops on itself while the learner misses the core connection —
+//   in v2 it never force-advances; help escalates instead.
 //   Solve loops on itself while the solution is wrong or unclear.
-//   Both passes READ difficulty; only pass 2's passing Solve WRITES it.
+//   Every round READS difficulty; only the recipe's writeOnPass round WRITES it,
+//   and only when the recipe's wiring says this unit writes at all.
 
-import type {
-  LoopPolicy,
-  PassIndex,
-  UnitEvent,
-  UnitPhase,
-  UnitState,
-} from "./unit";
+import type { PassIndex, UnitEvent, UnitPhase, UnitRecipe, UnitState } from "./unit";
 
 export type { UnitEvent } from "./unit";
+
+/** The subset of the recipe the reducer needs. */
+export type TransitionRecipe = Pick<UnitRecipe, "passes" | "policy">;
 
 /** Where every unit begins. */
 export const initialState = (
@@ -61,21 +60,26 @@ const enter = (
   pass,
   connectGrills: 0, // counters reset whenever we move to a new phase
   solveRepairs: 0,
+  connectTeachDue: false,
 });
 
+const nextPass = (pass: PassIndex): PassIndex =>
+  Math.min(pass + 1, 3) as PassIndex;
+
 /**
- * Takes the current state, the event that just happened, and the unit's loop
- * limits; produces the next state. Pure — fails only on an event that cannot
- * happen in the current phase (a programming error, never a learner action).
+ * Takes the current state, the event that just happened, and the unit's
+ * recipe shape (round count + loop policy); produces the next state. Pure —
+ * fails only on an event that cannot happen in the current phase (a
+ * programming error, never a learner action).
  */
 export const transition = (
   state: UnitState,
   event: UnitEvent,
-  policy: LoopPolicy,
+  recipe: TransitionRecipe,
 ): UnitState => {
   switch (state.phase) {
     case "orient":
-      // The opening teach is done — start pass 1.
+      // The opening teach is done — start round 1.
       expect(event.type === "teach_done", state, event);
       return enter(state, "connect", 1);
 
@@ -85,22 +89,23 @@ export const transition = (
         state,
         event,
       );
-      if (event.type === "phase_continues") return state;
+      // If a teach was due, the turn that produced this event delivered it
+      // (teach + re-pose). Consume the one-shot and restart the grill budget
+      // so remediation is never repeated on the learner's very next answer.
+      const current = state.connectTeachDue
+        ? { ...state, connectTeachDue: false, connectGrills: 0 }
+        : state;
+      if (event.type === "phase_continues") return current;
       if (event.connected) {
-        return enter(state, "solve", state.pass); // got the core — go solve
+        return enter(current, "solve", current.pass); // got the core — go solve
       }
-      const grills = state.connectGrills + 1;
-      // Missed it. Grill again — unless we've hit the limit, in which case we
-      // give up on Connect and advance anyway so the learner is never trapped.
-      // This branch reaches the *same* next state as a clean pass; the only
-      // distinguishing signal (grills exhausted) lives in connectGrills right
-      // up until enter() resets it below. Callers that need to know "did this
-      // learner actually get it, or did we force them through" must check
-      // shouldTeachMissedConnection() against the pre-transition state/event,
-      // not after the fact — the counter is gone once this returns.
-      return grills >= policy.maxGrillsBeforeTeach
-        ? enter(state, "solve", state.pass)
-        : { ...state, connectGrills: grills };
+      const grills = current.connectGrills + 1;
+      return {
+        ...current,
+        connectGrills: grills,
+        connectTeachDue:
+          grills >= recipe.policy.maxGrillsBeforeTeach,
+      };
     }
 
     case "solve": {
@@ -111,10 +116,12 @@ export const transition = (
       );
       if (event.type === "phase_continues") return state;
       if (event.passed) {
-        // Correct and clear. Pass 1 hands off to the concept teach; pass 2 finishes.
-        return state.pass === 1
-          ? enter(state, "teach", 1)
-          : enter(state, "mastered", 2);
+        // Correct and clear. Non-final rounds hand off to the seam teach
+        // (feedback + worked example + scenario evolution); the final round
+        // finishes the unit.
+        return state.pass < recipe.passes
+          ? enter(state, "teach", state.pass)
+          : enter(state, "mastered", state.pass);
       }
       // Wrong or unclear — stay in Solve and try again. The FSM itself never
       // micro-teaches (there is no phase for it); it only tracks the repair
@@ -125,10 +132,10 @@ export const transition = (
     }
 
     case "teach":
-      // The middle concept teach is done — start the transfer pass at the same
-      // frozen Goldilocks difficulty.
+      // The seam teach is done — the evolved scenario starts the next round at
+      // the same frozen Goldilocks difficulty.
       expect(event.type === "teach_done", state, event);
-      return enter(state, "connect", 2);
+      return enter(state, "connect", nextPass(state.pass));
 
     case "mastered":
       throw new Error("Unit is already mastered; no further transitions.");
@@ -140,20 +147,18 @@ export const isTerminal = (state: UnitState): boolean =>
   state.phase === "mastered";
 
 /**
- * Call this BEFORE transition() — connectGrills resets the instant a phase
- * changes, so this is the only moment the "did we have to force this learner
- * through?" signal exists. True means the upcoming Connect failure is the one
- * that exhausts the grill budget, so the next Solve prompt should teach the
- * missed idea before posing the scenario.
+ * Call this BEFORE transition() — it reads the pre-transition grill counter.
+ * True means the upcoming Connect failure crosses the grill budget, so the
+ * next prompt must teach the missed idea before re-posing the same connect.
  */
 export const shouldTeachMissedConnection = (
   state: UnitState,
   event: Extract<UnitEvent, { type: "connection_graded" }>,
-  policy: LoopPolicy,
+  recipe: TransitionRecipe,
 ): boolean =>
   state.phase === "connect" &&
   !event.connected &&
-  state.connectGrills + 1 >= policy.maxGrillsBeforeTeach;
+  state.connectGrills + 1 >= recipe.policy.maxGrillsBeforeTeach;
 
 /**
  * Call this BEFORE transition(), same reason as shouldTeachMissedConnection.
@@ -163,19 +168,27 @@ export const shouldTeachMissedConnection = (
 export const shouldMicroTeach = (
   state: UnitState,
   event: Extract<UnitEvent, { type: "solution_graded" }>,
-  policy: LoopPolicy,
+  recipe: TransitionRecipe,
 ): boolean =>
   state.phase === "solve" &&
   !event.passed &&
-  state.solveRepairs + 1 >= policy.maxRepairsBeforeMicroTeach;
+  state.solveRepairs + 1 >= recipe.policy.maxRepairsBeforeMicroTeach;
 
 /**
- * A scored Solve on pass 2 is eligible to feed the rating system. Persistence
- * owns the exactly-once guard so later pedagogical repairs cannot write again.
+ * A scored Solve on the recipe's write round is eligible to feed the rating
+ * system — and only when the unit's wiring writes at all (skillset units do;
+ * foundation units are criterion-referenced and never touch the ability ELO).
+ * Persistence owns the exactly-once guard so later pedagogical repairs cannot
+ * write again.
  */
-export const writesGoldilocks = (state: UnitState, event: UnitEvent): boolean =>
+export const writesGoldilocks = (
+  state: UnitState,
+  event: UnitEvent,
+  recipe: Pick<UnitRecipe, "goldilocks">,
+): boolean =>
+  recipe.goldilocks.writesRating &&
   state.phase === "solve" &&
-  state.pass === 2 &&
+  state.pass === recipe.goldilocks.writeOnPass &&
   event.type === "solution_graded";
 
 function expect(ok: boolean, state: UnitState, event: UnitEvent): asserts ok {

@@ -12,7 +12,6 @@ import { TrainingCurriculumNode } from "@acme/db/schema";
 
 import type {
   CurriculumDesignerOutput,
-  OnboardingPacket,
   ProjectOverviewOutput,
 } from "../agents/contracts";
 import type { CreateProjectInput } from "./build-project";
@@ -37,32 +36,30 @@ const loadPostgresUrlFromDotenv = () => {
 loadPostgresUrlFromDotenv();
 
 const input: CreateProjectInput = {
+  whatToLearn: "distributed systems: real operational judgment under failure",
+  whatToMake: "a replicated service they can break and repair on purpose",
+  interests: [
+    "Vercel: making difficult deployment work feel immediate and simple.",
+  ],
   projectName: "distributed systems",
   targetIdentity: "backend engineer",
   summary: "Build reliable replicated services.",
+  abilities: [
+    "Diagnose Distributed Systems Failures",
+    "Architect Reliable Replicated Services",
+  ],
 };
 
 const sourceKey = JSON.stringify({
   projectName: "distributed-systems",
   targetIdentity: input.targetIdentity,
   summary: input.summary,
+  whatToLearn: input.whatToLearn,
+  whatToMake: input.whatToMake,
+  interests: input.interests,
+  abilities: input.abilities,
+  startingPoint: null,
 });
-
-const packet: OnboardingPacket = {
-  targetIdentity: "backend engineer",
-  motivation: "Build reliable systems.",
-  currentBaseline: "Knows terms but needs operational judgment.",
-  hardMoments: ["Choosing consistency tradeoffs under pressure."],
-  constraints: [],
-  proofOfProgress: "Can explain and repair replicated-service failures.",
-  identityFriction: "Reaches for slogans before tracing mechanics.",
-  behaviorSignals: [
-    "Traces concrete failure paths.",
-    "Names tradeoffs before choosing.",
-    "Repairs weak explanations.",
-  ],
-  confidenceFlags: [],
-};
 
 const curriculum: CurriculumDesignerOutput = {
   identityReport: {
@@ -95,7 +92,7 @@ const curriculum: CurriculumDesignerOutput = {
     title: "Distributed systems",
     summary: "Practice operational judgment for replicated services.",
     targetIdentity: "backend engineer",
-    clusters: [
+    abilities: [
       {
         title: "Diagnose replicated-service failures",
         summary: "Trace reads, writes, lag, and acknowledgement boundaries.",
@@ -109,38 +106,56 @@ const curriculum: CurriculumDesignerOutput = {
           ],
         },
         bandRamp: { startRating: 1000, peakRating: 1600 },
-        simulation: {
-          title: "Checkout under replica lag",
-          summary: "Diagnose stale inventory during a live incident.",
-          whyItMatters: "It combines user impact and consistency mechanics.",
-        },
         masteryContract: {
           exitCriteria: [
             "Diagnoses the causal mechanism from incomplete evidence.",
           ],
         },
-      },
-      {
-        title: "Choose consistency guarantees",
-        summary: "Match guarantees to user-visible invariants.",
-        whyItMatters: "Guarantees determine failure behavior.",
-        workflow: {
-          name: "Choose a consistency guarantee",
-          steps: [
-            "Name the invariant",
-            "Model failures",
-            "Select the guarantee",
-          ],
-        },
-        bandRamp: { startRating: 1000, peakRating: 1600 },
-        simulation: {
-          title: "Inventory guarantee review",
-          summary: "Choose guarantees for a constrained checkout system.",
-          whyItMatters: "It exposes the real tradeoff.",
-        },
-        masteryContract: {
-          exitCriteria: ["Defends a guarantee from invariants."],
-        },
+        scenarioArchetype: "judge" as const,
+        scenarioArchetypeWhy:
+          "Diagnosis is evaluated judgment over symptoms and evidence.",
+        skills: [
+          {
+            title: "Trace acknowledgement boundaries",
+            summary: "Follow one write through its replicas.",
+            whyItMatters: "Acknowledgement gaps hide the real failure.",
+            workflow: {
+              name: "Trace a write's acknowledgements",
+              steps: [
+                "Find the write",
+                "List the replicas",
+                "Mark the ack boundary",
+              ],
+            },
+            masteryContract: {
+              exitCriteria: ["Marks the acknowledgement boundary correctly."],
+            },
+          },
+          {
+            title: "Read replication lag evidence",
+            summary: "Tell lag apart from loss.",
+            whyItMatters: "The wrong call wastes the incident.",
+            workflow: {
+              name: "Read lag evidence",
+              steps: ["Collect offsets", "Compare clocks", "Name the gap"],
+            },
+            masteryContract: {
+              exitCriteria: ["Distinguishes lag from loss on real evidence."],
+            },
+          },
+          {
+            title: "Choose the next probe",
+            summary: "Pick the observation that splits hypotheses fastest.",
+            whyItMatters: "Incidents are time-boxed.",
+            workflow: {
+              name: "Choose a probe",
+              steps: ["List hypotheses", "Rank splits", "Run the probe"],
+            },
+            masteryContract: {
+              exitCriteria: ["Chooses the hypothesis-splitting probe."],
+            },
+          },
+        ],
       },
       {
         title: "Design safe retries",
@@ -155,14 +170,58 @@ const curriculum: CurriculumDesignerOutput = {
           ],
         },
         bandRamp: { startRating: 1000, peakRating: 1600 },
-        simulation: {
-          title: "Payment timeout",
-          summary: "Recover a timed-out payment without duplicate charge.",
-          whyItMatters: "It tests effect safety.",
-        },
         masteryContract: {
           exitCriteria: ["Proves retry safety under ambiguity."],
         },
+        scenarioArchetype: "transform" as const,
+        scenarioArchetypeWhy:
+          "Retry safety is produced by designing the operation itself.",
+        skills: [
+          {
+            title: "Locate side effects",
+            summary: "Find every state change a request causes.",
+            whyItMatters: "Unseen effects are the ones that double-fire.",
+            workflow: {
+              name: "Locate effects",
+              steps: [
+                "Trace the handler",
+                "List writes",
+                "Mark external calls",
+              ],
+            },
+            masteryContract: {
+              exitCriteria: ["Lists every effect of a handler."],
+            },
+          },
+          {
+            title: "Define operation identity",
+            summary: "Key retries on intent, not transport.",
+            whyItMatters: "Wrong keys dedupe the wrong things.",
+            workflow: {
+              name: "Define identity",
+              steps: ["Name the intent", "Choose the key", "Set the window"],
+            },
+            masteryContract: {
+              exitCriteria: ["Chooses a key that survives retries."],
+            },
+          },
+          {
+            title: "Verify replay behavior",
+            summary: "Prove a replay cannot double-apply.",
+            whyItMatters: "Assertions beat assumptions in incident review.",
+            workflow: {
+              name: "Verify replay",
+              steps: [
+                "Replay the request",
+                "Inspect state",
+                "Prove idempotence",
+              ],
+            },
+            masteryContract: {
+              exitCriteria: ["Demonstrates idempotence under replay."],
+            },
+          },
+        ],
       },
     ],
   },
@@ -171,7 +230,9 @@ const curriculum: CurriculumDesignerOutput = {
 const overview: ProjectOverviewOutput = {
   title: "Distributed systems map",
   summary: "A field map for reliable replicated services.",
-  body: "Distributed systems are about preserving useful guarantees while machines, messages, and time fail independently.",
+  body: "Distributed systems are about preserving useful guarantees while machines, messages, and time fail independently. ".repeat(
+    7,
+  ),
 };
 
 const rollbackMessage = "ROLLBACK_BUILD_PROJECT_INTEGRATION_TEST";
@@ -193,18 +254,10 @@ describe("buildProjectFromOnboarding repository integration", () => {
           if (!session) throw new Error("Expected test session.");
 
           // Seed the artifact registry so the real persistence runs without any
-          // AI: goals is cached "complete"; curriculum + overview are
+          // AI: curriculum + overview are
           // "generated_pending_save" so the build re-persists them (save_only)
           // into a freshly-created shell — exercising profile, plan, nodes, and
           // overview writes end to end in Postgres.
-          await buildProjectCheckpointRepository.upsertArtifact({
-            db: testDb,
-            sessionId: session.id,
-            step: "goals",
-            sourceKey,
-            payload: packet,
-            status: "complete",
-          });
           await buildProjectCheckpointRepository.upsertArtifact({
             db: testDb,
             sessionId: session.id,
@@ -236,7 +289,7 @@ describe("buildProjectFromOnboarding repository integration", () => {
           if (!result.success) {
             throw new Error(result.error);
           }
-          expect(result.data.moduleCount).toBe(3);
+          expect(result.data.moduleCount).toBe(2);
           expect(result.data.firstUnitId).toBeNull();
 
           const run = await buildProjectCheckpointRepository.getRun({

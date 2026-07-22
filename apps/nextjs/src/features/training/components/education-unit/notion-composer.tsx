@@ -29,6 +29,8 @@ interface NotionComposerProps {
   onChange: (markdown: string) => void;
   onClose: () => void;
   onSubmit: (markdown: string) => void;
+  awaitingUnitAdvance?: boolean;
+  onAdvanceUnit?: () => void;
 }
 
 export function NotionComposer({
@@ -40,6 +42,8 @@ export function NotionComposer({
   onChange,
   onClose,
   onSubmit,
+  awaitingUnitAdvance = false,
+  onAdvanceUnit,
 }: NotionComposerProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   // Track the latest markdown without re-seeding the editor on every keystroke.
@@ -63,6 +67,9 @@ export function NotionComposer({
     if (!open) return;
     const root = editorRef.current;
     if (!root) return;
+    // `markdownToHtml` HTML-escapes all input, then emits only a fixed,
+    // attribute-free tag whitelist (headings, p, lists, strong/em/code,
+    // blockquote) — no href/event handlers/scripts — so it cannot inject.
     const seedHtml = markdownToHtml(initialMarkdown);
     root.innerHTML = seedHtml || "<p><br></p>";
     ensureEditorHasBlock(root);
@@ -95,6 +102,17 @@ export function NotionComposer({
     (event: React.KeyboardEvent<HTMLDivElement>) => {
       const root = editorRef.current;
       if (!root) return;
+
+      if (
+        awaitingUnitAdvance &&
+        event.key === "Enter" &&
+        !event.shiftKey &&
+        !event.nativeEvent.isComposing
+      ) {
+        event.preventDefault();
+        onAdvanceUnit?.();
+        return;
+      }
 
       if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
         event.preventDefault();
@@ -142,7 +160,15 @@ export function NotionComposer({
         }
       }
     },
-    [canSubmit, emitChange, handleSubmit, isSubmitting, onClose],
+    [
+      awaitingUnitAdvance,
+      canSubmit,
+      emitChange,
+      handleSubmit,
+      isSubmitting,
+      onAdvanceUnit,
+      onClose,
+    ],
   );
 
   // Markdown shortcuts run after the space lands so we see the trigger text.

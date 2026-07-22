@@ -1,6 +1,6 @@
 import type { db as databaseClient } from "@acme/db/client";
 
-import type { LearningProjectSummary } from "../domain/training/workflows/get-workspace-bootstrap-workflow";
+import type { LearningProjectSummary } from "../domain/training/workflows/get-workspace-shell-workflow";
 import { deriveProvisionalProjectTitle } from "../domain/training/services/provisional-project-title";
 import { trainingAttemptRepository } from "./training-attempt-repository";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
@@ -21,13 +21,17 @@ export const trainingWorkspaceReadRepository = {
       userId,
     });
     const sessionIds = sessions.map((session) => session.id);
-    const [profiles, plans, firstUserMessages] = await Promise.all([
+    const [profiles, plans, firstUserMessages, chatUnits] = await Promise.all([
       trainingOnboardingRepository.listProfilesBySessionIds({
         db,
         sessionIds,
       }),
       trainingCurriculumRepository.listPlansBySessionIds({ db, sessionIds }),
       trainingOnboardingRepository.listFirstUserMessagesBySessionIds({
+        db,
+        sessionIds,
+      }),
+      trainingOnboardingRepository.listChatUnitIdsBySessionIds({
         db,
         sessionIds,
       }),
@@ -47,6 +51,17 @@ export const trainingWorkspaceReadRepository = {
     const firstUserMessageBySessionId = new Map(
       firstUserMessages.map((message) => [message.sessionId, message.content]),
     );
+    const chatUnitIdsBySessionId = new Map<string, Set<string>>();
+    for (const chatUnit of chatUnits) {
+      const unitIds = chatUnitIdsBySessionId.get(chatUnit.sessionId);
+      if (unitIds) unitIds.add(chatUnit.unitId);
+      else {
+        chatUnitIdsBySessionId.set(
+          chatUnit.sessionId,
+          new Set([chatUnit.unitId]),
+        );
+      }
+    }
     const nodes = await trainingCurriculumRepository.listNodesByPlanIds({
       db,
       planIds: plans.map((plan) => plan.id),
@@ -76,7 +91,8 @@ export const trainingWorkspaceReadRepository = {
       if (!title) return [];
 
       const lessonPreview = (projectNodesBySessionId.get(session.id) ?? [])
-        .filter((node) => node.kind === "unit" || node.kind === "integration")
+        .filter((node) => node.kind === "unit")
+        .filter((node) => chatUnitIdsBySessionId.get(session.id)?.has(node.id))
         .sort((left, right) => right.orderIndex - left.orderIndex)
         .slice(0, 10)
         .map((node) => ({
@@ -129,7 +145,7 @@ export const trainingWorkspaceReadRepository = {
     if (!profile || !plan || !summary) return null;
 
     const learningNodes = plan.nodes.filter(
-      (node) => node.kind === "unit" || node.kind === "integration",
+      (node) => node.kind === "unit",
     );
     const nextNode = plan.nodes.find((node) => node.id === plan.nextUnitId);
     const lastAttempt = attemptHistory.at(-1) ?? null;
@@ -159,11 +175,7 @@ export const trainingWorkspaceReadRepository = {
       nextUnitTitle:
         summary.currentUnit?.title ??
         (nextNode
-          ? nextNode.kind === "integration"
-            ? "Integration unit ready"
-            : nextNode.kind === "simulation"
-              ? "Cluster capstone ready"
-              : "Next unit ready"
+          ? "Next unit ready"
           : null),
       blockingSignals:
         summary.recentFailureTags.length > 0

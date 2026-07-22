@@ -29,14 +29,15 @@ import type {
 import type { StartingPointTier } from "@acme/validators";
 import { Button } from "@acme/ui/button";
 import {
-  ChatComposer,
   ChatComposerDock,
   ChatMessage,
   ChatScrollToBottom,
   ChatTranscript,
   ChatTranscriptContent,
+  OnboardingComposer,
   PacedAssistantText,
-  TypingIndicator,
+  StatusSpinner,
+  TextShimmer,
 } from "@acme/ui/chat";
 import { toast } from "@acme/ui/toast";
 
@@ -51,6 +52,7 @@ import { AssistantRichText } from "./assistant-rich-text";
 import { CreateProjectConfirm } from "./onboarding/create-project-confirm";
 import { ProjectBuildCard } from "./onboarding/project-build-card";
 import { StartingPointCheck } from "./onboarding/starting-point-check";
+import { UnfinishedOnboardingDialog } from "./onboarding/unfinished-onboarding-dialog";
 
 type OnboardingState = RouterOutputs["training"]["startOnboarding"];
 
@@ -67,6 +69,24 @@ const transcriptToMessages = (
       parts: [{ type: "text" as const, text: message.content }],
     }),
   );
+
+  if (state.pendingProjectProposal) {
+    messages.push({
+      id: `seed-${state.sessionId}-project-proposal`,
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-createProject",
+          toolCallId: `rehydrated-create-project-${state.sessionId}`,
+          state: "approval-requested",
+          input: state.pendingProjectProposal,
+          approval: {
+            id: `rehydrated-create-project-approval-${state.sessionId}`,
+          },
+        },
+      ],
+    } as OnboardingChatUIMessage);
+  }
 
   if (state.projectBuild) {
     messages.push({
@@ -217,7 +237,12 @@ export function OnboardingShell({
         {
           id: "intro",
           role: "assistant",
-          parts: [{ type: "text", text: "Who do you want to become?" }],
+          parts: [
+            {
+              type: "text",
+              text: "What's something you've seen someone build or do that made you think: I want to be able to do that?",
+            },
+          ],
         },
       ];
     }
@@ -267,6 +292,21 @@ export function OnboardingShell({
     setMessages(transcriptToMessages(startOnboarding.data));
   }, [setMessages, startOnboarding.data]);
 
+  // A reload that raced a dying stream can leave the persisted transcript
+  // ending on the learner's message with no reply. Answer it once instead of
+  // stranding them in a dangling turn; the server dedupes the re-sent message
+  // so no duplicate row is appended. Never fires during normal sends (status
+  // is submitted/streaming) or after errors (status is error).
+  const recoveredDanglingTurnRef = useRef(false);
+  useEffect(() => {
+    if (preview || recoveredDanglingTurnRef.current) return;
+    if (!sessionId || status !== "ready") return;
+    const lastMessage = messages[messages.length - 1];
+    if (lastMessage?.role !== "user") return;
+    recoveredDanglingTurnRef.current = true;
+    void regenerate();
+  }, [preview, sessionId, status, messages, regenerate]);
+
   const isStreaming = status === "submitted" || status === "streaming";
   const hasError = status === "error" || Boolean(error);
 
@@ -274,19 +314,28 @@ export function OnboardingShell({
 
   // Latest streamed build snapshot, if any — drives both the inline build card
   // and the "project is ready" gating below.
-  const projectBuild = useMemo<ProjectBuildState | null>(() => {
+  const latestProjectBuildPart = useMemo<{
+    messageId: string;
+    partIndex: number;
+    state: ProjectBuildState;
+  } | null>(() => {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
       const message = messages[i];
       if (message?.role !== "assistant") continue;
       for (let j = message.parts.length - 1; j >= 0; j -= 1) {
         const part = message.parts[j];
         if (part?.type === "data-project-build") {
-          return part.data as ProjectBuildState;
+          return {
+            messageId: message.id,
+            partIndex: j,
+            state: part.data as ProjectBuildState,
+          };
         }
       }
     }
     return null;
   }, [messages]);
+  const projectBuild = latestProjectBuildPart?.state ?? null;
   const projectReady = projectBuild?.phase === "complete";
 
   useEffect(() => {
@@ -312,7 +361,6 @@ export function OnboardingShell({
   const {
     value: answer,
     setValue: setAnswer,
-    status: draftStatus,
     markSubmitted,
     restoreSubmitted: restoreSubmittedDraft,
     clearSubmitted: clearSubmittedDraft,
@@ -437,7 +485,8 @@ export function OnboardingShell({
       : "/settings/topics";
 
   const manualSetupAction = !embedded ? (
-    <div className="absolute top-4 right-4 z-10">
+    <div className="absolute top-4 right-4 z-10 flex items-center gap-1.5">
+      <UnfinishedOnboardingDialog activeSessionId={sessionId} />
       <Button
         render={<Link href={manualSetupHref} />}
         variant="outline"
@@ -450,7 +499,7 @@ export function OnboardingShell({
   ) : null;
 
   const composer = (
-    <ChatComposer
+    <OnboardingComposer
       value={answer}
       onValueChange={setAnswer}
       onSubmit={handlePrimaryAction}
@@ -460,29 +509,19 @@ export function OnboardingShell({
         !sessionReady
           ? "Starting…"
           : showHero
-            ? "Who do you want to become?"
+            ? "Something you've seen built that you want to be able to build…"
             : effectiveIsStreaming
               ? "Draft a reply while your onboarder is typing…"
               : "Ask anything, / for commands, @ for context…"
       }
       leftSlot={
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            aria-label="Add context"
-            className="flex size-7 items-center justify-center rounded-md text-[#8b8b8b] transition-colors outline-none hover:bg-white/[0.045] hover:text-[#d0d0d0] focus:outline-none focus-visible:outline-none"
-          >
-            <Plus size={16} />
-          </button>
-          {draftStatus !== "idle" ? (
-            <span
-              aria-live="polite"
-              className="ml-1 text-[11px] text-[#707070]"
-            >
-              {draftStatus === "saving" ? "Saving…" : "Saved"}
-            </span>
-          ) : null}
-        </div>
+        <button
+          type="button"
+          aria-label="Add context"
+          className="flex size-9 items-center justify-center rounded-full text-[#8b8b8b] transition-colors outline-none hover:bg-white/[0.045] hover:text-[#d0d0d0] focus:outline-none focus-visible:outline-none"
+        >
+          <Plus size={17} />
+        </button>
       }
       rightSlot={
         <Button
@@ -490,8 +529,8 @@ export function OnboardingShell({
           onClick={handlePrimaryAction}
           disabled={sendDisabled}
           variant="ghost"
-          size="sm"
-          className="size-8 rounded-[7px] border border-white/[0.055] bg-[linear-gradient(180deg,#303030_0%,#252525_48%,#1f1f1f_100%)] p-0 text-[#d7d7d7] shadow-[inset_0_1px_0_rgba(255,255,255,0.10),0_6px_16px_rgba(0,0,0,0.34)] hover:bg-[linear-gradient(180deg,#3a3a3a_0%,#2d2d2d_48%,#242424_100%)] disabled:border-white/[0.035] disabled:bg-[linear-gradient(180deg,#292929_0%,#222222_48%,#1d1d1d_100%)] disabled:text-[#686868] disabled:shadow-[inset_0_1px_0_rgba(255,255,255,0.07),0_5px_14px_rgba(0,0,0,0.26)]"
+          size="icon"
+          className="rounded-full border border-white/[0.055] sm:size-9 bg-[linear-gradient(180deg,#303030_0%,#252525_48%,#1f1f1f_100%)] p-0 text-[#d7d7d7] shadow-[inset_0_1px_0_rgba(255,255,255,0.10),0_6px_16px_rgba(0,0,0,0.34)] before:rounded-full hover:bg-[linear-gradient(180deg,#3a3a3a_0%,#2d2d2d_48%,#242424_100%)] disabled:border-white/[0.035] disabled:bg-[linear-gradient(180deg,#292929_0%,#222222_48%,#1d1d1d_100%)] disabled:text-[#686868] disabled:shadow-[inset_0_1px_0_rgba(255,255,255,0.07),0_5px_14px_rgba(0,0,0,0.26)]"
           aria-label={
             effectiveIsStreaming
               ? "Stop generating"
@@ -513,39 +552,34 @@ export function OnboardingShell({
   );
 
   if (showHero) {
-    // Hero composer: a command-console card (taller, wider, with a bottom
-    // control row) rather than the slim docked composer. The model and
-    // difficulty pills are presentational for now — they mirror the workspace
-    // chrome so the empty state reads as a console, not a bare input.
+    // Hero composer: the same single-row pill as the docked composer, just
+    // roomier and lifted off the background. Onboarding asks for one short
+    // answer at a time, so the pill never implies a drafting surface.
     const heroComposer = (
-      <ChatComposer
+      <OnboardingComposer
         value={answer}
         onValueChange={setAnswer}
         onSubmit={handlePrimaryAction}
         disabled={sendDisabled && !effectiveIsStreaming && !hasError}
         textareaRef={composerRef}
-        className="min-h-[128px] rounded-xl border-white/[0.105] bg-[#141414]"
+        // Concentric geometry: 38px buttons + 10px padding + 1px border = 60px
+        // tall, so a 30px radius makes the end caps exact semicircles sharing a
+        // centre with the buttons — a uniform 11px gap around each button arc.
+        className="border-white/[0.105] bg-[#141414] p-2.5"
         style={{
-          borderRadius: 12,
+          borderRadius: 30,
           boxShadow:
             "inset 0 1px 0 rgba(255,255,255,0.035), 0 18px 40px rgba(0,0,0,0.38), 0 3px 8px rgba(0,0,0,0.35)",
         }}
         placeholder={!sessionReady ? "Starting…" : "i want the skills of:"}
         leftSlot={
-          <div className="flex items-center gap-2.5 text-[13px] font-medium text-[#8f8f8f]">
-            <button
-              type="button"
-              aria-label="Add context"
-              className="flex size-7 items-center justify-center rounded-md text-[#9a9a9a] transition-colors outline-none hover:bg-white/[0.045] hover:text-[#cfcfcf]"
-            >
-              <Plus size={16} />
-            </button>
-            {draftStatus !== "idle" ? (
-              <span aria-live="polite" className="text-[11px] text-[#707070]">
-                {draftStatus === "saving" ? "Saving…" : "Saved"}
-              </span>
-            ) : null}
-          </div>
+          <button
+            type="button"
+            aria-label="Add context"
+            className="flex size-9.5 items-center justify-center rounded-full text-[#9a9a9a] transition-colors outline-none hover:bg-white/[0.045] hover:text-[#cfcfcf]"
+          >
+            <Plus size={17} />
+          </button>
         }
         rightSlot={
           <Button
@@ -553,8 +587,8 @@ export function OnboardingShell({
             onClick={handlePrimaryAction}
             disabled={sendDisabled}
             variant="ghost"
-            size="sm"
-            className="size-8 rounded-none border border-white/[0.08] bg-[linear-gradient(180deg,#2a2a2a_0%,#1d1d1d_100%)] p-0 text-[#cfcfcf] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_4px_10px_rgba(0,0,0,0.45)] before:rounded-none hover:bg-[linear-gradient(180deg,#303030_0%,#222222_100%)] disabled:border-white/[0.04] disabled:bg-[linear-gradient(180deg,#242424_0%,#1b1b1b_100%)] disabled:text-[#6a6a6a] disabled:shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_3px_8px_rgba(0,0,0,0.32)]"
+            size="icon-xl"
+            className="size-9.5 rounded-full border border-white/[0.08] sm:size-9.5 bg-[linear-gradient(180deg,#2a2a2a_0%,#1d1d1d_100%)] p-0 text-[#cfcfcf] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_4px_10px_rgba(0,0,0,0.45)] before:rounded-full hover:bg-[linear-gradient(180deg,#303030_0%,#222222_100%)] disabled:border-white/[0.04] disabled:bg-[linear-gradient(180deg,#242424_0%,#1b1b1b_100%)] disabled:text-[#6a6a6a] disabled:shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_3px_8px_rgba(0,0,0,0.32)]"
             aria-label={
               effectiveIsStreaming
                 ? "Stop generating"
@@ -566,9 +600,9 @@ export function OnboardingShell({
             {effectiveIsStreaming ? (
               <span aria-hidden="true" className="size-2.5 bg-current" />
             ) : hasError ? (
-              <ArrowClockwise size={14} weight="bold" />
+              <ArrowClockwise size={16} weight="bold" />
             ) : (
-              <ArrowUp size={14} weight="bold" />
+              <ArrowUp size={16} weight="bold" />
             )}
           </Button>
         }
@@ -608,7 +642,10 @@ export function OnboardingShell({
               </text>
             </svg>
 
-            {heroComposer}
+            {/* Composer sits at 4/5 the wordmark's width — narrower than the
+                logo so the stack reads as a tapered column rather than two
+                stacked bars of equal width. */}
+            <div className="mx-auto w-4/5">{heroComposer}</div>
 
             {/* Example chips to kill blank-page paralysis: tapping one submits
                 it as the learner's first answer. Presentational otherwise. */}
@@ -679,6 +716,12 @@ export function OnboardingShell({
                 {message.role === "assistant"
                   ? message.parts.map((part, partIndex) => {
                       if (part.type === "data-project-build") {
+                        if (
+                          latestProjectBuildPart?.messageId !== message.id ||
+                          latestProjectBuildPart.partIndex !== partIndex
+                        ) {
+                          return null;
+                        }
                         const build = part.data as ProjectBuildState;
                         return (
                           <ProjectBuildCard
@@ -686,6 +729,7 @@ export function OnboardingShell({
                             state={build}
                             preview={preview}
                             startPending={continueLearning.isPending}
+                            retryDisabled={effectiveIsStreaming}
                             onStartLearning={() => {
                               if (preview || !build.sessionId) return;
                               continueLearning.mutate({
@@ -699,10 +743,9 @@ export function OnboardingShell({
                               );
                             }}
                             onRetry={() => {
-                              // A failed build resumes over the same stream so
-                              // the card ticks step-by-step in place; a build
-                              // that never started re-runs the model turn.
-                              if (build.phase === "error" && build.sessionId) {
+                              // Any persisted build resumes deterministically;
+                              // only a pre-build card needs another model turn.
+                              if (build.sessionId) {
                                 void regenerate({
                                   body: { resumeBuild: true },
                                 });
@@ -783,7 +826,14 @@ export function OnboardingShell({
 
           {showTypingIndicator ? (
             <ChatMessage from="assistant">
-              <TypingIndicator />
+              <div
+                role="status"
+                aria-live="polite"
+                className="text-foreground/65 flex items-center gap-2.5 text-[15px] tracking-[-0.01em]"
+              >
+                <StatusSpinner />
+                <TextShimmer text="Thinking" />
+              </div>
             </ChatMessage>
           ) : null}
 

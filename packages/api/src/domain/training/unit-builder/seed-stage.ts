@@ -21,7 +21,7 @@ Quality standard:
 - build something that will create strong downstream Build, Prove, and Repair stages
 
 Output discipline:
-- the title must name the real lesson
+- the title and framing must follow the Regime block that opens the task prompt; its rules are regime-specific and override any conflicting general instinct about how to name or frame a lesson
 - the seedPrompt must be a concrete situation in the learner's world that contains the concept without naming it
 - the seedPrompt must not ask them to define the lesson, summarize what they believe, or explain a term in the abstract
 - the seedPrompt must be solvable using only what the learner already knows before this session
@@ -35,6 +35,48 @@ Output discipline:
 - prefer 1 for foundational concepts unless the mechanism is genuinely dense; use 3 only when the concept needs extended reasoning, edge cases, or formal structure
 - the conceptTarget, misconceptionTarget, and proofTargets must be concrete enough for later agents to use directly`;
 
+const DERIVED_QUESTION_RULES = `- Title the unit as the single practitioner question this unit answers. The title is what the learner is answering by the end, so it must be a genuine question: second-person, ending in "?", and about doing the work rather than about a term.
+  - Default to "How do you ...?" — e.g. "How do you map an existing signup flow?"
+  - Use "When ...?" or "Which ...?" when the targets are discriminations, so the judgment call stays visible — e.g. "When is it safe to retry a write?" Collapsing that into "How do you retry safely?" blurs the exact distinction the unit exists to sharpen.
+  - Use "Why ...?" when the target is a mechanism the learner must be able to explain — e.g. "Why does adding steps sometimes reduce friction?"
+  - Never write a tutorial heading such as "How to map user flows". That is a course label, not a question the learner answers.
+  - Never write a definitional question such as "What is idempotency?". It names the concept and asks for recall instead of performance, which contradicts the no-concept-naming rules below.
+  - Choose the form that states this unit's targets most precisely. Do not bend a target into "How do you ...?" to match the default; a precise "When ...?" beats a generic "How do you handle ...?".`;
+
+const regimeBlock = (context: UnitBuilderContext): string => {
+  const regime = context.planContext.regime;
+  const framing = context.knowledge?.framing ?? null;
+
+  if (regime === "foundation") {
+    return `Regime: FOUNDATION — framed reasoning.
+This unit answers exactly one authored practitioner question. The learner must always know which question they are answering; what they must never be handed is its answer.
+
+Regime rules:
+- title: ${
+      framing
+        ? `${framing.question}${framing.part > 1 ? ` — Part ${framing.part}` : ""}`
+        : `derive one practitioner question from the targets. ${DERIVED_QUESTION_RULES}`
+    }
+- Build the seedPrompt as one concrete situation that makes exactly that question urgent — the situation itself should be asking the question, so the learner feels it without being told.
+- The question may be visible to the learner; the answer may not. Never name the target mechanisms and never let the scenario resolve its own pressure.`;
+  }
+
+  if (regime === "skillset") {
+    return `Regime: SKILLSET — unframed whole-task.
+The learner already has local competence on this ability's questions. This unit tests whether they can decide, unprompted, which questions, knowledge, and methods matter inside one realistic task.
+
+Regime rules:
+- title: a task-worded directive naming the realistic whole-task the learner performs — e.g. "Modify this checkout flow to be frictionless". Never phrase it as a question.
+- Build the seedPrompt as a whole task from A to B: one concrete initial state, one desired end state, no route prescribed between them.
+- Name no concepts, no skills, and no framing questions anywhere the learner can see. The target knowledge items steer what the task must exercise; they stay invisible.
+- Difficulty comes from ambiguity and interacting constraints the practitioner would realistically face — never from withholding information they would realistically have.`;
+  }
+
+  return `Regime: LEGACY.
+Regime rules:
+- title: name the real lesson this unit teaches.`;
+};
+
 export const runSeedStage = async (
   context: UnitBuilderContext,
 ): Promise<SeedStageOutput> => {
@@ -47,10 +89,11 @@ export const runSeedStage = async (
     errorMessage: "Failed to generate the seed stage.",
     prompt: `Design the Seed stage for this education unit.
 
+${regimeBlock(context)}
+
 Rules:
 - Stay within the current slot's scope.
 - Earlier slots should build leverage. Later slots should stress transfer and edge cases.
-- If this is an integration slot, synthesize across completed clusters rather than teaching an isolated micro-skill.
 - seedPrompt is the Scenario step in SACTRE, not a practice prompt and not a definition question.
 - seedPrompt must place the learner inside a concrete situation where they must judge, choose, diagnose, or explain what is happening using only prior knowledge.
 - seedPrompt must contain no new teaching, no concept naming, and no wording like "what do you think this concept means?"
@@ -64,9 +107,9 @@ Rules:
 - workedExampleBrief should tell the Build stage what kind of example would best unlock the concept.
 - clusterArcFrame must not answer the seed prompt or teach the lesson content.
 - complexityBudget 1 = foundational, 2 = intermediate, 3 = advanced.
-- Earlier non-integration slots should usually stay at 1 or 2 unless there is a clear reason the concept is inherently dense.
-- Force the unit's target syllabus entries through the scenario; they are the non-negotiable discriminations for this unit.
-- Treat checked syllabus entries as assumed-known. Do not re-teach them except where they are load-bearing context.
+- Foundation units should usually stay at 1 or 2 unless there is a clear reason the concept is inherently dense.
+- Force the unit's target knowledge items through the scenario; they are the non-negotiable discriminations for this unit.
+- Treat checked knowledge items as assumed-known. Do not re-teach them except where they are load-bearing context.
 
 Context:
 ${formatUnitBuilderContext(context)}`,
@@ -76,9 +119,6 @@ ${formatUnitBuilderContext(context)}`,
 const formatUnitBuilderContext = (context: UnitBuilderContext): string => {
   const clusterContext = context.planContext.clusterContext
     ? `${context.planContext.clusterContext.title}: ${context.planContext.clusterContext.summary} | Why it matters: ${context.planContext.clusterContext.whyItMatters}`
-    : "None";
-  const integrationContext = context.planContext.integrationContext
-    ? context.planContext.integrationContext.completedClusterTitles.join(", ")
     : "None";
   const priorLearning =
     context.learner.priorLearning.length > 0
@@ -91,21 +131,22 @@ const formatUnitBuilderContext = (context: UnitBuilderContext): string => {
       : "No prior learning recorded.";
 
   return `Node kind: ${context.node.kind}
+Unit regime: ${context.planContext.regime ?? "foundation"}
 Node title: ${context.node.title}
 Node summary: ${context.node.summary}
 Why it matters: ${context.node.whyItMatters}
 Slot position: ${context.planContext.slotIndex} of ${context.planContext.totalSlots}
 Cluster context: ${clusterContext}
-Completed clusters for integration: ${integrationContext}
 Target identity: ${context.learner.targetIdentity}
 Prior learning:
 ${priorLearning}
 ${
-  context.syllabus
-    ? `Workflow: ${context.syllabus.workflow.name}
-Workflow spine: ${context.syllabus.workflow.steps.join(" -> ")}
-Already checked (assume known): ${context.syllabus.checked.map((entry) => `${entry.label}: ${entry.gloss}`).join("; ") || "None"}
-This unit must land: ${context.syllabus.targets.map((entry) => `${entry.label}: ${entry.gloss}`).join("; ")}`
-    : "Legacy curriculum: follow the node learning goal and sequence context; no syllabus frontier is attached."
+  context.knowledge
+    ? `Workflow: ${context.knowledge.workflow.name}
+Workflow spine: ${context.knowledge.workflow.steps.join(" -> ")}
+Authored question: ${context.knowledge.framing?.question ?? "None"}
+Already checked (assume known): ${context.knowledge.checked.map((entry) => `${entry.label}: ${entry.content}`).join("; ") || "None"}
+This unit must land: ${context.knowledge.targets.map((entry) => `${entry.kind} — ${entry.label}: ${entry.content}`).join("; ")}`
+    : "No knowledge targets are attached."
 }`;
 };

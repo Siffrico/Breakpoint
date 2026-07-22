@@ -61,7 +61,7 @@ export interface WorkspaceIndexDependencies {
 }
 
 const isChatNode = (node: WorkspaceIndexNode) =>
-  node.kind === "unit" || node.kind === "integration";
+  node.kind === "unit";
 
 export const getWorkspaceIndexWorkflow = async ({
   deps,

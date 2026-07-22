@@ -1,11 +1,10 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
 export const metadata: Metadata = {
   title: "Breakpoint preview",
   description: "Preview the Breakpoint application shell.",
 };
-
-import Link from "next/link";
 
 const previews = [
   {
@@ -37,6 +36,16 @@ const previews = [
     href: "/ui/profile/billing",
     label: "Settings · Billing",
     description: "Plan and subscription management.",
+  },
+  {
+    href: "/ui/profile/topics",
+    label: "Settings · Projects",
+    description: "Populated project manager and project standing pages.",
+  },
+  {
+    href: "/ui/mission",
+    label: "Mission",
+    description: "A filled-in active mission with local proof submission.",
   },
   {
     href: "/ui/train",

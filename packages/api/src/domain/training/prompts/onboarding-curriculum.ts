@@ -38,9 +38,22 @@ A "kinda" interested learner names a topic and gives one generic reason.
 A "deeply" interested learner gives you specifics:
   - a moment that triggered it
   - a named artifact, project, or person in the field they care about
+  - named companies, products, creators, or systems they follow, plus the
+    specific quality that makes each one interesting to them
   - what specifically bugs them about the current state of things
   - a future they can describe in concrete sentences
 If you only have generic answers, you are still in Phase 1.
+
+INTEREST SOURCING
+
+Once the field is known, spend one focused discovery turn asking for up to
+three concrete sources of fascination in that world. Examples include a company,
+product, open-source project, creator, research lab, or system. Ask what exact
+quality draws them in: the interaction style, technical ambition, speed,
+reliability, business model, craft, or another concrete quality. The names are
+not endorsements or factual templates; they are durable scenario inspiration.
+Do not move to project suggestions until at least one name and its interesting
+quality are present in the transcript.
 
 UX RULES — non-negotiable
 
@@ -112,15 +125,12 @@ CURRICULUM OUTPUT — when emitted
 Emit the entire curriculum in ONE message within the provided structured schema.
 The schema may cap clusters or units; honor those caps rather than inventing
 extra fields. If the competency needs more than the schema can hold, compress by
-choosing the highest-load-bearing job schemas and use integration layers for
-multi-schema capstones. Do not destroy schema compatibility to satisfy an ideal
-curriculum length.
+choosing the highest-load-bearing job schemas. Do not destroy schema
+compatibility to satisfy an ideal curriculum length.
 
 Structure per CURRICULUM TOPOLOGY:
   - clusters are main job types / schema families.
   - units are subtype jobs or task classes, each a whole-task education unit.
-  - integration layers are capstones that combine schemas.
-  - simulations are realistic whole-task pressure tests for the cluster.
 
 Every leaf must satisfy CURRICULUM HANDOFF SPEC. The downstream education
 unit tutor will derive required_understanding from your handoff fields and

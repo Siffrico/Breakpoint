@@ -3,7 +3,9 @@ import {
   convertToModelMessages,
   createUIMessageStream,
   createUIMessageStreamResponse,
+  hasToolCall,
   isTextUIPart,
+  safeValidateUIMessages,
   smoothStream,
   stepCountIs,
   streamText,
@@ -54,6 +56,8 @@ export type { CreateProjectResult } from "./domain/training/agents/onboarding-ch
 
 /** Stable id of the single keyed progress data part the build streams through. */
 export const PROJECT_BUILD_DATA_ID = "project-build";
+const PROJECT_PROPOSAL_TURN_ID = "onboarding-project-proposal";
+const PROJECT_BUILD_STATUS_TURN_ID = "onboarding-project-build-status";
 
 interface ProjectBuildData extends Record<string, unknown> {
   "project-build": ProjectBuildState;
@@ -61,12 +65,46 @@ interface ProjectBuildData extends Record<string, unknown> {
 
 export type OnboardingChatUIMessage = UIMessage<unknown, ProjectBuildData>;
 
+const MAX_ONBOARDING_MESSAGE_CHARS = 4_000;
+const MAX_ONBOARDING_HISTORY_CHARS = 32_000;
+
 const extractText = (message: UIMessage): string =>
   message.parts
     .filter(isTextUIPart)
     .map((part) => part.text)
     .join("\n")
     .trim();
+
+export const validateOnboardingMessages = async (messages: unknown) => {
+  const result = await safeValidateUIMessages<OnboardingChatUIMessage>({
+    messages,
+  });
+  if (!result.success) return result;
+
+  let totalChars = 0;
+  for (const message of result.data) {
+    if (message.role === "system") {
+      return {
+        success: false as const,
+        error: new Error("System messages are not allowed."),
+      };
+    }
+
+    const text = extractText(message);
+    totalChars += text.length;
+    if (
+      text.length > MAX_ONBOARDING_MESSAGE_CHARS ||
+      totalChars > MAX_ONBOARDING_HISTORY_CHARS
+    ) {
+      return {
+        success: false as const,
+        error: new Error("Onboarding message history is too large."),
+      };
+    }
+  }
+
+  return result;
+};
 
 /**
  * The newest answered `askStartingPoint` tool part across the transcript, if
@@ -106,18 +144,26 @@ export const streamOnboardingChat = async ({
   db: Database;
   sessionId: string;
   userId: string;
-  messages: UIMessage[];
+  messages: unknown;
   modelName?: string | null;
   /** Next.js `after` seam so post-build prewarm survives the response. */
   scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }): Promise<Response> =>
   withAiModelPreference(modelName, () =>
-    runOnboardingChat({
-      db,
-      sessionId,
-      userId,
-      messages,
-      scheduleBackgroundTask,
+    validateOnboardingMessages(messages).then((validatedMessages) => {
+      if (!validatedMessages.success) {
+        return new Response("Invalid onboarding conversation.", {
+          status: 400,
+        });
+      }
+
+      return runOnboardingChat({
+        db,
+        sessionId,
+        userId,
+        messages: validatedMessages.data,
+        scheduleBackgroundTask,
+      });
     }),
   );
 
@@ -171,21 +217,40 @@ export const streamProjectBuildResume = async ({
     const stream = createUIMessageStream<OnboardingChatUIMessage>({
       onError: () => "The project build hit an error.",
       execute: async ({ writer }) => {
-        await buildProjectFromOnboarding({
-          sessionId,
-          userId: session.userId,
-          transcript,
-          input: run.input,
-          deps: createBuildProjectDeps(db),
-          scheduleBackgroundTask,
-          onProgress: (build) => {
+        try {
+          await buildProjectFromOnboarding({
+            sessionId,
+            userId: session.userId,
+            transcript,
+            input: run.input,
+            deps: createBuildProjectDeps(db),
+            scheduleBackgroundTask,
+            onProgress: (build) => {
+              writer.write({
+                type: "data-project-build",
+                id: PROJECT_BUILD_DATA_ID,
+                data: build,
+              });
+            },
+          });
+        } catch (cause) {
+          const error =
+            cause instanceof Error
+              ? cause.message
+              : "The project build stopped before completion.";
+          const failed = await buildProjectCheckpointRepository.failRun({
+            db,
+            sessionId,
+            error,
+          });
+          if (failed) {
             writer.write({
               type: "data-project-build",
               id: PROJECT_BUILD_DATA_ID,
-              data: build,
+              data: failed.state,
             });
-          },
-        });
+          }
+        }
       },
     });
 
@@ -217,22 +282,6 @@ const runOnboardingChat = async ({
     return new Response("Forbidden.", { status: 403 });
   }
 
-  // Persist the learner's latest answer. On an approval-resumed turn the last
-  // message is the assistant's (carrying the approval response), so we skip it.
-  const last = messages[messages.length - 1];
-  if (last?.role === "user") {
-    const text = extractText(last);
-    if (text.length > 0) {
-      await trainingOnboardingRepository.appendMessage({
-        db,
-        sessionId,
-        role: "user",
-        content: text,
-        slot: "chat",
-      });
-    }
-  }
-
   const model = getAiModelForPurpose("onboarding");
   if (!model) {
     return new Response(getMissingAiKeyMessage("onboarding chat"), {
@@ -244,6 +293,34 @@ const runOnboardingChat = async ({
     db,
     sessionId,
   });
+
+  // Persist the learner's latest answer. On an approval-resumed turn the last
+  // message is the assistant's (carrying the approval response), so we skip it.
+  // Idempotency guard: a retried request (network error, reload + recovery
+  // regenerate) re-sends a message that is already the transcript tail —
+  // re-appending it would duplicate rows, inflate the readiness char counts,
+  // and pollute the transcript every downstream agent reads.
+  const last = messages[messages.length - 1];
+  if (last?.role === "user") {
+    const text = extractText(last);
+    const tail = transcript[transcript.length - 1];
+    const alreadyPersisted = tail?.role === "user" && tail.content === text;
+    if (text.length > 0 && !alreadyPersisted) {
+      await trainingOnboardingRepository.appendMessage({
+        db,
+        sessionId,
+        role: "user",
+        content: text,
+        slot: "chat",
+      });
+      transcript.push({
+        role: "user",
+        content: text,
+        sequence: (tail?.sequence ?? -1) + 1,
+        slot: null,
+      });
+    }
+  }
   const projectBuildReadiness = getProjectBuildReadiness(transcript);
   const modelMessages = await convertToModelMessages(messages, {
     ignoreIncompleteToolCalls: true,
@@ -276,21 +353,42 @@ const runOnboardingChat = async ({
       const buildProject = async (
         input: CreateProjectInput,
       ): Promise<CreateProjectResult> => {
-        const result = await buildProjectFromOnboarding({
-          sessionId,
-          userId: session.userId,
-          transcript,
-          input,
-          deps: createBuildProjectDeps(db),
-          scheduleBackgroundTask,
-          onProgress: (build) => {
+        let result: Awaited<ReturnType<typeof buildProjectFromOnboarding>>;
+        try {
+          result = await buildProjectFromOnboarding({
+            sessionId,
+            userId: session.userId,
+            transcript,
+            input,
+            deps: createBuildProjectDeps(db),
+            scheduleBackgroundTask,
+            onProgress: (build) => {
+              writer.write({
+                type: "data-project-build",
+                id: PROJECT_BUILD_DATA_ID,
+                data: build,
+              });
+            },
+          });
+        } catch (cause) {
+          const error =
+            cause instanceof Error
+              ? cause.message
+              : "The project build stopped before completion.";
+          const failed = await buildProjectCheckpointRepository.failRun({
+            db,
+            sessionId,
+            error,
+          });
+          if (failed) {
             writer.write({
               type: "data-project-build",
               id: PROJECT_BUILD_DATA_ID,
-              data: build,
+              data: failed.state,
             });
-          },
-        });
+          }
+          return { ok: false, reason: error };
+        }
 
         return result.success
           ? {
@@ -329,19 +427,72 @@ ${startingPointNote}`,
           delayInMs: 15,
           chunking: "word",
         }),
-        stopWhen: stepCountIs(5),
-        onFinish: async ({ text }) => {
+        stopWhen: [hasToolCall("createProject"), stepCountIs(5)],
+        onFinish: async ({ text, steps }) => {
+          // Persist the whole assistant turn, including the tool interactions
+          // the rebuilt transcript would otherwise lose on reload: the
+          // starting-point question and the proposed project both live only in
+          // ephemeral tool parts, so a refresh mid-card would erase them from
+          // every future model turn and from the build agents' transcript.
+          const rows = new Set<string>();
+          const proposals: CreateProjectInput[] = [];
           const trimmed = text.trim();
-          if (trimmed.length === 0) return;
-          await trainingOnboardingRepository.appendMessage({
-            db,
-            sessionId,
-            role: "assistant",
-            content: trimmed,
-            slot: "chat",
-          });
+          for (const step of steps) {
+            for (const call of step.toolCalls) {
+              if (call.toolName === "askStartingPoint") {
+                const question = (
+                  call.input as { question?: string }
+                ).question?.trim();
+                if (question) rows.add(question);
+              }
+              if (call.toolName === "createProject") {
+                proposals.push(call.input as CreateProjectInput);
+              }
+            }
+          }
+          if (trimmed.length > 0) {
+            if (proposals.length > 0) {
+              await trainingOnboardingRepository.upsertMessageByTurnRole({
+                db,
+                sessionId,
+                role: "assistant",
+                content: trimmed,
+                slot: "project_build_status",
+                turnId: PROJECT_BUILD_STATUS_TURN_ID,
+              });
+            } else {
+              rows.add(trimmed);
+            }
+          }
+          for (const content of rows) {
+            await trainingOnboardingRepository.appendMessage({
+              db,
+              sessionId,
+              role: "assistant",
+              content,
+              slot: "chat",
+            });
+          }
+          const proposal = proposals.at(-1);
+          if (proposal) {
+            await trainingOnboardingRepository.upsertMessageByTurnRole({
+              db,
+              sessionId,
+              role: "assistant",
+              content: `Proposed project "${proposal.projectName}" (${proposal.targetIdentity}): ${proposal.summary} Waiting for the learner's confirmation.`,
+              slot: "project_proposal",
+              turnId: PROJECT_PROPOSAL_TURN_ID,
+              metadata: { projectProposal: proposal },
+            });
+          }
         },
       });
+
+      // Detach the model stream from the client connection: without this, a
+      // closed tab aborts generation before onFinish, the assistant's reply is
+      // never persisted, and the reloaded transcript dangles on the learner's
+      // message. Documented SDK pattern for disconnect-safe persistence.
+      void result.consumeStream();
 
       writer.merge(result.toUIMessageStream());
     },

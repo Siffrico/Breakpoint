@@ -3,7 +3,7 @@ import { Context, Effect as Fx } from "effect";
 
 import type { DbError } from "../../../effect/errors";
 import type { PersistedUnitRun } from "../education-unit/unit";
-import type { RecallCandidateEntry } from "../policies/recall-decay";
+import type { RecallCandidate } from "../policies/recall-decay";
 import type {
   CurriculumPlan,
   PhaseResponseRecord,
@@ -20,9 +20,6 @@ const read = <A>(operation: string, run: () => Promise<A>) =>
 
 export interface WorkspaceProjectionReaderSource {
   readonly getActivePlan: (sessionId: string) => Promise<CurriculumPlan | null>;
-  readonly listPhaseResponsesBySession: (
-    sessionId: string,
-  ) => Promise<PhaseResponseRecord[]>;
   readonly getPhaseResponses: (
     unitContentId: string,
     sessionId: string,
@@ -39,18 +36,28 @@ export interface WorkspaceProjectionReaderSource {
     unitContentId: string,
   ) => Promise<void>;
   readonly getUnitByNodeId: (nodeId: string) => Promise<UnitContent | null>;
-  readonly listRecallCandidates: (
+  readonly getRecallCandidatesByIds: (
     planId: string,
-  ) => Promise<RecallCandidateEntry[]>;
+    knowledgeIds: readonly string[],
+  ) => Promise<RecallCandidate[]>;
+  readonly getMostOverdueRecallCandidate: (
+    planId: string,
+    now: Date,
+  ) => Promise<RecallCandidate | null>;
+  readonly getRecallCompanionCandidate: (
+    skillNodeId: string,
+    primary: Pick<
+      RecallCandidate,
+      "id" | "questionId" | "questionOrderIndex" | "orderIndex"
+    >,
+    now: Date,
+  ) => Promise<RecallCandidate | null>;
 }
 
 export interface WorkspaceProjectionReaderShape {
   readonly getActivePlan: (
     sessionId: string,
   ) => Effect.Effect<CurriculumPlan | null, DbError>;
-  readonly listPhaseResponsesBySession: (
-    sessionId: string,
-  ) => Effect.Effect<PhaseResponseRecord[], DbError>;
   readonly getPhaseResponses: (
     unitContentId: string,
     sessionId: string,
@@ -69,9 +76,22 @@ export interface WorkspaceProjectionReaderShape {
   readonly getUnitByNodeId: (
     nodeId: string,
   ) => Effect.Effect<UnitContent | null, DbError>;
-  readonly listRecallCandidates: (
+  readonly getRecallCandidatesByIds: (
     planId: string,
-  ) => Effect.Effect<RecallCandidateEntry[], DbError>;
+    knowledgeIds: readonly string[],
+  ) => Effect.Effect<RecallCandidate[], DbError>;
+  readonly getMostOverdueRecallCandidate: (
+    planId: string,
+    now: Date,
+  ) => Effect.Effect<RecallCandidate | null, DbError>;
+  readonly getRecallCompanionCandidate: (
+    skillNodeId: string,
+    primary: Pick<
+      RecallCandidate,
+      "id" | "questionId" | "questionOrderIndex" | "orderIndex"
+    >,
+    now: Date,
+  ) => Effect.Effect<RecallCandidate | null, DbError>;
 }
 
 export class WorkspaceProjectionReader extends Context.Service<
@@ -84,10 +104,6 @@ export const makeWorkspaceProjectionReader = (
 ): WorkspaceProjectionReaderShape => ({
   getActivePlan: (sessionId) =>
     read("getActivePlan", () => source.getActivePlan(sessionId)),
-  listPhaseResponsesBySession: (sessionId) =>
-    read("listPhaseResponsesBySession", () =>
-      source.listPhaseResponsesBySession(sessionId),
-    ),
   getPhaseResponses: (unitContentId, sessionId) =>
     read("getPhaseResponses", () =>
       source.getPhaseResponses(unitContentId, sessionId),
@@ -102,14 +118,24 @@ export const makeWorkspaceProjectionReader = (
     ),
   getUnitByNodeId: (nodeId) =>
     read("getUnitByNodeId", () => source.getUnitByNodeId(nodeId)),
-  listRecallCandidates: (planId) =>
-    read("listRecallCandidates", () => source.listRecallCandidates(planId)),
+  getRecallCandidatesByIds: (planId, knowledgeIds) =>
+    read("getRecallCandidatesByIds", () =>
+      source.getRecallCandidatesByIds(planId, knowledgeIds),
+    ),
+  getMostOverdueRecallCandidate: (planId, now) =>
+    read("getMostOverdueRecallCandidate", () =>
+      source.getMostOverdueRecallCandidate(planId, now),
+    ),
+  getRecallCompanionCandidate: (skillNodeId, primary, now) =>
+    read("getRecallCompanionCandidate", () =>
+      source.getRecallCompanionCandidate(skillNodeId, primary, now),
+    ),
 });
 
 export interface AiWorkspaceReaderSource {
-  readonly listMessages: (
+  readonly listUnitMessages: (
     sessionId: string,
-    slot?: "education_unit" | "recall",
+    unitId: string,
   ) => Promise<WorkspaceAiMessage[]>;
   readonly getScenarioAttemptStartedAt: (input: {
     scenarioAttemptId: string;
@@ -118,9 +144,9 @@ export interface AiWorkspaceReaderSource {
 }
 
 export interface AiWorkspaceReaderShape {
-  readonly listMessages: (
+  readonly listUnitMessages: (
     sessionId: string,
-    slot?: "education_unit" | "recall",
+    unitId: string,
   ) => Effect.Effect<WorkspaceAiMessage[], DbError>;
   readonly getScenarioAttemptStartedAt: (input: {
     scenarioAttemptId: string;
@@ -136,8 +162,8 @@ export class AiWorkspaceReader extends Context.Service<
 export const makeAiWorkspaceReader = (
   source: AiWorkspaceReaderSource,
 ): AiWorkspaceReaderShape => ({
-  listMessages: (sessionId, slot) =>
-    read("listMessages", () => source.listMessages(sessionId, slot)),
+  listUnitMessages: (sessionId, unitId) =>
+    read("listUnitMessages", () => source.listUnitMessages(sessionId, unitId)),
   getScenarioAttemptStartedAt: (input) =>
     read("getScenarioAttemptStartedAt", () =>
       source.getScenarioAttemptStartedAt(input),

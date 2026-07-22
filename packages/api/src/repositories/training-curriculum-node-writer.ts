@@ -1,6 +1,6 @@
 import type { db as databaseClient } from "@acme/db/client";
-import { and, desc, eq, inArray, ne, sql } from "@acme/db";
-import { TrainingCurriculumNode, TrainingSyllabusEntry } from "@acme/db/schema";
+import { and, desc, eq, inArray, sql } from "@acme/db";
+import { TrainingCurriculumNode, TrainingKnowledgeItem } from "@acme/db/schema";
 
 import type { CurriculumBlueprint } from "../domain/training/types/training.types";
 
@@ -22,6 +22,7 @@ export const insertBlueprintNodes = async ({
         planId,
         kind: node.kind,
         status: node.status,
+        abilityStage: node.abilityStage,
         title: node.title,
         summary: node.summary,
         whyItMatters: node.whyItMatters,
@@ -62,15 +63,16 @@ export const insertBlueprintNodes = async ({
 
 export const appendDynamicUnitNode = async ({
   db,
-  clusterNodeId,
+  skillNodeId,
   title,
   summary,
   whyItMatters,
   difficultyBands,
-  targetEntryIds,
+  targetKnowledgeIds,
+  status = "ready",
 }: {
   db: Database;
-  clusterNodeId: string;
+  skillNodeId: string;
   title: string;
   summary: string;
   whyItMatters: string;
@@ -80,15 +82,16 @@ export const appendDynamicUnitNode = async ({
     maxRating: number;
     label?: string;
   }[];
-  targetEntryIds: string[];
+  targetKnowledgeIds: string[];
+  status?: "planned" | "ready";
 }) =>
   db.transaction(async (tx) => {
     const transactionDb = tx as unknown as Database;
     await transactionDb.execute(
-      sql`select pg_advisory_xact_lock(hashtext(${clusterNodeId}))`,
+      sql`select pg_advisory_xact_lock(hashtext(${skillNodeId}))`,
     );
     const cluster = await transactionDb.query.TrainingCurriculumNode.findFirst({
-      where: eq(TrainingCurriculumNode.id, clusterNodeId),
+      where: eq(TrainingCurriculumNode.id, skillNodeId),
     });
     if (!cluster) throw new Error("Skill cluster was not found.");
     await transactionDb.execute(
@@ -97,9 +100,9 @@ export const appendDynamicUnitNode = async ({
 
     const open = await transactionDb.query.TrainingCurriculumNode.findFirst({
       where: and(
-        eq(TrainingCurriculumNode.parentNodeId, clusterNodeId),
+        eq(TrainingCurriculumNode.parentNodeId, skillNodeId),
         eq(TrainingCurriculumNode.kind, "unit"),
-        ne(TrainingCurriculumNode.status, "completed"),
+        eq(TrainingCurriculumNode.status, status),
       ),
       orderBy: [desc(TrainingCurriculumNode.orderIndex)],
     });
@@ -111,7 +114,7 @@ export const appendDynamicUnitNode = async ({
     });
     const latestSibling =
       await transactionDb.query.TrainingCurriculumNode.findFirst({
-        where: eq(TrainingCurriculumNode.parentNodeId, clusterNodeId),
+        where: eq(TrainingCurriculumNode.parentNodeId, skillNodeId),
         orderBy: [desc(TrainingCurriculumNode.positionRow)],
       });
     const [node] = await transactionDb
@@ -120,7 +123,7 @@ export const appendDynamicUnitNode = async ({
         planId: cluster.planId,
         parentNodeId: cluster.id,
         kind: "unit",
-        status: "ready",
+        status,
         title,
         summary,
         whyItMatters,
@@ -133,14 +136,15 @@ export const appendDynamicUnitNode = async ({
       .returning();
     if (!node) throw new Error("Dynamic unit could not be persisted.");
 
-    await transactionDb
-      .update(TrainingSyllabusEntry)
-      .set({ status: "targeted" })
-      .where(
-        and(
-          eq(TrainingSyllabusEntry.clusterNodeId, clusterNodeId),
-          inArray(TrainingSyllabusEntry.id, targetEntryIds),
-        ),
-      );
+    // Scoped by entry id only: a skillset unit (parent = ability) targets
+    // entries owned by the ability's CHILD skills, so scoping by the unit's
+    // own parent id would match nothing. Entry ids are primary keys and were
+    // loaded from this unit's frontier, so id scoping is exact.
+    if (targetKnowledgeIds.length > 0) {
+      await transactionDb
+        .update(TrainingKnowledgeItem)
+        .set({ status: "targeted" })
+        .where(inArray(TrainingKnowledgeItem.id, targetKnowledgeIds));
+    }
     return { node, created: true } as const;
   });

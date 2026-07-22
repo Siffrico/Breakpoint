@@ -14,6 +14,13 @@ const progress = {
   supportLevel: "worked_example" as const,
 };
 
+const scenarioFormat = {
+  id: "judge",
+  label: "Judgment",
+  kind: "frq" as const,
+  description: "Evaluate an artifact and justify the decision.",
+};
+
 const jobProgress = () => ({
   ratingState: createInitialRatingState(),
   progress,
@@ -28,6 +35,7 @@ void test("resolving difficulty is read-only", async () => {
     nodeId: "cluster-1",
     now: new Date("2026-01-01T00:00:00.000Z"),
     bands: deriveDefaultBands(),
+    scenarioFormat,
     deps: {
       loadJobProgress: () => Promise.resolve(jobProgress()),
       listRecentPredictions: () => Promise.resolve([]),
@@ -36,6 +44,40 @@ void test("resolving difficulty is read-only", async () => {
 
   assert.equal(result.learnerRating, createInitialRatingState().rating);
   assert.match(result.promptBlock, /Difficulty directive/);
+  assert.equal(result.format.id, "judge");
+  assert.doesNotMatch(result.promptBlock, /Target item rating/);
+});
+
+void test("uses the curriculum's declared scenario format", async () => {
+  const loaded = {
+    ...jobProgress(),
+    recentAttempts: [
+      {
+        bandOrder: 0,
+        offeredSupport: "worked_example" as const,
+        itemRating: 900,
+        score: 50,
+        outcome: 0.5,
+        effectiveSupport: "worked_example" as const,
+        cleanPass: false,
+        pass: false,
+        hardFail: false,
+        occurredAt: new Date(),
+      },
+    ],
+  };
+  const result = await resolveScenarioDirective({
+    userId: "user-1",
+    nodeId: "cluster-1",
+    now: new Date("2026-01-01T00:00:00Z"),
+    bands: deriveDefaultBands(),
+    scenarioFormat,
+    deps: {
+      loadJobProgress: () => Promise.resolve(loaded),
+      listRecentPredictions: () => Promise.resolve([]),
+    },
+  });
+  assert.equal(result.format.id, "judge");
 });
 
 void test("defaults the initial rating state when no seed is supplied", async () => {
@@ -45,6 +87,7 @@ void test("defaults the initial rating state when no seed is supplied", async ()
     nodeId: "cluster-1",
     now: new Date("2026-01-01T00:00:00.000Z"),
     bands: deriveDefaultBands(),
+    scenarioFormat,
     deps: {
       loadJobProgress: ({ initialRatingState }) => {
         seenInitial = initialRatingState.rating;
@@ -71,6 +114,7 @@ void test("passes a supplied seed as the initial rating state", async () => {
     now: new Date("2026-01-01T00:00:00.000Z"),
     bands: deriveDefaultBands(),
     initialRatingState: seed,
+    scenarioFormat,
     deps: {
       loadJobProgress: ({ initialRatingState }) => {
         seenInitial = initialRatingState.rating;

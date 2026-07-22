@@ -1,11 +1,9 @@
 import type { Result } from "../../../lib/result";
 import type {
   BeforeAfterProfile,
-  CurriculumBlueprint,
   IdentityReport,
 } from "../types/training.types";
 import { err, ok } from "../../../lib/result";
-import { buildCurriculumBlueprintFromMarkdown } from "../services/curriculum-markdown-import-service";
 
 interface CreateLearningProjectDependencies {
   createSession: (userId: string) => Promise<{ id: string } | null>;
@@ -15,12 +13,6 @@ interface CreateLearningProjectDependencies {
     report: IdentityReport;
     beforeAfter: BeforeAfterProfile;
   }) => Promise<{ version: { id: string } } | null>;
-  createPlan: (input: {
-    onboardingSessionId: string;
-    profileVersionId: string;
-    userId: string;
-    blueprint: CurriculumBlueprint;
-  }) => Promise<{ id: string } | null>;
   updateSession: (input: {
     sessionId: string;
     status?: string;
@@ -31,14 +23,12 @@ interface CreateLearningProjectDependencies {
 const normalizeProjectText = (value: string) =>
   value.trim().replace(/\s+/g, " ");
 
-const buildImportedProfile = ({
+const buildProjectProfile = ({
   projectTitle,
   targetIdentity,
-  hasCurriculum,
 }: {
   projectTitle: string;
   targetIdentity: string;
-  hasCurriculum: boolean;
 }): {
   report: IdentityReport;
   beforeAfter: BeforeAfterProfile;
@@ -47,11 +37,10 @@ const buildImportedProfile = ({
     targetIdentity,
     headline: `${projectTitle} learning project`,
     motivation: `Use ${projectTitle} as a concrete path toward ${targetIdentity}.`,
-    currentBaseline: hasCurriculum
-      ? "The learner is starting from an imported curriculum that needs to become active project evidence."
-      : "The learner created the project from profile and has not attached a curriculum yet.",
+    currentBaseline:
+      "The learner created the project from profile and has not generated its adaptive curriculum yet.",
     hardMoments: [
-      "Converting curriculum items into applied work instead of passive review.",
+      "Converting project intent into applied work instead of passive review.",
     ],
     constraints: [],
     proofOfProgress: `Visible progress on ${projectTitle}.`,
@@ -60,9 +49,7 @@ const buildImportedProfile = ({
       "Applies each unit to a concrete project decision.",
       "Uses feedback to repair weak reasoning instead of only moving forward.",
     ],
-    confidenceFlags: hasCurriculum
-      ? ["Imported curriculum quality still needs evidence from actual use."]
-      : ["Project was created without a curriculum import."],
+    confidenceFlags: ["The adaptive curriculum has not been generated yet."],
   },
   beforeAfter: {
     headline: `From project intent to usable ${targetIdentity} capability.`,
@@ -92,29 +79,19 @@ export const createLearningProjectWorkflow = async ({
   userId,
   title,
   targetIdentity,
-  curriculumMarkdown,
   deps,
 }: {
   userId: string;
   title: string;
   targetIdentity?: string | null;
-  curriculumMarkdown?: string | null;
   deps: CreateLearningProjectDependencies;
-}): Promise<
-  Result<{
-    sessionId: string;
-    hasCurriculum: boolean;
-  }>
-> => {
+}): Promise<Result<{ sessionId: string }>> => {
   const projectTitle = normalizeProjectText(title);
   const projectTargetIdentity = normalizeProjectText(
     targetIdentity && targetIdentity.trim().length > 0
       ? targetIdentity
       : projectTitle,
   );
-  const markdown = curriculumMarkdown?.trim() ?? "";
-  const hasCurriculum = markdown.length > 0;
-
   if (projectTitle.length < 2) {
     return err("Project name must be at least 2 characters.");
   }
@@ -124,10 +101,9 @@ export const createLearningProjectWorkflow = async ({
     return err("Failed to create learning project.");
   }
 
-  const profile = buildImportedProfile({
+  const profile = buildProjectProfile({
     projectTitle,
     targetIdentity: projectTargetIdentity,
-    hasCurriculum,
   });
   const createdProfile = await deps.createProfileVersion({
     sessionId: session.id,
@@ -140,45 +116,10 @@ export const createLearningProjectWorkflow = async ({
     return err("Failed to create project profile.");
   }
 
-  if (!hasCurriculum) {
-    await deps.updateSession({
-      sessionId: session.id,
-      status: "ready_for_generation",
-    });
-    return ok({ sessionId: session.id, hasCurriculum: false });
-  }
-
-  let blueprint: CurriculumBlueprint;
-  try {
-    blueprint = buildCurriculumBlueprintFromMarkdown({
-      markdown,
-      projectTitle,
-      targetIdentity: projectTargetIdentity,
-    });
-  } catch (error) {
-    return err(
-      error instanceof Error
-        ? error.message
-        : "Failed to parse the Markdown curriculum.",
-    );
-  }
-
-  const plan = await deps.createPlan({
-    onboardingSessionId: session.id,
-    profileVersionId: createdProfile.version.id,
-    userId,
-    blueprint,
-  });
-
-  if (!plan) {
-    return err("Failed to activate imported curriculum.");
-  }
-
   await deps.updateSession({
     sessionId: session.id,
-    status: "complete",
-    completedAt: new Date(),
+    status: "ready_for_generation",
   });
 
-  return ok({ sessionId: session.id, hasCurriculum: true });
+  return ok({ sessionId: session.id });
 };

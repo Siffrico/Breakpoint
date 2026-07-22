@@ -1,0 +1,117 @@
+import { Effect } from "effect";
+import { describe, expect, it } from "vitest";
+
+import type {
+  MissionConflictReason,
+  MissionError,
+} from "../domain/training/missions/mission-errors";
+import {
+  MissionConflictError,
+  MissionEvaluationError,
+  MissionInputError,
+  MissionModelUnavailableError,
+  MissionNotEligibleError,
+  MissionNotFoundError,
+  MissionNotReadyError,
+} from "../domain/training/missions/mission-errors";
+import { DbError } from "./errors";
+import { resolveMissionFailure, runMissionTool } from "./mission-edge";
+
+const CONFLICT_REASONS: MissionConflictReason[] = [
+  "already_completed",
+  "start_race",
+  "evaluation_in_flight",
+  "finish_race",
+];
+
+const ALL_ERRORS: MissionError[] = [
+  new MissionNotFoundError({ entity: "mission unit" }),
+  new MissionNotEligibleError({ unitRunId: "run-1" }),
+  new MissionNotReadyError({ operation: "start" }),
+  new MissionNotReadyError({ operation: "edit_plan" }),
+  new MissionNotReadyError({ operation: "evaluate" }),
+  ...CONFLICT_REASONS.map((reason) => new MissionConflictError({ reason })),
+  new MissionInputError({ field: "messages" }),
+  new MissionModelUnavailableError({ purpose: "mission" }),
+  new MissionEvaluationError({ cause: new Error("model down") }),
+  new DbError({
+    message: "Database operation failed: startMission",
+    operation: "startMission",
+    kind: "connection",
+  }),
+];
+
+describe("mission failure table", () => {
+  it("resolves every tag and every conflict reason to distinct transport", () => {
+    for (const error of ALL_ERRORS) {
+      const failure = resolveMissionFailure(error);
+      expect(failure.message.length).toBeGreaterThan(0);
+      expect(failure.status).toBeGreaterThanOrEqual(400);
+      expect(failure.code).toBeTruthy();
+    }
+  });
+
+  it("gives each conflict reason its own copy", () => {
+    const messages = CONFLICT_REASONS.map(
+      (reason) =>
+        resolveMissionFailure(new MissionConflictError({ reason })).message,
+    );
+    expect(new Set(messages).size).toBe(CONFLICT_REASONS.length);
+  });
+
+  it.each([
+    ["MissionNotFoundError", 404, new MissionNotFoundError({ entity: "x" })],
+    [
+      "MissionNotEligibleError",
+      403,
+      new MissionNotEligibleError({ unitRunId: "r" }),
+    ],
+    [
+      "MissionNotReadyError",
+      412,
+      new MissionNotReadyError({ operation: "start" }),
+    ],
+    [
+      "MissionConflictError",
+      409,
+      new MissionConflictError({ reason: "evaluation_in_flight" }),
+    ],
+    ["MissionInputError", 400, new MissionInputError({ field: "messages" })],
+  ] as const)("maps %s to %i", (_tag, status, error) => {
+    expect(resolveMissionFailure(error).status).toBe(status);
+  });
+});
+
+describe("runMissionTool", () => {
+  it("surfaces the predefined copy for a typed conflict", async () => {
+    await expect(
+      runMissionTool(
+        Effect.fail(
+          new MissionConflictError({ reason: "evaluation_in_flight" }),
+        ),
+      ),
+    ).rejects.toThrow("This proof is already being evaluated.");
+  });
+
+  it("never leaks infrastructure detail to the model", async () => {
+    const dbError = new DbError({
+      message: "Database operation failed: reserveMissionEvaluation",
+      operation: "reserveMissionEvaluation",
+      sqlState: "40001",
+      kind: "serialization",
+    });
+
+    await expect(runMissionTool(Effect.fail(dbError))).rejects.toThrow(
+      "The mission guide hit an error. Try again.",
+    );
+    await expect(runMissionTool(Effect.fail(dbError))).rejects.not.toThrow(
+      /reserveMissionEvaluation|40001/,
+    );
+  });
+
+  it("collapses a defect to the generic line", async () => {
+    await expect(
+      runMissionTool(Effect.die(new Error("secret internal detail"))),
+    ).rejects.toThrow("The mission guide hit an error. Try again.");
+  });
+});

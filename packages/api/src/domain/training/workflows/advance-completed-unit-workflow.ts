@@ -3,6 +3,7 @@ import { Duration, Effect, Schedule } from "effect";
 import type { DbError } from "../../../effect/errors";
 import type { Result } from "../../../lib/result";
 import type { PersistedUnitRun } from "../education-unit/unit";
+import type { MasteryProgressionState } from "../engine/plan-progression";
 import type {
   CurriculumNode,
   CurriculumPlan,
@@ -21,6 +22,7 @@ interface AdvanceCompletedUnitTransactionDependencies {
     unitContentId: string,
   ) => Promise<PersistedUnitRun | null>;
   completeNode: (nodeId: string) => Promise<unknown>;
+  markNodeReady: (nodeId: string) => Promise<unknown>;
   touchSession: (sessionId: string) => Promise<unknown>;
 }
 
@@ -29,26 +31,33 @@ interface AdvanceCompletedUnitDependencies {
     run: (deps: AdvanceCompletedUnitTransactionDependencies) => Promise<A>,
   ) => Promise<A>;
   createUnit: (input: {
-    clusterNodeId: string;
+    skillNodeId: string;
     sessionId: string;
     userId: string;
   }) => Effect.Effect<unknown, CreateNextUnitError>;
-  /** Resolves null when the cluster has no skill map (legacy/imported plans). */
-  getMasteryState: (input: {
-    clusterNodeId: string;
+  /** Resolves null when the parent has no skill map (legacy/imported plans). */
+  getProgressionState: (input: {
+    skillNodeId: string;
     userId: string;
-  }) => Effect.Effect<
-    {
-      uncheckedEntryCount: number;
-      learnerRating: number;
-      ratingDeviation: number;
-      peakRating: number;
-      simulationPassed: boolean;
-      maxRatingDeviation?: number;
-    } | null,
-    DbError
-  >;
-  openSimulation: (clusterNodeId: string) => Effect.Effect<unknown, DbError>;
+  }) => Effect.Effect<MasteryProgressionState | null, DbError>;
+  getMissionStatus: (input: {
+    sessionId: string;
+    unitContentId: string;
+    userId: string;
+  }) => Promise<{
+    unitRunId: string;
+    status: "completed" | "active" | "drafting" | null;
+  } | null>;
+  /**
+   * The parent skill/ability is mastered: complete it, unlock what follows
+   * (next skill's foundation unit, the ability's skillset units, or the next
+   * ability), and create the unlocked unit.
+   */
+  advanceSkillMapNode: (input: {
+    skillNodeId: string;
+    sessionId: string;
+    userId: string;
+  }) => Effect.Effect<unknown, DbError>;
   /**
    * Keeps the serverless function alive until the task settles (Next.js
    * `after`). Without it the runtime freezes the instance once the response
@@ -57,7 +66,9 @@ interface AdvanceCompletedUnitDependencies {
   scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }
 
-const isTransientUnitCreationFailure = (error: DbError | CreateNextUnitError): boolean =>
+const isTransientUnitCreationFailure = (
+  error: DbError | CreateNextUnitError,
+): boolean =>
   error._tag === "DbError" ||
   error._tag === "UnitPersistError" ||
   (error._tag === "UnitScaffoldError" &&
@@ -76,9 +87,20 @@ export const advanceCompletedUnitWorkflow = async ({
   nodeId: string;
   deps: AdvanceCompletedUnitDependencies;
 }): Promise<
-  Result<{ advanced: true; nextReadyNode: CurriculumNode | null }>
+  Result<
+    | { advanced: true; nextReadyNode: CurriculumNode | null }
+    | {
+        advanced: false;
+        missionRequired: true;
+        unitRunId: string;
+      }
+  >
 > => {
-  let completed: { node: CurriculumNode; run: PersistedUnitRun };
+  let completed: {
+    node: CurriculumNode;
+    parent: CurriculumNode | null;
+    run: PersistedUnitRun;
+  };
   try {
     completed = await deps.withTransaction(async (tx) => {
       const plan = await tx.getActivePlan(sessionId);
@@ -89,40 +111,118 @@ export const advanceCompletedUnitWorkflow = async ({
       assertUnitCanAdvance({ node, run });
 
       if (!node || !run) throw new Error("Completed unit context is missing.");
-      if (node.status !== "completed") await tx.completeNode(nodeId);
-      await tx.touchSession(sessionId);
-      return { node, run };
+      return {
+        node,
+        parent:
+          plan?.nodes.find((item) => item.id === node.parentNodeId) ?? null,
+        run,
+      };
     });
   } catch (error) {
     return err(error instanceof Error ? error.message : "Unit cannot advance.");
   }
 
-  if (completed.node.kind === "unit" && completed.node.parentNodeId) {
-    const clusterNodeId = completed.node.parentNodeId;
-    const createNextUnitTask = Effect.gen(function* () {
-      const userId = completed.run.userId;
-      if (!userId) {
-        yield* Effect.logError("Unit run has no learner id.", {
-          clusterNodeId,
-        });
-        return;
+  let progression:
+    | {
+        skillNodeId: string;
+        userId: string;
+        decision: ReturnType<typeof decideMasteryProgression>;
       }
-      const state = yield* deps.getMasteryState({
-        clusterNodeId,
-        userId,
-      });
-      // Legacy plans have no skill map; completeNode already ran list
-      // advancement for them, so there is nothing to create here.
-      if (!state) return;
+    | undefined;
+  if (
+    completed.node.kind === "unit" &&
+    completed.node.parentNodeId &&
+    completed.run.userId
+  ) {
+    const skillNodeId = completed.node.parentNodeId;
+    const userId = completed.run.userId;
+    const state = await Effect.runPromise(
+      deps.getProgressionState({ skillNodeId, userId }),
+    );
+    if (state) {
       const decision = decideMasteryProgression(state);
+      if (
+        decision.intent === "node_complete" &&
+        completed.parent?.kind === "ability"
+      ) {
+        const mission = await deps.getMissionStatus({
+          sessionId,
+          unitContentId: completed.run.unitId,
+          userId,
+        });
+        if (mission?.status !== "completed") {
+          if (!mission) {
+            return err("Mission context is unavailable.");
+          }
+          return ok({
+            advanced: false,
+            missionRequired: true,
+            unitRunId: mission.unitRunId,
+          });
+        }
+      }
+      progression = { skillNodeId, userId, decision };
+    }
+  }
+
+  let promoted: { node: CurriculumNode; hadContent: boolean } | null = null;
+  try {
+    promoted = await deps.withTransaction(async (tx) => {
+      const plan = await tx.getActivePlan(sessionId);
+      const node = plan?.nodes.find((item) => item.id === nodeId) ?? null;
+      const unit = node ? await tx.getUnitByNodeId(node.id) : null;
+      const run = unit ? await tx.getUnitRun(sessionId, unit.id) : null;
+      assertUnitCanAdvance({ node, run });
+      if (!node) throw new Error("Completed unit context is missing.");
+      if (node.status !== "completed") await tx.completeNode(nodeId);
+      const plannedSibling =
+        progression?.decision.intent === "create_unit"
+          ? (plan?.nodes.find(
+              (candidate) =>
+                candidate.kind === "unit" &&
+                candidate.parentNodeId === node.parentNodeId &&
+                candidate.orderIndex > node.orderIndex &&
+                candidate.status === "planned",
+            ) ?? null)
+          : null;
+      // Promote even when pre-generation hasn't landed content yet: a planned
+      // node left behind would be invisible to the ready-scoped fallback,
+      // which would then append a duplicate. Promoting it lets the fallback
+      // adopt it as the open ready unit and prepare its content.
+      if (plannedSibling) await tx.markNodeReady(plannedSibling.id);
+      const plannedContent = plannedSibling
+        ? await tx.getUnitByNodeId(plannedSibling.id)
+        : null;
+      await tx.touchSession(sessionId);
+      return plannedSibling
+        ? {
+            node: { ...plannedSibling, status: "ready" as const },
+            hadContent: plannedContent != null,
+          }
+        : null;
+    });
+  } catch (error) {
+    return err(error instanceof Error ? error.message : "Unit cannot advance.");
+  }
+  const nextReadyNode = promoted?.node ?? null;
+
+  if (progression) {
+    const { skillNodeId, userId, decision } = progression;
+    const promotedHadContent = promoted?.hadContent ?? false;
+    const createNextUnitTask = Effect.gen(function* () {
       if (decision.intent === "create_unit") {
+        // Fully prepared by pre-generation — nothing left to create. A
+        // promoted-but-contentless node still needs createUnit, which finds
+        // it as the open ready unit and generates its content.
+        if (promotedHadContent) return;
         yield* deps.createUnit({
-          clusterNodeId,
+          skillNodeId,
           sessionId,
           userId,
         });
-      } else if (decision.intent === "simulation") {
-        yield* deps.openSimulation(clusterNodeId);
+      } else {
+        // The parent skill/ability is mastered — advance the hierarchy.
+        yield* deps.advanceSkillMapNode({ skillNodeId, sessionId, userId });
       }
     }).pipe(
       Effect.retry({
@@ -134,7 +234,7 @@ export const advanceCompletedUnitWorkflow = async ({
       }),
       Effect.tapCause((cause) =>
         Effect.logError("unit creation failed permanently", {
-          clusterNodeId,
+          skillNodeId,
           cause,
         }),
       ),
@@ -142,7 +242,8 @@ export const advanceCompletedUnitWorkflow = async ({
 
     // Failures are already logged via tapCause; ignore them here so the
     // background runner never rejects.
-    const runUnitCreation = () => Effect.runPromise(Effect.ignore(createNextUnitTask));
+    const runUnitCreation = () =>
+      Effect.runPromise(Effect.ignore(createNextUnitTask));
     if (deps.scheduleBackgroundTask) {
       deps.scheduleBackgroundTask(runUnitCreation);
     } else {
@@ -150,5 +251,5 @@ export const advanceCompletedUnitWorkflow = async ({
     }
   }
 
-  return ok({ advanced: true, nextReadyNode: null });
+  return ok({ advanced: true, nextReadyNode });
 };

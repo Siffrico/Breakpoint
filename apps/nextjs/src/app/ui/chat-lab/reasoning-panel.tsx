@@ -125,6 +125,7 @@ export function ReasoningPanel({
   return (
     <div className="mb-4">
       <button
+        type="button"
         onClick={() => {
           setUserToggled(true);
           setOpen((v) => !v);

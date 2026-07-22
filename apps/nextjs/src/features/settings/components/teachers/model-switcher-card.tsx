@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+
+import type { AiModelPreference } from "@acme/validators";
 import {
   Select,
   SelectItem,
@@ -13,7 +15,6 @@ import {
   AiModelPreferenceSchema,
   DEFAULT_AI_MODEL,
 } from "@acme/validators";
-import type { AiModelPreference } from "@acme/validators";
 
 // Matches the cookie the onboarding and workspace chat routes read to route the
 // learner's turns. A year-long, lax cookie keeps the choice sticky per browser
@@ -48,12 +49,8 @@ export function ModelSwitcherCard() {
   };
 
   return (
-    <div className="border-border/50 bg-secondary rounded-xl border p-5">
+    <div className="border-border/50 bg-secondary rounded-lg border p-5">
       <div className="text-foreground text-[13.5px] font-medium">Model</div>
-      <div className="text-foreground/50 mt-0.5 text-[12px] leading-5">
-        Powers every teaching, onboarding, and grading turn. New turns use your
-        choice immediately.
-      </div>
 
       <Select
         items={AI_MODEL_OPTIONS}

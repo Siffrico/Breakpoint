@@ -1,6 +1,10 @@
 import { index, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
 
-import type { ScenarioDirective, SupportLevel } from "@acme/validators";
+import type {
+  DifficultyVector,
+  ScenarioDirective,
+  SupportLevel,
+} from "@acme/validators";
 
 import { user } from "../../auth-schema";
 import { TrainingCurriculumNode } from "./curriculum";
@@ -116,36 +120,6 @@ export const TrainingMisconception = pgTable(
   ],
 );
 
-export const TrainingRatingPrediction = pgTable(
-  "becoming_training_rating_prediction",
-  (t) => ({
-    id: t.uuid().notNull().primaryKey().defaultRandom(),
-    userId: t
-      .text()
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
-    nodeId: t
-      .uuid()
-      .notNull()
-      .references(() => TrainingCurriculumNode.id, { onDelete: "cascade" }),
-    ratingBefore: t.doublePrecision().notNull(),
-    ratingDeviationBefore: t.doublePrecision().notNull(),
-    ratingAfter: t.doublePrecision().notNull(),
-    ratingDeviationAfter: t.doublePrecision().notNull(),
-    itemRating: t.doublePrecision().notNull(),
-    predictedScore: t.doublePrecision().notNull(),
-    actualOutcome: t.doublePrecision().notNull(),
-    occurredAt: t.timestamp({ mode: "date", withTimezone: true }).notNull(),
-  }),
-  (table) => [
-    index("becoming_training_rating_prediction_user_node_time_idx").on(
-      table.userId,
-      table.nodeId,
-      table.occurredAt,
-    ),
-  ],
-);
-
 export const TrainingScenarioAttempt = pgTable(
   "becoming_training_scenario_attempt",
   (t) => ({
@@ -166,6 +140,7 @@ export const TrainingScenarioAttempt = pgTable(
       .$type<TrainingScenarioEvaluationContractJson | null>(),
     contractVersion: t.integer(),
     itemRating: t.doublePrecision().notNull(),
+    difficultyVectorJson: t.jsonb().$type<DifficultyVector | null>(),
     targetMisconceptionCode: t.varchar({ length: 160 }),
     supportLevel: t.varchar({ length: 32 }).notNull(),
     /** Present only for education-unit and recall attempts. */
@@ -192,6 +167,39 @@ export const TrainingScenarioAttempt = pgTable(
     uniqueIndex("becoming_training_scenario_attempt_run_turn_idx").on(
       table.unitRunId,
       table.originTurnId,
+    ),
+  ],
+);
+
+export const TrainingRatingPrediction = pgTable(
+  "becoming_training_rating_prediction",
+  (t) => ({
+    id: t.uuid().notNull().primaryKey().defaultRandom(),
+    userId: t
+      .text()
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    nodeId: t
+      .uuid()
+      .notNull()
+      .references(() => TrainingCurriculumNode.id, { onDelete: "cascade" }),
+    scenarioAttemptId: t
+      .uuid()
+      .references(() => TrainingScenarioAttempt.id, { onDelete: "set null" }),
+    ratingBefore: t.doublePrecision().notNull(),
+    ratingDeviationBefore: t.doublePrecision().notNull(),
+    ratingAfter: t.doublePrecision().notNull(),
+    ratingDeviationAfter: t.doublePrecision().notNull(),
+    itemRating: t.doublePrecision().notNull(),
+    predictedScore: t.doublePrecision().notNull(),
+    actualOutcome: t.doublePrecision().notNull(),
+    occurredAt: t.timestamp({ mode: "date", withTimezone: true }).notNull(),
+  }),
+  (table) => [
+    index("becoming_training_rating_prediction_user_node_time_idx").on(
+      table.userId,
+      table.nodeId,
+      table.occurredAt,
     ),
   ],
 );

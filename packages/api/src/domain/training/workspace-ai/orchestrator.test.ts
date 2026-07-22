@@ -13,7 +13,7 @@ const baseRun = {
   unitId: "unit-1",
   sessionId: "session-1",
   userId: "user-1",
-  recipeVersion: "education-unit-v1",
+  recipeVersion: "education-unit-v2",
   phase: "connect",
   pass: 1,
   connectGrills: 0,

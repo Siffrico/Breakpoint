@@ -120,6 +120,53 @@ describe("trainingOnboardingRepository.setInitialStartingPoint", () => {
   });
 });
 
+describe("trainingOnboardingRepository.upsertMessageByTurnRole", () => {
+  it("updates the canonical message instead of appending another row", async () => {
+    const existing = {
+      id: "message-id",
+      sessionId: "session-id",
+      role: "assistant",
+      content: "Old build status",
+      slot: "project_build_status",
+      unitId: null,
+      turnId: "onboarding-project-build-status",
+      metadata: null,
+      sequence: 7,
+      createdAt: new Date(),
+    };
+    const updated = { ...existing, content: "New build status" };
+    const findFirst = vi.fn(() => Promise.resolve(existing));
+    const returning = vi.fn(() => Promise.resolve([updated]));
+    const where = vi.fn(() => ({ returning }));
+    const set = vi.fn(() => ({ where }));
+    const update = vi.fn(() => ({ set }));
+    const insert = vi.fn();
+    const db = {
+      query: { TrainingOnboardingMessage: { findFirst } },
+      update,
+      insert,
+    } as unknown as Parameters<
+      typeof trainingOnboardingRepository.upsertMessageByTurnRole
+    >[0]["db"];
+
+    const result = await trainingOnboardingRepository.upsertMessageByTurnRole({
+      db,
+      sessionId: "session-id",
+      role: "assistant",
+      content: "New build status",
+      slot: "project_build_status",
+      turnId: "onboarding-project-build-status",
+    });
+
+    expect(result).toBe(updated);
+    expect(set).toHaveBeenCalledWith({
+      content: "New build status",
+      slot: "project_build_status",
+    });
+    expect(insert).not.toHaveBeenCalled();
+  });
+});
+
 describe("trainingOnboardingRepository.claimWorkspaceTurn", () => {
   const claimInput = {
     sessionId: "00000000-0000-0000-0000-000000000001",
@@ -131,6 +178,8 @@ describe("trainingOnboardingRepository.claimWorkspaceTurn", () => {
     unitId: "00000000-0000-0000-0000-000000000002",
   };
 
+  const turnCreatedAt = new Date("2026-07-01T10:00:00.000Z");
+
   const createClaimDb = (reclaimedRows: { id: string }[]) => {
     const returning = vi.fn(() => Promise.resolve(reclaimedRows));
     const where = vi.fn(() => ({ returning }));
@@ -140,6 +189,7 @@ describe("trainingOnboardingRepository.claimWorkspaceTurn", () => {
       Promise.resolve({
         id: "00000000-0000-0000-0000-000000000010",
         status: "processing",
+        createdAt: turnCreatedAt,
       }),
     );
     const db = {
@@ -167,7 +217,7 @@ describe("trainingOnboardingRepository.claimWorkspaceTurn", () => {
 
     await expect(
       trainingOnboardingRepository.claimWorkspaceTurn({ db, ...claimInput }),
-    ).resolves.toEqual({ status: "claimed" });
+    ).resolves.toEqual({ status: "claimed", claimedAt: turnCreatedAt });
     const leaseUpdate = set.mock.calls[0]?.[0];
     expect(leaseUpdate?.leaseId).toBe(claimInput.leaseId);
     expect(leaseUpdate?.leaseExpiresAt).toBeInstanceOf(Date);

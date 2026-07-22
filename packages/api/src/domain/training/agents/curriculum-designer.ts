@@ -1,60 +1,61 @@
 import type { ArtifactResumeOptions } from "../orchestration/agent-runtime";
 import type {
   CurriculumDesignerOutput,
-  OnboardingPacket,
+  LearnerBrief,
   OnboardingTranscript,
 } from "./contracts";
 import { runResilientAgent } from "../orchestration/agent-runtime";
-import { PROJECT_FIT_CONSULTANT_SYSTEM } from "../prompts/personas/project-fit-consultant";
-import { CurriculumDesignerOutputSchema } from "./contracts";
+import { NewCurriculumDesignerOutputSchema } from "./contracts";
 
-const CURRICULUM_DESIGNER_TRANSLATOR = `Translator mode:
-- The consultation is complete. Produce the identity report, before/after, and curriculum skill architecture only.
-- Decompose the target performance into 3-6 independent, load-bearing main skills.
-- Each skill is one workflow a practitioner repeatedly runs, not a topic, tool, chapter, or content category.
+const CURRICULUM_DESIGNER_SYSTEM = `You are a curriculum architect for an identity-driven training product. A project-fit consultation already happened; its brief and transcript arrive as your evidence. Your only job is to translate that evidence into the learner's identity report, before/after, and ability architecture.
+
+Architecture:
+- Decompose the target performance into 2-6 independent, load-bearing MAIN ABILITIES.
+- An ability is a whole performance a practitioner is visibly good or bad at (e.g. "architect backend systems under real constraints"), not a topic, tool, chapter, or content category.
 - Research real practitioner workflows, official guidance, postmortems, job evidence, and field norms when uncertainty exists.
 
-For each skill:
-- Give the workflow a concrete output-oriented name and 3-7 ordered reasoning/action steps.
+For each ability:
+- Give the integrated workflow a concrete output-oriented name and 3-7 ordered reasoning/action steps. This is the whole-task sequence skillset units will simulate.
 - Set bandRamp.startRating near the lowest scaffoldable whole-task performance and peakRating at genuine expert transfer under ambiguity.
-- Define a realistic simulation with a situation, required action/output, and externally checkable stakes.
-- Define a mastery contract as observable exit criteria for independent expert performance. Set maxRatingDeviation only when the skill needs a stability threshold different from the default 80.
-- Keep skills independent: mastering one must not require completing another skill's authored sequence first.
+- Define a mastery contract as observable exit criteria for independent expert performance. Set maxRatingDeviation only when the ability needs a stability threshold different from the default 80.
+- Decompose the ability into 3-8 component SKILLS, in dependency order (earliest = prerequisite for later ones).
+- Pick scenarioArchetype: the ONE Solve response mode for every unit under this ability. select = answer MCQs under near-miss distractors (pick when the target credential is itself selected-response: SAT, AP, cert MC sections). transform = produce the path or artifact that carries state A to state B (pick for building/making crafts: coding, writing, design, modeling). judge = evaluate given artifacts and justify the verdict from the causal mechanism (pick when the craft's core act is review, diagnosis, or choosing between defensible options). Reason briefly from how the ability is actually exercised in the learner's target, then commit — state that one sentence in scenarioArchetypeWhy.
+
+For each skill (the signal-moment test):
+- Map the ability's real workflow first, then keep ONLY the sparse decision moments where an expert and a novice visibly produce different outcomes. Each surviving moment is one skill. Routine activity where novice and expert converge is noise — cut it.
+- Give each skill its own micro-workflow: the cue the practitioner notices, the reasoning move, the action taken (3-7 steps).
+- Define each skill's mastery contract as observable exit criteria. Skills are criterion-mastered through foundation practice — no rating thresholds here.
+- Skills must partition the ability: performing all skills in workflow order IS performing the ability.
 
 Difficulty and pedagogy:
 - Difficulty rises through ambiguity, interacting constraints, fidelity, reduced support, atypicality, and edge cases.
 - Expertise is recurring situation -> reasoning -> action. Category names must be verb phrases with outputs.
-- Supportive information is introduced just in time inside whole-task practice.
 - Run the Video, Swap, MECE, Textbook, and Load-Bearing tests internally before emitting.
 
 Critical output constraint:
 - Do not enumerate, outline, title, or imply education units.
-- Units are created downstream from a search-grounded syllabus and current Goldilocks difficulty state.
-- Do not emit integration layers. Cross-skill integration belongs in later orchestration, not this skill map.
+- Units are created downstream from a search-grounded concept map and progression state.
+- Do not emit simulations or integration layers.
 
 Identity and before/after:
 - Name the baseline honestly from consultation evidence; confidence flags only where evidence is weak.
 - Contrast current and expert behavior in paired, observable, testable moments.
 
-Search policy:
-- Use web search whenever a factual claim, practitioner workflow, API/tool detail, or field norm is uncertain.
-- Do not guess when search can resolve uncertainty.`;
-
-const CURRICULUM_DESIGNER_SYSTEM = `${PROJECT_FIT_CONSULTANT_SYSTEM}
-
-${CURRICULUM_DESIGNER_TRANSLATOR}`;
+Factuality policy:
+- Do not guess about current practitioner workflows, APIs, tools, or field norms.
+- Keep external examples at the level supported by the learner's consultation; this step designs the curriculum architecture, while downstream concept mapping performs research grounding.`;
 
 export const designCurriculum = async ({
-  packet,
+  brief,
   transcript,
-  skills,
+  abilities,
   placementNote,
   options,
 }: {
-  packet: OnboardingPacket;
+  brief: LearnerBrief;
   transcript: OnboardingTranscript;
-  /** Learner-approved verb-first skill titles to prefer as cluster titles. */
-  skills?: string[];
+  /** Learner-approved verb-first whole-performance titles. */
+  abilities?: string[];
   /** One-line note on where to place the learner in the band ladder. */
   placementNote?: string | null;
   options?: ArtifactResumeOptions<CurriculumDesignerOutput>;
@@ -62,36 +63,32 @@ export const designCurriculum = async ({
   runResilientAgent({
     agent: "curriculumDesigner",
     system: CURRICULUM_DESIGNER_SYSTEM,
-    schema: CurriculumDesignerOutputSchema,
+    schema: NewCurriculumDesignerOutputSchema,
     errorMessage: "Failed to generate the curriculum architecture.",
     onPartial: options?.onPartial,
     seedPartial: options?.seedPartial,
     prompt: `Design the learner's identity report, before/after, and independent skill map for the project chosen in consultation.
 ${
-  skills && skills.length > 0
+  abilities && abilities.length > 0
     ? `
-Learner-approved skills — keep these as the cluster titles unless the transcript clearly contradicts them:
-${skills.map((skill) => `- ${skill}`).join("\n")}
+Learner-approved abilities — keep these as the ability titles unless the transcript clearly contradicts them:
+${abilities.map((ability) => `- ${ability}`).join("\n")}
 `
     : ""
 }${placementNote ? `${placementNote}\n` : ""}
-Packet:
-${formatOnboardingPacket(packet)}
+Brief:
+${formatLearnerBrief(brief)}
 
 Transcript:
 ${formatOnboardingTranscript(transcript)}`,
   });
 
-const formatOnboardingPacket = (packet: OnboardingPacket): string =>
-  `Target identity: ${packet.targetIdentity}
-Motivation: ${packet.motivation}
-Current baseline: ${packet.currentBaseline}
-Hard moments: ${packet.hardMoments.join("; ")}
-Constraints: ${packet.constraints.join("; ") || "None provided"}
-Proof of progress: ${packet.proofOfProgress}
-Identity friction: ${packet.identityFriction}
-Behavior signals: ${packet.behaviorSignals.join("; ")}
-Confidence flags: ${packet.confidenceFlags.join("; ") || "None provided"}`;
+// The brief is the distilled steering signal; baseline evidence, constraints,
+// and everything situational still arrive via the transcript below it.
+const formatLearnerBrief = (brief: LearnerBrief): string =>
+  `What they want to learn: ${brief.whatToLearn}
+What they want to make: ${brief.whatToMake}
+Interests: ${brief.interests.join("; ") || "None provided"}`;
 
 const formatOnboardingTranscript = (messages: OnboardingTranscript): string =>
   messages

@@ -9,6 +9,7 @@ import {
   TrainingWorkspaceTurn,
 } from "@acme/db/schema";
 
+import type { CreateProjectInput } from "../domain/training/orchestration/build-project";
 import type {
   IdentityReport,
   OnboardingQuestion,
@@ -33,6 +34,7 @@ interface OnboardingMessageInsert {
   metadata?: {
     difficultyDirectiveReason?: string;
     hiddenFromTranscript?: boolean;
+    projectProposal?: CreateProjectInput;
   } | null;
 }
 
@@ -215,6 +217,56 @@ export const trainingOnboardingRepository = {
     return message ?? null;
   },
 
+  upsertMessageByTurnRole: async ({
+    db,
+    sessionId,
+    role,
+    content,
+    slot,
+    turnId,
+    metadata,
+  }: {
+    db: Database;
+    sessionId: string;
+    role: "assistant" | "user";
+    content: string;
+    slot: string | null;
+    turnId: string;
+    metadata?: OnboardingMessageInsert["metadata"];
+  }) => {
+    const existing = await getMessageByTurnRole({
+      db,
+      sessionId,
+      turnId,
+      role,
+    });
+    if (existing) {
+      const [updated] = await db
+        .update(TrainingOnboardingMessage)
+        .set({
+          content,
+          slot,
+          ...(metadata !== undefined ? { metadata } : {}),
+        })
+        .where(eq(TrainingOnboardingMessage.id, existing.id))
+        .returning();
+      return updated ?? existing;
+    }
+
+    const inserted = await insertMessageWithNextSequence({
+      db,
+      input: { sessionId, role, content, slot, turnId, metadata },
+    });
+    if (!inserted || inserted.content === content) return inserted;
+
+    const [updated] = await db
+      .update(TrainingOnboardingMessage)
+      .set({ content, slot })
+      .where(eq(TrainingOnboardingMessage.id, inserted.id))
+      .returning();
+    return updated ?? inserted;
+  },
+
   appendWorkspaceMessage: async ({
     db,
     sessionId,
@@ -284,7 +336,10 @@ export const trainingOnboardingRepository = {
     turnId: string;
     leaseId: string;
   }): Promise<
-    | { status: "claimed" }
+    // claimedAt is the turn row's original createdAt: lease reclaims and
+    // failed-turn retries update the row without touching it, so it is the
+    // first arrival of this turnId — the server-authoritative submission time.
+    | { status: "claimed"; claimedAt: Date }
     | { status: "processing" }
     | {
         status: "completed";
@@ -339,7 +394,9 @@ export const trainingOnboardingRepository = {
         )
         .returning({ id: TrainingWorkspaceTurn.id });
 
-      return reclaimedTurn ? { status: "claimed" } : { status: "processing" };
+      return reclaimedTurn
+        ? { status: "claimed", claimedAt: existingTurn.createdAt }
+        : { status: "processing" };
     }
 
     if (existingTurn?.status === "failed") {
@@ -362,22 +419,27 @@ export const trainingOnboardingRepository = {
           ),
         )
         .returning({ id: TrainingWorkspaceTurn.id });
-      return retriedTurn ? { status: "claimed" } : { status: "processing" };
+      return retriedTurn
+        ? { status: "claimed", claimedAt: existingTurn.createdAt }
+        : { status: "processing" };
     }
 
     try {
-      await db.insert(TrainingWorkspaceTurn).values({
-        sessionId,
-        turnId,
-        action,
-        slot,
-        unitId,
-        inputContent: content,
-        status: "processing",
-        leaseId,
-        leaseExpiresAt,
-      });
-      return { status: "claimed" };
+      const [insertedTurn] = await db
+        .insert(TrainingWorkspaceTurn)
+        .values({
+          sessionId,
+          turnId,
+          action,
+          slot,
+          unitId,
+          inputContent: content,
+          status: "processing",
+          leaseId,
+          leaseExpiresAt,
+        })
+        .returning({ createdAt: TrainingWorkspaceTurn.createdAt });
+      return { status: "claimed", claimedAt: insertedTurn?.createdAt ?? now };
     } catch (error) {
       if (!isUniqueViolation(error)) {
         throw error;
@@ -612,29 +674,6 @@ export const trainingOnboardingRepository = {
       }));
   },
 
-  listWorkspaceMessages: async ({
-    db,
-    sessionId,
-    slot,
-  }: {
-    db: Database;
-    sessionId: string;
-    slot?: string | null;
-  }) => {
-    const messages = await db.query.TrainingOnboardingMessage.findMany({
-      where:
-        slot == null
-          ? eq(TrainingOnboardingMessage.sessionId, sessionId)
-          : and(
-              eq(TrainingOnboardingMessage.sessionId, sessionId),
-              eq(TrainingOnboardingMessage.slot, slot),
-            ),
-      orderBy: asc(TrainingOnboardingMessage.sequence),
-    });
-
-    return messages.map(mapWorkspaceMessage).filter(isTranscriptVisibleMessage);
-  },
-
   listChatUnitIdsBySessionIds: async ({
     db,
     sessionIds,
@@ -710,11 +749,18 @@ export const trainingOnboardingRepository = {
     db: Database;
     sessionId: string;
   }): Promise<OnboardingSessionState | null> => {
-    const [session, transcript, projectBuildRun] = await Promise.all([
-      trainingOnboardingRepository.getSession({ db, sessionId }),
-      trainingOnboardingRepository.listMessages({ db, sessionId }),
-      buildProjectCheckpointRepository.getRun({ db, sessionId }),
-    ]);
+    const [session, transcript, projectBuildRun, proposalMessage] =
+      await Promise.all([
+        trainingOnboardingRepository.getSession({ db, sessionId }),
+        trainingOnboardingRepository.listMessages({ db, sessionId }),
+        buildProjectCheckpointRepository.getRun({ db, sessionId }),
+        getMessageByTurnRole({
+          db,
+          sessionId,
+          turnId: "onboarding-project-proposal",
+          role: "assistant",
+        }),
+      ]);
 
     if (!session) {
       return null;
@@ -750,6 +796,12 @@ export const trainingOnboardingRepository = {
       transcript,
       activeQuestion,
       projectBuild: projectBuildRun?.state ?? null,
+      pendingProjectProposal:
+        projectBuildRun == null &&
+        proposalMessage?.sequence === transcript.at(-1)?.sequence
+          ? ((proposalMessage?.metadata as OnboardingMessageInsert["metadata"])
+              ?.projectProposal ?? null)
+          : null,
     };
   },
 

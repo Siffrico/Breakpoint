@@ -7,9 +7,10 @@ import { getSession } from "~/auth/server";
 import { WorkspaceShell } from "~/features/training/components/workspace-shell";
 import {
   getChatHistory,
-  getWorkspaceBootstrap,
+  getWorkspaceShell,
 } from "~/features/training/server/training-queries";
 import { TRPCReactProvider } from "~/trpc/react";
+import { HydrateClient, prefetch, trpc } from "~/trpc/server";
 
 export const metadata: Metadata = {
   title: "Workspace",
@@ -42,25 +43,23 @@ export default async function WorkspacePage(props: {
     redirect("/");
   }
 
-  const bootstrap = await getWorkspaceBootstrap({
+  const shell = await getWorkspaceShell({
     sessionId: asSessionCandidate(session),
     cookieSessionId: asSessionCandidate(
       cookieStore.get(LAST_SESSION_COOKIE)?.value,
     ),
   });
-  if (bootstrap.kind === "needs-onboarding") {
+  if (shell.kind === "needs-onboarding") {
     redirect("/onboarding");
   }
-  if (bootstrap.kind === "onboarding") {
+  if (shell.kind === "onboarding") {
     return (
       <TRPCReactProvider>
         <WorkspaceShell
-          workspace={null}
           plan={null}
-          unit={null}
-          onboardingState={bootstrap.onboardingState}
-          projects={bootstrap.projects}
-          sessionId={bootstrap.sessionId}
+          onboardingState={shell.onboardingState}
+          projects={shell.projects}
+          sessionId={shell.sessionId}
           userName={authSession.user.name}
         />
       </TRPCReactProvider>
@@ -69,28 +68,47 @@ export default async function WorkspacePage(props: {
 
   // A `chat` param that points at anything other than the live node opens that
   // chat's read-only transcript. The live node (or a bad id) falls through to
-  // the normal workspace so the plain URL stays the single live view.
+  // the normal workspace so the plain URL stays the single live view. During a
+  // recall interlude the live node differs from nextUnitId; the client detects
+  // that from aiWorkspace and swaps the transcript back to the live view.
   const chatHistory =
-    chat && chat !== bootstrap.activeNodeId
+    chat && chat !== shell.plan.nextUnitId
       ? await getChatHistory({
           nodeId: chat,
-          sessionId: bootstrap.sessionId,
+          sessionId: shell.sessionId,
         }).catch(() => null)
       : null;
 
+  // History views render a static transcript: the unit query stays disabled
+  // client-side and aiWorkspace loads lazily only to classify the live node,
+  // so prefetching either here would block-free but wastefully re-read the
+  // heaviest projections on every transcript visit.
+  if (!chatHistory) {
+    prefetch(
+      trpc.training.aiWorkspace.queryOptions({ sessionId: shell.sessionId }),
+    );
+    if (shell.plan.nextUnitId) {
+      prefetch(
+        trpc.training.unit.queryOptions({
+          sessionId: shell.sessionId,
+          nodeId: shell.plan.nextUnitId,
+        }),
+      );
+    }
+  }
+
   return (
     <TRPCReactProvider>
-      <WorkspaceShell
-        workspace={bootstrap.workspace}
-        plan={bootstrap.plan}
-        unit={chatHistory ? null : bootstrap.unit}
-        onboardingState={null}
-        aiWorkspace={chatHistory ? null : bootstrap.aiWorkspace}
-        projects={bootstrap.projects}
-        sessionId={bootstrap.sessionId}
-        chatHistory={chatHistory}
-        initialActiveNodeId={bootstrap.activeNodeId}
-      />
+      <HydrateClient>
+        <WorkspaceShell
+          plan={shell.plan}
+          onboardingState={null}
+          projects={shell.projects}
+          sessionId={shell.sessionId}
+          chatHistory={chatHistory}
+          userName={authSession.user.name}
+        />
+      </HydrateClient>
     </TRPCReactProvider>
   );
 }

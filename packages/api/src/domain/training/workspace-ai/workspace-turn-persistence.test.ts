@@ -59,7 +59,7 @@ const state = {
   mode: "education_unit",
   promptKind: "education_unit",
   educationStage: "solve",
-  workflowId: "education-unit-v1",
+  workflowId: "education-unit-v2",
   activeUnitId: "node-1",
   activeUnitTitle: "Diagnose workflow failure",
   recallUnitId: null,
@@ -71,7 +71,7 @@ const masteredTurn: UnitTurnResult = {
   event: { type: "solution_graded", passed: true, score: 90, errorCodes: [] },
   nextState: {
     unitId: "unit-content-1",
-    recipeVersion: "education-unit-v1",
+    recipeVersion: "education-unit-v2",
     phase: "mastered",
     pass: 2,
     connectGrills: 0,
@@ -80,7 +80,7 @@ const masteredTurn: UnitTurnResult = {
   forcedConnectAdvance: false,
   gradeReasoning: "Correct and clearly reasoned.",
   ratingWrite: { score: 90, errorCodes: [] },
-  syllabusCheckOff: null,
+  knowledgeCheckOff: null,
   scenarioSpec: null,
 };
 
@@ -120,13 +120,14 @@ void test("saveUnitPhaseResult persists transitions and non-grading continuation
 
   const deps = {
     getPhaseResponses: () => Promise.resolve([]),
-    listPhaseResponsesBySession: () => Promise.resolve([]),
     listUnitMessages: () => Promise.resolve([]),
     getUnitRun: () => Promise.resolve(null),
     getInFlightRecallRun: () => Promise.resolve(null),
     upsertUnitRun: legacyDirectRunWrite,
     getUnitByNodeId: () => Promise.resolve(unit),
-    listRecallCandidates: () => Promise.resolve([]),
+    getRecallCandidatesByIds: () => Promise.resolve([]),
+    getMostOverdueRecallCandidate: () => Promise.resolve(null),
+    getRecallCompanionCandidate: () => Promise.resolve(null),
     commitEducationTurn,
     appendMessage: () => Promise.resolve(null),
   } as unknown as WorkspaceTurnPersistenceDependencies;
@@ -217,7 +218,7 @@ void test("saveUnitPhaseResult persists transitions and non-grading continuation
     event: { type: "phase_continues", reason: "prompted" },
     nextState: {
       unitId: "unit-content-1",
-      recipeVersion: "education-unit-v1",
+      recipeVersion: "education-unit-v2",
       phase: "connect",
       pass: 1,
       connectGrills: 0,
@@ -226,7 +227,7 @@ void test("saveUnitPhaseResult persists transitions and non-grading continuation
     forcedConnectAdvance: false,
     gradeReasoning: null,
     ratingWrite: null,
-    syllabusCheckOff: null,
+    knowledgeCheckOff: null,
     scenarioSpec: null,
   };
 
@@ -330,4 +331,32 @@ void test("saveUnitPhaseResult persists transitions and non-grading continuation
     difficultySnapshot,
   );
   assert.equal(teachProbeCommit.nextRun.scenarioSpec?.pass, 2);
+
+  captured = null;
+  await runSave({
+    sessionId: "session-1",
+    userId: "user-1",
+    message: "Present the foundation transfer scenario.",
+    state,
+    unit,
+    plan,
+    turnResult: {
+      ...continuationTurn,
+      nextState: { ...continuationTurn.nextState, pass: 2 },
+    },
+    ratingEvaluation: null,
+    difficultySnapshot,
+    scenarioAttemptId: null,
+    writesRating: false,
+    persistUserMessage: true,
+    phaseResponseSequence: 7,
+    turnId: "turn-5",
+    turnLeaseId: "lease-5",
+    deps,
+  });
+
+  assert.ok(captured);
+  const foundationCommit = captured as unknown as WorkspaceEducationTurnCommit;
+  assert.equal(foundationCommit.scenarioPresentation, null);
+  assert.equal(foundationCommit.solvePresentation, null);
 });

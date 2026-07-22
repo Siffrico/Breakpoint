@@ -18,18 +18,12 @@ import type { PhaseAgentResult } from "./agents/run-phase-agent";
 import type { ScenarioSpecRecord } from "./scenario-spec";
 import type { UnitEvent, UnitRecipe, UnitState } from "./unit";
 import { toUnitEvent } from "../workspace-ai/fsm-tools";
-import { CheckOffSyllabusInputSchema } from "./agents/check-off-syllabus.tool";
-import { runConnectAgent } from "./agents/connect-agent";
-import { runEvalAgent } from "./agents/eval-agent";
-import { runOrientAgent } from "./agents/orient-agent";
+import { CheckOffSyllabusInputSchema } from "./agents/check-off-knowledge.tool";
+import { runEvaluatorAgent } from "./agents/evaluator-agent";
 import { PhaseAgentOutputSchema } from "./agents/output-schema";
-import { runSolveAgent } from "./agents/solve-agent";
+import { runScenarioAgent } from "./agents/scenario-agent";
 import { runTeachAgent } from "./agents/teach-agent";
-import {
-  shouldTeachMissedConnection,
-  transition,
-  writesGoldilocks,
-} from "./fsm";
+import { transition, writesGoldilocks } from "./fsm";
 import { ScenarioSpecSchema } from "./scenario-spec";
 
 // A turn that cannot be interpreted because its output violates the current
@@ -78,7 +72,7 @@ export interface UnitTurnResult {
    * exactly-once guard before feeding this score to Goldilocks.
    */
   ratingWrite: { score: number; errorCodes: readonly string[] } | null;
-  syllabusCheckOff: { entryIds: string[]; evidence: string } | null;
+  knowledgeCheckOff: { knowledgeIds: string[]; evidence: string } | null;
   /**
    * The ScenarioSpec the posing agent reverse-engineered this turn, stamped
    * with the pass it was recorded on. Null on every turn that doesn't record
@@ -91,6 +85,7 @@ export interface UnitTurnResult {
 export type UnitPhaseRunner = (
   state: UnitState,
   messages: ModelMessage[],
+  contextBlock: string,
   onPartialAssistantMessage?: (content: string) => void,
 ) => Effect.Effect<
   PhaseAgentResult<PhaseAgentOutput>,
@@ -104,23 +99,39 @@ export interface UnitTurnDependencies {
 const runPhaseForState: UnitPhaseRunner = (
   state: UnitState,
   messages: ModelMessage[],
+  contextBlock: string,
   onPartialAssistantMessage,
 ) => {
   switch (state.phase) {
     case "orient":
-      return runOrientAgent(messages, onPartialAssistantMessage);
+      return runTeachAgent(
+        "orient",
+        messages,
+        contextBlock,
+        onPartialAssistantMessage,
+      );
     case "connect":
-      return runConnectAgent(messages, onPartialAssistantMessage);
+      return runScenarioAgent(
+        messages,
+        contextBlock,
+        onPartialAssistantMessage,
+      );
     case "solve":
-      // Pass 1's Solve is graded inline by the scenario/solve agent (formative,
-      // no rating). Pass 2 — the transfer pass — is the only scored moment, so
-      // it is handed to the dedicated eval agent, whose gradeSolution score is
-      // the one Goldilocks consumes (see writesGoldilocks / ratingWrite).
-      return state.pass === 2
-        ? runEvalAgent(messages, onPartialAssistantMessage)
-        : runSolveAgent(messages, onPartialAssistantMessage);
+      // Every round's Solve is graded by the one evaluator; whether the score
+      // reaches Goldilocks is the recipe's call (writesGoldilocks / ratingWrite),
+      // never the agent's.
+      return runEvaluatorAgent(
+        messages,
+        contextBlock,
+        onPartialAssistantMessage,
+      );
     case "teach":
-      return runTeachAgent(messages, onPartialAssistantMessage);
+      return runTeachAgent(
+        "seam",
+        messages,
+        contextBlock,
+        onPartialAssistantMessage,
+      );
     case "mastered":
       return Effect.fail(
         new EducationUnitContractError({
@@ -175,7 +186,7 @@ const resolveEvent = (
       return Effect.fail(
         new EducationUnitContractError({
           message:
-            "The teach agent must record exactly one pass-2 ScenarioSpec.",
+            "The teach agent must record exactly one evolved ScenarioSpec.",
         }),
       );
     }
@@ -265,14 +276,12 @@ export const runUnitTurn = (
       );
     }
 
-    const messages: ModelMessage[] = [
-      { role: "user", content: contextBlock },
-      ...transcript,
-    ];
+    const messages: ModelMessage[] = [...transcript];
 
     const result = yield* dependencies.runPhase(
       state,
       messages,
+      contextBlock,
       input.onPartialAssistantMessage,
     );
     const parsedOutput = PhaseAgentOutputSchema.safeParse(result.object);
@@ -288,29 +297,31 @@ export const runUnitTurn = (
       result,
       recipe.grade,
     );
-    const scenarioPass = state.phase === "teach" ? 2 : state.pass;
+    // A seam teach records the NEXT round's evolved spec; every other recorder
+    // (connect posing, recall's opening solve) records the current round's.
+    const scenarioPass =
+      state.phase === "teach"
+        ? ((Math.min(state.pass + 1, 3) as UnitState["pass"]))
+        : state.pass;
     const storedSpec = input.storedScenarioSpec ?? null;
     const emittedSpec = readScenarioSpec(result, scenarioPass);
-    // The target skill is the cross-pass invariant. Teach chooses a new
-    // surface, but the durable pass-1 spec—not model wording—owns its identity.
+    // The target skill is the cross-round invariant. Teach evolves the world,
+    // but the durable opening spec—not model wording—owns the skill's identity.
     const recordedSpec =
       state.phase === "teach" && emittedSpec && storedSpec
         ? { ...emittedSpec, targetSkill: storedSpec.targetSkill }
         : emittedSpec;
 
     if (state.phase === "teach") {
-      if (!recordedSpec || !storedSpec || (storedSpec.pass ?? 1) !== 1) {
+      // Evolution requires a world to evolve: the just-finished round's spec
+      // must be stored, and one valid evolved spec must be recorded. The same
+      // surface/world is expected — evolution, not replacement — so there is
+      // deliberately no new-surface check here.
+      if (!recordedSpec || !storedSpec || (storedSpec.pass ?? 1) !== state.pass) {
         return yield* Effect.fail(
           new EducationUnitContractError({
             message:
-              "Teach requires the pass-1 ScenarioSpec and must record one valid pass-2 ScenarioSpec.",
-          }),
-        );
-      }
-      if (recordedSpec.surface === storedSpec.surface) {
-        return yield* Effect.fail(
-          new EducationUnitContractError({
-            message: "Teach's pass-2 probe must use a new surface.",
+              "Teach requires the finished round's ScenarioSpec and must record one valid evolved ScenarioSpec.",
           }),
         );
       }
@@ -318,21 +329,26 @@ export const runUnitTurn = (
 
     // A "prompted" continue is the turn that presents a task. Two invariants
     // hang off that moment, enforced the same way a scored Solve verdict is —
-    // failing loudly instead of silently degrading a later pass:
-    //   - Connect posing a scenario MUST record its ScenarioSpec: pass 1's is
-    //     pass 2's transfer constraint, pass 2's is the eval answer key.
-    //   - A pass-2 Solve MUST have a pass-2 grading spec (recorded this turn
-    //     on recall, or already stored by pass-2 Connect) — otherwise the eval
-    //     agent would grade against the wrong scenario's canonical answer.
+    // failing loudly instead of silently degrading a later round:
+    //   - Connect posing a scenario MUST record its ScenarioSpec: it is the
+    //     round's answer key and the next round's evolution substrate.
+    //   - A Solve MUST have the current round's grading spec (recorded this
+    //     turn on recall, or already stored by Connect/Teach) — otherwise the
+    //     evaluator would grade against the wrong round's canonical answer.
     const posesTask =
       event.type === "phase_continues" && event.reason === "prompted";
-    const hasActiveTeachProbe =
-      state.phase === "connect" && state.pass === 2 && storedSpec?.pass === 2;
-    if (hasActiveTeachProbe && (posesTask || recordedSpec)) {
+    // On every round — including round one, where Connect itself recorded the
+    // spec while posing — a stored current-round spec means the scenario is
+    // live: later connect turns grade it, never replace it.
+    const hasActiveScenario =
+      state.phase === "connect" &&
+      storedSpec != null &&
+      (storedSpec.pass ?? 1) === state.pass;
+    if (hasActiveScenario && (posesTask || recordedSpec)) {
       return yield* Effect.fail(
         new EducationUnitContractError({
           message:
-            "Pass-2 Connect must grade the active Teach probe instead of replacing it.",
+            "Connect must grade the active scenario instead of replacing it.",
         }),
       );
     }
@@ -345,32 +361,26 @@ export const runUnitTurn = (
       );
     }
     const gradingSpec =
-      recordedSpec ?? (storedSpec?.pass === 2 ? storedSpec : null);
-    if (
-      state.phase === "solve" &&
-      state.pass === 2 &&
-      posesTask &&
-      !gradingSpec
-    ) {
+      recordedSpec ??
+      ((storedSpec?.pass ?? 1) === state.pass ? storedSpec : null);
+    if (state.phase === "solve" && posesTask && !gradingSpec) {
       return yield* Effect.fail(
         new EducationUnitContractError({
           message:
-            "A pass-2 Solve was presented without a pass-2 ScenarioSpec to grade against.",
+            "A Solve was presented without the current round's ScenarioSpec to grade against.",
         }),
       );
     }
 
-    // Capture the force-advance signal BEFORE transition wipes connectGrills.
-    const forcedConnectAdvance =
-      event.type === "connection_graded" &&
-      shouldTeachMissedConnection(state, event, recipe.policy);
+    const forcedConnectAdvance = false;
 
-    const nextState = transition(state, event, recipe.policy);
+    const nextState = transition(state, event, recipe);
 
     // The rating evidence IS the event: toUnitEvent already validated the
-    // score and error codes, so a scored pass-2 Solve can never lack evidence.
+    // score and error codes, so a scored write-round Solve can never lack evidence.
     const ratingWrite =
-      writesGoldilocks(state, event) && event.type === "solution_graded"
+      writesGoldilocks(state, event, recipe) &&
+      event.type === "solution_graded"
         ? { score: event.score, errorCodes: event.errorCodes }
         : null;
     const checkOffCall = result.toolCalls.find(
@@ -379,9 +389,9 @@ export const runUnitTurn = (
     const parsedCheckOff = CheckOffSyllabusInputSchema.safeParse(
       checkOffCall?.input,
     );
-    const syllabusCheckOff =
+    const knowledgeCheckOff =
       state.phase === "solve" &&
-      state.pass === 2 &&
+      state.pass === recipe.passes &&
       event.type === "solution_graded" &&
       event.passed &&
       parsedCheckOff.success
@@ -395,7 +405,7 @@ export const runUnitTurn = (
       forcedConnectAdvance,
       gradeReasoning: reasoning,
       ratingWrite,
-      syllabusCheckOff,
+      knowledgeCheckOff,
       scenarioSpec: recordedSpec,
     };
   });

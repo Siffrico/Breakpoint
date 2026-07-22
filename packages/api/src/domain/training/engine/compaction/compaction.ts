@@ -34,7 +34,7 @@ const clampMessage = <T extends BoundableMessage>(
  * Bound a single unit's transcript for a model call: middle-truncate any one
  * oversized message, then drop whole oldest messages if the total still blows
  * the char budget. A safety net against a marathon answer, not a summariser —
- * cross-unit memory is carried structurally (ratings, syllabus, recall).
+ * cross-unit memory is carried structurally (ratings, knowledge, recall).
  */
 export const boundTranscript = <T extends BoundableMessage>(
   messages: T[],

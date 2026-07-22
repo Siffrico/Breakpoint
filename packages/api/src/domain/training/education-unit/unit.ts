@@ -1,16 +1,23 @@
 // education-unit/unit.ts
 //
 // What an education unit IS. Edit this file (or register a new recipe) to change
-// how a unit runs — pass count, teach beats, loop limits, the pass/fail bar,
+// how a unit runs — round count, teach beats, loop limits, the pass/fail bar,
 // the Goldilocks wiring. The runtime never hard-codes the shape; it reads it
 // from a recipe so units stay modular and changeable.
 //
-// A unit = two passes of connect -> solve, with a teach at each seam:
+// A v2 unit = one evolving scenario across three rounds of connect -> solve,
+// with a teach/feedback seam between rounds:
 //
-//   [orient teach] -> connect -> solve -> [concept teach] -> connect -> solve -> mastered
-//        pass:           1         1                            2         2
+//   [orient teach] -> connect -> solve -> [teach] -> connect -> solve -> [teach] -> connect -> solve -> mastered
+//        round:          1         1                    2         2                    3         3
 //
-// Pass 1 READS difficulty from Goldilocks. Pass 2 READS and WRITES it.
+// The scenario is authored once (backwards, from the mechanism) and EVOLVES at
+// each seam — same world, escalating friction; the final round mutates it for
+// transfer. Connect and Solve loop until the learner succeeds: the learner is
+// helped, never failed out. Every round reads difficulty; whether any round
+// writes the rating is decided by the Goldilocks wiring (skillset units write
+// on the final round; foundation units never write — they are criterion-
+// referenced through concept coverage).
 
 import type {
   UnitDifficultySnapshot,
@@ -32,13 +39,13 @@ export type { UnitDifficultySnapshot };
  */
 export type UnitPhase =
   | "orient" // teach: activate prior knowledge + set stakes — NEVER reveal the mechanism
-  | "connect" // pose scenario / grill until the learner reconstructs the core idea
-  | "solve" // frame the solution, repair until it is correct and clear
-  | "teach" // concept teach, post-struggle, between the two passes
+  | "connect" // pose/evolve the scenario, grill until the learner reconstructs the core idea
+  | "solve" // frame the solution, repair until it is correct and clear (feedback rides here)
+  | "teach" // worked-example teach at the seam between rounds; evolves the scenario
   | "mastered"; // terminal
 
-/** Both passes share one calibrated difficulty; pass 2 supplies rating evidence. */
-export type PassIndex = 1 | 2;
+/** Which round of the evolving scenario the learner is on. */
+export type PassIndex = 1 | 2 | 3;
 
 /**
  * The things that can happen in a state. Lives here (not in fsm.ts) so that
@@ -47,7 +54,7 @@ export type PassIndex = 1 | 2;
  * fsm.ts imports this and owns the only code that actually applies one.
  */
 export type UnitEvent =
-  | { type: "teach_done" } // an Orient or Concept teach finished
+  | { type: "teach_done" } // an Orient or seam teach finished
   | {
       type: "phase_continues";
       reason: "prompted" | "needs_more_work";
@@ -72,8 +79,15 @@ export interface UnitState {
   recipeVersion: string; // pins the recipe this run started on
   phase: UnitPhase;
   pass: PassIndex;
-  connectGrills: number; // failed connect attempts in the current pass; reset on phase change
-  solveRepairs: number; // failed solve attempts in the current pass; reset on phase change
+  connectGrills: number; // failed connect attempts in the current round; reset on phase change
+  solveRepairs: number; // failed solve attempts in the current round; reset on phase change
+  /**
+   * Explicit one-shot help marker for the v2 connect loop: armed when a failed
+   * grade spends the grill budget (the NEXT connect turn must teach the missed
+   * idea and re-pose), consumed — together with the grill counter — by that
+   * turn's event. Optional so rows and fixtures that predate it read as false.
+   */
+  connectTeachDue?: boolean;
 }
 
 /**
@@ -85,24 +99,25 @@ export interface UnitState {
 export type PersistedUnitRun = UnitState & {
   sessionId: string;
   userId: string | null;
-  /** Set once by the first committed turn and reused for both passes. */
+  /** Set once by the first committed turn and reused across all rounds. */
   difficultySnapshot: UnitDifficultySnapshot | null;
   /**
-   * The active ScenarioSpec, tagged with the pass it was recorded on.
-   * Replaceable — pass 1's spec is stored, then pass 2 overwrites it after
-   * reading pass 1's as its "new surface" constraint. The pass tag is what
-   * stops pass 2's own spec from being re-rendered as a "do not reuse this
-   * surface" constraint against itself (see context.ts).
+   * The active ScenarioSpec, tagged with the round it was recorded on.
+   * Replaceable — each seam teach records the EVOLVED spec for the next round
+   * (same world, escalated friction), overwriting the prior round's. The pass
+   * tag is what stops the current round's own spec from being re-rendered as
+   * an evolution constraint against itself (see context.ts).
    */
   scenarioSpec: UnitScenarioSpecRecord | null;
 };
 
 /**
- * Loop limits — without these, a stuck learner loops forever. Tunable per unit
- * because they live in the recipe, not the engine.
+ * Loop limits. In v2 these no longer force the learner forward — they decide
+ * when help escalates (teach the missed idea / micro-teach) while the phase
+ * keeps looping until the learner genuinely gets it.
  */
 export interface LoopPolicy {
-  maxGrillsBeforeTeach: number; // connect: after N failed grills, teach the missing idea, then advance
+  maxGrillsBeforeTeach: number; // connect: after N failed grills, teach the missing idea
   maxRepairsBeforeMicroTeach: number; // solve: after N failed repairs, micro-teach, then retry
 }
 
@@ -114,7 +129,7 @@ export interface LoopPolicy {
 export interface GradeThreshold {
   passAt: number; // e.g. 80
   /**
-   * Time budget for the pass-2 transfer solve, measured from the persisted
+   * Time budget for the final-round transfer solve, measured from the persisted
    * solvePresentedAt stamp. Exceeding it marks the attempt wasOverTime, which
    * Goldilocks discounts (see engine/rating/evidence.ts overTimeDiscount).
    */
@@ -126,8 +141,15 @@ export interface GradeThreshold {
  * modified here — we only hold the ports into it.
  */
 export interface GoldilocksWiring {
-  scope: RatingScope; // resolved cluster node + difficulty bands
-  writeOnPass: PassIndex; // 2 — only the second pass updates the rating
+  scope: RatingScope; // resolved ability node + difficulty bands
+  writeOnPass: PassIndex; // only the final round's scored solve updates the rating
+  /**
+   * The two-regime switch. Skillset units (parent = ability) write the ability
+   * ELO; foundation units (parent = skill) never do — their mastery is concept
+   * coverage against an absolute contract, so a skill learned twentieth is
+   * judged exactly like a skill learned first.
+   */
+  writesRating: boolean;
 }
 
 /**
@@ -135,26 +157,26 @@ export interface GoldilocksWiring {
  * finishes on the recipe it started with even after the recipe changes.
  */
 export interface UnitRecipe {
-  version: string; // e.g. "education-unit-v1"
-  passes: 2; // explicit and changeable; fixed at 2 for now
+  version: string; // e.g. "education-unit-v2"
+  passes: PassIndex; // total rounds of the evolving scenario
   teachBeats: { orient: true; concept: true };
   policy: LoopPolicy;
   grade: GradeThreshold;
   goldilocks: GoldilocksWiring;
 }
 
-const RECIPE_VERSIONS = ["education-unit-v1", "recall-v1"] as const;
+const RECIPE_VERSIONS = ["education-unit-v2", "recall-v2"] as const;
 type RecipeVersion = (typeof RECIPE_VERSIONS)[number];
 
 /** The recipe version every new unit run starts on. */
-export const CURRENT_RECIPE_VERSION: RecipeVersion = "education-unit-v1";
+export const CURRENT_RECIPE_VERSION: RecipeVersion = "education-unit-v2";
 
 /**
- * The recall interlude: a degenerate unit run that begins at Solve pass 2 —
- * the scored transfer moment — and skips every teaching beat. One composed
- * scenario, one first-verdict rating write, optional repairs, mastered.
+ * The recall interlude: a degenerate unit run that begins at Solve on its final
+ * round — the scored transfer moment — and skips every teaching beat. One
+ * composed scenario, one first-verdict rating write, optional repairs, mastered.
  */
-export const RECALL_RECIPE_VERSION: RecipeVersion = "recall-v1";
+export const RECALL_RECIPE_VERSION: RecipeVersion = "recall-v2";
 
 export const isRecallRecipe = (version: string): boolean =>
   version === RECALL_RECIPE_VERSION;
@@ -162,21 +184,35 @@ export const isRecallRecipe = (version: string): boolean =>
 const isRecipeVersion = (version: string): version is RecipeVersion =>
   (RECIPE_VERSIONS as readonly string[]).includes(version);
 
+/** Round count and grill behavior per recipe version. */
+const RECIPE_SHAPES: Record<
+  RecipeVersion,
+  { passes: PassIndex; writeOnPass: PassIndex }
+> = {
+  "education-unit-v2": { passes: 3, writeOnPass: 3 },
+  "recall-v2": { passes: 2, writeOnPass: 2 },
+};
+
 /**
  * Takes a recipe version id and the caller's already-resolved Goldilocks
  * scope (see resolveRatingScope in ../orchestration/rating-scope); produces
  * the frozen recipe for that version; fails only when the version is unknown
- * (an in-flight run referenced a recipe we no longer ship). The scope is a
- * parameter, not something this function resolves itself — it depends on the
- * live curriculum plan, which is runtime data this pure lookup doesn't have.
+ * (an in-flight run referenced a recipe we no longer ship). `writesRating`
+ * defaults to true (skillset/recall behavior); foundation-unit callers pass
+ * false — the caller knows the unit's parent kind, this pure lookup doesn't.
  */
-export function getUnitRecipe(version: string, scope: RatingScope): UnitRecipe {
+export function getUnitRecipe(
+  version: string,
+  scope: RatingScope,
+  options?: { writesRating?: boolean },
+): UnitRecipe {
   if (!isRecipeVersion(version)) {
     throw new Error(`Unknown education-unit recipe version: "${version}"`);
   }
+  const shape = RECIPE_SHAPES[version];
   return {
     version,
-    passes: 2,
+    passes: shape.passes,
     teachBeats: { orient: true, concept: true },
     policy: {
       maxGrillsBeforeTeach: 2,
@@ -188,7 +224,8 @@ export function getUnitRecipe(version: string, scope: RatingScope): UnitRecipe {
     },
     goldilocks: {
       scope,
-      writeOnPass: 2,
+      writeOnPass: shape.writeOnPass,
+      writesRating: options?.writesRating ?? true,
     },
   };
 }

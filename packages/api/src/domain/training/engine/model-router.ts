@@ -59,7 +59,7 @@ const getActiveStack = (): ModelStack =>
 export type AiModelPurpose =
   | "onboarding"
   | "curriculum"
-  | "syllabus"
+  | "knowledge"
   | "buildContent"
   | "failure"
   | "ghost"
@@ -67,14 +67,14 @@ export type AiModelPurpose =
   | "recall"
   | "evaluation"
   | "tutor"
-  | "capstone"
   | "projectOverview"
+  | "mission"
   | "default";
 
 const PURPOSE_TIER: Record<AiModelPurpose, ModelTier> = {
   onboarding: "critical",
   curriculum: "critical",
-  syllabus: "critical",
+  knowledge: "critical",
   buildContent: "critical",
   failure: "critical",
   ghost: "critical",
@@ -82,10 +82,13 @@ const PURPOSE_TIER: Record<AiModelPurpose, ModelTier> = {
   recall: "standard",
   evaluation: "critical",
   tutor: "standard",
-  capstone: "critical",
-  projectOverview: "critical",
+  projectOverview: "standard",
+  mission: "standard",
   default: "standard",
 };
+
+export const getModelTierForPurpose = (purpose: AiModelPurpose): ModelTier =>
+  PURPOSE_TIER[purpose];
 
 const getEnv = (name: string): string | undefined => {
   const value = process.env[name]?.trim();
@@ -187,6 +190,51 @@ export const getSearchToolsForSelectedProvider = (
   } as unknown as ToolSet;
 };
 
+/**
+ * Search tools for calls that also demand `Output.object` structured output.
+ * OpenRouter's web_search server tool makes models ignore the json_schema
+ * response format (verified against glm-5.2: it answers in markdown prose and
+ * every call dies with AI_JSONParseError), so structured calls carry no tools
+ * there — search instead rides on the model itself as the `web` plugin, which
+ * preserves the response format (see requireStructuredAiModelForPurpose).
+ * Other providers keep their normal search tools.
+ */
+export const getSearchToolsForStructuredOutput = (
+  purpose: AiModelPurpose = "default",
+): ToolSet =>
+  getSelectedProvider() === "openrouter"
+    ? {}
+    : getSearchToolsForSelectedProvider(purpose);
+
+/**
+ * Model for structured-output calls, with search kept intact on OpenRouter:
+ * the `web` plugin is attached at the model level (server-side search result
+ * injection) rather than as a tool, because the plugin coexists with
+ * json_schema response formats while the web_search server tool breaks them
+ * (verified against glm-5.2: plugin call returned url citations AND a
+ * schema-valid object). Non-search purposes and other providers resolve
+ * exactly as requireAiModelForPurpose.
+ */
+export const requireStructuredAiModelForPurpose = (
+  purpose: AiModelPurpose,
+  context: string,
+): LanguageModel => {
+  const provider = getSelectedProvider();
+  const searchWanted =
+    getRunProfile(purpose).search && !isEnabled("AI_DISABLE_SEARCH_TOOLS");
+  if (provider !== "openrouter" || !searchWanted) {
+    return requireAiModelForPurpose(purpose, context);
+  }
+  const apiKey = getProviderApiKey("openrouter");
+  if (!apiKey) {
+    throw new Error(getProviderMissingKeyMessage("openrouter", context));
+  }
+  return createOpenRouter({ apiKey })(
+    resolveModelName(getModelTierForPurpose(purpose)),
+    { plugins: [{ id: "web", max_results: 5 }] },
+  );
+};
+
 export const getAiModelForTier = (tier: ModelTier): LanguageModel | null => {
   const provider = getSelectedProvider();
   const apiKey = getProviderApiKey(provider);
@@ -197,7 +245,7 @@ export const getAiModelForTier = (tier: ModelTier): LanguageModel | null => {
 
 export const getAiModelForPurpose = (
   purpose: AiModelPurpose,
-): LanguageModel | null => getAiModelForTier(PURPOSE_TIER[purpose]);
+): LanguageModel | null => getAiModelForTier(getModelTierForPurpose(purpose));
 
 export const requireAiModelForPurpose = (
   purpose: AiModelPurpose,

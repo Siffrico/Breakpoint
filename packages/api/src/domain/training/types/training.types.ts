@@ -1,15 +1,5 @@
 import type {
   BeforeAfterProfile,
-  BuildCapstoneScenario,
-  CapstoneAttempt,
-  CapstoneEvaluation,
-  CapstoneFormat,
-  CapstoneMessage,
-  CapstoneMessageRole,
-  CapstoneScenario,
-  CapstoneState,
-  CapstoneStatus,
-  CapstoneTurnResult,
   ClusterBriefing,
   ClusterBriefingMapItem,
   ComplexityBudget,
@@ -17,7 +7,6 @@ import type {
   CurriculumNodeKind,
   CurriculumNodeStatus,
   CurriculumPlan,
-  DebateCapstoneScenario,
   Debrief,
   DifficultyBand,
   EducationUnitActiveStage,
@@ -50,17 +39,20 @@ import type {
   PracticeSubmission,
   PreSeedUnitContentDraft,
   ProjectOverview,
+  ScenarioArchetype,
   ScenarioEvaluationContract,
   SubmitEducationUnitStep,
   TeachbackMessage,
   TeachbackRoundResult,
   TeachbackSetup,
-  TeachCapstoneScenario,
   UnitContent,
   UnitMasteryContract,
 } from "@acme/validators";
 
-import type { ProjectBuildState } from "../orchestration/build-project";
+import type {
+  CreateProjectInput,
+  ProjectBuildState,
+} from "../orchestration/build-project";
 import type { AttemptTiming, EvaluationPlan } from "../workspace-ai/types";
 
 export type {
@@ -69,17 +61,7 @@ export type {
   CurriculumNodeStatus,
   CurriculumPlan,
   DifficultyBand,
-  CapstoneAttempt,
-  CapstoneEvaluation,
-  CapstoneFormat,
-  CapstoneMessage,
-  CapstoneMessageRole,
-  CapstoneScenario,
-  CapstoneState,
-  CapstoneStatus,
-  CapstoneTurnResult,
   ComplexityBudget,
-  BuildCapstoneScenario,
   BeforeAfterProfile,
   ClusterBriefing,
   ClusterBriefingMapItem,
@@ -97,7 +79,6 @@ export type {
   EducationUnitState,
   EducationUnitWorkedExample,
   EvaluationDimensionResult,
-  DebateCapstoneScenario,
   FailureGap,
   FailureIsolationResult,
   ForgeDebrief,
@@ -120,7 +101,6 @@ export type {
   TeachbackMessage,
   TeachbackRoundResult,
   TeachbackSetup,
-  TeachCapstoneScenario,
   UnitContent,
   UnitMasteryContract,
 };
@@ -138,6 +118,8 @@ export interface CurriculumNodeBlueprint {
   positionColumn: number;
   positionRow: number;
   difficultyBands: DifficultyBand[] | null;
+  /** Null outside ability nodes; ability nodes always carry a valid stage. */
+  abilityStage: "foundations" | "skillset" | "mastered" | null;
   skillMap: {
     workflow: { name: string; steps: string[] };
     bandRamp: { startRating: number; peakRating: number };
@@ -145,6 +127,7 @@ export interface CurriculumNodeBlueprint {
       exitCriteria: string[];
       maxRatingDeviation?: number;
     };
+    scenarioArchetype: ScenarioArchetype;
   } | null;
 }
 
@@ -177,6 +160,7 @@ export interface OnboardingSessionState {
   transcript: OnboardingTranscriptMessage[];
   activeQuestion: OnboardingQuestion | null;
   projectBuild?: ProjectBuildState | null;
+  pendingProjectProposal?: CreateProjectInput | null;
 }
 
 export interface HomeState {
@@ -197,10 +181,6 @@ export interface HomeState {
   demonstratedCapabilities: string[];
   nodeScores: Record<string, number>;
 }
-
-export type CapstoneAttemptRecord = CapstoneAttempt;
-
-export type CapstoneMessageRecord = CapstoneMessage;
 
 export interface ProfileState {
   targetIdentity: string;

@@ -4,7 +4,8 @@ import type { UnitPreparationDependencies } from "../domain/training/unit-prepar
 import { trainingAttemptRepository } from "./training-attempt-repository";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
 import { trainingOnboardingRepository } from "./training-onboarding-repository";
-import { trainingSyllabusRepository } from "./training-syllabus-repository";
+import { skillKnowledgeRepository } from "./skill-knowledge-repository";
+import { withUnitBuildLock } from "./unit-build-lock";
 
 type Database = typeof databaseClient;
 
@@ -24,10 +25,19 @@ export const createUnitPreparationRepositoryDeps = (
   },
   listAttemptHistory: (sessionId) =>
     trainingAttemptRepository.listAttemptHistory({ db, sessionId }),
-  getUnitSyllabusContext: (unitNodeId) =>
-    trainingSyllabusRepository.getUnitContext({ db, unitNodeId }),
+  getUnitKnowledgeContext: (unitNodeId) =>
+    skillKnowledgeRepository.getUnitContext({ db, unitNodeId }),
   createUnitContentIfAbsent: (payload) =>
     trainingCurriculumRepository.createUnitContentIfAbsent({ db, ...payload }),
   replaceUnitContent: (payload) =>
     trainingCurriculumRepository.replaceUnitContent({ db, ...payload }),
+  // Rebinds the deps to the lock's own connection so the whole build rides
+  // one pooled connection instead of holding the lock on one and querying
+  // through others (which can deadlock an exhausted pool).
+  withUnitBuildLock: (nodeId, run) =>
+    withUnitBuildLock({
+      db,
+      nodeId,
+      run: (lockDb) => run(createUnitPreparationRepositoryDeps(lockDb)),
+    }),
 });

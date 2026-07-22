@@ -18,7 +18,10 @@ export interface ProfileRepoShape {
   ) => Effect.Effect<ProfileGeneral | null, DbError>;
   readonly updateGeneralBySession: (
     input: UpdateProfileGeneralInput,
-  ) => Effect.Effect<ProfileGeneral, DbError | ProfileNotFoundError>;
+  ) => Effect.Effect<
+    Omit<ProfileGeneral, "unitActivity">,
+    DbError | ProfileNotFoundError
+  >;
   readonly getAccountByUserId: (
     userId: string,
   ) => Effect.Effect<ProfileAccount, DbError | ProfileNotFoundError>;

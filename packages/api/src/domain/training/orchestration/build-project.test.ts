@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
   CurriculumDesignerOutput,
-  OnboardingPacket,
+  LearnerBrief,
   ProjectOverviewOutput,
 } from "../agents/contracts";
 import type { CurriculumPlan } from "../types/training.types";
@@ -15,17 +15,14 @@ import { designCurriculum } from "../agents/curriculum-designer";
 import { designProjectOverview } from "../agents/project-overview";
 import { ArtifactBuildError } from "./agent-runtime";
 import { buildProjectFromOnboarding } from "./build-project";
-import { createOnboardingPacket } from "./onboarding-flow";
 
 // The build artifacts' agents are imported directly (not injected), so we mock
-// the three entry points and drive each test's behaviour through them.
-vi.mock("./onboarding-flow", () => ({ createOnboardingPacket: vi.fn() }));
+// the two entry points and drive each test's behaviour through them.
 vi.mock("../agents/curriculum-designer", () => ({ designCurriculum: vi.fn() }));
 vi.mock("../agents/project-overview", () => ({
   designProjectOverview: vi.fn(),
 }));
 
-const mockPacket = vi.mocked(createOnboardingPacket);
 const mockCurriculum = vi.mocked(designCurriculum);
 const mockOverview = vi.mocked(designProjectOverview);
 
@@ -35,20 +32,39 @@ const UNEXPECTED = (name: string) => () =>
 beforeEach(() => {
   vi.clearAllMocks();
   // Default: any agent call is a test failure unless explicitly allowed.
-  mockPacket.mockImplementation(UNEXPECTED("packet"));
   mockCurriculum.mockImplementation(UNEXPECTED("curriculum"));
   mockOverview.mockImplementation(UNEXPECTED("overview"));
 });
 
+// The consultant now emits the brief inside its createProject call, so the
+// build's whole steering signal arrives as plain input — no agent in between.
+const brief: LearnerBrief = {
+  whatToLearn: "distributed systems: real operational judgment under failure",
+  whatToMake: "a replicated service they can break and repair on purpose",
+  interests: [
+    "Vercel: making difficult deployment work feel immediate and simple.",
+  ],
+};
+
 const input = {
+  ...brief,
   projectName: "distributed systems",
   targetIdentity: "backend engineer",
   summary: "Build reliable replicated services.",
+  abilities: [
+    "Diagnose Distributed Systems Failures",
+    "Architect Reliable Replicated Services",
+  ],
 };
 const sourceKey = JSON.stringify({
   projectName: "distributed-systems",
   targetIdentity: input.targetIdentity,
   summary: input.summary,
+  whatToLearn: input.whatToLearn,
+  whatToMake: input.whatToMake,
+  interests: input.interests,
+  abilities: input.abilities,
+  startingPoint: null,
 });
 
 const transcript = [
@@ -66,23 +82,20 @@ const transcript = [
   },
 ];
 
-const packet: OnboardingPacket = {
-  targetIdentity: "backend engineer",
-  motivation: "Build reliable systems.",
-  currentBaseline: "Knows terms but needs operational judgment.",
-  hardMoments: ["Choosing consistency tradeoffs under pressure."],
-  constraints: [],
-  proofOfProgress: "Can explain and repair replicated-service failures.",
-  identityFriction: "Reaches for slogans before tracing mechanics.",
-  behaviorSignals: [
-    "Traces concrete failure paths.",
-    "Names tradeoffs before choosing.",
-    "Repairs weak explanations.",
-  ],
-  confidenceFlags: [],
-};
+const buildComponentSkill = (index: number) => ({
+  title: `Trace acknowledgement boundaries ${index + 1}`,
+  summary: "Follow one write through its replicas.",
+  whyItMatters: "Acknowledgement gaps hide the real failure.",
+  workflow: {
+    name: "Trace a write's acknowledgements",
+    steps: ["Find the write", "List the replicas", "Mark the ack boundary"],
+  },
+  masteryContract: {
+    exitCriteria: ["Marks the acknowledgement boundary correctly."],
+  },
+});
 
-const buildSkill = (index: number) => ({
+const buildAbility = (index: number) => ({
   title: `Diagnose replicated-service failure ${index + 1}`,
   summary: "Trace reads, writes, lag, and acknowledgement boundaries.",
   whyItMatters: "Reliability claims fail here first.",
@@ -91,14 +104,15 @@ const buildSkill = (index: number) => ({
     steps: ["Collect evidence", "Trace message flow", "Choose the next probe"],
   },
   bandRamp: { startRating: 1000, peakRating: 1600 },
-  simulation: {
-    title: `Checkout under replica lag ${index + 1}`,
-    summary: "Diagnose stale inventory during a live incident.",
-    whyItMatters: "It combines user impact and consistency mechanics.",
-  },
   masteryContract: {
     exitCriteria: ["Diagnoses the causal mechanism from incomplete evidence."],
   },
+  scenarioArchetype: "judge" as const,
+  scenarioArchetypeWhy:
+    "Diagnosis is evaluated judgment over symptoms and evidence.",
+  skills: Array.from({ length: 3 }, (_, skillIndex) =>
+    buildComponentSkill(skillIndex),
+  ),
 });
 
 const curriculum: CurriculumDesignerOutput = {
@@ -132,14 +146,16 @@ const curriculum: CurriculumDesignerOutput = {
     title: "Distributed systems",
     summary: "Practice operational judgment for replicated services.",
     targetIdentity: "backend engineer",
-    clusters: Array.from({ length: 3 }, (_, index) => buildSkill(index)),
+    abilities: Array.from({ length: 3 }, (_, index) => buildAbility(index)),
   },
 };
 
 const overview: ProjectOverviewOutput = {
   title: "Distributed systems map",
   summary: "A field map for reliable replicated services.",
-  body: "Distributed systems are about preserving useful guarantees while machines, messages, and time fail independently.",
+  body: "Distributed systems are about preserving useful guarantees while machines, messages, and time fail independently. ".repeat(
+    7,
+  ),
 };
 
 const plan: CurriculumPlan = {
@@ -233,8 +249,16 @@ const makeDeps = (
     getStartingPoint: vi.fn<BuildProjectDeps["getStartingPoint"]>(() =>
       Promise.resolve(opts.startingPoint ?? null),
     ),
+    persistScenarioInspiration: vi.fn<
+      BuildProjectDeps["persistScenarioInspiration"]
+    >(() => Promise.resolve()),
     claimRun: vi.fn<BuildProjectDeps["claimRun"]>(() =>
-      Promise.resolve(opts.claim ?? { status: "claimed" }),
+      Promise.resolve(
+        opts.claim ?? { status: "claimed", ownershipToken: "test-lease" },
+      ),
+    ),
+    heartbeatRun: vi.fn<BuildProjectDeps["heartbeatRun"]>(() =>
+      Promise.resolve(true),
     ),
     updateRun: vi.fn<BuildProjectDeps["updateRun"]>((payload) => {
       updateRunCalls.push({ status: payload.payload.status });
@@ -266,7 +290,7 @@ const makeDeps = (
     prepareUnit: vi.fn<BuildProjectDeps["prepareUnit"]>(() =>
       Promise.resolve(),
     ),
-    ensureSkillSyllabus: vi.fn<BuildProjectDeps["ensureSkillSyllabus"]>(() =>
+    ensureSkillKnowledge: vi.fn<BuildProjectDeps["ensureSkillKnowledge"]>(() =>
       Promise.resolve(),
     ),
     createSkillUnit: vi.fn<BuildProjectDeps["createSkillUnit"]>(() =>
@@ -281,36 +305,39 @@ const run = (
   deps: BuildProjectDeps,
   onProgress = vi.fn(),
   scheduleBackgroundTask?: (task: () => Promise<void>) => void,
+  inputOverride?: typeof input,
 ) =>
   buildProjectFromOnboarding({
     sessionId: "session-id",
     userId: "user-id",
     transcript,
-    input,
+    input: inputOverride ?? input,
     deps,
     onProgress,
     scheduleBackgroundTask,
   });
 
 describe("buildProjectFromOnboarding", () => {
-  it("prewarms a syllabus and first unit for every independent skill", async () => {
-    mockPacket.mockResolvedValue(packet);
+  it("prewarms only the unlocked skill's knowledge map and unit", async () => {
     mockCurriculum.mockResolvedValue(curriculum);
     mockOverview.mockResolvedValue(overview);
     const { deps } = makeDeps();
-    const skills = curriculum.planDraft.clusters.map((cluster, index) => ({
+    const firstAbility = curriculum.planDraft.abilities[0];
+    if (!firstAbility) throw new Error("Expected an ability fixture.");
+    const skills = firstAbility.skills.map((skill, index) => ({
       id: `skill-${index + 1}`,
-      parentNodeId: null,
-      kind: "skill_cluster" as const,
-      title: cluster.title,
-      summary: cluster.summary,
-      whyItMatters: cluster.whyItMatters,
-      learningGoal: cluster.masteryContract.exitCriteria.join(" "),
-      orderIndex: index,
-      depth: 1,
-      positionColumn: index,
-      positionRow: 1,
-      status: "ready" as const,
+      parentNodeId: "ability-1",
+      kind: "skill" as const,
+      title: skill.title,
+      summary: skill.summary,
+      whyItMatters: skill.whyItMatters,
+      learningGoal: skill.masteryContract.exitCriteria.join(" "),
+      orderIndex: index + 1,
+      depth: 2,
+      positionColumn: 0,
+      positionRow: 2 + index,
+      // v2 gate: only the first skill is unlocked at build time.
+      status: index === 0 ? ("ready" as const) : ("planned" as const),
       difficultyBands: null,
     }));
     deps.finalize = vi.fn(() =>
@@ -324,13 +351,55 @@ describe("buildProjectFromOnboarding", () => {
     await Promise.all(tasks);
 
     expect(result.success).toBe(true);
-    expect(deps.ensureSkillSyllabus).toHaveBeenCalledTimes(skills.length);
-    expect(deps.createSkillUnit).toHaveBeenCalledTimes(skills.length);
+    expect(deps.persistScenarioInspiration).toHaveBeenCalledWith({
+      userId: "user-id",
+      content:
+        "Interest: Vercel: making difficult deployment work feel immediate and simple.",
+    });
+    // Locked skills are not prewarmed; their knowledge map is generated at
+    // unlock time by the lazy loadSkill path.
+    expect(deps.ensureSkillKnowledge).toHaveBeenCalledTimes(1);
+    expect(deps.ensureSkillKnowledge).toHaveBeenCalledWith(
+      expect.objectContaining({ skillNodeId: "skill-1" }),
+    );
+    expect(deps.createSkillUnit).toHaveBeenCalledTimes(1);
     expect(deps.createSkillUnit).toHaveBeenCalledWith({
-      clusterNodeId: "skill-3",
+      skillNodeId: "skill-1",
       sessionId: "session-id",
       userId: "user-id",
     });
+  });
+
+  it("continues building when scenario inspiration persistence fails", async () => {
+    mockCurriculum.mockResolvedValue(curriculum);
+    mockOverview.mockResolvedValue(overview);
+    const { deps } = makeDeps();
+    const twoInterests = {
+      ...input,
+      interests: [...brief.interests, "Designing systems that fail safely."],
+    };
+    const error = new ArtifactBuildError("memory unavailable", "save");
+    deps.persistScenarioInspiration = vi
+      .fn<BuildProjectDeps["persistScenarioInspiration"]>()
+      .mockRejectedValueOnce(error)
+      .mockResolvedValue(undefined);
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    const result = await run(deps, vi.fn(), undefined, twoInterests);
+
+    expect(result.success).toBe(true);
+    expect(deps.persistScenarioInspiration).toHaveBeenCalledTimes(2);
+    expect(deps.persistScenarioInspiration).toHaveBeenLastCalledWith({
+      userId: "user-id",
+      content: "Interest: Designing systems that fail safely.",
+    });
+    expect(deps.finalize).toHaveBeenCalledOnce();
+    expect(consoleError).toHaveBeenCalledWith(
+      "Scenario inspiration persistence failed; continuing project build",
+      { sessionId: "session-id", error },
+    );
   });
 
   it("does not generate or persist while a build is already running", async () => {
@@ -351,12 +420,10 @@ describe("buildProjectFromOnboarding", () => {
 
     expect(result.success).toBe(false);
     expect(deps.ensureShell).not.toHaveBeenCalled();
-    expect(mockPacket).not.toHaveBeenCalled();
     expect(mockCurriculum).not.toHaveBeenCalled();
   });
 
   it("creates the plan shell and emits planId before any AI runs", async () => {
-    mockPacket.mockResolvedValue(packet);
     mockCurriculum.mockResolvedValue(curriculum);
     mockOverview.mockResolvedValue(overview);
     const onProgress = vi.fn<(state: ProjectBuildState) => void>();
@@ -366,18 +433,17 @@ describe("buildProjectFromOnboarding", () => {
 
     expect(result.success).toBe(true);
     expect(deps.ensureShell).toHaveBeenCalledOnce();
-    // A snapshot carries the planId while goals/curriculum are still pending,
+    // A snapshot carries the planId while the curriculum is still pending,
     // i.e. the shell exists before the agents finish.
     const earlyShellEmit = onProgress.mock.calls.find(
       ([state]) =>
         state.planId === "plan-id" &&
-        state.steps.find((s) => s.id === "goals")?.status !== "done",
+        state.steps.find((s) => s.id === "curriculum")?.status !== "done",
     );
     expect(earlyShellEmit).toBeDefined();
   });
 
   it("completes a fresh build end to end with no gaps", async () => {
-    mockPacket.mockResolvedValue(packet);
     mockCurriculum.mockResolvedValue(curriculum);
     mockOverview.mockResolvedValue(overview);
     const { deps, updateRunCalls } = makeDeps();
@@ -404,13 +470,6 @@ describe("buildProjectFromOnboarding", () => {
       persistCurriculum,
       artifacts: [
         {
-          step: "goals",
-          status: "complete",
-          attempts: 1,
-          failureKind: null,
-          payload: packet,
-        },
-        {
           step: "curriculum",
           status: "generated_pending_save",
           attempts: 1,
@@ -431,35 +490,57 @@ describe("buildProjectFromOnboarding", () => {
 
     expect(result.success).toBe(true);
     // The whole point of save_only: no model is invoked.
-    expect(mockPacket).not.toHaveBeenCalled();
     expect(mockCurriculum).not.toHaveBeenCalled();
     expect(mockOverview).not.toHaveBeenCalled();
     expect(persistCurriculum).toHaveBeenCalledOnce();
     expect(store.get("curriculum")?.status).toBe("complete");
   });
 
-  it("completes with an overview gap when the overview agent fails", async () => {
-    mockPacket.mockResolvedValue(packet);
+  it("keeps a failed background overview regeneratable after the curriculum is ready", async () => {
     mockCurriculum.mockResolvedValue(curriculum);
     mockOverview.mockRejectedValue(
       new ArtifactBuildError("overview model failed", "provider"),
     );
     const { deps, store } = makeDeps();
+    const backgroundTasks: (() => Promise<void>)[] = [];
 
-    const result = await run(deps);
+    const result = await run(deps, vi.fn(), (task) =>
+      backgroundTasks.push(task),
+    );
 
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.gaps).toEqual(["overview"]);
+      expect(result.data.gaps).toBeUndefined();
     }
     expect(deps.persistCurriculum).toHaveBeenCalledOnce();
     expect(deps.persistOverview).not.toHaveBeenCalled();
+    expect(store.get("overview")?.status).toBe("generating");
+    await Promise.all(backgroundTasks.map((task) => task()));
     expect(store.get("overview")?.status).toBe("failed");
     expect(store.get("overview")?.failureKind).toBe("provider");
   });
 
-  it("fails resumably on curriculum error, keeping the shell + packet checkpoint", async () => {
-    mockPacket.mockResolvedValue(packet);
+  it("rejects a short overview at the persistence boundary and keeps it regeneratable", async () => {
+    mockCurriculum.mockResolvedValue(curriculum);
+    mockOverview.mockResolvedValue({
+      ...overview,
+      body: "x".repeat(51),
+    });
+    const { deps, store } = makeDeps();
+    const backgroundTasks: (() => Promise<void>)[] = [];
+
+    const result = await run(deps, vi.fn(), (task) =>
+      backgroundTasks.push(task),
+    );
+
+    expect(result.success).toBe(true);
+    await Promise.all(backgroundTasks.map((task) => task()));
+    expect(deps.persistOverview).not.toHaveBeenCalled();
+    expect(store.get("overview")?.status).toBe("failed");
+    expect(store.get("overview")?.failureKind).toBe("schema");
+  });
+
+  it("fails resumably on curriculum error, keeping the shell + checkpoint", async () => {
     mockCurriculum.mockRejectedValue(
       new ArtifactBuildError("curriculum schema invalid", "schema"),
     );
@@ -470,7 +551,6 @@ describe("buildProjectFromOnboarding", () => {
     expect(result.success).toBe(false);
     expect(deps.ensureShell).toHaveBeenCalledOnce();
     expect(deps.persistCurriculum).not.toHaveBeenCalled();
-    expect(store.get("goals")?.status).toBe("complete");
     expect(store.get("curriculum")?.status).toBe("failed");
     expect(store.get("curriculum")?.failureKind).toBe("schema");
     expect(updateRunCalls.at(-1)?.status).toBe("error");
@@ -493,13 +573,6 @@ describe("buildProjectFromOnboarding", () => {
       planStatus: "active",
       artifacts: [
         {
-          step: "goals",
-          status: "complete",
-          attempts: 1,
-          failureKind: null,
-          payload: packet,
-        },
-        {
           step: "curriculum",
           status: "complete",
           attempts: 1,
@@ -516,19 +589,23 @@ describe("buildProjectFromOnboarding", () => {
       ],
     });
 
-    const result = await run(deps);
+    const backgroundTasks: (() => Promise<void>)[] = [];
+    const result = await run(deps, vi.fn(), (task) =>
+      backgroundTasks.push(task),
+    );
 
     expect(result.success).toBe(true);
-    // Curriculum is complete → skipped (no model, no re-persist); only overview runs.
-    expect(mockPacket).not.toHaveBeenCalled();
+    // Curriculum is complete → skipped (no model, no re-persist); overview is deferred.
     expect(mockCurriculum).not.toHaveBeenCalled();
+    expect(mockOverview).not.toHaveBeenCalled();
+    expect(store.get("overview")?.status).toBe("generating");
+    await Promise.all(backgroundTasks.map((task) => task()));
     expect(mockOverview).toHaveBeenCalledOnce();
     expect(deps.persistOverview).toHaveBeenCalledOnce();
     expect(store.get("overview")?.status).toBe("complete");
   });
 
   it("does not report success when finalize fails on a still-generating plan", async () => {
-    mockPacket.mockResolvedValue(packet);
     mockCurriculum.mockResolvedValue(curriculum);
     mockOverview.mockResolvedValue(overview);
     const { deps, updateRunCalls } = makeDeps();
@@ -556,7 +633,6 @@ describe("buildProjectFromOnboarding", () => {
   });
 
   it("completes when finalize throws but the plan is already active", async () => {
-    mockPacket.mockResolvedValue(packet);
     mockCurriculum.mockResolvedValue(curriculum);
     mockOverview.mockResolvedValue(overview);
     const { deps, updateRunCalls } = makeDeps();
@@ -588,7 +664,6 @@ describe("buildProjectFromOnboarding", () => {
   });
 
   it("flushes an in-flight partial before stamping the terminal status", async () => {
-    mockPacket.mockResolvedValue(packet);
     mockOverview.mockResolvedValue(overview);
     // The curriculum agent emits one mid-stream partial, then resolves.
     mockCurriculum.mockImplementation(({ options }) => {
@@ -621,19 +696,11 @@ describe("buildProjectFromOnboarding", () => {
   });
 
   it("does not reuse artifacts from a different source key", async () => {
-    mockPacket.mockResolvedValue(packet);
     mockCurriculum.mockResolvedValue(curriculum);
     mockOverview.mockResolvedValue(overview);
     const { deps } = makeDeps({
       artifactsSourceKey: "stale-source-key",
       artifacts: [
-        {
-          step: "goals",
-          status: "complete",
-          attempts: 1,
-          failureKind: null,
-          payload: packet,
-        },
         {
           step: "curriculum",
           status: "complete",
@@ -654,13 +721,11 @@ describe("buildProjectFromOnboarding", () => {
     const result = await run(deps);
 
     expect(result.success).toBe(true);
-    expect(mockPacket).toHaveBeenCalledOnce();
     expect(mockCurriculum).toHaveBeenCalledOnce();
     expect(mockOverview).toHaveBeenCalledOnce();
   });
 
   it("stamps the seed rating from the tool-proposed starting point", async () => {
-    mockPacket.mockResolvedValue(packet);
     mockCurriculum.mockResolvedValue(curriculum);
     mockOverview.mockResolvedValue(overview);
     const { deps } = makeDeps();
@@ -671,8 +736,11 @@ describe("buildProjectFromOnboarding", () => {
       transcript,
       input: {
         ...input,
-        skills: ["Architect Distributed Backend Systems"],
-        startingPoint: { tier: "skip_basics", reason: "you've shipped services" },
+        abilities: ["Architect Distributed Backend Systems"],
+        startingPoint: {
+          tier: "skip_basics",
+          reason: "you've shipped services",
+        },
       },
       deps,
       onProgress: vi.fn(),
@@ -685,14 +753,13 @@ describe("buildProjectFromOnboarding", () => {
     expect(shellSeed?.ratingDeviation).toBe(250);
     // The placement note reaches the curriculum designer.
     const curriculumArgs = mockCurriculum.mock.calls[0]?.[0];
-    expect(curriculumArgs?.skills).toEqual([
+    expect(curriculumArgs?.abilities).toEqual([
       "Architect Distributed Backend Systems",
     ]);
     expect(curriculumArgs?.placementNote).toContain("1150");
   });
 
   it("lets the persisted starting point win over the tool input", async () => {
-    mockPacket.mockResolvedValue(packet);
     mockCurriculum.mockResolvedValue(curriculum);
     mockOverview.mockResolvedValue(overview);
     const { deps } = makeDeps({
@@ -718,7 +785,6 @@ describe("buildProjectFromOnboarding", () => {
   });
 
   it("stamps no seed and adds no placement note when there is no starting point", async () => {
-    mockPacket.mockResolvedValue(packet);
     mockCurriculum.mockResolvedValue(curriculum);
     mockOverview.mockResolvedValue(overview);
     const { deps } = makeDeps();
@@ -727,7 +793,9 @@ describe("buildProjectFromOnboarding", () => {
     const result = await run(deps);
 
     expect(result.success).toBe(true);
-    expect(vi.mocked(deps.ensureShell).mock.calls[0]?.[0].seedRating).toBeNull();
+    expect(
+      vi.mocked(deps.ensureShell).mock.calls[0]?.[0].seedRating,
+    ).toBeNull();
     expect(mockCurriculum.mock.calls[0]?.[0].placementNote).toBeNull();
   });
 });

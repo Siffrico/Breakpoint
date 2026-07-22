@@ -132,6 +132,98 @@
     background: color-mix(in oklab, var(--color-background) 94%, currentColor);
     margin: 0.9em 0;
   }
+  /* ── Streamdown code + mermaid fences — flat, single-border, slim chrome ──
+     Streamdown's defaults draw a padded outer card with a second bordered box
+     inside (plus our generic `pre` rule on top = three nested boxes). Flatten
+     to one hairline container with a 30px header strip. */
+  .bp-ai-rich [data-streamdown="code-block"],
+  .bp-ai-rich [data-streamdown="mermaid-block"] {
+    margin: 0.9em 0;
+    gap: 0;
+    padding: 0;
+    border-radius: 8px;
+    border: 1px solid color-mix(in oklab, currentColor 11%, transparent);
+    background: color-mix(in oklab, var(--color-background) 97%, currentColor);
+    overflow: hidden;
+  }
+  .bp-ai-rich [data-streamdown="code-block-header"] {
+    height: 30px;
+    padding: 0 11px;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    color: color-mix(in oklab, currentColor 42%, transparent);
+    border-bottom: 1px solid color-mix(in oklab, currentColor 7%, transparent);
+  }
+  .bp-ai-rich [data-streamdown="code-block-header"] > span {
+    margin-left: 0;
+  }
+  /* Copy-button overlay: re-anchor over the 30px header (default assumes the
+     stock 32px header + 8px padding), and drop its bordered-pill chrome. */
+  .bp-ai-rich
+    [data-streamdown="code-block"]
+    > div:has(> [data-streamdown="code-block-actions"]) {
+    top: 0;
+    margin-top: -30px;
+    height: 30px;
+    padding-right: 5px;
+  }
+  .bp-ai-rich [data-streamdown="code-block-actions"] {
+    border: 0;
+    background: transparent;
+    backdrop-filter: none;
+    padding: 0;
+    gap: 2px;
+  }
+  .bp-ai-rich [data-streamdown="code-block-body"] {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 10px 12px;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .bp-ai-rich [data-streamdown="code-block-body"] pre {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    font-size: inherit;
+    line-height: inherit;
+  }
+  /* Mermaid: no header strip at all — just the diagram; controls fade in
+     top-right on hover. */
+  .bp-ai-rich [data-streamdown="mermaid-block"] > div:first-child {
+    display: none;
+  }
+  .bp-ai-rich
+    [data-streamdown="mermaid-block"]
+    > div:has(> [data-streamdown="mermaid-block-actions"]) {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    margin: 0;
+    height: auto;
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+  .bp-ai-rich
+    [data-streamdown="mermaid-block"]:hover
+    > div:has(> [data-streamdown="mermaid-block-actions"]) {
+    opacity: 1;
+  }
+  .bp-ai-rich [data-streamdown="mermaid-block-actions"] {
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid color-mix(in oklab, currentColor 9%, transparent);
+    border-radius: 6px;
+    background: color-mix(in oklab, var(--color-background) 92%, currentColor);
+    backdrop-filter: none;
+  }
+  .bp-ai-rich [data-streamdown="mermaid"] {
+    padding: 14px 12px;
+  }
+
   .bp-ai-rich hr {
     border: none;
     border-top: 1px solid color-mix(in oklab, currentColor 12%, transparent);
@@ -328,7 +420,7 @@
   --background: #fafafa;
   --foreground: #1f1d18;
   /* SECONDARY — raised surfaces (sidebar, muted): ~10% off MAIN, neutral grey. */
-  --secondary: color-mix(in oklab, var(--background) 98.5%, #000000);
+  --secondary: color-mix(in oklab, var(--background) 99.5%, #000000);
   --secondary-foreground: color-mix(in oklab, var(--foreground) 78%, transparent);
   --card: #ffffff;
   --card-foreground: #1f1d18;
@@ -404,6 +496,9 @@
   --site-text-3: color-mix(in oklab, var(--site-fg) 40%, transparent);
   --site-accent: #f54e00;
   --site-raised: #1c1c1c;
+  /* the global theme's --primary (settings blue) — kept reachable here since
+     this scope overrides --primary with the neutral surface color below. */
+  --site-cta: oklch(0.588 0.217 264);
 
   /* design-system surface tokens — so @acme/ui controls (Button, Input …)
      inherit this palette when rendered inside a `.bp-site` scope. */
@@ -444,4 +539,19 @@
 
 @theme inline {
   --color-destructive-foreground: var(--destructive-foreground);
+}
+
+/* Accessibility: honor the user's OS-level "reduce motion" setting (WCAG 2.3.3).
+   Neutralizes CSS transitions/animations and smooth scrolling for everyone who
+   asks for it; JS-driven animation (Motion, GSAP) should additionally guard on
+   `useReducedMotion()` / `usePrefersReducedMotion()` at its call sites. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

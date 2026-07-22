@@ -3,7 +3,6 @@
 import type {
   ChangeEvent,
   CSSProperties,
-  KeyboardEvent,
   ReactNode,
   RefObject,
 } from "react";
@@ -11,39 +10,27 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 
 import { cn } from "@acme/ui";
 
-const MIN_HEIGHT_PX = 94;
+import { syncComposerHeight } from "./composer-autosize";
+
+// Text-area metrics follow t3code's composer (`min-h-17.5` / `max-h-50`, i.e.
+// 70px resting and 200px ceiling). Our control row is overlaid rather than
+// stacked, so the container figures add the top padding and the row height on
+// top of those: 70 + 16 (`pt-4`) + 40 (`h-10`) and 200 + 16 + 40.
+const MIN_HEIGHT_PX = 126;
+const MAX_HEIGHT_PX = 256;
+
+// Compact keeps its own proportions: `pt-2` (8) over an `h-7` (28) row.
 const COMPACT_MIN_HEIGHT_PX = 56;
-const HARD_MAX_HEIGHT_PX = 240;
-const VIEWPORT_RATIO_CAP = 0.24;
+const COMPACT_MAX_HEIGHT_PX = 172;
 
-function syncHeight(element: HTMLTextAreaElement | null, minHeightPx: number) {
-  if (!element) return;
-
-  const viewportCap =
-    typeof window === "undefined"
-      ? HARD_MAX_HEIGHT_PX
-      : Math.min(
-          HARD_MAX_HEIGHT_PX,
-          Math.floor(window.innerHeight * VIEWPORT_RATIO_CAP),
-        );
-  const maxHeight = Math.max(minHeightPx, viewportCap);
-
-  element.style.height = "0px";
-  const nextHeight = Math.max(
-    minHeightPx,
-    Math.min(element.scrollHeight, maxHeight),
-  );
-  element.style.height = `${nextHeight}px`;
-  element.style.overflowY =
-    element.scrollHeight > maxHeight ? "auto" : "hidden";
-}
-
+/**
+ * Text surface only. Enter inserts a newline — sending is never bound to a key,
+ * so the send control in `rightSlot` is the single way to submit.
+ */
 export function ChatComposer({
   value,
   onValueChange,
-  onSubmit,
   placeholder = "Type your answer…",
-  disabled = false,
   textareaRef,
   className,
   style,
@@ -53,12 +40,12 @@ export function ChatComposer({
   autoFocus = false,
   ariaLabel = "Message",
   compact = false,
+  minHeightPx: minHeightOverride,
+  maxHeightPx: maxHeightOverride,
 }: {
   value: string;
   onValueChange: (next: string) => void;
-  onSubmit: () => void;
   placeholder?: string;
-  disabled?: boolean;
   textareaRef?: RefObject<HTMLTextAreaElement | null>;
   className?: string;
   style?: CSSProperties;
@@ -68,20 +55,28 @@ export function ChatComposer({
   autoFocus?: boolean;
   ariaLabel?: string;
   compact?: boolean;
+  /** Resting height of the text area, before it grows with content. */
+  minHeightPx?: number;
+  /** Height at which growth stops and the text area starts scrolling. */
+  maxHeightPx?: number;
 }) {
   const internalRef = useRef<HTMLTextAreaElement>(null);
   const ref = textareaRef ?? internalRef;
-  const minHeightPx = compact ? COMPACT_MIN_HEIGHT_PX : MIN_HEIGHT_PX;
+  const minHeightPx =
+    minHeightOverride ?? (compact ? COMPACT_MIN_HEIGHT_PX : MIN_HEIGHT_PX);
+  const maxHeightPx =
+    maxHeightOverride ?? (compact ? COMPACT_MAX_HEIGHT_PX : MAX_HEIGHT_PX);
 
   useLayoutEffect(() => {
-    syncHeight(ref.current, minHeightPx);
-  }, [ref, value, minHeightPx]);
+    syncComposerHeight(ref.current, minHeightPx, maxHeightPx);
+  }, [ref, value, minHeightPx, maxHeightPx]);
 
   useEffect(() => {
-    const handle = () => syncHeight(ref.current, minHeightPx);
+    const handle = () =>
+      syncComposerHeight(ref.current, minHeightPx, maxHeightPx);
     window.addEventListener("resize", handle);
     return () => window.removeEventListener("resize", handle);
-  }, [ref, minHeightPx]);
+  }, [ref, minHeightPx, maxHeightPx]);
 
   useEffect(() => {
     if (autoFocus) {
@@ -93,23 +88,16 @@ export function ChatComposer({
     onValueChange(event.target.value);
   };
 
-  const submitOnEnter = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      if (!disabled) onSubmit();
-    }
-  };
-
   return (
     <div
       style={{
-        borderRadius: 8,
+        borderRadius: 32,
         boxShadow: "inset 0 1px 0 rgba(255,255,255,0.025)",
+        minHeight: minHeightPx,
         ...style,
       }}
       className={cn(
         "bg-background border-border relative w-full overflow-hidden border transition-[border-color,box-shadow]",
-        compact ? "min-h-[56px]" : "min-h-[96px]",
         className,
       )}
     >
@@ -118,16 +106,15 @@ export function ChatComposer({
         aria-label={ariaLabel}
         value={value}
         onChange={propagateValue}
-        onKeyDown={submitOnEnter}
         placeholder={placeholder}
         rows={1}
         style={
           compact
             ? { paddingBottom: 28, scrollPaddingBottom: 28 }
-            : { paddingBottom: 56, scrollPaddingBottom: 56 }
+            : { paddingBottom: 40, scrollPaddingBottom: 40 }
         }
         className={cn(
-          "text-foreground placeholder:text-muted-foreground block w-full resize-none rounded-[8px] bg-transparent outline-none [&::-webkit-resizer]:hidden",
+          "text-foreground placeholder:text-muted-foreground block w-full resize-none rounded-[inherit] bg-transparent outline-none [&::-webkit-resizer]:hidden",
           compact
             ? "px-3 pt-2 text-[13px] leading-5"
             : "px-4 pt-4 text-[14px] leading-6",
@@ -137,7 +124,7 @@ export function ChatComposer({
       <div
         className={cn(
           "absolute inset-x-0 bottom-0 flex items-center justify-between gap-3",
-          compact ? "h-7 px-2" : "h-12 px-3",
+          compact ? "h-7 px-2" : "h-10 px-3",
         )}
       >
         <div className="flex min-w-0 items-center gap-2 leading-none">
@@ -168,7 +155,8 @@ export function ChatComposerDock({
         className,
       )}
     >
-      <div className="mx-auto w-[calc(100%-2rem)] max-w-[48.9rem] sm:w-[calc(100%-3rem)]">
+      {/* max-w-3xl (48rem) matches t3code's composer column. */}
+      <div className="mx-auto w-[calc(100%-2rem)] max-w-3xl sm:w-[calc(100%-3rem)]">
         {children}
       </div>
     </div>

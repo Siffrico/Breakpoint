@@ -28,10 +28,10 @@ import { AssistantRichText } from "./assistant-rich-text";
 type EducationUnit = RouterOutputs["training"]["unit"];
 
 const getMessageText = (message: UnitCoachMessage) =>
-  message.parts
-    .filter(isTextUIPart)
-    .map((part) => part.text)
-    .join("");
+  message.parts.reduce(
+    (text, part) => (isTextUIPart(part) ? text + part.text : text),
+    "",
+  );
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
@@ -53,11 +53,11 @@ const getPreviewLearnerMessage = (body: unknown) => {
     const parts = message.parts;
     if (!isUnknownArray(parts)) continue;
 
-    return parts
-      .filter(isTextPart)
-      .map((part) => part.text)
-      .join("")
-      .trim();
+    let learnerText = "";
+    for (const part of parts) {
+      if (isTextPart(part)) learnerText += part.text;
+    }
+    return learnerText.trim();
   }
 
   return "";
@@ -325,8 +325,6 @@ function UnitCoachPanelComponent({
               compact
               value={question}
               onValueChange={setQuestion}
-              onSubmit={handleAsk}
-              disabled={isRunning}
               textareaRef={composerTextareaRef}
               ariaLabel="Ask Unit Coach"
               placeholder="Ask what the scenario is testing, how to start, or where your reasoning is stuck."

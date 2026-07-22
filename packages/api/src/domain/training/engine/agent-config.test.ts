@@ -1,0 +1,33 @@
+import { describe, expect, it } from "vitest";
+
+import { getAgentConfig, listAgentConfigs } from "./agent-config";
+
+describe("agent config", () => {
+  it("resolves artifact limits from the canonical purpose profile", () => {
+    expect(getAgentConfig("curriculumDesigner")).toMatchObject({
+      model: "learner-selected (default when unset)",
+      modelTier: "critical",
+      inputTokenLimit: "default",
+      reasoningTokenLimit: 24_576,
+      outputTokenLimit: 8_192,
+      totalGenerationTokenLimit: 32_768,
+      maxSteps: 10,
+      search: false,
+    });
+  });
+
+  it("labels inherited interactive limits as default", () => {
+    expect(getAgentConfig("scenarioCoach")).toMatchObject({
+      reasoningTokenLimit: "default",
+      outputTokenLimit: "default",
+      totalGenerationTokenLimit: "default",
+      maxSteps: 3,
+      search: "default",
+    });
+  });
+
+  it("lists every declared agent exactly once", () => {
+    const configs = listAgentConfigs();
+    expect(new Set(configs.map(({ id }) => id)).size).toBe(configs.length);
+  });
+});

@@ -1,9 +1,9 @@
+import type { PersistedUnitRun } from "../education-unit/unit";
 import type {
   CurriculumNode,
   PhaseResponseRecord,
 } from "../types/training.types";
 import type { WorkspaceAiEducationStage, WorkspaceAiState } from "./types";
-import type { PersistedUnitRun } from "../education-unit/unit";
 import { WorkspaceAiEducationStageSchema } from "./types";
 
 type RuntimeNode = Pick<
@@ -12,7 +12,7 @@ type RuntimeNode = Pick<
 >;
 
 const isLearningUnit = (node: RuntimeNode) =>
-  node.kind === "unit" || node.kind === "integration";
+  node.kind === "unit";
 
 const getNextReadyUnit = (nodes: RuntimeNode[]) =>
   nodes
@@ -65,13 +65,11 @@ export const getCurrentEducationStage = (
  */
 export const planWorkspaceTurn = ({
   nodes,
-  allResponses: _allResponses,
   activeUnitResponses,
   activeUnitRun,
   recallTarget = null,
 }: {
   nodes: RuntimeNode[];
-  allResponses: PhaseResponseRecord[];
   activeUnitResponses: PhaseResponseRecord[];
   activeUnitRun?: PersistedUnitRun | null;
   /** Due recall chosen by the decay policy; only honored at a unit boundary. */

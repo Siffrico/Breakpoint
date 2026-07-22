@@ -22,7 +22,7 @@ export function CurriculumReveal({
 }) {
   const tree = useMemo(() => buildTree(plan.nodes), [plan.nodes]);
   const unitCount = plan.nodes.filter(
-    (n) => n.kind === "unit" || n.kind === "integration",
+    (n) => n.kind === "unit",
   ).length;
   const beginHref = preview ? "/ui/train" : `/workspace?session=${sessionId}`;
   const workspaceHref = preview ? "/ui/workspace" : `/workspace?session=${sessionId}`;

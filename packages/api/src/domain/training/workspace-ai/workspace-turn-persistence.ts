@@ -40,7 +40,9 @@ export interface WorkspaceTurnPersistenceDependencies
     turnId: string;
     leaseId: string;
   }) => Promise<
-    | { status: "claimed" }
+    // claimedAt: first arrival of this turnId, durable across lease reclaims
+    // and failed-turn retries — anchors server-side attempt timing.
+    | { status: "claimed"; claimedAt: Date }
     | { status: "processing" }
     | {
         status: "completed";
@@ -56,10 +58,6 @@ export interface WorkspaceTurnPersistenceDependencies
     turnId?: string | null;
     metadata?: WorkspaceAiMessage["metadata"];
   }) => Promise<WorkspaceAiMessage | null>;
-  listMessages: (
-    sessionId: string,
-    slot?: "education_unit" | "recall",
-  ) => Promise<WorkspaceAiMessage[]>;
   /** The active unit's transcript only — each unit is its own chat. */
   listUnitMessages: (
     sessionId: string,
@@ -70,6 +68,16 @@ export interface WorkspaceTurnPersistenceDependencies
     turnId: string;
     leaseId: string;
     reason: string;
+  }) => Promise<void>;
+  claimWorkspaceUnitLease: (input: {
+    sessionId: string;
+    unitContentId: string;
+    leaseId: string;
+  }) => Promise<boolean>;
+  releaseWorkspaceUnitLease: (input: {
+    sessionId: string;
+    unitContentId: string;
+    leaseId: string;
   }) => Promise<void>;
 }
 
@@ -134,6 +142,7 @@ export interface WorkspacePhaseResponseCommit {
 export interface WorkspaceEducationTurnCommit {
   turnId: string;
   turnLeaseId: string;
+  unitLeaseId: string;
   userMessage: WorkspaceUserMessageCommit | null;
   assistantMessage: WorkspaceAssistantMessageCommit;
   contracts: WorkspaceOutputContractCommit | null;
@@ -143,12 +152,18 @@ export interface WorkspaceEducationTurnCommit {
    * Mastery check-offs commit atomically with the turn — a lost lease or a
    * failed commit must never leave checked entries without a mastered turn.
    */
-  syllabusCheckOff: WorkspaceSyllabusCheckOffCommit | null;
+  knowledgeCheckOff: WorkspaceKnowledgeCheckOffCommit | null;
   /**
-   * Recall verdicts strengthen or weaken the composed syllabus entries
+   * Recall verdicts strengthen or weaken the composed knowledge items
    * atomically with the rated turn (see policies/recall-decay.ts).
    */
-  syllabusReinforcement?: { entryIds: string[]; passed: boolean } | null;
+  knowledgeReinforcement?: { knowledgeIds: string[]; passed: boolean } | null;
+  /**
+   * Every passed solve credits the unit's target concepts with one coverage
+   * rep (the foundation regime's mastery counter — engine/concept-coverage.ts),
+   * atomically with the verdict that earned it.
+   */
+  conceptCoverage?: { knowledgeIds: string[] } | null;
   scenarioPresentation: {
     userId: string;
     nodeId: string;
@@ -171,10 +186,9 @@ export interface WorkspaceEducationTurnCommit {
   touchSessionId: string;
 }
 
-export interface WorkspaceSyllabusCheckOffCommit {
-  clusterNodeId: string;
-  requestedEntryIds: string[];
-  targetedEntryIds: string[];
+export interface WorkspaceKnowledgeCheckOffCommit {
+  requestedKnowledgeIds: string[];
+  targetedKnowledgeIds: string[];
   evidenceNodeId: string;
 }
 
@@ -243,8 +257,11 @@ export const saveUnitPhaseResult = ({
   plan,
   turnResult,
   ratingEvaluation,
-  syllabusCheckOff = null,
-  syllabusReinforcement = null,
+  knowledgeCheckOff = null,
+  knowledgeReinforcement = null,
+  conceptCoverage = null,
+  writeOnPass = 2,
+  writesRating = true,
   openRecallAttempt = false,
   recallEntryIds = null,
   difficultySnapshot,
@@ -264,8 +281,13 @@ export const saveUnitPhaseResult = ({
   plan: CurriculumPlan;
   turnResult: UnitTurnResult;
   ratingEvaluation: WorkspaceRatingEvaluationCommit | null;
-  syllabusCheckOff?: WorkspaceSyllabusCheckOffCommit | null;
-  syllabusReinforcement?: { entryIds: string[]; passed: boolean } | null;
+  knowledgeCheckOff?: WorkspaceKnowledgeCheckOffCommit | null;
+  knowledgeReinforcement?: { knowledgeIds: string[]; passed: boolean } | null;
+  conceptCoverage?: { knowledgeIds: string[] } | null;
+  /** The recipe's measured round (goldilocks.writeOnPass); v1/recall 2, v2 3. */
+  writeOnPass?: PersistedUnitRun["pass"];
+  /** Foundation units are criterion-referenced and never open rating attempts. */
+  writesRating?: boolean;
   /** True when this turn's prompted commit must open the recall attempt. */
   openRecallAttempt?: boolean;
   /** Composed entry ids, stamped on the recall presentation's metadata. */
@@ -307,18 +329,24 @@ export const saveUnitPhaseResult = ({
 
     const prompted =
       event.type === "phase_continues" && event.reason === "prompted";
+    // The measured round is the recipe's write round (v1/recall: 2, v2: 3).
+    // Attempts and solve timing are opened only there — earlier rounds are
+    // formative and never feed the rating.
     const isTeachProbePresentation =
       event.type === "teach_done" &&
-      nextRun.pass === 2 &&
+      nextRun.pass === writeOnPass &&
       nextRun.phase === "connect" &&
-      turnResult.scenarioSpec?.pass === 2;
+      turnResult.scenarioSpec?.pass === writeOnPass;
     // A recall presentation opens the attempt and stamps Solve timing in one
     // commit: the composed scenario IS the solve task, so presentation and
     // solve-start are the same moment.
     const isRecallPresentation =
       openRecallAttempt && prompted && nextRun.phase === "solve";
+    const tracksRatingAttempt =
+      writesRating || isRecallRecipe(nextRun.recipeVersion);
     const scenarioPresentation =
-      (nextRun.pass === 2 &&
+      (tracksRatingAttempt &&
+        nextRun.pass === writeOnPass &&
         nextRun.phase === "connect" &&
         (prompted || isTeachProbePresentation)) ||
       isRecallPresentation
@@ -330,14 +358,17 @@ export const saveUnitPhaseResult = ({
           }
         : null;
     const solvePresentation =
-      nextRun.pass === 2 && nextRun.phase === "solve" && prompted
+      tracksRatingAttempt &&
+      nextRun.pass === writeOnPass &&
+      nextRun.phase === "solve" &&
+      prompted
         ? isRecallPresentation
           ? { scenarioAttemptId: null, presentedAt: new Date() }
           : scenarioAttemptId
             ? { scenarioAttemptId, presentedAt: new Date() }
             : yield* new RatingEvidenceError({
                 message:
-                  "Pass-2 Solve cannot be presented without a scenario attempt.",
+                  "The measured Solve cannot be presented without a scenario attempt.",
               })
         : null;
 
@@ -388,6 +419,7 @@ export const saveUnitPhaseResult = ({
     const { assistantMessage } = yield* workspaceTurnRepo.commitEducationTurn({
       turnId,
       turnLeaseId,
+      unitLeaseId: turnLeaseId,
       userMessage: persistUserMessage
         ? {
             sessionId,
@@ -410,8 +442,9 @@ export const saveUnitPhaseResult = ({
       contracts: null,
       phaseResponse,
       ratingEvaluation,
-      syllabusCheckOff,
-      syllabusReinforcement,
+      knowledgeCheckOff,
+      knowledgeReinforcement,
+      conceptCoverage,
       scenarioPresentation,
       solvePresentation,
       nextRun,

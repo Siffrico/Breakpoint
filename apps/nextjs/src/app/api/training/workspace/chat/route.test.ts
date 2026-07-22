@@ -1,6 +1,11 @@
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  WORKSPACE_CHAT_BODY_MAX_BYTES,
+  WORKSPACE_CHAT_MESSAGE_MAX_CHARS,
+} from "@acme/validators";
+
 import { POST } from "./route";
 
 const mocks = vi.hoisted(() => ({
@@ -19,7 +24,7 @@ vi.mock("@acme/db/client", () => ({ db: {} }));
 const session = { user: { id: "user-1" } };
 const validBody = {
   message: "Here is my diagnosis.",
-  sessionId: "00000000-0000-0000-0000-000000000001",
+  sessionId: "00000000-0000-4000-8000-000000000001",
   turnId: "turn-1",
 };
 const request = (body: string) =>
@@ -67,5 +72,59 @@ describe("workspace chat route boundary", () => {
         message: validBody.message,
       }),
     );
+  });
+
+  it("rejects an oversized body before entering the workspace boundary", async () => {
+    mocks.requireSession.mockResolvedValue(session);
+    const oversized = JSON.stringify({
+      ...validBody,
+      padding: "x".repeat(WORKSPACE_CHAT_BODY_MAX_BYTES),
+    });
+
+    const response = await POST(request(oversized));
+
+    expect(response.status).toBe(413);
+    expect(mocks.streamWorkspaceChat).not.toHaveBeenCalled();
+  });
+
+  it("rejects a submitted answer over the shared character cap", async () => {
+    mocks.requireSession.mockResolvedValue(session);
+    const response = await POST(
+      request(
+        JSON.stringify({
+          ...validBody,
+          message: "x".repeat(WORKSPACE_CHAT_MESSAGE_MAX_CHARS + 1),
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.streamWorkspaceChat).not.toHaveBeenCalled();
+  });
+
+  it("rejects combined text parts over the shared character cap", async () => {
+    mocks.requireSession.mockResolvedValue(session);
+    const half = Math.floor(WORKSPACE_CHAT_MESSAGE_MAX_CHARS / 2) + 1;
+    const response = await POST(
+      request(
+        JSON.stringify({
+          sessionId: validBody.sessionId,
+          turnId: validBody.turnId,
+          messages: [
+            {
+              id: "message-1",
+              role: "user",
+              parts: [
+                { type: "text", text: "x".repeat(half) },
+                { type: "text", text: "y".repeat(half) },
+              ],
+            },
+          ],
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.streamWorkspaceChat).not.toHaveBeenCalled();
   });
 });

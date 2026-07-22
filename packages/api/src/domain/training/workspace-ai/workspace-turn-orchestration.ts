@@ -1,10 +1,12 @@
 import type { ModelMessage } from "ai";
-import type { Layer, Scope } from "effect";
+import type { Scope } from "effect";
 import { Effect, Exit } from "effect";
+
+import type { ScenarioFormat } from "@acme/validators";
 
 import type { Memory } from "../../memory/types";
 import type { UnitDifficultySnapshot } from "../education-unit/unit";
-import type { ScenarioDirective } from "../engine/rating";
+import type { DifficultyDialPreset, ScenarioDirective } from "../engine/rating";
 import type { DifficultyBand } from "../types/training.types";
 import type { WorkspaceAiMessage, WorkspaceAiTurnResult } from "./types";
 import type { WorkspaceEducationTurnError } from "./workspace-errors";
@@ -21,6 +23,8 @@ import { buildUnitTurnContext } from "../education-unit/context";
 import { runUnitTurn } from "../education-unit/orchestrate-unit-turn";
 import { getUnitRecipe } from "../education-unit/unit";
 import { boundTranscript } from "../engine/compaction";
+import { companionRelation } from "../policies/recall-decay";
+import { regimeForNodeKind } from "../engine/progression-model";
 import { resolveRatingScope } from "../orchestration/rating-scope";
 import { deriveServerAttemptTiming } from "./evaluation-plan";
 import {
@@ -29,12 +33,7 @@ import {
   WorkspaceInputError,
   WorkspacePersistenceError,
 } from "./workspace-errors";
-import {
-  isUnitAwaitingAdvance,
-  planNextWorkspaceTurn,
-  resolveWorkspaceTurn,
-} from "./workspace-turn";
-import { runWorkspaceTurn } from "./workspace-turn-edge";
+import { isUnitAwaitingAdvance, planNextWorkspaceTurn } from "./workspace-turn";
 import { saveUnitPhaseResult } from "./workspace-turn-persistence";
 
 interface ResolvedDifficultyDirectiveResult {
@@ -42,6 +41,8 @@ interface ResolvedDifficultyDirectiveResult {
   promptBlock: string;
   ratingSnapshot: string;
   learnerRating: number;
+  format: ScenarioFormat;
+  dialPreset: DifficultyDialPreset;
 }
 
 interface OpenScenarioResult {
@@ -56,11 +57,17 @@ export interface WorkspaceTurnOrchestrationDependencies
   extends WorkspaceTurnDependencies,
     WorkspaceTurnPersistenceDependencies {
   listMemories: (userId: string) => Promise<Memory[]>;
-  getUnitSyllabusContext?: (unitNodeId: string) => Promise<{
-    clusterNodeId: string;
+  getUnitKnowledgeContext?: (unitNodeId: string) => Promise<{
+    skillNodeId: string;
     workflow: { name: string; steps: string[] };
-    checked: { label: string; gloss: string }[];
-    targets: { id: string; label: string; gloss: string }[];
+    framing: { question: string; part: number } | null;
+    checked: { label: string; content: string }[];
+    targets: {
+      id: string;
+      kind: "concept" | "mechanism";
+      label: string;
+      content: string;
+    }[];
   } | null>;
   resolveDifficultyDirective: (input: {
     userId: string;
@@ -75,6 +82,12 @@ export interface WorkspaceTurnOrchestrationDependencies
   }) => Promise<OpenScenarioResult | null>;
   /** Test seam for deterministic education-unit contract tests. */
   runUnitTurn?: typeof runUnitTurn;
+  pregenerateNextUnit?: (input: {
+    sessionId: string;
+    userId: string;
+    skillNodeId: string;
+  }) => Promise<void>;
+  scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -98,6 +111,12 @@ type LoadedTurnTranscript =
       messages: WorkspaceAiMessage[];
       transcript: WorkspaceAiMessage[];
       claimedDurableTurn: boolean;
+      /**
+       * When the learner's message first reached the server (the durable turn
+       * claim). Attempt timing must anchor here, never on a timestamp taken
+       * after the model call — evaluator latency is not the learner's time.
+       */
+      claimedAt: Date;
     };
 
 const persistPromise = <A>(
@@ -130,22 +149,31 @@ const ratingPromise = <A>(
 
 const releaseClaimedTurn = ({
   sessionId,
+  unitContentId,
   turnId,
   turnLeaseId,
   deps,
 }: {
   sessionId: string;
+  unitContentId: string;
   turnId: string;
   turnLeaseId: string;
   deps: WorkspaceTurnOrchestrationDependencies;
 }): Effect.Effect<void> => {
   return Effect.tryPromise(() =>
-    deps.markWorkspaceTurnFailed({
-      sessionId,
-      turnId,
-      leaseId: turnLeaseId,
-      reason: "Education turn ended before its atomic commit completed.",
-    }),
+    Promise.all([
+      deps.markWorkspaceTurnFailed({
+        sessionId,
+        turnId,
+        leaseId: turnLeaseId,
+        reason: "Education turn ended before its atomic commit completed.",
+      }),
+      deps.releaseWorkspaceUnitLease({
+        sessionId,
+        unitContentId,
+        leaseId: turnLeaseId,
+      }),
+    ]),
   ).pipe(
     Effect.catch((cause) =>
       Effect.logError("Failed to release an education turn lease.", {
@@ -161,6 +189,7 @@ const claimTurnAndLoadTranscript = ({
   sessionId,
   slot,
   unitId,
+  unitContentId,
   turnId,
   turnLeaseId,
   message,
@@ -170,6 +199,7 @@ const claimTurnAndLoadTranscript = ({
   sessionId: string;
   slot: "education_unit" | "recall";
   unitId: string;
+  unitContentId: string;
   turnId: string;
   turnLeaseId: string;
   message: string;
@@ -210,9 +240,27 @@ const claimTurnAndLoadTranscript = ({
     if (slot === "education_unit") {
       yield* Effect.addFinalizer((exit) =>
         Exit.isFailure(exit)
-          ? releaseClaimedTurn({ sessionId, turnId, turnLeaseId, deps })
+          ? releaseClaimedTurn({
+              sessionId,
+              unitContentId,
+              turnId,
+              turnLeaseId,
+              deps,
+            })
           : Effect.void,
       );
+    }
+    const claimedUnit = yield* persistPromise("claimWorkspaceUnitLease", () =>
+      deps.claimWorkspaceUnitLease({
+        sessionId,
+        unitContentId,
+        leaseId: turnLeaseId,
+      }),
+    );
+    if (!claimedUnit) {
+      return yield* new TurnLeaseConflictError({
+        message: "Another answer is already being processed for this unit.",
+      });
     }
 
     // Each unit is its own chat: load only the active unit's transcript. There
@@ -245,6 +293,7 @@ const claimTurnAndLoadTranscript = ({
       messages,
       transcript: boundTranscript(messages),
       claimedDurableTurn: true,
+      claimedAt: claim.claimedAt,
     };
   });
 
@@ -315,6 +364,7 @@ export const runEducationUnitTurn = ({
       sessionId,
       slot: "education_unit",
       unitId: unit.nodeId,
+      unitContentId: unit.id,
       turnId,
       turnLeaseId,
       message: trimmedMessage,
@@ -334,19 +384,19 @@ export const runEducationUnitTurn = ({
     }
     const ratingScope = resolveRatingScope({ unit, planNodes: plan.nodes });
     const recallFocus = turn.recallFocus;
-    // Syllabus context depends only on the unit id (recall interludes skip it
+    // Knowledge context depends only on the unit id (recall interludes skip it
     // — they reinforce old entries, never check off new ones), so it loads in
     // parallel with memories and the difficulty directive instead of waiting
     // for them, saving a DB round-trip on every non-recall education turn.
-    const getUnitSyllabusContext = deps.getUnitSyllabusContext;
-    const loadSyllabus =
-      !recallFocus && getUnitSyllabusContext
-        ? persistPromise("getUnitSyllabusContext", () =>
-            getUnitSyllabusContext(unit.nodeId),
+    const getUnitKnowledgeContext = deps.getUnitKnowledgeContext;
+    const loadKnowledge =
+      !recallFocus && getUnitKnowledgeContext
+        ? persistPromise("getUnitKnowledgeContext", () =>
+            getUnitKnowledgeContext(unit.nodeId),
           )
         : Effect.succeed(null);
 
-    const [memories, resolvedDifficulty, syllabus] = yield* Effect.all(
+    const [memories, resolvedDifficulty, knowledge] = yield* Effect.all(
       [
         persistPromise("listMemories", () => deps.listMemories(userId)),
         unitRun.difficultySnapshot
@@ -359,7 +409,7 @@ export const runEducationUnitTurn = ({
                 bands: ratingScope.bands,
               }),
             ),
-        loadSyllabus,
+        loadKnowledge,
       ],
       { concurrency: 3 },
     );
@@ -377,10 +427,25 @@ export const runEducationUnitTurn = ({
         promptBlock: resolvedDifficulty.promptBlock,
         ratingSnapshot: resolvedDifficulty.ratingSnapshot,
         learnerRating: resolvedDifficulty.learnerRating,
+        format: resolvedDifficulty.format,
+        dialPreset: resolvedDifficulty.dialPreset,
       };
     }
 
-    const recipe = getUnitRecipe(unitRun.recipeVersion, ratingScope);
+    // The two-regime switch, decided by the one canonical kind→regime mapping
+    // (progression-model.ts): a foundation unit never writes the ability ELO —
+    // its mastery is concept coverage. Skillset units and recall runs write.
+    const unitNode = plan.nodes.find((planNode) => planNode.id === unit.nodeId);
+    const unitParentKind = plan.nodes.find(
+      (planNode) => planNode.id === unitNode?.parentNodeId,
+    )?.kind;
+    const isFoundationUnit =
+      unitParentKind != null &&
+      regimeForNodeKind(unitParentKind) === "foundation" &&
+      recallFocus === null;
+    const recipe = getUnitRecipe(unitRun.recipeVersion, ratingScope, {
+      writesRating: !isFoundationUnit,
+    });
     // A fresh recall run has no difficulty snapshot yet; its first prompted
     // commit is the presentation that opens the measured attempt.
     const isFreshRecallPresentation =
@@ -389,21 +454,26 @@ export const runEducationUnitTurn = ({
       unit,
       state: unitRun,
       policy: recipe.policy,
+      passes: recipe.passes,
       memories,
       difficultyLine: difficultySnapshot.promptBlock,
       pendingConnectTeach: readPendingConnectTeach(unitResponses),
       scenarioSpec: unitRun.scenarioSpec,
-      syllabus,
+      knowledge,
       recallFocus: recallFocus
         ? {
             primary: {
               label: recallFocus.primary.label,
-              gloss: recallFocus.primary.gloss,
+              content: recallFocus.primary.content,
             },
             companion: recallFocus.companion
               ? {
                   label: recallFocus.companion.label,
-                  gloss: recallFocus.companion.gloss,
+                  content: recallFocus.companion.content,
+                  relation: companionRelation(
+                    recallFocus.primary,
+                    recallFocus.companion,
+                  ),
                 }
               : null,
           }
@@ -420,12 +490,11 @@ export const runEducationUnitTurn = ({
     });
     // Check-offs ride the atomic turn commit (lease-guarded), never the outer
     // connection — a lost lease or failed commit must not leave phantom mastery.
-    const syllabusCheckOff =
-      turnResult.nextState.phase === "mastered" && syllabus
+    const knowledgeCheckOff =
+      turnResult.nextState.phase === "mastered" && knowledge
         ? {
-            clusterNodeId: syllabus.clusterNodeId,
-            requestedEntryIds: turnResult.syllabusCheckOff?.entryIds ?? [],
-            targetedEntryIds: syllabus.targets.map((entry) => entry.id),
+            requestedKnowledgeIds: knowledge.targets.map((entry) => entry.id),
+            targetedKnowledgeIds: knowledge.targets.map((entry) => entry.id),
             evidenceNodeId: unit.nodeId,
           }
         : null;
@@ -441,6 +510,9 @@ export const runEducationUnitTurn = ({
     // atomically opened at presentation. The attempt row itself is the
     // exactly-once guard: getScenarioAttempt returns open attempts only, so a
     // repair turn after a recorded verdict finds none and skips rating.
+    // Timing anchors on the durable turn claim (claimedAt), not on a clock
+    // read here — by now the grader has run, and its latency (up to ~135s
+    // with retries) must not count against the learner's solve budget.
     let ratingEvaluation: WorkspaceRatingEvaluationCommit | null = null;
     if (turnResult.ratingWrite) {
       if (!scenarioAttemptId) {
@@ -449,7 +521,7 @@ export const runEducationUnitTurn = ({
             "Pass-2 evaluation requires the scenario attempt opened at presentation.",
         });
       }
-      const now = new Date();
+      const gradedAt = new Date();
       const getScenarioAttempt = deps.getScenarioAttempt;
       if (!getScenarioAttempt) {
         return yield* new RatingEvidenceError({
@@ -472,7 +544,7 @@ export const runEducationUnitTurn = ({
         }
         const timing = deriveServerAttemptTiming({
           presentedAt: attempt.solvePresentedAt,
-          submittedAt: now,
+          submittedAt: loadedTranscript.claimedAt,
           timeLimitSeconds: recipe.grade.solveTimeLimitSeconds,
         });
         if (!timing) {
@@ -487,7 +559,7 @@ export const runEducationUnitTurn = ({
           score: turnResult.ratingWrite.score,
           errorCodes: turnResult.ratingWrite.errorCodes,
           wasOverTime: timing.wasOverTime,
-          occurredAt: now,
+          occurredAt: gradedAt,
           bands: ratingScope.bands,
         };
       }
@@ -510,13 +582,28 @@ export const runEducationUnitTurn = ({
           ...(recallFocus.companion ? [recallFocus.companion.id] : []),
         ]
       : [];
-    const syllabusReinforcement =
+    const knowledgeReinforcement =
       recallFocus &&
       ratingEvaluation &&
       turnResult.event.type === "solution_graded"
         ? {
-            entryIds: presentedRecallEntryIds ?? composedEntryIds,
+            knowledgeIds: presentedRecallEntryIds ?? composedEntryIds,
             passed: turnResult.event.passed,
+          }
+        : null;
+
+    // Concept coverage: every passed solve credits the unit's target concepts
+    // with one rep at the support level it was earned under. This counter —
+    // not a rating — is what masters a skill (see engine/concept-coverage.ts),
+    // so it rides the same atomic commit as the verdict.
+    const conceptCoverage =
+      !recallFocus &&
+      knowledge &&
+      turnResult.event.type === "solution_graded" &&
+      turnResult.event.passed
+        ? {
+            knowledgeIds: knowledge.targets.map((entry) => entry.id),
+            helpLevel: difficultySnapshot.directive.supportLevel,
           }
         : null;
 
@@ -529,8 +616,11 @@ export const runEducationUnitTurn = ({
       plan,
       turnResult,
       ratingEvaluation,
-      syllabusCheckOff,
-      syllabusReinforcement,
+      knowledgeCheckOff,
+      knowledgeReinforcement,
+      conceptCoverage,
+      writeOnPass: recipe.goldilocks.writeOnPass,
+      writesRating: recipe.goldilocks.writesRating,
       openRecallAttempt: isFreshRecallPresentation,
       recallEntryIds: composedEntryIds.length > 0 ? composedEntryIds : null,
       difficultySnapshot,
@@ -544,6 +634,40 @@ export const runEducationUnitTurn = ({
       ).length,
       deps,
     });
+    const skillNodeId = node.parentNodeId;
+    if (
+      turnResult.nextState.phase === "mastered" &&
+      // A recall run masters a reopened unit, not the live frontier — its
+      // parent cluster must not pre-generate (the locked advance-gate check
+      // would also reject it, but the intent belongs here).
+      recallFocus === null &&
+      skillNodeId &&
+      deps.pregenerateNextUnit
+    ) {
+      const pregenerateNextUnit = deps.pregenerateNextUnit;
+      // Failures are logged and swallowed: the advance path regenerates, so a
+      // dead pre-generation must never surface into the turn.
+      const runPregeneration = () =>
+        Effect.runPromise(
+          Effect.tryPromise(() =>
+            pregenerateNextUnit({ sessionId, userId, skillNodeId }),
+          ).pipe(
+            Effect.tapCause((cause) =>
+              Effect.logError("next unit pre-generation failed", {
+                sessionId,
+                skillNodeId,
+                cause,
+              }),
+            ),
+            Effect.ignore,
+          ),
+        );
+      if (deps.scheduleBackgroundTask) {
+        deps.scheduleBackgroundTask(runPregeneration);
+      } else {
+        void runPregeneration();
+      }
+    }
     onAssistantMessage?.(result.assistantMessage.content);
 
     return {
@@ -552,39 +676,3 @@ export const runEducationUnitTurn = ({
       assistantMessage: result.assistantMessage,
     };
   }).pipe(Effect.scoped);
-
-// ---------------------------------------------------------------------------
-// Entry point
-// ---------------------------------------------------------------------------
-
-export const runOneStep = async ({
-  sessionId,
-  userId,
-  turnId,
-  turnLeaseId,
-  message,
-  deps,
-  workspaceTurnRepoLayer,
-}: {
-  sessionId: string;
-  userId: string;
-  turnId: string;
-  turnLeaseId: string;
-  message: string;
-  deps: WorkspaceTurnOrchestrationDependencies;
-  workspaceTurnRepoLayer: Layer.Layer<WorkspaceTurnRepo>;
-}): Promise<WorkspaceAiTurnResult> => {
-  const turn = await resolveWorkspaceTurn({ sessionId, deps });
-
-  return runWorkspaceTurn(
-    runEducationUnitTurn({
-      sessionId,
-      userId,
-      turnId,
-      turnLeaseId,
-      message,
-      turn,
-      deps,
-    }).pipe(Effect.provide(workspaceTurnRepoLayer)),
-  );
-};

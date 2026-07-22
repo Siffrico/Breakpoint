@@ -4,73 +4,45 @@ import type { db as databaseClient } from "@acme/db/client";
 import { StartingPointTierSchema } from "@acme/validators";
 
 import type { BuildProjectDeps } from "../domain/training/orchestration/build-project";
-import { designSyllabus } from "../domain/training/agents/syllabus-designer";
 import { decideMasteryProgression } from "../domain/training/engine/plan-progression";
+import { requireAbilityStage } from "../domain/training/engine/progression-model";
 import { ArtifactBuildError } from "../domain/training/orchestration/agent-runtime";
+import {
+  getMemoryContentHash,
+  normalizeMemoryContent,
+} from "../domain/memory/policies/memory-caps";
 import { createNextUnit } from "../domain/training/unit-creation/create-next-unit";
 import { runPrepareUnit } from "../domain/training/unit-preparation/prepare-unit-edge";
 import { buildProjectCheckpointRepository } from "./build-project-checkpoint-repository";
 import { buildProjectCurriculumRepository } from "./build-project-curriculum-repository";
 import { buildProjectProfileRepository } from "./build-project-profile-repository";
+import { memoryRepository } from "./memory-repository";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
 import { trainingOnboardingRepository } from "./training-onboarding-repository";
-import { trainingSyllabusRepository } from "./training-syllabus-repository";
 import {
+  advanceSkillMapNode,
   createUnitCreationRepositoryDeps,
-  loadSkillMasteryState,
-  openSkillSimulation,
+  ensureSkillKnowledge,
+  loadProgressionState,
 } from "./unit-creation-repository-deps";
 import { createUnitPreparationRepositoryDeps } from "./unit-preparation-repository-deps";
 
 type Database = typeof databaseClient;
 
-export const ensureSkillSyllabus = async ({
-  db,
-  clusterNodeId,
-  targetIdentity,
-}: {
-  db: Database;
-  clusterNodeId: string;
-  targetIdentity: string;
-}) => {
-  const cluster = await trainingCurriculumRepository.getNodeById({
-    db,
-    nodeId: clusterNodeId,
-  });
-  if (!cluster?.skillMap) return null;
-  const existing = await trainingSyllabusRepository.listEntries({
-    db,
-    clusterNodeId,
-  });
-  if (existing.length > 0) return existing;
-  const syllabus = await designSyllabus({
-    title: cluster.title,
-    summary: cluster.summary,
-    targetIdentity,
-    workflow: cluster.skillMap.workflow,
-    masteryContract: cluster.skillMap.masteryContract,
-  });
-  return trainingSyllabusRepository.ensureSyllabus({
-    db,
-    clusterNodeId,
-    entries: syllabus.entries,
-  });
-};
-
 export const ensureSkillUnit = async ({
   db,
-  clusterNodeId,
+  skillNodeId,
   sessionId,
   userId,
 }: {
   db: Database;
-  clusterNodeId: string;
+  skillNodeId: string;
   sessionId: string;
   userId: string;
 }) =>
   Effect.runPromise(
     createNextUnit({
-      clusterNodeId,
+      skillNodeId,
       deps: createUnitCreationRepositoryDeps({ db, sessionId, userId }),
     }),
   );
@@ -95,71 +67,58 @@ export const recoverSkillUnits = async ({
     db,
     planIds: [plan.id],
   });
-  const usesDynamicSkills = rawNodes.some((node) => node.skillMap != null);
-  if (!usesDynamicSkills) {
-    const hasReadyUnit = rawNodes.some(
-      (node) =>
-        (node.kind === "unit" || node.kind === "integration") &&
-        node.status === "ready",
-    );
-    const latestCompletedUnit = rawNodes
-      .filter(
-        (node) =>
-          (node.kind === "unit" || node.kind === "integration") &&
-          node.status === "completed",
-      )
-      .at(-1);
-    if (!hasReadyUnit && latestCompletedUnit) {
-      await trainingCurriculumRepository.advancePlanAfterCompletion({
+  // The recoverable frontier: ready skills and abilities with an open skillset
+  // stage. Planned-but-locked nodes are the progression engine's to open.
+  const skills = rawNodes.filter((node) => {
+    if (node.status !== "ready" || node.skillMap == null) return false;
+    if (node.kind === "skill") return true;
+    if (node.kind !== "ability") return false;
+    return requireAbilityStage(node.abilityStage) === "skillset";
+  });
+
+  const recoverSkill = async (node: {
+    id: string;
+    kind: string;
+    parentNodeId: string | null;
+  }) => {
+    const skillNodeId = node.id;
+    // Abilities own no knowledge map; their skillset units aggregate the child
+    // skills' knowledge items at unit-creation time.
+    if (node.kind !== "ability") {
+      const knowledge = await ensureSkillKnowledge({
         db,
-        nodeId: latestCompletedUnit.id,
+        skillNodeId,
+        targetIdentity: plan.targetIdentity,
       });
+      if (!knowledge) return;
     }
-    return;
-  }
-
-  // Completed clusters are mastered — never reopen them with review units.
-  const skills = rawNodes.filter(
-    (node) =>
-      node.kind === "skill_cluster" &&
-      node.status !== "completed" &&
-      node.skillMap != null,
-  );
-
-  const recoverSkill = async (clusterNodeId: string) => {
-    const syllabus = await ensureSkillSyllabus({
-      db,
-      clusterNodeId,
-      targetIdentity: plan.targetIdentity,
-    });
-    if (!syllabus) return;
-    const mastery = await loadSkillMasteryState({ db, clusterNodeId, userId });
-    if (!mastery) return;
-    const decision = decideMasteryProgression(mastery);
+    const state = await loadProgressionState({ db, skillNodeId, userId });
+    if (!state) return;
+    const decision = decideMasteryProgression(state);
     if (decision.intent === "create_unit") {
-      await ensureSkillUnit({ db, clusterNodeId, sessionId, userId });
-    } else if (decision.intent === "simulation") {
-      await openSkillSimulation({ db, clusterNodeId });
+      await ensureSkillUnit({ db, skillNodeId, sessionId, userId });
+    } else {
+      await advanceSkillMapNode({ db, nodeId: skillNodeId, sessionId, userId });
     }
   };
 
-  // Recovery may run syllabus generation (a slow AI call) per skill. Only the
+  // Recovery may run knowledge generation (a slow AI call) per skill. Only the
   // earliest incomplete skill — the one Continue is about to enter — is
   // recovered synchronously; the rest are healed off the request path.
   const [firstSkill, ...remainingSkills] = skills;
   if (!firstSkill) return;
   try {
-    await recoverSkill(firstSkill.id);
+    await recoverSkill(firstSkill);
   } catch (error) {
     console.error("Skill unit recovery failed", {
-      clusterNodeId: firstSkill.id,
+      skillNodeId: firstSkill.id,
       error,
     });
   }
   if (remainingSkills.length === 0) return;
   const recoverRemaining = async () => {
     await Promise.allSettled(
-      remainingSkills.map((skill) => recoverSkill(skill.id)),
+      remainingSkills.map((skill) => recoverSkill(skill)),
     );
   };
   if (scheduleBackgroundTask) {
@@ -200,6 +159,9 @@ export const createBuildProjectDeps = (db: Database): BuildProjectDeps => ({
   updateRun: (payload) =>
     buildProjectCheckpointRepository.updateRun({ db, ...payload }),
 
+  heartbeatRun: (payload) =>
+    buildProjectCheckpointRepository.heartbeatRun({ db, ...payload }),
+
   getArtifacts: ({ sessionId, sourceKey }) =>
     buildProjectCheckpointRepository.listArtifacts({
       db,
@@ -223,6 +185,23 @@ export const createBuildProjectDeps = (db: Database): BuildProjectDeps => ({
     );
     if (!parsed.success || !session?.startingPointLabel) return null;
     return { tier: parsed.data, label: session.startingPointLabel };
+  },
+
+  persistScenarioInspiration: async ({ userId, content }) => {
+    const normalized = normalizeMemoryContent(content);
+    const result = await memoryRepository.create({
+      db,
+      userId,
+      content: normalized,
+      contentHash: getMemoryContentHash(normalized),
+      source: "profile_update",
+    });
+    if (!result.success && result.error.code !== "CONFLICT") {
+      throw new ArtifactBuildError(
+        "Failed to save the learner's scenario interests.",
+        "save",
+      );
+    }
   },
 
   ensureShell: async ({
@@ -317,7 +296,7 @@ export const createBuildProjectDeps = (db: Database): BuildProjectDeps => ({
       sessionId,
       deps: createUnitPreparationRepositoryDeps(db),
     }),
-  ensureSkillSyllabus: (input) => ensureSkillSyllabus({ db, ...input }),
-  createSkillUnit: ({ clusterNodeId, sessionId, userId }) =>
-    ensureSkillUnit({ db, clusterNodeId, sessionId, userId }),
+  ensureSkillKnowledge: (input) => ensureSkillKnowledge({ db, ...input }),
+  createSkillUnit: ({ skillNodeId, sessionId, userId }) =>
+    ensureSkillUnit({ db, skillNodeId, sessionId, userId }),
 });

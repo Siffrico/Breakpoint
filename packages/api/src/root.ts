@@ -1,8 +1,9 @@
 import { authRouter } from "./router/auth";
-import { trainingRouter } from "./router/training";
 import { memoryRouter } from "./router/memory";
+import { missionsRouter } from "./router/missions";
 import { postRouter } from "./router/post";
 import { profileRouter } from "./router/profile";
+import { trainingRouter } from "./router/training";
 import { createTRPCRouter } from "./trpc";
 
 import type {} from "@acme/db/schema";
@@ -13,6 +14,7 @@ export const appRouter = createTRPCRouter({
   memory: memoryRouter,
   post: postRouter,
   profile: profileRouter,
+  missions: missionsRouter,
 });
 
 // export type definition of API

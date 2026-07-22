@@ -30,10 +30,10 @@ describe("previewProjectBuildArtifact", () => {
         step: "curriculum",
         payload: {
           planDraft: {
-            clusters: [undefined, { title: "Failure diagnosis" }],
+            abilities: [undefined, { title: "Failure diagnosis" }],
           },
         },
       }).body,
-    ).toBe("Skills: Failure diagnosis");
+    ).toBe("Abilities: Failure diagnosis");
   });
 });

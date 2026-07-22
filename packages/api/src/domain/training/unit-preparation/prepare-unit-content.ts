@@ -6,6 +6,7 @@ import type {
   UnitBuilderContext,
 } from "../unit-builder/contracts";
 import type { UnitPreparationError } from "./errors";
+import { regimeForNodeKind } from "../engine/progression-model";
 import { runSeedStage } from "../unit-builder/seed-stage";
 import {
   classifyUnitScaffoldFailure,
@@ -36,10 +37,16 @@ export interface UnitPreparationDependencies {
   readonly listAttemptHistory: (
     sessionId: string,
   ) => Promise<PriorLearningRecord[]>;
-  readonly getUnitSyllabusContext: (unitNodeId: string) => Promise<{
+  readonly getUnitKnowledgeContext: (unitNodeId: string) => Promise<{
     workflow: { name: string; steps: string[] };
-    checked: { label: string; gloss: string }[];
-    targets: { id: string; label: string; gloss: string }[];
+    framing: { question: string; part: number } | null;
+    checked: { label: string; content: string }[];
+    targets: {
+      id: string;
+      kind: "concept" | "mechanism";
+      label: string;
+      content: string;
+    }[];
   } | null>;
   readonly createUnitContentIfAbsent: (input: {
     nodeId: string;
@@ -61,6 +68,17 @@ export interface UnitPreparationDependencies {
     teachbackSetup: UnitContent["teachbackSetup"];
     scenario: UnitContent["scenario"];
   }) => Promise<UnitContent | null>;
+  /**
+   * Holds this node's build lock while `run` executes. Concurrent prepares
+   * for the same node must serialize here (the loser re-checks and skips),
+   * and readiness waiters observe the same lock until the holder commits.
+   * `run` receives deps bound to the lock's own connection; the build must
+   * use those so it never waits on a second connection from the pool.
+   */
+  readonly withUnitBuildLock: <T>(
+    nodeId: string,
+    run: (lockedDeps: UnitPreparationDependencies) => Promise<T>,
+  ) => Promise<T>;
 }
 
 export interface PrepareUnitContentInput {
@@ -83,14 +101,14 @@ const assembleSeedContext = ({
   planNodes,
   targetIdentity,
   priorLearning,
-  syllabus,
+  knowledge,
 }: {
   nodeId: string;
   planNodes: PlanNodeContext[] | null;
   targetIdentity: string | null;
   priorLearning: PriorLearningRecord[];
-  syllabus: Awaited<
-    ReturnType<UnitPreparationDependencies["getUnitSyllabusContext"]>
+  knowledge: Awaited<
+    ReturnType<UnitPreparationDependencies["getUnitKnowledgeContext"]>
   >;
 }): Effect.Effect<UnitBuilderContext, UnitContextMissingError> => {
   if (!planNodes) {
@@ -98,7 +116,7 @@ const assembleSeedContext = ({
   }
 
   const node = planNodes.find((candidate) => candidate.id === nodeId);
-  if (!node || (node.kind !== "unit" && node.kind !== "integration")) {
+  if (node?.kind !== "unit") {
     return Effect.fail(contextMissing("Education unit plan node is missing."));
   }
   if (!targetIdentity?.trim()) {
@@ -108,13 +126,6 @@ const assembleSeedContext = ({
     ? (planNodes.find((candidate) => candidate.id === node.parentNodeId) ??
       null)
     : null;
-  if (
-    parentNode?.kind === "skill_cluster" &&
-    parentNode.skillMap &&
-    !syllabus
-  ) {
-    return Effect.fail(contextMissing("Unit syllabus targets are missing."));
-  }
   const siblingUnits = planNodes
     .filter(
       (candidate) =>
@@ -126,19 +137,6 @@ const assembleSeedContext = ({
     siblingUnits.findIndex((candidate) => candidate.id === node.id) + 1,
     1,
   );
-  const completedClusterTitles = planNodes
-    .filter((candidate) => candidate.kind === "skill_cluster")
-    .filter((cluster) => {
-      const children = planNodes.filter(
-        (candidate) =>
-          candidate.parentNodeId === cluster.id && candidate.kind === "unit",
-      );
-      return (
-        children.length > 0 &&
-        children.every((candidate) => candidate.status === "completed")
-      );
-    })
-    .map((candidate) => candidate.title);
 
   return Effect.succeed({
     node: {
@@ -150,6 +148,7 @@ const assembleSeedContext = ({
       orderIndex: node.orderIndex,
     },
     planContext: {
+      regime: parentNode ? regimeForNodeKind(parentNode.kind) : null,
       slotIndex,
       totalSlots: siblingUnits.length || 1,
       clusterContext: parentNode
@@ -159,11 +158,9 @@ const assembleSeedContext = ({
             whyItMatters: parentNode.whyItMatters,
           }
         : null,
-      integrationContext:
-        node.kind === "integration" ? { completedClusterTitles } : null,
     },
     learner: { targetIdentity: targetIdentity.trim(), priorLearning },
-    syllabus,
+    knowledge,
   });
 };
 
@@ -191,14 +188,14 @@ export const prepareUnitContent = ({
     });
     if (existing && !forceRefresh) return existing;
 
-    const [planNodes, targetIdentity, priorLearning, syllabus] =
+    const [planNodes, targetIdentity, priorLearning, knowledge] =
       yield* Effect.tryPromise({
         try: () =>
           Promise.all([
             deps.getPlanNodesBySession(sessionId),
             deps.getTargetIdentity(sessionId),
             deps.listAttemptHistory(sessionId),
-            deps.getUnitSyllabusContext(node.id),
+            deps.getUnitKnowledgeContext(node.id),
           ]),
         catch: (cause) =>
           contextMissing(
@@ -211,7 +208,7 @@ export const prepareUnitContent = ({
       planNodes,
       targetIdentity,
       priorLearning,
-      syllabus,
+      knowledge,
     });
 
     const setup = yield* Effect.tryPromise({

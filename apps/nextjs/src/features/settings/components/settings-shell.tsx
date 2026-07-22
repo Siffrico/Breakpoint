@@ -7,10 +7,12 @@ import { useTheme } from "@acme/ui/theme";
 import type { SettingsTabKey, TopicNavItem } from "./settings-nav";
 import { SettingsSidebar } from "./settings-nav";
 
+const EMPTY_TOPICS: TopicNavItem[] = [];
+
 export function SettingsShell({
   basePath = "/settings",
   activeTab,
-  topics = [],
+  topics = EMPTY_TOPICS,
   children,
 }: {
   basePath?: string;
@@ -28,7 +30,7 @@ export function SettingsShell({
       className="bp-workspace-theme bg-background text-foreground flex h-dvh overflow-hidden"
       data-workspace-theme={resolvedTheme}
     >
-      <aside className="border-sidebar-border bg-sidebar hidden w-[216px] shrink-0 flex-col border-r md:flex">
+      <aside className="border-sidebar-border bg-sidebar hidden w-[200px] shrink-0 flex-col border-r md:flex">
         <Suspense fallback={null}>
           <SettingsSidebar
             basePath={basePath}
@@ -58,9 +60,7 @@ export function SettingsPageHeader({
 }) {
   return (
     <div>
-      <h1 className="font-display text-foreground text-[20px] font-semibold tracking-[-0.02em]">
-        {title}
-      </h1>
+      <h1 className="text-foreground text-[18px] font-semibold">{title}</h1>
       {description ? (
         <p className="text-foreground/48 mt-1 text-[13px] leading-6">
           {description}
@@ -74,17 +74,25 @@ export function SettingsSection({
   title,
   children,
   className,
+  radius = "xl",
 }: {
   title: string;
   children: React.ReactNode;
   className?: string;
+  radius?: "lg" | "xl";
 }) {
   return (
     <section
       aria-label={title}
-      className={["mt-4", className].filter(Boolean).join(" ")}
+      className={["mt-6", className].filter(Boolean).join(" ")}
     >
-      <div className="divide-border/60 border-border/50 bg-secondary divide-y overflow-hidden rounded-xl border">
+      <div
+        className={
+          radius === "lg"
+            ? "divide-border/60 border-border/50 bg-secondary divide-y overflow-hidden rounded-lg border"
+            : "divide-border/60 border-border/50 bg-secondary divide-y overflow-hidden rounded-xl border"
+        }
+      >
         {children}
       </div>
     </section>
@@ -101,7 +109,7 @@ export function SettingRow({
   control: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-6 px-5 py-4">
+    <div className="flex items-center justify-between gap-6 px-5 py-5">
       <div className="min-w-0 flex-1">
         <div className="text-foreground text-[13px] font-medium">{label}</div>
         {description ? (
@@ -125,14 +133,14 @@ export function SettingField({
   children: React.ReactNode;
 }) {
   return (
-    <div className="px-5 py-4">
+    <div className="px-5 py-5">
       <div className="text-foreground text-[13px] font-medium">{label}</div>
       {description ? (
         <div className="text-foreground/50 mt-0.5 text-[12px] leading-5">
           {description}
         </div>
       ) : null}
-      <div className="mt-3">{children}</div>
+      <div className="mt-4">{children}</div>
     </div>
   );
 }

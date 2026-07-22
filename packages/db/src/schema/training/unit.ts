@@ -201,17 +201,18 @@ export const TrainingUnitRun = pgTable(
       .notNull()
       .references(() => TrainingOnboardingSession.id, { onDelete: "cascade" }),
     userId: t.text().references(() => user.id, { onDelete: "set null" }),
-    // The durable cursor for the education-unit FSM (see education-unit/unit.ts
-    // UnitState). recipeVersion pins the recipe a run started on so an in-flight
-    // unit finishes on the recipe it began with.
+    // The durable cursor for the education-unit FSM (see education-unit/unit.ts).
     recipeVersion: t
       .varchar({ length: 96 })
       .notNull()
-      .default("education-unit-v1"),
+      .default("education-unit-v2"),
     phase: t.varchar({ length: 32 }).notNull().default("orient"),
     pass: t.integer().notNull().default(1),
     connectGrills: t.integer().notNull().default(0),
     solveRepairs: t.integer().notNull().default(0),
+    // One-shot help marker for the v2 connect loop: armed when a failed grade
+    // spends the grill budget, consumed by the turn that delivers the teach.
+    connectTeachDue: t.boolean().notNull().default(false),
     difficultySnapshotJson: t
       .jsonb()
       .$type<TrainingUnitDifficultySnapshotJson | null>(),
@@ -220,6 +221,8 @@ export const TrainingUnitRun = pgTable(
     // REPLACEABLE: pass 1's spec is stored, then pass 2's connect overwrites it
     // (after reading pass 1's as its "new surface" constraint).
     scenarioSpecJson: t.jsonb().$type<TrainingUnitScenarioSpecJson | null>(),
+    turnLeaseId: t.uuid(),
+    turnLeaseExpiresAt: t.timestamp({ mode: "date", withTimezone: true }),
     createdAt: t
       .timestamp({ mode: "date", withTimezone: true })
       .defaultNow()

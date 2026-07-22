@@ -32,7 +32,7 @@ const planNodes = [
   {
     id: "cluster-1",
     parentNodeId: null,
-    kind: "skill_cluster",
+    kind: "ability",
     title: "Diagnosis",
     summary: "Find causes before fixes.",
     whyItMatters: "Bad diagnosis compounds errors.",
@@ -95,24 +95,35 @@ const unit = {
 
 const makeDeps = (
   overrides: Partial<UnitPreparationDependencies> = {},
-): UnitPreparationDependencies => ({
-  getUnitByNodeId: vi.fn(() => Promise.resolve(null)),
-  getPlanNodesBySession: vi.fn(() => Promise.resolve(planNodes)),
-  getTargetIdentity: vi.fn(() => Promise.resolve("Incident commander")),
-  listAttemptHistory: vi.fn(() => Promise.resolve([])),
-  getUnitSyllabusContext: vi.fn(() =>
-    Promise.resolve({
-      workflow: { name: "Diagnose an incident", steps: ["Choose a probe"] },
-      checked: [],
-      targets: [
-        { id: "entry-1", label: "Causal probe", gloss: "Separate causes." },
-      ],
-    }),
-  ),
-  createUnitContentIfAbsent: vi.fn(() => Promise.resolve(unit)),
-  replaceUnitContent: vi.fn(() => Promise.resolve(unit)),
-  ...overrides,
-});
+): UnitPreparationDependencies => {
+  const deps: UnitPreparationDependencies = {
+    getUnitByNodeId: vi.fn(() => Promise.resolve(null)),
+    getPlanNodesBySession: vi.fn(() => Promise.resolve(planNodes)),
+    getTargetIdentity: vi.fn(() => Promise.resolve("Incident commander")),
+    listAttemptHistory: vi.fn(() => Promise.resolve([])),
+    getUnitKnowledgeContext: vi.fn(() =>
+      Promise.resolve({
+        workflow: { name: "Diagnose an incident", steps: ["Choose a probe"] },
+        framing: null,
+        checked: [],
+        targets: [
+          {
+            id: "entry-1",
+            kind: "concept" as const,
+            label: "Causal probe",
+            content:
+              "A probe that both hypotheses predict identically cannot separate them.",
+          },
+        ],
+      }),
+    ),
+    createUnitContentIfAbsent: vi.fn(() => Promise.resolve(unit)),
+    replaceUnitContent: vi.fn(() => Promise.resolve(unit)),
+    withUnitBuildLock: (_nodeId, run) => run(deps),
+    ...overrides,
+  };
+  return deps;
+};
 
 afterEach(() => {
   runSeedStageMock.mockReset();
@@ -120,7 +131,7 @@ afterEach(() => {
 });
 
 describe("prepareUnitContent", () => {
-  it("prepares a legacy unit without syllabus targets", async () => {
+  it("prepares a legacy unit without knowledge targets", async () => {
     runSeedStageMock.mockResolvedValue(setup);
     const legacyParent = planNodes[0];
     if (!legacyParent) throw new Error("Expected a legacy parent node.");
@@ -134,7 +145,7 @@ describe("prepareUnitContent", () => {
         sessionId: "session-1",
         deps: makeDeps({
           getPlanNodesBySession: vi.fn(() => Promise.resolve(legacyNodes)),
-          getUnitSyllabusContext: vi.fn(() => Promise.resolve(null)),
+          getUnitKnowledgeContext: vi.fn(() => Promise.resolve(null)),
         }),
       }),
     );

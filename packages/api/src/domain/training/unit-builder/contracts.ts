@@ -2,6 +2,8 @@ import { z } from "zod/v4";
 
 import { PreSeedUnitContentDraftSchema } from "@acme/validators";
 
+import { FOUNDATION_UNIT_KNOWLEDGE_CAP } from "../unit-creation/target-selection";
+
 export const PriorLearningRecordSchema = z.object({
   title: z.string().min(1),
   score: z.number().int().min(0).max(100),
@@ -16,13 +18,15 @@ export const PriorLearningRecordSchema = z.object({
 export const UnitBuilderContextSchema = z.object({
   node: z.object({
     id: z.string().min(1),
-    kind: z.enum(["unit", "integration"]),
+    kind: z.literal("unit"),
     title: z.string().min(1),
     summary: z.string().min(1),
     whyItMatters: z.string().min(1),
     orderIndex: z.number().int().min(0),
   }),
   planContext: z.object({
+    /** Parent regime: skill → foundation, ability → skillset. */
+    regime: z.enum(["foundation", "skillset"]).nullable(),
     slotIndex: z.number().int().min(1),
     totalSlots: z.number().int().min(1),
     clusterContext: z
@@ -32,35 +36,37 @@ export const UnitBuilderContextSchema = z.object({
         whyItMatters: z.string().min(1),
       })
       .nullable(),
-    integrationContext: z
-      .object({
-        completedClusterTitles: z.array(z.string().min(1)),
-      })
-      .nullable(),
   }),
   learner: z.object({
     targetIdentity: z.string().min(1),
     priorLearning: z.array(PriorLearningRecordSchema),
   }),
-  syllabus: z
+  knowledge: z
     .object({
       workflow: z.object({
         name: z.string().min(1),
         steps: z.array(z.string().min(1)).min(1),
       }),
+      framing: z
+        .object({
+          question: z.string().min(1),
+          part: z.number().int().min(1),
+        })
+        .nullable(),
       checked: z.array(
-        z.object({ label: z.string().min(1), gloss: z.string().min(1) }),
+        z.object({ label: z.string().min(1), content: z.string().min(1) }),
       ),
       targets: z
         .array(
           z.object({
             id: z.string().min(1),
+            kind: z.enum(["concept", "mechanism"]),
             label: z.string().min(1),
-            gloss: z.string().min(1),
+            content: z.string().min(1),
           }),
         )
         .min(1)
-        .max(3),
+        .max(FOUNDATION_UNIT_KNOWLEDGE_CAP),
     })
     .nullable(),
 });

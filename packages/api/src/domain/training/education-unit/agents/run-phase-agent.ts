@@ -13,6 +13,7 @@ import type { PhaseAgentError } from "./errors";
 import { invokeStructuredModel } from "../../engine/invoke-structured-model";
 import { requireAiModelForPurpose } from "../../engine/model-router";
 import { classifyPhaseAgentFailure, isRetryable } from "./errors";
+import { buildTurnDirective } from "./system-prompt";
 
 export interface PhaseAgentToolCall {
   readonly toolName: string;
@@ -29,6 +30,8 @@ export interface RunPhaseAgentInput<TSchema extends z.ZodTypeAny> {
   readonly phase: "orient" | "connect" | "solve" | "teach";
   readonly system: string;
   readonly messages: ModelMessage[];
+  readonly instruction: string;
+  readonly contextBlock: string;
   readonly schema: TSchema;
   readonly schemaName: string;
   /** Omit for phases (orient/teach) that don't grade anything. */
@@ -41,10 +44,15 @@ const MAX_RESTARTS = 2;
 const MAX_SCHEMA_REPAIRS = 1;
 const PHASE_AGENT_TIMEOUT_MS = 45_000;
 
+interface PhaseAgentAttemptResult<T> extends PhaseAgentResult<T> {
+  readonly cachedInputTokens: number;
+  readonly inputTokens: number;
+}
+
 const callModel = async <TSchema extends z.ZodTypeAny>(
   input: RunPhaseAgentInput<TSchema>,
   abortSignal: AbortSignal,
-): Promise<PhaseAgentResult<z.infer<TSchema>>> => {
+): Promise<PhaseAgentAttemptResult<z.infer<TSchema>>> => {
   const model = requireAiModelForPurpose(input.purpose, input.errorMessage);
 
   const result = invokeStructuredModel({
@@ -54,6 +62,7 @@ const callModel = async <TSchema extends z.ZodTypeAny>(
     system: input.system,
     prompt: input.messages,
     tools: input.tools,
+    cache: true,
     // A tool call + its result is a step; the structured reply that follows
     // is one more. 3 covers "call the grading tool, then answer" without
     // giving the model room to loop.
@@ -91,6 +100,7 @@ const callModel = async <TSchema extends z.ZodTypeAny>(
     result.toolCalls,
     partialOutput,
   ]);
+  const usage = await result.usage;
 
   return {
     object: object as z.infer<TSchema>,
@@ -98,12 +108,14 @@ const callModel = async <TSchema extends z.ZodTypeAny>(
       toolName: call.toolName,
       input: call.input as unknown,
     })),
+    cachedInputTokens: usage.cachedInputTokens ?? 0,
+    inputTokens: usage.inputTokens ?? 0,
   };
 };
 
 const attempt = <TSchema extends z.ZodTypeAny>(
   input: RunPhaseAgentInput<TSchema>,
-): Effect.Effect<PhaseAgentResult<z.infer<TSchema>>, PhaseAgentError> =>
+): Effect.Effect<PhaseAgentAttemptResult<z.infer<TSchema>>, PhaseAgentError> =>
   Effect.tryPromise({
     try: (signal) =>
       callModel(
@@ -118,6 +130,9 @@ const tracedAttempt = <TSchema extends z.ZodTypeAny>(
   attemptNumber: number,
 ) =>
   attempt(input).pipe(
+    Effect.tap(({ cachedInputTokens, inputTokens }) =>
+      Effect.annotateCurrentSpan({ cachedInputTokens, inputTokens }),
+    ),
     Effect.tap(() => Effect.annotateCurrentSpan({ outcome: "success" })),
     Effect.tapError((error) =>
       Effect.annotateCurrentSpan({ outcome: error._tag }),
@@ -129,6 +144,7 @@ const tracedAttempt = <TSchema extends z.ZodTypeAny>(
         attempt: attemptNumber,
       },
     }),
+    Effect.map(({ object, toolCalls }) => ({ object, toolCalls })),
   );
 
 // Exponential backoff capped at MAX_RESTARTS attempts — only ever applied to
@@ -166,7 +182,7 @@ const withRepairInstruction = <TSchema extends z.ZodTypeAny>(
  * Exhausting a budget fails with the tagged error; the caller decides the
  * turn-failed UX, this function never guesses a fallback response.
  */
-export const runPhaseAgent = <TSchema extends z.ZodTypeAny>(
+const runPreparedPhaseAgent = <TSchema extends z.ZodTypeAny>(
   input: RunPhaseAgentInput<TSchema>,
   repairsLeft = MAX_SCHEMA_REPAIRS,
 ): Effect.Effect<PhaseAgentResult<z.infer<TSchema>>, PhaseAgentError> =>
@@ -181,8 +197,25 @@ export const runPhaseAgent = <TSchema extends z.ZodTypeAny>(
     ).pipe(
       Effect.catchTag("AgentSchemaError", (error) =>
         repairsLeft > 0
-          ? runPhaseAgent(withRepairInstruction(input, error), repairsLeft - 1)
+          ? runPreparedPhaseAgent(
+              withRepairInstruction(input, error),
+              repairsLeft - 1,
+            )
           : Effect.fail(error),
       ),
     );
+  });
+
+export const runPhaseAgent = <TSchema extends z.ZodTypeAny>(
+  input: RunPhaseAgentInput<TSchema>,
+): Effect.Effect<PhaseAgentResult<z.infer<TSchema>>, PhaseAgentError> =>
+  runPreparedPhaseAgent({
+    ...input,
+    messages: [
+      ...input.messages,
+      {
+        role: "user",
+        content: buildTurnDirective(input.instruction, input.contextBlock),
+      },
+    ],
   });

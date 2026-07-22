@@ -31,8 +31,6 @@ const logFields = (error: UnitPreparationError): Record<string, unknown> => {
         message: error.message,
         ...causeFields(error.cause),
       };
-    case "UnitNotReadyError":
-      return { tag: error._tag, nodeId: error.nodeId };
   }
 };
 
@@ -50,8 +48,6 @@ export const translateUnitPreparationErrors = <A, R>(
       Effect.logError("Unit preparation failed.", logFields(error)),
     ),
     Effect.catchTags({
-      UnitNotReadyError: (error) =>
-        trpcFailure(error, "PRECONDITION_FAILED", "UNIT_PREPARING"),
       UnitContextMissingError: (error) =>
         trpcFailure(error, "BAD_REQUEST", error.message),
       UnitScaffoldError: (error) =>
@@ -64,20 +60,18 @@ export const translateUnitPreparationErrors = <A, R>(
 export const runPrepareUnit = async (
   input: PrepareUnitContentInput,
 ): Promise<UnitContent> => {
-  const exit = await Effect.runPromiseExit(
-    translateUnitPreparationErrors(prepareUnitContent(input)),
+  // The build lock spans the entire prepare. A concurrent prepare for the
+  // same node blocks on acquisition, then hits the existing-row fast path
+  // inside prepareUnitContent and returns without a second LLM build; the
+  // holder's commit is also what wakes readiness waiters.
+  const exit = await input.deps.withUnitBuildLock(input.node.id, (lockedDeps) =>
+    Effect.runPromiseExit(
+      translateUnitPreparationErrors(
+        prepareUnitContent({ ...input, deps: lockedDeps }),
+      ),
+    ),
   );
 
   if (Exit.isSuccess(exit)) return exit.value;
   throw Cause.squash(exit.cause);
-};
-
-export const raiseUnitPreparationError = async (
-  error: UnitPreparationError,
-): Promise<never> => {
-  const exit = await Effect.runPromiseExit(
-    translateUnitPreparationErrors(Effect.fail(error)),
-  );
-  if (Exit.isFailure(exit)) throw Cause.squash(exit.cause);
-  throw new Error("Unit preparation failure unexpectedly succeeded.");
 };

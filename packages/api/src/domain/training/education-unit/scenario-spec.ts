@@ -1,25 +1,29 @@
 // education-unit/scenario-spec.ts
 //
-// The ScenarioSpec: the single artifact the scenario agent produces once and
-// everyone downstream reuses. Scenario-scoped, not unit-scoped — a unit runs
-// two of them (one per pass). The unit-level invariant is `targetSkill`, which
-// lives on the unit recipe/content; a spec only *references* it so pass 2 can
-// hold the skill fixed while forcing a brand-new surface.
+// The ScenarioSpec: the single artifact the scenario agent authors once and
+// everyone downstream reuses. One scenario per unit — later rounds EVOLVE the
+// same world instead of replacing it. The unit-level invariant is `targetSkill`;
+// the spec's stateA/stateB/friction shift as the scenario escalates.
 //
-//   scenario agent ─▶ ScenarioSpec ─┬─▶ teach agent  (reads reasoningPath)
-//                                    └─▶ eval agent   (reads canonicalAnswer + rubric)
+//   scenario agent ─▶ ScenarioSpec ─┬─▶ teach agent  (reads reasoningPath, evolves the spec)
+//                                    └─▶ evaluator    (reads canonicalAnswer + rubric)
 //
-// Splitting `targetSkill` (invariant reasoning ability) from `surface` (the
-// disposable dressing) is what defeats pass-2 pattern-matching: pass 2 is
-// generated with pass 1's spec as a "do NOT reuse these dimensions" reference,
-// same skill, new surface, plus a twist that beats a memorized procedure.
+// Authored BACKWARDS, always: the chasm (the causal claim being tested) comes
+// first, then a minimal world state where it fires, then the dressing. A
+// scenario whose answer is not forced before the dressing goes on is dead.
+//
+// Evolution beats replacement: the learner keeps their world (ownership,
+// continuity — the engagement substrate) while each round adds friction or a
+// new complication. The FINAL round must also mutate a load-bearing constraint
+// so a learner who merely memorized the earlier rounds' procedure fails —
+// evolution supplies engagement, the mutation supplies the transfer check.
 
 // The canonical schema lives in @acme/validators (shared with the DB column's
 // .$type<>()), so the persisted contract and the agent contract cannot drift.
 // Two shapes: ScenarioSpec is what the agent emits through recordScenarioSpec
-// (no pass — the model never decides which pass it is on); ScenarioSpecRecord
-// is the persisted form with the pass stamped by the orchestrator, so the
-// context builder can tell pass 1's spec from pass 2's.
+// (no pass — the model never decides which round it is on); ScenarioSpecRecord
+// is the persisted form with the round stamped by the orchestrator, so the
+// context builder can tell a prior round's spec from the current round's.
 import type {
   UnitScenarioSpec,
   UnitScenarioSpecRecord,
@@ -30,38 +34,85 @@ export const ScenarioSpecSchema = UnitScenarioSpecSchema;
 export type ScenarioSpec = UnitScenarioSpec;
 export type ScenarioSpecRecord = UnitScenarioSpecRecord;
 
-/**
- * Renders a prior-pass spec into the "avoid these dimensions" constraint block
- * the scenario agent receives when building pass 2. Keeps the target skill,
- * bans the used surface.
- */
-export const renderPriorSurfaceConstraint = (prior: ScenarioSpec): string =>
+const renderWorldState = (spec: ScenarioSpec): string =>
   [
-    "## Transfer constraint (pass 2)",
+    spec.stateA ? `State A (current reality): ${spec.stateA}` : null,
+    spec.stateB ? `State B (desired outcome): ${spec.stateB}` : null,
+    spec.chasm ? `Chasm (the causal claim being tested): ${spec.chasm}` : null,
+    spec.frictionNoise ? `Friction & noise: ${spec.frictionNoise}` : null,
+  ]
+    .filter((line): line is string => line !== null)
+    .join("\n");
+
+/**
+ * Renders the prior round's spec into the evolution constraint the scenario
+ * agent receives when building the next round. Same world, same target skill —
+ * escalated friction. On the final round the evolution must also mutate a
+ * load-bearing constraint (new fact, changed requirement) so the answer cannot
+ * be pattern-matched from the earlier rounds.
+ */
+export const renderScenarioEvolutionConstraint = (
+  prior: ScenarioSpec,
+  options: { isFinalRound: boolean },
+): string =>
+  [
+    "## Scenario evolution constraint",
     `Target skill (KEEP identical): ${prior.targetSkill}`,
-    `Surface already used in pass 1 (do NOT reuse this domain, story, or framing): ${prior.surface}`,
-    "Build a scenario that exercises the SAME target skill on a NEW surface, and add a twist that defeats a learner who merely memorized the pass-1 procedure. The learner must re-derive, not recall.",
+    `The learner's world so far (KEEP this world — same product, same actors, same stakes): ${prior.surface}`,
+    renderWorldState(prior),
+    "EVOLVE this scenario, do not replace it: the prior round's outcome is now part of the world's history. Add a new complication or escalate the friction so the same causal mechanism fires in a harder form.",
+    options.isFinalRound
+      ? "FINAL ROUND: also mutate one load-bearing constraint (a changed requirement, a new fact that invalidates the memorized move) so a learner who only memorized the earlier rounds' procedure fails. They must re-derive from the mechanism, not recall."
+      : "Keep the difficulty step small — noticeably harder, never a cliff (proximal development).",
   ].join("\n");
 
 /**
- * The eval agent's rubric context for a pass-2 solve answer: the canonical
+ * Select-archetype specs carry the Solve check's authored options. Rendered
+ * into the grading context so the evaluator poses exactly these options and
+ * grades the learner's letter against the key — a wrong pick maps to the
+ * chosen distractor's misconceptionCode, so it is diagnostic, not just wrong.
+ */
+const renderMcqOptions = (spec: ScenarioSpec): string | null => {
+  if (!spec.options || spec.options.length === 0 || !spec.correctLetter) {
+    return null;
+  }
+  const options = spec.options
+    .map(
+      (option) =>
+        `${option.letter}. ${option.text}${option.misconceptionCode ? ` [distractor for: ${option.misconceptionCode}]` : ""}`,
+    )
+    .join("\n");
+  return [
+    "Solve check (select archetype) — pose EXACTLY these options as plain Markdown lines lettered as given; never reveal the bracketed diagnostic tags or the key:",
+    options,
+    `Correct letter: ${spec.correctLetter}`,
+  ].join("\n");
+};
+
+/**
+ * The evaluator's rubric context for a scored solve answer: the canonical
  * answer it grades toward and the rubric it grades against.
  */
 export const renderEvalRubricContext = (spec: ScenarioSpec): string =>
   [
     "## Grading reference",
     `Target skill: ${spec.targetSkill}`,
+    renderWorldState(spec),
+    renderMcqOptions(spec),
     `Canonical answer: ${spec.canonicalAnswer}`,
     `Reasoning path: ${spec.reasoningPath}`,
     `Rubric:\n${spec.rubric}`,
-  ].join("\n");
+  ]
+    .filter((line): line is string => line !== null)
+    .join("\n");
 
-/** The grading reference for a Connect scenario that was posed by Teach. */
+/** The grading reference for the round's already-posed Connect scenario. */
 export const renderConnectGradingContext = (spec: ScenarioSpec): string =>
   [
     "## Active connection scenario",
-    "The Teach beat already posed this pass-2 scenario. Grade the learner's latest answer; do not present another scenario.",
+    "This round's scenario has already been posed. Grade the learner's latest answer against it; do not present another scenario.",
     `Target skill: ${spec.targetSkill}`,
+    renderWorldState(spec),
     `Canonical answer: ${spec.canonicalAnswer}`,
     `Reasoning path: ${spec.reasoningPath}`,
     `Rubric:\n${spec.rubric}`,

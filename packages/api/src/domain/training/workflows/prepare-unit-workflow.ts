@@ -9,7 +9,6 @@ import { err, ok } from "../../../lib/result";
 import { generateClusterBriefing } from "../generate-cluster-briefing";
 import {
   getEducationUnitState,
-  shouldRefreshLegacyEducationUnit,
 } from "../policies/education-unit-state-policy";
 import { runPrepareUnit } from "../unit-preparation/prepare-unit-edge";
 
@@ -56,7 +55,7 @@ export const prepareUnitWorkflow = async ({
 
   const node = planNodes.find((item) => item.id === nodeId);
   if (!node) return err("Unit node does not exist in this learning project.");
-  if (node.kind !== "unit" && node.kind !== "integration") {
+  if (node.kind !== "unit") {
     return err("This node is not an education unit.");
   }
 
@@ -68,14 +67,7 @@ export const prepareUnitWorkflow = async ({
   const existingResponses = existingUnit
     ? await deps.getPhaseResponses(existingUnit.id, sessionId)
     : [];
-  const forceRefresh = existingUnit
-    ? shouldRefreshLegacyEducationUnit({
-        unit: existingUnit,
-        responses: existingResponses,
-      })
-    : false;
-
-  if (existingUnit && !forceRefresh) {
+  if (existingUnit) {
     return ok(
       getEducationUnitState({
         unit: existingUnit,
@@ -91,18 +83,6 @@ export const prepareUnitWorkflow = async ({
     (item) =>
       item.parentNodeId === node.parentNodeId && item.kind === node.kind,
   );
-  const completedClusterTitles = planNodes
-    .filter((item) => item.kind === "skill_cluster")
-    .filter((cluster) => {
-      const children = planNodes.filter(
-        (item) => item.parentNodeId === cluster.id && item.kind === "unit",
-      );
-      return (
-        children.length > 0 &&
-        children.every((item) => item.status === "completed")
-      );
-    })
-    .map((item) => item.title);
   const briefingPromise = parentNode
     ? generateClusterBriefing({
         slotKind: node.kind,
@@ -112,14 +92,12 @@ export const prepareUnitWorkflow = async ({
           summary: parentNode.summary,
           whyItMatters: parentNode.whyItMatters,
         },
-        completedClusterTitles:
-          node.kind === "integration" ? completedClusterTitles : undefined,
       }).catch(() => null)
     : Promise.resolve(null);
 
   try {
     const [preparedUnit, generatedBriefing] = await Promise.all([
-      runPrepareUnit({ node, sessionId, deps, forceRefresh }),
+      runPrepareUnit({ node, sessionId, deps }),
       briefingPromise,
     ]);
 

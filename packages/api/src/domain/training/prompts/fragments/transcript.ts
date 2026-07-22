@@ -1,5 +1,4 @@
 import type {
-  CapstoneMessage,
   OnboardingTranscriptMessage,
   TeachbackMessage,
 } from "../../types/training.types";
@@ -19,13 +18,4 @@ export const formatTeachbackTranscript = (
 ): string =>
   messages
     .map((m) => `${m.role.toUpperCase()} (round ${m.round}): ${m.content}`)
-    .join("\n");
-
-export const formatCapstoneTranscript = (
-  messages: CapstoneMessage[],
-): string =>
-  messages
-    .map(
-      (m) => `${m.role.toUpperCase()} [round ${m.round}]: ${m.content}`,
-    )
     .join("\n");

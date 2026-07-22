@@ -1,23 +1,22 @@
 import type { z } from "zod/v4";
 import { APICallError, NoObjectGeneratedError } from "ai";
 
-import type { AiModelPurpose } from "../engine/model-router";
+import type { AgentId } from "../engine/agent-config";
+import { getAgentConfig } from "../engine/agent-config";
 import { invokeStructuredModel } from "../engine/invoke-structured-model";
 import {
-  getSearchToolsForSelectedProvider,
-  requireAiModelForPurpose,
+  getSearchToolsForStructuredOutput,
+  requireStructuredAiModelForPurpose,
 } from "../engine/model-router";
 import { getRunProfile } from "../engine/run-profiles";
 
-const PURPOSE_BY_AGENT = {
-  onboarding: "onboarding",
-  curriculumDesigner: "curriculum",
-  syllabusDesigner: "syllabus",
-  buildContent: "buildContent",
-  failureIsolation: "failure",
-  ghostReplay: "ghost",
-  projectOverview: "projectOverview",
-} as const;
+type ArtifactAgentId = Extract<
+  AgentId,
+  | "curriculumDesigner"
+  | "knowledgeMapper"
+  | "buildContent"
+  | "projectOverview"
+>;
 
 export const runAgent = async <TSchema extends z.ZodTypeAny>({
   agent,
@@ -26,15 +25,15 @@ export const runAgent = async <TSchema extends z.ZodTypeAny>({
   schema,
   errorMessage,
 }: {
-  agent: keyof typeof PURPOSE_BY_AGENT;
+  agent: ArtifactAgentId;
   system: string;
   prompt: string;
   schema: TSchema;
   errorMessage: string;
 }): Promise<z.infer<TSchema>> => {
-  const purpose = PURPOSE_BY_AGENT[agent] as AiModelPurpose;
+  const purpose = getAgentConfig(agent).purpose;
   const profile = getRunProfile(purpose);
-  const model = requireAiModelForPurpose(
+  const model = requireStructuredAiModelForPurpose(
     purpose,
     "AI-generated training workflows",
   );
@@ -46,7 +45,7 @@ export const runAgent = async <TSchema extends z.ZodTypeAny>({
       schemaName: `${agent}_output`,
       system,
       prompt,
-      tools: getSearchToolsForSelectedProvider(purpose),
+      tools: getSearchToolsForStructuredOutput(purpose),
       maxSteps: profile.maxSteps,
       profile,
     });
@@ -88,8 +87,9 @@ export class ArtifactBuildError extends Error {
     message: string,
     failureKind: ArtifactFailureKind,
     partial?: unknown,
+    options?: { cause?: unknown },
   ) {
-    super(message);
+    super(message, options);
     this.name = "ArtifactBuildError";
     this.failureKind = failureKind;
     this.partial = partial;
@@ -193,11 +193,20 @@ const errorText = (prefix: string, error: unknown): string =>
     ? `${prefix} ${error.message}`
     : prefix;
 
+/** Walk the cause chain for the NoObjectGeneratedError carrying the raw text. */
+const rawModelText = (error: unknown, depth = 0): string => {
+  if (depth > 5 || error == null) return "";
+  if (
+    NoObjectGeneratedError.isInstance(error) &&
+    typeof error.text === "string"
+  ) {
+    return error.text.trim();
+  }
+  return error instanceof Error ? rawModelText(error.cause, depth + 1) : "";
+};
+
 const buildRepairPrompt = (basePrompt: string, error: unknown): string => {
-  const raw =
-    NoObjectGeneratedError.isInstance(error) && typeof error.text === "string"
-      ? error.text.trim()
-      : "";
+  const raw = rawModelText(error);
   return `${basePrompt}
 
 The previous attempt did not return an object matching the required schema. Return exactly one complete JSON object that strictly matches the schema, with no commentary.${
@@ -223,7 +232,7 @@ export const runResilientAgent = async <TSchema extends z.ZodTypeAny>({
   onPartial,
   seedPartial,
 }: {
-  agent: keyof typeof PURPOSE_BY_AGENT;
+  agent: ArtifactAgentId;
   system: string;
   prompt: string;
   schema: TSchema;
@@ -235,9 +244,9 @@ export const runResilientAgent = async <TSchema extends z.ZodTypeAny>({
   seedPartial?: Partial<z.infer<TSchema>>;
 }): Promise<z.infer<TSchema>> => {
   type T = z.infer<TSchema>;
-  const purpose = PURPOSE_BY_AGENT[agent] as AiModelPurpose;
+  const purpose = getAgentConfig(agent).purpose;
   const profile = getRunProfile(purpose);
-  const model = requireAiModelForPurpose(
+  const model = requireStructuredAiModelForPurpose(
     purpose,
     "AI-generated training workflows",
   );
@@ -264,7 +273,7 @@ export const runResilientAgent = async <TSchema extends z.ZodTypeAny>({
         schemaName: `${agent}_output`,
         system,
         prompt: activePrompt,
-        tools: getSearchToolsForSelectedProvider(purpose),
+        tools: getSearchToolsForStructuredOutput(purpose),
         // Pace the structured-output text deltas so onPartial flushes feel like
         // a steady stream rather than chunky bursts.
         smoothPartials: true,
@@ -287,6 +296,15 @@ export const runResilientAgent = async <TSchema extends z.ZodTypeAny>({
       const partialPresent = hasContent(partial);
       const kind = classifyFailure(error, partialPresent);
       const message = errorText(errorMessage, error);
+
+      if (kind === "schema") {
+        // Surface what the model actually emitted — without this, a parse
+        // failure is undiagnosable (the raw text is otherwise dropped).
+        console.error(`[agent-runtime] ${agent} schema failure`, {
+          repairs,
+          rawTextPreview: rawModelText(error).slice(0, 1500) || undefined,
+        });
+      }
 
       if (kind === "schema" && repairs < MAX_REPAIRS) {
         repairs += 1;
@@ -325,6 +343,7 @@ export const runResilientAgent = async <TSchema extends z.ZodTypeAny>({
         message,
         kind,
         partialPresent ? partial : undefined,
+        { cause: error },
       );
     }
   }

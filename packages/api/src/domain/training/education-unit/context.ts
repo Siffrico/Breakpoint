@@ -15,11 +15,11 @@
 
 import type { UnitContent } from "../types/training.types";
 import type { ScenarioSpecRecord } from "./scenario-spec";
-import type { LoopPolicy, UnitState } from "./unit";
+import type { LoopPolicy, PassIndex, UnitState } from "./unit";
 import {
   renderConnectGradingContext,
   renderEvalRubricContext,
-  renderPriorSurfaceConstraint,
+  renderScenarioEvolutionConstraint,
 } from "./scenario-spec";
 
 export interface UnitTurnContextInput {
@@ -35,6 +35,8 @@ export interface UnitTurnContextInput {
   >;
   state: UnitState;
   policy: LoopPolicy;
+  /** Total rounds in this run's recipe (v1: 2, v2: 3, recall: 2). */
+  passes: PassIndex;
   /** Learner memories, most-relevant first; only `content` is rendered. */
   memories: readonly { content: string }[];
   /**
@@ -55,10 +57,16 @@ export interface UnitTurnContextInput {
    * reference, and the eval grading reference. Null before a spec is recorded.
    */
   scenarioSpec: ScenarioSpecRecord | null;
-  syllabus: {
+  knowledge: {
     workflow: { name: string; steps: readonly string[] };
-    checked: readonly { label: string; gloss: string }[];
-    targets: readonly { id: string; label: string; gloss: string }[];
+    framing: { question: string; part: number } | null;
+    checked: readonly { label: string; content: string }[];
+    targets: readonly {
+      id: string;
+      kind: "concept" | "mechanism";
+      label: string;
+      content: string;
+    }[];
   } | null;
   /**
    * Set on recall interludes: the decayed skill this scenario must make the
@@ -67,8 +75,18 @@ export interface UnitTurnContextInput {
    * problem where the primary skill is load-bearing.
    */
   recallFocus?: {
-    primary: { label: string; gloss: string };
-    companion: { label: string; gloss: string } | null;
+    primary: { label: string; content: string };
+    companion: {
+      label: string;
+      content: string;
+      /**
+       * How the companion's situation chains with the primary's: "setup"
+       * opens the scenario a stage earlier and hands off to the target,
+       * "continuation" carries it a stage past the target, "peer" shares
+       * the target's own situation.
+       */
+      relation: "setup" | "continuation" | "peer";
+    } | null;
   } | null;
 }
 
@@ -77,12 +95,29 @@ const bullet = (lines: readonly string[]): string =>
 
 /** The explicit per-turn output contract the solve agent looks for. */
 const buildOutputContract = (input: UnitTurnContextInput): string | null => {
-  const { state, policy, pendingConnectTeach } = input;
+  const { state, policy, passes, pendingConnectTeach } = input;
   const directives: string[] = [];
 
   if (pendingConnectTeach && state.phase === "solve") {
     directives.push(
       "The learner did not reconstruct the connection on their own and was advanced anyway. Before posing the solve problem, briefly teach the missed idea, anchored on their own last attempt.",
+    );
+  }
+
+  // v2 connect loop: the grill budget is spent but the phase keeps looping —
+  // escalate to a teach of the missing idea, then re-pose the SAME scenario.
+  // Driven by the explicit one-shot marker (armed by the failing grade,
+  // consumed by the turn that delivers the teach — see fsm.ts), so the
+  // directive can never fire again on the learner's post-teach answer.
+  if (state.phase === "connect" && state.connectTeachDue) {
+    directives.push(
+      "The learner has repeatedly missed the core connection. This turn, briefly TEACH the missing idea — anchored on their own attempts, smallest possible reveal — then re-pose the same scenario's reconstruct questions so they can genuinely connect. Do not grade this turn as connected on your teaching; only on their own reconstruction.",
+    );
+  }
+
+  if (state.phase === "solve" && state.pass === passes) {
+    directives.push(
+      "This is the unit's FINAL round: on a passing answer, also call checkOffSyllabus with only the target entry ids the learner directly demonstrated.",
     );
   }
 
@@ -110,7 +145,7 @@ export const buildUnitTurnContext = (input: UnitTurnContextInput): string => {
 
   const sections: string[] = [
     `## Unit\nSkill: ${unit.title}\nLearning goal: ${unit.learningGoal}\nWhy it matters: ${unit.whyItMatters}`,
-    `## Where we are\nPhase: ${state.phase} (pass ${state.pass} of 2)`,
+    `## Where we are\nPhase: ${state.phase} (round ${state.pass} of ${input.passes})`,
     `## Scenario material\nSeed scenario: ${unit.seedPrompt}\nSeed hint (never reveal directly): ${unit.seedHint}`,
   ];
 
@@ -118,31 +153,50 @@ export const buildUnitTurnContext = (input: UnitTurnContextInput): string => {
     sections.push(`## How this unit fits\n${unit.clusterArcFrame}`);
   }
 
-  if (input.syllabus) {
+  if (input.knowledge) {
     const checked =
-      input.syllabus.checked.length > 0
+      input.knowledge.checked.length > 0
         ? bullet(
-            input.syllabus.checked.map(
-              (entry) => `${entry.label}: ${entry.gloss}`,
+            input.knowledge.checked.map(
+              (entry) => `${entry.label}: ${entry.content}`,
             ),
           )
         : "- None yet";
-    const targets = bullet(
-      input.syllabus.targets.map(
-        (entry) => `${entry.id} — ${entry.label}: ${entry.gloss}`,
-      ),
-    );
+    const targets = input.knowledge.targets
+      .map(
+        (entry) =>
+          `- ${entry.id} — ${entry.kind} — ${entry.label}: ${entry.content}`,
+      )
+      .join("\n");
+    const framing = input.knowledge.framing
+      ? `\nAuthored question: ${input.knowledge.framing.question}${input.knowledge.framing.part > 1 ? ` (part ${input.knowledge.framing.part})` : ""}`
+      : "";
     sections.push(
-      `## Syllabus\nWorkflow: ${input.syllabus.workflow.name}\nSpine:\n${bullet(input.syllabus.workflow.steps)}\n\nAlready checked (assume known; build on these):\n${checked}\n\nThis unit must land:\n${targets}`,
+      `## Knowledge\nWorkflow: ${input.knowledge.workflow.name}${framing}\nSpine:\n${bullet(input.knowledge.workflow.steps)}\n\nAlready checked (assume known; build on these):\n${checked}\n\nThis unit must land:\n${targets}`,
     );
   }
 
   if (input.recallFocus) {
+    // Chained companions make the scenario one continuous whole task — the
+    // learner walks through the well-known stage on the way to the decayed one
+    // — instead of two unrelated facts stapled into one prompt.
+    const companionFraming: Record<
+      NonNullable<
+        NonNullable<UnitTurnContextInput["recallFocus"]>["companion"]
+      >["relation"],
+      string
+    > = {
+      setup:
+        "Open the scenario one stage earlier, inside this well-known skill, and let it hand off naturally to the target skill",
+      continuation:
+        "Let the scenario flow one stage past the target skill, into this well-known skill",
+      peer: "Compose it with this well-known skill from the same situation",
+    };
     const companion = input.recallFocus.companion
-      ? `\nCompose it with this well-known skill (assume solid; no review needed): ${input.recallFocus.companion.label} — ${input.recallFocus.companion.gloss}`
+      ? `\n${companionFraming[input.recallFocus.companion.relation]} (assume solid; no review needed): ${input.recallFocus.companion.label} — ${input.recallFocus.companion.content}`
       : "";
     sections.push(
-      `## Recall focus\nThis is a spaced-recall checkpoint, not a lesson. Pose ONE realistic scenario in which the learner must retrieve and apply: ${input.recallFocus.primary.label} — ${input.recallFocus.primary.gloss}${companion}\nDo not re-teach the skill before they attempt it. Frame it briefly as a quick checkpoint before their next unit.`,
+      `## Recall focus\nThis is a spaced-recall checkpoint, not a lesson. Pose ONE realistic scenario in which the learner must retrieve and apply: ${input.recallFocus.primary.label} — ${input.recallFocus.primary.content}${companion}\nDo not re-teach the skill before they attempt it. Frame it briefly as a quick checkpoint before their next unit.`,
     );
   }
 
@@ -158,29 +212,39 @@ export const buildUnitTurnContext = (input: UnitTurnContextInput): string => {
     );
   }
 
-  // Pass-2 use of the recorded spec, gated on WHICH pass recorded it:
-  //   - connect sees pass 1's spec as a "vary the surface" constraint, or its
-  //     pass-2 spec as the grading reference for the probe Teach already posed.
-  //   - solve (the eval agent) only grades against pass 2's spec. Pass 1's
-  //     canonical answer belongs to a different scenario; grading against it
-  //     would score the learner on the wrong answer key, so it is never shown.
+  // Use of the recorded spec, gated on WHICH round recorded it:
+  //   - teach sees the just-finished round's spec as the evolution constraint
+  //     (same world, escalated friction; the final round adds the transfer
+  //     mutation).
+  //   - connect sees the prior round's spec as the evolution constraint
+  //     (safety net when no seam teach recorded one), or the current round's
+  //     spec as the grading reference for the already-posed scenario — on
+  //     EVERY round, including round one, where Connect itself recorded the
+  //     spec while posing. Whether the spec is "current" or "prior" is decided
+  //     once, from its pass tag alone.
+  //   - solve (the evaluator) only grades against the current round's spec. A
+  //     prior round's canonical answer belongs to an earlier form of the
+  //     scenario; grading against it would score the learner on the wrong
+  //     answer key, so it is never shown.
   if (input.scenarioSpec) {
     const specPass = input.scenarioSpec.pass ?? 1;
-    if (state.phase === "teach" && specPass === 1) {
-      sections.push(renderPriorSurfaceConstraint(input.scenarioSpec));
-    } else if (
-      state.pass === 2 &&
-      state.phase === "connect" &&
-      specPass === 1
-    ) {
-      sections.push(renderPriorSurfaceConstraint(input.scenarioSpec));
-    } else if (
-      state.pass === 2 &&
-      state.phase === "connect" &&
-      specPass === 2
-    ) {
+    const isFinalRound = state.pass >= input.passes;
+    if (state.phase === "teach" && specPass === state.pass) {
+      sections.push(
+        renderScenarioEvolutionConstraint(input.scenarioSpec, {
+          // The seam teach evolves INTO the next round.
+          isFinalRound: state.pass + 1 >= input.passes,
+        }),
+      );
+    } else if (state.phase === "connect" && specPass === state.pass - 1) {
+      sections.push(
+        renderScenarioEvolutionConstraint(input.scenarioSpec, {
+          isFinalRound,
+        }),
+      );
+    } else if (state.phase === "connect" && specPass === state.pass) {
       sections.push(renderConnectGradingContext(input.scenarioSpec));
-    } else if (state.pass === 2 && state.phase === "solve" && specPass === 2) {
+    } else if (state.phase === "solve" && specPass === state.pass) {
       sections.push(renderEvalRubricContext(input.scenarioSpec));
     }
   }

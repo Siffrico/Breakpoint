@@ -1,5 +1,13 @@
-import type { DifficultyBand, ScenarioDirective } from "./decide";
+import type { ScenarioFormat } from "@acme/validators";
+
+import {
+  archetypeDirectiveLines,
+  archetypeOfFormat,
+} from "../scenario-archetypes";
+
 import type { RatingPredictionRecord } from "./apply-evaluation";
+import type { DifficultyBand, ScenarioDirective } from "./decide";
+import type { DifficultyDialPreset } from "./difficulty-priors";
 import type { SupportLevel } from "./policy";
 
 /**
@@ -34,7 +42,7 @@ const INTENT_INSTRUCTIONS: Record<ScenarioDirective["intent"], string> = {
   challenge:
     "Standard training scenario in the Goldilocks zone (~70% expected success). Vary the surface context away from recently used ones; keep difficulty axes consistent with the target rating.",
   mastered:
-    "The job is mastered. If a scenario is still requested, generate a celebratory capstone at full difficulty with no support.",
+    "The job is mastered. If a scenario is still requested, generate a celebratory full-difficulty scenario with no support.",
 };
 
 /**
@@ -66,8 +74,8 @@ export const buildGeneratorCalibrationNote = (
   return {
     note:
       gap > 0
-        ? `Recent scenarios are being beaten more often than predicted (${Math.round(predicted * 100)}% predicted vs ${Math.round(actual * 100)}% actual). Increase concrete difficulty axes slightly while staying near the target rating.`
-        : `Recent scenarios are being beaten less often than predicted (${Math.round(predicted * 100)}% predicted vs ${Math.round(actual * 100)}% actual). Reduce concrete difficulty axes slightly while staying near the target rating.`,
+        ? `Recent scenarios are being beaten more often than predicted (${Math.round(predicted * 100)}% predicted vs ${Math.round(actual * 100)}% actual). Prefer the upper ends of the assigned structural ranges.`
+        : `Recent scenarios are being beaten less often than predicted (${Math.round(predicted * 100)}% predicted vs ${Math.round(actual * 100)}% actual). Prefer the lower ends of the assigned structural ranges.`,
   };
 };
 
@@ -80,6 +88,8 @@ export const buildGeneratorCalibrationNote = (
 export const renderScenarioDirective = (
   directive: ScenarioDirective,
   band: DifficultyBand,
+  format: ScenarioFormat,
+  dialPreset: DifficultyDialPreset,
   calibration?: GeneratorCalibrationNote,
 ): string => {
   if (band.order !== directive.bandOrder) {
@@ -92,7 +102,11 @@ export const renderScenarioDirective = (
     "## Difficulty directive (set by the training engine — follow exactly)",
     `- Intent: ${directive.intent}`,
     `- Band: ${band.order}${band.label ? ` (${band.label})` : ""}, rating range ${band.minRating}-${band.maxRating}`,
-    `- Target item rating: ~${directive.targetItemRating}. Estimate your scenario's rating on the same scale and include it in your output; aim within ±50 of the target.`,
+    `- Format: ${format.label} (${format.kind}, id: ${format.id}). ${format.description}`,
+    ...archetypeDirectiveLines(archetypeOfFormat(format)),
+    `- Reasoning path: ${dialPreset.steps[0]}–${dialPreset.steps[1]} steps; list each step in reasoningPathSteps.`,
+    `- Withhold ${dialPreset.withheldGivens[0]}–${dialPreset.withheldGivens[1]} key givens; name each in withheldGivens.`,
+    `- Embed ${dialPreset.alternatives[0]}–${dialPreset.alternatives[1]} plausible wrong approaches; name each in embeddedAlternatives.`,
     `- Support: ${SUPPORT_INSTRUCTIONS[directive.supportLevel]}`,
   ];
 
@@ -104,10 +118,7 @@ export const renderScenarioDirective = (
     lines.push(`- Approach: ${INTENT_INSTRUCTIONS[directive.intent]}`);
   }
 
-  lines.push(
-    `- Why (shown to the learner): ${directive.reason}`,
-    "- Difficulty axes you may use to hit the target rating: surface-context unfamiliarity, number of compounded schema steps, distractor plausibility, ambiguity of givens, implied time pressure. Move these — never add trick wording or obscure trivia.",
-  );
+  lines.push(`- Why (shown to the learner): ${directive.reason}`);
 
   if (calibration) {
     lines.push(`- Calibration: ${calibration.note}`);

@@ -42,10 +42,10 @@ const ALL_DESIGNS: (ChatDesign & { experimental?: boolean })[] = [
 ];
 
 const getMessageText = (message: UIMessage) =>
-  message.parts
-    .filter(isTextUIPart)
-    .map((part) => part.text)
-    .join("");
+  message.parts.reduce(
+    (text, part) => (isTextUIPart(part) ? text + part.text : text),
+    "",
+  );
 
 // Reasoning parts stream in before the answer text. `state` is "streaming"
 // until the reasoning-end chunk arrives.
@@ -162,6 +162,7 @@ export default function ChatLabPage() {
         <section className="flex min-h-[70dvh] flex-col gap-6">
           <div className="flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-white/8 pb-5">
             <button
+              type="button"
               onClick={isRunning ? () => void stop() : stream}
               className={`px-5 py-2 text-sm font-medium transition-colors ${
                 isRunning
@@ -172,6 +173,7 @@ export default function ChatLabPage() {
               {isRunning ? "⏸ Stop" : "▶ Stream"}
             </button>
             <button
+              type="button"
               onClick={reset}
               disabled={messages.length === 0}
               className="border border-white/15 px-4 py-2 text-sm transition-colors hover:bg-white/5 disabled:opacity-30"
@@ -193,6 +195,7 @@ export default function ChatLabPage() {
                 >
                   {REASONING_STYLES.map((style) => (
                     <button
+                      type="button"
                       key={style.id}
                       onClick={() => setReasoningStyle(style.id)}
                       className={`px-3 py-1.5 text-xs transition-colors ${
@@ -229,6 +232,7 @@ export default function ChatLabPage() {
               >
                 {CHUNK_MODES.map((mode) => (
                   <button
+                    type="button"
                     key={mode.id}
                     onClick={() => setChunkMode(mode.id)}
                     className={`px-3 py-1.5 text-xs transition-colors ${
@@ -322,6 +326,7 @@ function RailButton({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       className={`border px-3 py-2 text-left transition-colors ${
         active
@@ -346,6 +351,7 @@ function Toggle({
 }) {
   return (
     <button
+      type="button"
       role="switch"
       aria-checked={checked}
       onClick={() => onChange(!checked)}

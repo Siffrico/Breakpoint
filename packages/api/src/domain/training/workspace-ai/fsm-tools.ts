@@ -87,16 +87,67 @@ export const gradeSolution = tool({
 });
 
 /**
- * Available in Connect when the scenario is first posed. NOT an FSM event — it
- * records the reverse-engineered ScenarioSpec artifact (canonical answer,
- * reasoning path, rubric, target skill/surface) so teach and the pass-2 eval
- * can reuse it. The orchestrator reads it out of the tool calls (like the solve
+ * Available in Connect when the scenario is first posed, and in Teach when the
+ * scenario evolves for the next round. NOT an FSM event — it records the
+ * backwards-authored ScenarioSpec artifact (state A/B, chasm, friction,
+ * canonical answer, reasoning path, rubric) so teach and the evaluator can
+ * reuse it. The orchestrator reads it out of the tool calls (like the solve
  * score), never through toUnitEvent.
+ *
+ * The tool REQUIRES the world-state fields the persisted record keeps optional
+ * (pre-v2 rows lack them): requiring them here is what forces backwards
+ * authoring — a model that cannot state the chasm has no scenario.
  */
 export const recordScenarioSpec = tool({
   description:
-    "Call this exactly once, on the turn you first pose the scenario, to record the spec you reverse-engineered: the target skill, the surface, the canonical answer, the reasoning path, and the grading rubric.",
-  inputSchema: ScenarioSpecSchema,
+    "Call this exactly once, on the turn you pose or evolve the scenario, to record the spec you authored backwards: target skill, surface (the world), state A (current reality), state B (desired outcome), the chasm (the causal claim tested), friction & noise, the canonical answer, the reasoning path, and the grading rubric.",
+  inputSchema: ScenarioSpecSchema.required({
+    stateA: true,
+    stateB: true,
+    chasm: true,
+    frictionNoise: true,
+    formatId: true,
+    reasoningPathSteps: true,
+    withheldGivens: true,
+    embeddedAlternatives: true,
+  }).superRefine((spec, ctx) => {
+    // Select-archetype coherence: options and correctLetter travel together,
+    // the key must be one of the options, and every distractor's
+    // misconceptionCode must be a real ERROR_CLASSIFICATION code — it becomes
+    // the errorCode when the learner picks it, so an invalid code here would
+    // silently break rating evidence downstream.
+    if (!spec.options && !spec.correctLetter) return;
+    if (!spec.options || !spec.correctLetter) {
+      ctx.addIssue({
+        code: "custom",
+        message: "options and correctLetter must be provided together",
+      });
+      return;
+    }
+    const key = spec.options.find(
+      (option) => option.letter === spec.correctLetter,
+    );
+    if (!key) {
+      ctx.addIssue({
+        code: "custom",
+        message: "correctLetter must match one option's letter",
+      });
+    }
+    for (const option of spec.options) {
+      if (option.letter === spec.correctLetter) continue;
+      if (
+        !option.misconceptionCode ||
+        !(ERROR_CLASSIFICATION_CODES as readonly string[]).includes(
+          option.misconceptionCode,
+        )
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          message: `distractor ${option.letter} needs a misconceptionCode from the ERROR_CLASSIFICATION codes`,
+        });
+      }
+    }
+  }),
   execute: acknowledge,
 });
 

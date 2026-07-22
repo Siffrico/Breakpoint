@@ -29,7 +29,7 @@ export function buildTree(
     return {
       id: node.id,
       label,
-      variant: node.kind === "simulation" ? "simulation" : "default",
+      variant: "default",
       status: node.status as TreeNode["status"],
       children:
         children.length > 0

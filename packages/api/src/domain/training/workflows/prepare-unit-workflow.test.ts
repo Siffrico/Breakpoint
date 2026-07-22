@@ -67,27 +67,31 @@ describe("explicit unit preparation recovery", () => {
         return Promise.resolve(unit);
       });
 
-    const deps = {
+    const deps: Parameters<typeof prepareUnitWorkflow>[0]["deps"] = {
       getPlanNodesBySession: () => Promise.resolve([node]),
       getUnitByNodeId: () => Promise.resolve(storedUnit),
       getPhaseResponses: () => Promise.resolve([]),
       getTargetIdentity: () => Promise.resolve("Incident commander"),
       listAttemptHistory: () => Promise.resolve([]),
-      getUnitSyllabusContext: () =>
+      getUnitKnowledgeContext: () =>
         Promise.resolve({
           workflow: { name: "Diagnose an incident", steps: ["Choose a probe"] },
+          framing: null,
           checked: [],
           targets: [
             {
               id: "entry-1",
+              kind: "concept",
               label: "Causal probe",
-              gloss: "Separate causes.",
+              content:
+                "A probe that both hypotheses predict identically cannot separate them.",
             },
           ],
         }),
       createUnitContentIfAbsent: () => Promise.resolve(unit),
       replaceUnitContent: () => Promise.resolve(unit),
       saveNodeBriefing: () => Promise.resolve(null),
+      withUnitBuildLock: (_nodeId, run) => run(deps),
     };
 
     const failedPrewarm = await prepareUnitWorkflow({

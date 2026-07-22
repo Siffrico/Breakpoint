@@ -1,10 +1,9 @@
 import type { SeedRating, StartingPointTier } from "@acme/validators";
 
 import type { Result } from "../../../lib/result";
-import { seedFromStartingPoint } from "../engine/rating";
 import type {
   CurriculumDesignerOutput,
-  OnboardingPacket,
+  LearnerBrief,
   ProjectOverviewOutput,
 } from "../agents/contracts";
 import type {
@@ -16,18 +15,18 @@ import type {
 } from "../types/training.types";
 import type { ArtifactFailureKind } from "./agent-runtime";
 import type { ProjectBuildArtifactPreviewInput } from "./project-build-preview";
+import { createTaskLimiter } from "../../../lib/concurrency";
 import { err, ok } from "../../../lib/result";
 import {
   CurriculumDesignerOutputSchema,
-  OnboardingPacketSchema,
   ProjectOverviewOutputSchema,
 } from "../agents/contracts";
 import { designCurriculum } from "../agents/curriculum-designer";
 import { normalizeLearningTrackName } from "../agents/onboarding-chat-agent";
 import { designProjectOverview } from "../agents/project-overview";
-import { isArtifactBuildError } from "./agent-runtime";
+import { seedFromStartingPoint } from "../engine/rating";
+import { ArtifactBuildError, isArtifactBuildError } from "./agent-runtime";
 import { buildCurriculumNodes } from "./curriculum-flow";
-import { createOnboardingPacket } from "./onboarding-flow";
 import {
   getProjectBuildStepDetail,
   previewProjectBuildArtifact,
@@ -41,7 +40,6 @@ import {
  */
 export type ProjectBuildStep =
   | "name" // create the durable plan shell + resolve the saved name (instant)
-  | "goals" // onboarding packet agent — distil the transcript
   | "curriculum" // curriculum designer agent — identity report + skeleton + persist
   | "overview" // project overview agent — the readable field map (best-effort)
   | "save"; // finalize: flip the plan active + complete the session
@@ -67,7 +65,7 @@ export type ProjectBuildPhase = "building" | "complete" | "error";
 export type ProjectBuildGap = "overview";
 
 /** The AI-generated artifacts that get their own registry lifecycle row. */
-export type ProjectBuildArtifactStep = "goals" | "curriculum" | "overview";
+export type ProjectBuildArtifactStep = "curriculum" | "overview";
 
 /**
  * The full snapshot streamed to the client on every transition. It is emitted
@@ -96,7 +94,6 @@ export interface ProjectBuildState {
 
 const STEP_LABELS: Record<ProjectBuildStep, string> = {
   name: "Naming your project",
-  goals: "Reading your goals",
   curriculum: "Designing your curriculum",
   overview: "Writing your overview",
   save: "Saving to your library",
@@ -104,7 +101,6 @@ const STEP_LABELS: Record<ProjectBuildStep, string> = {
 
 const STEP_ORDER: ProjectBuildStep[] = [
   "name",
-  "goals",
   "curriculum",
   "overview",
   "save",
@@ -127,16 +123,23 @@ const initialSteps = (): ProjectBuildStepState[] =>
 
 /** Small input the consultant proposes; everything else is derived server-side. */
 export interface CreateProjectInput {
+  /** The learner brief the consultant distilled from its own interview. These
+   *  three are optional here (never in the tool schema) so builds resumed from
+   *  checkpoints written before the brief moved into the tool still typecheck
+   *  and complete — see `resolveLearnerBrief`. */
+  whatToLearn?: string;
+  whatToMake?: string;
+  interests?: string[];
   /** Core study topic, lowercase — becomes the sidebar/project name. */
   projectName: string;
   /** Who the learner is becoming, used only for the confirmation preview. */
   targetIdentity: string;
   /** One line describing what they'll build, shown on the confirm card. */
   summary: string;
-  /** Verb-first capability titles shown on the confirm card and used as
-   *  cluster-title hints for the curriculum designer. Optional so resumed builds
+  /** Verb-first whole-performance titles shown on the confirm card and used as
+   *  ability-title hints for the curriculum designer. Optional so resumed builds
    *  from older checkpoints (which lack it) still typecheck. */
-  skills?: string[];
+  abilities?: string[];
   /** Where the learner is starting from, and why. Seeds the plan's rating.
    *  Optional for the same resume-compatibility reason. */
   startingPoint?: {
@@ -231,8 +234,13 @@ export interface BuildProjectDeps {
       error?: string;
     };
   }) => Promise<
-    { status: "claimed" } | { status: "processing"; state: ProjectBuildState }
+    | { status: "claimed"; ownershipToken: string }
+    | { status: "processing"; state: ProjectBuildState }
   >;
+  heartbeatRun: (input: {
+    sessionId: string;
+    ownershipToken: string;
+  }) => Promise<boolean>;
   updateRun: (input: {
     sessionId: string;
     sourceKey: string;
@@ -242,6 +250,7 @@ export interface BuildProjectDeps {
       state: ProjectBuildState;
       error?: string;
     };
+    ownershipToken: string;
   }) => Promise<unknown>;
   /** Read the artifact registry for resume decisions. */
   getArtifacts: (input: {
@@ -262,6 +271,11 @@ export interface BuildProjectDeps {
   getStartingPoint: (
     sessionId: string,
   ) => Promise<{ tier: StartingPointTier; label: string } | null>;
+  /** Persist onboarding-derived scenario inspiration into learner memory. */
+  persistScenarioInspiration: (input: {
+    userId: string;
+    content: string;
+  }) => Promise<void>;
   /** Create (or return) the durable "generating" plan shell. Returns its id. */
   ensureShell: (input: {
     sessionId: string;
@@ -297,31 +311,80 @@ export interface BuildProjectDeps {
     node: CurriculumPlan["nodes"][number];
     sessionId: string;
   }) => Promise<unknown>;
-  ensureSkillSyllabus: (input: {
-    clusterNodeId: string;
+  ensureSkillKnowledge: (input: {
+    skillNodeId: string;
     targetIdentity: string;
   }) => Promise<unknown>;
   createSkillUnit: (input: {
-    clusterNodeId: string;
+    skillNodeId: string;
     sessionId: string;
     userId: string;
   }) => Promise<unknown>;
 }
 
+const isModuleNode = (node: { kind: string }): boolean =>
+  node.kind === "ability";
+
+/**
+ * Skills whose knowledge map is prewarmed at build time. Skills are gated
+ * skill-by-skill: only unlocked (ready) ones need a knowledge map now — the rest
+ * are generated lazily at unlock time.
+ */
+const isPrewarmSkillNode = (node: { kind: string; status: string }): boolean =>
+  node.kind === "skill" && node.status === "ready";
+
+/**
+ * Ceiling on concurrent knowledge-map AI calls. The
+ * fan-out previously fired every node at once, which melts the host and
+ * invites provider rate limits.
+ */
+const PREWARM_CONCURRENCY = 3;
+
 const countModules = (plan: CurriculumPlan): number =>
-  plan.nodes.filter((node) => node.kind === "skill_cluster").length;
+  plan.nodes.filter(isModuleNode).length;
 
 const moduleTitles = (blueprint: CurriculumBlueprint): string[] =>
-  blueprint.nodes
-    .filter((node) => node.kind === "skill_cluster")
-    .map((node) => node.title);
+  blueprint.nodes.filter(isModuleNode).map((node) => node.title);
 
-const getProjectBuildSourceKey = (input: CreateProjectInput) =>
+const getProjectBuildSourceKey = (
+  input: CreateProjectInput,
+  persistedStartingPoint: { tier: StartingPointTier; label: string } | null,
+) =>
   JSON.stringify({
     projectName: normalizeLearningTrackName(input.projectName),
     targetIdentity: input.targetIdentity.trim(),
     summary: input.summary.trim(),
+    whatToLearn: input.whatToLearn?.trim() ?? "",
+    whatToMake: input.whatToMake?.trim() ?? "",
+    interests: (input.interests ?? []).map((interest) => interest.trim()),
+    abilities: (input.abilities ?? []).map((ability) => ability.trim()),
+    startingPoint: persistedStartingPoint
+      ? {
+          tier: persistedStartingPoint.tier,
+          reason: persistedStartingPoint.label.trim(),
+        }
+      : input.startingPoint
+        ? {
+            tier: input.startingPoint.tier,
+            reason: input.startingPoint.reason.trim(),
+          }
+        : null,
   });
+
+/**
+ * The brief the consultant emitted, or a degraded one reconstructed from the
+ * confirmation fields when resuming a checkpoint written before the brief moved
+ * into `createProject`. Reconstruction keeps old builds finishable: the
+ * downstream agents also read the full transcript, so a thin brief costs
+ * steering precision, never correctness.
+ */
+const resolveLearnerBrief = (input: CreateProjectInput): LearnerBrief => ({
+  whatToLearn: input.whatToLearn?.trim() ?? input.projectName.trim(),
+  whatToMake: input.whatToMake?.trim() ?? input.summary.trim(),
+  interests: (input.interests ?? [])
+    .map((interest) => interest.trim())
+    .filter(Boolean),
+});
 
 const messageFrom = (error: unknown, fallback: string): string =>
   error instanceof Error && error.message ? error.message : fallback;
@@ -395,7 +458,11 @@ export const buildProjectFromOnboarding = async ({
   }>
 > => {
   const projectName = normalizeLearningTrackName(input.projectName);
-  const sourceKey = getProjectBuildSourceKey(input);
+  const brief = resolveLearnerBrief(input);
+  const persistedStartingPoint = await deps
+    .getStartingPoint(sessionId)
+    .catch(() => null);
+  const sourceKey = getProjectBuildSourceKey(input, persistedStartingPoint);
   const steps = initialSteps();
   const state: ProjectBuildState = {
     phase: "building",
@@ -432,13 +499,19 @@ export const buildProjectFromOnboarding = async ({
     state: { ...state, steps: snapshotSteps() },
     error,
   });
+  let ownershipToken: string | null = null;
+  let stopHeartbeat: () => void = () => undefined;
   const updateRun = (status: ProjectBuildRunStatus, error?: string) =>
-    deps.updateRun({
-      sessionId,
-      sourceKey,
-      payload: buildRunPayload(status, error),
-    });
+    ownershipToken
+      ? deps.updateRun({
+          sessionId,
+          sourceKey,
+          payload: buildRunPayload(status, error),
+          ownershipToken,
+        })
+      : Promise.resolve(null);
   const fail = async (message: string): Promise<Result<never>> => {
+    stopHeartbeat();
     state.phase = "error";
     state.error = message;
     emit();
@@ -496,26 +569,17 @@ export const buildProjectFromOnboarding = async ({
         .catch(() => undefined);
       partialTail.set(step, next);
     };
-  const goalsPartialSink = (partial: Partial<OnboardingPacket>) => {
-    setArtifactDetail({ step: "goals", payload: partial });
-    persistPartial("goals")(partial);
-  };
   const curriculumPartialSink = (
     partial: Partial<CurriculumDesignerOutput>,
   ) => {
     setArtifactDetail({ step: "curriculum", payload: partial });
     persistPartial("curriculum")(partial);
   };
-  const overviewPartialSink = (partial: Partial<ProjectOverviewOutput>) => {
-    setArtifactDetail({ step: "overview", payload: partial });
-    persistPartial("overview")(partial);
-  };
 
   emit();
 
   const artifacts = await deps.getArtifacts({ sessionId, sourceKey });
   const artifactMap = new Map(artifacts.map((record) => [record.step, record]));
-  const goalsRecord = artifactMap.get("goals");
   const curriculumRecord = artifactMap.get("curriculum");
   const overviewRecord = artifactMap.get("overview");
 
@@ -535,7 +599,7 @@ export const buildProjectFromOnboarding = async ({
       state.phase = "complete";
       state.projectName = existingPlan.title || projectName;
       state.modules = existingPlan.nodes
-        .filter((node) => node.kind === "skill_cluster")
+        .filter(isModuleNode)
         .map((node) => node.title);
       state.moduleCount = countModules(existingPlan);
       state.planId = existingPlan.id;
@@ -562,14 +626,16 @@ export const buildProjectFromOnboarding = async ({
     onProgress(claim.state);
     return err("Project build is already running.");
   }
+  ownershipToken = claim.ownershipToken;
+  const heartbeat = setInterval(() => {
+    void deps.heartbeatRun({ sessionId, ownershipToken: claim.ownershipToken });
+  }, 15_000);
+  stopHeartbeat = () => clearInterval(heartbeat);
 
   // Resolve the learner's starting point: the persisted value (mid-chat tap or a
   // [change] override) wins over whatever the createProject tool proposed. A
   // non-null tier stamps a Glicko seed onto the plan shell and adds a placement
   // note to the curriculum designer; null leaves the workspace on its defaults.
-  const persistedStartingPoint = await deps
-    .getStartingPoint(sessionId)
-    .catch(() => null);
   const startingPointTier =
     persistedStartingPoint?.tier ?? input.startingPoint?.tier ?? null;
   const startingPointLabel =
@@ -607,62 +673,23 @@ export const buildProjectFromOnboarding = async ({
   setStep("name", "done");
   emit();
 
-  // The packet is only needed by artifacts that will actually call their agent.
-  // A `save_only` artifact with a *valid* cached payload re-persists without the
-  // packet (zero tokens); only an unusable cache forces a fresh generation.
-  const curriculumWillGenerate =
-    decide(curriculumRecord) === "generate" ||
-    (decide(curriculumRecord) === "save_only" &&
-      !CurriculumDesignerOutputSchema.safeParse(curriculumRecord?.payload)
-        .success);
-  const overviewWillGenerate =
-    decide(overviewRecord) === "generate" ||
-    (decide(overviewRecord) === "save_only" &&
-      !ProjectOverviewOutputSchema.safeParse(overviewRecord?.payload).success);
-  const needPacket = curriculumWillGenerate || overviewWillGenerate;
-
-  // 2 — goals: the onboarding packet agent reads the full transcript.
-  setStep("goals", "active");
-  emit();
-  let packet: OnboardingPacket | undefined;
-  if (needPacket) {
-    if (decide(goalsRecord) === "skip") {
-      const cached = OnboardingPacketSchema.safeParse(goalsRecord?.payload);
-      if (cached.success) {
-        packet = cached.data;
-        setArtifactDetail({ step: "goals", payload: cached.data });
-      }
-    }
-    if (!packet) {
-      const attempts = (goalsRecord?.attempts ?? 0) + 1;
+  if (userId) {
+    // One memory row per interest so each stays individually recallable when
+    // scenario and unit context is assembled later.
+    for (const interest of brief.interests) {
       try {
-        packet = await createOnboardingPacket(transcript, {
-          onPartial: goalsPartialSink,
-          seedPartial: seedFor(goalsRecord) as
-            | Partial<OnboardingPacket>
-            | undefined,
+        await deps.persistScenarioInspiration({
+          userId,
+          content: `Interest: ${interest}`,
         });
-        setArtifactDetail({ step: "goals", payload: packet });
-        await recordArtifact("goals", "complete", packet, null, attempts);
       } catch (error) {
-        await recordArtifact(
-          "goals",
-          "failed",
-          partialOf(error) ?? goalsRecord?.payload ?? null,
-          failureKindOf(error),
-          attempts,
-        );
-        return fail(
-          messageFrom(
-            error,
-            "I couldn't read enough from our conversation yet.",
-          ),
+        console.error(
+          "Scenario inspiration persistence failed; continuing project build",
+          { sessionId, error },
         );
       }
     }
   }
-  setStep("goals", "done");
-  emit();
 
   const buildBlueprint = (
     design: CurriculumDesignerOutput,
@@ -744,18 +771,13 @@ export const buildProjectFromOnboarding = async ({
       // Cached payload is unusable — fall through to a fresh generation.
     }
 
-    if (!packet) {
-      return err(
-        "I couldn't read your goals well enough to design the curriculum.",
-      );
-    }
     const attempts = attemptsBase + 1;
     let design: CurriculumDesignerOutput;
     try {
       design = await designCurriculum({
-        packet,
+        brief,
         transcript,
-        skills: input.skills,
+        abilities: input.abilities,
         placementNote,
         options: {
           onPartial: curriculumPartialSink,
@@ -805,112 +827,7 @@ export const buildProjectFromOnboarding = async ({
     }
   };
 
-  // 4 — overview (OPTIONAL/best-effort): a failure becomes a "gap", never sinks the build.
-  const runOverview = async (): Promise<boolean> => {
-    setStep("overview", "active");
-    emit();
-    const action = decide(overviewRecord);
-    const attemptsBase = overviewRecord?.attempts ?? 0;
-
-    if (action === "skip") {
-      setStep("overview", "done");
-      emit();
-      return true;
-    }
-
-    if (action === "save_only") {
-      const cached = ProjectOverviewOutputSchema.safeParse(
-        overviewRecord?.payload,
-      );
-      if (cached.success) {
-        try {
-          setArtifactDetail({ step: "overview", payload: cached.data });
-          await deps.persistOverview({ sessionId, overview: cached.data });
-          await recordArtifact(
-            "overview",
-            "complete",
-            cached.data,
-            null,
-            attemptsBase,
-          );
-          setStep("overview", "done");
-          emit();
-          return true;
-        } catch {
-          await recordArtifact(
-            "overview",
-            "generated_pending_save",
-            cached.data,
-            "save",
-            attemptsBase,
-          );
-          setStep("overview", "done");
-          emit();
-          return false;
-        }
-      }
-    }
-
-    if (!packet) {
-      setStep("overview", "done");
-      emit();
-      return false;
-    }
-    const attempts = attemptsBase + 1;
-    let overview: ProjectOverviewOutput;
-    try {
-      overview = await designProjectOverview({
-        packet,
-        transcript,
-        options: {
-          onPartial: overviewPartialSink,
-          seedPartial: seedFor(overviewRecord) as
-            | Partial<ProjectOverviewOutput>
-            | undefined,
-        },
-      });
-      setArtifactDetail({ step: "overview", payload: overview });
-    } catch (error) {
-      await recordArtifact(
-        "overview",
-        "failed",
-        partialOf(error) ?? overviewRecord?.payload ?? null,
-        failureKindOf(error),
-        attempts,
-      );
-      console.error("[build-project] overview failed; completing with a gap:", {
-        sessionId,
-        error,
-      });
-      setStep("overview", "done");
-      emit();
-      return false;
-    }
-
-    try {
-      await deps.persistOverview({ sessionId, overview });
-      await recordArtifact("overview", "complete", overview, null, attempts);
-      setStep("overview", "done");
-      emit();
-      return true;
-    } catch {
-      await recordArtifact(
-        "overview",
-        "generated_pending_save",
-        overview,
-        "save",
-        attempts,
-      );
-      setStep("overview", "done");
-      emit();
-      return false;
-    }
-  };
-
-  const [curriculumResult, overviewOk] = await Promise.all([
-    runCurriculum(),
-    runOverview(),
-  ]);
+  const curriculumResult = await runCurriculum();
 
   if (!curriculumResult.success) {
     return fail(curriculumResult.error);
@@ -942,23 +859,107 @@ export const buildProjectFromOnboarding = async ({
   }
   setStep("save", "done");
 
-  const gaps: ProjectBuildGap[] = overviewOk ? [] : ["overview"];
+  const overviewAction = decide(overviewRecord);
+  const overviewAttempts = overviewRecord?.attempts ?? 0;
+  const overviewIsReady = overviewAction === "skip";
+  if (overviewIsReady) {
+    setStep("overview", "done");
+  } else {
+    setStep("overview", "active");
+    await recordArtifact(
+      "overview",
+      "generating",
+      overviewRecord?.payload ?? null,
+      null,
+      overviewAttempts + 1,
+    );
+  }
   state.phase = "complete";
   state.projectName = plan.title || projectName;
   state.moduleCount = countModules(plan);
-  state.modules = plan.nodes
-    .filter((node) => node.kind === "skill_cluster")
-    .map((node) => node.title);
+  state.modules = plan.nodes.filter(isModuleNode).map((node) => node.title);
   state.planId = plan.id;
   state.firstUnitId = plan.nextUnitId;
   state.targetIdentity = plan.targetIdentity;
-  state.gaps = gaps.length > 0 ? gaps : undefined;
+  state.gaps = undefined;
   emit();
   await updateRun("complete");
+  stopHeartbeat();
+
+  if (!overviewIsReady) {
+    const generateOverview = async () => {
+      try {
+        if (overviewAction === "save_only") {
+          const cached = ProjectOverviewOutputSchema.safeParse(
+            overviewRecord?.payload,
+          );
+          if (cached.success) {
+            await deps.persistOverview({ sessionId, overview: cached.data });
+            await recordArtifact(
+              "overview",
+              "complete",
+              cached.data,
+              null,
+              overviewAttempts,
+            );
+            setStep("overview", "done");
+            await updateRun("complete");
+            return;
+          }
+        }
+        const generatedOverview = await designProjectOverview({
+          curriculum: plan,
+          options: {
+            seedPartial: seedFor(overviewRecord) as
+              | Partial<ProjectOverviewOutput>
+              | undefined,
+          },
+        });
+        const parsedOverview =
+          ProjectOverviewOutputSchema.safeParse(generatedOverview);
+        if (!parsedOverview.success) {
+          throw new ArtifactBuildError(
+            "Generated overview did not pass quality validation.",
+            "schema",
+          );
+        }
+        const overview = parsedOverview.data;
+        await deps.persistOverview({ sessionId, overview });
+        await recordArtifact(
+          "overview",
+          "complete",
+          overview,
+          null,
+          overviewAttempts + 1,
+        );
+        setStep("overview", "done");
+      } catch (error) {
+        await recordArtifact(
+          "overview",
+          "failed",
+          partialOf(error) ?? overviewRecord?.payload ?? null,
+          failureKindOf(error),
+          overviewAttempts + 1,
+        );
+        setStep("overview", "done");
+        state.gaps = ["overview"];
+        console.error(
+          "[build-project] overview failed after curriculum completion",
+          {
+            sessionId,
+            error,
+          },
+        );
+      }
+      await updateRun("complete");
+    };
+    if (scheduleBackgroundTask) scheduleBackgroundTask(generateOverview);
+    else void generateOverview();
+  }
 
   const firstReadyUnit = plan.nodes.find(
     (node) =>
-      (node.kind === "unit" || node.kind === "integration") &&
+      node.kind === "unit" &&
       node.status === "ready",
   );
   if (firstReadyUnit) {
@@ -979,24 +980,27 @@ export const buildProjectFromOnboarding = async ({
     }
   }
 
-  const skills = plan.nodes.filter((node) => node.kind === "skill_cluster");
+  const skills = plan.nodes.filter(isPrewarmSkillNode);
+  const prewarmLimiter = createTaskLimiter(PREWARM_CONCURRENCY);
   for (const skill of skills) {
     const prepareSkill = async () => {
       try {
-        await deps.ensureSkillSyllabus({
-          clusterNodeId: skill.id,
-          targetIdentity: plan.targetIdentity,
-        });
-        if (userId) {
-          await deps.createSkillUnit({
-            clusterNodeId: skill.id,
-            sessionId,
-            userId,
+        await prewarmLimiter(async () => {
+          await deps.ensureSkillKnowledge({
+            skillNodeId: skill.id,
+            targetIdentity: plan.targetIdentity,
           });
-        }
+          if (userId && skill.status === "ready") {
+            await deps.createSkillUnit({
+              skillNodeId: skill.id,
+              sessionId,
+              userId,
+            });
+          }
+        });
       } catch (error) {
-        console.error("Skill syllabus prewarm failed", {
-          clusterNodeId: skill.id,
+        console.error("Skill knowledge prewarm failed", {
+          skillNodeId: skill.id,
           error,
         });
       }
@@ -1012,6 +1016,6 @@ export const buildProjectFromOnboarding = async ({
     moduleCount: state.moduleCount,
     firstUnitId: plan.nextUnitId,
     targetIdentity: plan.targetIdentity,
-    gaps: gaps.length > 0 ? gaps : undefined,
+    gaps: undefined,
   });
 };

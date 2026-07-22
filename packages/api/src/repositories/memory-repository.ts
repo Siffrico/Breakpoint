@@ -16,11 +16,19 @@ const mapMemory = (record: typeof MemoryTable.$inferSelect): Memory => ({
   updatedAt: record.updatedAt ?? null,
 });
 
-const isUniqueViolation = (error: unknown) =>
-  typeof error === "object" &&
-  error !== null &&
-  "code" in error &&
-  error.code === "23505";
+const isUniqueViolation = (error: unknown): boolean => {
+  let current = error;
+  const visited = new Set<unknown>();
+
+  while (typeof current === "object" && current !== null) {
+    if (visited.has(current)) return false;
+    visited.add(current);
+    if ("code" in current && current.code === "23505") return true;
+    current = "cause" in current ? current.cause : undefined;
+  }
+
+  return false;
+};
 
 export const memoryRepository = {
   listByUserId: async ({
@@ -118,14 +126,17 @@ export const memoryRepository = {
           source,
           importId: importId ?? null,
         })
+        .onConflictDoNothing({
+          target: [MemoryTable.userId, MemoryTable.contentHash],
+        })
         .returning();
 
       if (!record) {
         return {
           success: false,
           error: {
-            code: "INTERNAL_SERVER_ERROR",
-            message: "Memory could not be saved right now.",
+            code: "CONFLICT",
+            message: "That memory already exists.",
           },
         };
       }

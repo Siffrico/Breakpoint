@@ -1,7 +1,8 @@
 "use client";
 
 import type { UIMessage } from "ai";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useChat } from "@ai-sdk/react";
 import {
   CaretDown,
@@ -10,7 +11,7 @@ import {
   Copy,
   PencilSimple,
 } from "@phosphor-icons/react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { DefaultChatTransport, isTextUIPart } from "ai";
 
 import type { RouterOutputs } from "@acme/api";
@@ -18,6 +19,7 @@ import { Button } from "@acme/ui/button";
 import { ChatComposerDock, WorkspaceStatusLine } from "@acme/ui/chat";
 import { toast } from "@acme/ui/toast";
 
+import type { ExchangeMessage } from "./exchange-grouping";
 import type { UnitCoachCommandIntent } from "~/features/training/lib/unit-coach-commands";
 import { AssistantRichText } from "~/features/training/components/assistant-rich-text";
 import {
@@ -26,11 +28,22 @@ import {
   useAutosavedResponseDraft,
 } from "~/features/training/hooks/use-autosaved-response-draft";
 import { useTRPC } from "~/trpc/react";
+import { groupLiveExchanges } from "./exchange-grouping";
+import { ExchangeReceipt } from "./exchange-receipt";
 import { NotionComposer } from "./notion-composer";
+import { countWords } from "./receipt-summary";
+import { ScenarioAnchor } from "./scenario-anchor";
+import {
+  ASK_COACH_SOURCE_ATTRIBUTE,
+  SelectionAskCoach,
+} from "./selection-ask-coach";
 import { WorkspaceComposerInput } from "./workspace-composer-input";
 
 type EducationUnit = RouterOutputs["training"]["unit"];
-type AiWorkspace = RouterOutputs["training"]["aiWorkspace"];
+type AiWorkspace = Extract<
+  RouterOutputs["training"]["aiWorkspace"],
+  { kind: "ready" }
+>["workspace"];
 interface AiWorkspaceIntroMessage {
   prompt: string;
   helper: string | null;
@@ -73,13 +86,13 @@ const CHAT_COLUMN_CLASS =
   "mx-auto w-[calc(100%-2rem)] max-w-[48.9rem] sm:w-[calc(100%-3rem)]";
 const PREVIEW_RESPONSE_DELAY_MS = 450;
 
-const isViewportNearBottom = () => {
-  if (typeof window === "undefined") return true;
+const isScrolledNearBottom = (element: HTMLElement | null) => {
+  if (!element) return true;
 
-  const scrollableHeight = document.documentElement.scrollHeight;
-  const viewportBottom = window.scrollY + window.innerHeight;
-
-  return scrollableHeight - viewportBottom < AUTO_SCROLL_BOTTOM_THRESHOLD;
+  return (
+    element.scrollHeight - element.scrollTop - element.clientHeight <
+    AUTO_SCROLL_BOTTOM_THRESHOLD
+  );
 };
 
 const makePreviewWorkspaceMessage = (
@@ -141,7 +154,10 @@ function PromptTurn({
     <section className="py-3 font-sans">
       {/* Assistant content fills the column edge-to-edge (no extra px), so its
           right edge matches the submitted-answer receipt's right edge. */}
-      <div className={CHAT_COLUMN_CLASS}>
+      <div
+        className={CHAT_COLUMN_CLASS}
+        {...{ [ASK_COACH_SOURCE_ATTRIBUTE]: "" }}
+      >
         {statusLabel ? (
           <WorkspaceStatusLine
             label={statusLabel}
@@ -171,9 +187,6 @@ function PromptTurn({
     </section>
   );
 }
-
-const countWords = (text: string) =>
-  text.trim().split(/\s+/).filter(Boolean).length;
 
 function SubmittedAnswerReceipt({
   text,
@@ -208,9 +221,8 @@ function SubmittedAnswerReceipt({
   return (
     <section className="py-3 font-sans">
       <div className={CHAT_COLUMN_CLASS}>
-        {/* Mirrors the user bubble: column-relative width, right-anchored,
-            radius matched to the composer (6px). */}
-        <div className="border-foreground/[0.14] bg-foreground/[0.055] ml-auto w-fit max-w-[min(82%,64ch)] rounded-[6px] border">
+        {/* Mirrors the user bubble: column-relative width, right-anchored. */}
+        <div className="border-foreground/[0.14] bg-foreground/[0.055] ml-auto w-fit max-w-[min(82%,64ch)] rounded-md border">
           <button
             type="button"
             onClick={() => setIsOpen((current) => !current)}
@@ -378,10 +390,10 @@ const getChatMessageText = (message: WorkspaceChatMessage) => {
     }
   }
 
-  return message.parts
-    .filter(isTextUIPart)
-    .map((part) => part.text)
-    .join("");
+  return message.parts.reduce(
+    (text, part) => (isTextUIPart(part) ? text + part.text : text),
+    "",
+  );
 };
 
 const getWorkspaceStatus = (
@@ -410,33 +422,46 @@ function EducationUnitWorkspaceComponent({
   sessionId,
   preview = false,
   aiWorkspace = null,
+  advancePending = false,
   embedded = false,
   onStateChange,
   onRunningChange,
   onRunCommand,
   onAskCoachAboutAnswer,
+  onAskCoachAboutSelection,
+  onAdvanceUnit,
 }: {
   unit: EducationUnit;
   sessionId: string;
   preview?: boolean;
   aiWorkspace?: AiWorkspace | null;
+  advancePending?: boolean;
   embedded?: boolean;
   onStateChange?: (state: EducationUnit) => void;
   onRunningChange?: (isRunning: boolean) => void;
   onRunCommand?: (intent: UnitCoachCommandIntent) => void;
   onAskCoachAboutAnswer?: (answer: string) => void;
+  onAskCoachAboutSelection?: (selection: string) => void;
+  onAdvanceUnit?: () => void;
 }) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+  const missionEligibility = useQuery({
+    ...trpc.missions.eligibility.queryOptions({
+      unitContentId: unit.id,
+      sessionId,
+    }),
+    enabled: !preview && unit.activeStage === "complete",
+  });
   const [isExpanded, setIsExpanded] = useState(false);
   const [previewIsRunning, setPreviewIsRunning] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
   const previewTimeoutRef = useRef<number | null>(null);
   const shouldAutoFollowRef = useRef(true);
   const pendingSubmissionRef = useRef<string | null>(null);
   const pendingDraftKeyRef = useRef<string | null>(null);
-  const errorHandledRef = useRef(false);
   const pendingTurnIdRef = useRef<string | null>(null);
   const initialChatMessages = useMemo(
     () => transcriptToChatMessages(aiWorkspace, sessionId),
@@ -549,17 +574,53 @@ function EducationUnitWorkspaceComponent({
     trpc.training.aiWorkspace,
   ]);
 
+  // One refetch when a finished stream hands the live chat to a different
+  // unit (a recall interlude completing, or a recall becoming due): the
+  // bootstrap-frozen aiWorkspace still points at the previous unit's
+  // transcript, and the server read is the source of truth for the handoff.
+  const bootstrapLiveUnitId = aiWorkspace?.state
+    ? (aiWorkspace.state.activeUnitId ?? aiWorkspace.state.recallUnitId)
+    : null;
+  const streamLiveUnitId = streamState
+    ? (streamState.activeUnitId ?? streamState.recallUnitId)
+    : null;
+  const liveUnitInvalidatedRef = useRef<string | null>(null);
   useEffect(() => {
+    if (preview || effectiveIsRunning) return;
+    if (streamLiveUnitId == null || bootstrapLiveUnitId == null) return;
+    if (streamLiveUnitId === bootstrapLiveUnitId) return;
+    if (liveUnitInvalidatedRef.current === streamLiveUnitId) return;
+    liveUnitInvalidatedRef.current = streamLiveUnitId;
+    void queryClient.invalidateQueries({
+      queryKey: trpc.training.aiWorkspace.queryKey({ sessionId }),
+    });
+  }, [
+    bootstrapLiveUnitId,
+    effectiveIsRunning,
+    preview,
+    queryClient,
+    sessionId,
+    streamLiveUnitId,
+    trpc.training.aiWorkspace,
+  ]);
+
+  // Auto-follow tracks the internal trail scroller, not the window: the
+  // scenario anchor and composer are fixed, so the trail is the only thing
+  // that moves.
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
     const updateAutoFollow = () => {
-      shouldAutoFollowRef.current = isViewportNearBottom();
+      shouldAutoFollowRef.current = isScrolledNearBottom(container);
     };
 
     updateAutoFollow();
-    window.addEventListener("scroll", updateAutoFollow, { passive: true });
+    container.addEventListener("scroll", updateAutoFollow, { passive: true });
     window.addEventListener("resize", updateAutoFollow);
 
     return () => {
-      window.removeEventListener("scroll", updateAutoFollow);
+      container.removeEventListener("scroll", updateAutoFollow);
       window.removeEventListener("resize", updateAutoFollow);
     };
   }, []);
@@ -577,7 +638,9 @@ function EducationUnitWorkspaceComponent({
     if (!shouldAutoFollowRef.current) return;
 
     const frameId = window.requestAnimationFrame(() => {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+      const container = scrollContainerRef.current;
+      if (!container) return;
+      container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
     });
 
     return () => window.cancelAnimationFrame(frameId);
@@ -605,7 +668,6 @@ function EducationUnitWorkspaceComponent({
   const {
     value: response,
     setValue: setResponse,
-    status: draftStatus,
     markSubmitted,
     restoreSubmitted: restoreSubmittedDraft,
     clearSubmitted: clearSubmittedDraft,
@@ -613,49 +675,28 @@ function EducationUnitWorkspaceComponent({
     enabled: !preview,
     storageKey: responseDraftKey,
   });
-  const awaitingUnitAdvance =
-    aiWorkspace?.unitAdvanceGate.status === "enabled" ||
-    streamState?.educationStage === "mastered";
-  const workspaceUnavailable = !preview && aiWorkspace == null;
-  const missingTranscriptForResumedUnit =
-    !preview &&
-    aiWorkspace != null &&
-    chatMessages.length === 0 &&
-    !introMessage &&
-    unit.activeStage !== "challenge";
-  const canCompose =
-    !workspaceUnavailable &&
-    !missingTranscriptForResumedUnit &&
-    !awaitingUnitAdvance &&
-    fallbackTurn.canCompose;
-  const composerPlaceholder = canCompose
-    ? "Submit your answer."
-    : workspaceUnavailable
-      ? "Refresh the workspace before continuing."
-      : missingTranscriptForResumedUnit
-        ? "Refresh to resume this unit safely."
-        : awaitingUnitAdvance
-          ? "Press Next Unit to continue."
-          : "This unit is complete.";
 
-  useEffect(() => {
-    onRunningChange?.(effectiveIsRunning);
-    return () => onRunningChange?.(false);
-  }, [effectiveIsRunning, onRunningChange]);
-
-  useEffect(() => {
-    if (status !== "error" || !error || errorHandledRef.current) return;
-
-    const errorTimer = window.setTimeout(() => {
-      if (errorHandledRef.current) return;
-      errorHandledRef.current = true;
+  const recoverFailedSubmission = useCallback(
+    (
+      expectedTurnId?: string,
+      toastMessage = "AI feedback could not be prepared.",
+    ) => {
       const pendingSubmission = pendingSubmissionRef.current;
-      if (pendingSubmission) {
-        restoreSubmittedDraft(pendingDraftKeyRef.current, pendingSubmission);
-      }
-      pendingDraftKeyRef.current = null;
-      pendingSubmissionRef.current = null;
       const failedTurnId = pendingTurnIdRef.current;
+
+      if (
+        !pendingSubmission ||
+        !failedTurnId ||
+        (expectedTurnId != null && failedTurnId !== expectedTurnId)
+      ) {
+        return;
+      }
+
+      const pendingDraftKey = pendingDraftKeyRef.current;
+      pendingSubmissionRef.current = null;
+      pendingDraftKeyRef.current = null;
+      pendingTurnIdRef.current = null;
+      restoreSubmittedDraft(pendingDraftKey, pendingSubmission);
       setMessages((current) =>
         current.map((message) =>
           message.role === "user" && message.metadata?.turnId === failedTurnId
@@ -663,17 +704,67 @@ function EducationUnitWorkspaceComponent({
             : message,
         ),
       );
-      toast.error("AI feedback could not be prepared.");
+      toast.error(toastMessage);
+    },
+    [restoreSubmittedDraft, setMessages],
+  );
+  const awaitingUnitAdvance =
+    aiWorkspace?.unitAdvanceGate.status === "enabled" ||
+    streamState?.educationStage === "mastered";
+  const awaitingNextUnitContent =
+    advancePending ||
+    (aiWorkspace?.state?.activeUnitId != null &&
+      aiWorkspace.state.activeUnitId !== unit.nodeId &&
+      aiWorkspace.state.recallUnitId == null &&
+      aiWorkspace.messages.length === 0);
+  // A live recall reopens a completed unit's chat, so the unit's own stage
+  // gating (which reads "complete") must not lock the composer — the next
+  // submit runs the recall checkpoint, not the finished unit.
+  const recallIsLive = streamState?.recallUnitId != null;
+  // Enter-to-advance must never intercept a recall answer: the gate can be
+  // enabled (active unit mastered) while a recall interlude has the composer
+  // live, and it stays moot once the optimistic transition is pending.
+  const enterAdvancesUnit =
+    awaitingUnitAdvance && !recallIsLive && !awaitingNextUnitContent;
+  const workspaceUnavailable = !preview && aiWorkspace == null;
+  const missingTranscriptForResumedUnit =
+    !preview &&
+    aiWorkspace != null &&
+    !awaitingNextUnitContent &&
+    chatMessages.length === 0 &&
+    !introMessage &&
+    unit.activeStage !== "challenge";
+  const canCompose =
+    !workspaceUnavailable &&
+    !missingTranscriptForResumedUnit &&
+    !awaitingNextUnitContent &&
+    (recallIsLive || (!awaitingUnitAdvance && fallbackTurn.canCompose));
+  const composerPlaceholder = canCompose
+    ? "Submit your answer."
+    : workspaceUnavailable
+      ? "Refresh the workspace before continuing."
+      : awaitingNextUnitContent
+        ? "Preparing the next unit…"
+        : missingTranscriptForResumedUnit
+          ? "Refresh to resume this unit safely."
+          : awaitingUnitAdvance
+            ? "Press Next Unit to continue."
+            : "This unit is complete.";
+
+  useEffect(() => {
+    onRunningChange?.(effectiveIsRunning);
+    return () => onRunningChange?.(false);
+  }, [effectiveIsRunning, onRunningChange]);
+
+  useEffect(() => {
+    if (status !== "error" || !error) return;
+
+    const errorTimer = window.setTimeout(() => {
+      recoverFailedSubmission();
     }, 0);
 
     return () => window.clearTimeout(errorTimer);
-  }, [error, restoreSubmittedDraft, setMessages, status]);
-
-  useEffect(() => {
-    if (status !== "error") {
-      errorHandledRef.current = false;
-    }
-  }, [status]);
+  }, [error, recoverFailedSubmission, status]);
 
   const handleSubmit = async (override?: string, retryTurnId?: string) => {
     const message = (override ?? response).trim();
@@ -733,21 +824,7 @@ function EducationUnitWorkspaceComponent({
         },
       );
     } catch {
-      if (!errorHandledRef.current) {
-        errorHandledRef.current = true;
-        const pendingDraftKey = pendingDraftKeyRef.current;
-        pendingSubmissionRef.current = null;
-        pendingDraftKeyRef.current = null;
-        restoreSubmittedDraft(pendingDraftKey, message);
-        setMessages((current) =>
-          current.map((item) =>
-            item.role === "user" && item.metadata?.turnId === turnId
-              ? { ...item, metadata: { ...item.metadata, failed: true } }
-              : item,
-          ),
-        );
-        toast.error("AI feedback could not be prepared.");
-      }
+      recoverFailedSubmission(turnId);
     }
   };
 
@@ -771,94 +848,163 @@ function EducationUnitWorkspaceComponent({
       setPreviewIsRunning(false);
       return;
     }
+    recoverFailedSubmission(
+      pendingTurnIdRef.current ?? undefined,
+      "Generation stopped. Your answer is ready to retry.",
+    );
     void stop();
   };
 
   const visibleMessages = chatMessages.filter(
-    (message) => !(message.role === "user" && message.metadata?.synthetic),
+    (message) =>
+      (message.role === "assistant" || message.role === "user") &&
+      !(message.role === "user" && message.metadata?.synthetic),
   );
-  const latestVisibleUserMessageId = [...visibleMessages]
-    .reverse()
-    .find((message) => message.role === "user")?.id;
-  const latestAssistantMessageId = [...chatMessages]
-    .reverse()
-    .find((message) => message.role === "assistant")?.id;
-  const renderedMessages = workspaceUnavailable
-    ? [
-        <PromptTurn
-          key="workspace-unavailable"
-          helper="Workspace unavailable"
-          prompt="The AI workspace could not be loaded, so replying here could advance the wrong stage. Refresh the workspace before continuing."
-        />,
-      ]
-    : missingTranscriptForResumedUnit
-      ? [
-          <PromptTurn
-            key="missing-transcript"
-            helper="Resume unavailable"
-            prompt={`This unit already has saved progress, but the AI workspace transcript for this stage is missing. Replying here could rewind the lesson. Refresh the workspace before continuing.\n\nCurrent checkpoint: ${fallbackTurn.prompt}`}
-          />,
-        ]
-      : visibleMessages.length === 0
-        ? [
-            <PromptTurn
-              key="initial-prompt"
-              prompt={introMessage?.prompt ?? fallbackTurn.prompt}
-              helper={introMessage?.helper ?? fallbackTurn.helper}
-            />,
-          ]
-        : visibleMessages.map((message) => {
-            const content = getChatMessageText(message);
-            if (message.role === "assistant") {
-              const isLiveAssistant =
-                effectiveIsRunning && message.id === latestAssistantMessageId;
-              const liveStatus = isLiveAssistant
-                ? getWorkspaceStatus(message)
-                : null;
-              return (
-                <PromptTurn
-                  key={message.id}
-                  prompt={content}
-                  helper={null}
-                  difficultyDirectiveReason={
-                    message.metadata?.difficultyDirectiveReason ?? null
-                  }
-                  statusLabel={
-                    liveStatus && liveStatus.status !== "complete"
-                      ? liveStatus.label
-                      : null
-                  }
-                />
-              );
-            }
+  const exchangeMessages: ExchangeMessage[] = visibleMessages.map(
+    (message) => ({
+      id: message.id,
+      role: message.role as "assistant" | "user",
+      text: getChatMessageText(message),
+      failed: message.metadata?.failed === true,
+    }),
+  );
+  const grouped = groupLiveExchanges(exchangeMessages);
+  const activePrompt = grouped.activePrompt;
+  const pendingAnswer = grouped.pendingAnswer;
+  const activePromptMessage = activePrompt
+    ? (chatMessages.find((message) => message.id === activePrompt.id) ?? null)
+    : null;
+  const activeLiveStatus =
+    effectiveIsRunning && activePromptMessage
+      ? getWorkspaceStatus(activePromptMessage)
+      : null;
 
-            return (
-              <SubmittedAnswerReceipt
-                key={message.id}
-                text={content}
-                pending={
-                  effectiveIsRunning &&
-                  message.id === latestVisibleUserMessageId
-                }
-                failed={message.metadata?.failed === true}
-                canRevise={canCompose && !effectiveIsRunning}
-                onRevise={() => startAnswerRevision(content)}
-                onRetry={
-                  message.metadata?.failed && message.metadata.turnId
-                    ? () => void handleSubmit(content, message.metadata?.turnId)
-                    : undefined
-                }
-                onAskCoach={
-                  onAskCoachAboutAnswer
-                    ? () => onAskCoachAboutAnswer(content)
-                    : undefined
-                }
-              />
-            );
-          });
+  const anchorTitle =
+    streamState?.recallUnitTitle ?? streamState?.activeUnitTitle ?? unit.title;
+  const anchorStage = streamState?.recallUnitId
+    ? "recall"
+    : (streamState?.educationStage ?? null);
+  const anchorProgress = aiWorkspace?.evaluationProgress
+    ? {
+        completed: aiWorkspace.evaluationProgress.completedAttempts,
+        total: aiWorkspace.evaluationProgress.scenarioCount,
+      }
+    : null;
+  const anchorDetail = introMessage?.prompt ?? fallbackTurn.prompt;
+
+  const trailContent = awaitingNextUnitContent ? (
+    <PromptTurn prompt="" statusLabel="Thinking…" />
+  ) : workspaceUnavailable ? (
+    <PromptTurn
+      helper="Workspace unavailable"
+      prompt="The AI workspace could not be loaded, so replying here could advance the wrong stage. Refresh the workspace before continuing."
+    />
+  ) : missingTranscriptForResumedUnit ? (
+    <PromptTurn
+      helper="Resume unavailable"
+      prompt={`This unit already has saved progress, but the AI workspace transcript for this stage is missing. Replying here could rewind the lesson. Refresh the workspace before continuing.\n\nCurrent checkpoint: ${fallbackTurn.prompt}`}
+    />
+  ) : (
+    <>
+      {grouped.history.length > 0 ? (
+        <div
+          className={`${CHAT_COLUMN_CLASS} flex flex-col gap-1.5 pt-1 pb-3 font-sans`}
+        >
+          {grouped.history.map((exchange, index) => (
+            <ExchangeReceipt
+              key={
+                exchange.prompt?.id ??
+                exchange.answer?.id ??
+                `exchange-${index}`
+              }
+              exchange={exchange}
+              fallbackTitle={`Exchange ${index + 1}`}
+              canRevise={canCompose && !effectiveIsRunning}
+              onRevise={startAnswerRevision}
+              onAskCoach={onAskCoachAboutAnswer}
+            />
+          ))}
+        </div>
+      ) : null}
+
+      {activePrompt ? (
+        <PromptTurn
+          prompt={activePrompt.text}
+          helper={null}
+          difficultyDirectiveReason={
+            activePromptMessage?.metadata?.difficultyDirectiveReason ?? null
+          }
+          statusLabel={
+            activeLiveStatus && activeLiveStatus.status !== "complete"
+              ? activeLiveStatus.label
+              : null
+          }
+        />
+      ) : (
+        <PromptTurn
+          prompt={introMessage?.prompt ?? fallbackTurn.prompt}
+          helper={introMessage?.helper ?? fallbackTurn.helper}
+        />
+      )}
+
+      {pendingAnswer ? (
+        <SubmittedAnswerReceipt
+          text={pendingAnswer.text}
+          pending={effectiveIsRunning}
+          canRevise={canCompose && !effectiveIsRunning}
+          onRevise={() => startAnswerRevision(pendingAnswer.text)}
+          onAskCoach={
+            onAskCoachAboutAnswer
+              ? () => onAskCoachAboutAnswer(pendingAnswer.text)
+              : undefined
+          }
+        />
+      ) : null}
+
+      {grouped.failedAnswers.map((answer) => {
+        const failedMessage = chatMessages.find(
+          (message) => message.id === answer.id,
+        );
+        const failedTurnId = failedMessage?.metadata?.turnId;
+        return (
+          <SubmittedAnswerReceipt
+            key={answer.id}
+            text={answer.text}
+            failed
+            canRevise={canCompose && !effectiveIsRunning}
+            onRevise={() => startAnswerRevision(answer.text)}
+            onRetry={
+              failedTurnId
+                ? () => void handleSubmit(answer.text, failedTurnId)
+                : undefined
+            }
+            onAskCoach={
+              onAskCoachAboutAnswer
+                ? () => onAskCoachAboutAnswer(answer.text)
+                : undefined
+            }
+          />
+        );
+      })}
+    </>
+  );
 
   const inputZone = (
-    <div className={embedded ? "bg-background shrink-0" : "mt-10"}>
+    <div className="bg-background shrink-0">
+      {missionEligibility.data?.eligible &&
+      missionEligibility.data.unitRunId ? (
+        <Link
+          href={`/workspace/mission?unitRunId=${missionEligibility.data.unitRunId}`}
+          className="border-border bg-card hover:bg-muted mb-5 block border p-4 transition-colors"
+        >
+          <span className="text-sm font-medium">
+            🎯 Take it into the real world
+          </span>
+          <span className="text-muted-foreground mt-1 block text-sm">
+            A field mission, built for you. Start mission →
+          </span>
+        </Link>
+      ) : null}
       <div className="font-sans">
         <WorkspaceComposerInput
           value={response}
@@ -871,17 +1017,9 @@ function EducationUnitWorkspaceComponent({
           isRunning={effectiveIsRunning}
           textareaRef={composerTextareaRef}
           placeholder={composerPlaceholder}
+          awaitingUnitAdvance={enterAdvancesUnit}
+          onAdvanceUnit={onAdvanceUnit}
         />
-        <div className="mt-2.5 flex items-center justify-end">
-          {draftStatus !== "idle" ? (
-            <span
-              aria-live="polite"
-              className="text-foreground/36 text-[11px] leading-5"
-            >
-              {draftStatus === "saving" ? "Saving…" : "Saved"}
-            </span>
-          ) : null}
-        </div>
       </div>
     </div>
   );
@@ -893,6 +1031,8 @@ function EducationUnitWorkspaceComponent({
       placeholder={composerPlaceholder}
       canSubmit={Boolean(response.trim()) && canCompose}
       isSubmitting={effectiveIsRunning}
+      awaitingUnitAdvance={enterAdvancesUnit}
+      onAdvanceUnit={onAdvanceUnit}
       onChange={setResponse}
       onClose={() => setIsExpanded(false)}
       onSubmit={(md) => {
@@ -902,36 +1042,70 @@ function EducationUnitWorkspaceComponent({
     />
   );
 
+  const selectionAskCoach = onAskCoachAboutSelection ? (
+    <SelectionAskCoach onAsk={onAskCoachAboutSelection} />
+  ) : null;
+
+  // Viewport-fixed three-region column: scenario anchor on top, the receipt
+  // trail + active exchange scrolling in the middle, composer pinned below.
+  // The page itself never scrolls — the trail region does.
   if (embedded) {
     return (
       <>
-        <div className="flex min-h-full flex-1 flex-col">
-          <div className="flex-1 pt-8 pb-10">
-            {renderedMessages}
-            <div ref={bottomRef} />
+        <div className="flex min-h-0 flex-1 flex-col">
+          <ScenarioAnchor
+            title={anchorTitle}
+            stage={anchorStage}
+            progress={anchorProgress}
+            detail={anchorDetail}
+            columnClassName={CHAT_COLUMN_CLASS}
+          />
+          <div
+            ref={scrollContainerRef}
+            className="min-h-0 flex-1 overflow-y-auto"
+          >
+            <div className="pt-5 pb-8">
+              {trailContent}
+              <div ref={bottomRef} />
+            </div>
           </div>
-          <ChatComposerDock className="mt-auto pt-4 pb-1">
+          <ChatComposerDock className="shrink-0 pt-3 pb-1">
             {inputZone}
           </ChatComposerDock>
         </div>
         {expandedOverlay}
+        {selectionAskCoach}
       </>
     );
   }
 
   return (
     <>
-      <main className="bp-page-bg text-foreground min-h-screen px-5 py-8 sm:px-8 lg:px-10">
-        <div className="flex w-full flex-col pb-32">
-          {renderedMessages}
-          <div className="bg-background/95 fixed inset-x-0 bottom-0 z-20 backdrop-blur-sm">
-            <div className="mx-auto w-[calc(100%-2rem)] max-w-[48.9rem] py-4 sm:w-[calc(100%-3rem)]">
-              {inputZone}
-            </div>
+      <main className="bp-page-bg text-foreground flex h-dvh flex-col px-5 pt-3 sm:px-8 lg:px-10">
+        <ScenarioAnchor
+          title={anchorTitle}
+          stage={anchorStage}
+          progress={anchorProgress}
+          detail={anchorDetail}
+          columnClassName={CHAT_COLUMN_CLASS}
+        />
+        <div
+          ref={scrollContainerRef}
+          className="min-h-0 flex-1 overflow-y-auto"
+        >
+          <div className="pt-5 pb-8">
+            {trailContent}
+            <div ref={bottomRef} />
+          </div>
+        </div>
+        <div className="bg-background/95 shrink-0 backdrop-blur-sm">
+          <div className="mx-auto w-[calc(100%-2rem)] max-w-[48.9rem] py-4 sm:w-[calc(100%-3rem)]">
+            {inputZone}
           </div>
         </div>
       </main>
       {expandedOverlay}
+      {selectionAskCoach}
     </>
   );
 }

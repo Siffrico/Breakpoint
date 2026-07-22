@@ -5,6 +5,7 @@ import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { Effect } from "effect";
 
 import type { db as databaseClient } from "@acme/db/client";
+import { sql } from "@acme/db";
 
 import type {
   WorkspaceAiEducationStage,
@@ -12,11 +13,19 @@ import type {
 } from "./domain/training/workspace-ai/types";
 import { withAiModelPreference } from "./domain/training/engine/model-router";
 import { WorkspaceUserError } from "./domain/training/errors";
+import { createNextUnitNode } from "./domain/training/unit-creation/create-next-unit";
+import { pregenerateNextUnit } from "./domain/training/unit-creation/pregenerate-next-unit";
 import { createAssistantTextStreamer } from "./domain/training/workspace-ai/assistant-text-streamer";
 import { resolveWorkspaceTurn } from "./domain/training/workspace-ai/workspace-turn";
 import { runWorkspaceTurn } from "./domain/training/workspace-ai/workspace-turn-edge";
 import { runEducationUnitTurn } from "./domain/training/workspace-ai/workspace-turn-orchestration";
+import { queryWithClient } from "./effect/db";
 import { trainingCurriculumRepository } from "./repositories/training-curriculum-repository";
+import { trainingUnitRunRepository } from "./repositories/training-unit-run-repository";
+import {
+  createUnitCreationRepositoryDeps,
+  loadProgressionState,
+} from "./repositories/unit-creation-repository-deps";
 import {
   createWorkspaceTurnRepositoryDeps,
   workspaceTurnRepoLayer,
@@ -100,6 +109,11 @@ const getEducationWritingLabel = (
   }
 };
 
+/** The node row unit creation works with — pins pregen's generic parameter. */
+type UnitCreationNode = Parameters<
+  ReturnType<typeof createUnitCreationRepositoryDeps>["prepareUnitEffect"]
+>[0];
+
 export const streamWorkspaceChat = async ({
   db,
   sessionId,
@@ -108,6 +122,7 @@ export const streamWorkspaceChat = async ({
   turnId,
   modelName,
   signal,
+  scheduleBackgroundTask,
 }: {
   db: Database;
   sessionId: string;
@@ -116,6 +131,7 @@ export const streamWorkspaceChat = async ({
   turnId: string;
   modelName?: string | null;
   signal?: AbortSignal;
+  scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }): Promise<Response> =>
   withAiModelPreference(modelName, () =>
     streamWorkspaceChatWithModelPreference({
@@ -125,6 +141,7 @@ export const streamWorkspaceChat = async ({
       message,
       turnId,
       signal,
+      scheduleBackgroundTask,
     }),
   );
 
@@ -135,6 +152,7 @@ const streamWorkspaceChatWithModelPreference = async ({
   message,
   turnId,
   signal,
+  scheduleBackgroundTask,
 }: {
   db: Database;
   sessionId: string;
@@ -142,6 +160,7 @@ const streamWorkspaceChatWithModelPreference = async ({
   message: string;
   turnId: string;
   signal?: AbortSignal;
+  scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }) => {
   const trimmedMessage = message.trim();
   const effectiveLeaseId = randomUUID();
@@ -187,7 +206,107 @@ const streamWorkspaceChatWithModelPreference = async ({
         partId: WORKSPACE_ASSISTANT_TEXT_PART_ID,
       });
 
-      const turnDeps = createWorkspaceTurnRepositoryDeps(db);
+      const turnDeps = {
+        ...createWorkspaceTurnRepositoryDeps(db),
+        scheduleBackgroundTask,
+        pregenerateNextUnit: (input: {
+          sessionId: string;
+          userId: string;
+          skillNodeId: string;
+        }) =>
+          Effect.runPromise(
+            pregenerateNextUnit<UnitCreationNode>({
+              ...input,
+              deps: {
+                withLock: ({ sessionId: lockedSessionId, key, run }) =>
+                  queryWithClient(db, "pregenerateNextUnit", () =>
+                    db.transaction(async (tx) => {
+                      const transactionDb = tx as unknown as Database;
+                      await transactionDb.execute(
+                        sql`select pg_advisory_xact_lock(hashtext(${lockedSessionId}), hashtext(${key}))`,
+                      );
+                      return Effect.runPromise(
+                        run({
+                          isAwaitingUnitAdvance: ({
+                            skillNodeId,
+                            sessionId,
+                          }) =>
+                            queryWithClient(
+                              transactionDb,
+                              "loadPregenerationAdvanceGate",
+                              async () => {
+                                const plan =
+                                  await trainingCurriculumRepository.getActivePlan(
+                                    { db: transactionDb, sessionId },
+                                  );
+                                const node =
+                                  plan?.nodes.find(
+                                    (candidate) =>
+                                      candidate.kind === "unit" &&
+                                      candidate.parentNodeId ===
+                                        skillNodeId &&
+                                      candidate.status === "ready",
+                                  ) ?? null;
+                                const unit = node
+                                  ? await trainingCurriculumRepository.getUnitByNodeId(
+                                      { db: transactionDb, nodeId: node.id },
+                                    )
+                                  : null;
+                                const unitRun = unit
+                                  ? await trainingUnitRunRepository.getUnitRun({
+                                      db: transactionDb,
+                                      sessionId,
+                                      unitContentId: unit.id,
+                                    })
+                                  : null;
+                                return unitRun?.phase === "mastered";
+                              },
+                            ),
+                          getProgressionState: ({ skillNodeId, userId }) =>
+                            queryWithClient(
+                              transactionDb,
+                              "loadPregenerationProgressionState",
+                              () =>
+                                loadProgressionState({
+                                  db: transactionDb,
+                                  skillNodeId,
+                                  userId,
+                                }),
+                            ),
+                          // Node row only — the transaction (and the advance
+                          // lock it holds) must commit before any LLM call.
+                          createUnitNode: ({
+                            skillNodeId,
+                            sessionId,
+                            userId,
+                            status,
+                          }) =>
+                            createNextUnitNode({
+                              skillNodeId,
+                              status,
+                              deps: createUnitCreationRepositoryDeps({
+                                db: transactionDb,
+                                sessionId,
+                                userId,
+                              }),
+                            }),
+                        }),
+                      );
+                    }),
+                  ),
+                // Unlocked, non-transactional: the seed generation runs after
+                // the planned node committed, so a Next Unit press never
+                // queues behind the model call.
+                prepareUnit: (node) =>
+                  createUnitCreationRepositoryDeps({
+                    db,
+                    sessionId: input.sessionId,
+                    userId: input.userId,
+                  }).prepareUnitEffect(node),
+              },
+            }),
+          ),
+      };
       writeStatus("preparing", "Preparing feedback");
 
       const turn = await resolveWorkspaceTurn({

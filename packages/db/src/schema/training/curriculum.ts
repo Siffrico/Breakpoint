@@ -1,4 +1,7 @@
-import { index, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { check, index, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
+
+import type { ScenarioArchetype } from "@acme/validators";
 
 import { user } from "../../auth-schema";
 import { TrainingOnboardingSession } from "./onboarding";
@@ -38,13 +41,11 @@ export const TrainingCurriculumPlan = pgTable(
     // stamped at build time. The workspace reads it as the initial rating state
     // for fresh nodes. Null when no starting point was elicited. See
     // @acme/validators SeedRating and engine/rating/seed.ts.
-    seedRating: t
-      .jsonb()
-      .$type<{
-        rating: number;
-        ratingDeviation: number;
-        volatility: number;
-      } | null>(),
+    seedRating: t.jsonb().$type<{
+      rating: number;
+      ratingDeviation: number;
+      volatility: number;
+    } | null>(),
     createdAt: t
       .timestamp({ mode: "date", withTimezone: true })
       .defaultNow()
@@ -71,6 +72,8 @@ export const TrainingCurriculumNode = pgTable(
     parentNodeId: t.uuid(),
     kind: t.varchar({ length: 32 }).notNull(),
     status: t.varchar({ length: 32 }).notNull().default("planned"),
+    // `ability` nodes always have a stage; structural and skill/unit nodes never do.
+    abilityStage: t.varchar({ length: 16 }),
     title: t.varchar({ length: 240 }).notNull(),
     summary: t.text().notNull(),
     whyItMatters: t.text().notNull(),
@@ -96,6 +99,7 @@ export const TrainingCurriculumNode = pgTable(
         exitCriteria: string[];
         maxRatingDeviation?: number;
       };
+      scenarioArchetype: ScenarioArchetype;
     }>(),
     orderIndex: t.integer().notNull(),
     depth: t.integer().notNull(),
@@ -115,25 +119,73 @@ export const TrainingCurriculumNode = pgTable(
       table.parentNodeId,
       table.orderIndex,
     ),
+    check(
+      "becoming_curriculum_node_v4_shape",
+      sql`(
+        (
+          kind = 'ability'
+          and ability_stage is not null
+          and ability_stage in ('foundations', 'skillset', 'mastered')
+        )
+        or (kind <> 'ability' and ability_stage is null)
+      )
+      and kind in ('root', 'ability', 'skill', 'unit')
+      and (
+        (
+          kind in ('ability', 'skill')
+          and skill_map is not null
+          and coalesce(skill_map ->> 'scenarioArchetype', '') in ('select', 'transform', 'judge')
+          and not (skill_map ? 'scenarioFormats')
+        )
+        or (kind in ('root', 'unit') and skill_map is null)
+      )`,
+    ),
   ],
 );
 
-export const TrainingSyllabusEntry = pgTable(
-  "becoming_training_syllabus_entry",
+export const TrainingKnowledgeQuestion = pgTable(
+  "becoming_knowledge_question",
   (t) => ({
     id: t.uuid().notNull().primaryKey().defaultRandom(),
-    clusterNodeId: t
+    skillNodeId: t
       .uuid()
       .notNull()
       .references(() => TrainingCurriculumNode.id, { onDelete: "cascade" }),
     orderIndex: t.integer().notNull(),
-    label: t.text().notNull(),
+    question: t.text().notNull(),
+    createdAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  }),
+  (table) => [
+    uniqueIndex("becoming_knowledge_question_skill_order_idx").on(
+      table.skillNodeId,
+      table.orderIndex,
+    ),
+  ],
+);
+
+export const TrainingKnowledgeItem = pgTable(
+  "becoming_knowledge_item",
+  (t) => ({
+    id: t.uuid().notNull().primaryKey().defaultRandom(),
+    questionId: t
+      .uuid()
+      .notNull()
+      .references(() => TrainingKnowledgeQuestion.id, { onDelete: "cascade" }),
+    orderIndex: t.integer().notNull(),
     kind: t.varchar({ length: 32 }).notNull(),
-    gloss: t.text().notNull(),
+    label: t.text().notNull(),
+    content: t.text().notNull(),
+    // How many scored solves this item was load-bearing in. Skill mastery
+    // requires every item to reach the coverage target (see
+    // engine/concept-coverage.ts) — never a drifting rating.
+    coverageCount: t.integer().notNull().default(0),
     status: t.varchar({ length: 32 }).notNull().default("unchecked"),
     checkedAt: t.timestamp({ mode: "date", withTimezone: true }),
     // Spaced-reinforcement state: how many consecutive scored recalls this
-    // entry has survived, and when it last earned (or lost) one. checkedAt is
+    // item has survived, and when it last earned (or lost) one. checkedAt is
     // the anchor until the first reinforcement. See policies/recall-decay.ts.
     strength: t.integer().notNull().default(0),
     lastReinforcedAt: t.timestamp({ mode: "date", withTimezone: true }),
@@ -146,10 +198,14 @@ export const TrainingSyllabusEntry = pgTable(
       .notNull(),
   }),
   (table) => [
-    uniqueIndex("becoming_syllabus_cluster_order_idx").on(
-      table.clusterNodeId,
+    uniqueIndex("becoming_knowledge_item_question_order_idx").on(
+      table.questionId,
       table.orderIndex,
     ),
-    index("becoming_syllabus_evidence_node_idx").on(table.evidenceNodeId),
+    index("becoming_knowledge_item_evidence_node_idx").on(table.evidenceNodeId),
+    check(
+      "becoming_knowledge_item_kind",
+      sql`${table.kind} in ('concept', 'mechanism')`,
+    ),
   ],
 );

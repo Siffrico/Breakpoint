@@ -20,9 +20,9 @@ export const RUN_PROFILES = {
     reasoningBudgetTokens: 24_576,
     maxOutputTokens: 8_192,
     maxSteps: 10,
-    search: true,
+    search: false,
   },
-  syllabus: {
+  knowledge: {
     reasoningBudgetTokens: 16_384,
     maxOutputTokens: 8_192,
     maxSteps: 8,
@@ -40,14 +40,14 @@ export const RUN_PROFILES = {
   recall: STANDARD_PROFILE,
   evaluation: { ...STANDARD_PROFILE, reasoningBudgetTokens: 4_096 },
   tutor: STANDARD_PROFILE,
-  capstone: { ...STANDARD_PROFILE, reasoningBudgetTokens: 8_192 },
   projectOverview: {
     ...STANDARD_PROFILE,
-    reasoningBudgetTokens: 8_192,
-    maxOutputTokens: 8_192,
-    maxSteps: 6,
-    search: true,
+    reasoningBudgetTokens: 2_048,
+    maxOutputTokens: 2_048,
+    maxSteps: 3,
+    search: false,
   },
+  mission: { ...STANDARD_PROFILE, maxSteps: 6, search: true },
   default: STANDARD_PROFILE,
 } as const satisfies Record<AiModelPurpose, RunProfile>;
 
