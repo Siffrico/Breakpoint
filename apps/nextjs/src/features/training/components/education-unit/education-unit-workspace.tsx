@@ -30,7 +30,7 @@ import {
 import { useTRPC } from "~/trpc/react";
 import { groupLiveExchanges } from "./exchange-grouping";
 import { ExchangeReceipt } from "./exchange-receipt";
-import { NotionComposer } from "./notion-composer";
+import { FocusComposer } from "./focus-composer";
 import { countWords } from "./receipt-summary";
 import { ScenarioAnchor } from "./scenario-anchor";
 import {
@@ -1025,10 +1025,11 @@ function EducationUnitWorkspaceComponent({
   );
 
   const expandedOverlay = (
-    <NotionComposer
+    <FocusComposer
       open={isExpanded}
       initialMarkdown={response}
       placeholder={composerPlaceholder}
+      columnClassName={CHAT_COLUMN_CLASS}
       canSubmit={Boolean(response.trim()) && canCompose}
       isSubmitting={effectiveIsRunning}
       awaitingUnitAdvance={enterAdvancesUnit}
@@ -1052,6 +1053,9 @@ function EducationUnitWorkspaceComponent({
   if (embedded) {
     return (
       <>
+        {/* The focus sheet (absolute inset-0) pins to the workspace <main>,
+            which spans past its own px padding out to the sidebar and wall —
+            so this wrapper must stay unpositioned. */}
         <div className="flex min-h-0 flex-1 flex-col">
           <ScenarioAnchor
             title={anchorTitle}
@@ -1069,11 +1073,11 @@ function EducationUnitWorkspaceComponent({
               <div ref={bottomRef} />
             </div>
           </div>
-          <ChatComposerDock className="shrink-0 pt-3 pb-1">
+          <ChatComposerDock className="shrink-0 pt-2 pb-2">
             {inputZone}
           </ChatComposerDock>
+          {expandedOverlay}
         </div>
-        {expandedOverlay}
         {selectionAskCoach}
       </>
     );
@@ -1081,7 +1085,7 @@ function EducationUnitWorkspaceComponent({
 
   return (
     <>
-      <main className="bp-page-bg text-foreground flex h-dvh flex-col px-5 pt-3 sm:px-8 lg:px-10">
+      <main className="bp-page-bg text-foreground relative flex h-dvh flex-col px-5 pt-3 sm:px-8 lg:px-10">
         <ScenarioAnchor
           title={anchorTitle}
           stage={anchorStage}
@@ -1099,12 +1103,12 @@ function EducationUnitWorkspaceComponent({
           </div>
         </div>
         <div className="bg-background/95 shrink-0 backdrop-blur-sm">
-          <div className="mx-auto w-[calc(100%-2rem)] max-w-[48.9rem] py-4 sm:w-[calc(100%-3rem)]">
+          <div className="mx-auto w-[calc(100%-2rem)] max-w-[48.9rem] pt-3 pb-5 sm:w-[calc(100%-3rem)]">
             {inputZone}
           </div>
         </div>
+        {expandedOverlay}
       </main>
-      {expandedOverlay}
       {selectionAskCoach}
     </>
   );

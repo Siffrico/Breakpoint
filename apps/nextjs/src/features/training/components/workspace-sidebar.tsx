@@ -2,13 +2,12 @@
 
 import type { MouseEvent } from "react";
 import { memo } from "react";
-import dynamic from "next/dynamic";
 
 import type { LearningProject } from "./use-workspace-session";
-
-const CurriculumSidebar = dynamic(() =>
-  import("./curriculum-sidebar").then((mod) => mod.CurriculumSidebar),
-);
+// Imported statically, not via next/dynamic: the lazy/Suspense boundary shifts
+// React's useId tree prefix between SSR and hydration, so every Base UI id
+// inside the sidebar (menu triggers, settings menu) mismatched on hydration.
+import { CurriculumSidebar } from "./curriculum-sidebar";
 
 export type WorkspaceTheme = "light" | "dark" | "warm";
 

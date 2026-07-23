@@ -34,6 +34,7 @@ import {
   ChatScrollToBottom,
   ChatTranscript,
   ChatTranscriptContent,
+  ComposerSendButton,
   OnboardingComposer,
   PacedAssistantText,
   StatusSpinner,
@@ -524,14 +525,12 @@ export function OnboardingShell({
         </button>
       }
       rightSlot={
-        <Button
-          type="button"
-          onClick={handlePrimaryAction}
+        <ComposerSendButton
+          rounding="circular"
+          className="size-9"
+          onSubmit={handlePrimaryAction}
           disabled={sendDisabled}
-          variant="ghost"
-          size="icon"
-          className="rounded-full border border-white/[0.055] sm:size-9 bg-[linear-gradient(180deg,#303030_0%,#252525_48%,#1f1f1f_100%)] p-0 text-[#d7d7d7] shadow-[inset_0_1px_0_rgba(255,255,255,0.10),0_6px_16px_rgba(0,0,0,0.34)] before:rounded-full hover:bg-[linear-gradient(180deg,#3a3a3a_0%,#2d2d2d_48%,#242424_100%)] disabled:border-white/[0.035] disabled:bg-[linear-gradient(180deg,#292929_0%,#222222_48%,#1d1d1d_100%)] disabled:text-[#686868] disabled:shadow-[inset_0_1px_0_rgba(255,255,255,0.07),0_5px_14px_rgba(0,0,0,0.26)]"
-          aria-label={
+          sendLabel={
             effectiveIsStreaming
               ? "Stop generating"
               : hasError
@@ -546,7 +545,7 @@ export function OnboardingShell({
           ) : (
             <ArrowUp size={14} weight="bold" />
           )}
-        </Button>
+        </ComposerSendButton>
       }
     />
   );
@@ -582,14 +581,12 @@ export function OnboardingShell({
           </button>
         }
         rightSlot={
-          <Button
-            type="button"
-            onClick={handlePrimaryAction}
+          <ComposerSendButton
+            rounding="circular"
+            className="size-9.5"
+            onSubmit={handlePrimaryAction}
             disabled={sendDisabled}
-            variant="ghost"
-            size="icon-xl"
-            className="size-9.5 rounded-full border border-white/[0.08] sm:size-9.5 bg-[linear-gradient(180deg,#2a2a2a_0%,#1d1d1d_100%)] p-0 text-[#cfcfcf] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_4px_10px_rgba(0,0,0,0.45)] before:rounded-full hover:bg-[linear-gradient(180deg,#303030_0%,#222222_100%)] disabled:border-white/[0.04] disabled:bg-[linear-gradient(180deg,#242424_0%,#1b1b1b_100%)] disabled:text-[#6a6a6a] disabled:shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_3px_8px_rgba(0,0,0,0.32)]"
-            aria-label={
+            sendLabel={
               effectiveIsStreaming
                 ? "Stop generating"
                 : hasError
@@ -604,7 +601,7 @@ export function OnboardingShell({
             ) : (
               <ArrowUp size={16} weight="bold" />
             )}
-          </Button>
+          </ComposerSendButton>
         }
       />
     );

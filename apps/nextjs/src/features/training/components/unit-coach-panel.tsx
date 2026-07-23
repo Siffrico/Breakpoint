@@ -2,13 +2,7 @@
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
-import {
-  ArrowLeft,
-  ArrowsIn,
-  ArrowsOut,
-  ArrowUp,
-  X,
-} from "@phosphor-icons/react";
+import { ArrowLeft, ArrowsIn, ArrowsOut, X } from "@phosphor-icons/react";
 import {
   createUIMessageStream,
   createUIMessageStreamResponse,
@@ -19,7 +13,12 @@ import {
 import type { RouterOutputs } from "@acme/api";
 import type { UnitCoachIntent, UnitCoachMessage } from "@acme/api/unit-coach";
 import { Button } from "@acme/ui/button";
-import { ChatComposer, ChatMessage, TextShimmer } from "@acme/ui/chat";
+import {
+  ChatComposer,
+  ChatMessage,
+  ComposerSendButton,
+  TextShimmer,
+} from "@acme/ui/chat";
 import { toast } from "@acme/ui/toast";
 
 import type { UnitCoachTrigger } from "~/features/training/lib/unit-coach-commands";
@@ -319,25 +318,29 @@ function UnitCoachPanelComponent({
           </div>
         </div>
 
-        <div className="shrink-0 pt-2 pb-4">
+        <div className="border-foreground/[0.06] shrink-0 border-t pt-2 pb-4">
           <div className={columnClass}>
             <ChatComposer
               compact
+              minHeightPx={56}
+              maxHeightPx={56}
               value={question}
               onValueChange={setQuestion}
               textareaRef={composerTextareaRef}
               ariaLabel="Ask Unit Coach"
               placeholder="Ask what the scenario is testing, how to start, or where your reasoning is stuck."
+              style={{ borderRadius: 0, boxShadow: "none" }}
+              className="border-0 bg-transparent"
+              // Ask-coach is the only composer that sends on Enter; everywhere
+              // else Enter stays a newline in a drafting surface.
+              onEnterSubmit={handleAsk}
               rightSlot={
-                <button
-                  type="button"
-                  onClick={handleAsk}
+                <ComposerSendButton
+                  className="size-7"
                   disabled={!canSubmit}
-                  aria-label="Send to Unit Coach"
-                  className="inline-flex size-6 shrink-0 items-center justify-center rounded-[6px] border border-white/[0.055] bg-[linear-gradient(180deg,#303030_0%,#252525_48%,#1f1f1f_100%)] text-[#d7d7d7] shadow-[inset_0_1px_0_rgba(255,255,255,0.10),0_6px_16px_rgba(0,0,0,0.34)] transition-colors outline-none hover:bg-[linear-gradient(180deg,#3a3a3a_0%,#2d2d2d_48%,#242424_100%)] focus:outline-none focus-visible:outline-none disabled:border-white/[0.035] disabled:bg-[linear-gradient(180deg,#292929_0%,#222222_48%,#1d1d1d_100%)] disabled:text-[#686868] disabled:shadow-[inset_0_1px_0_rgba(255,255,255,0.07),0_5px_14px_rgba(0,0,0,0.26)]"
-                >
-                  <ArrowUp size={13} weight="bold" />
-                </button>
+                  onSubmit={handleAsk}
+                  sendLabel="Send to Unit Coach"
+                />
               }
             />
           </div>

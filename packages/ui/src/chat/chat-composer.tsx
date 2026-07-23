@@ -3,6 +3,7 @@
 import type {
   ChangeEvent,
   CSSProperties,
+  KeyboardEvent,
   ReactNode,
   RefObject,
 } from "react";
@@ -24,8 +25,9 @@ const COMPACT_MIN_HEIGHT_PX = 56;
 const COMPACT_MAX_HEIGHT_PX = 172;
 
 /**
- * Text surface only. Enter inserts a newline — sending is never bound to a key,
- * so the send control in `rightSlot` is the single way to submit.
+ * Text surface only. By default Enter inserts a newline — sending is not bound
+ * to a key, so the send control in `rightSlot` is the single way to submit.
+ * Pass `onEnterSubmit` to opt into Enter-to-send (Shift+Enter still newlines).
  */
 export function ChatComposer({
   value,
@@ -42,6 +44,7 @@ export function ChatComposer({
   compact = false,
   minHeightPx: minHeightOverride,
   maxHeightPx: maxHeightOverride,
+  onEnterSubmit,
 }: {
   value: string;
   onValueChange: (next: string) => void;
@@ -59,6 +62,12 @@ export function ChatComposer({
   minHeightPx?: number;
   /** Height at which growth stops and the text area starts scrolling. */
   maxHeightPx?: number;
+  /**
+   * Opt into Enter-to-send. When set, a bare Enter (no Shift, not mid-IME
+   * composition) submits; Shift+Enter still inserts a newline. Omit it to keep
+   * the default "Enter = newline" surface.
+   */
+  onEnterSubmit?: () => void;
 }) {
   const internalRef = useRef<HTMLTextAreaElement>(null);
   const ref = textareaRef ?? internalRef;
@@ -88,6 +97,19 @@ export function ChatComposer({
     onValueChange(event.target.value);
   };
 
+  const handleKeyDown = onEnterSubmit
+    ? (event: KeyboardEvent<HTMLTextAreaElement>) => {
+        if (
+          event.key === "Enter" &&
+          !event.shiftKey &&
+          !event.nativeEvent.isComposing
+        ) {
+          event.preventDefault();
+          onEnterSubmit();
+        }
+      }
+    : undefined;
+
   return (
     <div
       style={{
@@ -106,6 +128,7 @@ export function ChatComposer({
         aria-label={ariaLabel}
         value={value}
         onChange={propagateValue}
+        onKeyDown={handleKeyDown}
         placeholder={placeholder}
         rows={1}
         style={

@@ -2,14 +2,13 @@
 
 import type { KeyboardEvent, RefObject } from "react";
 import { useState } from "react";
-import {
-  ArrowsOutSimple,
-  ArrowUp,
-  Plus,
-  TerminalWindow,
-} from "@phosphor-icons/react";
+import { ArrowsOutSimple, Plus } from "@phosphor-icons/react";
 
-import { ChatComposer, SlashCommandMenu } from "@acme/ui/chat";
+import {
+  ChatComposer,
+  ComposerSendButton,
+  SlashCommandMenu,
+} from "@acme/ui/chat";
 
 import type { UnitCoachCommandIntent } from "~/features/training/lib/unit-coach-commands";
 import {
@@ -194,7 +193,7 @@ export function WorkspaceComposerInput({
           boxShadow:
             "inset 0 1px 0 rgba(255,255,255,0.03), 0 10px 26px rgba(0,0,0,0.32)",
         }}
-        className="border-white/[0.09] bg-[#141414] focus-within:border-white/[0.16]"
+        className="border-border bg-secondary focus-within:border-foreground/[0.16]"
         leftSlot={
           <div className="flex min-w-0 items-center gap-1.5">
             <ComposerIconButton label="Add attachment">
@@ -208,29 +207,19 @@ export function WorkspaceComposerInput({
               onClick={onExpand}
               disabled={disabled}
             />
-            <ComposerDivider />
-            <ComposerChip
-              label="Commands"
-              title="Type / for commands"
-              icon={<TerminalWindow size={13} weight="bold" />}
-              disabled={disabled}
-            />
           </div>
         }
         rightSlot={
-          <button
-            type="button"
-            onClick={isRunning ? onStop : handleSubmit}
-            disabled={!isRunning && (!value.trim() || disabled)}
-            aria-label={isRunning ? "Stop generating" : "Submit response"}
-            className="inline-flex size-9 shrink-0 items-center justify-center rounded-full border border-white/[0.055] bg-[linear-gradient(180deg,#303030_0%,#252525_48%,#1f1f1f_100%)] text-[#d7d7d7] shadow-[inset_0_1px_0_rgba(255,255,255,0.10),0_6px_16px_rgba(0,0,0,0.34)] transition-colors outline-none hover:bg-[linear-gradient(180deg,#3a3a3a_0%,#2d2d2d_48%,#242424_100%)] focus:outline-none focus-visible:outline-none disabled:border-white/[0.035] disabled:bg-[linear-gradient(180deg,#292929_0%,#222222_48%,#1d1d1d_100%)] disabled:text-[#686868] disabled:shadow-[inset_0_1px_0_rgba(255,255,255,0.07),0_5px_14px_rgba(0,0,0,0.26)]"
-          >
-            {isRunning ? (
-              <span aria-hidden="true" className="size-2.5 bg-current" />
-            ) : (
-              <ArrowUp size={15} weight="bold" />
-            )}
-          </button>
+          <ComposerSendButton
+            rounding="rounded"
+            className="size-9"
+            stopping={isRunning}
+            disabled={!value.trim() || disabled}
+            onSubmit={handleSubmit}
+            onStop={onStop}
+            sendLabel="Submit response"
+            stopLabel="Stop generating"
+          />
         }
       />
     </div>

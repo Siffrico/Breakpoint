@@ -77,7 +77,7 @@ function WorkspaceLiveWorkspaceComponent({
           {!coach.focused ? (
             <main
               className={[
-                "flex min-w-0 flex-1 flex-col",
+                "relative flex min-w-0 flex-1 flex-col",
                 mode === "onboarding"
                   ? "min-h-0 overflow-hidden"
                   : mode === "unit"

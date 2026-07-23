@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowsInSimple, ArrowUp } from "@phosphor-icons/react";
 
+import { cn } from "@acme/ui";
 import { Spinner } from "@acme/ui/spinner";
 
 import {
@@ -20,10 +21,12 @@ import {
   replaceBlockWithTag,
 } from "./rich-text-helpers";
 
-interface NotionComposerProps {
+interface FocusComposerProps {
   open: boolean;
   initialMarkdown: string;
   placeholder: string;
+  /** Same column class as the chat content, so writing lines up under the prompt. */
+  columnClassName: string;
   canSubmit: boolean;
   isSubmitting: boolean;
   onChange: (markdown: string) => void;
@@ -33,10 +36,11 @@ interface NotionComposerProps {
   onAdvanceUnit?: () => void;
 }
 
-export function NotionComposer({
+export function FocusComposer({
   open,
   initialMarkdown,
   placeholder,
+  columnClassName,
   canSubmit,
   isSubmitting,
   onChange,
@@ -44,11 +48,14 @@ export function NotionComposer({
   onSubmit,
   awaitingUnitAdvance = false,
   onAdvanceUnit,
-}: NotionComposerProps) {
+}: FocusComposerProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   // Track the latest markdown without re-seeding the editor on every keystroke.
   const lastEmittedRef = useRef<string>(initialMarkdown);
   const [isEmpty, setIsEmpty] = useState<boolean>(!initialMarkdown.trim());
+  // Drives the slide-up: false on the first paint after `open`, then flips
+  // true on the next frame so the sheet transitions in from below.
+  const [entered, setEntered] = useState(false);
 
   const emitChange = useCallback(() => {
     const root = editorRef.current;
@@ -82,14 +89,16 @@ export function NotionComposer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // Lock background scroll while overlay is open.
+  // The sheet is contained to the chat column, so the transcript behind it
+  // stays scrollable on purpose — no background scroll lock. Flip `entered`
+  // on the frame after open so the panel slides up instead of snapping in.
   useEffect(() => {
-    if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
+    if (!open) {
+      setEntered(false);
+      return;
+    }
+    const frame = requestAnimationFrame(() => setEntered(true));
+    return () => cancelAnimationFrame(frame);
   }, [open]);
 
   const handleSubmit = useCallback(() => {
@@ -202,13 +211,34 @@ export function NotionComposer({
   if (!open) return null;
 
   return (
-    <dialog
-      open
-      aria-modal="true"
-      aria-label="Expanded note editor"
-      className="bg-background fixed inset-0 z-50 flex flex-col"
-    >
-      <div className="border-foreground/[0.08] flex items-center justify-between border-b px-5 py-3">
+    // Contained to the chat column (the positioned ancestor lives in
+    // education-unit-workspace), so the sidebar, header, and coach panel stay
+    // live and the sheet can never anchor to the wrong element the way a
+    // viewport-`fixed` overlay did.
+    <div className="pointer-events-none absolute inset-0 z-30 flex flex-col justify-end">
+      {/* Dimming scrim. Click it to collapse — the sheet must never trap the
+          learner, so tapping the dimmed area dismisses it and frees the
+          sidebar / curriculum, exactly as a standard bottom sheet does. */}
+      <button
+        type="button"
+        aria-label="Collapse editor"
+        tabIndex={-1}
+        onClick={onClose}
+        className={cn(
+          "bg-background/45 pointer-events-auto flex-1 cursor-default backdrop-blur-[1px] transition-opacity duration-300 outline-none motion-reduce:transition-none",
+          entered ? "opacity-100" : "opacity-0",
+        )}
+      />
+      <dialog
+        open
+        aria-modal="true"
+        aria-label="Focus editor"
+        className={cn(
+          "bg-sidebar border-foreground/[0.08] pointer-events-auto m-0 flex h-[66%] w-full max-w-none flex-col border-t shadow-[0_-12px_40px_-12px_rgba(0,0,0,0.35)] transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
+          entered ? "translate-y-0" : "translate-y-full",
+        )}
+      >
+      <div className="flex items-center justify-between px-5 py-2">
         <button
           type="button"
           onClick={onClose}
@@ -219,10 +249,6 @@ export function NotionComposer({
         </button>
 
         <div className="flex items-center gap-3">
-          <span className="text-foreground/35 hidden text-[12px] tracking-[-0.005em] sm:inline">
-            <kbd className="font-sans">⌘</kbd>
-            <kbd className="ml-0.5 font-sans">↵</kbd> to send · <kbd className="font-sans">Esc</kbd> to collapse
-          </span>
           {isSubmitting ? (
             <Spinner className="text-foreground/55 size-4" aria-label="Submitting" />
           ) : null}
@@ -231,15 +257,16 @@ export function NotionComposer({
             onClick={handleSubmit}
             disabled={!canSubmit || isSubmitting}
             aria-label="Send"
-            className="bg-foreground text-background hover:bg-foreground/85 disabled:bg-foreground/25 inline-flex size-8 items-center justify-center rounded-[5px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
+            className="relative inline-flex h-7 shrink-0 cursor-pointer items-center justify-center gap-1 whitespace-nowrap rounded-[9px] border border-[var(--bp-toolbar-border)] bg-[var(--bp-toolbar-surface)] bg-clip-padding px-3 text-sm font-medium text-foreground shadow-[var(--bp-toolbar-shadow)] outline-none transition-colors hover:bg-[var(--bp-toolbar-surface-hover)] focus-visible:ring-2 focus-visible:ring-foreground/20 disabled:pointer-events-none disabled:opacity-64 [&_svg]:pointer-events-none [&_svg]:-mx-0.5 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg:not([class*='opacity-'])]:opacity-85 [&_svg:not([class*='text-'])]:text-foreground/70"
           >
-            <ArrowUp size={15} weight="bold" />
+            <ArrowUp weight="bold" />
+            Send
           </button>
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-[760px] px-6 pt-16 pb-32 sm:px-10">
+        <div className={cn(columnClassName, "pt-6 pb-32")}>
           <div className="relative">
             {isEmpty ? (
               <span
@@ -253,17 +280,18 @@ export function NotionComposer({
                 ref={editorRef}
                 contentEditable
                 role="textbox"
-                aria-label="Expanded note editor content"
+                aria-label="Focus editor content"
                 suppressContentEditableWarning
                 spellCheck
                 tabIndex={0}
                 onInput={syncEditorContent}
                 onKeyDown={handleKeyDown}
-                className="notion-composer text-foreground/92 caret-foreground relative min-h-[60vh] text-[16px] leading-[1.6] tracking-[-0.005em] outline-none [&_blockquote]:border-foreground/20 [&_blockquote]:text-foreground/65 [&_blockquote]:my-3 [&_blockquote]:border-l [&_blockquote]:pl-4 [&_code]:bg-foreground/[0.06] [&_code]:rounded-[3px] [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[14px] [&_h1]:mt-6 [&_h1]:mb-2 [&_h1]:text-[30px] [&_h1]:font-semibold [&_h1]:tracking-[-0.02em] [&_h2]:mt-5 [&_h2]:mb-2 [&_h2]:text-[24px] [&_h2]:font-semibold [&_h2]:tracking-[-0.015em] [&_h3]:mt-4 [&_h3]:mb-2 [&_h3]:text-[19px] [&_h3]:font-semibold [&_li]:my-0.5 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-7 [&_p]:my-2 [&_strong]:font-semibold [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-7 [&>*:first-child]:mt-0"
+                className="focus-composer text-foreground/92 caret-foreground relative min-h-[60vh] text-[16px] leading-[1.6] tracking-[-0.005em] outline-none [&_blockquote]:border-foreground/20 [&_blockquote]:text-foreground/65 [&_blockquote]:my-3 [&_blockquote]:border-l [&_blockquote]:pl-4 [&_code]:bg-foreground/[0.06] [&_code]:rounded-[3px] [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[14px] [&_h1]:mt-6 [&_h1]:mb-2 [&_h1]:text-[30px] [&_h1]:font-semibold [&_h1]:tracking-[-0.02em] [&_h2]:mt-5 [&_h2]:mb-2 [&_h2]:text-[24px] [&_h2]:font-semibold [&_h2]:tracking-[-0.015em] [&_h3]:mt-4 [&_h3]:mb-2 [&_h3]:text-[19px] [&_h3]:font-semibold [&_li]:my-0.5 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-7 [&_p]:my-2 [&_strong]:font-semibold [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-7 [&>*:first-child]:mt-0"
               />
           </div>
         </div>
       </div>
-    </dialog>
+      </dialog>
+    </div>
   );
 }
