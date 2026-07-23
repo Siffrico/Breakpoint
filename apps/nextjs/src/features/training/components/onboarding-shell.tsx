@@ -617,32 +617,16 @@ export function OnboardingShell({
         {/* Centered logo+composer unit, nudged above the optical center so the
             stack reads as one block (opencode-style empty state). */}
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6">
-          <div className="animate-in fade-in slide-in-from-bottom-2 w-full max-w-[960px] -translate-y-[6%] duration-700">
-            {/* Full-bleed SVG wordmark: subtle background texture, tight
-                geometric tracking, with a soft vertical fade baked in. */}
-            <svg
-              aria-hidden
-              viewBox="0 0 960 150"
-              className="fill-foreground/[0.07] mb-14 h-auto w-full [mask-image:linear-gradient(to_bottom,black_30%,rgba(0,0,0,0.4)_100%)] select-none"
-            >
-              <text
-                x="480"
-                y="118"
-                textAnchor="middle"
-                textLength="940"
-                lengthAdjust="spacingAndGlyphs"
-                fontSize="128"
-                letterSpacing="-8"
-                className="font-display font-black lowercase"
-              >
-                breakpoint
-              </text>
-            </svg>
+          <div className="animate-in fade-in slide-in-from-bottom-2 w-full max-w-[680px] -translate-y-[9%] duration-700">
+            {/* Hero prompt: sets the learner's task in a single line. Sized on a
+                30px / mb-8 rhythm so the heading + composer read as one block. */}
+            <h1 className="mb-8 text-center text-[30px] font-medium tracking-[-0.02em] [font-family:var(--font-ai)]">
+              What skill do you want to Master?
+            </h1>
 
-            {/* Composer sits at 4/5 the wordmark's width — narrower than the
-                logo so the stack reads as a tapered column rather than two
-                stacked bars of equal width. */}
-            <div className="mx-auto w-4/5">{heroComposer}</div>
+            {/* Composer fills the 680px column — wider than the heading so the
+                stack reads as heading-over-box, matching the empty-state ref. */}
+            <div className="mx-auto w-full">{heroComposer}</div>
 
             {/* Example chips to kill blank-page paralysis: tapping one submits
                 it as the learner's first answer. Presentational otherwise. */}
