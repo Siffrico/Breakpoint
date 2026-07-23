@@ -38,21 +38,6 @@ export const LearnerBriefSchema = z.object({
     ),
 });
 
-/**
- * A cluster's difficulty span. The designer emits only the start and peak
- * top-band ceilings; the per-unit 3-band ladders are derived deterministically
- * in code (`expandUnitBands`), so the LLM never hand-types — and never
- * mis-ramps — the dozens of band numbers a cluster would otherwise require.
- */
-const BandRampSchema = z
-  .object({
-    startRating: z.number().int(),
-    peakRating: z.number().int(),
-  })
-  .refine((ramp) => ramp.peakRating > ramp.startRating, {
-    message: "band ramp peakRating must be greater than startRating",
-  });
-
 const WorkflowSchema = z.object({
   name: z.string().min(1),
   steps: z.array(z.string().min(1)).min(3).max(7),
@@ -91,8 +76,6 @@ export const CurriculumPlanDraftSchema = z.object({
         whyItMatters: z.string().min(1),
         /** The integrated whole-ability workflow skillset units run against. */
         workflow: WorkflowSchema,
-        /** ELO tier climb for skillset units only. */
-        bandRamp: BandRampSchema,
         masteryContract: MasteryContractSchema,
         scenarioArchetype: ScenarioArchetypeSchema.describe(
           "The ONE Solve response mode for every unit under this ability: select (MCQ under distractors — pick when the target credential is itself selected-response, e.g. SAT/AP/cert MC sections), transform (produce the path/artifact from state A to state B — pick for building/making crafts), judge (evaluate given artifacts and justify from mechanism — pick when the craft's core act is review, diagnosis, or choosing between defensible options).",

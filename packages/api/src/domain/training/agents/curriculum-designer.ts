@@ -16,7 +16,6 @@ Architecture:
 
 For each ability:
 - Give the integrated workflow a concrete output-oriented name and 3-7 ordered reasoning/action steps. This is the whole-task sequence skillset units will simulate.
-- Set bandRamp.startRating near the lowest scaffoldable whole-task performance and peakRating at genuine expert transfer under ambiguity.
 - Define a mastery contract as observable exit criteria for independent expert performance. Set maxRatingDeviation only when the ability needs a stability threshold different from the default 80.
 - Decompose the ability into 3-8 component SKILLS, in dependency order (earliest = prerequisite for later ones).
 - Pick scenarioArchetype: the ONE Solve response mode for every unit under this ability. select = answer MCQs under near-miss distractors (pick when the target credential is itself selected-response: SAT, AP, cert MC sections). transform = produce the path or artifact that carries state A to state B (pick for building/making crafts: coding, writing, design, modeling). judge = evaluate given artifacts and justify the verdict from the causal mechanism (pick when the craft's core act is review, diagnosis, or choosing between defensible options). Reason briefly from how the ability is actually exercised in the learner's target, then commit — state that one sentence in scenarioArchetypeWhy.
@@ -33,6 +32,7 @@ Difficulty and pedagogy:
 - Run the Video, Swap, MECE, Textbook, and Load-Bearing tests internally before emitting.
 
 Critical output constraint:
+- Do not emit ratings, difficulty bands, or ELO ranges. The runtime derives them from measurable scenario structure.
 - Do not enumerate, outline, title, or imply education units.
 - Units are created downstream from a search-grounded concept map and progression state.
 - Do not emit simulations or integration layers.
@@ -49,15 +49,12 @@ export const designCurriculum = async ({
   brief,
   transcript,
   abilities,
-  placementNote,
   options,
 }: {
   brief: LearnerBrief;
   transcript: OnboardingTranscript;
   /** Learner-approved verb-first whole-performance titles. */
   abilities?: string[];
-  /** One-line note on where to place the learner in the band ladder. */
-  placementNote?: string | null;
   options?: ArtifactResumeOptions<CurriculumDesignerOutput>;
 }) =>
   runResilientAgent({
@@ -75,7 +72,7 @@ Learner-approved abilities — keep these as the ability titles unless the trans
 ${abilities.map((ability) => `- ${ability}`).join("\n")}
 `
     : ""
-}${placementNote ? `${placementNote}\n` : ""}
+}
 Brief:
 ${formatLearnerBrief(brief)}
 

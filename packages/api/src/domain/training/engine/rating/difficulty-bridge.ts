@@ -4,8 +4,11 @@ import type {
   UnitScenarioSpec,
 } from "@acme/validators";
 
+import type { DifficultyBand } from "./decide";
+import { validateDifficultyBands } from "./decide";
 import type { DifficultyDialPreset } from "./difficulty-priors";
 import {
+  BAND_DIAL_PRESETS,
   BASE_PER_FORMAT_KIND,
   DIFFICULTY_COUNT_WEIGHTS,
 } from "./difficulty-priors";
@@ -53,6 +56,37 @@ export const predictItemRating = (
     vector.embeddedAlternatives * DIFFICULTY_COUNT_WEIGHTS.perAlternative
   );
 };
+
+const BAND_LABELS = [
+  "Supported · scaffolded case",
+  "Realistic · messy case",
+  "Adversarial · transfer case",
+] as const;
+
+export const deriveCanonicalDifficultyBands = (
+  format: ScenarioFormat,
+): readonly DifficultyBand[] =>
+  validateDifficultyBands(
+    Object.entries(BAND_DIAL_PRESETS).map(([orderText, preset]) => {
+      const order = Number(orderText);
+      const ratingFor = (index: 0 | 1) =>
+        predictItemRating(
+          {
+            formatId: format.id,
+            reasoningPathSteps: preset.steps[index],
+            withheldGivens: preset.withheldGivens[index],
+            embeddedAlternatives: preset.alternatives[index],
+          },
+          [format],
+        );
+      return {
+        order,
+        minRating: ratingFor(0),
+        maxRating: ratingFor(1),
+        label: BAND_LABELS[order],
+      };
+    }),
+  );
 
 const axisAudit = (value: number, range: readonly [number, number]) => ({
   value,

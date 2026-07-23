@@ -106,13 +106,6 @@ const STEP_ORDER: ProjectBuildStep[] = [
   "save",
 ];
 
-/** Plain-language phrasing of each tier for the curriculum placement note. */
-const STARTING_POINT_PHRASE: Record<StartingPointTier, string> = {
-  fundamentals: "starting from the fundamentals",
-  skip_basics: "skipping the basics",
-  advanced: "straight to the hard stuff",
-};
-
 const initialSteps = (): ProjectBuildStepState[] =>
   STEP_ORDER.map((id) => ({
     id,
@@ -634,21 +627,13 @@ export const buildProjectFromOnboarding = async ({
 
   // Resolve the learner's starting point: the persisted value (mid-chat tap or a
   // [change] override) wins over whatever the createProject tool proposed. A
-  // non-null tier stamps a Glicko seed onto the plan shell and adds a placement
-  // note to the curriculum designer; null leaves the workspace on its defaults.
+  // non-null tier stamps a Glicko seed onto the plan shell; null leaves the
+  // workspace on its defaults.
   const startingPointTier =
     persistedStartingPoint?.tier ?? input.startingPoint?.tier ?? null;
-  const startingPointLabel =
-    persistedStartingPoint?.label ?? input.startingPoint?.reason ?? null;
   const seedRating = startingPointTier
     ? seedFromStartingPoint(startingPointTier)
     : null;
-  const placementNote =
-    startingPointTier && seedRating
-      ? `Learner starting point: ${STARTING_POINT_PHRASE[startingPointTier]}${
-          startingPointLabel ? ` — ${startingPointLabel}` : ""
-        }; start each cluster's bandRamp near ${seedRating.rating}.`
-      : null;
 
   // 1 — name + shell: create the durable project home before any AI runs.
   setStep("name", "active");
@@ -778,7 +763,6 @@ export const buildProjectFromOnboarding = async ({
         brief,
         transcript,
         abilities: input.abilities,
-        placementNote,
         options: {
           onPartial: curriculumPartialSink,
           seedPartial: seedFor(curriculumRecord) as

@@ -105,7 +105,6 @@ const curriculum: CurriculumDesignerOutput = {
             "Choose the next probe",
           ],
         },
-        bandRamp: { startRating: 1000, peakRating: 1600 },
         masteryContract: {
           exitCriteria: [
             "Diagnoses the causal mechanism from incomplete evidence.",
@@ -169,7 +168,6 @@ const curriculum: CurriculumDesignerOutput = {
             "Verify replay behavior",
           ],
         },
-        bandRamp: { startRating: 1000, peakRating: 1600 },
         masteryContract: {
           exitCriteria: ["Proves retry safety under ambiguity."],
         },

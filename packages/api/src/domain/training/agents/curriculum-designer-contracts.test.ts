@@ -7,6 +7,7 @@ import {
   expandUnitBands,
   validateDifficultyBands,
 } from "../engine/rating";
+import { buildCurriculumNodes } from "../orchestration/curriculum-flow";
 import { CurriculumPlanDraftSchema } from "./contracts";
 
 const topCeilingOf = (bands: readonly DifficultyBand[]): number => {
@@ -15,11 +16,7 @@ const topCeilingOf = (bands: readonly DifficultyBand[]): number => {
   return top.maxRating;
 };
 
-const buildDraft = (
-  abilityCount: number,
-  bandRamp = { startRating: 1300, peakRating: 1700 },
-  skillCount = 3,
-) => ({
+const buildDraft = (abilityCount: number, skillCount = 3) => ({
   title: "Production debugging operator",
   summary: "A job-first curriculum for production debugging.",
   targetIdentity: "Production debugging operator",
@@ -32,7 +29,6 @@ const buildDraft = (
       name: "Diagnose a production incident",
       steps: ["Collect signals", "Separate hypotheses", "Choose a probe"],
     },
-    bandRamp,
     masteryContract: {
       exitCriteria: ["Chooses a discriminating probe from partial evidence."],
     },
@@ -54,7 +50,7 @@ const buildDraft = (
   })),
 });
 
-void test("curriculum plan draft accepts a load-bearing ability with a band ramp", () => {
+void test("curriculum plan draft accepts a load-bearing ability", () => {
   assert.doesNotThrow(() => CurriculumPlanDraftSchema.parse(buildDraft(4)));
 });
 
@@ -72,21 +68,42 @@ void test("curriculum plan draft rejects too few abilities", () => {
 void test("curriculum plan draft rejects an ability with too few skills", () => {
   assert.throws(
     () =>
-      CurriculumPlanDraftSchema.parse(
-        buildDraft(3, { startRating: 1300, peakRating: 1700 }, 2),
-      ),
+      CurriculumPlanDraftSchema.parse(buildDraft(3, 2)),
     /too small|at least 3/i,
   );
 });
 
-void test("curriculum plan draft rejects an inverted band ramp", () => {
-  assert.throws(
-    () =>
-      CurriculumPlanDraftSchema.parse(
-        buildDraft(3, { startRating: 1700, peakRating: 1300 }),
-      ),
-    /peakRating must be greater than startRating/i,
+void test("curriculum plan draft does not expose authored rating bands", () => {
+  const parsed = CurriculumPlanDraftSchema.parse({
+    ...buildDraft(3),
+    abilities: buildDraft(3).abilities.map((ability) => ({
+      ...ability,
+      bandRamp: { startRating: 1300, peakRating: 1700 },
+    })),
+  });
+
+  assert.ok(parsed.abilities.every((ability) => !("bandRamp" in ability)));
+});
+
+void test("curriculum construction assigns code-owned measurable bands", () => {
+  const draft = CurriculumPlanDraftSchema.parse(buildDraft(2));
+  const ability = buildCurriculumNodes(draft, "Operator", "Headline").find(
+    (node) => node.kind === "ability",
   );
+  assert.ok(ability);
+
+  assert.deepEqual(
+    ability.difficultyBands?.map((band) => [band.minRating, band.maxRating]),
+    [
+      [1105, 1245],
+      [1245, 1385],
+      [1385, 1580],
+    ],
+  );
+  assert.deepEqual(ability.skillMap?.bandRamp, {
+    startRating: 1245,
+    peakRating: 1580,
+  });
 });
 
 void test("expandUnitBands derives a valid rising 0/1/2 ladder per unit", () => {

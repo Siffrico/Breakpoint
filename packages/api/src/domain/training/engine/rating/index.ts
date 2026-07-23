@@ -58,5 +58,6 @@ export {
 export {
   auditDialCompliance,
   countVector,
+  deriveCanonicalDifficultyBands,
   predictItemRating,
 } from "./difficulty-bridge";

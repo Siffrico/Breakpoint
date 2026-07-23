@@ -103,7 +103,6 @@ const buildAbility = (index: number) => ({
     name: "Diagnose a replicated-service failure",
     steps: ["Collect evidence", "Trace message flow", "Choose the next probe"],
   },
-  bandRamp: { startRating: 1000, peakRating: 1600 },
   masteryContract: {
     exitCriteria: ["Diagnoses the causal mechanism from incomplete evidence."],
   },
@@ -751,12 +750,9 @@ describe("buildProjectFromOnboarding", () => {
     const shellSeed = vi.mocked(deps.ensureShell).mock.calls[0]?.[0].seedRating;
     expect(shellSeed?.rating).toBe(1150);
     expect(shellSeed?.ratingDeviation).toBe(250);
-    // The placement note reaches the curriculum designer.
-    const curriculumArgs = mockCurriculum.mock.calls[0]?.[0];
-    expect(curriculumArgs?.abilities).toEqual([
+    expect(mockCurriculum.mock.calls[0]?.[0].abilities).toEqual([
       "Architect Distributed Backend Systems",
     ]);
-    expect(curriculumArgs?.placementNote).toContain("1150");
   });
 
   it("lets the persisted starting point win over the tool input", async () => {
@@ -784,7 +780,7 @@ describe("buildProjectFromOnboarding", () => {
     expect(shellSeed?.rating).toBe(1350);
   });
 
-  it("stamps no seed and adds no placement note when there is no starting point", async () => {
+  it("stamps no seed when there is no starting point", async () => {
     mockCurriculum.mockResolvedValue(curriculum);
     mockOverview.mockResolvedValue(overview);
     const { deps } = makeDeps();
@@ -796,6 +792,5 @@ describe("buildProjectFromOnboarding", () => {
     expect(
       vi.mocked(deps.ensureShell).mock.calls[0]?.[0].seedRating,
     ).toBeNull();
-    expect(mockCurriculum.mock.calls[0]?.[0].placementNote).toBeNull();
   });
 });

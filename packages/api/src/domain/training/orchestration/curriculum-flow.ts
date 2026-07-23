@@ -1,7 +1,8 @@
 import type { designCurriculum } from "../agents/curriculum-designer";
 import type { CurriculumNodeBlueprint } from "../types/training.types";
 import { foundationCalibrationRamp } from "../engine/progression-model";
-import { expandSkillBands } from "../engine/rating";
+import { deriveCanonicalDifficultyBands } from "../engine/rating";
+import { ARCHETYPE_FORMATS } from "../engine/scenario-archetypes";
 
 /**
  * The v2 plan tree: root → ability → skill. Units are appended dynamically
@@ -44,6 +45,20 @@ export const buildCurriculumNodes = (
   let orderIndex = 1;
   for (const [abilityIndex, ability] of draft.abilities.entries()) {
     const abilityOrderIndex = orderIndex++;
+    const difficultyBands = [
+      ...deriveCanonicalDifficultyBands(
+        ARCHETYPE_FORMATS[ability.scenarioArchetype],
+      ),
+    ];
+    const firstBand = difficultyBands[0];
+    const topBand = difficultyBands.at(-1);
+    if (!firstBand || !topBand) {
+      throw new RangeError("Canonical difficulty bands must not be empty.");
+    }
+    const bandRamp = {
+      startRating: firstBand.maxRating,
+      peakRating: topBand.maxRating,
+    };
     nodes.push({
       parentOrderIndex: 0,
       kind: "ability",
@@ -56,11 +71,11 @@ export const buildCurriculumNodes = (
       depth: 1,
       positionColumn: abilityIndex,
       positionRow: 1,
-      difficultyBands: expandSkillBands(ability.bandRamp),
+      difficultyBands,
       abilityStage: "foundations",
       skillMap: {
         workflow: ability.workflow,
-        bandRamp: ability.bandRamp,
+        bandRamp,
         masteryContract: ability.masteryContract,
         scenarioArchetype: ability.scenarioArchetype,
       },
@@ -85,7 +100,7 @@ export const buildCurriculumNodes = (
           workflow: skill.workflow,
           // Difficulty calibration only (see progression-model.ts): the
           // foundation regime has no rating gate, so this ramp never gates.
-          bandRamp: foundationCalibrationRamp(ability.bandRamp),
+          bandRamp: foundationCalibrationRamp(bandRamp),
           masteryContract: skill.masteryContract,
           scenarioArchetype: ability.scenarioArchetype,
         },
