@@ -10,16 +10,3 @@ Hard moments: ${report.hardMoments.join("; ")}
 Constraints: ${report.constraints.join("; ") || "None provided"}
 Behavior signals: ${report.behaviorSignals.join("; ")}
 Confidence flags: ${report.confidenceFlags.join("; ") || "None provided"}`;
-
-export const formatBeforeAfter = (ba: {
-  headline: string;
-  beforeSummary: string;
-  afterSummary: string;
-  contrastPairs: { before: string; after: string }[];
-  firstShift: string;
-}): string =>
-  `Headline: ${ba.headline}
-Before summary: ${ba.beforeSummary}
-After summary: ${ba.afterSummary}
-Contrast pairs: ${ba.contrastPairs.map((p) => `${p.before} -> ${p.after}`).join("; ")}
-First shift: ${ba.firstShift}`;

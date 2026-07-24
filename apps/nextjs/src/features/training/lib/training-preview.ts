@@ -272,29 +272,6 @@ export const previewPlanState: PlanState = {
     "A systems curriculum that trains replication, coordination, and recovery behavior through realistic infrastructure cases.",
   targetIdentity: "Distributed Systems Engineer",
   overview: null,
-  beforeAfter: {
-    headline: "You are moving from vocabulary-level familiarity to operational systems judgment.",
-    beforeSummary:
-      "You can recite distributed systems concepts, but you still hesitate when asked to predict what actually happens during faults, lag, and split-brain risk.",
-    afterSummary:
-      "Under the same production scenario, you can trace write paths, explain stale-read risk, and choose the correct durability or coordination tradeoff.",
-    contrastPairs: [
-      {
-        before: "You talk about consensus in abstractions.",
-        after: "You reason through the exact replica and acknowledgement sequence.",
-      },
-      {
-        before: "You memorize CAP-style slogans.",
-        after: "You explain which user-visible guarantees fail under each network condition.",
-      },
-      {
-        before: "You know recovery terminology loosely.",
-        after: "You can predict how the system recovers and where data can still be lost.",
-      },
-    ],
-    firstShift:
-      "Stop treating replication and consistency as definitions to memorize. Model the system as timed messages, acknowledgements, and failure boundaries.",
-  },
   nextUnitId: "00000000-0000-4000-8000-000000000101",
   nodes: [
     {

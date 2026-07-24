@@ -2,7 +2,7 @@ export {
   formatOnboardingTranscript,
   formatTeachbackTranscript,
 } from "./transcript";
-export { formatIdentityReport, formatBeforeAfter } from "./learner-context";
+export { formatIdentityReport } from "./learner-context";
 export {
   formatLearningHistory,
 } from "./learning-history";

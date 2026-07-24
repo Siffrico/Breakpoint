@@ -160,19 +160,6 @@ export const IdentityReportSchema = z.object({
   confidenceFlags: z.array(z.string().min(1)),
 });
 
-export const BeforeAfterContrastSchema = z.object({
-  before: z.string().min(1),
-  after: z.string().min(1),
-});
-
-export const BeforeAfterProfileSchema = z.object({
-  headline: z.string().min(1),
-  beforeSummary: z.string().min(1),
-  afterSummary: z.string().min(1),
-  contrastPairs: z.array(BeforeAfterContrastSchema).min(3).max(5),
-  firstShift: z.string().min(1),
-});
-
 export const CurriculumNodeKindSchema = z.enum([
   "root",
   "ability",
@@ -409,7 +396,6 @@ export const CurriculumPlanSchema = z.object({
   summary: z.string().min(1),
   targetIdentity: z.string().min(1),
   overview: ProjectOverviewSummarySchema.nullable(),
-  beforeAfter: BeforeAfterProfileSchema,
   nodes: z.array(CurriculumNodeSchema).min(1),
   nextUnitId: z.string().min(1).nullable(),
 });
@@ -893,8 +879,6 @@ export type OnboardingTranscriptMessage = z.infer<
   typeof OnboardingTranscriptMessageSchema
 >;
 export type IdentityReport = z.infer<typeof IdentityReportSchema>;
-export type BeforeAfterContrast = z.infer<typeof BeforeAfterContrastSchema>;
-export type BeforeAfterProfile = z.infer<typeof BeforeAfterProfileSchema>;
 export type CurriculumNodeKind = z.infer<typeof CurriculumNodeKindSchema>;
 export type CurriculumNodeStatus = z.infer<typeof CurriculumNodeStatusSchema>;
 export type DifficultyBand = z.infer<typeof DifficultyBandSchema>;

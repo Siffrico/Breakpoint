@@ -14,7 +14,6 @@ import type {
   StatusChange,
 } from "../domain/training/engine/plan-progression";
 import type {
-  BeforeAfterProfile,
   CurriculumBlueprint,
   CurriculumNode,
   CurriculumNodeKind,
@@ -44,7 +43,6 @@ const DEFAULT_SEED_HINT =
 
 interface ActivePlanState {
   plan: typeof TrainingCurriculumPlan.$inferSelect;
-  beforeAfter: BeforeAfterProfile;
   nodes: CurriculumNode[];
   nextUnitId: string | null;
 }
@@ -61,34 +59,8 @@ const toCurriculumPlan = (state: ActivePlanState): CurriculumPlan => ({
         generatedAt: toIsoString(state.plan.overviewGeneratedAt),
       }
     : null,
-  beforeAfter: state.beforeAfter,
   nodes: state.nodes,
   nextUnitId: state.nextUnitId,
-});
-
-const buildFallbackBeforeAfter = ({
-  targetIdentity,
-  headline,
-  currentBaseline,
-  behaviorSignals,
-  firstShift,
-}: {
-  targetIdentity: string;
-  headline: string;
-  currentBaseline: string;
-  behaviorSignals: string[];
-  firstShift?: string | null;
-}): BeforeAfterProfile => ({
-  headline,
-  beforeSummary: currentBaseline,
-  afterSummary: `This path is training you to operate like ${targetIdentity}.`,
-  contrastPairs: behaviorSignals.slice(0, 3).map((signal) => ({
-    before: `This signal is not reliable yet: ${signal}`,
-    after: signal,
-  })),
-  firstShift:
-    firstShift ??
-    "Move from intention and inconsistency into visible, repeatable behavior.",
 });
 
 const mapUnitContent = ({
@@ -310,28 +282,6 @@ export const trainingCurriculumRepository = {
 
     return {
       plan,
-      beforeAfter:
-        profileVersion.beforeAfterHeadline &&
-        profileVersion.beforeStateSummary &&
-        profileVersion.afterStateSummary &&
-        profileVersion.beforeAfterContrastPairs &&
-        profileVersion.beforeAfterContrastPairs.length > 0
-          ? {
-              headline: profileVersion.beforeAfterHeadline,
-              beforeSummary: profileVersion.beforeStateSummary,
-              afterSummary: profileVersion.afterStateSummary,
-              contrastPairs: profileVersion.beforeAfterContrastPairs,
-              firstShift:
-                profileVersion.firstShift ??
-                "Translate insight into visible changes under pressure.",
-            }
-          : buildFallbackBeforeAfter({
-              targetIdentity: plan.targetIdentity,
-              headline: profileVersion.headline,
-              currentBaseline: profileVersion.currentBaseline,
-              behaviorSignals: profileVersion.behaviorSignals,
-              firstShift: profileVersion.firstShift,
-            }),
       nodes,
       nextUnitId: nextUnitNode?.id ?? null,
     };

@@ -7,7 +7,7 @@ import type {
 import { runResilientAgent } from "../orchestration/agent-runtime";
 import { NewCurriculumDesignerOutputSchema } from "./contracts";
 
-const CURRICULUM_DESIGNER_SYSTEM = `You are a curriculum architect for an identity-driven training product. A project-fit consultation already happened; its brief and transcript arrive as your evidence. Your only job is to translate that evidence into the learner's identity report, before/after, and ability architecture.
+const CURRICULUM_DESIGNER_SYSTEM = `You are a curriculum architect for an identity-driven training product. A project-fit consultation already happened; its brief and transcript arrive as your evidence. Your only job is to translate that evidence into the learner's identity report and ability architecture.
 
 Architecture:
 - Decompose the target performance into 2-6 independent, load-bearing MAIN ABILITIES.
@@ -37,9 +37,8 @@ Critical output constraint:
 - Units are created downstream from a search-grounded concept map and progression state.
 - Do not emit simulations or integration layers.
 
-Identity and before/after:
+Identity:
 - Name the baseline honestly from consultation evidence; confidence flags only where evidence is weak.
-- Contrast current and expert behavior in paired, observable, testable moments.
 
 Factuality policy:
 - Do not guess about current practitioner workflows, APIs, tools, or field norms.
@@ -64,7 +63,7 @@ export const designCurriculum = async ({
     errorMessage: "Failed to generate the curriculum architecture.",
     onPartial: options?.onPartial,
     seedPartial: options?.seedPartial,
-    prompt: `Design the learner's identity report, before/after, and independent skill map for the project chosen in consultation.
+    prompt: `Design the learner's identity report and independent skill map for the project chosen in consultation.
 ${
   abilities && abilities.length > 0
     ? `

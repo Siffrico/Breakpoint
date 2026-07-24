@@ -5,10 +5,7 @@ import {
   TrainingIdentityProfileVersion,
 } from "@acme/db/schema";
 
-import type {
-  BeforeAfterProfile,
-  IdentityReport,
-} from "../domain/training/types/training.types";
+import type { IdentityReport } from "../domain/training/types/training.types";
 
 type Database = typeof databaseClient;
 
@@ -18,13 +15,11 @@ export const buildProjectProfileRepository = {
     sessionId,
     userId,
     report,
-    beforeAfter,
   }: {
     db: Database;
     sessionId: string;
     userId?: string | null;
     report: IdentityReport;
-    beforeAfter: BeforeAfterProfile;
   }) => {
     await db
       .insert(TrainingIdentityProfile)
@@ -59,11 +54,6 @@ export const buildProjectProfileRepository = {
         constraints: report.constraints,
         behaviorSignals: report.behaviorSignals,
         confidenceFlags: report.confidenceFlags,
-        beforeAfterHeadline: beforeAfter.headline,
-        beforeStateSummary: beforeAfter.beforeSummary,
-        afterStateSummary: beforeAfter.afterSummary,
-        beforeAfterContrastPairs: beforeAfter.contrastPairs,
-        firstShift: beforeAfter.firstShift,
       })
       .returning();
     if (!version) {

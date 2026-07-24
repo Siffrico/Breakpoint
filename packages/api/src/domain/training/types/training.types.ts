@@ -1,5 +1,4 @@
 import type {
-  BeforeAfterProfile,
   ClusterBriefing,
   ClusterBriefingMapItem,
   ComplexityBudget,
@@ -62,7 +61,6 @@ export type {
   CurriculumPlan,
   DifficultyBand,
   ComplexityBudget,
-  BeforeAfterProfile,
   ClusterBriefing,
   ClusterBriefingMapItem,
   Debrief,
@@ -151,7 +149,6 @@ export interface CurriculumBlueprint {
   targetIdentity: string;
   overview: ProjectOverview | null;
   nodes: CurriculumNodeBlueprint[];
-  beforeAfter: BeforeAfterProfile;
 }
 
 export interface OnboardingSessionState {

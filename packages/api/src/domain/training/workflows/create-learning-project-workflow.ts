@@ -1,8 +1,5 @@
 import type { Result } from "../../../lib/result";
-import type {
-  BeforeAfterProfile,
-  IdentityReport,
-} from "../types/training.types";
+import type { IdentityReport } from "../types/training.types";
 import { err, ok } from "../../../lib/result";
 
 interface CreateLearningProjectDependencies {
@@ -11,7 +8,6 @@ interface CreateLearningProjectDependencies {
     sessionId: string;
     userId: string;
     report: IdentityReport;
-    beforeAfter: BeforeAfterProfile;
   }) => Promise<{ version: { id: string } } | null>;
   updateSession: (input: {
     sessionId: string;
@@ -29,10 +25,7 @@ const buildProjectProfile = ({
 }: {
   projectTitle: string;
   targetIdentity: string;
-}): {
-  report: IdentityReport;
-  beforeAfter: BeforeAfterProfile;
-} => ({
+}): { report: IdentityReport } => ({
   report: {
     targetIdentity,
     headline: `${projectTitle} learning project`,
@@ -50,28 +43,6 @@ const buildProjectProfile = ({
       "Uses feedback to repair weak reasoning instead of only moving forward.",
     ],
     confidenceFlags: ["The adaptive curriculum has not been generated yet."],
-  },
-  beforeAfter: {
-    headline: `From project intent to usable ${targetIdentity} capability.`,
-    beforeSummary:
-      "The learner has a project direction, but the path is not yet proven through performance.",
-    afterSummary: `The learner can show concrete progress toward ${targetIdentity} through ${projectTitle}.`,
-    contrastPairs: [
-      {
-        before: "Defines progress as having a plan.",
-        after: "Defines progress as producing evidence.",
-      },
-      {
-        before: "Relies on recognition and familiarity.",
-        after: "Practices recall, application, and repair.",
-      },
-      {
-        before: "Keeps learning separate from the project.",
-        after: "Uses the project as the curriculum spine.",
-      },
-    ],
-    firstShift:
-      "Name the first concrete thing this project should make you able to do.",
   },
 });
 
@@ -109,7 +80,6 @@ export const createLearningProjectWorkflow = async ({
     sessionId: session.id,
     userId,
     report: profile.report,
-    beforeAfter: profile.beforeAfter,
   });
 
   if (!createdProfile) {

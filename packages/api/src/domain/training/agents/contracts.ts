@@ -2,7 +2,6 @@ import { z } from "zod/v4";
 
 import type { OnboardingTranscriptMessageSchema } from "@acme/validators";
 import {
-  BeforeAfterProfileSchema,
   IdentityReportSchema,
   ProjectOverviewSchema,
   ScenarioArchetypeSchema,
@@ -121,7 +120,6 @@ export const KnowledgeMapOutputSchema = z.object({
 
 export const CurriculumDesignerOutputSchema = z.object({
   identityReport: IdentityReportSchema,
-  beforeAfter: BeforeAfterProfileSchema,
   planDraft: CurriculumPlanDraftSchema,
 });
 

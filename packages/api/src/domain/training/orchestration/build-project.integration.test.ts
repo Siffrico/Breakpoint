@@ -77,17 +77,6 @@ const curriculum: CurriculumDesignerOutput = {
     ],
     confidenceFlags: [],
   },
-  beforeAfter: {
-    headline: "From slogans to mechanics.",
-    beforeSummary: "Uses distributed-systems terms loosely.",
-    afterSummary: "Traces concrete failure mechanics.",
-    contrastPairs: [
-      { before: "Names CAP.", after: "Traces the failed guarantee." },
-      { before: "Guesses retry.", after: "Checks idempotency first." },
-      { before: "Trusts quorum.", after: "Models replica intersections." },
-    ],
-    firstShift: "Trace the messages before naming the pattern.",
-  },
   planDraft: {
     title: "Distributed systems",
     summary: "Practice operational judgment for replicated services.",

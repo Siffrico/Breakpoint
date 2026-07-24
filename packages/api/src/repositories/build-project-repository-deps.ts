@@ -229,7 +229,6 @@ export const createBuildProjectDeps = (db: Database): BuildProjectDeps => ({
     userId,
     planId,
     report,
-    beforeAfter,
     blueprint,
   }) => {
     await db.transaction(async (tx) => {
@@ -239,7 +238,6 @@ export const createBuildProjectDeps = (db: Database): BuildProjectDeps => ({
         sessionId,
         userId,
         report,
-        beforeAfter,
       });
       if (!profile) {
         throw new ArtifactBuildError(

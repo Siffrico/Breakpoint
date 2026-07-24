@@ -7,7 +7,6 @@ import type {
   ProjectOverviewOutput,
 } from "../agents/contracts";
 import type {
-  BeforeAfterProfile,
   CurriculumBlueprint,
   CurriculumPlan,
   IdentityReport,
@@ -287,7 +286,6 @@ export interface BuildProjectDeps {
     userId: string | null;
     planId: string;
     report: IdentityReport;
-    beforeAfter: BeforeAfterProfile;
     blueprint: CurriculumBlueprint;
   }) => Promise<void>;
   /** Write the overview onto the plan, independently of node creation. */
@@ -683,7 +681,6 @@ export const buildProjectFromOnboarding = async ({
     summary: design.planDraft.summary,
     targetIdentity: design.identityReport.targetIdentity,
     overview: null, // persisted separately via persistOverview
-    beforeAfter: design.beforeAfter,
     nodes: buildCurriculumNodes(
       design.planDraft,
       design.identityReport.targetIdentity,
@@ -701,7 +698,6 @@ export const buildProjectFromOnboarding = async ({
       userId,
       planId,
       report: design.identityReport,
-      beforeAfter: design.beforeAfter,
       blueprint,
     });
   };

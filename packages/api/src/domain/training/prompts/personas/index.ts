@@ -9,8 +9,5 @@ export {
   ghostGradingPersona,
 } from "./grading-evaluator";
 export { ghostDesignerPersona } from "./ghost-designer";
-export {
-  beforeAfterDesignerPersona,
-  unitSetupDesignerPersona,
-} from "./curriculum-designer";
+export { unitSetupDesignerPersona } from "./curriculum-designer";
 export { debriefSynthesizerPersona } from "./debrief-synthesizer";

@@ -233,30 +233,13 @@ async function SavedCurriculumPlan() {
         </div>
       </section>
 
-      <section className="grid gap-8 py-8 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <section className="grid gap-8 py-8">
         <ol className="border-t border-white/10">
           {tree.map((node) => (
             <PlanNodeRow key={node.id} node={node} />
           ))}
         </ol>
 
-        <aside className="h-fit border border-white/10 bg-white/[0.035] p-5 shadow-[0_24px_80px_rgba(0,0,0,0.24)]">
-          <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/36">
-            First shift
-          </div>
-          <p className="mt-3 text-[13px] leading-6 text-white/64">
-            {plan.beforeAfter.firstShift}
-          </p>
-
-          <div className="mt-6 border-t border-white/10 pt-5">
-            <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/36">
-              After state
-            </div>
-            <p className="mt-3 text-[13px] leading-6 text-white/64">
-              {plan.beforeAfter.afterSummary}
-            </p>
-          </div>
-        </aside>
       </section>
     </div>
   );

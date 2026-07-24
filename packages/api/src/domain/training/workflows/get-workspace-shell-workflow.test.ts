@@ -36,13 +36,6 @@ const plan = {
   summary: requestedProject.headline,
   targetIdentity: "Systems engineer",
   overview: null,
-  beforeAfter: {
-    headline: "Systems engineer",
-    beforeSummary: "Before",
-    afterSummary: "After",
-    contrastPairs: [],
-    firstShift: "Diagnose",
-  },
   nodes: [
     {
       id: nodeId,

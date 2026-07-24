@@ -9,17 +9,6 @@ const plan = {
   summary: "Build reliable agents.",
   targetIdentity: "Agent engineer",
   overview: null,
-  beforeAfter: {
-    headline: "From prototypes to reliable systems",
-    beforeSummary: "Builds prototypes.",
-    afterSummary: "Ships reliable systems.",
-    contrastPairs: [
-      { before: "Single calls", after: "Reliable workflows" },
-      { before: "Happy paths", after: "Failure recovery" },
-      { before: "Demos", after: "Production systems" },
-    ],
-    firstShift: "Make one call reliable.",
-  },
   nextUnitId: "unit-ready",
   nodes: [
     {

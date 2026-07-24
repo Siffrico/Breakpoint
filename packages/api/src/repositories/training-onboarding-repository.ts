@@ -1,5 +1,5 @@
 import type { db as databaseClient } from "@acme/db/client";
-import type { BeforeAfterProfile, StartingPointTier } from "@acme/validators";
+import type { StartingPointTier } from "@acme/validators";
 import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from "@acme/db";
 import {
   TrainingIdentityProfile,
@@ -810,13 +810,11 @@ export const trainingOnboardingRepository = {
     sessionId,
     userId,
     report,
-    beforeAfter,
   }: {
     db: Database;
     sessionId: string;
     userId?: string | null;
     report: IdentityReport;
-    beforeAfter: BeforeAfterProfile;
   }) => {
     const [profile] = await db
       .insert(TrainingIdentityProfile)
@@ -846,11 +844,6 @@ export const trainingOnboardingRepository = {
         constraints: report.constraints,
         behaviorSignals: report.behaviorSignals,
         confidenceFlags: report.confidenceFlags,
-        beforeAfterHeadline: beforeAfter.headline,
-        beforeStateSummary: beforeAfter.beforeSummary,
-        afterStateSummary: beforeAfter.afterSummary,
-        beforeAfterContrastPairs: beforeAfter.contrastPairs,
-        firstShift: beforeAfter.firstShift,
       })
       .returning();
 
