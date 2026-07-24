@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 
 import type { db as databaseClient } from "@acme/db/client";
-import { and, desc, eq, isNotNull } from "@acme/db";
+import { and, desc, eq, isNotNull, or } from "@acme/db";
 import {
   TrainingCurriculumNode,
   TrainingCurriculumPlan,
@@ -270,10 +270,19 @@ export const createUnitCreationRepositoryDeps = ({
 export const loadSkillPracticeHistory = async ({
   db,
   abilityNodeId,
+  includeUnitNodeId,
 }: {
   db: Database;
   abilityNodeId: string;
+  /** A mastered unit whose status has not yet been committed to completed. */
+  includeUnitNodeId?: string;
 }): Promise<SkillPractice[]> => {
+  const completedOrIncluded = includeUnitNodeId
+    ? or(
+        eq(TrainingCurriculumNode.status, "completed"),
+        eq(TrainingCurriculumNode.id, includeUnitNodeId),
+      )
+    : eq(TrainingCurriculumNode.status, "completed");
   const [skills, completedUnits] = await Promise.all([
     db.query.TrainingCurriculumNode.findMany({
       where: and(
@@ -287,7 +296,7 @@ export const loadSkillPracticeHistory = async ({
       where: and(
         eq(TrainingCurriculumNode.parentNodeId, abilityNodeId),
         eq(TrainingCurriculumNode.kind, "unit"),
-        eq(TrainingCurriculumNode.status, "completed"),
+        completedOrIncluded,
         isNotNull(TrainingCurriculumNode.practicedSkillNodeId),
       ),
       columns: { practicedSkillNodeId: true, createdAt: true },
@@ -326,10 +335,12 @@ export const loadProgressionState = async ({
   db,
   skillNodeId,
   userId,
+  includeUnitNodeId,
 }: {
   db: Database;
   skillNodeId: string;
   userId: string;
+  includeUnitNodeId?: string;
 }): Promise<MasteryProgressionState | null> => {
   const node = await db.query.TrainingCurriculumNode.findFirst({
     where: eq(TrainingCurriculumNode.id, skillNodeId),
@@ -354,7 +365,11 @@ export const loadProgressionState = async ({
     case "skillset": {
       const [seed, practice] = await Promise.all([
         resolvePlanSeedRating({ db, nodeId: skillNodeId }),
-        loadSkillPracticeHistory({ db, abilityNodeId: skillNodeId }),
+        loadSkillPracticeHistory({
+          db,
+          abilityNodeId: skillNodeId,
+          includeUnitNodeId,
+        }),
       ]);
       const progress = await trainingRatingRepository.loadJobProgress({
         db,

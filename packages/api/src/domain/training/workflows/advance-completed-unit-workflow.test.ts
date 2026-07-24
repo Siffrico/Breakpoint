@@ -62,6 +62,15 @@ describe("advanceCompletedUnitWorkflow", () => {
   it("routes a mastered ability unit to its required mission without completing it", async () => {
     const completeNode = vi.fn(() => Promise.resolve());
     const advanceSkillMapNode = vi.fn(() => Effect.void);
+    const getProgressionState = vi.fn(() =>
+      Effect.succeed({
+        regime: "skillset" as const,
+        skillsBelowRepTarget: 0,
+        learnerRating: 1_800,
+        ratingDeviation: 50,
+        masteryRating: 1_800,
+      }),
+    );
     const abilityUnit = { ...currentNode, parentNodeId: abilityNode.id };
 
     const result = await advanceCompletedUnitWorkflow({
@@ -81,14 +90,7 @@ describe("advanceCompletedUnitWorkflow", () => {
             touchSession: () => Promise.resolve(),
           }),
         createUnit: () => Effect.void,
-        getProgressionState: () =>
-          Effect.succeed({
-            regime: "skillset" as const,
-            skillsBelowRepTarget: 0,
-            learnerRating: 1_800,
-            ratingDeviation: 50,
-            masteryRating: 1_800,
-          }),
+        getProgressionState,
         getMissionStatus: () =>
           Promise.resolve({ unitRunId: "run-1", status: "active" }),
         advanceSkillMapNode,
@@ -105,6 +107,11 @@ describe("advanceCompletedUnitWorkflow", () => {
     });
     expect(completeNode).not.toHaveBeenCalled();
     expect(advanceSkillMapNode).not.toHaveBeenCalled();
+    expect(getProgressionState).toHaveBeenCalledWith({
+      skillNodeId: abilityNode.id,
+      userId: "user-1",
+      includeUnitNodeId: abilityUnit.id,
+    });
   });
 
   it("commits immediately and creates the next unit in the background", async () => {

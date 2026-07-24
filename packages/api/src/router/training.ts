@@ -675,12 +675,13 @@ export const trainingRouter = {
                   userId,
                 }),
               }),
-            getProgressionState: ({ skillNodeId, userId }) =>
+            getProgressionState: ({ skillNodeId, userId, includeUnitNodeId }) =>
               queryWithClient(ctx.db, "loadProgressionState", () =>
                 loadProgressionState({
                   db: ctx.db,
                   skillNodeId,
                   userId,
+                  includeUnitNodeId,
                 }),
               ),
             getMissionStatus: ({ sessionId, unitContentId, userId }) =>

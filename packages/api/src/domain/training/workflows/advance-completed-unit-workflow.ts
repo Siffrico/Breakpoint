@@ -39,6 +39,8 @@ interface AdvanceCompletedUnitDependencies {
   getProgressionState: (input: {
     skillNodeId: string;
     userId: string;
+    /** The mastered unit being advanced, before its node status is committed. */
+    includeUnitNodeId?: string;
   }) => Effect.Effect<MasteryProgressionState | null, DbError>;
   getMissionStatus: (input: {
     sessionId: string;
@@ -137,7 +139,11 @@ export const advanceCompletedUnitWorkflow = async ({
     const skillNodeId = completed.node.parentNodeId;
     const userId = completed.run.userId;
     const state = await Effect.runPromise(
-      deps.getProgressionState({ skillNodeId, userId }),
+      deps.getProgressionState({
+        skillNodeId,
+        userId,
+        includeUnitNodeId: completed.node.id,
+      }),
     );
     if (state) {
       const decision = decideMasteryProgression(state);
