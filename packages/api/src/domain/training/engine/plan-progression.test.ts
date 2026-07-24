@@ -29,7 +29,6 @@ describe("usesDynamicMasteryLoop", () => {
       usesDynamicMasteryLoop({ nodeKind: "unit", parentHasSkillMap: true }),
     ).toBe(true);
   });
-
 });
 
 describe("decideMasteryProgression", () => {
@@ -63,38 +62,38 @@ describe("decideMasteryProgression", () => {
     ).toEqual({ intent: "create_unit" });
   });
 
-  it("skillset: keeps creating units while knowledge remains unchecked", () => {
+  it("skillset: a settled rating alone never masters — reps are the other gate", () => {
     expect(
       decideMasteryProgression({
         regime: "skillset",
-        uncheckedEntryCount: 1,
+        skillsBelowRepTarget: 1,
         learnerRating: 1700,
         ratingDeviation: 40,
-        peakRating: 1600,
+        masteryRating: 1600,
       }),
     ).toEqual({ intent: "create_unit" });
   });
 
-  it("skillset: keeps creating units until peak performance is stable", () => {
+  it("skillset: reps alone never master either — the rating must settle", () => {
     expect(
       decideMasteryProgression({
         regime: "skillset",
-        uncheckedEntryCount: 0,
+        skillsBelowRepTarget: 0,
         learnerRating: 1600,
         ratingDeviation: 120,
-        peakRating: 1600,
+        masteryRating: 1600,
       }),
     ).toEqual({ intent: "create_unit" });
   });
 
-  it("skillset: masters the ability after the rating gate passes", () => {
+  it("skillset: masters the ability once both gates pass", () => {
     expect(
       decideMasteryProgression({
         regime: "skillset",
-        uncheckedEntryCount: 0,
+        skillsBelowRepTarget: 0,
         learnerRating: 1650,
         ratingDeviation: 60,
-        peakRating: 1600,
+        masteryRating: 1600,
       }),
     ).toEqual({ intent: "node_complete" });
   });
@@ -219,9 +218,7 @@ describe("planSkillMapAdvancement", () => {
 
   it("does not reset a progressed first skill when an ability advance is replayed", () => {
     const replayed = tree.map((item) =>
-      item.id === "skill-3"
-        ? { ...item, status: "completed" as const }
-        : item,
+      item.id === "skill-3" ? { ...item, status: "completed" as const } : item,
     );
 
     expect(planSkillMapAdvancement(replayed, "ability-1")).toMatchObject({

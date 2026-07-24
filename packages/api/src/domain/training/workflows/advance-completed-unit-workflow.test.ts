@@ -84,10 +84,10 @@ describe("advanceCompletedUnitWorkflow", () => {
         getProgressionState: () =>
           Effect.succeed({
             regime: "skillset" as const,
-            uncheckedEntryCount: 0,
+            skillsBelowRepTarget: 0,
             learnerRating: 1_800,
             ratingDeviation: 50,
-            peakRating: 1_800,
+            masteryRating: 1_800,
           }),
         getMissionStatus: () =>
           Promise.resolve({ unitRunId: "run-1", status: "active" }),

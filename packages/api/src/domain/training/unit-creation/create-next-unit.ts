@@ -76,6 +76,8 @@ export interface CreateNextUnitDependencies<TNode> {
     whyItMatters: string;
     difficultyBands: ReturnType<typeof buildDynamicUnitDifficultyBands>;
     targetKnowledgeIds: string[];
+    /** The child skill this unit is a rep of; null for foundation units. */
+    practicedSkillNodeId: string | null;
     status: "planned" | "ready";
   }) => Effect.Effect<{ node: TNode; created: boolean }, DbError>;
   hasUnitContent: (nodeId: string) => Effect.Effect<boolean, DbError>;
@@ -146,6 +148,11 @@ export const createNextUnitNode = <TNode extends { id: string }>({
     const calibrated = yield* deps.resolveDirective(skillNodeId);
     const foundationQuestion =
       skill.regime === "foundation" ? targets[0]?.question : null;
+    // The selector returns entries from exactly one owning skill, so the lead
+    // entry names the skill this unit is a rep of. Foundation units record
+    // nothing: their owning skill is already their parent node.
+    const practicedSkillNodeId =
+      skill.regime === "skillset" ? (targets[0]?.ownerSkillId ?? null) : null;
     const persisted = yield* deps.appendUnit({
       skillNodeId,
       title:
@@ -155,6 +162,7 @@ export const createNextUnitNode = <TNode extends { id: string }>({
       whyItMatters: skill.whyItMatters,
       difficultyBands: buildDynamicUnitDifficultyBands(calibrated.directive),
       targetKnowledgeIds: targets.map((entry) => entry.id),
+      practicedSkillNodeId,
       status,
     });
     return { node: persisted.node, needsContent: persisted.created };

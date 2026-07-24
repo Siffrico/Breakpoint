@@ -10,7 +10,7 @@ import { createRegimeTargetSelector } from "./target-selection";
 
 /** The production wiring, with the one database read stubbed out. */
 const selectTargets = createRegimeTargetSelector({
-  recentTargetSkillIds: () => Effect.succeed([]),
+  skillPracticeHistory: () => Effect.succeed([]),
 });
 
 let nextOrderIndex = 0;
@@ -114,8 +114,9 @@ describe("createNextUnit", () => {
   });
 
   it("writes the selected targets onto the appended unit", async () => {
-    const appendUnit = vi.fn((_input: { targetKnowledgeIds: string[]; title: string }) =>
-      Effect.succeed({ node: { id: "unit" }, created: false }),
+    const appendUnit = vi.fn(
+      (_input: { targetKnowledgeIds: string[]; title: string }) =>
+        Effect.succeed({ node: { id: "unit" }, created: false }),
     );
 
     await Effect.runPromise(
@@ -190,6 +191,8 @@ describe("createNextUnit", () => {
         complexityBudget: 2,
       }),
     );
-    expect(appendUnit.mock.calls[0]?.[0]?.targetKnowledgeIds).toEqual(["chosen"]);
+    expect(appendUnit.mock.calls[0]?.[0]?.targetKnowledgeIds).toEqual([
+      "chosen",
+    ]);
   });
 });

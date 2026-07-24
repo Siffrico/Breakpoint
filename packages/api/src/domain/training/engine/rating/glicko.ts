@@ -245,6 +245,14 @@ export const updateRatingState = (
   const phiNext = 1 / Math.sqrt(1 / (phiStar * phiStar) + 1 / v);
   const muNext = mu + phiNext * phiNext * gItem * (outcome - e);
 
+  // The step is deliberately NOT bounded. Its size scaling with uncertainty is
+  // the estimator working, not a defect: at deviation 350 one strong result
+  // genuinely should move the estimate a long way, and at deviation 50 it
+  // genuinely should not. Capping it would leave deviation collapsing at full
+  // speed while the rating lagged the evidence — the gates downstream read low
+  // deviation as "this estimate has settled", and that would no longer be true.
+  // Pacing belongs to the band ladder and its evidence gates (see decide.ts),
+  // and curriculum length belongs to the rep gate (see target-selection.ts).
   return {
     rating: policy.baselineRating + muNext * GLICKO_SCALE,
     ratingDeviation: clamp(

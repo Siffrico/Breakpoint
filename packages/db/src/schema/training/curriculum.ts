@@ -74,6 +74,13 @@ export const TrainingCurriculumNode = pgTable(
     status: t.varchar({ length: 32 }).notNull().default("planned"),
     // `ability` nodes always have a stage; structural and skill/unit nodes never do.
     abilityStage: t.varchar({ length: 16 }),
+    // Which child skill this unit is a rep OF. Set only on skillset units (whose
+    // parent is an ability); null on every other kind, and on foundation units,
+    // whose owning skill is already their parent. The interleaving round-robin
+    // counts reps per skill off this column — it cannot be derived from the
+    // knowledge items' evidenceNodeId, because a later unit re-targeting the
+    // same item overwrites the earlier unit's stamp and loses the rep.
+    practicedSkillNodeId: t.uuid(),
     title: t.varchar({ length: 240 }).notNull(),
     summary: t.text().notNull(),
     whyItMatters: t.text().notNull(),
@@ -118,6 +125,11 @@ export const TrainingCurriculumNode = pgTable(
     index("becoming_curriculum_node_parent_order_idx").on(
       table.parentNodeId,
       table.orderIndex,
+    ),
+    // The rep-count read is "completed units under this ability, by skill".
+    index("becoming_curriculum_node_practiced_skill_idx").on(
+      table.parentNodeId,
+      table.practicedSkillNodeId,
     ),
     check(
       "becoming_curriculum_node_v4_shape",

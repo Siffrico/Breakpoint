@@ -69,6 +69,7 @@ export const appendDynamicUnitNode = async ({
   whyItMatters,
   difficultyBands,
   targetKnowledgeIds,
+  practicedSkillNodeId = null,
   status = "ready",
 }: {
   db: Database;
@@ -83,6 +84,8 @@ export const appendDynamicUnitNode = async ({
     label?: string;
   }[];
   targetKnowledgeIds: string[];
+  /** Skillset units only: the child skill this unit is a rep of. */
+  practicedSkillNodeId?: string | null;
   status?: "planned" | "ready";
 }) =>
   db.transaction(async (tx) => {
@@ -128,6 +131,7 @@ export const appendDynamicUnitNode = async ({
         summary,
         whyItMatters,
         difficultyBands,
+        practicedSkillNodeId,
         orderIndex: (latest?.orderIndex ?? 0) + 1,
         depth: 2,
         positionColumn: cluster.positionColumn,

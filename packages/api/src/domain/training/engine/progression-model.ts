@@ -13,6 +13,10 @@
 
 import type { ScenarioArchetype, ScenarioFormat } from "@acme/validators";
 
+import type { DifficultyBand } from "./rating/decide";
+import type { BandRamp } from "./rating/expand-band-ladder";
+import { expandSkillBands } from "./rating/expand-band-ladder";
+import { DEFAULT_RATING_POLICY } from "./rating/policy";
 import { ARCHETYPE_FORMATS } from "./scenario-archetypes";
 
 export interface StoredSkillMap {
@@ -30,8 +34,40 @@ export const resolveScenarioFormat = (
   skillMap: StoredSkillMap,
 ): ScenarioFormat => ARCHETYPE_FORMATS[skillMap.scenarioArchetype];
 
-/** Default mastery gate width when the contract does not narrow it. */
-export const DEFAULT_MAX_RATING_DEVIATION = 80;
+/**
+ * Default mastery gate width when the contract does not narrow it. Reads the
+ * rating policy rather than restating a number: `checkMasteryGate` in
+ * rating/decide.ts gates single scenarios on the same threshold, and the two
+ * had drifted (80 here, 100 there), so an ability could be refused mastery by
+ * the progression engine that the rating engine considered settled.
+ */
+export const DEFAULT_MAX_RATING_DEVIATION =
+  DEFAULT_RATING_POLICY.masteryDeviationCeiling;
+
+/**
+ * The rating an ability's skillset climb must reach: the MIDPOINT of the top
+ * band, never its ceiling.
+ *
+ * The ceiling is the single hardest scenario the archetype can express (every
+ * dial maxed). A learner whose true ability sits comfortably inside the top
+ * band converges to the middle of it and stops — so gating on the ceiling meant
+ * abilities never completed, which read as the curriculum stalling rather than
+ * as a bar being missed. This mirrors `checkMasteryGate` in rating/decide.ts,
+ * which already reasoned this out for single scenarios; keep the two in step.
+ *
+ * Uses the node's own persisted bands when it has them, falling back to the
+ * canonical ladder the ramp expands into.
+ */
+export const masteryRatingOf = (
+  bands: readonly DifficultyBand[] | null | undefined,
+  ramp: BandRamp,
+): number => {
+  const ladder = bands && bands.length > 0 ? bands : expandSkillBands(ramp);
+  const topBand = ladder.reduce((highest, band) =>
+    band.order > highest.order ? band : highest,
+  );
+  return Math.round((topBand.minRating + topBand.maxRating) / 2);
+};
 
 /**
  * Foundation units are criterion-referenced, so their ramp exists only to
@@ -58,7 +94,7 @@ export type ProgressionModel =
       regime: "skillset";
       workflow: StoredSkillMap["workflow"];
       bandRamp: { startRating: number; peakRating: number };
-      mastery: { peakRating: number; maxRatingDeviation: number };
+      mastery: { masteryRating: number; maxRatingDeviation: number };
     };
 
 /**
@@ -86,6 +122,7 @@ export const regimeForNodeKind = (
 export const resolveProgressionModel = (node: {
   kind: string;
   skillMap: StoredSkillMap | null;
+  difficultyBands?: readonly DifficultyBand[] | null;
 }): ProgressionModel | null => {
   const regime = regimeForNodeKind(node.kind);
   if (!regime || !node.skillMap) return null;
@@ -103,7 +140,7 @@ export const resolveProgressionModel = (node: {
         workflow,
         bandRamp,
         mastery: {
-          peakRating: bandRamp.peakRating,
+          masteryRating: masteryRatingOf(node.difficultyBands, bandRamp),
           maxRatingDeviation:
             masteryContract.maxRatingDeviation ?? DEFAULT_MAX_RATING_DEVIATION,
         },

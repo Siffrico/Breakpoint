@@ -5,8 +5,9 @@ import {
   difficultyRampOf,
   FOUNDATION_RAMP_SPAN,
   foundationCalibrationRamp,
-  requireAbilityStage,
+  masteryRatingOf,
   regimeForNodeKind,
+  requireAbilityStage,
   resolveProgressionModel,
 } from "./progression-model";
 
@@ -29,7 +30,9 @@ describe("regimeForNodeKind", () => {
 describe("resolveProgressionModel", () => {
   it("returns null for nodes outside the mastery loop", () => {
     expect(resolveProgressionModel({ kind: "unit", skillMap })).toBeNull();
-    expect(resolveProgressionModel({ kind: "skill", skillMap: null })).toBeNull();
+    expect(
+      resolveProgressionModel({ kind: "skill", skillMap: null }),
+    ).toBeNull();
   });
 
   it("foundation: carries no rating gate, only a calibration ramp", () => {
@@ -45,16 +48,60 @@ describe("resolveProgressionModel", () => {
     expect(model && "mastery" in model).toBe(false);
   });
 
-  it("skillset ability: rating gate from the ramp, no knowledge frontier", () => {
-    expect(resolveProgressionModel({ kind: "ability", skillMap })).toEqual({
+  it("skillset ability: gates on the top band's midpoint, never its ceiling", () => {
+    const model = resolveProgressionModel({ kind: "ability", skillMap });
+    expect(model).toEqual({
       regime: "skillset",
       workflow: skillMap.workflow,
       bandRamp: skillMap.bandRamp,
       mastery: {
-        peakRating: 1400,
+        masteryRating: masteryRatingOf(null, skillMap.bandRamp),
         maxRatingDeviation: DEFAULT_MAX_RATING_DEVIATION,
       },
     });
+    // The ceiling is the hardest scenario the archetype can express; a learner
+    // sitting inside the top band never converges to it, which is what used to
+    // leave abilities unmasterable.
+    expect(
+      model?.regime === "skillset" && model.mastery.masteryRating,
+    ).toBeLessThan(skillMap.bandRamp.peakRating);
+  });
+
+  it("prefers the node's own bands over the ramp's expansion", () => {
+    const difficultyBands = [
+      { order: 0, minRating: 900, maxRating: 1100 },
+      { order: 1, minRating: 1100, maxRating: 1300 },
+      { order: 2, minRating: 1300, maxRating: 1500 },
+    ];
+    const model = resolveProgressionModel({
+      kind: "ability",
+      skillMap,
+      difficultyBands,
+    });
+    expect(model?.regime === "skillset" && model.mastery.masteryRating).toBe(
+      1400,
+    );
+  });
+});
+
+describe("masteryRatingOf", () => {
+  it("takes the highest-order band, whatever order they arrive in", () => {
+    expect(
+      masteryRatingOf(
+        [
+          { order: 2, minRating: 1300, maxRating: 1500 },
+          { order: 0, minRating: 900, maxRating: 1100 },
+          { order: 1, minRating: 1100, maxRating: 1300 },
+        ],
+        skillMap.bandRamp,
+      ),
+    ).toBe(1400);
+  });
+
+  it("falls back to the ramp when a node carries no bands", () => {
+    expect(masteryRatingOf([], skillMap.bandRamp)).toBe(
+      masteryRatingOf(null, skillMap.bandRamp),
+    );
   });
 });
 

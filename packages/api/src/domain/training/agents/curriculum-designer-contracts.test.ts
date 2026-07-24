@@ -67,8 +67,7 @@ void test("curriculum plan draft rejects too few abilities", () => {
 
 void test("curriculum plan draft rejects an ability with too few skills", () => {
   assert.throws(
-    () =>
-      CurriculumPlanDraftSchema.parse(buildDraft(3, 2)),
+    () => CurriculumPlanDraftSchema.parse(buildDraft(3, 2)),
     /too small|at least 3/i,
   );
 });
@@ -92,17 +91,20 @@ void test("curriculum construction assigns code-owned measurable bands", () => {
   );
   assert.ok(ability);
 
+  // Band 0's floor is the easiest scenario the archetype can express, and it
+  // sits at the baseline learner (1000) rather than above them — see
+  // BASE_PER_FORMAT_KIND in engine/rating/difficulty-priors.ts.
   assert.deepEqual(
     ability.difficultyBands?.map((band) => [band.minRating, band.maxRating]),
     [
-      [1105, 1245],
-      [1245, 1385],
-      [1385, 1580],
+      [1000, 1140],
+      [1140, 1280],
+      [1280, 1475],
     ],
   );
   assert.deepEqual(ability.skillMap?.bandRamp, {
-    startRating: 1245,
-    peakRating: 1580,
+    startRating: 1140,
+    peakRating: 1475,
   });
 });
 

@@ -50,8 +50,11 @@ export type MasteryProgressionDecision =
  *   - "foundation" (parent is a `skill`): criterion-referenced. Mastered when
  *     every concept has reached the coverage target. No rating is consulted —
  *     concept #20 is judged exactly like concept #1.
- *   - "skillset" (parent is an `ability`): the ELO tier climb. Mastered at
- *     peak rating with a tight deviation.
+ *   - "skillset" (parent is an `ability`): consolidation across the ability's
+ *     skills. Mastered only when BOTH gates hold — every child skill has earned
+ *     its reps (breadth) and the rating has settled at the top band (depth).
+ *     Either alone is a false positive: a pile of easy reps is not mastery, and
+ *     one lucky hard win on one skill is not either.
  */
 export type MasteryProgressionState =
   | {
@@ -61,10 +64,12 @@ export type MasteryProgressionState =
     }
   | {
       regime: "skillset";
-      uncheckedEntryCount: number;
+      /** Child skills still short of the rep target — the breadth gate. */
+      skillsBelowRepTarget: number;
       learnerRating: number;
       ratingDeviation: number;
-      peakRating: number;
+      /** Midpoint of the top band; see masteryRatingOf in progression-model.ts. */
+      masteryRating: number;
       maxRatingDeviation?: number;
     };
 
@@ -79,8 +84,7 @@ export const usesDynamicMasteryLoop = ({
 }: {
   nodeKind: CurriculumNodeKind;
   parentHasSkillMap: boolean;
-}): boolean =>
-  nodeKind === "unit" && parentHasSkillMap;
+}): boolean => nodeKind === "unit" && parentHasSkillMap;
 
 export const decideMasteryProgression: (
   state: MasteryProgressionState,
@@ -99,8 +103,8 @@ export const decideMasteryProgression: (
     const maxRatingDeviation =
       state.maxRatingDeviation ?? DEFAULT_MAX_RATING_DEVIATION;
     const mastered =
-      state.uncheckedEntryCount === 0 &&
-      state.learnerRating >= state.peakRating &&
+      state.skillsBelowRepTarget === 0 &&
+      state.learnerRating >= state.masteryRating &&
       state.ratingDeviation <= maxRatingDeviation;
     return mastered
       ? ({ intent: "node_complete" } as const)
@@ -132,7 +136,11 @@ export type SkillMapAdvancement =
       changes: StatusChange[];
       stageChanges: StageChange[];
     }
-  | { kind: "plan_complete"; changes: StatusChange[]; stageChanges: StageChange[] }
+  | {
+      kind: "plan_complete";
+      changes: StatusChange[];
+      stageChanges: StageChange[];
+    }
   | { kind: "none"; changes: StatusChange[]; stageChanges: StageChange[] };
 
 export const planSkillMapAdvancement = (
@@ -174,9 +182,7 @@ export const planSkillMapAdvancement = (
     // The stage change is the explicit record of that unlock; nothing may
     // infer it from the ability's lifecycle status.
     if (mastered.parentNodeId) {
-      const ability = nodes.find(
-        (node) => node.id === mastered.parentNodeId,
-      );
+      const ability = nodes.find((node) => node.id === mastered.parentNodeId);
       if (ability?.status === "completed") {
         return { kind: "none", changes, stageChanges };
       }

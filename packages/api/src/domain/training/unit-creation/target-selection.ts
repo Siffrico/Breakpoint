@@ -8,13 +8,14 @@
 //   foundation (units under a skill)   — acquisition. Walk the skill's list in
 //     prerequisite order, taking the next unchecked concepts. Blocked practice:
 //     interleaving during initial acquisition costs more than it buys.
-//   skillset (units under an ability)  — consolidation. Rotate which child
-//     skill the unit draws from, so successive units alternate. Interleaving
-//     happens BETWEEN units; each unit itself stays focused on one skill.
+//   skillset (units under an ability)  — consolidation. Every unit is one rep
+//     of one child skill, and the next unit always goes to the skill with the
+//     fewest reps. Interleaving happens BETWEEN units; each unit itself stays
+//     focused on one skill.
 //
 // Both selectors are pure and independently testable. The Effect-returning
-// wrapper exists only because the skillset selector needs recent unit history,
-// which is a database read.
+// wrapper exists only because the skillset selector needs the ability's
+// practice history, which is a database read.
 
 import { Effect } from "effect";
 
@@ -45,11 +46,28 @@ export type UnitCreationRegime = "foundation" | "skillset" | null;
 export const FOUNDATION_UNIT_KNOWLEDGE_CAP = 4;
 
 /**
- * How many recent units the skillset selector looks back over when deciding
- * which skills are "already covered". Kept just under a typical ability's
- * skill count so the filter rotates rather than starves.
+ * Completed skillset units each child skill must earn before its ability can
+ * be mastered. Three is the smallest count that separates "did it once" from
+ * "can do it" while still leaving the reps far enough apart to be retrieval
+ * rather than repetition — with N skills, a skill's reps are always N units
+ * apart (see {@link selectInterleavedTargets}).
  */
-export const SKILLSET_INTERLEAVE_WINDOW = 2;
+export const SKILL_REP_TARGET = 3;
+
+/** One child skill's skillset practice record under its ability. */
+export interface SkillPractice {
+  skillId: string;
+  /** Completed skillset units that were a rep of this skill. */
+  reps: number;
+  /** When the most recent of those units was created; null when never practiced. */
+  lastPracticedAt: Date | null;
+}
+
+/** The breadth half of the skillset mastery gate (see plan-progression.ts). */
+export const countSkillsBelowRepTarget = (
+  practice: readonly SkillPractice[],
+  repTarget: number = SKILL_REP_TARGET,
+): number => practice.filter((skill) => skill.reps < repTarget).length;
 
 export const sliceFrontier = (
   entries: readonly FrontierItem[],
@@ -100,15 +118,31 @@ export const selectSequentialTargets = (
 };
 
 /**
- * Skillset: one skill per unit, rotating across units.
+ * Ordering key for the round-robin: fewest reps first, then least recently
+ * practiced. A skill with no practice record has never been picked, so it
+ * ranks ahead of everything.
+ */
+const practiceRankOf = (
+  practice: SkillPractice | undefined,
+): [reps: number, lastPracticedAt: number] => [
+  practice?.reps ?? 0,
+  practice?.lastPracticedAt?.getTime() ?? 0,
+];
+
+/**
+ * Skillset: one skill per unit, always the least-practiced one.
  *
- * `entries` arrives weakest-coverage-first, so the lead entry is the ability's
- * softest spot. `recentSkillIds` are the skills the last few units already
- * drew from, most recent first; the lead skips them so consecutive units land
- * on different skills. When every remaining skill is in the window (an ability
- * with fewer skills than the window, or a frontier narrowed to one skill) the
- * filter is dropped rather than returning nothing — rotating is a preference,
- * producing a unit is a requirement.
+ * This is the whole interleaving policy, and its guarantee is structural rather
+ * than procedural: because the pick is always the minimum rep count, no skill
+ * reaches rep N + 1 until every skill has reached rep N. Nothing can starve —
+ * a skipped skill's rep count stays lowest, so it wins the very next pick — and
+ * spacing falls out for free, since a skill's consecutive reps are separated by
+ * one rep of every other skill. That replaces the old fixed-size recency
+ * window, which guaranteed neither: with more skills than the window, several
+ * could go unpracticed indefinitely.
+ *
+ * Ties break on `entries` order, which arrives weakest-coverage-first, so the
+ * ability's softest spot leads among equally-practiced skills.
  *
  * The returned entries all share one owning skill: the variety belongs between
  * units, not inside one.
@@ -116,7 +150,7 @@ export const selectSequentialTargets = (
 export const selectInterleavedTargets = (
   entries: readonly FrontierItem[],
   complexityBudget: 1 | 2 | 3,
-  recentSkillIds: readonly string[],
+  practice: readonly SkillPractice[],
 ): FrontierItem[] => {
   const unchecked = uncheckedOf(entries);
   if (unchecked.length === 0) {
@@ -129,10 +163,23 @@ export const selectInterleavedTargets = (
   const ownerOf = (entry: FrontierItem): string =>
     entry.ownerSkillId ?? entry.id;
 
-  const recent = new Set(recentSkillIds);
-  const lead =
-    unchecked.find((entry) => !recent.has(ownerOf(entry))) ?? unchecked[0];
+  const practiceBySkillId = new Map(
+    practice.map((skill) => [skill.skillId, skill]),
+  );
+
+  let lead = unchecked[0];
   if (!lead) return recentlyCheckedFallback(entries, complexityBudget);
+  let leadRank = practiceRankOf(practiceBySkillId.get(ownerOf(lead)));
+  for (const entry of unchecked) {
+    const rank = practiceRankOf(practiceBySkillId.get(ownerOf(entry)));
+    if (
+      rank[0] < leadRank[0] ||
+      (rank[0] === leadRank[0] && rank[1] < leadRank[1])
+    ) {
+      lead = entry;
+      leadRank = rank;
+    }
+  }
 
   const owner = ownerOf(lead);
   return unchecked
@@ -154,14 +201,14 @@ export type UnitTargetSelector = (
 
 export interface RegimeTargetSelectorDependencies {
   /**
-   * Owning skill ids of the entries the last `limit` units under this ability
-   * targeted, most recent unit first, de-duplicated. Empty for a foundation
-   * cluster or an ability with no completed units.
+   * Every child skill of this ability with its completed-unit rep count. Skills
+   * with no completed units are still present, at zero reps — the round-robin
+   * needs the full roster to know what it has not reached yet, so a query that
+   * only returned practiced skills would silently starve the untouched ones.
    */
-  recentTargetSkillIds: (input: {
-    skillNodeId: string;
-    limit: number;
-  }) => Effect.Effect<readonly string[], DbError>;
+  skillPracticeHistory: (input: {
+    abilityNodeId: string;
+  }) => Effect.Effect<readonly SkillPractice[], DbError>;
 }
 
 /**
@@ -172,16 +219,13 @@ export interface RegimeTargetSelectorDependencies {
  */
 export const createRegimeTargetSelector =
   ({
-    recentTargetSkillIds,
+    skillPracticeHistory,
   }: RegimeTargetSelectorDependencies): UnitTargetSelector =>
   ({ skillNodeId, regime, entries, complexityBudget }) =>
     regime === "skillset"
       ? Effect.map(
-          recentTargetSkillIds({
-            skillNodeId,
-            limit: SKILLSET_INTERLEAVE_WINDOW,
-          }),
-          (recentSkillIds) =>
-            selectInterleavedTargets(entries, complexityBudget, recentSkillIds),
+          skillPracticeHistory({ abilityNodeId: skillNodeId }),
+          (practice) =>
+            selectInterleavedTargets(entries, complexityBudget, practice),
         )
       : Effect.succeed(selectSequentialTargets(entries, complexityBudget));

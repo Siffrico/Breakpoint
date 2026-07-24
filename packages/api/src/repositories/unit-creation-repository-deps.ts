@@ -1,12 +1,10 @@
 import { Effect } from "effect";
 
 import type { db as databaseClient } from "@acme/db/client";
-import { and, desc, eq, inArray } from "@acme/db";
+import { and, desc, eq, isNotNull } from "@acme/db";
 import {
   TrainingCurriculumNode,
   TrainingCurriculumPlan,
-  TrainingKnowledgeItem,
-  TrainingKnowledgeQuestion,
 } from "@acme/db/schema";
 
 import type {
@@ -15,6 +13,7 @@ import type {
 } from "../domain/training/engine/plan-progression";
 import type { JobRatingState } from "../domain/training/engine/rating";
 import type { CreateNextUnitDependencies } from "../domain/training/unit-creation/create-next-unit";
+import type { SkillPractice } from "../domain/training/unit-creation/target-selection";
 import { designSkillKnowledge } from "../domain/training/agents/knowledge-mapper";
 import { CONCEPT_COVERAGE_TARGET } from "../domain/training/engine/concept-coverage";
 import {
@@ -30,15 +29,18 @@ import {
 import { resolveScenarioDirective } from "../domain/training/orchestration/goldilocks";
 import { advanceSkillMapNodeWorkflow } from "../domain/training/unit-creation/advance-skill-map-node";
 import { createNextUnit } from "../domain/training/unit-creation/create-next-unit";
-import { createRegimeTargetSelector } from "../domain/training/unit-creation/target-selection";
+import {
+  countSkillsBelowRepTarget,
+  createRegimeTargetSelector,
+} from "../domain/training/unit-creation/target-selection";
 import { prepareUnitContent } from "../domain/training/unit-preparation/prepare-unit-content";
 import { queryWithClient } from "../effect/db";
 import { resolvePlanSeedRating } from "./plan-seed-rating";
+import { skillKnowledgeRepository } from "./skill-knowledge-repository";
 import { appendDynamicUnitNode } from "./training-curriculum-node-writer";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
 import { createTrainingRatingGoldilocksDeps } from "./training-rating-goldilocks-deps";
 import { trainingRatingRepository } from "./training-rating-repository";
-import { skillKnowledgeRepository } from "./skill-knowledge-repository";
 import { createUnitPreparationRepositoryDeps } from "./unit-preparation-repository-deps";
 
 type Database = typeof databaseClient;
@@ -243,53 +245,75 @@ export const createUnitCreationRepositoryDeps = ({
         deps: createUnitPreparationRepositoryDeps(db),
       }).pipe(Effect.asVoid),
     selectTargets: createRegimeTargetSelector({
-      recentTargetSkillIds: ({ skillNodeId, limit }) =>
-        queryWithClient(db, "loadRecentTargetSkillIds", async () => {
-          // Only reached with no open unit, so every unit below is completed
-          // and its targets are already stamped with evidenceNodeId.
-          const recentUnits = await db.query.TrainingCurriculumNode.findMany({
-            where: and(
-              eq(TrainingCurriculumNode.parentNodeId, skillNodeId),
-              eq(TrainingCurriculumNode.kind, "unit"),
-            ),
-            orderBy: [desc(TrainingCurriculumNode.orderIndex)],
-            limit,
-            columns: { id: true },
-          });
-          if (recentUnits.length === 0) return [];
-
-          const unitIds = recentUnits.map((unit) => unit.id);
-          const taught = await db
-            .select({
-              evidenceNodeId: TrainingKnowledgeItem.evidenceNodeId,
-              ownerSkillId: TrainingKnowledgeQuestion.skillNodeId,
-            })
-            .from(TrainingKnowledgeItem)
-            .innerJoin(
-              TrainingKnowledgeQuestion,
-              eq(TrainingKnowledgeQuestion.id, TrainingKnowledgeItem.questionId),
-            )
-            .where(inArray(TrainingKnowledgeItem.evidenceNodeId, unitIds));
-
-          // Most-recent-unit-first, de-duplicated: the selector reads this as a
-          // "recently covered" set, and the order keeps it stable to inspect.
-          const recencyOf = new Map(unitIds.map((id, index) => [id, index]));
-          return [
-            ...new Set(
-              taught
-                .sort(
-                  (left, right) =>
-                    (recencyOf.get(left.evidenceNodeId ?? "") ??
-                      Number.MAX_SAFE_INTEGER) -
-                    (recencyOf.get(right.evidenceNodeId ?? "") ??
-                      Number.MAX_SAFE_INTEGER),
-                )
-                .map((entry) => entry.ownerSkillId),
-            ),
-          ];
-        }),
+      skillPracticeHistory: ({ abilityNodeId }) =>
+        queryWithClient(db, "loadSkillPracticeHistory", () =>
+          loadSkillPracticeHistory({ db, abilityNodeId }),
+        ),
     }),
   };
+};
+
+/**
+ * Every child skill of an ability with the number of completed skillset units
+ * that were a rep of it, and when the latest one landed.
+ *
+ * Reads both halves of Fix 2 from the same place: the round-robin picks the
+ * minimum rep count, and the mastery gate counts how many skills are still
+ * short of the target. Unpracticed skills are present at zero reps — the
+ * round-robin's no-starvation guarantee depends on seeing the full roster, so
+ * an inner join over practiced skills alone would break it.
+ *
+ * Grouped in memory rather than in SQL: an ability holds at most a few dozen
+ * units, both predicates ride the parent index, and it keeps the timestamp
+ * typed as a Date instead of whatever an aggregate hands back.
+ */
+export const loadSkillPracticeHistory = async ({
+  db,
+  abilityNodeId,
+}: {
+  db: Database;
+  abilityNodeId: string;
+}): Promise<SkillPractice[]> => {
+  const [skills, completedUnits] = await Promise.all([
+    db.query.TrainingCurriculumNode.findMany({
+      where: and(
+        eq(TrainingCurriculumNode.parentNodeId, abilityNodeId),
+        eq(TrainingCurriculumNode.kind, "skill"),
+      ),
+      orderBy: [TrainingCurriculumNode.orderIndex],
+      columns: { id: true },
+    }),
+    db.query.TrainingCurriculumNode.findMany({
+      where: and(
+        eq(TrainingCurriculumNode.parentNodeId, abilityNodeId),
+        eq(TrainingCurriculumNode.kind, "unit"),
+        eq(TrainingCurriculumNode.status, "completed"),
+        isNotNull(TrainingCurriculumNode.practicedSkillNodeId),
+      ),
+      columns: { practicedSkillNodeId: true, createdAt: true },
+    }),
+  ]);
+
+  const practiceBySkillId = new Map<string, SkillPractice>(
+    skills.map((skill) => [
+      skill.id,
+      { skillId: skill.id, reps: 0, lastPracticedAt: null },
+    ]),
+  );
+  for (const unit of completedUnits) {
+    const practice = practiceBySkillId.get(unit.practicedSkillNodeId ?? "");
+    // A unit whose skill has since been removed from the plan counts for
+    // nothing rather than resurrecting a skill the roster no longer has.
+    if (!practice) continue;
+    practice.reps += 1;
+    if (
+      !practice.lastPracticedAt ||
+      unit.createdAt > practice.lastPracticedAt
+    ) {
+      practice.lastPracticedAt = unit.createdAt;
+    }
+  }
+  return [...practiceBySkillId.values()];
 };
 
 /**
@@ -328,7 +352,10 @@ export const loadProgressionState = async ({
       };
     }
     case "skillset": {
-      const seed = await resolvePlanSeedRating({ db, nodeId: skillNodeId });
+      const [seed, practice] = await Promise.all([
+        resolvePlanSeedRating({ db, nodeId: skillNodeId }),
+        loadSkillPracticeHistory({ db, abilityNodeId: skillNodeId }),
+      ]);
       const progress = await trainingRatingRepository.loadJobProgress({
         db,
         userId,
@@ -337,10 +364,10 @@ export const loadProgressionState = async ({
       });
       return {
         regime: "skillset",
-        uncheckedEntryCount: 0,
+        skillsBelowRepTarget: countSkillsBelowRepTarget(practice),
         learnerRating: progress.ratingState.rating,
         ratingDeviation: progress.ratingState.ratingDeviation,
-        peakRating: model.mastery.peakRating,
+        masteryRating: model.mastery.masteryRating,
         maxRatingDeviation: model.mastery.maxRatingDeviation,
       };
     }

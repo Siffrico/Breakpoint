@@ -1,12 +1,13 @@
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
-import type { FrontierItem } from "./target-selection";
+import type { FrontierItem, SkillPractice } from "./target-selection";
 import {
+  countSkillsBelowRepTarget,
   createRegimeTargetSelector,
   selectInterleavedTargets,
   selectSequentialTargets,
-  SKILLSET_INTERLEAVE_WINDOW,
+  SKILL_REP_TARGET,
   sliceFrontier,
 } from "./target-selection";
 
@@ -134,34 +135,62 @@ describe("selectInterleavedTargets", () => {
     entry("strong-1", { ownerSkillId: "skill-c" }),
   ];
 
+  const practice = (
+    reps: Record<string, number>,
+    lastPracticedAt: Record<string, Date> = {},
+  ): SkillPractice[] =>
+    Object.entries(reps).map(([skillId, count]) => ({
+      skillId,
+      reps: count,
+      lastPracticedAt: lastPracticedAt[skillId] ?? null,
+    }));
+
   it("takes the weakest skill's entries when no unit has run yet", () => {
-    expect(ids(selectInterleavedTargets(frontier, 2, []))).toEqual([
-      "weak-1",
-      "weak-2",
-    ]);
+    expect(
+      ids(
+        selectInterleavedTargets(
+          frontier,
+          2,
+          practice({ "skill-a": 0, "skill-b": 0, "skill-c": 0 }),
+        ),
+      ),
+    ).toEqual(["weak-1", "weak-2"]);
   });
 
-  it("skips skills the recent units already drew from", () => {
-    expect(ids(selectInterleavedTargets(frontier, 2, ["skill-a"]))).toEqual([
-      "mid-1",
-    ]);
+  it("goes to the least-practiced skill, not the weakest-covered one", () => {
+    expect(
+      ids(
+        selectInterleavedTargets(
+          frontier,
+          2,
+          practice({ "skill-a": 2, "skill-b": 1, "skill-c": 0 }),
+        ),
+      ),
+    ).toEqual(["strong-1"]);
+  });
+
+  it("breaks a rep tie on staleness, oldest first", () => {
+    expect(
+      ids(
+        selectInterleavedTargets(
+          frontier,
+          2,
+          practice(
+            { "skill-a": 1, "skill-b": 1, "skill-c": 1 },
+            {
+              "skill-a": new Date("2026-03-02"),
+              "skill-b": new Date("2026-03-01"),
+              "skill-c": new Date("2026-03-03"),
+            },
+          ),
+        ),
+      ),
+    ).toEqual(["mid-1"]);
   });
 
   it("never mixes skills inside one unit", () => {
-    const targets = selectInterleavedTargets(frontier, 3, []);
+    const targets = selectInterleavedTargets(frontier, 3, practice({}));
     expect(new Set(targets.map((item) => item.ownerSkillId)).size).toBe(1);
-  });
-
-  it("drops the rotation filter rather than returning nothing", () => {
-    expect(
-      ids(
-        selectInterleavedTargets(frontier, 1, [
-          "skill-a",
-          "skill-b",
-          "skill-c",
-        ]),
-      ),
-    ).toEqual(["weak-1"]);
   });
 
   it("treats an entry with no owning skill as its own group", () => {
@@ -170,23 +199,51 @@ describe("selectInterleavedTargets", () => {
     ).toEqual(["a"]);
   });
 
-  it("rotates skills across successive units", () => {
-    const seen: string[] = [];
-    let recent: string[] = [];
-    for (let unit = 0; unit < 4; unit++) {
-      const owner = selectInterleavedTargets(frontier, 2, recent)[0]
-        ?.ownerSkillId;
-      seen.push(owner ?? "none");
-      recent = [owner ?? "", ...recent].slice(0, SKILLSET_INTERLEAVE_WINDOW);
+  it("cannot starve a skill: every skill reaches rep N before any reaches N+1", () => {
+    const skillIds = ["skill-a", "skill-b", "skill-c"];
+    const reps = new Map(skillIds.map((skillId) => [skillId, 0]));
+
+    // Ten units is more than three full rounds, so any rotation that drifts or
+    // starves shows up as a spread greater than one.
+    for (let unit = 0; unit < 10; unit++) {
+      const picked = selectInterleavedTargets(
+        frontier,
+        2,
+        skillIds.map((skillId) => ({
+          skillId,
+          reps: reps.get(skillId) ?? 0,
+          lastPracticedAt: null,
+        })),
+      )[0]?.ownerSkillId;
+      expect(picked).toBeDefined();
+      reps.set(picked ?? "", (reps.get(picked ?? "") ?? 0) + 1);
+
+      const counts = [...reps.values()];
+      expect(Math.max(...counts) - Math.min(...counts)).toBeLessThanOrEqual(1);
     }
-    expect(seen).toEqual(["skill-a", "skill-b", "skill-c", "skill-a"]);
+    expect([...reps.values()].reduce((sum, count) => sum + count, 0)).toBe(10);
+  });
+});
+
+describe("countSkillsBelowRepTarget", () => {
+  it("counts only the skills still short of the target", () => {
+    const practice: SkillPractice[] = [
+      { skillId: "a", reps: SKILL_REP_TARGET, lastPracticedAt: null },
+      { skillId: "b", reps: SKILL_REP_TARGET - 1, lastPracticedAt: null },
+      { skillId: "c", reps: 0, lastPracticedAt: null },
+    ];
+    expect(countSkillsBelowRepTarget(practice)).toBe(2);
+  });
+
+  it("is zero for an ability with no skills, so it never blocks alone", () => {
+    expect(countSkillsBelowRepTarget([])).toBe(0);
   });
 });
 
 describe("createRegimeTargetSelector", () => {
-  it("reads no unit history for a foundation frontier", async () => {
-    const recentTargetSkillIds = vi.fn(() => Effect.succeed([]));
-    const select = createRegimeTargetSelector({ recentTargetSkillIds });
+  it("reads no practice history for a foundation frontier", async () => {
+    const skillPracticeHistory = vi.fn(() => Effect.succeed([]));
+    const select = createRegimeTargetSelector({ skillPracticeHistory });
 
     const targets = await Effect.runPromise(
       select({
@@ -198,14 +255,17 @@ describe("createRegimeTargetSelector", () => {
     );
 
     expect(ids(targets)).toEqual(["a", "b", "c"]);
-    expect(recentTargetSkillIds).not.toHaveBeenCalled();
+    expect(skillPracticeHistory).not.toHaveBeenCalled();
   });
 
-  it("passes the interleave window through for a skillset frontier", async () => {
-    const recentTargetSkillIds = vi.fn(() =>
-      Effect.succeed(["skill-a"] as readonly string[]),
+  it("reads the ability's practice history for a skillset frontier", async () => {
+    const skillPracticeHistory = vi.fn(() =>
+      Effect.succeed([
+        { skillId: "skill-a", reps: 2, lastPracticedAt: null },
+        { skillId: "skill-b", reps: 1, lastPracticedAt: null },
+      ] as readonly SkillPractice[]),
     );
-    const select = createRegimeTargetSelector({ recentTargetSkillIds });
+    const select = createRegimeTargetSelector({ skillPracticeHistory });
 
     const targets = await Effect.runPromise(
       select({
@@ -220,9 +280,8 @@ describe("createRegimeTargetSelector", () => {
     );
 
     expect(ids(targets)).toEqual(["next"]);
-    expect(recentTargetSkillIds).toHaveBeenCalledWith({
-      skillNodeId: "ability-1",
-      limit: SKILLSET_INTERLEAVE_WINDOW,
+    expect(skillPracticeHistory).toHaveBeenCalledWith({
+      abilityNodeId: "ability-1",
     });
   });
 });
