@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { Effect } from "effect";
+import { Effect, Fiber } from "effect";
+import { TestClock } from "effect/testing";
 import { expect, test, vi } from "vitest";
 
 import type { PersistedUnitRun } from "../education-unit/unit";
@@ -10,6 +11,7 @@ import type { WorkspaceTurnOrchestrationDependencies } from "./workspace-turn-or
 import type { WorkspaceEducationTurnCommit } from "./workspace-turn-persistence";
 import type { WorkspaceTurnRepoShape } from "./workspace-turn-repo";
 import { EducationUnitContractError } from "../education-unit/orchestrate-unit-turn";
+import { WORKSPACE_LEASE_HEARTBEAT_MS } from "./workspace-lease";
 import { runEducationUnitTurn } from "./workspace-turn-orchestration";
 import { WorkspaceTurnRepo } from "./workspace-turn-repo";
 
@@ -260,6 +262,72 @@ void test("interrupting a claimed education turn releases its owned lease", asyn
     leaseId: "00000000-0000-0000-0000-000000000099",
     reason: "Education turn ended before its atomic commit completed.",
   });
+});
+
+void test("a running education turn heartbeats its leases, and stops when it ends", async () => {
+  const renewWorkspaceLeases = vi.fn(() => Promise.resolve(true));
+  const runUnitTurn = vi.fn(() => Effect.never);
+  // The claim path is promise-backed, so the test clock must not advance until
+  // its microtasks have drained and the heartbeat is actually forked.
+  const settle = Effect.promise(
+    () => new Promise<void>((resolve) => setImmediate(resolve)),
+  );
+  const deps = {
+    claimWorkspaceTurn: () =>
+      Promise.resolve({ status: "claimed" as const, claimedAt: new Date() }),
+    claimWorkspaceUnitLease: () => Promise.resolve(true),
+    renewWorkspaceLeases,
+    releaseWorkspaceUnitLease: () => Promise.resolve(),
+    listUnitMessages: () => Promise.resolve([]),
+    listMemories: () => Promise.resolve([]),
+    runUnitTurn,
+    markWorkspaceTurnFailed: () => Promise.resolve(),
+  } as unknown as WorkspaceTurnOrchestrationDependencies;
+
+  await Effect.runPromise(
+    Effect.gen(function* () {
+      const fiber = yield* Effect.forkChild(
+        runEducationUnitTurn({
+          sessionId: unitRun.sessionId,
+          userId: "user-1",
+          turnId: "turn-1",
+          turnLeaseId: "00000000-0000-0000-0000-000000000099",
+          message: "My complete learner answer",
+          turn,
+          deps,
+        }).pipe(
+          Effect.provideService(WorkspaceTurnRepo, {
+            commitEducationTurn: () =>
+              Effect.die("commitEducationTurn should not be called"),
+          }),
+        ),
+      );
+
+      yield* Effect.promise(() =>
+        vi.waitFor(() => expect(runUnitTurn).toHaveBeenCalled()),
+      );
+
+      yield* TestClock.adjust(WORKSPACE_LEASE_HEARTBEAT_MS);
+      yield* settle;
+      yield* TestClock.adjust(WORKSPACE_LEASE_HEARTBEAT_MS);
+      yield* settle;
+
+      expect(renewWorkspaceLeases).toHaveBeenCalledTimes(2);
+      expect(renewWorkspaceLeases).toHaveBeenLastCalledWith({
+        sessionId: unitRun.sessionId,
+        unitContentId: turn.unit.id,
+        turnId: "turn-1",
+        leaseId: "00000000-0000-0000-0000-000000000099",
+      });
+
+      // The heartbeat lives in the turn's scope, so ending the turn must stop
+      // it — a lease that outlived its owner is the whole bug this prevents.
+      yield* Fiber.interrupt(fiber);
+      yield* TestClock.adjust(2 * WORKSPACE_LEASE_HEARTBEAT_MS);
+      yield* settle;
+      expect(renewWorkspaceLeases).toHaveBeenCalledTimes(2);
+    }).pipe(Effect.provide(TestClock.layer())),
+  );
 });
 
 void test("a post-claim transcript load failure releases the lease", async () => {

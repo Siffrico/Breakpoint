@@ -73,6 +73,17 @@ export interface WorkspaceTurnPersistenceDependencies
     sessionId: string;
     unitContentId: string;
     leaseId: string;
+    run: PersistedUnitRun;
+  }) => Promise<boolean>;
+  /**
+   * Extends both leases; `false` means this lease no longer owns them and the
+   * heartbeat should stop. Optional so lightweight test doubles can omit it.
+   */
+  renewWorkspaceLeases?: (input: {
+    sessionId: string;
+    unitContentId: string;
+    turnId: string;
+    leaseId: string;
   }) => Promise<boolean>;
   releaseWorkspaceUnitLease: (input: {
     sessionId: string;

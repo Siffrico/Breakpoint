@@ -51,6 +51,7 @@ const baseInput = {
 };
 
 afterEach(() => {
+  vi.useRealTimers();
   streamTextMock.mockReset();
 });
 
@@ -129,6 +130,76 @@ describe("runPhaseAgent", () => {
     const result = await Effect.runPromise(runPhaseAgent(baseInput));
 
     expect(result.object).toEqual({ assistantMessage: "recovered" });
+    expect(streamTextMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps an active stream alive beyond the inactivity timeout", async () => {
+    vi.useFakeTimers();
+    streamTextMock.mockImplementationOnce(
+      ({
+        abortSignal,
+        onChunk,
+      }: {
+        abortSignal: AbortSignal;
+        onChunk: () => void;
+      }) => {
+        const output = new Promise<{ assistantMessage: string }>(
+          (resolve, reject) => {
+            const heartbeat = setInterval(onChunk, 30_000);
+            const completion = setTimeout(() => {
+              clearInterval(heartbeat);
+              resolve({ assistantMessage: "completed after a long stream" });
+            }, 120_000);
+            abortSignal.addEventListener(
+              "abort",
+              () => {
+                clearInterval(heartbeat);
+                clearTimeout(completion);
+                reject(abortSignal.reason);
+              },
+              { once: true },
+            );
+          },
+        );
+        return {
+          ...streamResult(output),
+          output,
+        };
+      },
+    );
+
+    const running = Effect.runPromise(runPhaseAgent(baseInput));
+    await vi.advanceTimersByTimeAsync(120_000);
+
+    await expect(running).resolves.toMatchObject({
+      object: { assistantMessage: "completed after a long stream" },
+    });
+    expect(streamTextMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("restarts a stream that produces no chunks before the inactivity timeout", async () => {
+    vi.useFakeTimers();
+    streamTextMock
+      .mockImplementationOnce(
+        ({ abortSignal }: { abortSignal: AbortSignal }) => {
+          const output = new Promise<never>((_resolve, reject) => {
+            abortSignal.addEventListener(
+              "abort",
+              () => reject(abortSignal.reason),
+              { once: true },
+            );
+          });
+          return { ...streamResult(output), output };
+        },
+      )
+      .mockReturnValueOnce(streamResult({ assistantMessage: "recovered" }));
+
+    const running = Effect.runPromise(runPhaseAgent(baseInput));
+    await vi.advanceTimersByTimeAsync(45_500);
+
+    await expect(running).resolves.toMatchObject({
+      object: { assistantMessage: "recovered" },
+    });
     expect(streamTextMock).toHaveBeenCalledTimes(2);
   });
 

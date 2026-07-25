@@ -16,13 +16,10 @@ import type {
   OnboardingSessionState,
   OnboardingTranscriptMessage,
 } from "../domain/training/types/training.types";
+import { workspaceLeaseExpiry } from "../domain/training/workspace-ai/workspace-lease";
 import { buildProjectCheckpointRepository } from "./build-project-checkpoint-repository";
 
 type Database = typeof databaseClient;
-const WORKSPACE_TURN_LEASE_MS = 15 * 60 * 1_000;
-
-const getWorkspaceTurnLeaseExpiry = (now = new Date()) =>
-  new Date(now.getTime() + WORKSPACE_TURN_LEASE_MS);
 
 interface OnboardingMessageInsert {
   sessionId: string;
@@ -347,7 +344,7 @@ export const trainingOnboardingRepository = {
       }
   > => {
     const now = new Date();
-    const leaseExpiresAt = getWorkspaceTurnLeaseExpiry(now);
+    const leaseExpiresAt = workspaceLeaseExpiry(now);
     const existingTurn = await db.query.TrainingWorkspaceTurn.findFirst({
       where: and(
         eq(TrainingWorkspaceTurn.sessionId, sessionId),
@@ -386,6 +383,8 @@ export const trainingOnboardingRepository = {
           and(
             eq(TrainingWorkspaceTurn.id, existingTurn.id),
             eq(TrainingWorkspaceTurn.status, "processing"),
+            // A heartbeated lease that has gone stale had its owner die; an
+            // unexpired one is still being served. Expiry alone decides.
             or(
               isNull(TrainingWorkspaceTurn.leaseExpiresAt),
               lt(TrainingWorkspaceTurn.leaseExpiresAt, now),

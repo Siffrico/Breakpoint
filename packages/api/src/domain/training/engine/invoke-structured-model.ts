@@ -9,6 +9,7 @@ import {
 } from "./prompt-cache";
 
 type StructuredModel = Parameters<typeof streamText>[0]["model"];
+type StructuredOnChunk = Parameters<typeof streamText>[0]["onChunk"];
 
 const getReasoningProviderOptions = (budget: number) => {
   const effort = budget >= 8_192 ? "high" : budget >= 4_096 ? "medium" : "low";
@@ -41,6 +42,7 @@ export const invokeStructuredModel = <TSchema extends z.ZodTypeAny>({
   cache = false,
   smoothPartials = false,
   abortSignal,
+  onChunk,
 }: {
   model: StructuredModel;
   schema: TSchema;
@@ -55,6 +57,7 @@ export const invokeStructuredModel = <TSchema extends z.ZodTypeAny>({
   /** Pace partial-output deltas for checkpoint streaming (resilient agent). */
   smoothPartials?: boolean;
   abortSignal?: AbortSignal;
+  onChunk?: StructuredOnChunk;
 }): StreamTextResult<
   ToolSet,
   ReturnType<typeof Output.object<z.infer<TSchema>>>
@@ -77,6 +80,7 @@ export const invokeStructuredModel = <TSchema extends z.ZodTypeAny>({
     tools,
     stopWhen: stepCountIs(maxSteps),
     abortSignal,
+    onChunk,
     ...(smoothPartials
       ? {
           experimental_transform: smoothStream({

@@ -298,8 +298,9 @@ export const loadPlannedRecall = ({
   });
 
 /**
- * Produces a run projection without materializing it. The first claimed-turn
- * commit owns creation of a missing durable run row.
+ * Produces a run projection without materializing it. Lease acquisition
+ * creates a missing durable row before the model runs; the turn commit is
+ * still the only operation that advances the projected state.
  */
 export const resolveUnitRunProjection = ({
   sessionId,

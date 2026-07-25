@@ -1,13 +1,14 @@
 import { Effect, Layer } from "effect";
 
 import type { db as databaseClient } from "@acme/db/client";
-import { and, eq, isNull, lt, or, sql } from "@acme/db";
+import { and, eq, isNull, lt, or } from "@acme/db";
 import {
   TrainingCurriculumNode,
   TrainingUnitRun,
   TrainingWorkspaceTurn,
 } from "@acme/db/schema";
 
+import type { PersistedUnitRun } from "../domain/training/education-unit/unit";
 import type { JobRatingState } from "../domain/training/engine/rating";
 import type { RecallCandidate } from "../domain/training/policies/recall-decay";
 import type { DifficultyBand } from "../domain/training/types/training.types";
@@ -24,6 +25,7 @@ import {
   recordEvaluation,
   resolveScenarioDirective,
 } from "../domain/training/orchestration/goldilocks";
+import { workspaceLeaseExpiry } from "../domain/training/workspace-ai/workspace-lease";
 import { WorkspaceTurnRepo } from "../domain/training/workspace-ai/workspace-turn-repo";
 import { makeDbError } from "../effect/db";
 import { memoryRepository } from "./memory-repository";
@@ -37,46 +39,101 @@ import { trainingRatingRepository } from "./training-rating-repository";
 import { trainingUnitRunRepository } from "./training-unit-run-repository";
 
 type Database = typeof databaseClient;
-const WORKSPACE_TURN_LEASE_MS = 15 * 60 * 1_000;
 
 const claimWorkspaceUnitLease = async ({
   db,
   sessionId,
   unitContentId,
   leaseId,
+  run,
 }: {
   db: Database;
   sessionId: string;
   unitContentId: string;
   leaseId: string;
+  run: PersistedUnitRun;
 }) => {
   const now = new Date();
   const [leasedRun] = await db
-    .update(TrainingUnitRun)
-    .set({
+    .insert(TrainingUnitRun)
+    .values({
+      sessionId,
+      unitContentId,
+      userId: run.userId ?? null,
+      recipeVersion: run.recipeVersion,
+      phase: run.phase,
+      pass: run.pass,
+      connectGrills: run.connectGrills,
+      solveRepairs: run.solveRepairs,
+      connectTeachDue: run.connectTeachDue ?? false,
+      difficultySnapshotJson: run.difficultySnapshot,
+      scenarioSpecJson: run.scenarioSpec,
       turnLeaseId: leaseId,
-      turnLeaseExpiresAt: new Date(now.getTime() + WORKSPACE_TURN_LEASE_MS),
+      turnLeaseExpiresAt: workspaceLeaseExpiry(now),
     })
-    .where(
-      and(
-        eq(TrainingUnitRun.sessionId, sessionId),
-        eq(TrainingUnitRun.unitContentId, unitContentId),
-        or(
-          isNull(TrainingUnitRun.turnLeaseId),
-          isNull(TrainingUnitRun.turnLeaseExpiresAt),
-          lt(TrainingUnitRun.turnLeaseExpiresAt, now),
-          sql`not exists (
-            select 1 from ${TrainingWorkspaceTurn}
-            where ${TrainingWorkspaceTurn.sessionId} = ${sessionId}
-              and ${TrainingWorkspaceTurn.leaseId} = ${TrainingUnitRun.turnLeaseId}
-              and ${TrainingWorkspaceTurn.status} = 'processing'
-          )`,
-        ),
+    .onConflictDoUpdate({
+      target: [TrainingUnitRun.sessionId, TrainingUnitRun.unitContentId],
+      set: {
+        turnLeaseId: leaseId,
+        turnLeaseExpiresAt: workspaceLeaseExpiry(now),
+      },
+      setWhere: or(
+        isNull(TrainingUnitRun.turnLeaseId),
+        isNull(TrainingUnitRun.turnLeaseExpiresAt),
+        lt(TrainingUnitRun.turnLeaseExpiresAt, now),
       ),
-    )
+    })
     .returning({ id: TrainingUnitRun.id });
 
   return Boolean(leasedRun);
+};
+
+/**
+ * Pushes both of a turn's leases forward, and reports whether this lease still
+ * owns them. A `false` means another request took over after an expiry — the
+ * heartbeat stops, and the commit's lease assertions reject the turn.
+ */
+const renewWorkspaceLeases = async ({
+  db,
+  sessionId,
+  unitContentId,
+  turnId,
+  leaseId,
+}: {
+  db: Database;
+  sessionId: string;
+  unitContentId: string;
+  turnId: string;
+  leaseId: string;
+}) => {
+  const leaseExpiresAt = workspaceLeaseExpiry();
+  const [renewedTurn, renewedRun] = await Promise.all([
+    db
+      .update(TrainingWorkspaceTurn)
+      .set({ leaseExpiresAt })
+      .where(
+        and(
+          eq(TrainingWorkspaceTurn.sessionId, sessionId),
+          eq(TrainingWorkspaceTurn.turnId, turnId),
+          eq(TrainingWorkspaceTurn.status, "processing"),
+          eq(TrainingWorkspaceTurn.leaseId, leaseId),
+        ),
+      )
+      .returning({ id: TrainingWorkspaceTurn.id }),
+    db
+      .update(TrainingUnitRun)
+      .set({ turnLeaseExpiresAt: leaseExpiresAt })
+      .where(
+        and(
+          eq(TrainingUnitRun.sessionId, sessionId),
+          eq(TrainingUnitRun.unitContentId, unitContentId),
+          eq(TrainingUnitRun.turnLeaseId, leaseId),
+        ),
+      )
+      .returning({ id: TrainingUnitRun.id }),
+  ]);
+
+  return renewedTurn.length > 0 && renewedRun.length > 0;
 };
 
 const releaseWorkspaceUnitLease = async ({
@@ -115,9 +172,7 @@ const assertWorkspaceTurnLease = async ({
 }) => {
   const [leasedTurn] = await db
     .update(TrainingWorkspaceTurn)
-    .set({
-      leaseExpiresAt: new Date(Date.now() + WORKSPACE_TURN_LEASE_MS),
-    })
+    .set({ leaseExpiresAt: workspaceLeaseExpiry() })
     .where(
       and(
         eq(TrainingWorkspaceTurn.sessionId, sessionId),
@@ -146,9 +201,7 @@ const assertWorkspaceUnitLease = async ({
 }) => {
   const [leasedRun] = await db
     .update(TrainingUnitRun)
-    .set({
-      turnLeaseExpiresAt: new Date(Date.now() + WORKSPACE_TURN_LEASE_MS),
-    })
+    .set({ turnLeaseExpiresAt: workspaceLeaseExpiry() })
     .where(
       and(
         eq(TrainingUnitRun.sessionId, sessionId),
@@ -512,6 +565,7 @@ export const createWorkspaceTurnRepositoryDeps = (
       }),
     claimWorkspaceUnitLease: (input) =>
       claimWorkspaceUnitLease({ db, ...input }),
+    renewWorkspaceLeases: (input) => renewWorkspaceLeases({ db, ...input }),
     releaseWorkspaceUnitLease: (input) =>
       releaseWorkspaceUnitLease({ db, ...input }),
     appendMessage: (payload) =>

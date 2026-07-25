@@ -33,6 +33,7 @@ import {
   WorkspaceInputError,
   WorkspacePersistenceError,
 } from "./workspace-errors";
+import { WORKSPACE_LEASE_HEARTBEAT_MS } from "./workspace-lease";
 import { isUnitAwaitingAdvance, planNextWorkspaceTurn } from "./workspace-turn";
 import { saveUnitPhaseResult } from "./workspace-turn-persistence";
 
@@ -185,6 +186,61 @@ const releaseClaimedTurn = ({
   );
 };
 
+/**
+ * Keeps this request's claim on the turn visibly alive for as long as the
+ * request is. Forked into the turn's scope, so it is interrupted the moment the
+ * turn ends — by commit, by failure, or by the client aborting the stream. If
+ * the process dies instead, the renewals simply stop and the leases expire on
+ * their own, which is the only signal a dead process can send.
+ */
+const heartbeatLeases = ({
+  sessionId,
+  unitContentId,
+  turnId,
+  turnLeaseId,
+  deps,
+}: {
+  sessionId: string;
+  unitContentId: string;
+  turnId: string;
+  turnLeaseId: string;
+  deps: WorkspaceTurnOrchestrationDependencies;
+}): Effect.Effect<void, never, Scope.Scope> => {
+  const renewWorkspaceLeases = deps.renewWorkspaceLeases;
+  if (!renewWorkspaceLeases) return Effect.void;
+
+  return Effect.forkScoped(
+    Effect.forever(
+      Effect.sleep(WORKSPACE_LEASE_HEARTBEAT_MS).pipe(
+        Effect.andThen(
+          Effect.tryPromise(() =>
+            renewWorkspaceLeases({
+              sessionId,
+              unitContentId,
+              turnId,
+              leaseId: turnLeaseId,
+            }),
+          ),
+        ),
+        // Losing the lease ends the loop: the commit's own lease assertions are
+        // what reject the turn, so there is nothing to do here but stop.
+        Effect.flatMap((held) =>
+          held ? Effect.void : Effect.fail("released"),
+        ),
+      ),
+    ).pipe(
+      Effect.tapCause((cause) =>
+        Effect.logWarning("Workspace turn lease heartbeat stopped.", {
+          cause,
+          sessionId,
+          turnId,
+        }),
+      ),
+      Effect.ignore,
+    ),
+  ).pipe(Effect.asVoid);
+};
+
 const claimTurnAndLoadTranscript = ({
   sessionId,
   slot,
@@ -192,6 +248,7 @@ const claimTurnAndLoadTranscript = ({
   unitContentId,
   turnId,
   turnLeaseId,
+  unitRun,
   message,
   appendSyntheticUserMessage,
   deps,
@@ -202,6 +259,7 @@ const claimTurnAndLoadTranscript = ({
   unitContentId: string;
   turnId: string;
   turnLeaseId: string;
+  unitRun: ResolvedWorkspaceTurn["unitRun"];
   message: string;
   appendSyntheticUserMessage: boolean;
   deps: WorkspaceTurnOrchestrationDependencies;
@@ -255,6 +313,7 @@ const claimTurnAndLoadTranscript = ({
         sessionId,
         unitContentId,
         leaseId: turnLeaseId,
+        run: unitRun,
       }),
     );
     if (!claimedUnit) {
@@ -262,6 +321,13 @@ const claimTurnAndLoadTranscript = ({
         message: "Another answer is already being processed for this unit.",
       });
     }
+    yield* heartbeatLeases({
+      sessionId,
+      unitContentId,
+      turnId,
+      turnLeaseId,
+      deps,
+    });
 
     // Each unit is its own chat: load only the active unit's transcript. There
     // is no cross-unit rolling summary to fetch or fold — a unit's turn count
@@ -367,6 +433,7 @@ export const runEducationUnitTurn = ({
       unitContentId: unit.id,
       turnId,
       turnLeaseId,
+      unitRun,
       message: trimmedMessage,
       appendSyntheticUserMessage: true,
       deps,
