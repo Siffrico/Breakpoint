@@ -20,7 +20,7 @@ export const RUN_PROFILES = {
     reasoningBudgetTokens: 24_576,
     maxOutputTokens: 8_192,
     maxSteps: 10,
-    search: false,
+    search: true,
   },
   knowledge: {
     reasoningBudgetTokens: 16_384,

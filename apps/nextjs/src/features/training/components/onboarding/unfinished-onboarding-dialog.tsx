@@ -121,17 +121,15 @@ export function UnfinishedOnboardingDialog({
                       type="button"
                       disabled={current}
                       onClick={() => resume(session.sessionId)}
-                      className="border-border/45 bg-card/55 hover:border-border hover:bg-accent focus-visible:ring-ring group flex w-full items-center gap-3 rounded-xl border px-3.5 py-3 text-left outline-none transition-colors focus-visible:ring-2 disabled:cursor-default disabled:opacity-75"
+                      className="border-border/45 bg-card/55 hover:border-border hover:bg-accent focus-visible:ring-ring group flex w-full items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition-colors outline-none focus-visible:ring-2 disabled:cursor-default disabled:opacity-75"
                     >
                       <span className="min-w-0 flex-1">
                         <span className="text-foreground block truncate text-[13px] font-medium">
                           {session.title}
                         </span>
                         <span className="text-muted-foreground mt-0.5 block text-[11px]">
-                          {current
-                            ? "Current"
-                            : STATUS_LABEL[session.status]}{" "}
-                          · {relativeTime(session.updatedAt)}
+                          {current ? "Current" : STATUS_LABEL[session.status]} ·{" "}
+                          {relativeTime(session.updatedAt)}
                         </span>
                       </span>
                       {!current ? (

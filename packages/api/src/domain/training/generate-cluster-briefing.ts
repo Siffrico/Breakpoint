@@ -1,7 +1,7 @@
 import { ClusterBriefingSchema } from "@acme/validators";
 
-import { runAgent } from "./orchestration/agent-runtime";
 import type { ClusterBriefing } from "./types/training.types";
+import { runAgent } from "./orchestration/agent-runtime";
 
 export const generateClusterBriefing = async ({
   slotKind,

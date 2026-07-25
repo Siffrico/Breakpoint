@@ -144,9 +144,7 @@ export const trainingWorkspaceReadRepository = {
       ]);
     if (!profile || !plan || !summary) return null;
 
-    const learningNodes = plan.nodes.filter(
-      (node) => node.kind === "unit",
-    );
+    const learningNodes = plan.nodes.filter((node) => node.kind === "unit");
     const nextNode = plan.nodes.find((node) => node.id === plan.nextUnitId);
     const lastAttempt = attemptHistory.at(-1) ?? null;
     const demonstratedCapabilities: string[] = [];
@@ -173,10 +171,7 @@ export const trainingWorkspaceReadRepository = {
       totalUnits: learningNodes.length,
       nextUnitId: plan.nextUnitId,
       nextUnitTitle:
-        summary.currentUnit?.title ??
-        (nextNode
-          ? "Next unit ready"
-          : null),
+        summary.currentUnit?.title ?? (nextNode ? "Next unit ready" : null),
       blockingSignals:
         summary.recentFailureTags.length > 0
           ? summary.recentFailureTags

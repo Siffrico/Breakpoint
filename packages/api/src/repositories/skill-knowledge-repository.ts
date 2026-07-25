@@ -97,9 +97,7 @@ interface RecallCandidateRow {
   evidenceNodeId: string | null;
 }
 
-const mapRecallCandidate = (
-  row: RecallCandidateRow,
-): RecallCandidate | null =>
+const mapRecallCandidate = (row: RecallCandidateRow): RecallCandidate | null =>
   row.checkedAt
     ? {
         ...row,

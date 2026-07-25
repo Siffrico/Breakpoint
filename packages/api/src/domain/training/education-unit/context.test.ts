@@ -199,7 +199,10 @@ describe("buildUnitTurnContext", () => {
     const context = buildUnitTurnContext(
       baseInput({
         knowledge: {
-          workflow: { name: "Diagnose an incident", steps: ["Collect signals"] },
+          workflow: {
+            name: "Diagnose an incident",
+            steps: ["Collect signals"],
+          },
           framing: null,
           checked: [],
           targets: [
@@ -207,7 +210,8 @@ describe("buildUnitTurnContext", () => {
               id: "entry-3",
               kind: "concept",
               label: "Signal provenance",
-              content: "A signal is only as trustworthy as its collection path.",
+              content:
+                "A signal is only as trustworthy as its collection path.",
             },
           ],
         },

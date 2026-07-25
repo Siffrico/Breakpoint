@@ -51,7 +51,7 @@ export const ProfileRepoLive = Layer.effect(
                 }),
                 client
                   .select({
-                    date: sql<string>`to_char(${TrainingUnitAttempt.createdAt} at time zone 'UTC', 'YYYY-MM-DD')`,
+                    date: sql<string>`(${TrainingUnitAttempt.createdAt} at time zone 'UTC')::date`,
                     count: sql<number>`count(*)::int`,
                   })
                   .from(TrainingUnitAttempt)

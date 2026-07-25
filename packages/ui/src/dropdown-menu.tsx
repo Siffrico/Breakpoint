@@ -1,7 +1,7 @@
 "use client";
 
-import { CheckIcon, ChevronRightIcon } from "@radix-ui/react-icons";
 import { Menu } from "@base-ui-components/react/menu";
+import { CheckIcon, ChevronRightIcon } from "@radix-ui/react-icons";
 
 import { cn } from "@acme/ui";
 
@@ -46,7 +46,7 @@ export function DropdownMenuContent({
           data-slot="dropdown-menu-content"
           className={cn(
             "bg-popover text-popover-foreground z-50 min-w-[8rem] overflow-hidden rounded-none border p-1 shadow-md",
-            "origin-(--transform-origin) transition-[transform,opacity] duration-150 ease-out data-starting-style:scale-97 data-starting-style:opacity-0 data-ending-style:scale-97 data-ending-style:opacity-0",
+            "origin-(--transform-origin) data-starting-style:scale-97 data-starting-style:opacity-0 data-ending-style:scale-97 data-ending-style:opacity-0 transition-[transform,opacity] duration-150 ease-out",
             className,
           )}
         />
@@ -76,7 +76,7 @@ export function DropdownMenuItem({
       data-inset={inset}
       data-variant={variant}
       className={cn(
-        "focus:bg-accent focus:text-accent-foreground data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 dark:data-[variant=destructive]:focus:bg-destructive/20 data-[variant=destructive]:focus:text-destructive relative flex cursor-default items-center gap-2 rounded-none px-2 py-1.5 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[inset]:pl-8 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "focus:bg-accent focus:text-accent-foreground data-[variant=destructive]:text-destructive data-[variant=destructive]:focus:bg-destructive/10 dark:data-[variant=destructive]:focus:bg-destructive/20 data-[variant=destructive]:focus:text-destructive outline-hidden relative flex cursor-default select-none items-center gap-2 rounded-none px-2 py-1.5 text-sm data-[disabled]:pointer-events-none data-[inset]:pl-8 data-[disabled]:opacity-50 [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
         className,
       )}
       {...props}
@@ -94,7 +94,7 @@ export function DropdownMenuCheckboxItem({
     <Menu.CheckboxItem
       data-slot="dropdown-menu-checkbox-item"
       className={cn(
-        "focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-none py-1.5 pr-2 pl-8 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+        "focus:bg-accent focus:text-accent-foreground outline-hidden relative flex cursor-default select-none items-center gap-2 rounded-none py-1.5 pl-8 pr-2 text-sm data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
         className,
       )}
       checked={checked}
@@ -125,7 +125,7 @@ export function DropdownMenuRadioItem({
     <Menu.RadioItem
       data-slot="dropdown-menu-radio-item"
       className={cn(
-        "focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center gap-2 rounded-none py-1.5 pr-2 pl-8 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+        "focus:bg-accent focus:text-accent-foreground outline-hidden relative flex cursor-default select-none items-center gap-2 rounded-none py-1.5 pl-8 pr-2 text-sm data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
         className,
       )}
       {...props}
@@ -206,7 +206,7 @@ export function DropdownMenuSubTrigger({
       data-slot="dropdown-menu-sub-trigger"
       data-inset={inset}
       className={cn(
-        "focus:bg-accent focus:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground flex cursor-default items-center rounded-none px-2 py-1.5 text-sm outline-hidden select-none data-[inset]:pl-8",
+        "focus:bg-accent focus:text-accent-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground outline-hidden flex cursor-default select-none items-center rounded-none px-2 py-1.5 text-sm data-[inset]:pl-8",
         className,
       )}
       {...props}
@@ -228,7 +228,7 @@ export function DropdownMenuSubContent({
           data-slot="dropdown-menu-sub-content"
           className={cn(
             "bg-popover text-popover-foreground z-50 min-w-[8rem] overflow-hidden rounded-none border p-1 shadow-lg",
-            "origin-(--transform-origin) transition-[transform,opacity] duration-150 ease-out data-starting-style:scale-97 data-starting-style:opacity-0 data-ending-style:scale-97 data-ending-style:opacity-0",
+            "origin-(--transform-origin) data-starting-style:scale-97 data-starting-style:opacity-0 data-ending-style:scale-97 data-ending-style:opacity-0 transition-[transform,opacity] duration-150 ease-out",
             className,
           )}
         />

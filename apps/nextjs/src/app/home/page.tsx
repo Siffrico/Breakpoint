@@ -22,8 +22,14 @@ const NAV = [
 export default function HomePage() {
   return (
     <main className="oc-home">
-      <span className="oc-home__vline oc-home__vline--sidebar" aria-hidden="true" />
-      <span className="oc-home__vline oc-home__vline--text" aria-hidden="true" />
+      <span
+        className="oc-home__vline oc-home__vline--sidebar"
+        aria-hidden="true"
+      />
+      <span
+        className="oc-home__vline oc-home__vline--text"
+        aria-hidden="true"
+      />
 
       <aside className="oc-home__rail">
         <div className="oc-home__rail-inner">

@@ -938,9 +938,7 @@ export const buildProjectFromOnboarding = async ({
   }
 
   const firstReadyUnit = plan.nodes.find(
-    (node) =>
-      node.kind === "unit" &&
-      node.status === "ready",
+    (node) => node.kind === "unit" && node.status === "ready",
   );
   if (firstReadyUnit) {
     const prewarmFirstUnit = () =>

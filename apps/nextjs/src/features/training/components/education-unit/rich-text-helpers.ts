@@ -213,7 +213,9 @@ export function markdownToHtml(md: string): string {
     const heading = HEADING_RE.exec(line);
     if (heading) {
       const level = heading[1]?.length ?? 1;
-      blocks.push(`<h${level}>${inlineMarkdownToHtml(heading[2] ?? "")}</h${level}>`);
+      blocks.push(
+        `<h${level}>${inlineMarkdownToHtml(heading[2] ?? "")}</h${level}>`,
+      );
       i++;
       continue;
     }
@@ -338,5 +340,8 @@ export function htmlToMarkdown(root: HTMLElement): string {
   for (const child of Array.from(root.children)) {
     serializeBlock(child, lines, 0);
   }
-  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return lines
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }

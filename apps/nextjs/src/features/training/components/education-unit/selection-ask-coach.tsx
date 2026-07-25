@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { createPortal } from "react-dom";
 import { Sparkle } from "@phosphor-icons/react";
+import { createPortal } from "react-dom";
 
 /** Marks a DOM subtree whose text can be sent to the coach via selection. */
 export const ASK_COACH_SOURCE_ATTRIBUTE = "data-ask-coach-source";
@@ -57,7 +57,11 @@ const readSelectionTooltip = (): SelectionTooltipState | null => {
  * inside an [data-ask-coach-source] subtree. Selecting text and pressing the
  * tooltip hands the selected excerpt to `onAsk`.
  */
-export function SelectionAskCoach({ onAsk }: { onAsk: (text: string) => void }) {
+export function SelectionAskCoach({
+  onAsk,
+}: {
+  onAsk: (text: string) => void;
+}) {
   const [tooltip, setTooltip] = useState<SelectionTooltipState | null>(null);
 
   useEffect(() => {

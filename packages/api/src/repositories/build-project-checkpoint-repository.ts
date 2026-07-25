@@ -218,7 +218,13 @@ export const buildProjectCheckpointRepository = {
     if (existingPayload?.status === "building") {
       const [reclaimed] = await db
         .update(TrainingProjectBuildCheckpoint)
-        .set({ sourceKey, payload, leaseId: ownershipToken, leaseExpiresAt, updatedAt: new Date() })
+        .set({
+          sourceKey,
+          payload,
+          leaseId: ownershipToken,
+          leaseExpiresAt,
+          updatedAt: new Date(),
+        })
         .where(
           and(
             eq(TrainingProjectBuildCheckpoint.sessionId, sessionId),
@@ -267,12 +273,17 @@ export const buildProjectCheckpointRepository = {
   }) => {
     const [checkpoint] = await db
       .update(TrainingProjectBuildCheckpoint)
-      .set({ leaseExpiresAt: new Date(Date.now() + BUILD_LEASE_MS), updatedAt: new Date() })
-      .where(and(
-        eq(TrainingProjectBuildCheckpoint.sessionId, sessionId),
-        eq(TrainingProjectBuildCheckpoint.step, "run"),
-        eq(TrainingProjectBuildCheckpoint.leaseId, ownershipToken),
-      ))
+      .set({
+        leaseExpiresAt: new Date(Date.now() + BUILD_LEASE_MS),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(TrainingProjectBuildCheckpoint.sessionId, sessionId),
+          eq(TrainingProjectBuildCheckpoint.step, "run"),
+          eq(TrainingProjectBuildCheckpoint.leaseId, ownershipToken),
+        ),
+      )
       .returning();
     return checkpoint != null;
   },
@@ -301,8 +312,8 @@ export const buildProjectCheckpointRepository = {
       .where(
         and(
           eq(TrainingProjectBuildCheckpoint.sessionId, sessionId),
-        eq(TrainingProjectBuildCheckpoint.step, "run"),
-        eq(TrainingProjectBuildCheckpoint.leaseId, ownershipToken),
+          eq(TrainingProjectBuildCheckpoint.step, "run"),
+          eq(TrainingProjectBuildCheckpoint.leaseId, ownershipToken),
         ),
       )
       .returning();

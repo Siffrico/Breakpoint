@@ -11,8 +11,7 @@ type RuntimeNode = Pick<
   "id" | "kind" | "status" | "title" | "summary" | "whyItMatters" | "orderIndex"
 >;
 
-const isLearningUnit = (node: RuntimeNode) =>
-  node.kind === "unit";
+const isLearningUnit = (node: RuntimeNode) => node.kind === "unit";
 
 const getNextReadyUnit = (nodes: RuntimeNode[]) =>
   nodes

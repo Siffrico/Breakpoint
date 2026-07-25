@@ -1,6 +1,6 @@
-import { err, ok } from "../../../lib/result";
 import type { Result } from "../../../lib/result";
 import type { CurriculumPlan } from "../types/training.types";
+import { err, ok } from "../../../lib/result";
 
 interface ProjectOverview {
   title: string;
@@ -57,9 +57,7 @@ export const getProjectTopicWorkflow = async ({
     return err("Curriculum plan does not exist yet.");
   }
 
-  const abilityNodes = plan.nodes.filter(
-    (node) => node.kind === "ability",
-  );
+  const abilityNodes = plan.nodes.filter((node) => node.kind === "ability");
 
   const [progressRows, overview] = await Promise.all([
     deps.getJobProgress(abilityNodes.map((node) => node.id)),

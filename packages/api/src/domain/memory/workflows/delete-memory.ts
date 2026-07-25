@@ -1,5 +1,5 @@
-import type { MemoryError } from "../types";
 import type { Result } from "../../../lib/result";
+import type { MemoryError } from "../types";
 
 interface DeleteMemoryDependencies {
   removeMemory: () => Promise<Result<{ ok: true }, MemoryError>>;

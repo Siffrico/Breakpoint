@@ -1,6 +1,13 @@
 import type { PromptTemplate } from "./types";
 import { onboardingCurriculumArchitectPersona } from "./main-personas";
-import { ANTI_ASSUMPTION_PHILOSOPHY, CURRICULUM_HANDOFF_SPEC, CURRICULUM_TOPOLOGY, JOB_FIRST_CURRICULUM_ARCHITECTURE, PROBE_DESIGN_SPEC, UNIT_BUDGET } from "./shared-instructions";
+import {
+  ANTI_ASSUMPTION_PHILOSOPHY,
+  CURRICULUM_HANDOFF_SPEC,
+  CURRICULUM_TOPOLOGY,
+  JOB_FIRST_CURRICULUM_ARCHITECTURE,
+  PROBE_DESIGN_SPEC,
+  UNIT_BUDGET,
+} from "./shared-instructions";
 
 export const onboardingCurriculumPrompt: PromptTemplate = {
   id: "onboarding_curriculum",

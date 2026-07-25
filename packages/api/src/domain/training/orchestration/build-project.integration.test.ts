@@ -80,7 +80,6 @@ const curriculum: CurriculumDesignerOutput = {
   planDraft: {
     title: "Distributed systems",
     summary: "Practice operational judgment for replicated services.",
-    targetIdentity: "backend engineer",
     abilities: [
       {
         title: "Diagnose replicated-service failures",

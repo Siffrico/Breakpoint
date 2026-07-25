@@ -1,8 +1,12 @@
-import { MemoryImport as MemoryImportTable } from "@acme/db/schema";
 import type { db as databaseClient } from "@acme/db/client";
+import { MemoryImport as MemoryImportTable } from "@acme/db/schema";
 
-import type { MemoryError, MemoryImport, MemoryImportSource } from "../domain/memory/types";
-import type {Result} from "../lib/result";
+import type {
+  MemoryError,
+  MemoryImport,
+  MemoryImportSource,
+} from "../domain/memory/types";
+import type { Result } from "../lib/result";
 
 type Database = typeof databaseClient;
 

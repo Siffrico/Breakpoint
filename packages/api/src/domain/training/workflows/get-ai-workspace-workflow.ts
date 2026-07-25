@@ -3,6 +3,7 @@ import { Cause, Effect, Exit } from "effect";
 
 import type { DbError } from "../../../effect/errors";
 import type { Result } from "../../../lib/result";
+import type { PersistedUnitRun } from "../education-unit/unit";
 import type { CurriculumPlan } from "../types/training.types";
 import type {
   EvaluationPlan,
@@ -49,6 +50,13 @@ export interface AiWorkspaceView {
     attemptStartedAt: Date | null;
   } | null;
   unitAdvanceGate: ReturnType<typeof getUnitAdvanceGate>;
+  scenario: ScenarioBrief | null;
+}
+
+export interface ScenarioBrief {
+  stateA: string;
+  stateB: string;
+  frictionNoise: string | null;
 }
 
 /**
@@ -149,6 +157,9 @@ export const getAiWorkspaceWorkflowEffect = ({
     // as the send path resolves it — the view must report the same stage the
     // next submit will run.
     let resolvedState = state;
+    // The run whose scenario is live: a recall interlude runs its own source
+    // unit's cursor, so the active unit's run is not the one on screen.
+    let resolvedRun: PersistedUnitRun | null = active.run;
     if (state?.recallUnitId) {
       const recallNode = plan.nodes.find(
         (node) => node.id === state.recallUnitId,
@@ -164,6 +175,7 @@ export const getAiWorkspaceWorkflowEffect = ({
         unit: recallUnit,
         existing: plannedRecall?.run ?? null,
       });
+      resolvedRun = recallRun;
       resolvedState = {
         ...state,
         educationStage: recallRun.phase,
@@ -200,8 +212,7 @@ export const getAiWorkspaceWorkflowEffect = ({
         ? null
         : (plan.nodes.find(
             (node) =>
-              node.kind === "unit" &&
-              node.orderIndex > activeNode.orderIndex,
+              node.kind === "unit" && node.orderIndex > activeNode.orderIndex,
           ) ?? null);
 
     return {
@@ -233,6 +244,7 @@ export const getAiWorkspaceWorkflowEffect = ({
           plan,
           state: resolvedState,
         }),
+        scenario: projectScenarioBrief(resolvedRun),
       },
     } as const;
   });
@@ -261,6 +273,45 @@ export const getAiWorkspaceWorkflow = async ({
     return err(failure.message);
   }
   throw failure;
+};
+
+/**
+ * Projects the run's recorded scenario spec down to the fields a learner may
+ * see. Returns null whenever there is no scenario worth showing, which the
+ * client reads as "render no scenario affordance at all".
+ *
+ * Two ways the spec is unshowable, both closed here rather than in the UI:
+ *
+ *   - It is STALE. The run's pass cursor advances at teach → connect, but the
+ *     new round's spec is only recorded once Connect poses it. In that window
+ *     `run.pass` is already N+1 while the stored spec is still tagged N, and
+ *     that spec describes the scenario the learner just finished. Requiring the
+ *     tags to agree means a lagging spec is simply not shown — and the gap is
+ *     harmless, because during it the freshly posed scenario is still the
+ *     on-screen active prompt. (An untagged spec predates the tag: it is pass
+ *     one's, per the same convention the context builder uses.)
+ *
+ *   - It is PRE-V2. `stateA`/`stateB` are optional only so specs persisted
+ *     before the A→B shape still parse. Without both there is no scenario to
+ *     state, and half a panel is worse than none, so those rows get no brief.
+ *
+ * Fields are copied one by one, never spread: the same object carries
+ * `canonicalAnswer`, `reasoningPath`, `rubric` and `correctLetter`, and a
+ * spread would ship the answer key to the browser the moment a field is added.
+ */
+export const projectScenarioBrief = (
+  run: PersistedUnitRun | null,
+): ScenarioBrief | null => {
+  const spec = run?.scenarioSpec;
+  if (!run || !spec) return null;
+  if ((spec.pass ?? 1) !== run.pass) return null;
+  if (!spec.stateA || !spec.stateB) return null;
+
+  return {
+    stateA: spec.stateA,
+    stateB: spec.stateB,
+    frictionNoise: spec.frictionNoise ?? null,
+  };
 };
 
 export const buildWorkspaceIntroMessage = ({

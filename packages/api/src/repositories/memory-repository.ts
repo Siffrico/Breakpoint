@@ -1,9 +1,9 @@
-import { and, desc, eq, inArray } from "@acme/db";
 import type { db as databaseClient } from "@acme/db/client";
+import { and, desc, eq, inArray } from "@acme/db";
 import { Memory as MemoryTable } from "@acme/db/schema";
 
 import type { Memory, MemoryError, MemorySource } from "../domain/memory/types";
-import type {Result} from "../lib/result";
+import type { Result } from "../lib/result";
 
 type Database = typeof databaseClient;
 

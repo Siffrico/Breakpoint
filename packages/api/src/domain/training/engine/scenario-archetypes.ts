@@ -79,4 +79,8 @@ const isArchetype = (id: string): id is ScenarioArchetype =>
  * transform, which matches how those plans actually ran.
  */
 export const archetypeOfFormat = (format: ScenarioFormat): ScenarioArchetype =>
-  isArchetype(format.id) ? format.id : format.kind === "mcq" ? "select" : "transform";
+  isArchetype(format.id)
+    ? format.id
+    : format.kind === "mcq"
+      ? "select"
+      : "transform";

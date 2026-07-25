@@ -275,9 +275,7 @@ export const trainingCurriculumRepository = {
     }));
 
     const nextUnitNode = nodeRows.find(
-      (node) =>
-        node.kind === "unit" &&
-        node.status === "ready",
+      (node) => node.kind === "unit" && node.status === "ready",
     );
 
     return {

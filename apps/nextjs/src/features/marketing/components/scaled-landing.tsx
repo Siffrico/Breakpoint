@@ -16,12 +16,12 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 
+import { getSession } from "~/auth/server";
 import { MockupCurriculum } from "~/features/marketing/components/mockup-curriculum";
 import { MockupProject } from "~/features/marketing/components/mockup-project";
 import { MockupUnit } from "~/features/marketing/components/mockup-unit";
 import { MockupWorkspace } from "~/features/marketing/components/mockup-workspace";
 import { PlaceholderMock } from "~/features/marketing/components/placeholder-mock";
-import { getSession } from "~/auth/server";
 
 export async function ScaledLanding() {
   const session = await getSession();
@@ -201,7 +201,7 @@ function Hero({
   return (
     <section>
       <Container className="pt-24 pb-16 sm:pt-32">
-        <h1 className="max-w-[20ch] font-display text-[40px] leading-[1.06] tracking-[-0.035em] text-[var(--bp-fg)] sm:text-[56px] lg:text-[68px]">
+        <h1 className="font-display max-w-[20ch] text-[40px] leading-[1.06] tracking-[-0.035em] text-[var(--bp-fg)] sm:text-[56px] lg:text-[68px]">
           Built to make you measurably better, Breakpoint is the fastest way to
           close a real skill gap.
         </h1>
@@ -283,7 +283,7 @@ function IntegrationsSection() {
   return (
     <section className="py-20 sm:py-28">
       <Container>
-        <h2 className="max-w-2xl font-display text-[32px] leading-[1.1] tracking-[-0.03em] text-[var(--bp-fg)] sm:text-[44px]">
+        <h2 className="font-display max-w-2xl text-[32px] leading-[1.1] tracking-[-0.03em] text-[var(--bp-fg)] sm:text-[44px]">
           Fits the shape of your week
         </h2>
         <p className="mt-4 max-w-xl text-[15px] leading-relaxed text-[var(--bp-text-sec)] sm:text-[17px]">
@@ -296,7 +296,7 @@ function IntegrationsSection() {
               key={it.tag}
               className="border border-[var(--bp-border)] bg-[var(--bp-card)] p-6 transition-colors hover:bg-[var(--bp-card-hover)]"
             >
-              <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--bp-text-tert)]">
+              <p className="font-mono text-[10px] tracking-[0.18em] text-[var(--bp-text-tert)] uppercase">
                 {it.tag}
               </p>
               <h3 className="mt-3 text-[16px] tracking-[-0.01em] text-[var(--bp-fg)]">
@@ -455,7 +455,7 @@ function ChangelogSection() {
               className="group border border-[var(--bp-border)] bg-[var(--bp-card)] p-5 transition-colors hover:bg-[var(--bp-card-hover)]"
             >
               <div className="mb-4 aspect-[16/10] border border-[var(--bp-border-soft)] bg-[var(--bp-card-02)]" />
-              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--bp-text-tert)]">
+              <p className="font-mono text-[10px] tracking-[0.16em] text-[var(--bp-text-tert)] uppercase">
                 {date}
               </p>
               <h3 className="mt-1.5 text-[14px] text-[var(--bp-fg)] transition-colors group-hover:text-[var(--bp-accent)]">
@@ -526,7 +526,7 @@ function BlogSection() {
               className="group flex flex-col border border-[var(--bp-border)] bg-[var(--bp-card)] p-5 transition-colors hover:bg-[var(--bp-card-hover)]"
             >
               <div className="mb-4 aspect-[16/10] border border-[var(--bp-border-soft)] bg-[var(--bp-card-02)]" />
-              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-[var(--bp-text-tert)]">
+              <p className="font-mono text-[10px] tracking-[0.16em] text-[var(--bp-text-tert)] uppercase">
                 {tag} · {date}
               </p>
               <h3 className="mt-1.5 text-[14px] leading-snug text-[var(--bp-fg)] transition-colors group-hover:text-[var(--bp-accent)]">
@@ -552,7 +552,7 @@ function ClosingCta({
   return (
     <section className="border-t border-[var(--bp-border-soft)]">
       <Container className="py-28 text-center sm:py-36">
-        <h2 className="mx-auto max-w-2xl font-display text-[36px] leading-[1.05] tracking-[-0.035em] text-[var(--bp-fg)] sm:text-[56px]">
+        <h2 className="font-display mx-auto max-w-2xl text-[36px] leading-[1.05] tracking-[-0.035em] text-[var(--bp-fg)] sm:text-[56px]">
           Stop reading about who you said you'd become
         </h2>
         <p className="mx-auto mt-5 max-w-md text-[15px] leading-relaxed text-[var(--bp-text-sec)] sm:text-[17px]">
@@ -612,7 +612,7 @@ function LandingFooter() {
           </div>
           {cols.map((c) => (
             <div key={c.h}>
-              <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-[var(--bp-text-tert)]">
+              <p className="font-mono text-[10px] tracking-[0.18em] text-[var(--bp-text-tert)] uppercase">
                 {c.h}
               </p>
               <ul className="mt-3 space-y-2">

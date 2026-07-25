@@ -1,7 +1,10 @@
-import type { Memory, MemoryError } from "../types";
 import type { Result } from "../../../lib/result";
+import type { Memory, MemoryError } from "../types";
 import { err } from "../../../lib/result";
-import { getMemoryContentHash, normalizeMemoryContent } from "../policies/memory-caps";
+import {
+  getMemoryContentHash,
+  normalizeMemoryContent,
+} from "../policies/memory-caps";
 
 interface CreateManualMemoryDependencies {
   createMemory: (payload: {

@@ -48,6 +48,11 @@ interface AiWorkspaceIntroMessage {
   prompt: string;
   helper: string | null;
 }
+interface AiWorkspaceScenario {
+  stateA: string;
+  stateB: string;
+  frictionNoise: string | null;
+}
 interface WorkspaceFallbackTurn {
   helper: string | null;
   prompt: string;
@@ -174,7 +179,7 @@ function PromptTurn({
           // streamed text straight — no client-side pacing needed.
           <AssistantRichText
             content={prompt}
-            className="text-foreground/94 text-[15px] leading-7 [&_h2]:mt-0 [&_h2]:!mb-3 [&_h2]:text-[18px] [&_h2]:font-semibold [&_li]:my-1 [&_li]:leading-7 [&_ol]:!my-3 [&_ol]:list-decimal [&_ol]:pl-7 [&_p]:!my-3 [&_strong]:font-semibold [&_ul]:!my-3 [&_ul]:list-disc [&_ul]:pl-7 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
+            className="text-foreground/94 [&_h2]:text-foreground/52 [&_hr]:border-foreground/10 text-[15px] leading-7 [&_h1]:mt-0 [&_h1]:!mb-3 [&_h1]:text-[24px] [&_h1]:leading-8 [&_h1]:font-semibold [&_h1]:tracking-[-0.025em] [&_h2]:mt-7 [&_h2]:!mb-2 [&_h2]:text-[13px] [&_h2]:font-medium [&_h2]:tracking-[0.08em] [&_h3]:mt-6 [&_h3]:!mb-2 [&_h3]:text-[17px] [&_h3]:font-semibold [&_hr]:my-6 [&_li]:my-1 [&_li]:leading-7 [&_ol]:!my-3 [&_ol]:list-decimal [&_ol]:pl-7 [&_p]:!my-3 [&_strong]:font-semibold [&_ul]:!my-3 [&_ul]:list-disc [&_ul]:pl-7 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
           />
         ) : null}
         {helper ? (
@@ -185,6 +190,45 @@ function PromptTurn({
         ) : null}
       </div>
     </section>
+  );
+}
+
+/**
+ * The scenario, read in full. Rendered as an overlay over the trail rather than
+ * in place of it: the trail keeps its DOM and its scroll offset, so returning
+ * lands exactly where you left, and a reply that streams in while you are
+ * reading just accumulates behind the panel.
+ */
+function ScenarioPanel({ scenario }: { scenario: AiWorkspaceScenario }) {
+  return (
+    <div className="bg-background absolute inset-0 z-10 overflow-y-auto">
+      <div className={`${CHAT_COLUMN_CLASS} py-6 font-sans`}>
+        <h2 className="text-foreground/52 text-[13px] font-medium tracking-[0.08em]">
+          THE SITUATION
+        </h2>
+        <p className="text-foreground/94 mt-2 text-[15px] leading-7">
+          {scenario.stateA}
+        </p>
+
+        <h2 className="text-foreground/52 mt-7 text-[13px] font-medium tracking-[0.08em]">
+          WHAT DONE LOOKS LIKE
+        </h2>
+        <p className="text-foreground/94 mt-2 text-[15px] leading-7">
+          {scenario.stateB}
+        </p>
+
+        {scenario.frictionNoise ? (
+          <>
+            <h2 className="text-foreground/52 mt-7 text-[13px] font-medium tracking-[0.08em]">
+              COMPLICATIONS
+            </h2>
+            <p className="text-foreground/94 mt-2 text-[15px] leading-7">
+              {scenario.frictionNoise}
+            </p>
+          </>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -363,6 +407,15 @@ const getIntroMessage = (
       | null
   )?.introMessage ?? null;
 
+const getScenario = (
+  workspace: AiWorkspace | null,
+): AiWorkspaceScenario | null =>
+  (
+    workspace as
+      | (AiWorkspace & { scenario?: AiWorkspaceScenario | null })
+      | null
+  )?.scenario ?? null;
+
 const transcriptToChatMessages = (
   workspace: AiWorkspace | null,
   sessionId: string,
@@ -454,6 +507,7 @@ function EducationUnitWorkspaceComponent({
     enabled: !preview && unit.activeStage === "complete",
   });
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isScenarioOpen, setIsScenarioOpen] = useState(false);
   const [previewIsRunning, setPreviewIsRunning] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -648,6 +702,16 @@ function EducationUnitWorkspaceComponent({
 
   const introMessage = getIntroMessage(aiWorkspace);
   const fallbackTurn = getFallbackTurn(unit);
+  const scenario = getScenario(aiWorkspace);
+  const hasScenario = scenario !== null;
+
+  // Close on any change of which scenario is live. Covers both directions:
+  // a scenario disappearing mid-read, and the next pass's scenario arriving —
+  // which must not silently reopen the panel over a chat the learner returned
+  // to. Only ever closes, so it cannot fight the learner's own toggle.
+  useEffect(() => {
+    setIsScenarioOpen(false);
+  }, [unit.nodeId, hasScenario]);
   const latestAssistantPromptId = useMemo(() => {
     const assistantPromptCount = chatMessages.filter(
       (message) =>
@@ -890,7 +954,10 @@ function EducationUnitWorkspaceComponent({
         total: aiWorkspace.evaluationProgress.scenarioCount,
       }
     : null;
-  const anchorDetail = introMessage?.prompt ?? fallbackTurn.prompt;
+  // Rendering is gated on the scenario still being there, not on the flag
+  // alone, so a scenario that goes away (pass advance, unit advance) can never
+  // leave an empty panel sitting over the trail.
+  const showScenario = isScenarioOpen && scenario !== null;
 
   const trailContent = awaitingNextUnitContent ? (
     <PromptTurn prompt="" statusLabel="Thinking…" />
@@ -1061,17 +1128,25 @@ function EducationUnitWorkspaceComponent({
             title={anchorTitle}
             stage={anchorStage}
             progress={anchorProgress}
-            detail={anchorDetail}
+            isScenarioOpen={hasScenario ? showScenario : null}
+            onToggleScenario={() => setIsScenarioOpen((open) => !open)}
             columnClassName={CHAT_COLUMN_CLASS}
           />
-          <div
-            ref={scrollContainerRef}
-            className="min-h-0 flex-1 overflow-y-auto"
-          >
-            <div className="pt-5 pb-8">
-              {trailContent}
-              <div ref={bottomRef} />
+          {/* Own positioning context for the scenario overlay — the outer
+              wrapper must stay unpositioned for the focus sheet. */}
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            <div
+              ref={scrollContainerRef}
+              className="min-h-0 flex-1 overflow-y-auto"
+            >
+              <div className="pt-5 pb-8">
+                {trailContent}
+                <div ref={bottomRef} />
+              </div>
             </div>
+            {showScenario && scenario ? (
+              <ScenarioPanel scenario={scenario} />
+            ) : null}
           </div>
           <ChatComposerDock className="shrink-0 pt-2 pb-2">
             {inputZone}
@@ -1090,17 +1165,23 @@ function EducationUnitWorkspaceComponent({
           title={anchorTitle}
           stage={anchorStage}
           progress={anchorProgress}
-          detail={anchorDetail}
+          isScenarioOpen={hasScenario ? showScenario : null}
+          onToggleScenario={() => setIsScenarioOpen((open) => !open)}
           columnClassName={CHAT_COLUMN_CLASS}
         />
-        <div
-          ref={scrollContainerRef}
-          className="min-h-0 flex-1 overflow-y-auto"
-        >
-          <div className="pt-5 pb-8">
-            {trailContent}
-            <div ref={bottomRef} />
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <div
+            ref={scrollContainerRef}
+            className="min-h-0 flex-1 overflow-y-auto"
+          >
+            <div className="pt-5 pb-8">
+              {trailContent}
+              <div ref={bottomRef} />
+            </div>
           </div>
+          {showScenario && scenario ? (
+            <ScenarioPanel scenario={scenario} />
+          ) : null}
         </div>
         <div className="bg-background/95 shrink-0 backdrop-blur-sm">
           <div className="mx-auto w-[calc(100%-2rem)] max-w-[48.9rem] pt-3 pb-5 sm:w-[calc(100%-3rem)]">

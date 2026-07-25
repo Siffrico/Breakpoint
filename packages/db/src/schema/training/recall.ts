@@ -36,7 +36,10 @@ export const TrainingRecallGate = pgTable(
       table.planId,
       table.triggerAfterUnitNodeId,
     ),
-    index("becoming_recall_gate_session_status_idx").on(table.sessionId, table.status),
+    index("becoming_recall_gate_session_status_idx").on(
+      table.sessionId,
+      table.status,
+    ),
   ],
 );
 
@@ -75,7 +78,10 @@ export const TrainingRecallProbe = pgTable(
       table.gateId,
       table.probeOrder,
     ),
-    index("becoming_recall_probe_gate_status_idx").on(table.gateId, table.status),
+    index("becoming_recall_probe_gate_status_idx").on(
+      table.gateId,
+      table.status,
+    ),
   ],
 );
 
@@ -110,6 +116,9 @@ export const TrainingUnitRecallState = pgTable(
       table.unitNodeId,
       table.planId,
     ),
-    index("becoming_unit_recall_state_plan_status_idx").on(table.planId, table.status),
+    index("becoming_unit_recall_state_plan_status_idx").on(
+      table.planId,
+      table.status,
+    ),
   ],
 );

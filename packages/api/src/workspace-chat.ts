@@ -227,10 +227,7 @@ const streamWorkspaceChatWithModelPreference = async ({
                       );
                       return Effect.runPromise(
                         run({
-                          isAwaitingUnitAdvance: ({
-                            skillNodeId,
-                            sessionId,
-                          }) =>
+                          isAwaitingUnitAdvance: ({ skillNodeId, sessionId }) =>
                             queryWithClient(
                               transactionDb,
                               "loadPregenerationAdvanceGate",
@@ -243,8 +240,7 @@ const streamWorkspaceChatWithModelPreference = async ({
                                   plan?.nodes.find(
                                     (candidate) =>
                                       candidate.kind === "unit" &&
-                                      candidate.parentNodeId ===
-                                        skillNodeId &&
+                                      candidate.parentNodeId === skillNodeId &&
                                       candidate.status === "ready",
                                   ) ?? null;
                                 const unit = node

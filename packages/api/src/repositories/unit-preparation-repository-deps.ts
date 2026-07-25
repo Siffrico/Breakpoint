@@ -1,10 +1,10 @@
 import type { db as databaseClient } from "@acme/db/client";
 
 import type { UnitPreparationDependencies } from "../domain/training/unit-preparation/prepare-unit-content";
+import { skillKnowledgeRepository } from "./skill-knowledge-repository";
 import { trainingAttemptRepository } from "./training-attempt-repository";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
 import { trainingOnboardingRepository } from "./training-onboarding-repository";
-import { skillKnowledgeRepository } from "./skill-knowledge-repository";
 import { withUnitBuildLock } from "./unit-build-lock";
 
 type Database = typeof databaseClient;

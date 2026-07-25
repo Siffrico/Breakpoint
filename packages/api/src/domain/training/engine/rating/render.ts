@@ -1,14 +1,13 @@
 import type { ScenarioFormat } from "@acme/validators";
 
-import {
-  archetypeDirectiveLines,
-  archetypeOfFormat,
-} from "../scenario-archetypes";
-
 import type { RatingPredictionRecord } from "./apply-evaluation";
 import type { DifficultyBand, ScenarioDirective } from "./decide";
 import type { DifficultyDialPreset } from "./difficulty-priors";
 import type { SupportLevel } from "./policy";
+import {
+  archetypeDirectiveLines,
+  archetypeOfFormat,
+} from "../scenario-archetypes";
 
 /**
  * Directive → prompt block. This is the translation layer between the

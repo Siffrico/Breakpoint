@@ -69,8 +69,7 @@ export default function ChatLabPage() {
   const [reasoningStyle, setReasoningStyle] =
     useState<ReasoningStyle>("shimmer");
 
-  const design =
-    ALL_DESIGNS.find((d) => d.id === designId) ?? CURRENT_DESIGN;
+  const design = ALL_DESIGNS.find((d) => d.id === designId) ?? CURRENT_DESIGN;
   const fixture =
     CHAT_FIXTURES.find((f) => f.id === fixtureId) ?? DEFAULT_FIXTURE;
 
@@ -122,8 +121,9 @@ export default function ChatLabPage() {
             <p className="mt-2 text-sm leading-6 text-white/55">
               A test bench for assistant-message rendering. Pick a message,
               press <span className="text-white/80">Stream</span>, and watch it
-              paint through the real <code className="text-white/75">useChat</code>{" "}
-              pipeline — only the network is faked.
+              paint through the real{" "}
+              <code className="text-white/75">useChat</code> pipeline — only the
+              network is faked.
             </p>
           </div>
 
@@ -221,7 +221,7 @@ export default function ChatLabPage() {
                   onChange={(e) => setDelayMs(Number(e.target.value))}
                   className="accent-white"
                 />
-                <span className="w-10 tabular-nums text-white/80">
+                <span className="w-10 text-white/80 tabular-nums">
                   {delayMs}ms
                 </span>
               </label>
@@ -304,10 +304,10 @@ function Section({
 }) {
   return (
     <div>
-      <div className="text-xs font-medium uppercase tracking-wider text-white/40">
+      <div className="text-xs font-medium tracking-wider text-white/40 uppercase">
         {title}
       </div>
-      <p className="mb-3 mt-1 text-xs leading-5 text-white/30">{hint}</p>
+      <p className="mt-1 mb-3 text-xs leading-5 text-white/30">{hint}</p>
       <div className="flex flex-col gap-1.5">{children}</div>
     </div>
   );
@@ -335,7 +335,9 @@ function RailButton({
       }`}
     >
       <div className="text-sm text-white/90">{label}</div>
-      <div className="mt-0.5 text-xs leading-5 text-white/45">{description}</div>
+      <div className="mt-0.5 text-xs leading-5 text-white/45">
+        {description}
+      </div>
     </button>
   );
 }

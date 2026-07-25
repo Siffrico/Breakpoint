@@ -29,7 +29,7 @@ export function PlaceholderMock({
         className="flex flex-col items-center justify-center gap-2 px-6 text-center"
         style={{ aspectRatio: ratio }}
       >
-        <span className="font-mono text-[11px] uppercase tracking-[0.24em] text-[var(--bp-text-tert)]">
+        <span className="font-mono text-[11px] tracking-[0.24em] text-[var(--bp-text-tert)] uppercase">
           Placeholder mock
         </span>
         <span className="text-[13px] text-[var(--bp-text-sec)]">{label}</span>

@@ -12,7 +12,7 @@ describe("agent config", () => {
       outputTokenLimit: 8_192,
       totalGenerationTokenLimit: 32_768,
       maxSteps: 10,
-      search: false,
+      search: true,
     });
   });
 

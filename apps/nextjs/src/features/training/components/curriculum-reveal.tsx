@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useMemo } from "react";
+import Link from "next/link";
 
 import type { RouterOutputs } from "@acme/api";
 import { Button } from "@acme/ui/button";
@@ -21,31 +21,31 @@ export function CurriculumReveal({
   preview?: boolean;
 }) {
   const tree = useMemo(() => buildTree(plan.nodes), [plan.nodes]);
-  const unitCount = plan.nodes.filter(
-    (n) => n.kind === "unit",
-  ).length;
+  const unitCount = plan.nodes.filter((n) => n.kind === "unit").length;
   const beginHref = preview ? "/ui/train" : `/workspace?session=${sessionId}`;
-  const workspaceHref = preview ? "/ui/workspace" : `/workspace?session=${sessionId}`;
+  const workspaceHref = preview
+    ? "/ui/workspace"
+    : `/workspace?session=${sessionId}`;
 
   return (
-    <main className="min-h-dvh bg-background text-foreground">
-      <div className="mx-auto max-w-3xl border-x border-border/50">
-        <section className="border-b border-border p-6">
+    <main className="bg-background text-foreground min-h-dvh">
+      <div className="border-border/50 mx-auto max-w-3xl border-x">
+        <section className="border-border border-b p-6">
           <h1 className="font-display text-2xl tracking-[-0.04em]">
             {plan.title}
           </h1>
-          <div className="mt-1 font-mono text-xs text-muted-foreground">
+          <div className="text-muted-foreground mt-1 font-mono text-xs">
             {unitCount} units
           </div>
         </section>
 
-        <section className="border-b border-border p-6">
-          <p className="text-sm leading-6 text-muted-foreground">
+        <section className="border-border border-b p-6">
+          <p className="text-muted-foreground text-sm leading-6">
             {plan.summary}
           </p>
         </section>
 
-        <section className="border-b border-border p-6">
+        <section className="border-border border-b p-6">
           <TreeView nodes={tree} defaultExpanded />
         </section>
 
@@ -61,7 +61,7 @@ export function CurriculumReveal({
           <Button
             render={<Link href={workspaceHref} />}
             variant="outline"
-            className="h-10 rounded-none border-border bg-transparent px-5 text-foreground hover:bg-white/5"
+            className="border-border text-foreground h-10 rounded-none bg-transparent px-5 hover:bg-white/5"
           >
             Back
           </Button>

@@ -67,7 +67,10 @@ describe("getProjectTopicWorkflow", () => {
     // Progress read is scoped to the ability nodes only.
     expect(getJobProgress).toHaveBeenCalledWith(["ability-a", "ability-b"]);
     // Rated ability carries its Glicko state; an unrated ability is null.
-    expect(result.data.abilities[0]).toMatchObject({ rating: 1240, ratingDeviation: 85 });
+    expect(result.data.abilities[0]).toMatchObject({
+      rating: 1240,
+      ratingDeviation: 85,
+    });
     expect(result.data.abilities[1]).toMatchObject({
       rating: null,
       ratingDeviation: null,

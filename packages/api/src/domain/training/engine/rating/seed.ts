@@ -12,9 +12,7 @@ import { DEFAULT_RATING_POLICY } from "./policy";
  * enough to shift the mean, but the ladder should still probe to localise the
  * true rating before optimising challenge. Volatility is the policy default.
  */
-export const seedFromStartingPoint = (
-  tier: StartingPointTier,
-): SeedRating => ({
+export const seedFromStartingPoint = (tier: StartingPointTier): SeedRating => ({
   rating: SEED_RATING_BY_TIER[tier],
   ratingDeviation: 250,
   volatility: DEFAULT_RATING_POLICY.initialVolatility,

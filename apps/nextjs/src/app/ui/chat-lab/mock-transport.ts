@@ -50,9 +50,9 @@ export class MockChatTransport<UI_MESSAGE extends UIMessage>
 
   sendMessages({
     abortSignal,
-  }: Parameters<
-    ChatTransport<UI_MESSAGE>["sendMessages"]
-  >[0]): Promise<ReadableStream<UIMessageChunk>> {
+  }: Parameters<ChatTransport<UI_MESSAGE>["sendMessages"]>[0]): Promise<
+    ReadableStream<UIMessageChunk>
+  > {
     const { text, reasoningText, chunkMode, delayMs } = this.options;
     const parts = splitIntoChunks(text, chunkMode);
     // Reasoning streams faster than answer text (real providers emit thinking

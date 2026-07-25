@@ -62,7 +62,8 @@ export const listUnfinishedOnboardingSessionsWorkflow = async ({
   return sessions.map((session) => {
     const runRecord = runBySessionId.get(session.id);
     const run = runRecord?.run;
-    const updatedAt = runRecord?.updatedAt ?? session.updatedAt ?? session.createdAt;
+    const updatedAt =
+      runRecord?.updatedAt ?? session.updatedAt ?? session.createdAt;
     const projectName = run?.state.projectName?.trim() ?? "";
     const provisionalTitle = deriveProvisionalProjectTitle(
       firstMessageBySessionId.get(session.id) ?? "",
@@ -70,8 +71,7 @@ export const listUnfinishedOnboardingSessionsWorkflow = async ({
     const title =
       [projectName, provisionalTitle].find(
         (candidate) => (candidate?.length ?? 0) > 0,
-      ) ??
-      "New onboarding";
+      ) ?? "New onboarding";
     const status =
       run?.status === "error"
         ? "error"

@@ -1,11 +1,10 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 
 export const metadata: Metadata = {
   title: "Plan",
   description: "Review your Breakpoint plan.",
 };
-
-import { redirect } from "next/navigation";
 
 export default async function PlanPage(props: {
   searchParams: Promise<{ session?: string }>;

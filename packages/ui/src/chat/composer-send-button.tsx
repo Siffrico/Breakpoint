@@ -61,14 +61,17 @@ export function ComposerSendButton({
         onSubmit();
       }}
       className={cn(
-        "inline-flex size-8 shrink-0 items-center justify-center bg-foreground text-background outline-none transition-[opacity,background-color,color] hover:opacity-90 focus:outline-none focus-visible:outline-none disabled:cursor-not-allowed disabled:bg-foreground/[0.14] disabled:text-foreground/40 disabled:hover:opacity-100",
+        "bg-foreground text-background disabled:bg-foreground/[0.14] disabled:text-foreground/40 inline-flex size-8 shrink-0 items-center justify-center outline-none transition-[opacity,background-color,color] hover:opacity-90 focus:outline-none focus-visible:outline-none disabled:cursor-not-allowed disabled:hover:opacity-100",
         rounding === "circular" ? "rounded-full" : "rounded-lg",
         className,
       )}
     >
       {children ??
         (stopping ? (
-          <span aria-hidden="true" className="size-2.5 rounded-[1px] bg-current" />
+          <span
+            aria-hidden="true"
+            className="size-2.5 rounded-[1px] bg-current"
+          />
         ) : (
           <ArrowUp weight="bold" className="size-4" />
         ))}

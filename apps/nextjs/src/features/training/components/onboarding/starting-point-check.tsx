@@ -52,7 +52,11 @@ export function StartingPointCheck({
   if (toolPart.state === "output-available" && toolPart.output) {
     return (
       <div className="text-muted-foreground animate-in fade-in mt-2 flex items-center gap-2 text-[13px] leading-6 duration-300">
-        <Check size={14} weight="bold" className="text-foreground/70 shrink-0" />
+        <Check
+          size={14}
+          weight="bold"
+          className="text-foreground/70 shrink-0"
+        />
         <span>{toolPart.output.label}</span>
       </div>
     );
@@ -84,7 +88,7 @@ export function StartingPointCheck({
                   variant="outline"
                   size="sm"
                   disabled={!ready}
-                  className="h-auto justify-start whitespace-normal py-2 text-left text-[13px] leading-5"
+                  className="h-auto justify-start py-2 text-left text-[13px] leading-5 whitespace-normal"
                   onClick={() => {
                     if (!option.label || !option.tier) return;
                     onAnswer({

@@ -60,10 +60,10 @@ const plan = {
 } satisfies CurriculumPlan;
 
 describe("continueLearningProjectWorkflow", () => {
-  it("prepares the earliest ready education unit", async () => {
-    const prepareUnit = vi.fn().mockResolvedValue({
-      success: true,
-      data: { activeStage: "challenge" },
+  it("starts the earliest ready unit without waiting for preparation", async () => {
+    const preparation = new Promise<void>(() => undefined);
+    const startUnitPreparation = vi.fn(() => {
+      void preparation;
     });
 
     const result = await continueLearningProjectWorkflow({
@@ -71,12 +71,12 @@ describe("continueLearningProjectWorkflow", () => {
       deps: {
         getActivePlan: vi.fn().mockResolvedValue(plan),
         recoverSkillUnits: vi.fn().mockResolvedValue(undefined),
-        prepareUnit,
+        startUnitPreparation,
       },
     });
 
-    expect(prepareUnit).toHaveBeenCalledOnce();
-    expect(prepareUnit).toHaveBeenCalledWith({
+    expect(startUnitPreparation).toHaveBeenCalledOnce();
+    expect(startUnitPreparation).toHaveBeenCalledWith({
       nodeId: "unit-ready",
       sessionId: "session-1",
     });
@@ -91,7 +91,7 @@ describe("continueLearningProjectWorkflow", () => {
   });
 
   it("does not prepare a locked project", async () => {
-    const prepareUnit = vi.fn();
+    const startUnitPreparation = vi.fn();
     const result = await continueLearningProjectWorkflow({
       sessionId: "session-1",
       deps: {
@@ -104,7 +104,7 @@ describe("continueLearningProjectWorkflow", () => {
           })),
         }),
         recoverSkillUnits: vi.fn().mockResolvedValue(undefined),
-        prepareUnit,
+        startUnitPreparation,
       },
     });
 
@@ -112,11 +112,11 @@ describe("continueLearningProjectWorkflow", () => {
       success: false,
       error: "The next education unit is not ready yet.",
     });
-    expect(prepareUnit).not.toHaveBeenCalled();
+    expect(startUnitPreparation).not.toHaveBeenCalled();
   });
 
   it("reports a completed project without preparing content", async () => {
-    const prepareUnit = vi.fn();
+    const startUnitPreparation = vi.fn();
     const result = await continueLearningProjectWorkflow({
       sessionId: "session-1",
       deps: {
@@ -129,7 +129,7 @@ describe("continueLearningProjectWorkflow", () => {
           })),
         }),
         recoverSkillUnits: vi.fn().mockResolvedValue(undefined),
-        prepareUnit,
+        startUnitPreparation,
       },
     });
 
@@ -137,26 +137,7 @@ describe("continueLearningProjectWorkflow", () => {
       success: false,
       error: "This learning project is complete.",
     });
-    expect(prepareUnit).not.toHaveBeenCalled();
-  });
-
-  it("preserves scenario preparation failures", async () => {
-    const result = await continueLearningProjectWorkflow({
-      sessionId: "session-1",
-      deps: {
-        getActivePlan: vi.fn().mockResolvedValue(plan),
-        recoverSkillUnits: vi.fn().mockResolvedValue(undefined),
-        prepareUnit: vi.fn().mockResolvedValue({
-          success: false,
-          error: "Failed to generate unit setup.",
-        }),
-      },
-    });
-
-    expect(result).toEqual({
-      success: false,
-      error: "Failed to generate unit setup.",
-    });
+    expect(startUnitPreparation).not.toHaveBeenCalled();
   });
 
   it("recovers missing dynamic units before reporting the project blocked", async () => {
@@ -180,7 +161,7 @@ describe("continueLearningProjectWorkflow", () => {
       deps: {
         getActivePlan,
         recoverSkillUnits,
-        prepareUnit: vi.fn().mockResolvedValue({ success: true, data: {} }),
+        startUnitPreparation: vi.fn(),
       },
     });
 

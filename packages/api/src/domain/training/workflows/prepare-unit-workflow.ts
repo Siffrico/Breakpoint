@@ -7,9 +7,7 @@ import type {
 import type { UnitPreparationDependencies } from "../unit-preparation/prepare-unit-content";
 import { err, ok } from "../../../lib/result";
 import { generateClusterBriefing } from "../generate-cluster-briefing";
-import {
-  getEducationUnitState,
-} from "../policies/education-unit-state-policy";
+import { getEducationUnitState } from "../policies/education-unit-state-policy";
 import { runPrepareUnit } from "../unit-preparation/prepare-unit-edge";
 
 interface PreparationPlanNode {

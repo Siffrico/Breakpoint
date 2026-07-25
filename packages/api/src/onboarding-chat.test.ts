@@ -1,8 +1,15 @@
+import type { UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
 
-import { validateOnboardingMessages } from "./onboarding-chat";
+import {
+  omitPendingOnboardingToolCalls,
+  validateOnboardingMessages,
+} from "./onboarding-chat";
 
-const message = (role: "assistant" | "system" | "user", text: string) => ({
+const message = (
+  role: "assistant" | "system" | "user",
+  text: string,
+): UIMessage => ({
   id: `${role}-message`,
   role,
   parts: [{ type: "text", text }],
@@ -43,5 +50,59 @@ describe("validateOnboardingMessages", () => {
     ]);
 
     expect(result.success).toBe(false);
+  });
+});
+
+describe("omitPendingOnboardingToolCalls", () => {
+  it("omits a project confirmation that has not been answered when the learner sends a follow-up", () => {
+    const messages = omitPendingOnboardingToolCalls([
+      {
+        id: "proposal",
+        role: "assistant" as const,
+        parts: [
+          { type: "text" as const, text: "Which project fits?" },
+          {
+            type: "tool-createProject" as const,
+            toolCallId: "call-1",
+            state: "approval-requested" as const,
+            input: {
+              projectName: "system design",
+              targetIdentity: "systems architect",
+              summary: "Build reliable systems.",
+            },
+            approval: { id: "approval-1" },
+          },
+        ],
+      },
+      message("user", "I want to focus on UX and backend architecture."),
+    ]);
+
+    expect(messages[0]?.parts).toEqual([
+      { type: "text", text: "Which project fits?" },
+    ]);
+  });
+
+  it("preserves an answered confirmation so the approved build can run", () => {
+    const messages = omitPendingOnboardingToolCalls([
+      {
+        id: "proposal",
+        role: "assistant" as const,
+        parts: [
+          {
+            type: "tool-createProject" as const,
+            toolCallId: "call-1",
+            state: "approval-responded" as const,
+            input: {
+              projectName: "system design",
+              targetIdentity: "systems architect",
+              summary: "Build reliable systems.",
+            },
+            approval: { id: "approval-1", approved: true },
+          },
+        ],
+      },
+    ]);
+
+    expect(messages[0]?.parts).toHaveLength(1);
   });
 });

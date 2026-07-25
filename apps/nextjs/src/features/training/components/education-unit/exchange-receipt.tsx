@@ -1,7 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { CaretRight, ChatCircle, Copy, PencilSimple } from "@phosphor-icons/react";
+import {
+  CaretRight,
+  ChatCircle,
+  Copy,
+  PencilSimple,
+} from "@phosphor-icons/react";
 
 import { Button } from "@acme/ui/button";
 import { toast } from "@acme/ui/toast";
@@ -94,7 +99,9 @@ export function ExchangeReceipt({
             {answer ? (
               <div
                 className={
-                  prompt ? "border-foreground/[0.08] border-t px-3.5 py-3" : "px-3.5 py-3"
+                  prompt
+                    ? "border-foreground/[0.08] border-t px-3.5 py-3"
+                    : "px-3.5 py-3"
                 }
               >
                 <p className="text-foreground/42 mb-1.5 text-[10.5px] font-medium tracking-[0.08em] uppercase">

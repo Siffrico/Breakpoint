@@ -4,13 +4,13 @@ import type { db as databaseClient } from "@acme/db/client";
 import { StartingPointTierSchema } from "@acme/validators";
 
 import type { BuildProjectDeps } from "../domain/training/orchestration/build-project";
-import { decideMasteryProgression } from "../domain/training/engine/plan-progression";
-import { requireAbilityStage } from "../domain/training/engine/progression-model";
-import { ArtifactBuildError } from "../domain/training/orchestration/agent-runtime";
 import {
   getMemoryContentHash,
   normalizeMemoryContent,
 } from "../domain/memory/policies/memory-caps";
+import { decideMasteryProgression } from "../domain/training/engine/plan-progression";
+import { requireAbilityStage } from "../domain/training/engine/progression-model";
+import { ArtifactBuildError } from "../domain/training/orchestration/agent-runtime";
 import { createNextUnit } from "../domain/training/unit-creation/create-next-unit";
 import { runPrepareUnit } from "../domain/training/unit-preparation/prepare-unit-edge";
 import { buildProjectCheckpointRepository } from "./build-project-checkpoint-repository";

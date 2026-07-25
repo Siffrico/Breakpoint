@@ -133,7 +133,6 @@ const curriculum: CurriculumDesignerOutput = {
   planDraft: {
     title: "Distributed systems",
     summary: "Practice operational judgment for replicated services.",
-    targetIdentity: "backend engineer",
     abilities: Array.from({ length: 3 }, (_, index) => buildAbility(index)),
   },
 };

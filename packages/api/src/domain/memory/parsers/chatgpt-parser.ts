@@ -1,4 +1,8 @@
-import { memoryCaps, normalizeImportPayload, normalizeMemoryContent } from "../policies/memory-caps";
+import {
+  memoryCaps,
+  normalizeImportPayload,
+  normalizeMemoryContent,
+} from "../policies/memory-caps";
 
 const bulletPattern = /^(?:[-*•]+|\d+[.)]|[a-z][.)])\s+/i;
 

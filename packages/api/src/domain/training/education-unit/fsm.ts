@@ -13,7 +13,13 @@
 //   Every round READS difficulty; only the recipe's writeOnPass round WRITES it,
 //   and only when the recipe's wiring says this unit writes at all.
 
-import type { PassIndex, UnitEvent, UnitPhase, UnitRecipe, UnitState } from "./unit";
+import type {
+  PassIndex,
+  UnitEvent,
+  UnitPhase,
+  UnitRecipe,
+  UnitState,
+} from "./unit";
 
 export type { UnitEvent } from "./unit";
 
@@ -103,8 +109,7 @@ export const transition = (
       return {
         ...current,
         connectGrills: grills,
-        connectTeachDue:
-          grills >= recipe.policy.maxGrillsBeforeTeach,
+        connectTeachDue: grills >= recipe.policy.maxGrillsBeforeTeach,
       };
     }
 

@@ -84,7 +84,12 @@ export const groupLiveExchanges = (
   const active = exchanges[exchanges.length - 1];
 
   if (!active) {
-    return { history: [], activePrompt: null, pendingAnswer: null, failedAnswers };
+    return {
+      history: [],
+      activePrompt: null,
+      pendingAnswer: null,
+      failedAnswers,
+    };
   }
 
   return {

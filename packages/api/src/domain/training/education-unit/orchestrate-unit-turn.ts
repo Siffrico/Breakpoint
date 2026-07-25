@@ -301,7 +301,7 @@ export const runUnitTurn = (
     // (connect posing, recall's opening solve) records the current round's.
     const scenarioPass =
       state.phase === "teach"
-        ? ((Math.min(state.pass + 1, 3) as UnitState["pass"]))
+        ? (Math.min(state.pass + 1, 3) as UnitState["pass"])
         : state.pass;
     const storedSpec = input.storedScenarioSpec ?? null;
     const emittedSpec = readScenarioSpec(result, scenarioPass);
@@ -317,7 +317,11 @@ export const runUnitTurn = (
       // must be stored, and one valid evolved spec must be recorded. The same
       // surface/world is expected — evolution, not replacement — so there is
       // deliberately no new-surface check here.
-      if (!recordedSpec || !storedSpec || (storedSpec.pass ?? 1) !== state.pass) {
+      if (
+        !recordedSpec ||
+        !storedSpec ||
+        (storedSpec.pass ?? 1) !== state.pass
+      ) {
         return yield* Effect.fail(
           new EducationUnitContractError({
             message:
@@ -379,8 +383,7 @@ export const runUnitTurn = (
     // The rating evidence IS the event: toUnitEvent already validated the
     // score and error codes, so a scored write-round Solve can never lack evidence.
     const ratingWrite =
-      writesGoldilocks(state, event, recipe) &&
-      event.type === "solution_graded"
+      writesGoldilocks(state, event, recipe) && event.type === "solution_graded"
         ? { score: event.score, errorCodes: event.errorCodes }
         : null;
     const checkOffCall = result.toolCalls.find(

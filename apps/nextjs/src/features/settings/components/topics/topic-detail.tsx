@@ -10,7 +10,10 @@ const RATING_FLOOR = 800;
 const RATING_CEIL = 2000;
 
 const ratingFraction = (rating: number) =>
-  Math.min(1, Math.max(0, (rating - RATING_FLOOR) / (RATING_CEIL - RATING_FLOOR)));
+  Math.min(
+    1,
+    Math.max(0, (rating - RATING_FLOOR) / (RATING_CEIL - RATING_FLOOR)),
+  );
 
 const STATUS_LABEL: Record<TopicAbility["status"], string> = {
   planned: "Planned",
@@ -43,7 +46,9 @@ function AbilityCard({ ability }: { ability: TopicAbility }) {
               </div>
             </>
           ) : (
-            <span className="text-foreground/40 text-[11px]">Not yet rated</span>
+            <span className="text-foreground/40 text-[11px]">
+              Not yet rated
+            </span>
           )}
         </div>
       </div>

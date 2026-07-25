@@ -23,6 +23,9 @@ export const normalizeImportPayload = (value: string) =>
   stripControlChars(value).replace(/\r\n/g, "\n").trim();
 
 export const getMemoryContentHash = (value: string) =>
-  createHash("sha256").update(normalizeMemoryContent(value).toLowerCase()).digest("hex");
+  createHash("sha256")
+    .update(normalizeMemoryContent(value).toLowerCase())
+    .digest("hex");
 
-export const getUtf8ByteLength = (value: string) => Buffer.byteLength(value, "utf8");
+export const getUtf8ByteLength = (value: string) =>
+  Buffer.byteLength(value, "utf8");

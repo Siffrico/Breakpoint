@@ -16,7 +16,7 @@ export function ProfileAvatar({
 
   if (image) {
     return (
-      <div className="size-10 overflow-hidden rounded-full border border-border/80 bg-secondary/50">
+      <div className="border-border/80 bg-secondary/50 size-10 overflow-hidden rounded-full border">
         <Image
           src={image}
           alt={name}
@@ -29,7 +29,7 @@ export function ProfileAvatar({
   }
 
   return (
-    <div className="flex size-10 items-center justify-center rounded-full border border-border/80 bg-secondary/50 text-xs font-semibold tracking-[0.2em] text-foreground">
+    <div className="border-border/80 bg-secondary/50 text-foreground flex size-10 items-center justify-center rounded-full border text-xs font-semibold tracking-[0.2em]">
       {initials || "BP"}
     </div>
   );

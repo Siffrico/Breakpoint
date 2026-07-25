@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
+import Link from "next/link";
 
 import { Button } from "@acme/ui/button";
 import { Textarea } from "@acme/ui/textarea";
@@ -52,7 +52,9 @@ export function UnitWorkspace({
 
         <div className="grid gap-5 lg:grid-cols-2">
           <section className="border border-white/10 bg-white/[0.03] p-6">
-            <p className="mt-4 text-base leading-8 text-white/72">{unit.concept}</p>
+            <p className="mt-4 text-base leading-8 text-white/72">
+              {unit.concept}
+            </p>
           </section>
 
           <section className="border border-white/10 bg-white/[0.03] p-6">
@@ -65,8 +67,13 @@ export function UnitWorkspace({
         <section className="border border-white/10 bg-white/[0.03] p-6">
           <div className="mt-5 grid gap-4 lg:grid-cols-3">
             {unit.retrievalItems.map((item, index) => (
-              <div key={item.prompt} className="border border-white/8 bg-black/20 p-4">
-                <div className="text-sm leading-7 text-white/70">{item.prompt}</div>
+              <div
+                key={item.prompt}
+                className="border border-white/8 bg-black/20 p-4"
+              >
+                <div className="text-sm leading-7 text-white/70">
+                  {item.prompt}
+                </div>
                 <Textarea
                   value={answers[index] ?? ""}
                   onChange={(event) =>
@@ -93,7 +100,10 @@ export function UnitWorkspace({
 
             {retrievalResult ? (
               <div className="text-sm text-white/60">
-                Score {retrievalResult.score} / {retrievalResult.passed ? "Scenario unlocked" : "Retry required"}
+                Score {retrievalResult.score} /{" "}
+                {retrievalResult.passed
+                  ? "Scenario unlocked"
+                  : "Retry required"}
               </div>
             ) : null}
           </div>
@@ -101,7 +111,10 @@ export function UnitWorkspace({
           {retrievalResult ? (
             <div className="mt-4 space-y-3">
               {retrievalResult.feedback.map((item) => (
-                <div key={item} className="border border-white/8 px-4 py-3 text-sm text-white/68">
+                <div
+                  key={item}
+                  className="border border-white/8 px-4 py-3 text-sm text-white/68"
+                >
                   {item}
                 </div>
               ))}
@@ -121,7 +134,7 @@ export function UnitWorkspace({
             {unit.scenario.focusAreas.map((area) => (
               <div
                 key={area}
-                className="border border-white/8 px-3 py-2 text-[10px] tracking-[0.24em] uppercase text-white/45"
+                className="border border-white/8 px-3 py-2 text-[10px] tracking-[0.24em] text-white/45 uppercase"
               >
                 {area}
               </div>

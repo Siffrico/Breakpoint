@@ -5,6 +5,7 @@ import {
   createUIMessageStreamResponse,
   hasToolCall,
   isTextUIPart,
+  isToolUIPart,
   safeValidateUIMessages,
   smoothStream,
   stepCountIs,
@@ -74,6 +75,41 @@ const extractText = (message: UIMessage): string =>
     .map((part) => part.text)
     .join("\n")
     .trim();
+
+const isPendingToolPart = (part: UIMessage["parts"][number]): boolean =>
+  isToolUIPart(part) &&
+  (part.state === "input-streaming" ||
+    part.state === "input-available" ||
+    part.state === "approval-requested");
+
+export const omitPendingOnboardingToolCalls = <MESSAGE extends UIMessage>(
+  messages: MESSAGE[],
+): MESSAGE[] =>
+  messages.map((message) => ({
+    ...message,
+    parts: message.parts.filter((part) => !isPendingToolPart(part)),
+  }));
+
+const transcriptToModelMessages = async (
+  transcript: Awaited<
+    ReturnType<typeof trainingOnboardingRepository.listMessages>
+  >,
+) =>
+  convertToModelMessages(
+    transcript.map((message) => ({
+      id: `persisted-${message.sequence}`,
+      role: message.role,
+      parts: [{ type: "text" as const, text: message.content }],
+    })),
+  );
+
+const getToolInteractionMessages = (messages: UIMessage[]): UIMessage[] =>
+  omitPendingOnboardingToolCalls(messages)
+    .map((message) => ({
+      ...message,
+      parts: message.parts.filter(isToolUIPart),
+    }))
+    .filter((message) => message.parts.length > 0);
 
 export const validateOnboardingMessages = async (messages: unknown) => {
   const result = await safeValidateUIMessages<OnboardingChatUIMessage>({
@@ -322,9 +358,13 @@ const runOnboardingChat = async ({
     }
   }
   const projectBuildReadiness = getProjectBuildReadiness(transcript);
-  const modelMessages = await convertToModelMessages(messages, {
-    ignoreIncompleteToolCalls: true,
-  });
+  const [persistedModelMessages, toolInteractionMessages] = await Promise.all([
+    transcriptToModelMessages(transcript),
+    convertToModelMessages(getToolInteractionMessages(messages), {
+      ignoreIncompleteToolCalls: true,
+    }),
+  ]);
+  const modelMessages = [...persistedModelMessages, ...toolInteractionMessages];
 
   // The learner's tapped starting point rides an execute-less tool result. It
   // initializes the persisted value atomically; later manual overrides remain

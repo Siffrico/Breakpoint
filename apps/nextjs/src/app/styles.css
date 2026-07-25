@@ -367,7 +367,11 @@
   --foreground: #eeeeee;
   /* SECONDARY — raised surfaces (sidebar, cards, popovers, muted): ~10% off MAIN. */
   --secondary: color-mix(in oklab, var(--background) 98.5%, #ffffff);
-  --secondary-foreground: color-mix(in oklab, var(--foreground) 78%, transparent);
+  --secondary-foreground: color-mix(
+    in oklab,
+    var(--foreground) 78%,
+    transparent
+  );
   --card: var(--secondary);
   --card-foreground: #eeeeee;
   --popover: var(--secondary);
@@ -391,7 +395,11 @@
   --foreground: #eeeeee;
   /* SECONDARY — raised surfaces (sidebar, cards, popovers, muted): ~10% off MAIN. */
   --secondary: color-mix(in oklab, var(--background) 98.5%, #ffffff);
-  --secondary-foreground: color-mix(in oklab, var(--foreground) 78%, transparent);
+  --secondary-foreground: color-mix(
+    in oklab,
+    var(--foreground) 78%,
+    transparent
+  );
   --card: var(--secondary);
   --card-foreground: #eeeeee;
   --popover: var(--secondary);
@@ -421,7 +429,11 @@
   --foreground: #1f1d18;
   /* SECONDARY — raised surfaces (sidebar, muted): ~10% off MAIN, neutral grey. */
   --secondary: color-mix(in oklab, var(--background) 99.5%, #000000);
-  --secondary-foreground: color-mix(in oklab, var(--foreground) 78%, transparent);
+  --secondary-foreground: color-mix(
+    in oklab,
+    var(--foreground) 78%,
+    transparent
+  );
   --card: #ffffff;
   --card-foreground: #1f1d18;
   --popover: #ffffff;

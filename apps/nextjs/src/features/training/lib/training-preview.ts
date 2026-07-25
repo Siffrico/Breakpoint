@@ -4,7 +4,8 @@ type OnboardingState = RouterOutputs["training"]["startOnboarding"];
 type HomeState = RouterOutputs["training"]["home"];
 type ProfileState = RouterOutputs["training"]["profile"];
 type PlanState = RouterOutputs["training"]["activePlan"];
-type LearningProject = RouterOutputs["training"]["listLearningProjects"][number];
+type LearningProject =
+  RouterOutputs["training"]["listLearningProjects"][number];
 
 export interface UnitPreviewState {
   id: string;
@@ -49,7 +50,8 @@ export const previewOnboardingStates: OnboardingState[] = [
     phase: "questioning",
     activeQuestion: {
       slot: "target_identity",
-      prompt: "Who do you want to become when pressure is high and the stakes are real?",
+      prompt:
+        "Who do you want to become when pressure is high and the stakes are real?",
       helper:
         "Be concrete. Name the role, posture, and standard you want to operate at.",
       sequence: 0,
@@ -70,8 +72,7 @@ export const previewOnboardingStates: OnboardingState[] = [
     activeQuestion: {
       slot: "hard_moments",
       prompt: "Where do you currently break pattern or lose control?",
-      helper:
-        "Think about repeat failure loops, not one-off bad days.",
+      helper: "Think about repeat failure loops, not one-off bad days.",
       sequence: 1,
     },
     transcript: [
@@ -102,7 +103,8 @@ export const previewOnboardingStates: OnboardingState[] = [
     phase: "questioning",
     activeQuestion: {
       slot: "identity_friction",
-      prompt: "Right before you hesitate or avoid, what tends to happen inside you?",
+      prompt:
+        "Right before you hesitate or avoid, what tends to happen inside you?",
       helper: "Name the pattern, not the story you tell about it.",
       sequence: 2,
     },
@@ -148,9 +150,9 @@ export const previewOnboardingStates: OnboardingState[] = [
     phase: "ready_for_generation",
     activeQuestion: {
       slot: "constraints",
-      prompt: "What in your current environment keeps pulling you back into the old version of you?",
-      helper:
-        "Think schedule, people, defaults, and recurring pressure.",
+      prompt:
+        "What in your current environment keeps pulling you back into the old version of you?",
+      helper: "Think schedule, people, defaults, and recurring pressure.",
       sequence: 3,
     },
     transcript: [
@@ -295,7 +297,8 @@ export const previewPlanState: PlanState = {
       parentNodeId: "node-root",
       kind: "ability",
       title: "Replication and Quorum",
-      summary: "Model how writes, reads, and acknowledgements move across replicas.",
+      summary:
+        "Model how writes, reads, and acknowledgements move across replicas.",
       whyItMatters: "Most distributed failures become visible here first.",
       learningGoal:
         "Use this cluster to trace replication decisions through lag, quorum, and failure. By the end, stale reads should feel mechanically predictable rather than mysterious.",
@@ -311,7 +314,8 @@ export const previewPlanState: PlanState = {
       parentNodeId: "node-cluster-1",
       kind: "unit",
       title: "Quorum reads under replica lag",
-      summary: "Decide when a read is fresh enough and what quorum size actually buys you.",
+      summary:
+        "Decide when a read is fresh enough and what quorum size actually buys you.",
       whyItMatters: "Replica lag is where consistency claims become real.",
       learningGoal:
         "Use quorum intersections to decide whether a read can see the latest acknowledged write. The learner should be able to explain the guarantee from replica sets, not slogans.",
@@ -327,8 +331,10 @@ export const previewPlanState: PlanState = {
       parentNodeId: "node-root",
       kind: "ability",
       title: "Coordination and Recovery",
-      summary: "Reason through leader election, retries, replay, and safe failover.",
-      whyItMatters: "Recovery paths determine whether the system is merely slow or actually wrong.",
+      summary:
+        "Reason through leader election, retries, replay, and safe failover.",
+      whyItMatters:
+        "Recovery paths determine whether the system is merely slow or actually wrong.",
       learningGoal:
         "Use this cluster to keep correctness intact while systems recover. The learner should distinguish temporary unavailability from decisions that can corrupt state.",
       orderIndex: 4,
@@ -343,7 +349,8 @@ export const previewPlanState: PlanState = {
       parentNodeId: "node-cluster-2",
       kind: "unit",
       title: "Leader election without split brain",
-      summary: "Analyze election timers, quorum ownership, and stale leader cleanup.",
+      summary:
+        "Analyze election timers, quorum ownership, and stale leader cleanup.",
       whyItMatters: "Coordination bugs quietly corrupt correctness guarantees.",
       learningGoal:
         "Use election evidence to decide who is allowed to lead and when that authority expires. The learner should be able to prevent split brain with concrete checks.",
@@ -457,7 +464,7 @@ export const previewUnitState: UnitPreviewState = {
   concept:
     "You're given this training setup: a model that predicts whether a movie review is positive or negative, 10,000 labeled reviews to train on, and a simple loop that runs through the data, makes predictions, compares them to the correct labels, and adjusts the model after each comparison. After 10 epochs of training, the model is getting 97% accuracy.",
   workedExample:
-    "Your colleague looks at the results and says: \"Ship it. 97% is basically perfect.\" You look at the results and feel uneasy. Something might be wrong — even though 97% sounds great. What's making you uneasy? What would you check before agreeing to ship it? Hint: think about where that 97% number came from — specifically, what data the model saw during training versus what data it will see in the real world.",
+    'Your colleague looks at the results and says: "Ship it. 97% is basically perfect." You look at the results and feel uneasy. Something might be wrong — even though 97% sounds great. What\'s making you uneasy? What would you check before agreeing to ship it? Hint: think about where that 97% number came from — specifically, what data the model saw during training versus what data it will see in the real world.',
   retrievalItems: [
     {
       prompt:
@@ -471,14 +478,22 @@ export const previewUnitState: UnitPreviewState = {
         "What is the gap between the data the model saw during training and the data it will see in production?",
       intent:
         "Check whether the learner can articulate distribution shift and unseen-example risk.",
-      expectedSignals: ["unseen reviews", "distribution shift", "generalization"],
+      expectedSignals: [
+        "unseen reviews",
+        "distribution shift",
+        "generalization",
+      ],
     },
     {
       prompt:
         "List two concrete checks you would run before agreeing to ship this model.",
       intent:
         "Check whether the learner can translate unease into a concrete verification plan.",
-      expectedSignals: ["held-out test set", "train/test split", "error analysis"],
+      expectedSignals: [
+        "held-out test set",
+        "train/test split",
+        "error analysis",
+      ],
     },
   ],
   scenario: {

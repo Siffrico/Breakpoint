@@ -143,7 +143,11 @@ export function FocusComposer({
       ) {
         event.preventDefault();
         const cmd =
-          event.key === "b" ? "bold" : event.key === "i" ? "italic" : "underline";
+          event.key === "b"
+            ? "bold"
+            : event.key === "i"
+              ? "italic"
+              : "underline";
         document.execCommand(cmd);
         emitChange();
         return;
@@ -238,44 +242,47 @@ export function FocusComposer({
           entered ? "translate-y-0" : "translate-y-full",
         )}
       >
-      <div className="flex items-center justify-between px-5 py-2">
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Collapse editor"
-          className="text-foreground/55 hover:text-foreground/85 hover:bg-foreground/[0.04] flex size-8 items-center justify-center transition-colors outline-none focus:outline-none focus-visible:outline-none"
-        >
-          <ArrowsInSimple size={16} />
-        </button>
-
-        <div className="flex items-center gap-3">
-          {isSubmitting ? (
-            <Spinner className="text-foreground/55 size-4" aria-label="Submitting" />
-          ) : null}
+        <div className="flex items-center justify-between px-5 py-2">
           <button
             type="button"
-            onClick={handleSubmit}
-            disabled={!canSubmit || isSubmitting}
-            aria-label="Send"
-            className="relative inline-flex h-7 shrink-0 cursor-pointer items-center justify-center gap-1 whitespace-nowrap rounded-[9px] border border-[var(--bp-toolbar-border)] bg-[var(--bp-toolbar-surface)] bg-clip-padding px-3 text-sm font-medium text-foreground shadow-[var(--bp-toolbar-shadow)] outline-none transition-colors hover:bg-[var(--bp-toolbar-surface-hover)] focus-visible:ring-2 focus-visible:ring-foreground/20 disabled:pointer-events-none disabled:opacity-64 [&_svg]:pointer-events-none [&_svg]:-mx-0.5 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg:not([class*='opacity-'])]:opacity-85 [&_svg:not([class*='text-'])]:text-foreground/70"
+            onClick={onClose}
+            aria-label="Collapse editor"
+            className="text-foreground/55 hover:text-foreground/85 hover:bg-foreground/[0.04] flex size-8 items-center justify-center transition-colors outline-none focus:outline-none focus-visible:outline-none"
           >
-            <ArrowUp weight="bold" />
-            Send
+            <ArrowsInSimple size={16} />
           </button>
-        </div>
-      </div>
 
-      <div className="flex-1 overflow-y-auto">
-        <div className={cn(columnClassName, "pt-6 pb-32")}>
-          <div className="relative">
-            {isEmpty ? (
-              <span
-                aria-hidden="true"
-                className="text-foreground/32 pointer-events-none absolute top-0 left-0 text-[16px] leading-[1.6] tracking-[-0.005em] select-none"
-              >
-                {placeholder}
-              </span>
+          <div className="flex items-center gap-3">
+            {isSubmitting ? (
+              <Spinner
+                className="text-foreground/55 size-4"
+                aria-label="Submitting"
+              />
             ) : null}
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={!canSubmit || isSubmitting}
+              aria-label="Send"
+              className="text-foreground focus-visible:ring-foreground/20 [&_svg:not([class*='text-'])]:text-foreground/70 relative inline-flex h-7 shrink-0 cursor-pointer items-center justify-center gap-1 rounded-[9px] border border-[var(--bp-toolbar-border)] bg-[var(--bp-toolbar-surface)] bg-clip-padding px-3 text-sm font-medium whitespace-nowrap shadow-[var(--bp-toolbar-shadow)] transition-colors outline-none hover:bg-[var(--bp-toolbar-surface-hover)] focus-visible:ring-2 disabled:pointer-events-none disabled:opacity-64 [&_svg]:pointer-events-none [&_svg]:-mx-0.5 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg:not([class*='opacity-'])]:opacity-85"
+            >
+              <ArrowUp weight="bold" />
+              Send
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          <div className={cn(columnClassName, "pt-6 pb-32")}>
+            <div className="relative">
+              {isEmpty ? (
+                <span
+                  aria-hidden="true"
+                  className="text-foreground/32 pointer-events-none absolute top-0 left-0 text-[16px] leading-[1.6] tracking-[-0.005em] select-none"
+                >
+                  {placeholder}
+                </span>
+              ) : null}
               <div
                 ref={editorRef}
                 contentEditable
@@ -286,11 +293,11 @@ export function FocusComposer({
                 tabIndex={0}
                 onInput={syncEditorContent}
                 onKeyDown={handleKeyDown}
-                className="focus-composer text-foreground/92 caret-foreground relative min-h-[60vh] text-[16px] leading-[1.6] tracking-[-0.005em] outline-none [&_blockquote]:border-foreground/20 [&_blockquote]:text-foreground/65 [&_blockquote]:my-3 [&_blockquote]:border-l [&_blockquote]:pl-4 [&_code]:bg-foreground/[0.06] [&_code]:rounded-[3px] [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[14px] [&_h1]:mt-6 [&_h1]:mb-2 [&_h1]:text-[30px] [&_h1]:font-semibold [&_h1]:tracking-[-0.02em] [&_h2]:mt-5 [&_h2]:mb-2 [&_h2]:text-[24px] [&_h2]:font-semibold [&_h2]:tracking-[-0.015em] [&_h3]:mt-4 [&_h3]:mb-2 [&_h3]:text-[19px] [&_h3]:font-semibold [&_li]:my-0.5 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-7 [&_p]:my-2 [&_strong]:font-semibold [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-7 [&>*:first-child]:mt-0"
+                className="focus-composer text-foreground/92 caret-foreground [&_blockquote]:border-foreground/20 [&_blockquote]:text-foreground/65 [&_code]:bg-foreground/[0.06] relative min-h-[60vh] text-[16px] leading-[1.6] tracking-[-0.005em] outline-none [&_blockquote]:my-3 [&_blockquote]:border-l [&_blockquote]:pl-4 [&_code]:rounded-[3px] [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[14px] [&_h1]:mt-6 [&_h1]:mb-2 [&_h1]:text-[30px] [&_h1]:font-semibold [&_h1]:tracking-[-0.02em] [&_h2]:mt-5 [&_h2]:mb-2 [&_h2]:text-[24px] [&_h2]:font-semibold [&_h2]:tracking-[-0.015em] [&_h3]:mt-4 [&_h3]:mb-2 [&_h3]:text-[19px] [&_h3]:font-semibold [&_li]:my-0.5 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-7 [&_p]:my-2 [&_strong]:font-semibold [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-7 [&>*:first-child]:mt-0"
               />
+            </div>
           </div>
         </div>
-      </div>
       </dialog>
     </div>
   );

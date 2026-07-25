@@ -10,24 +10,24 @@ export function LastUnitDebrief({
   const primaryWeakness = lastCompletedUnit.failureTags[0];
 
   return (
-    <div className="border-b border-border/50 pb-5">
+    <div className="border-border/50 border-b pb-5">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <div className="text-[10px] font-medium tracking-[0.2em] uppercase text-muted-foreground">
+          <div className="text-muted-foreground text-[10px] font-medium tracking-[0.2em] uppercase">
             Last unit
           </div>
-          <div className="mt-1 truncate text-sm text-foreground/80">
+          <div className="text-foreground/80 mt-1 truncate text-sm">
             {lastCompletedUnit.title}
           </div>
         </div>
         {lastCompletedUnit.score != null && (
-          <div className="shrink-0 font-mono text-lg text-foreground/60">
+          <div className="text-foreground/60 shrink-0 font-mono text-lg">
             {lastCompletedUnit.score}
           </div>
         )}
       </div>
       {primaryWeakness && (
-        <div className="mt-2 text-xs text-muted-foreground">
+        <div className="text-muted-foreground mt-2 text-xs">
           Weakness: {primaryWeakness.replaceAll("_", " ")}
         </div>
       )}

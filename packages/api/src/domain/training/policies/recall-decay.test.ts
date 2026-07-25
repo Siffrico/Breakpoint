@@ -14,9 +14,7 @@ const NOW = new Date("2026-07-04T12:00:00Z");
 
 const daysAgo = (days: number): Date => new Date(NOW.getTime() - days * DAY_MS);
 
-const entry = (
-  overrides: Partial<RecallCandidate> = {},
-): RecallCandidate => ({
+const entry = (overrides: Partial<RecallCandidate> = {}): RecallCandidate => ({
   id: "entry-1",
   questionId: "question-1",
   skillNodeId: "cluster-1",
@@ -93,7 +91,11 @@ describe("selectRecallTarget", () => {
   });
 
   it("skips due entries with no evidence unit", () => {
-    const orphan = entry({ id: "a", checkedAt: daysAgo(10), evidenceNodeId: null });
+    const orphan = entry({
+      id: "a",
+      checkedAt: daysAgo(10),
+      evidenceNodeId: null,
+    });
     expect(selectRecallTarget([orphan], NOW)).toBe(null);
   });
 

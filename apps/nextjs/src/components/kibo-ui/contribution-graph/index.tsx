@@ -1,7 +1,6 @@
 "use client";
 
 /* eslint-disable @typescript-eslint/array-type, @typescript-eslint/consistent-type-definitions, @typescript-eslint/no-base-to-string, @typescript-eslint/non-nullable-type-assertion-style, @typescript-eslint/prefer-nullish-coalescing, @typescript-eslint/prefer-optional-chain, @typescript-eslint/restrict-template-expressions -- Registry-owned Kibo UI source is kept structurally aligned with upstream. */
-
 import type { Day as WeekDay } from "date-fns";
 import type { CSSProperties, HTMLAttributes, ReactNode } from "react";
 import { createContext, Fragment, useContext, useMemo } from "react";

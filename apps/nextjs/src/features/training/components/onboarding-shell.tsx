@@ -52,6 +52,7 @@ import { useTRPC } from "~/trpc/react";
 import { AssistantRichText } from "./assistant-rich-text";
 import { CreateProjectConfirm } from "./onboarding/create-project-confirm";
 import { ProjectBuildCard } from "./onboarding/project-build-card";
+import { selectProjectBuildPart } from "./onboarding/select-project-build-part";
 import { StartingPointCheck } from "./onboarding/starting-point-check";
 import { UnfinishedOnboardingDialog } from "./onboarding/unfinished-onboarding-dialog";
 
@@ -186,10 +187,6 @@ export function OnboardingShell({
   );
   const continueLearning = useMutation(
     trpc.training.continueLearningProject.mutationOptions({
-      onSuccess: (destination) => {
-        router.replace(destination.href);
-        router.refresh();
-      },
       onError: (error) => toast.error(error.message),
     }),
   );
@@ -226,6 +223,12 @@ export function OnboardingShell({
 
         body: () => ({
           sessionId: sessionIdRef.current,
+        }),
+        prepareSendMessagesRequest: ({ body, messages }) => ({
+          body: {
+            ...body,
+            messages: messages.slice(-1),
+          },
         }),
       }),
     [],
@@ -313,29 +316,12 @@ export function OnboardingShell({
 
   const sendStartRef = useRef<number | null>(null);
 
-  // Latest streamed build snapshot, if any — drives both the inline build card
-  // and the "project is ready" gating below.
-  const latestProjectBuildPart = useMemo<{
-    messageId: string;
-    partIndex: number;
-    state: ProjectBuildState;
-  } | null>(() => {
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      const message = messages[i];
-      if (message?.role !== "assistant") continue;
-      for (let j = message.parts.length - 1; j >= 0; j -= 1) {
-        const part = message.parts[j];
-        if (part?.type === "data-project-build") {
-          return {
-            messageId: message.id,
-            partIndex: j,
-            state: part.data as ProjectBuildState,
-          };
-        }
-      }
-    }
-    return null;
-  }, [messages]);
+  // A completed snapshot is monotonic: stale live progress cannot supersede it
+  // while useChat reconciles streamed and rehydrated messages.
+  const latestProjectBuildPart = useMemo(
+    () => selectProjectBuildPart(messages),
+    [messages],
+  );
   const projectBuild = latestProjectBuildPart?.state ?? null;
   const projectReady = projectBuild?.phase === "complete";
 
@@ -620,7 +606,7 @@ export function OnboardingShell({
           <div className="animate-in fade-in slide-in-from-bottom-2 w-full max-w-[680px] -translate-y-[9%] duration-700">
             {/* Hero prompt: sets the learner's task in a single line. Sized on a
                 30px / mb-8 rhythm so the heading + composer read as one block. */}
-            <h1 className="mb-8 text-center text-[30px] font-medium tracking-[-0.02em] [font-family:var(--font-ai)]">
+            <h1 className="mb-8 text-center [font-family:var(--font-ai)] text-[30px] font-medium tracking-[-0.02em]">
               What skill do you want to Master?
             </h1>
 
@@ -716,6 +702,9 @@ export function OnboardingShell({
                               continueLearning.mutate({
                                 sessionId: build.sessionId,
                               });
+                              router.replace(
+                                `/workspace?session=${encodeURIComponent(build.sessionId)}`,
+                              );
                             }}
                             onSeeOverview={() => {
                               if (preview || !build.sessionId) return;

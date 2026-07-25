@@ -12,7 +12,7 @@ import type {
   OnboardingState,
   WorkspaceMode,
 } from "./use-workspace-session";
-import { AssistantRichText } from "./assistant-rich-text";
+import { PreparingPanel } from "./preparing-panel";
 
 const EducationUnitWorkspace = dynamic(() =>
   import("./education-unit/education-unit-workspace").then(
@@ -140,26 +140,19 @@ function WorkspaceLiveWorkspaceComponent({
                 ) : null}
                 {mode === "idle" ? (
                   <div className="flex min-h-[60vh] flex-col justify-center">
-                    <div className="border-foreground/[0.08] border px-7 py-6">
-                      <h2 className="font-display text-foreground text-base font-semibold tracking-[-0.02em]">
-                        <AssistantRichText
-                          content={
-                            workspaceShellError ??
-                            activeNodeTitle ??
-                            "Preparing your next unit"
-                          }
-                        />
-                      </h2>
-                      <div className="text-foreground/52 mt-3 text-[13px] leading-6">
-                        <AssistantRichText
-                          content={
-                            unitPreparing
-                              ? "Your next learning step is being prepared. This page will continue automatically."
-                              : "Your next learning step is being prepared."
-                          }
-                        />
-                      </div>
-                    </div>
+                    <PreparingPanel
+                      label={
+                        workspaceShellError ??
+                        activeNodeTitle ??
+                        "Preparing unit"
+                      }
+                      active={workspaceShellError == null}
+                      detail={
+                        unitPreparing
+                          ? "This page will continue automatically."
+                          : undefined
+                      }
+                    />
                   </div>
                 ) : null}
               </div>

@@ -10,14 +10,25 @@ export interface KnowledgeMapSkillInput {
   masteryContract: { exitCriteria: string[] };
 }
 
-const KNOWLEDGE_MAPPER_SYSTEM = `You map the knowledge behind one skill — one recurring workflow moment where expertise changes the outcome. Emit the practitioner questions the learner must become able to answer and the concepts or executable mechanisms needed to answer each one.
+const KNOWLEDGE_MAPPER_SYSTEM = `You map the foundation of one skill — the primal understanding a practitioner needs before any technique means anything. Emit the questions that build the object from zero and the concepts or executable mechanisms needed to answer each one.
 
-STEP 1 — Derive the questions.
-Read the skill as a job, not a topic: state what the practitioner is trying to achieve as a verb acting on the world. If you catch yourself thinking in definitions ("what is X", "the types of X"), you read it as a topic — start over.
-Then determine the practitioner's relationship to the material: custodian of artifacts they build, inherit, and keep working; performer on handed material under constraint; steward of an opaque system they intervene in through partial information; decision-maker allocating under uncertainty — or characterize it fresh when none fit. Never force a fit. That relationship determines the encounter structure: enumerate the distinct recurring situations reality puts this practitioner in inside this workflow moment. Enumerate, don't brainstorm — every situation must be read out of the skill's own definition (summary, workflow, exit criteria), never imagined.
-Finally, identify the object and the enemy. Object: the narrowest noun every situation revolves around. Enemy: what resists success, read out of the skill's own success language — the enemy is never invented.
+HOW TO THINK — this governs every step below.
+Your training data holds far more writing about these skills than practice of them, and that writing is wrong in a specific way: it is organized for explaining, not for doing. It names frameworks, stages, and acronyms nobody reaches for at the moment of work. When a term comes to you easily because it appears constantly in writing about this field, that frequency is evidence about the literature, not about the job. Check it against the skill's own workflow and exit criteria, and drop it if it does not survive.
+Prefer the most direct true statement over the most complete one. For every candidate item ask: would a practitioner actually say this to a colleague mid-work? If it only ever appears in explanations of the field, it is jargon — say what it means in plain terms or cut it. If mastering it would not visibly change what the practitioner produces, cut it.
+Do not build structure the job does not have. Never invent stages, tiers, or named phases to make the material look organized. When the object is genuinely a network rather than a sequence — several interacting problems, constraints, and surfaces that move together — say so, and give the practitioner a way to hold a network, instead of flattening it into a list because a list is tidier.
+The bar for the whole map: if someone mastered exactly what is here and nothing else, would they be good at this — not informed, good? If not, you have written about the skill instead of into it.
 
-Write one durable question per situation. Each question is second-person, ends in "?", and names a real practitioner decision or action. Default to "How do you ...?"; use "When ...?" or "Which ...?" for discriminations and "Why ...?" for explanations. Never emit a tutorial heading or a definitional question. Order questions by dependency and increasing judgment difficulty.
+STEP 1 — Constitute the object, then build the arc.
+Identify the object: the narrowest noun this skill acts on. The practitioner acts on it, they do not study it, and every question you write is about it. Then identify the enemy: what resists success with that object, read out of the skill's own success language — the enemy is never invented.
+Before anything else, settle what the object is made of and in what unit it is counted. This is the ground the whole skill stands on, and it is not a definition. A definition names the object; a constitution states its parts, its boundaries, and the unit of analysis that makes it measurable. "A user flow is the path a user takes to finish a task" is a definition and is worthless — true, forgettable, and it changes nothing the practitioner does tomorrow. "A user flow is a sequence of decisions, not screens: each step is a moment the user must work out what to do next, so two screens carrying one decision is one step and one screen carrying four is four" is a constitution — it hands over a unit, changes what the practitioner looks at, and is usable immediately. Never emit the first kind. Always emit the second.
+Then build the question arc in four movements, in this order:
+- Constitute — what the object is made of, in what unit it is counted, where its boundaries fall, and what the enemy looks like measured in that unit.
+- Observe — how the practitioner makes a real instance visible and reads what is actually there rather than what they assume is there.
+- Judge — how the practitioner tells a good instance from a bad one and states why, in the unit established by Constitute.
+- Transform — how the practitioner changes an existing instance, and how they build one from nothing.
+Every movement gets at least one question. A movement gets more than one only when the skill genuinely contains more than one distinct encounter inside it — read that out of the skill's summary, workflow, and exit criteria, never imagined.
+
+Write each question in second person, ending in "?", naming something the practitioner must be able to do or discern. Default to "How do you ...?"; use "When ...?" or "Which ...?" for discriminations and "Why ...?" for explanations. The Constitute question is required and is the one exception to that phrasing: it asks what the object is made of and how it is counted. Never emit a tutorial heading. Never emit a dictionary question — one whose honest answer is a naming rather than a structure. Order questions in arc order; within a movement, order by dependency.
 
 STEP 2 — Map the knowledge items.
 For each question, emit only the knowledge needed to answer it completely. An item is one of:
@@ -31,10 +42,14 @@ Good mechanism: label "trace the decision path", content "Trace every user decis
 
 Concrete techniques, tools, and named methods belong in items, never in question text. A term earns a place only when its content states the useful knowledge or executable move it names. Order items in the sequence a learner needs them. Use as many as the question genuinely requires, usually two or three; never pad to a quota.
 
-STEP 3 — Verify before returning.
-Could a practitioner holding exactly the items under a question answer it and act successfully? If a gap remains, add the missing item. If an item could be dropped without weakening the answer, cut it. Ensure every item belongs to exactly one question; duplicated knowledge belongs under the earliest question that requires it and is assumed known later. If mastery requires knowledge no question reaches, add the missing situation question.
+Every item is written for the target identity as stated. Treat what that practitioner already knows as the floor: never emit an item teaching below it, and never write an item that leans on knowledge above it without stating that knowledge as its own item. When an item's content requires a term the target identity would not already own, either name that term in an earlier item or rewrite the content without it.
 
-Search for current practitioner evidence, official guidance, postmortems, and field-specific failure modes. No duplicated paraphrases, generic soft skills, trivia, or topic-outline structure.`;
+STEP 3 — Verify before returning.
+Could a practitioner holding exactly the items under a question answer it and act successfully? If a gap remains, add the missing item. If an item could be dropped without weakening the answer, cut it. Ensure every item belongs to exactly one question; duplicated knowledge belongs under the earliest question that requires it and is assumed known later. If mastery requires knowledge no question reaches, add the missing question in the movement it belongs to.
+Then check the foundation holds: does the Constitute question hand over a unit of analysis every later question can be answered in? If a later question needs a unit or a part the foundation never established, the foundation is incomplete — fix it in Constitute, never by patching the later question.
+Finally, re-read the whole map against the bar: master exactly this and nothing else, and you are good at this skill. Cut whatever is there only because it is conventionally taught.
+
+Search for how practitioners actually work — field evidence, official guidance, postmortems, failure modes — and use it to check received wisdom against practice, not to collect more of it. No duplicated paraphrases, generic soft skills, trivia, or topic-outline structure.`;
 
 export const designSkillKnowledge = async (
   skill: KnowledgeMapSkillInput,

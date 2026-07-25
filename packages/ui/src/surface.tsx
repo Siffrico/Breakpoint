@@ -4,7 +4,7 @@ import { cva } from "class-variance-authority";
 import { cn } from "@acme/ui";
 
 const surfaceVariants = cva(
-  "border text-card-foreground bg-card relative overflow-hidden transition-[border-color,transform,background-color,box-shadow]",
+  "text-card-foreground bg-card relative overflow-hidden border transition-[border-color,transform,background-color,box-shadow]",
   {
     variants: {
       variant: {
@@ -12,8 +12,9 @@ const surfaceVariants = cva(
           "border-border/80 bg-card shadow-[0_18px_80px_rgba(2,6,23,0.18)]",
         muted: "border-border/70 bg-secondary/40",
         interactive:
-          "border-border/80 bg-card shadow-[0_18px_80px_rgba(2,6,23,0.18)] hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-[0_26px_90px_rgba(2,6,23,0.24)]",
-        emphasis: "border-primary/25 bg-primary/8 shadow-[0_18px_80px_rgba(37,99,235,0.12)]",
+          "border-border/80 bg-card hover:border-primary/40 shadow-[0_18px_80px_rgba(2,6,23,0.18)] hover:-translate-y-0.5 hover:shadow-[0_26px_90px_rgba(2,6,23,0.24)]",
+        emphasis:
+          "border-primary/25 bg-primary/8 shadow-[0_18px_80px_rgba(37,99,235,0.12)]",
       },
       padding: {
         none: "",
@@ -65,7 +66,7 @@ export function SurfaceTitle({
     <h2
       data-slot="surface-title"
       className={cn(
-        "font-display text-xl font-semibold tracking-[-0.04em] text-foreground",
+        "font-display text-foreground text-xl font-semibold tracking-[-0.04em]",
         className,
       )}
       {...props}
@@ -80,7 +81,7 @@ export function SurfaceDescription({
   return (
     <p
       data-slot="surface-description"
-      className={cn("text-sm leading-7 text-muted-foreground", className)}
+      className={cn("text-muted-foreground text-sm leading-7", className)}
       {...props}
     />
   );

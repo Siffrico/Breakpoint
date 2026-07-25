@@ -1,6 +1,6 @@
-import { err, ok  } from "../../../lib/result";
-import type {Result} from "../../../lib/result";
+import type { Result } from "../../../lib/result";
 import type { CurriculumPlan } from "../types/training.types";
+import { err, ok } from "../../../lib/result";
 
 interface GetActivePlanDependencies {
   getActivePlan: (sessionId: string) => Promise<CurriculumPlan | null>;

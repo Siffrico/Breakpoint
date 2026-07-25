@@ -45,7 +45,9 @@ const renderExamples = (examples: FewShotExample[]): string => {
   const lines = ["Calibration examples:", ""];
 
   examples.forEach((ex) => {
-    lines.push(`--- ${ex.label} (score: ${ex.score}, passed: ${ex.passed}) ---`);
+    lines.push(
+      `--- ${ex.label} (score: ${ex.score}, passed: ${ex.passed}) ---`,
+    );
     lines.push(`Input: ${ex.input}`);
     lines.push(`Reasoning: ${ex.reasoning}`);
     lines.push("");

@@ -22,7 +22,10 @@ interface LockedPregenerationDependencies<TNode> {
     sessionId: string;
     userId: string;
     status: "planned";
-  }) => Effect.Effect<{ node: TNode; needsContent: boolean }, CreateNextUnitError>;
+  }) => Effect.Effect<
+    { node: TNode; needsContent: boolean },
+    CreateNextUnitError
+  >;
 }
 
 export interface PregenerateNextUnitDependencies<TNode> {

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { Suspense } from "react";
 import { cookies } from "next/headers";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import type { RouterOutputs } from "@acme/api";
@@ -73,7 +73,7 @@ function StatusBadge({ status }: { status: PlanNode["status"] }) {
   return (
     <span
       className={[
-        "inline-flex h-6 items-center border px-2 font-mono text-[10px] uppercase tracking-[0.14em]",
+        "inline-flex h-6 items-center border px-2 font-mono text-[10px] tracking-[0.14em] uppercase",
         className,
       ].join(" ")}
     >
@@ -98,10 +98,10 @@ function PlanNodeRow({ node }: { node: TreeNode }) {
       <div className="border-b border-white/10 py-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
-            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-white/36">
+            <div className="font-mono text-[10px] tracking-[0.18em] text-white/36 uppercase">
               {kindLabel[node.kind]}
             </div>
-            <h2 className="mt-2 font-display text-[18px] leading-tight tracking-[-0.02em] text-white">
+            <h2 className="font-display mt-2 text-[18px] leading-tight tracking-[-0.02em] text-white">
               {node.title}
             </h2>
           </div>
@@ -113,7 +113,7 @@ function PlanNodeRow({ node }: { node: TreeNode }) {
         </p>
 
         <div className="mt-4 border-l border-[#5da7ff]/28 pl-4">
-          <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-[#9acbff]/70">
+          <div className="font-mono text-[10px] tracking-[0.16em] text-[#9acbff]/70 uppercase">
             Why it matters
           </div>
           <p className="mt-2 text-[13px] leading-6 text-white/66">
@@ -150,7 +150,10 @@ function PlanSkeleton() {
 }
 
 async function SavedCurriculumPlan() {
-  const [authSession, cookieStore] = await Promise.all([getSession(), cookies()]);
+  const [authSession, cookieStore] = await Promise.all([
+    getSession(),
+    cookies(),
+  ]);
 
   if (!authSession?.user) {
     redirect("/");
@@ -171,9 +174,7 @@ async function SavedCurriculumPlan() {
   }
 
   const tree = buildCurriculumTree(plan.nodes);
-  const trainableNodes = plan.nodes.filter(
-    (node) => node.kind === "unit",
-  );
+  const trainableNodes = plan.nodes.filter((node) => node.kind === "unit");
   const completedNodes = trainableNodes.filter(
     (node) => node.status === "completed",
   );
@@ -186,10 +187,10 @@ async function SavedCurriculumPlan() {
       <header className="border-b border-white/10 pb-8">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-3xl">
-            <div className="font-mono text-[11px] uppercase tracking-[0.2em] text-[#9acbff]/72">
+            <div className="font-mono text-[11px] tracking-[0.2em] text-[#9acbff]/72 uppercase">
               Becoming curriculum plan
             </div>
-            <h1 className="mt-4 font-display text-[34px] leading-[1.05] tracking-[-0.035em] text-white sm:text-[48px]">
+            <h1 className="font-display mt-4 text-[34px] leading-[1.05] tracking-[-0.035em] text-white sm:text-[48px]">
               {plan.title}
             </h1>
             <p className="mt-5 max-w-2xl text-[15px] leading-7 text-white/62">
@@ -208,7 +209,7 @@ async function SavedCurriculumPlan() {
 
       <section className="grid border-b border-white/10 sm:grid-cols-3">
         <div className="border-white/10 py-5 sm:border-r sm:pr-6">
-          <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/36">
+          <div className="font-mono text-[10px] tracking-[0.16em] text-white/36 uppercase">
             Target
           </div>
           <div className="mt-2 text-[14px] leading-6 text-white/76">
@@ -216,7 +217,7 @@ async function SavedCurriculumPlan() {
           </div>
         </div>
         <div className="border-t border-white/10 py-5 sm:border-t-0 sm:border-r sm:px-6">
-          <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/36">
+          <div className="font-mono text-[10px] tracking-[0.16em] text-white/36 uppercase">
             Progress
           </div>
           <div className="mt-2 text-[14px] leading-6 text-white/76">
@@ -224,7 +225,7 @@ async function SavedCurriculumPlan() {
           </div>
         </div>
         <div className="border-t border-white/10 py-5 sm:border-t-0 sm:pl-6">
-          <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/36">
+          <div className="font-mono text-[10px] tracking-[0.16em] text-white/36 uppercase">
             Next
           </div>
           <div className="mt-2 text-[14px] leading-6 text-white/76">
@@ -239,7 +240,6 @@ async function SavedCurriculumPlan() {
             <PlanNodeRow key={node.id} node={node} />
           ))}
         </ol>
-
       </section>
     </div>
   );

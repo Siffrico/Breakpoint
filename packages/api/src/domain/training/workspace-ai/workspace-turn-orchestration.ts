@@ -23,9 +23,9 @@ import { buildUnitTurnContext } from "../education-unit/context";
 import { runUnitTurn } from "../education-unit/orchestrate-unit-turn";
 import { getUnitRecipe } from "../education-unit/unit";
 import { boundTranscript } from "../engine/compaction";
-import { companionRelation } from "../policies/recall-decay";
 import { regimeForNodeKind } from "../engine/progression-model";
 import { resolveRatingScope } from "../orchestration/rating-scope";
+import { companionRelation } from "../policies/recall-decay";
 import { deriveServerAttemptTiming } from "./evaluation-plan";
 import {
   RatingEvidenceError,

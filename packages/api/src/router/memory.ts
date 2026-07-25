@@ -46,7 +46,8 @@ export const memoryRouter = {
             }),
         },
       }),
-    )),
+    ),
+  ),
 
   createManual: protectedProcedure
     .input(CreateManualMemoryInputSchema)
@@ -65,7 +66,8 @@ export const memoryRouter = {
               }),
           },
         }),
-      )),
+      ),
+    ),
 
   uploadFile: protectedProcedure
     .input(UploadMemoryFileInputSchema)
@@ -102,7 +104,8 @@ export const memoryRouter = {
             },
           }),
         );
-      })),
+      }),
+    ),
 
   importChatgpt: protectedProcedure
     .input(ImportChatGptMemoriesInputSchema)
@@ -139,7 +142,8 @@ export const memoryRouter = {
             },
           }),
         );
-      })),
+      }),
+    ),
 
   update: protectedProcedure
     .input(UpdateMemoryInputSchema)
@@ -158,7 +162,8 @@ export const memoryRouter = {
               }),
           },
         }),
-      )),
+      ),
+    ),
 
   remove: protectedProcedure
     .input(RemoveMemoryInputSchema)
@@ -174,5 +179,6 @@ export const memoryRouter = {
               }),
           },
         }),
-      )),
+      ),
+    ),
 } satisfies TRPCRouterRecord;

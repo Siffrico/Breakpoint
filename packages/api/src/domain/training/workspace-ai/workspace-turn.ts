@@ -3,10 +3,7 @@ import { Cause, Effect, Exit } from "effect";
 
 import type { DbError } from "../../../effect/errors";
 import type { PersistedUnitRun } from "../education-unit/unit";
-import type {
-  RecallCandidate,
-  RecallTarget,
-} from "../policies/recall-decay";
+import type { RecallCandidate, RecallTarget } from "../policies/recall-decay";
 import type {
   CurriculumNode,
   CurriculumPlan,
@@ -53,11 +50,7 @@ interface PlannedRecall {
 }
 
 export const getNextReadyLearningNode = (nodes: CurriculumNode[]) =>
-  nodes.find(
-    (node) =>
-      node.kind === "unit" &&
-      node.status === "ready",
-  ) ?? null;
+  nodes.find((node) => node.kind === "unit" && node.status === "ready") ?? null;
 
 const isLearningUnit = <T extends Pick<CurriculumNode, "kind">>(
   node: T | null,
@@ -179,8 +172,7 @@ const rehydrateRecallTarget = ({
     ? (candidates.find((entry) => entry.id === companionId) ?? null)
     : null;
   if (!primary?.evidenceNodeId || (companionId && !companion)) return null;
-  if (companion && companion.skillNodeId !== primary.skillNodeId)
-    return null;
+  if (companion && companion.skillNodeId !== primary.skillNodeId) return null;
 
   return {
     skillNodeId: primary.skillNodeId,

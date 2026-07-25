@@ -20,7 +20,10 @@ export interface PromptExecution {
  * without changing the call sites.
  */
 export const logPromptExecution = (execution: PromptExecution): void => {
-  if (process.env.NODE_ENV === "development" || process.env.PROMPT_OBSERVABILITY === "true") {
+  if (
+    process.env.NODE_ENV === "development" ||
+    process.env.PROMPT_OBSERVABILITY === "true"
+  ) {
     const tag = execution.success ? "PROMPT_OK" : "PROMPT_FAIL";
     const parts = [
       `[${tag}]`,
@@ -35,7 +38,7 @@ export const logPromptExecution = (execution: PromptExecution): void => {
     if (execution.error) {
       parts.push(`error=${execution.error}`);
     }
-     
+
     console.log(parts.join(" "));
   }
 };

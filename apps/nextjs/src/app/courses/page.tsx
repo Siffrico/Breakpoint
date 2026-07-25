@@ -1,15 +1,14 @@
 import type { Metadata } from "next";
-
-export const metadata: Metadata = {
-  title: "Courses",
-  description: "Browse your Breakpoint courses.",
-};
-
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { getSession } from "~/auth/server";
 import { CoursesPage } from "~/features/courses/components/courses-page";
+
+export const metadata: Metadata = {
+  title: "Courses",
+  description: "Browse your Breakpoint courses.",
+};
 
 const LAST_SESSION_COOKIE = "bp-last-learning-session";
 

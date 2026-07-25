@@ -438,10 +438,10 @@ void test("a mastered unit checks off every target even when the evaluator omits
     },
   );
 
-  assert.deepEqual(captured.committed?.knowledgeCheckOff?.requestedKnowledgeIds, [
-    "entry-1",
-    "entry-2",
-  ]);
+  assert.deepEqual(
+    captured.committed?.knowledgeCheckOff?.requestedKnowledgeIds,
+    ["entry-1", "entry-2"],
+  );
 });
 
 void test("solve timing anchors on the turn claim, not the post-grading clock", async () => {

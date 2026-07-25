@@ -237,7 +237,7 @@ function IdentifyStep({
         <button
           type="button"
           onClick={onToggleMode}
-          className="text-[var(--site-fg)] underline-offset-[3px] outline-none transition-opacity hover:underline"
+          className="text-[var(--site-fg)] underline-offset-[3px] transition-opacity outline-none hover:underline"
         >
           {isSignIn ? "Sign up" : "Sign in"}
         </button>
@@ -277,7 +277,7 @@ function CredentialsStep({
         type="button"
         onClick={onBack}
         disabled={loading}
-        className="mb-7 inline-flex items-center gap-1.5 text-[13px] text-[var(--site-text-2)] outline-none transition-colors hover:text-[var(--site-fg)] disabled:opacity-50"
+        className="mb-7 inline-flex items-center gap-1.5 text-[13px] text-[var(--site-text-2)] transition-colors outline-none hover:text-[var(--site-fg)] disabled:opacity-50"
       >
         <ArrowLeft className="size-3.5" />
         Back

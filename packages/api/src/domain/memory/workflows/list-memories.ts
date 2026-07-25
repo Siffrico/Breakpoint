@@ -1,5 +1,5 @@
-import type { Memory, MemoryError } from "../types";
 import type { Result } from "../../../lib/result";
+import type { Memory, MemoryError } from "../types";
 
 interface ListMemoriesDependencies {
   listMemories: () => Promise<Result<Memory[], MemoryError>>;

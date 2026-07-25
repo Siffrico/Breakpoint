@@ -5,16 +5,15 @@ import { err, ok } from "../../../lib/result";
 interface ContinueLearningProjectDependencies {
   getActivePlan: (sessionId: string) => Promise<CurriculumPlan | null>;
   recoverSkillUnits: () => Promise<void>;
-  prepareUnit: (input: {
+  startUnitPreparation: (input: {
     nodeId: string;
     sessionId: string;
-  }) => Promise<Result<unknown>>;
+  }) => void;
 }
 
 /**
- * Takes an owned learning-project session id, produces the prepared earliest
- * incomplete education-unit destination, and fails only when the curriculum is
- * unavailable, complete, or the unit scenario cannot be prepared.
+ * Takes an owned learning-project session id, starts preparation of the earliest
+ * incomplete education unit, and immediately returns its workspace destination.
  */
 export const continueLearningProjectWorkflow = async ({
   sessionId,
@@ -54,13 +53,7 @@ export const continueLearningProjectWorkflow = async ({
     );
   }
 
-  const preparedUnit = await deps.prepareUnit({
-    nodeId: nextNode.id,
-    sessionId,
-  });
-  if (!preparedUnit.success) {
-    return err(preparedUnit.error);
-  }
+  deps.startUnitPreparation({ nodeId: nextNode.id, sessionId });
 
   return ok({
     sessionId,

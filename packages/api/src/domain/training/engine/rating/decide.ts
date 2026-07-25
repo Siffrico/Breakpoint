@@ -3,19 +3,20 @@ import type {
   JobProgressState,
   ScenarioDirective,
 } from "@acme/validators";
+
 import type { AttemptRecord } from "./evidence";
 import type { JobRatingState } from "./glicko";
 import type { MisconceptionState } from "./misconceptions";
 import type { RatingPolicy } from "./policy";
+import { fadeSupport, isLowSupport, raiseSupport } from "./evidence";
+import { targetItemRating } from "./glicko";
+import { selectRepairTarget } from "./misconceptions";
+import { DEFAULT_RATING_POLICY, SUPPORT_LEVELS } from "./policy";
 
 // The persisted rating contract lives in `@acme/validators` so the API engine
 // and the database cannot drift. Re-export the shapes the engine builds on so
 // existing imports (`from "../engine/rating"`) keep resolving unchanged.
 export type { DirectiveIntent, JobProgressState, ScenarioDirective };
-import { fadeSupport, isLowSupport, raiseSupport } from "./evidence";
-import { targetItemRating } from "./glicko";
-import { selectRepairTarget } from "./misconceptions";
-import { DEFAULT_RATING_POLICY, SUPPORT_LEVELS } from "./policy";
 
 /**
  * The Goldilocks decision ladder. A deterministic state machine over

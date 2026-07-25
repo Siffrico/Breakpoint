@@ -15,9 +15,9 @@ import {
   TrainingUnitContent,
 } from "@acme/db/schema";
 
+import { skillKnowledgeRepository } from "./skill-knowledge-repository";
 import { appendDynamicUnitNode } from "./training-curriculum-node-writer";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
-import { skillKnowledgeRepository } from "./skill-knowledge-repository";
 
 const loadPostgresUrlFromDotenv = () => {
   if (process.env.POSTGRES_URL) return;
@@ -265,7 +265,10 @@ describe("skillKnowledgeRepository persistence", () => {
 
       const result = await skillKnowledgeRepository.checkOffKnowledge({
         db,
-        requestedKnowledgeIds: [target.id, "00000000-0000-0000-0000-000000000000"],
+        requestedKnowledgeIds: [
+          target.id,
+          "00000000-0000-0000-0000-000000000000",
+        ],
         targetedKnowledgeIds: [target.id],
         evidenceNodeId: created.node.id,
       });

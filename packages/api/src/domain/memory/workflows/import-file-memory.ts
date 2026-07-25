@@ -1,5 +1,5 @@
-import type { MemoryError, MemoryImportResult } from "../types";
 import type { Result } from "../../../lib/result";
+import type { MemoryError, MemoryImportResult } from "../types";
 import { err } from "../../../lib/result";
 import { parseFileMemories } from "../parsers/file-parser";
 import {
@@ -10,7 +10,9 @@ import {
 } from "../policies/memory-caps";
 
 interface ImportFileMemoryDependencies {
-  getExistingHashes: (contentHashes: string[]) => Promise<Result<Set<string>, MemoryError>>;
+  getExistingHashes: (
+    contentHashes: string[],
+  ) => Promise<Result<Set<string>, MemoryError>>;
   createImport: (payload: {
     rawPayload: string;
     entryCount: number;

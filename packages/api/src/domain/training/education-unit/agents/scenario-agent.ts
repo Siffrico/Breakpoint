@@ -31,7 +31,7 @@ import { PhaseAgentOutputSchema } from "./output-schema";
 import { runPhaseAgent } from "./run-phase-agent";
 import { STABLE_SYSTEM_PROMPT } from "./system-prompt";
 
-const SCENARIO_INSTRUCTION = `${FIRST_SCENARIO_GOAL}
+export const SCENARIO_INSTRUCTION = `${FIRST_SCENARIO_GOAL}
 
 You are in the CONNECT beat. Productive failure: the learner engages with a
 backward-authored transition before applying the concept themselves.
@@ -56,20 +56,29 @@ company's internals. Create a fictional or clearly hypothetical application
 unless the context supplies the learner's own real artifact. The scenario
 should feel personally chosen, not randomly themed.
 
-Format every scenario for fast reading in Markdown:
-  - Open with a short, vivid title.
-  - Use common words, short sentences, short paragraphs, bullets, and blank
-    lines. Aim for language an attentive middle-school reader can follow while
-    keeping the domain reasoning authentic.
-  - Label the initial state, the pressure, and the desired state when labels
-    make the transition easier to see.
-  - Show one concrete pipeline whose steps can be mentally simulated.
-  - Define every necessary domain term in the sentence that introduces it.
-  - Include enough concrete detail to picture the work and care about the
-    outcome, but only details that affect the goal, mechanism, pressure, or
-    consequence.
-  - Make the world one invention away: the learner should feel what capability
-    is missing before they know its formal name.
+Format a newly posed scenario for fast reading in Markdown. The scenario's
+shape must follow its own situation; do not force it into a fixed set of
+sections. Use this writing grammar:
+
+  - Start with one short, vivid # title on its own line, followed by a blank
+    line. Never run the title into the opening sentence.
+  - Keep each paragraph to one idea and one to three short sentences. Put a
+    blank line between paragraphs whenever the situation, mechanism, pressure,
+    or consequence changes.
+  - Use a descriptive ## heading only when it helps the learner navigate a
+    distinct part of this particular scenario. Do not use generic headings just
+    to fill a template.
+  - Use a numbered list for an ordered process, sequence of events, or the
+    learner's questions. Use bullets for a small set of parallel facts. Do not
+    hide either inside a dense paragraph.
+  - Put a blank line before and after every heading and list. Do not stack
+    headings, lists, or long paragraphs without breathing room.
+
+Use common words, short sentences, and concrete nouns. Define a necessary
+domain term in the sentence that introduces it. Include only details that
+change the goal, mechanism, pressure, or consequence. Make the world one
+invention away: the learner should feel what capability is missing before they
+know its formal name.
 
 Clarity gate: a learner must be able to retell who wants what, how the current
 system tries to provide it, what changed, why that change causes failure, and
@@ -78,11 +87,11 @@ stake must trace to an explicit learner interest when memory supplies one.
 Answer-integrity gate: the private canonical answer must be forced by the
 scenario. If any gate fails, rebuild before emitting.
 
-End with "### Reconstruct the system" and exactly three numbered questions:
-  1. What is the person or system trying to accomplish?
-  2. Through what visible mechanism is it currently trying to accomplish it?
-  3. Why does that specific mechanism fail under the scenario's one pressure?
-Make each question concrete to the scenario. Add no hints or extra questions.
+End with exactly three numbered, scenario-specific questions that make the
+learner identify what the person or system wants, how the visible mechanism
+works, and why it fails under the pressure. Give that question block a short
+descriptive heading when one would improve scanning. Add no hints or extra
+questions.
 On this opening turn, call recordScenarioSpec once with the target skill (the
 transferable reasoning ability, not the surface topic), the surface (the
 world's framing), state A (the current imperfect reality), state B (the desired

@@ -60,8 +60,7 @@ export interface WorkspaceIndexDependencies {
   listNodesByPlanIds: (planIds: string[]) => Promise<WorkspaceIndexNode[]>;
 }
 
-const isChatNode = (node: WorkspaceIndexNode) =>
-  node.kind === "unit";
+const isChatNode = (node: WorkspaceIndexNode) => node.kind === "unit";
 
 export const getWorkspaceIndexWorkflow = async ({
   deps,

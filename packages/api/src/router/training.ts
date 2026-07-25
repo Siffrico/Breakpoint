@@ -597,12 +597,36 @@ export const trainingRouter = {
                 userId: ctx.session.user.id,
                 scheduleBackgroundTask: ctx.scheduleBackgroundTask,
               }),
-            prepareUnit: ({ nodeId, sessionId }) =>
-              prepareUnitWorkflow({
-                nodeId,
-                sessionId,
-                deps: createPrepareUnitDependencies(ctx.db),
-              }),
+            startUnitPreparation: ({ nodeId, sessionId }) => {
+              const prepare = () =>
+                prepareUnitWorkflow({
+                  nodeId,
+                  sessionId,
+                  deps: createPrepareUnitDependencies(ctx.db),
+                }).then(
+                  (result) => {
+                    if (!result.success) {
+                      console.error("First workspace unit preparation failed", {
+                        nodeId,
+                        sessionId,
+                        error: result.error,
+                      });
+                    }
+                  },
+                  (error: unknown) => {
+                    console.error("First workspace unit preparation failed", {
+                      nodeId,
+                      sessionId,
+                      error,
+                    });
+                  },
+                );
+              if (ctx.scheduleBackgroundTask) {
+                ctx.scheduleBackgroundTask(prepare);
+              } else {
+                void prepare();
+              }
+            },
           },
         }),
       );

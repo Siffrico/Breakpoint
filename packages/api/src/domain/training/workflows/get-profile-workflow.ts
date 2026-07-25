@@ -1,6 +1,6 @@
-import { err, ok  } from "../../../lib/result";
-import type {Result} from "../../../lib/result";
+import type { Result } from "../../../lib/result";
 import type { ProfileState } from "../types/training.types";
+import { err, ok } from "../../../lib/result";
 
 interface GetProfileDependencies {
   getProfileState: (sessionId: string) => Promise<ProfileState | null>;

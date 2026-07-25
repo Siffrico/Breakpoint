@@ -290,7 +290,11 @@ describe("runUnitTurn contract", () => {
         { toolName: "continuePhase", input: { reason: "needs_more_work" } },
         {
           toolName: "gradeSolution",
-          input: { score: 50, reasoning: "Also graded.", errorCodes: ["weak_definition"] },
+          input: {
+            score: 50,
+            reasoning: "Also graded.",
+            errorCodes: ["weak_definition"],
+          },
         },
       ]),
     },

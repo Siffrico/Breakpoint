@@ -82,7 +82,9 @@ describe("toUnitEvent", () => {
     expect(
       toUnitEvent("gradeConnection", { connected: "yes" }, grade),
     ).toBeNull();
-    expect(toUnitEvent("continuePhase", { reason: "unsure" }, grade)).toBeNull();
+    expect(
+      toUnitEvent("continuePhase", { reason: "unsure" }, grade),
+    ).toBeNull();
   });
 
   it("returns null when the error codes contradict the derived verdict", () => {

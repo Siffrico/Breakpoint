@@ -167,7 +167,9 @@ export function PostCard(props: {
   return (
     <div className="bg-muted flex flex-row rounded-lg p-4">
       <div className="grow">
-        <h2 className="text-primary text-2xl font-semibold">{props.post.title}</h2>
+        <h2 className="text-primary text-2xl font-semibold">
+          {props.post.title}
+        </h2>
         <p className="mt-2 text-sm">{props.post.content}</p>
       </div>
       <div>

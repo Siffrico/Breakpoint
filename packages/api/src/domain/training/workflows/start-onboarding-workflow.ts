@@ -1,7 +1,7 @@
-import { err, ok  } from "../../../lib/result";
-import type {Result} from "../../../lib/result";
-import { INTRO_PROMPT } from "../services/onboarding-prompts";
+import type { Result } from "../../../lib/result";
 import type { OnboardingSessionState } from "../types/training.types";
+import { err, ok } from "../../../lib/result";
+import { INTRO_PROMPT } from "../services/onboarding-prompts";
 
 interface StartOnboardingDependencies {
   createSession: (userId?: string | null) => Promise<{ id: string } | null>;

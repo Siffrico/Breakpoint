@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 
-import type { CurriculumNode } from "../types/training.types";
 import type { PersistedUnitRun } from "../education-unit/unit";
+import type { CurriculumNode } from "../types/training.types";
 import {
   assertUnitCanAdvance,
   getUnitAdvanceGate,

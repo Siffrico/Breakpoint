@@ -21,9 +21,7 @@ const config = {
 
   /** Allow remote avatar hosts used by OAuth providers */
   images: {
-    remotePatterns: [
-      { protocol: "https", hostname: "cdn.discordapp.com" },
-    ],
+    remotePatterns: [{ protocol: "https", hostname: "cdn.discordapp.com" }],
   },
 };
 

@@ -19,7 +19,6 @@ const topCeilingOf = (bands: readonly DifficultyBand[]): number => {
 const buildDraft = (abilityCount: number, skillCount = 3) => ({
   title: "Production debugging operator",
   summary: "A job-first curriculum for production debugging.",
-  targetIdentity: "Production debugging operator",
   abilities: Array.from({ length: abilityCount }, (_, index) => ({
     title: `Diagnose incidents and choose the next probe ${index + 1}`,
     summary: "Handle real incident evidence under ambiguity.",

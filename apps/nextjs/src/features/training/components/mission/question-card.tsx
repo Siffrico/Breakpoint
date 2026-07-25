@@ -23,7 +23,7 @@ export function QuestionCard({
             key={option}
             type="button"
             onClick={() => onAnswer(option)}
-            className="w-full rounded-lg border border-[var(--site-line)] bg-[var(--site-raised)] px-4 py-3.5 text-left text-[14px] leading-relaxed text-[var(--site-fg)] outline-none transition-colors hover:border-[var(--site-line-strong)]"
+            className="w-full rounded-lg border border-[var(--site-line)] bg-[var(--site-raised)] px-4 py-3.5 text-left text-[14px] leading-relaxed text-[var(--site-fg)] transition-colors outline-none hover:border-[var(--site-line-strong)]"
           >
             {option}
           </button>
@@ -40,10 +40,10 @@ export function QuestionCard({
           value={detail}
           onChange={(event) => setDetail(event.target.value)}
           placeholder="Tell me more"
-          className="min-w-0 flex-1 border-b border-[var(--site-line)] bg-transparent px-1 py-2.5 text-[14px] text-[var(--site-fg)] outline-none transition-colors placeholder:text-[var(--site-text-3)] focus:border-[var(--site-line-strong)]"
+          className="min-w-0 flex-1 border-b border-[var(--site-line)] bg-transparent px-1 py-2.5 text-[14px] text-[var(--site-fg)] transition-colors outline-none placeholder:text-[var(--site-text-3)] focus:border-[var(--site-line-strong)]"
         />
         <button
-          className="text-[14px] text-[var(--site-text-2)] outline-none transition-colors hover:text-[var(--site-fg)]"
+          className="text-[14px] text-[var(--site-text-2)] transition-colors outline-none hover:text-[var(--site-fg)]"
           type="submit"
         >
           Send

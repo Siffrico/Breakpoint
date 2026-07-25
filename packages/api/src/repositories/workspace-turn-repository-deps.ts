@@ -28,12 +28,12 @@ import { WorkspaceTurnRepo } from "../domain/training/workspace-ai/workspace-tur
 import { makeDbError } from "../effect/db";
 import { memoryRepository } from "./memory-repository";
 import { resolvePlanSeedRating } from "./plan-seed-rating";
+import { skillKnowledgeRepository } from "./skill-knowledge-repository";
 import { trainingAttemptRepository } from "./training-attempt-repository";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
 import { trainingOnboardingRepository } from "./training-onboarding-repository";
 import { createTrainingRatingGoldilocksDeps } from "./training-rating-goldilocks-deps";
 import { trainingRatingRepository } from "./training-rating-repository";
-import { skillKnowledgeRepository } from "./skill-knowledge-repository";
 import { trainingUnitRunRepository } from "./training-unit-run-repository";
 
 type Database = typeof databaseClient;
@@ -535,7 +535,10 @@ export const createWorkspaceTurnRepositoryDeps = (
       }),
     getUnitByNodeId: (nodeId: string) =>
       trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),
-    getRecallCandidatesByIds: (planId: string, knowledgeIds: readonly string[]) =>
+    getRecallCandidatesByIds: (
+      planId: string,
+      knowledgeIds: readonly string[],
+    ) =>
       skillKnowledgeRepository.getRecallCandidatesByIds({
         db,
         planId,

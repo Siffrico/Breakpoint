@@ -3,12 +3,8 @@ export {
   formatTeachbackTranscript,
 } from "./transcript";
 export { formatIdentityReport } from "./learner-context";
-export {
-  formatLearningHistory,
-} from "./learning-history";
-export type {
-  PriorLearningRecord,
-} from "./learning-history";
+export { formatLearningHistory } from "./learning-history";
+export type { PriorLearningRecord } from "./learning-history";
 export {
   formatUnitContext,
   formatUnitMeta,

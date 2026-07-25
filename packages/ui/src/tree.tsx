@@ -34,7 +34,7 @@ function TreeBranch({
         className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm hover:bg-white/[0.03]"
       >
         <svg
-          className={`h-3 w-3 shrink-0 text-muted-foreground transition-transform ${expanded ? "rotate-90" : ""}`}
+          className={`text-muted-foreground h-3 w-3 shrink-0 transition-transform ${expanded ? "rotate-90" : ""}`}
           fill="none"
           viewBox="0 0 24 24"
           stroke="currentColor"
@@ -45,9 +45,13 @@ function TreeBranch({
         <span className="font-display text-foreground">{node.label}</span>
       </button>
       {expanded && (
-        <div className="ml-2 border-l border-border pl-3">
+        <div className="border-border ml-2 border-l pl-3">
           {children.map((child) => (
-            <TreeBranch key={child.id} node={child} defaultExpanded={defaultExpanded} />
+            <TreeBranch
+              key={child.id}
+              node={child}
+              defaultExpanded={defaultExpanded}
+            />
           ))}
         </div>
       )}
@@ -70,7 +74,7 @@ function TreeLeaf({ node }: { node: TreeNode }) {
       <span className="h-3 w-3 shrink-0" />
       {node.variant === "simulation" ? (
         <span>
-          <span className="mr-1.5 font-mono text-xs text-primary">SIM</span>
+          <span className="text-primary mr-1.5 font-mono text-xs">SIM</span>
           {node.label}
         </span>
       ) : (
@@ -90,7 +94,11 @@ function TreeView({
   return (
     <div className="space-y-0.5">
       {nodes.map((node) => (
-        <TreeBranch key={node.id} node={node} defaultExpanded={defaultExpanded} />
+        <TreeBranch
+          key={node.id}
+          node={node}
+          defaultExpanded={defaultExpanded}
+        />
       ))}
     </div>
   );

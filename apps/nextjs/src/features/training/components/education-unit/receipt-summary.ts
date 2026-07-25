@@ -40,8 +40,7 @@ export const receiptTitle = (
   if (!plain) return fallback;
 
   const sentenceEnd = plain.search(/[.!?](\s|$)/);
-  const sentence =
-    sentenceEnd > 0 ? plain.slice(0, sentenceEnd + 1) : plain;
+  const sentence = sentenceEnd > 0 ? plain.slice(0, sentenceEnd + 1) : plain;
 
   return truncateAtWord(sentence, TITLE_MAX_CHARS);
 };

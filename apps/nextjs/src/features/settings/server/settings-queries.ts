@@ -1,8 +1,8 @@
 import { headers } from "next/headers";
 
-import type { TopicNavItem } from "~/features/settings/components/settings-nav";
 import { appRouter, createTRPCContext } from "@acme/api";
 
+import type { TopicNavItem } from "~/features/settings/components/settings-nav";
 import { auth } from "~/auth/server";
 
 const createCaller = async () => {

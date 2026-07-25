@@ -12,10 +12,7 @@ import { getRunProfile } from "../engine/run-profiles";
 
 type ArtifactAgentId = Extract<
   AgentId,
-  | "curriculumDesigner"
-  | "knowledgeMapper"
-  | "buildContent"
-  | "projectOverview"
+  "curriculumDesigner" | "knowledgeMapper" | "buildContent" | "projectOverview"
 >;
 
 export const runAgent = async <TSchema extends z.ZodTypeAny>({

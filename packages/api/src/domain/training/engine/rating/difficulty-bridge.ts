@@ -5,8 +5,8 @@ import type {
 } from "@acme/validators";
 
 import type { DifficultyBand } from "./decide";
-import { validateDifficultyBands } from "./decide";
 import type { DifficultyDialPreset } from "./difficulty-priors";
+import { validateDifficultyBands } from "./decide";
 import {
   BAND_DIAL_PRESETS,
   BASE_PER_FORMAT_KIND,

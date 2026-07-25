@@ -1,12 +1,12 @@
 "use client";
 
+import type * as React from "react";
 import { Select as SelectPrimitive } from "@base-ui/react/select";
 import {
   ChevronDownIcon,
   ChevronsUpDownIcon,
   ChevronUpIcon,
 } from "lucide-react";
-import type * as React from "react";
 
 import { cn } from "@acme/ui";
 
@@ -20,7 +20,7 @@ export function SelectTrigger({
   return (
     <SelectPrimitive.Trigger
       className={cn(
-        "border-input bg-background text-foreground ring-ring/24 relative inline-flex min-h-9 w-full min-w-36 select-none items-center justify-between gap-2 rounded-lg border px-3 text-left text-sm shadow-xs/5 outline-none transition-shadow focus-visible:ring-[3px] data-disabled:pointer-events-none data-disabled:opacity-64 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+        "border-input bg-background text-foreground ring-ring/24 shadow-xs/5 data-disabled:pointer-events-none data-disabled:opacity-64 relative inline-flex min-h-9 w-full min-w-36 select-none items-center justify-between gap-2 rounded-lg border px-3 text-left text-sm outline-none transition-shadow focus-visible:ring-[3px] [&_svg]:pointer-events-none [&_svg]:shrink-0",
         className,
       )}
       data-slot="select-trigger"
@@ -81,7 +81,7 @@ export function SelectPopup({
           </SelectPrimitive.ScrollUpArrow>
           <SelectPrimitive.List
             className={cn(
-              "border-border bg-popover max-h-(--available-height) min-w-(--anchor-width) overflow-y-auto rounded-lg border p-1 shadow-lg/5",
+              "border-border bg-popover max-h-(--available-height) min-w-(--anchor-width) shadow-lg/5 overflow-y-auto rounded-lg border p-1",
               className,
             )}
           >
@@ -104,7 +104,7 @@ export function SelectItem({
   return (
     <SelectPrimitive.Item
       className={cn(
-        "data-highlighted:bg-accent data-highlighted:text-accent-foreground grid min-h-9 cursor-default grid-cols-[1rem_1fr] items-start gap-2 rounded-sm px-2 py-2 text-sm outline-none data-disabled:pointer-events-none data-disabled:opacity-64",
+        "data-highlighted:bg-accent data-highlighted:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-64 grid min-h-9 cursor-default grid-cols-[1rem_1fr] items-start gap-2 rounded-sm px-2 py-2 text-sm outline-none",
         className,
       )}
       data-slot="select-item"

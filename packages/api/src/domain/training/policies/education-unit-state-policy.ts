@@ -21,7 +21,10 @@ const getLatestStateSnapshot = (responses: PhaseResponseRecord[]) => {
     return null;
   }
 
-  return EducationUnitStateSchema.safeParse(latest.metadata.stateSnapshot).data ?? null;
+  return (
+    EducationUnitStateSchema.safeParse(latest.metadata.stateSnapshot).data ??
+    null
+  );
 };
 
 export const createInitialEducationUnitState = ({

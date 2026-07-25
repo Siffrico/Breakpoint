@@ -33,9 +33,7 @@ export function buildTree(
       status: node.status as TreeNode["status"],
       children:
         children.length > 0
-          ? children
-              .sort((a, b) => a.orderIndex - b.orderIndex)
-              .map(convert)
+          ? children.sort((a, b) => a.orderIndex - b.orderIndex).map(convert)
           : undefined,
     };
   }

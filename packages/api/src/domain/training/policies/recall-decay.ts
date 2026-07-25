@@ -80,10 +80,7 @@ const anchorOf = (entry: RecallCandidate): Date =>
  * are comparable across strengths, so a 9-day-old strength-0 entry (ratio 3)
  * outranks a 22-day-old strength-2 entry (ratio ~1.05).
  */
-export const overdueRatio = (
-  entry: RecallCandidate,
-  now: Date,
-): number => {
+export const overdueRatio = (entry: RecallCandidate, now: Date): number => {
   const elapsed = now.getTime() - anchorOf(entry).getTime();
   return elapsed / intervalMsFor(entry.strength);
 };

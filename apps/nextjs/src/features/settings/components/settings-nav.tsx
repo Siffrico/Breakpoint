@@ -1,5 +1,6 @@
 "use client";
 
+import type { Icon as PhosphorIconType } from "@phosphor-icons/react";
 import { Suspense } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
@@ -11,7 +12,6 @@ import {
   Plus,
   User,
 } from "@phosphor-icons/react";
-import type { Icon as PhosphorIconType } from "@phosphor-icons/react";
 
 import { cn } from "@acme/ui";
 
@@ -82,7 +82,7 @@ function SettingsSidebarContent({
       <div className="px-2 pt-4 pb-1">
         <Link
           href={backHref}
-          className="text-foreground/50 hover:bg-foreground/[0.04] hover:text-foreground/82 flex h-8 items-center gap-2 rounded-lg px-2.5 text-[12.5px] outline-none transition-colors focus:outline-none focus-visible:outline-none"
+          className="text-foreground/50 hover:bg-foreground/[0.04] hover:text-foreground/82 flex h-8 items-center gap-2 rounded-lg px-2.5 text-[12.5px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
         >
           <ArrowLeft size={15} weight="regular" />
           Back
@@ -103,7 +103,7 @@ function SettingsSidebarContent({
                 key={key}
                 href={href}
                 className={cn(
-                  "flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-[13px] outline-none transition-colors focus:outline-none focus-visible:outline-none",
+                  "flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-[13px] transition-colors outline-none focus:outline-none focus-visible:outline-none",
                   isActive
                     ? "bg-foreground/10 text-foreground font-medium"
                     : "text-foreground/68 hover:bg-foreground/[0.05] hover:text-foreground/94",
@@ -136,12 +136,16 @@ function SettingsSidebarContent({
               <Link
                 href={`${basePath}/topics`}
                 title="Browse and import projects"
-                className="text-foreground/40 hover:text-foreground/80 -mr-1 flex size-5 items-center justify-center outline-none transition-colors focus:outline-none focus-visible:outline-none"
+                className="text-foreground/40 hover:text-foreground/80 -mr-1 flex size-5 items-center justify-center transition-colors outline-none focus:outline-none focus-visible:outline-none"
               >
                 <Plus size={13} weight="bold" />
               </Link>
             </div>
-            <TopicsTree basePath={basePath} pathname={pathname} topics={topics} />
+            <TopicsTree
+              basePath={basePath}
+              pathname={pathname}
+              topics={topics}
+            />
           </div>
         ) : null}
       </nav>
@@ -173,7 +177,7 @@ function TopicsTree({
             href={href}
             title={topic.title}
             className={cn(
-              "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[12.5px] outline-none transition-colors focus:outline-none focus-visible:outline-none",
+              "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[12.5px] transition-colors outline-none focus:outline-none focus-visible:outline-none",
               isActive
                 ? "bg-foreground/[0.06] text-foreground font-medium"
                 : "text-foreground/60 hover:bg-foreground/[0.04] hover:text-foreground/90",

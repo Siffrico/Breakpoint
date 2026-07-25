@@ -63,10 +63,14 @@ export const AbilitySkillDraftSchema = z.object({
   masteryContract: MasteryContractSchema.omit({ maxRatingDeviation: true }),
 });
 
+/**
+ * The plan draft carries no targetIdentity: the identity phrase has a single
+ * source of truth in `identityReport.targetIdentity`, which is what the
+ * blueprint, the profile, and every downstream prompt read.
+ */
 export const CurriculumPlanDraftSchema = z.object({
   title: z.string().min(1),
   summary: z.string().min(1),
-  targetIdentity: z.string().min(1),
   abilities: z
     .array(
       z.object({

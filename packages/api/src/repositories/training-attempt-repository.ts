@@ -176,9 +176,7 @@ export const trainingAttemptRepository = {
     });
 
     const currentReadyNode = nodes.find(
-      (node) =>
-        node.kind === "unit" &&
-        node.status === "ready",
+      (node) => node.kind === "unit" && node.status === "ready",
     );
     const unit = currentReadyNode
       ? await db.query.TrainingUnitContent.findFirst({

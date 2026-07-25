@@ -1,8 +1,12 @@
-import type { JobRatingState } from "../domain/training/engine/rating";
 import type { db as databaseClient } from "@acme/db/client";
 import { eq } from "@acme/db";
-import { TrainingCurriculumNode, TrainingCurriculumPlan } from "@acme/db/schema";
+import {
+  TrainingCurriculumNode,
+  TrainingCurriculumPlan,
+} from "@acme/db/schema";
 import { SeedRatingSchema } from "@acme/validators";
+
+import type { JobRatingState } from "../domain/training/engine/rating";
 
 type Database = typeof databaseClient;
 

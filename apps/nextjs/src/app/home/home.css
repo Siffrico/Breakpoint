@@ -36,7 +36,9 @@
   position: relative;
   min-height: 100vh;
   display: grid;
-  grid-template-columns: var(--oc-col-left) var(--oc-col-mid) var(--oc-col-right);
+  grid-template-columns: var(--oc-col-left) var(--oc-col-mid) var(
+      --oc-col-right
+    );
   background: var(--bg);
   color: var(--text);
   font-family: var(--sans);
