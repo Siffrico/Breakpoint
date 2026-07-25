@@ -187,6 +187,7 @@ export function OnboardingShell({
   );
   const continueLearning = useMutation(
     trpc.training.continueLearningProject.mutationOptions({
+      onSuccess: (destination) => router.replace(destination.href),
       onError: (error) => toast.error(error.message),
     }),
   );
@@ -702,9 +703,6 @@ export function OnboardingShell({
                               continueLearning.mutate({
                                 sessionId: build.sessionId,
                               });
-                              router.replace(
-                                `/workspace?session=${encodeURIComponent(build.sessionId)}`,
-                              );
                             }}
                             onSeeOverview={() => {
                               if (preview || !build.sessionId) return;

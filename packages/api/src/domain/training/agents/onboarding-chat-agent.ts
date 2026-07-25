@@ -29,6 +29,7 @@ const ONBOARDING_RUNTIME_NOTES = `Runtime notes for this session:
 - createProject pauses for the learner to confirm with a button — do not announce it, do not ask permission in text, just call it. After it returns ok:true, write one short closing line. Do not repeat or restate the plan.
 - If it returns ok:false because more learner signal is needed, continue the consultation with one short question. For other failures, apologize briefly and ask if they want to retry.
 - Never call createProject before a project has been explicitly chosen.
+- If the learner says they are not ready to choose, accept that immediately. Do not repeat options or ask for a choice; continue discovery with one concrete question and revisit projects only after they signal readiness.
 - Before suggesting projects, the transcript must contain at least one named source of fascination and the specific quality the learner finds interesting. If it does not, ask that one question next.
 
 Search policy:

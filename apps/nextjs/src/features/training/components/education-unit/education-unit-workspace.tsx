@@ -574,7 +574,10 @@ function EducationUnitWorkspaceComponent({
     if (effectiveIsRunning) return;
     setMessages((current) => {
       const failedSends = current.filter(
-        (message) => message.role === "user" && message.metadata?.failed,
+        (message) =>
+          message.role === "user" &&
+          (message.metadata?.failed === true ||
+            message.metadata?.turnId === pendingTurnIdRef.current),
       );
       return failedSends.length > 0
         ? [...initialChatMessages, ...failedSends]

@@ -1,7 +1,7 @@
 import { Effect, Layer } from "effect";
 
 import type { db as databaseClient } from "@acme/db/client";
-import { and, eq, isNull, lt, or } from "@acme/db";
+import { and, eq, isNull, lt, or, sql } from "@acme/db";
 import {
   TrainingCurriculumNode,
   TrainingUnitRun,
@@ -65,6 +65,12 @@ const claimWorkspaceUnitLease = async ({
           isNull(TrainingUnitRun.turnLeaseId),
           isNull(TrainingUnitRun.turnLeaseExpiresAt),
           lt(TrainingUnitRun.turnLeaseExpiresAt, now),
+          sql`not exists (
+            select 1 from ${TrainingWorkspaceTurn}
+            where ${TrainingWorkspaceTurn.sessionId} = ${sessionId}
+              and ${TrainingWorkspaceTurn.leaseId} = ${TrainingUnitRun.turnLeaseId}
+              and ${TrainingWorkspaceTurn.status} = 'processing'
+          )`,
         ),
       ),
     )
