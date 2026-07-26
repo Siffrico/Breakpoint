@@ -3,12 +3,12 @@
 // Teach/Feedback: both teaching beats of a unit, one agent.
 //
 //   - "orient": the unit's opening — activate prior knowledge, set stakes,
-//     never reveal the mechanism. No tools, no verdict.
+//     and return no event or scenario artifact.
 //   - "seam": the worked-example teach between rounds, delivered after the
 //     learner has struggled through a round. It EVOLVES the unit's one
 //     scenario (same world, escalated friction — the context block's
-//     evolution constraint directs it) and records the evolved spec via
-//     recordScenarioSpec; its closing why-probe is the next round's Connect.
+//     evolution constraint directs it) and returns the evolved scenarioSpec;
+//     its closing why-probe is the next round's Connect.
 //
 // Single-shot either way: the orchestrator fires fsm's teach_done event
 // automatically once the response lands; the FSM decision was never this
@@ -21,8 +21,7 @@ import type { PhaseAgentError } from "./errors";
 import type { PhaseAgentOutput } from "./output-schema";
 import type { PhaseAgentResult } from "./run-phase-agent";
 import { ERROR_CLASSIFICATION_PROTOCOL } from "../../prompts/shared-instructions";
-import { recordScenarioSpec } from "../../workspace-ai/fsm-tools";
-import { PhaseAgentOutputSchema } from "./output-schema";
+import { getPhaseAgentOutputSchema } from "./output-schema";
 import { runPhaseAgent } from "./run-phase-agent";
 import { STABLE_SYSTEM_PROMPT } from "./system-prompt";
 
@@ -85,7 +84,8 @@ and explain the worked example's decisions without needing an unstated bridge.
 Repair any missing bridge in the response.
 
 This is a single teaching response. There is nothing to grade, and Connect owns
-the learner's first application, so do not pose a problem for them to solve yet.`;
+the learner's first application, so do not pose a problem for them to solve yet.
+Keep the complete learner-facing response under 320 words.`;
 
 const SEAM_INSTRUCTION = `You are in the TEACH beat, the seam between two rounds of this unit's one
 evolving scenario. The learner has just finished struggling through a round —
@@ -155,13 +155,14 @@ scenario. Ask the learner to use the corrected model to predict or decide, never
 to repeat a definition.
 
 The why-probe IS the next round's Connect scenario. Author it backwards —
-decide its target answer before writing it — and call recordScenarioSpec
-exactly once with the evolved state A, state B, the chasm, the friction, the
-canonical answer, the concise reasoning path, and the grading rubric. The
+decide its target answer before writing it — and return scenarioSpec with the
+evolved state A, state B, the chasm, the friction, the canonical answer, the
+concise reasoning path, and the grading rubric. The
 learner's next message will be graded against this spec; do not add a second
 scenario or ask whether they understand.
 
-This is a single response. There is nothing to grade yet.
+This is a single response. There is nothing to grade yet. Keep the complete
+learner-facing response under 450 words.
 
 ${ERROR_CLASSIFICATION_PROTOCOL}`;
 
@@ -179,7 +180,7 @@ export const runTeachAgent = (
         messages,
         instruction: ORIENT_INSTRUCTION,
         contextBlock,
-        schema: PhaseAgentOutputSchema,
+        schema: getPhaseAgentOutputSchema("orient"),
         schemaName: "orient_output",
         errorMessage: "Failed to run the Orient step.",
         onPartialAssistantMessage,
@@ -191,9 +192,8 @@ export const runTeachAgent = (
         messages,
         instruction: SEAM_INSTRUCTION,
         contextBlock,
-        schema: PhaseAgentOutputSchema,
+        schema: getPhaseAgentOutputSchema("teach"),
         schemaName: "teach_output",
-        tools: { recordScenarioSpec },
         errorMessage: "Failed to run the Teach step.",
         onPartialAssistantMessage,
       });

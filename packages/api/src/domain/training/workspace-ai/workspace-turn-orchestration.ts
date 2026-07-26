@@ -1,6 +1,6 @@
 import type { ModelMessage } from "ai";
 import type { Scope } from "effect";
-import { Effect, Exit } from "effect";
+import { Cause, Effect, Exit } from "effect";
 
 import type { ScenarioFormat } from "@acme/validators";
 
@@ -153,12 +153,14 @@ const releaseClaimedTurn = ({
   unitContentId,
   turnId,
   turnLeaseId,
+  reason,
   deps,
 }: {
   sessionId: string;
   unitContentId: string;
   turnId: string;
   turnLeaseId: string;
+  reason: string;
   deps: WorkspaceTurnOrchestrationDependencies;
 }): Effect.Effect<void> => {
   return Effect.tryPromise(() =>
@@ -167,7 +169,7 @@ const releaseClaimedTurn = ({
         sessionId,
         turnId,
         leaseId: turnLeaseId,
-        reason: "Education turn ended before its atomic commit completed.",
+        reason,
       }),
       deps.releaseWorkspaceUnitLease({
         sessionId,
@@ -303,6 +305,14 @@ const claimTurnAndLoadTranscript = ({
               unitContentId,
               turnId,
               turnLeaseId,
+              reason: Cause.hasInterruptsOnly(exit.cause)
+                ? "Education turn ended before its atomic commit completed."
+                : (() => {
+                    const failure = Cause.squash(exit.cause);
+                    return failure instanceof Error
+                      ? failure.message
+                      : "Education turn ended before its atomic commit completed.";
+                  })(),
               deps,
             })
           : Effect.void,
@@ -381,6 +391,21 @@ const readPendingConnectTeach = (
     .reverse()
     .find((response) => response.phase === "ai_education");
   return lastEducation?.metadata?.forcedConnectAdvance === true;
+};
+
+const readSolveTaskPending = (
+  unitRun: ResolvedWorkspaceTurn["unitRun"],
+  unitResponses: ResolvedWorkspaceTurn["unitResponses"],
+): boolean => {
+  if (unitRun.phase !== "solve") return false;
+  const lastEducation = [...unitResponses]
+    .reverse()
+    .find((response) => response.phase === "ai_education");
+  return (
+    lastEducation?.metadata?.aiEducationStage === "solve" &&
+    lastEducation.metadata.phasePass === unitRun.pass &&
+    lastEducation.metadata.verdict === "connected"
+  );
 };
 
 export const runEducationUnitTurn = ({
@@ -517,6 +542,7 @@ export const runEducationUnitTurn = ({
     // commit is the presentation that opens the measured attempt.
     const isFreshRecallPresentation =
       recallFocus !== null && unitRun.difficultySnapshot === null;
+    const solveTaskPending = readSolveTaskPending(unitRun, unitResponses);
     const contextBlock = buildUnitTurnContext({
       unit,
       state: unitRun,
@@ -525,6 +551,7 @@ export const runEducationUnitTurn = ({
       memories,
       difficultyLine: difficultySnapshot.promptBlock,
       pendingConnectTeach: readPendingConnectTeach(unitResponses),
+      solveTaskPending,
       scenarioSpec: unitRun.scenarioSpec,
       knowledge,
       recallFocus: recallFocus
@@ -553,6 +580,7 @@ export const runEducationUnitTurn = ({
       contextBlock,
       transcript: toModelMessages(loadedTranscript.transcript),
       storedScenarioSpec: unitRun.scenarioSpec,
+      solveTaskPending,
       onPartialAssistantMessage,
     });
     // Check-offs ride the atomic turn commit (lease-guarded), never the outer

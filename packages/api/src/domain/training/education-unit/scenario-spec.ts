@@ -20,8 +20,8 @@
 
 // The canonical schema lives in @acme/validators (shared with the DB column's
 // .$type<>()), so the persisted contract and the agent contract cannot drift.
-// Two shapes: ScenarioSpec is what the agent emits through recordScenarioSpec
-// (no pass — the model never decides which round it is on); ScenarioSpecRecord
+// Two shapes: ScenarioSpec is what the agent emits in structured output (no
+// pass — the model never decides which round it is on); ScenarioSpecRecord
 // is the persisted form with the round stamped by the orchestrator, so the
 // context builder can tell a prior round's spec from the current round's.
 import type {
@@ -30,7 +30,48 @@ import type {
 } from "@acme/validators";
 import { UnitScenarioSpecSchema } from "@acme/validators";
 
+import { ERROR_CLASSIFICATION_CODES } from "../prompts/shared-instructions";
+
 export const ScenarioSpecSchema = UnitScenarioSpecSchema;
+export const ScenarioSpecOutputSchema = ScenarioSpecSchema.required({
+  stateA: true,
+  stateB: true,
+  chasm: true,
+  frictionNoise: true,
+  formatId: true,
+  reasoningPathSteps: true,
+  withheldGivens: true,
+  embeddedAlternatives: true,
+}).superRefine((spec, ctx) => {
+  if (!spec.options && !spec.correctLetter) return;
+  if (!spec.options || !spec.correctLetter) {
+    ctx.addIssue({
+      code: "custom",
+      message: "options and correctLetter must be provided together",
+    });
+    return;
+  }
+  if (!spec.options.some((option) => option.letter === spec.correctLetter)) {
+    ctx.addIssue({
+      code: "custom",
+      message: "correctLetter must match one option's letter",
+    });
+  }
+  for (const option of spec.options) {
+    if (option.letter === spec.correctLetter) continue;
+    if (
+      !option.misconceptionCode ||
+      !(ERROR_CLASSIFICATION_CODES as readonly string[]).includes(
+        option.misconceptionCode,
+      )
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message: `distractor ${option.letter} needs a misconceptionCode from the ERROR_CLASSIFICATION codes`,
+      });
+    }
+  }
+});
 export type ScenarioSpec = UnitScenarioSpec;
 export type ScenarioSpecRecord = UnitScenarioSpecRecord;
 

@@ -443,7 +443,12 @@ export const resolveWorkspaceTurnEffect = ({
     }
 
     const node = findWorkspaceTurnNode({ nodes: plan.nodes, state });
-    const unit = node ? yield* reader.getUnitByNodeId(node.id) : null;
+    const unit =
+      node?.id === active.node?.id
+        ? active.unit
+        : node
+          ? yield* reader.getUnitByNodeId(node.id)
+          : null;
 
     if (!unit || !node) {
       return yield* new UnitNotReadyError({

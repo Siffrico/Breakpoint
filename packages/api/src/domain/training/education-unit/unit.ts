@@ -122,7 +122,7 @@ export interface LoopPolicy {
 }
 
 /**
- * The pass/fail bar for a solve: a gradeSolution score (0-100) clearing
+ * The pass/fail bar for a solve: a model-reported score (0-100) clearing
  * `passAt` passes. Applied in toUnitEvent — the model reports the score, the
  * server owns the verdict.
  */

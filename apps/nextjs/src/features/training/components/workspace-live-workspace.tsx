@@ -123,7 +123,7 @@ function WorkspaceLiveWorkspaceComponent({
                 ) : null}
                 {mode === "unit" && liveUnit ? (
                   <EducationUnitWorkspace
-                    key={selectedSessionId}
+                    key={`${selectedSessionId}:${liveUnit.nodeId}`}
                     unit={liveUnit}
                     sessionId={selectedSessionId}
                     preview={preview}

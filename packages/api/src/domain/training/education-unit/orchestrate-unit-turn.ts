@@ -2,8 +2,8 @@
 //
 // The unit turn engine — the ONLY module outside fsm.ts that applies a
 // transition. It picks the phase agent for the current phase, runs its single
-// model call, maps the emitted phase-event tool call into a UnitEvent, applies
-// fsm.transition(), and reports what the persistence layer needs to commit.
+// structured model call, validates the emitted event evidence into a UnitEvent,
+// applies fsm.transition(), and reports what persistence commits atomically.
 //
 // It is pure over its inputs except for the one model call (run through the
 // phase agent's own typed retry). No DB, no Goldilocks, no HTTP — the caller
@@ -13,18 +13,21 @@ import type { ModelMessage } from "ai";
 import { Data, Effect } from "effect";
 
 import type { PhaseAgentError } from "./agents/errors";
-import type { PhaseAgentOutput } from "./agents/output-schema";
+import type { PhaseAgentMode, PhaseAgentOutput } from "./agents/output-schema";
 import type { PhaseAgentResult } from "./agents/run-phase-agent";
 import type { ScenarioSpecRecord } from "./scenario-spec";
 import type { UnitEvent, UnitRecipe, UnitState } from "./unit";
-import { toUnitEvent } from "../workspace-ai/fsm-tools";
-import { CheckOffSyllabusInputSchema } from "./agents/check-off-knowledge.tool";
 import { runEvaluatorAgent } from "./agents/evaluator-agent";
-import { PhaseAgentOutputSchema } from "./agents/output-schema";
+import {
+  getPhaseAgentOutputSchema,
+  LearnerFacingAssistantMessageSchema,
+} from "./agents/output-schema";
 import { runScenarioAgent } from "./agents/scenario-agent";
 import { runTeachAgent } from "./agents/teach-agent";
 import { transition, writesGoldilocks } from "./fsm";
+import { toUnitEvent } from "./model-event";
 import { ScenarioSpecSchema } from "./scenario-spec";
+import { isRecallRecipe } from "./unit";
 
 // A turn that cannot be interpreted because its output violates the current
 // phase contract. This is surfaced rather than guessing a learner outcome.
@@ -48,13 +51,14 @@ export interface UnitTurnInput {
    * one recorded this turn or a stored pass-2 one. Defaults to null.
    */
   storedScenarioSpec?: ScenarioSpecRecord | null;
+  solveTaskPending?: boolean;
   onPartialAssistantMessage?: (content: string) => void;
 }
 
 export interface UnitTurnResult {
   /** The learner-facing reply to persist and stream. */
   assistantMessage: string;
-  /** The event the tool call (or an auto teach_done) mapped to. */
+  /** The validated event evidence (or an auto teach_done) mapped to state. */
   event: UnitEvent;
   /** The durable cursor AFTER applying the event. */
   nextState: UnitState;
@@ -72,7 +76,6 @@ export interface UnitTurnResult {
    * exactly-once guard before feeding this score to Goldilocks.
    */
   ratingWrite: { score: number; errorCodes: readonly string[] } | null;
-  knowledgeCheckOff: { knowledgeIds: string[]; evidence: string } | null;
   /**
    * The ScenarioSpec the posing agent reverse-engineered this turn, stamped
    * with the pass it was recorded on. Null on every turn that doesn't record
@@ -86,6 +89,7 @@ export type UnitPhaseRunner = (
   state: UnitState,
   messages: ModelMessage[],
   contextBlock: string,
+  mode: PhaseAgentMode,
   onPartialAssistantMessage?: (content: string) => void,
 ) => Effect.Effect<
   PhaseAgentResult<PhaseAgentOutput>,
@@ -96,42 +100,59 @@ export interface UnitTurnDependencies {
   readonly runPhase: UnitPhaseRunner;
 }
 
+const invalidMode = (state: UnitState, mode: PhaseAgentMode) =>
+  Effect.fail(
+    new EducationUnitContractError({
+      message: `Output mode ${mode} is illegal in phase ${state.phase}.`,
+    }),
+  );
+
 const runPhaseForState: UnitPhaseRunner = (
-  state: UnitState,
-  messages: ModelMessage[],
-  contextBlock: string,
+  state,
+  messages,
+  contextBlock,
+  mode,
   onPartialAssistantMessage,
 ) => {
   switch (state.phase) {
     case "orient":
-      return runTeachAgent(
-        "orient",
-        messages,
-        contextBlock,
-        onPartialAssistantMessage,
-      );
+      return mode === "orient"
+        ? runTeachAgent(
+            "orient",
+            messages,
+            contextBlock,
+            onPartialAssistantMessage,
+          )
+        : invalidMode(state, mode);
     case "connect":
-      return runScenarioAgent(
-        messages,
-        contextBlock,
-        onPartialAssistantMessage,
-      );
+      return mode === "connect-presentation" || mode === "connect-evaluation"
+        ? runScenarioAgent(
+            messages,
+            contextBlock,
+            mode,
+            onPartialAssistantMessage,
+          )
+        : invalidMode(state, mode);
     case "solve":
-      // Every round's Solve is graded by the one evaluator; whether the score
-      // reaches Goldilocks is the recipe's call (writesGoldilocks / ratingWrite),
-      // never the agent's.
-      return runEvaluatorAgent(
-        messages,
-        contextBlock,
-        onPartialAssistantMessage,
-      );
+      return mode === "solve-presentation" ||
+        mode === "recall-presentation" ||
+        mode === "solve-evaluation"
+        ? runEvaluatorAgent(
+            messages,
+            contextBlock,
+            mode,
+            onPartialAssistantMessage,
+          )
+        : invalidMode(state, mode);
     case "teach":
-      return runTeachAgent(
-        "seam",
-        messages,
-        contextBlock,
-        onPartialAssistantMessage,
-      );
+      return mode === "teach"
+        ? runTeachAgent(
+            "seam",
+            messages,
+            contextBlock,
+            onPartialAssistantMessage,
+          )
+        : invalidMode(state, mode);
     case "mastered":
       return Effect.fail(
         new EducationUnitContractError({
@@ -145,112 +166,99 @@ const LIVE_DEPENDENCIES: UnitTurnDependencies = {
   runPhase: runPhaseForState,
 };
 
-const EVENT_TOOLS_BY_PHASE: Partial<
-  Record<UnitState["phase"], readonly string[]>
-> = {
-  connect: ["continuePhase", "gradeConnection"],
-  solve: ["continuePhase", "gradeSolution"],
+const resolvePhaseMode = (
+  input: UnitTurnInput,
+): Effect.Effect<PhaseAgentMode, EducationUnitContractError> => {
+  const storedSpec = input.storedScenarioSpec ?? null;
+  const hasCurrentSpec =
+    storedSpec !== null && (storedSpec.pass ?? 1) === input.state.pass;
+
+  switch (input.state.phase) {
+    case "orient":
+      return Effect.succeed("orient");
+    case "teach":
+      return storedSpec && (storedSpec.pass ?? 1) === input.state.pass
+        ? Effect.succeed("teach")
+        : Effect.fail(
+            new EducationUnitContractError({
+              message: "Teach requires the finished round's ScenarioSpec.",
+            }),
+          );
+    case "connect":
+      if (hasCurrentSpec) return Effect.succeed("connect-evaluation");
+      return input.state.pass === 1 && storedSpec === null
+        ? Effect.succeed("connect-presentation")
+        : Effect.fail(
+            new EducationUnitContractError({
+              message:
+                "Connect cannot begin without the current round's ScenarioSpec.",
+            }),
+          );
+    case "solve":
+      if (input.solveTaskPending) {
+        return hasCurrentSpec
+          ? Effect.succeed("solve-presentation")
+          : Effect.fail(
+              new EducationUnitContractError({
+                message:
+                  "The opening Solve task requires the current round's ScenarioSpec.",
+              }),
+            );
+      }
+      if (hasCurrentSpec) return Effect.succeed("solve-evaluation");
+      return isRecallRecipe(input.state.recipeVersion) && storedSpec === null
+        ? Effect.succeed("recall-presentation")
+        : Effect.fail(
+            new EducationUnitContractError({
+              message:
+                "Solve evaluation requires the current round's ScenarioSpec.",
+            }),
+          );
+    case "mastered":
+      return Effect.fail(
+        new EducationUnitContractError({
+          message: "Unit is already mastered; no turn to run.",
+        }),
+      );
+  }
 };
 
-/**
- * Takes one validated phase-agent result, produces exactly one UnitEvent, and
- * fails only when the result violates the phase's tool contract.
- */
 const resolveEvent = (
   state: UnitState,
-  result: PhaseAgentResult<PhaseAgentOutput>,
+  output: PhaseAgentOutput,
   grade: { passAt: number },
 ): Effect.Effect<
   { event: UnitEvent; reasoning: string | null },
   EducationUnitContractError
 > => {
-  if (state.phase === "orient") {
-    if (result.toolCalls.length > 0) {
-      return Effect.fail(
-        new EducationUnitContractError({
-          message: `The ${state.phase} agent returned an unexpected tool call.`,
-        }),
-      );
-    }
-    return Effect.succeed({
-      event: { type: "teach_done" },
-      reasoning: null,
-    });
+  if (state.phase === "orient" || state.phase === "teach") {
+    return Effect.succeed({ event: { type: "teach_done" }, reasoning: null });
   }
-
-  if (state.phase === "teach") {
-    const specCalls = result.toolCalls.filter(
-      (call) => call.toolName === "recordScenarioSpec",
-    );
-    if (result.toolCalls.length !== 1 || specCalls.length !== 1) {
-      return Effect.fail(
-        new EducationUnitContractError({
-          message:
-            "The teach agent must record exactly one evolved ScenarioSpec.",
-        }),
-      );
-    }
-    return Effect.succeed({
-      event: { type: "teach_done" },
-      reasoning: null,
-    });
-  }
-
-  const allowedTools = EVENT_TOOLS_BY_PHASE[state.phase] ?? [];
-  const phaseCalls = result.toolCalls.filter((call) =>
-    allowedTools.includes(call.toolName),
-  );
-  const checkOffCalls = result.toolCalls.filter(
-    (call) => call.toolName === "checkOffSyllabus",
-  );
-  if (phaseCalls.length !== 1 || checkOffCalls.length > 1) {
+  if (!output.event) {
     return Effect.fail(
       new EducationUnitContractError({
-        message: `The ${state.phase} agent must return exactly one phase event tool call.`,
+        message: `The ${state.phase} output did not include event evidence.`,
       }),
     );
   }
-
-  const call = phaseCalls[0];
-  if (!call || !allowedTools.includes(call.toolName)) {
-    return Effect.fail(
-      new EducationUnitContractError({
-        message: `The ${state.phase} agent returned an invalid phase event tool.`,
-      }),
-    );
-  }
-
-  const event = toUnitEvent(call.toolName, call.input, grade);
+  const event = toUnitEvent(output.event, grade);
   if (!event) {
     return Effect.fail(
       new EducationUnitContractError({
-        message: `The ${state.phase} agent called ${call.toolName} with invalid arguments.`,
+        message: `The ${state.phase} output contained incoherent grading evidence.`,
       }),
     );
   }
-
-  const input = call.input;
-  const reasoning =
-    typeof input === "object" &&
-    input !== null &&
-    "reasoning" in input &&
-    typeof input.reasoning === "string"
-      ? input.reasoning
-      : null;
-
+  const reasoning = "reasoning" in output.event ? output.event.reasoning : null;
   return Effect.succeed({ event, reasoning });
 };
 
 const readScenarioSpec = (
-  result: PhaseAgentResult<PhaseAgentOutput>,
+  output: PhaseAgentOutput,
   pass: UnitState["pass"],
 ): ScenarioSpecRecord | null => {
-  const call = result.toolCalls.find(
-    (c) => c.toolName === "recordScenarioSpec",
-  );
-  if (!call) return null;
-  const parsed = ScenarioSpecSchema.safeParse(call.input);
-  // The pass is stamped here, from durable state — the model never sets it.
+  if (!output.scenarioSpec) return null;
+  const parsed = ScenarioSpecSchema.safeParse(output.scenarioSpec);
   return parsed.success ? { ...parsed.data, pass } : null;
 };
 
@@ -276,15 +284,19 @@ export const runUnitTurn = (
       );
     }
 
+    const mode = yield* resolvePhaseMode(input);
     const messages: ModelMessage[] = [...transcript];
 
     const result = yield* dependencies.runPhase(
       state,
       messages,
       contextBlock,
+      mode,
       input.onPartialAssistantMessage,
     );
-    const parsedOutput = PhaseAgentOutputSchema.safeParse(result.object);
+    const parsedOutput = getPhaseAgentOutputSchema(mode).safeParse(
+      result.object,
+    );
     if (!parsedOutput.success) {
       return yield* Effect.fail(
         new EducationUnitContractError({
@@ -292,9 +304,20 @@ export const runUnitTurn = (
         }),
       );
     }
+    const output = parsedOutput.data;
+    const learnerMessage = LearnerFacingAssistantMessageSchema.safeParse(
+      output.assistantMessage,
+    );
+    if (!learnerMessage.success) {
+      return yield* Effect.fail(
+        new EducationUnitContractError({
+          message: `The ${state.phase} agent returned an incomplete learner-facing message.`,
+        }),
+      );
+    }
     const { event, reasoning } = yield* resolveEvent(
       state,
-      result,
+      output,
       recipe.grade,
     );
     // A seam teach records the NEXT round's evolved spec; every other recorder
@@ -304,7 +327,7 @@ export const runUnitTurn = (
         ? (Math.min(state.pass + 1, 3) as UnitState["pass"])
         : state.pass;
     const storedSpec = input.storedScenarioSpec ?? null;
-    const emittedSpec = readScenarioSpec(result, scenarioPass);
+    const emittedSpec = readScenarioSpec(output, scenarioPass);
     // The target skill is the cross-round invariant. Teach evolves the world,
     // but the durable opening spec—not model wording—owns the skill's identity.
     const recordedSpec =
@@ -386,29 +409,13 @@ export const runUnitTurn = (
       writesGoldilocks(state, event, recipe) && event.type === "solution_graded"
         ? { score: event.score, errorCodes: event.errorCodes }
         : null;
-    const checkOffCall = result.toolCalls.find(
-      (call) => call.toolName === "checkOffSyllabus",
-    );
-    const parsedCheckOff = CheckOffSyllabusInputSchema.safeParse(
-      checkOffCall?.input,
-    );
-    const knowledgeCheckOff =
-      state.phase === "solve" &&
-      state.pass === recipe.passes &&
-      event.type === "solution_graded" &&
-      event.passed &&
-      parsedCheckOff.success
-        ? parsedCheckOff.data
-        : null;
-
     return {
-      assistantMessage: parsedOutput.data.assistantMessage,
+      assistantMessage: learnerMessage.data,
       event,
       nextState,
       forcedConnectAdvance,
       gradeReasoning: reasoning,
       ratingWrite,
-      knowledgeCheckOff,
       scenarioSpec: recordedSpec,
     };
   });

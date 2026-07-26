@@ -43,6 +43,8 @@ export const invokeStructuredModel = <TSchema extends z.ZodTypeAny>({
   smoothPartials = false,
   abortSignal,
   onChunk,
+  providerOptions,
+  maxOutputTokens,
 }: {
   model: StructuredModel;
   schema: TSchema;
@@ -58,6 +60,8 @@ export const invokeStructuredModel = <TSchema extends z.ZodTypeAny>({
   smoothPartials?: boolean;
   abortSignal?: AbortSignal;
   onChunk?: StructuredOnChunk;
+  providerOptions?: Parameters<typeof streamText>[0]["providerOptions"];
+  maxOutputTokens?: number;
 }): StreamTextResult<
   ToolSet,
   ReturnType<typeof Output.object<z.infer<TSchema>>>
@@ -89,12 +93,14 @@ export const invokeStructuredModel = <TSchema extends z.ZodTypeAny>({
           }),
         }
       : {}),
+    ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
     ...(profile
       ? {
           maxOutputTokens:
             profile.maxOutputTokens + profile.reasoningBudgetTokens,
         }
       : {}),
+    ...(providerOptions ? { providerOptions } : {}),
     ...(profile && profile.reasoningBudgetTokens > 0
       ? {
           providerOptions: getReasoningProviderOptions(

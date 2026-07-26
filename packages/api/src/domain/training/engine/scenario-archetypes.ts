@@ -52,7 +52,7 @@ export const ARCHETYPE_FORMATS: Record<ScenarioArchetype, ScenarioFormat> = {
 const ARCHETYPE_DIRECTIVE_LINES: Record<ScenarioArchetype, readonly string[]> =
   {
     select: [
-      "- Solve presentation (select archetype): pose the Solve check as a multiple-choice question. Output the options as plain Markdown lines lettered A-D (one per line), exactly one correct. Author the options at scenario-authoring time and record them via recordScenarioSpec (options + correctLetter); every distractor must be the natural conclusion of one named misconception (its misconceptionCode).",
+      "- Solve presentation (select archetype): pose the Solve check as a multiple-choice question. Output the options as plain Markdown lines lettered A-D (one per line), exactly one correct. Author the options at scenario-authoring time and include them in scenarioSpec (options + correctLetter); every distractor must be the natural conclusion of one named misconception (its misconceptionCode).",
       "- Dial axes for select: reasoning steps = hops required before the options discriminate; withheld givens = values or assumptions the stem forces the learner to derive rather than states; embedded alternatives = near-miss distractors (proximity to the key is the difficulty, count them as the distractors you engineer).",
     ],
     transform: [

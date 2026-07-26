@@ -4,6 +4,8 @@ import { createMathPlugin } from "@streamdown/math";
 import { createMermaidPlugin } from "@streamdown/mermaid";
 import { Streamdown } from "streamdown";
 
+import { normalizeAssistantMarkdown } from "./assistant-markdown";
+
 const mathPlugin = createMathPlugin({
   singleDollarTextMath: true,
 });
@@ -24,7 +26,7 @@ export function AssistantRichText({
   content: string;
   className?: string;
 }) {
-  const trimmedContent = content.trim();
+  const trimmedContent = normalizeAssistantMarkdown(content);
 
   if (!trimmedContent) {
     return null;

@@ -25,6 +25,7 @@ const baseInput = (
   memories: [],
   difficultyLine: null,
   pendingConnectTeach: false,
+  solveTaskPending: false,
   scenarioSpec: null,
   knowledge: null,
   ...overrides,
@@ -77,6 +78,22 @@ describe("buildUnitTurnContext", () => {
     expect(connectContext).not.toContain(
       "The learner did not reconstruct the connection on their own",
     );
+  });
+
+  it("makes the first Solve turn's required event explicit", () => {
+    const context = buildUnitTurnContext(
+      baseInput({
+        state: {
+          ...initialState("unit-1", "education-unit-v2"),
+          phase: "solve",
+        },
+        solveTaskPending: true,
+      }),
+    );
+
+    expect(context).toContain("must present the solve task");
+    expect(context).toContain('reason:"prompted"');
+    expect(context).toContain("Do not grade");
   });
 
   it("adds micro-teaching only after the Solve repair threshold", () => {

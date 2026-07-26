@@ -51,6 +51,11 @@ export interface UnitTurnContextInput {
    */
   pendingConnectTeach: boolean;
   /**
+   * True on the first education Solve turn, before the solve task itself has
+   * been presented. Derived from the last committed phase event.
+   */
+  solveTaskPending: boolean;
+  /**
    * The spec stored on the run, tagged with the pass it was recorded on
    * (untagged legacy rows count as pass 1). Drives the pass-2 transfer
    * constraint (teach/connect, pass-1 spec only), the active Connect grading
@@ -95,12 +100,18 @@ const bullet = (lines: readonly string[]): string =>
 
 /** The explicit per-turn output contract the solve agent looks for. */
 const buildOutputContract = (input: UnitTurnContextInput): string | null => {
-  const { state, policy, passes, pendingConnectTeach } = input;
+  const { state, policy, pendingConnectTeach } = input;
   const directives: string[] = [];
 
   if (pendingConnectTeach && state.phase === "solve") {
     directives.push(
       "The learner did not reconstruct the connection on their own and was advanced anyway. Before posing the solve problem, briefly teach the missed idea, anchored on their own last attempt.",
+    );
+  }
+
+  if (input.solveTaskPending && state.phase === "solve") {
+    directives.push(
+      'This turn must present the solve task. Do not grade the learner\'s acknowledgement as an attempted solution; return event={type:"phase_continues",reason:"prompted"}.',
     );
   }
 
@@ -112,12 +123,6 @@ const buildOutputContract = (input: UnitTurnContextInput): string | null => {
   if (state.phase === "connect" && state.connectTeachDue) {
     directives.push(
       "The learner has repeatedly missed the core connection. This turn, briefly TEACH the missing idea — anchored on their own attempts, smallest possible reveal — then re-pose the same scenario's reconstruct questions so they can genuinely connect. Do not grade this turn as connected on your teaching; only on their own reconstruction.",
-    );
-  }
-
-  if (state.phase === "solve" && state.pass === passes) {
-    directives.push(
-      "This is the unit's FINAL round: on a passing answer, also call checkOffSyllabus with only the target entry ids the learner directly demonstrated.",
     );
   }
 

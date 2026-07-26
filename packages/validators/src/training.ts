@@ -297,7 +297,7 @@ export const ScenarioDirectiveSchema = z.object({
  * Authoring order is enforced by prompt: chasm (the causal claim being tested)
  * first, then a world state where it fires, then the dressing — never the
  * reverse. `stateA`/`stateB`/`chasm`/`frictionNoise` are optional at the record
- * level only so specs persisted before v2 still parse; the v2 tool requires them.
+ * level only so specs persisted before v2 still parse; live structured output requires them.
  */
 export const UnitScenarioSpecSchema = z.object({
   targetSkill: z.string().min(1),

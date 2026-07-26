@@ -5,14 +5,14 @@
 // on itself for as many turns as it takes — v2 never force-advances; when the
 // grill budget is spent the context block escalates help instead (see
 // buildOutputContract in ../context.ts). This file never imports fsm.ts
-// (enforced by eslint.config.ts) — it only emits a gradeConnection tool call
-// when it has a verdict; the orchestrator turns that into a UnitEvent.
+// (enforced by eslint.config.ts) — it only reports typed event evidence; the
+// orchestrator validates that evidence and turns it into a UnitEvent.
 
 import type { ModelMessage } from "ai";
 import type { Effect } from "effect";
 
 import type { PhaseAgentError } from "./errors";
-import type { PhaseAgentOutput } from "./output-schema";
+import type { PhaseAgentMode, PhaseAgentOutput } from "./output-schema";
 import type { PhaseAgentResult } from "./run-phase-agent";
 import {
   BACKWARD_SCENARIO_AUTHORING,
@@ -22,12 +22,7 @@ import {
   REQUIRED_UNDERSTANDING_SPEC,
   SCENARIO_DESIGN_CRITERIA,
 } from "../../prompts/shared-instructions";
-import {
-  continuePhase,
-  gradeConnection,
-  recordScenarioSpec,
-} from "../../workspace-ai/fsm-tools";
-import { PhaseAgentOutputSchema } from "./output-schema";
+import { getPhaseAgentOutputSchema } from "./output-schema";
 import { runPhaseAgent } from "./run-phase-agent";
 import { STABLE_SYSTEM_PROMPT } from "./system-prompt";
 
@@ -91,15 +86,13 @@ End with exactly three numbered, scenario-specific questions that make the
 learner identify what the person or system wants, how the visible mechanism
 works, and why it fails under the pressure. Give that question block a short
 descriptive heading when one would improve scanning. Add no hints or extra
-questions.
-On this opening turn, call recordScenarioSpec once with the target skill (the
-transferable reasoning ability, not the surface topic), the surface (the
-world's framing), state A (the current imperfect reality), state B (the desired
-outcome), the chasm (the causal claim being tested), the friction & noise, the
-canonical answer, the concise reasoning path, and the grading rubric. Then call
-continuePhase with reason="prompted". This pairing is a hard rule for EVERY
-round: any turn where you call continuePhase with reason="prompted" (you are
-presenting a scenario) must also call recordScenarioSpec in the same turn.
+questions. Keep the learner-facing opening scenario under 300 words.
+On this opening turn, return event={type:"phase_continues",reason:"prompted"}
+and a scenarioSpec containing the target skill (the transferable reasoning
+ability, not the surface topic), the surface (the world's framing), state A
+(the current imperfect reality), state B (the desired outcome), the chasm (the
+causal claim being tested), the friction & noise, the canonical answer, the
+concise reasoning path, and the grading rubric.
 
 The "## Difficulty directive" block names the unit's scenario archetype and
 its Solve presentation contract — obey it. It changes NOTHING about Connect
@@ -108,8 +101,8 @@ additionally author into the spec. In particular, when the format is the
 select archetype: alongside the canonical answer, author the Solve check's
 multiple-choice options — exactly one correct, each distractor the natural
 conclusion of one misconception, with its misconceptionCode chosen from:
-${ERROR_CLASSIFICATION_CODES.join(", ")} — and record them in the same
-recordScenarioSpec call via options (lettered A-D) and correctLetter. Do NOT
+${ERROR_CLASSIFICATION_CODES.join(", ")} — and include them in scenarioSpec
+via options (lettered A-D) and correctLetter. Do NOT
 show the options during Connect; they belong to the Solve beat. On evolved
 rounds, re-author the options against the evolved world.
 
@@ -120,20 +113,24 @@ the evolved spec.
 If the context contains an "## Active connection scenario" block, the Teach
 beat already posed this round's evolved scenario and the learner's latest
 message is their answer to it. Treat this as a following turn: grade or probe
-that answer using the supplied reference. Do not pose another scenario and do
-not call recordScenarioSpec.
+that answer using the supplied reference. Do not pose or record another
+scenario.
 
 On every following turn, judge their explanation:
-  - If they have reconstructed the core connection themselves, call
-    gradeConnection with connected=true and reply confirming what they got
-    right, in their own words.
-  - If their framing is incomplete and should not yet count as a failed
-    attempt, call continuePhase with reason="needs_more_work" and ask 2-3
-    pointed questions aimed at the exact spot their framing breaks, so they
-    find their own mistake. Never hand them the fix.
-  - If you judge the connection is still missing after this attempt, call
-    gradeConnection with connected=false and reasoning describing what they
-    missed.
+  - If they have reconstructed the core connection themselves, return a
+    connection_graded event with connected=true and reasoning, and reply
+    confirming what they got right in their own words and that Solve comes next.
+  - Otherwise return a connection_graded event with connected=false and
+    reasoning describing what they missed. Ask 2-3 pointed questions aimed at
+    the exact spot their framing breaks so they find their own mistake. Never
+    claim they are ready for the next round.
+
+Every submitted Connect explanation receives one connection verdict. The
+assistantMessage and connected value must agree: never use success or
+next-round language with connected=false, and never ask for another Connect
+attempt with connected=true.
+
+Keep every learner-facing follow-up under 180 words.
 
 Understanding the problem is most of solving it: the learner is never failed
 out of Connect. If the context block's output contract tells you to teach the
@@ -152,11 +149,15 @@ For the opening scenario, set the difficulty dial low-to-mid on every
 dimension: solvable enough that the learner produces a real attempt, ambiguous
 enough that their attempt leaks their actual mental model.
 
+Do not narrate the private derivation or reproduce private output fields in
+assistantMessage.
+
 ${SCENARIO_DESIGN_CRITERIA}`;
 
 export const runScenarioAgent = (
   messages: ModelMessage[],
   contextBlock: string,
+  mode: Extract<PhaseAgentMode, "connect-presentation" | "connect-evaluation">,
   onPartialAssistantMessage?: (content: string) => void,
 ): Effect.Effect<PhaseAgentResult<PhaseAgentOutput>, PhaseAgentError> =>
   runPhaseAgent({
@@ -166,9 +167,8 @@ export const runScenarioAgent = (
     messages,
     instruction: SCENARIO_INSTRUCTION,
     contextBlock,
-    schema: PhaseAgentOutputSchema,
-    schemaName: "connect_output",
-    tools: { continuePhase, gradeConnection, recordScenarioSpec },
+    schema: getPhaseAgentOutputSchema(mode),
+    schemaName: mode.replace("-", "_"),
     errorMessage: "Failed to run the Connect step.",
     onPartialAssistantMessage,
   });

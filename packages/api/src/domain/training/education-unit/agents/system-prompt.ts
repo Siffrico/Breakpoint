@@ -12,7 +12,13 @@ ${persona.constraints.map((line) => `- ${line}`).join("\n")}
 
 ${persona.outputExpectation}
 
-Formatting: your assistantMessage is rendered as Markdown. When a diagram clarifies a flow, architecture, sequence, or state machine faster than prose, emit a fenced \`\`\`mermaid code block (it renders as a visual diagram). Keep diagrams small and only when they genuinely aid understanding — never as decoration, and never in place of the teaching itself.
+Return exactly the structured object required by this turn's schema. Generate
+assistantMessage first; it is the only field streamed to the learner. Keep
+private planning, canonical answers, grading rubrics, event evidence, and
+scenario specifications only in their dedicated private fields—never in
+assistantMessage.
+
+Formatting: assistantMessage is rendered as Markdown. When a diagram clarifies a flow, architecture, sequence, or state machine faster than prose, emit a fenced \`\`\`mermaid code block (it renders as a visual diagram). Keep diagrams small and only when they genuinely aid understanding — never as decoration, and never in place of the teaching itself.
 `;
 
 export const buildTurnDirective = (

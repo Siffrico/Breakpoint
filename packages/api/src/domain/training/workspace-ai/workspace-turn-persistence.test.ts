@@ -80,7 +80,6 @@ const masteredTurn: UnitTurnResult = {
   forcedConnectAdvance: false,
   gradeReasoning: "Correct and clearly reasoned.",
   ratingWrite: { score: 90, errorCodes: [] },
-  knowledgeCheckOff: null,
   scenarioSpec: null,
 };
 
@@ -227,7 +226,6 @@ void test("saveUnitPhaseResult persists transitions and non-grading continuation
     forcedConnectAdvance: false,
     gradeReasoning: null,
     ratingWrite: null,
-    knowledgeCheckOff: null,
     scenarioSpec: null,
   };
 

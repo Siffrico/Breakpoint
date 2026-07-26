@@ -18,16 +18,10 @@ import type { ModelMessage } from "ai";
 import type { Effect } from "effect";
 
 import type { PhaseAgentError } from "./errors";
-import type { PhaseAgentOutput } from "./output-schema";
+import type { PhaseAgentMode, PhaseAgentOutput } from "./output-schema";
 import type { PhaseAgentResult } from "./run-phase-agent";
 import { ERROR_CLASSIFICATION_PROTOCOL } from "../../prompts/shared-instructions";
-import {
-  continuePhase,
-  gradeSolution,
-  recordScenarioSpec,
-} from "../../workspace-ai/fsm-tools";
-import { checkOffSyllabus } from "./check-off-knowledge.tool";
-import { PhaseAgentOutputSchema } from "./output-schema";
+import { getPhaseAgentOutputSchema } from "./output-schema";
 import { runPhaseAgent } from "./run-phase-agent";
 import { STABLE_SYSTEM_PROMPT } from "./system-prompt";
 
@@ -44,7 +38,7 @@ the learner must re-derive from the mechanism, not replay the earlier round's
 procedure.
 
 If the learner has not yet been asked to produce the solution, pose the solve
-task and call continuePhase with reason="prompted".
+task and return event={type:"phase_continues",reason:"prompted"}.
 
 If the Grading reference contains a "Solve check (select archetype)" block,
 the solve task IS that multiple-choice question. When posing it, present the
@@ -60,29 +54,27 @@ If the context contains a "## Recall focus" block and NO "## Grading reference"
 block, you are opening a spaced-recall checkpoint: no Connect ran, so no spec
 exists yet. On that opening turn, first author the scenario backwards from the
 answer — decide the canonical answer, the concise reasoning path, and the
-grading rubric for the recall focus skill — and call recordScenarioSpec once
-with them (targetSkill = the recall focus skill; fill state A, state B, the
-chasm, and the friction for the scenario you pose). Then pose the scenario and
-call continuePhase with reason="prompted". Every later grading turn will
+grading rubric for the recall focus skill — and return them in scenarioSpec
+(targetSkill = the recall focus skill; fill state A, state B, the chasm, and the
+friction for the scenario you pose). Then pose the scenario and return
+event={type:"phase_continues",reason:"prompted"}. Every later grading turn will
 receive that spec back as the "## Grading reference" block — grade against it,
 never against a standard you invent fresh mid-conversation.
 
-On an answer, call gradeSolution with one score 0-100. You report the score;
-the system derives the pass/fail verdict from it — a score of 80 or above
-passes, below 80 fails. Calibrate accordingly:
+On an answer, return one solution_graded event with a score from 0-100,
+reasoning, and errorCodes. You report the evidence; the system derives the
+pass/fail verdict from the score — a score of 80 or above passes, below 80
+fails. Calibrate accordingly:
   - Correct AND the reasoning demonstrates the target skill: score 80-100
-    (reserve 90+ for clean, well-reasoned work). If the context marks this as
-    the unit's FINAL round, also call checkOffSyllabus with only target entry
-    ids the learner directly demonstrated, with concise evidence from their
-    answer.
+    (reserve 90+ for clean, well-reasoned work).
   - A genuine, complete, but wrong or shortcut-reasoned attempt: score below
     80, reflecting how close the REASONING got, with reasoning naming the
     exact gap, and errorCodes set to the one primary ERROR_CLASSIFICATION
     code that best explains the failure (required below 80, forbidden at or
     above it).
-  - A mid-thought fragment that should not yet count as a scored attempt: call
-    continuePhase with reason="needs_more_work" and point at the gap without
-    solving it.
+  - A mid-thought fragment that should not yet count as a scored attempt:
+    return event={type:"phase_continues",reason:"needs_more_work"} and point at
+    the gap without solving it.
 
 The learner is helped, never abandoned: a failing score keeps them in Solve
 with your feedback as the repair map. If the context block's output contract
@@ -92,14 +84,19 @@ then restate the ask. Do not skip the learner's own next attempt just because
 you taught something.
 
 Your assistantMessage IS the feedback the learner sees — write it as feedback
-(what landed, what missed, why), not as a verdict announcement. Stream it as
-your normal reply; the score travels on the gradeSolution tool call.
+(what landed, what missed, why), not as a verdict announcement. Keep the score,
+reasoning, and errorCodes only in event. Keep the learner-facing response under
+220 words.
 
 ${ERROR_CLASSIFICATION_PROTOCOL}`;
 
 export const runEvaluatorAgent = (
   messages: ModelMessage[],
   contextBlock: string,
+  mode: Extract<
+    PhaseAgentMode,
+    "solve-presentation" | "recall-presentation" | "solve-evaluation"
+  >,
   onPartialAssistantMessage?: (content: string) => void,
 ): Effect.Effect<PhaseAgentResult<PhaseAgentOutput>, PhaseAgentError> =>
   runPhaseAgent({
@@ -109,14 +106,8 @@ export const runEvaluatorAgent = (
     messages,
     instruction: EVALUATOR_INSTRUCTION,
     contextBlock,
-    schema: PhaseAgentOutputSchema,
-    schemaName: "solve_output",
-    tools: {
-      continuePhase,
-      gradeSolution,
-      checkOffSyllabus,
-      recordScenarioSpec,
-    },
+    schema: getPhaseAgentOutputSchema(mode),
+    schemaName: mode.replace("-", "_"),
     errorMessage: "Failed to run the Solve step.",
     onPartialAssistantMessage,
   });

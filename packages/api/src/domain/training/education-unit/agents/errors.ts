@@ -34,11 +34,18 @@ export class AgentTimeoutError extends Data.TaggedError("AgentTimeoutError")<{
   readonly cause?: unknown;
 }> {}
 
+export class AgentFirstVisibleTimeoutError extends Data.TaggedError(
+  "AgentFirstVisibleTimeoutError",
+)<{
+  readonly message: string;
+}> {}
+
 export type PhaseAgentError =
   | AgentSchemaError
   | AgentTransientProviderError
   | AgentProviderRejectedError
-  | AgentTimeoutError;
+  | AgentTimeoutError
+  | AgentFirstVisibleTimeoutError;
 
 /** True for the errors Schedule-based retry should attempt again. */
 export const isRetryable = (error: PhaseAgentError): boolean =>
@@ -54,6 +61,8 @@ const fallbackMessage = "Phase agent call failed.";
  * classification here just means truncated output, not a resumable draft.
  */
 export const classifyPhaseAgentFailure = (error: unknown): PhaseAgentError => {
+  if (error instanceof AgentFirstVisibleTimeoutError) return error;
+
   const message =
     error instanceof Error && error.message ? error.message : fallbackMessage;
   const kind = classifyFailure(error, false);

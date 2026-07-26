@@ -21,21 +21,20 @@ vi.mock("ai", async (importOriginal) => {
 
 const { runPhaseAgent } = await import("./run-phase-agent");
 
-const schema = z.object({ assistantMessage: z.string() });
+const schema = z.object({ assistantMessage: z.string().min(1) });
 
 const partialOutputs = async function* (values: readonly unknown[]) {
   await Promise.resolve();
   yield* values;
 };
 
-const streamResult = (object: unknown, toolCalls: unknown[] = []) => ({
+const streamResult = (object: unknown, partials: readonly unknown[] = []) => ({
   output: Promise.resolve(object),
-  toolCalls: Promise.resolve(toolCalls),
-  usage: Promise.resolve({
+  partialOutputStream: partialOutputs(partials),
+  totalUsage: Promise.resolve({
     inputTokens: 120,
     cachedInputTokens: 80,
   }),
-  partialOutputStream: partialOutputs([]),
 });
 
 const baseInput = {
@@ -56,20 +55,25 @@ afterEach(() => {
 });
 
 describe("runPhaseAgent", () => {
-  it("returns the object and tool calls on a clean first attempt", async () => {
+  it("returns one validated structured result", async () => {
     streamTextMock.mockReturnValueOnce(
-      streamResult({ assistantMessage: "hello" }, [
-        { toolName: "gradeConnection", input: { connected: true } },
-      ]),
+      streamResult({ assistantMessage: "hello" }),
     );
 
     const result = await Effect.runPromise(runPhaseAgent(baseInput));
 
     expect(result.object).toEqual({ assistantMessage: "hello" });
-    expect(result.toolCalls).toEqual([
-      { toolName: "gradeConnection", input: { connected: true } },
-    ]);
     expect(streamTextMock).toHaveBeenCalledTimes(1);
+    const call = streamTextMock.mock.calls[0]?.[0] as unknown as {
+      tools?: unknown;
+      stopWhen?: unknown;
+      maxOutputTokens?: number;
+      prepareStep?: unknown;
+    };
+    expect(call.tools).toBeUndefined();
+    expect(typeof call.stopWhen).toBe("function");
+    expect(call.maxOutputTokens).toBe(1_000);
+    expect(call.prepareStep).toBeUndefined();
   });
 
   it("appends the turn directive after the untouched transcript", async () => {
@@ -98,24 +102,45 @@ describe("runPhaseAgent", () => {
     expect(baseInput.messages).toEqual([{ role: "user", content: "hi" }]);
   });
 
-  it("emits partial learner-facing messages before the structured result completes", async () => {
+  it("streams only cumulative assistantMessage snapshots", async () => {
     const onPartialAssistantMessage = vi.fn();
-    streamTextMock.mockReturnValueOnce({
-      ...streamResult({ assistantMessage: "hello world" }),
-      partialOutputStream: partialOutputs([
-        { assistantMessage: "hello" },
-        { assistantMessage: "hello world" },
-      ]),
+    const privateSchema = z.object({
+      assistantMessage: z.string(),
+      event: z.object({ score: z.number(), reasoning: z.string() }),
+      scenarioSpec: z.object({ canonicalAnswer: z.string() }),
     });
+    const object = {
+      assistantMessage: "hello world",
+      event: { score: 86, reasoning: "private grade" },
+      scenarioSpec: { canonicalAnswer: "private answer" },
+    };
+    streamTextMock.mockReturnValueOnce(
+      streamResult(object, [
+        { assistantMessage: "hello" },
+        {
+          assistantMessage: "hello world",
+          event: { score: 86, reasoning: "private grade" },
+        },
+        object,
+      ]),
+    );
 
     await Effect.runPromise(
-      runPhaseAgent({ ...baseInput, onPartialAssistantMessage }),
+      runPhaseAgent({
+        ...baseInput,
+        schema: privateSchema,
+        onPartialAssistantMessage,
+      }),
     );
 
     expect(onPartialAssistantMessage.mock.calls).toEqual([
       ["hello"],
       ["hello world"],
+      ["hello world"],
     ]);
+    expect(JSON.stringify(onPartialAssistantMessage.mock.calls)).not.toContain(
+      "private",
+    );
   });
 
   it("restarts on a timeout-classified failure and succeeds", async () => {
@@ -133,73 +158,101 @@ describe("runPhaseAgent", () => {
     expect(streamTextMock).toHaveBeenCalledTimes(2);
   });
 
-  it("keeps an active stream alive beyond the inactivity timeout", async () => {
+  it("keeps an active structured stream alive beyond the timeout", async () => {
     vi.useFakeTimers();
     streamTextMock.mockImplementationOnce(
-      ({
-        abortSignal,
-        onChunk,
-      }: {
-        abortSignal: AbortSignal;
-        onChunk: () => void;
-      }) => {
-        const output = new Promise<{ assistantMessage: string }>(
-          (resolve, reject) => {
-            const heartbeat = setInterval(onChunk, 30_000);
-            const completion = setTimeout(() => {
-              clearInterval(heartbeat);
-              resolve({ assistantMessage: "completed after a long stream" });
-            }, 120_000);
-            abortSignal.addEventListener(
-              "abort",
-              () => {
-                clearInterval(heartbeat);
-                clearTimeout(completion);
-                reject(abortSignal.reason);
-              },
-              { once: true },
-            );
-          },
-        );
-        return {
-          ...streamResult(output),
-          output,
-        };
-      },
+      ({ abortSignal }: { abortSignal: AbortSignal }) => ({
+          ...streamResult({ assistantMessage: "completed after a long stream" }),
+          partialOutputStream: (async function* () {
+            for (const content of [
+              "completed learner-facing response",
+              "completed learner-facing response after ",
+              "completed learner-facing response after a ",
+              "completed after a long stream",
+            ]) {
+            await new Promise((resolve) => setTimeout(resolve, 4_000));
+            if (abortSignal.aborted) throw abortSignal.reason;
+            yield { assistantMessage: content };
+          }
+        })(),
+      }),
     );
 
     const running = Effect.runPromise(runPhaseAgent(baseInput));
-    await vi.advanceTimersByTimeAsync(120_000);
+    await vi.advanceTimersByTimeAsync(16_000);
 
     await expect(running).resolves.toMatchObject({
       object: { assistantMessage: "completed after a long stream" },
     });
-    expect(streamTextMock).toHaveBeenCalledTimes(1);
   });
 
-  it("restarts a stream that produces no chunks before the inactivity timeout", async () => {
+  it("fails without retrying when substantive visible text misses five seconds", async () => {
     vi.useFakeTimers();
-    streamTextMock
-      .mockImplementationOnce(
-        ({ abortSignal }: { abortSignal: AbortSignal }) => {
-          const output = new Promise<never>((_resolve, reject) => {
+    streamTextMock.mockImplementationOnce(
+      ({ abortSignal }: { abortSignal: AbortSignal }) => ({
+        ...streamResult({ assistantMessage: "never completed" }),
+        partialOutputStream: (async function* () {
+          yield { assistantMessage: "I" };
+          yield await new Promise<never>((_resolve, reject) => {
             abortSignal.addEventListener(
               "abort",
-              () => reject(abortSignal.reason),
+              () =>
+                reject(
+                  abortSignal.reason instanceof Error
+                    ? abortSignal.reason
+                    : new Error("Provider stream aborted."),
+                ),
               { once: true },
             );
           });
-          return { ...streamResult(output), output };
-        },
+        })(),
+      }),
+    );
+
+    const running = Effect.runPromise(runPhaseAgent(baseInput));
+    const outcome = expect(running).rejects.toMatchObject({
+      _tag: "AgentFirstVisibleTimeoutError",
+    });
+    await vi.advanceTimersByTimeAsync(5_100);
+
+    await outcome;
+    expect(streamTextMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("restarts a structured stream with no activity", async () => {
+    vi.useFakeTimers();
+    streamTextMock
+      .mockImplementationOnce(
+        ({ abortSignal }: { abortSignal: AbortSignal }) => ({
+          ...streamResult({ assistantMessage: "never" }),
+          partialOutputStream: (async function* () {
+            yield {
+              assistantMessage:
+                "A substantive speculative response began successfully.",
+            };
+            yield await new Promise<never>((_resolve, reject) => {
+              abortSignal.addEventListener(
+                "abort",
+                () => {
+                  const error = new Error("provider stream timed out");
+                  error.name = "TimeoutError";
+                  reject(error);
+                },
+                { once: true },
+              );
+            });
+          })(),
+        }),
       )
       .mockReturnValueOnce(streamResult({ assistantMessage: "recovered" }));
 
     const running = Effect.runPromise(runPhaseAgent(baseInput));
-    await vi.advanceTimersByTimeAsync(45_500);
-
-    await expect(running).resolves.toMatchObject({
+    const outcome = expect(running).resolves.toMatchObject({
       object: { assistantMessage: "recovered" },
     });
+    await vi.advanceTimersByTimeAsync(10_500);
+
+    await outcome;
     expect(streamTextMock).toHaveBeenCalledTimes(2);
   });
 
@@ -215,9 +268,9 @@ describe("runPhaseAgent", () => {
       })
       .mockReturnValueOnce(streamResult({ assistantMessage: "recovered" }));
 
-    const result = await Effect.runPromise(runPhaseAgent(baseInput));
-
-    expect(result.object).toEqual({ assistantMessage: "recovered" });
+    await expect(
+      Effect.runPromise(runPhaseAgent(baseInput)),
+    ).resolves.toMatchObject({ object: { assistantMessage: "recovered" } });
     expect(streamTextMock).toHaveBeenCalledTimes(2);
   });
 
@@ -237,25 +290,23 @@ describe("runPhaseAgent", () => {
     expect(streamTextMock).toHaveBeenCalledTimes(1);
   });
 
-  it("aborts the provider call when the Effect is interrupted", async () => {
+  it("aborts the provider stream when the Effect is interrupted", async () => {
     let providerSignal: AbortSignal | undefined;
-    let providerAborted = false;
     streamTextMock.mockImplementationOnce(
       ({ abortSignal }: { abortSignal: AbortSignal }) => {
         providerSignal = abortSignal;
-        const interrupted = new Promise<never>((_resolve, reject) => {
-          abortSignal.addEventListener(
-            "abort",
-            () => {
-              providerAborted = true;
-              const error = new Error("aborted");
-              error.name = "AbortError";
-              reject(error);
-            },
-            { once: true },
-          );
-        });
-        return { output: interrupted, toolCalls: interrupted };
+        return {
+          ...streamResult({ assistantMessage: "never" }),
+          partialOutputStream: (async function* () {
+            yield await new Promise<never>((_resolve, reject) => {
+              abortSignal.addEventListener(
+                "abort",
+                () => reject(new Error("provider stream aborted")),
+                { once: true },
+              );
+            });
+          })(),
+        };
       },
     );
     const controller = new AbortController();
@@ -267,12 +318,11 @@ describe("runPhaseAgent", () => {
     controller.abort();
 
     await expect(running).rejects.toBeDefined();
-    expect(providerAborted).toBe(true);
     expect(providerSignal?.aborted).toBe(true);
     expect(streamTextMock).toHaveBeenCalledTimes(1);
   });
 
-  it("repairs once by appending a corrective message after the directive", async () => {
+  it("repairs a schema failure once with a corrective message", async () => {
     const schemaError = new Error("bad shape");
     schemaError.name = "TypeValidationError";
     streamTextMock
@@ -285,13 +335,12 @@ describe("runPhaseAgent", () => {
 
     expect(result.object).toEqual({ assistantMessage: "fixed" });
     expect(streamTextMock).toHaveBeenCalledTimes(2);
-    const secondCallArgs = streamTextMock.mock.calls[1]?.[0] as {
+    const secondCall = streamTextMock.mock.calls[1]?.[0] as {
       prompt: { role: string; content: string }[];
     };
-    expect(secondCallArgs.prompt).toHaveLength(4);
-    expect(secondCallArgs.prompt[2]?.content).toContain("## This turn");
-    expect(secondCallArgs.prompt[3]?.content).toContain(
-      "Your previous response did not match",
+    expect(secondCall.prompt).toHaveLength(4);
+    expect(secondCall.prompt[3]?.content).toContain(
+      "did not match the required output contract",
     );
   });
 
@@ -315,14 +364,13 @@ describe("runPhaseAgent", () => {
     const secondPrompt = (
       streamTextMock.mock.calls[1]?.[0] as { prompt: ModelMessage[] }
     ).prompt;
-    expect(firstPrompt).toHaveLength(secondPrompt.length);
     for (let index = 0; index < firstPrompt.length - 1; index += 1) {
       expect(secondPrompt[index]).toEqual(firstPrompt[index]);
     }
     expect(secondPrompt.at(-1)).not.toEqual(firstPrompt.at(-1));
   });
 
-  it("fails with the tagged error once the schema repair budget is exhausted", async () => {
+  it("fails after exhausting the schema repair budget", async () => {
     const schemaError = new Error("still bad");
     schemaError.name = "TypeValidationError";
     streamTextMock.mockImplementation(() => {
@@ -332,7 +380,6 @@ describe("runPhaseAgent", () => {
     const exit = await Effect.runPromiseExit(runPhaseAgent(baseInput));
 
     expect(exit._tag).toBe("Failure");
-    // 1 initial attempt + 1 repair = 2 calls total before giving up.
     expect(streamTextMock).toHaveBeenCalledTimes(2);
   });
 });

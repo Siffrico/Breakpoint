@@ -179,7 +179,7 @@ function PromptTurn({
           // streamed text straight — no client-side pacing needed.
           <AssistantRichText
             content={prompt}
-            className="text-foreground/94 [&_h2]:text-foreground/52 [&_hr]:border-foreground/10 text-[15px] leading-7 [&_h1]:mt-0 [&_h1]:!mb-3 [&_h1]:text-[24px] [&_h1]:leading-8 [&_h1]:font-semibold [&_h1]:tracking-[-0.025em] [&_h2]:mt-7 [&_h2]:!mb-2 [&_h2]:text-[13px] [&_h2]:font-medium [&_h2]:tracking-[0.08em] [&_h3]:mt-6 [&_h3]:!mb-2 [&_h3]:text-[17px] [&_h3]:font-semibold [&_hr]:my-6 [&_li]:my-1 [&_li]:leading-7 [&_ol]:!my-3 [&_ol]:list-decimal [&_ol]:pl-7 [&_p]:!my-3 [&_strong]:font-semibold [&_ul]:!my-3 [&_ul]:list-disc [&_ul]:pl-7 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
+            className="text-foreground/94 [&_h2]:!text-foreground/52 [&_hr]:border-foreground/10 text-[15px] leading-7 [&_h1]:!mt-0 [&_h1]:!mb-3 [&_h1]:!text-[24px] [&_h1]:!leading-8 [&_h1]:!font-semibold [&_h1]:!tracking-[-0.025em] [&_h2]:!mt-7 [&_h2]:!mb-2 [&_h2]:!text-[13px] [&_h2]:!font-medium [&_h2]:!tracking-[0.08em] [&_h3]:!mt-6 [&_h3]:!mb-2 [&_h3]:!text-[17px] [&_h3]:!font-semibold [&_hr]:my-6 [&_li]:my-1 [&_li]:leading-7 [&_ol]:!my-3 [&_ol]:list-decimal [&_ol]:pl-7 [&_p]:!my-3 [&_strong]:font-semibold [&_ul]:!my-3 [&_ul]:list-disc [&_ul]:pl-7 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
           />
         ) : null}
         {helper ? (
@@ -537,18 +537,19 @@ function EducationUnitWorkspaceComponent({
     error,
     stop,
   } = useChat<WorkspaceChatMessage>({
-    id: `training-workspace-${sessionId}`,
+    id: `training-workspace-${sessionId}-${unit.nodeId}`,
     messages: initialChatMessages,
     transport: chatTransport,
-    // Batch UI updates during streaming (SDK-native render throttling). The
-    // word-level reveal itself is handled server-side by smoothStream
-    // because this route streams structured output, not a plain text stream.
+    // Batch SDK stream updates to one render at most every 50 ms.
     experimental_throttle: 50,
     onFinish: (finishState) => {
       if (!shouldClearSubmittedDraft(finishState)) return;
       clearSubmittedDraft(pendingDraftKeyRef.current);
       pendingDraftKeyRef.current = null;
       pendingSubmissionRef.current = null;
+      // The turn committed: its user message is now in the server transcript,
+      // so it must stop qualifying as an unpersisted send to preserve.
+      pendingTurnIdRef.current = null;
     },
   });
   const isRunning = status === "submitted" || status === "streaming";
@@ -566,12 +567,19 @@ function EducationUnitWorkspaceComponent({
     onStateChange?.(unit);
   }, [onStateChange, unit]);
 
-  // Reconcile the chat with the server transcript only while no turn is
-  // running — a mid-stream rebase would wipe live streaming messages. Failed
-  // optimistic sends were never persisted, so they survive the rebase
-  // explicitly; dropping them would silently discard the retry affordance.
+  // Reconcile the chat only when the server hands us a *new* transcript, and
+  // only while no turn is running — a mid-stream rebase would wipe live
+  // streaming messages, and rebasing on the running→idle edge alone would
+  // replay the bootstrap-frozen snapshot (aiWorkspace has staleTime:
+  // Infinity), erasing the reply that just streamed in. A transcript that
+  // arrives mid-stream is applied at the next idle tick. Failed optimistic
+  // sends were never persisted, so they survive the rebase explicitly;
+  // dropping them would silently discard the retry affordance.
+  const reconciledTranscriptRef = useRef<WorkspaceChatMessage[] | null>(null);
   useEffect(() => {
     if (effectiveIsRunning) return;
+    if (reconciledTranscriptRef.current === initialChatMessages) return;
+    reconciledTranscriptRef.current = initialChatMessages;
     setMessages((current) => {
       const failedSends = current.filter(
         (message) =>
@@ -707,14 +715,6 @@ function EducationUnitWorkspaceComponent({
   const fallbackTurn = getFallbackTurn(unit);
   const scenario = getScenario(aiWorkspace);
   const hasScenario = scenario !== null;
-
-  // Close on any change of which scenario is live. Covers both directions:
-  // a scenario disappearing mid-read, and the next pass's scenario arriving —
-  // which must not silently reopen the panel over a chat the learner returned
-  // to. Only ever closes, so it cannot fight the learner's own toggle.
-  useEffect(() => {
-    setIsScenarioOpen(false);
-  }, [unit.nodeId, hasScenario]);
   const latestAssistantPromptId = useMemo(() => {
     const assistantPromptCount = chatMessages.filter(
       (message) =>
@@ -764,13 +764,22 @@ function EducationUnitWorkspaceComponent({
       pendingDraftKeyRef.current = null;
       pendingTurnIdRef.current = null;
       restoreSubmittedDraft(pendingDraftKey, pendingSubmission);
-      setMessages((current) =>
-        current.map((message) =>
-          message.role === "user" && message.metadata?.turnId === failedTurnId
-            ? { ...message, metadata: { ...message.metadata, failed: true } }
-            : message,
-        ),
-      );
+      setMessages((current) => {
+        const failedMessageIndex = current.findIndex(
+          (message) =>
+            message.role === "user" &&
+            message.metadata?.turnId === failedTurnId,
+        );
+        return current.flatMap((message, index) => {
+          if (index > failedMessageIndex && message.role === "assistant") {
+            return [];
+          }
+          return message.role === "user" &&
+            message.metadata?.turnId === failedTurnId
+            ? [{ ...message, metadata: { ...message.metadata, failed: true } }]
+            : [message];
+        });
+      });
       toast.error(toastMessage);
     },
     [restoreSubmittedDraft, setMessages],
@@ -839,6 +848,8 @@ function EducationUnitWorkspaceComponent({
       return;
     }
 
+    setIsScenarioOpen(false);
+
     if (preview) {
       setResponse("");
       setIsExpanded(false);
@@ -889,6 +900,12 @@ function EducationUnitWorkspaceComponent({
             turnId,
           },
         },
+      );
+      setMessages((current) =>
+        current.filter(
+          (item) =>
+            !(item.role === "user" && item.metadata?.failed === true),
+        ),
       );
     } catch {
       recoverFailedSubmission(turnId);
@@ -1147,9 +1164,7 @@ function EducationUnitWorkspaceComponent({
                 <div ref={bottomRef} />
               </div>
             </div>
-            {showScenario && scenario ? (
-              <ScenarioPanel scenario={scenario} />
-            ) : null}
+            {showScenario ? <ScenarioPanel scenario={scenario} /> : null}
           </div>
           <ChatComposerDock className="shrink-0 pt-2 pb-2">
             {inputZone}
@@ -1182,9 +1197,7 @@ function EducationUnitWorkspaceComponent({
               <div ref={bottomRef} />
             </div>
           </div>
-          {showScenario && scenario ? (
-            <ScenarioPanel scenario={scenario} />
-          ) : null}
+          {showScenario ? <ScenarioPanel scenario={scenario} /> : null}
         </div>
         <div className="bg-background/95 shrink-0 backdrop-blur-sm">
           <div className="mx-auto w-[calc(100%-2rem)] max-w-[48.9rem] pt-3 pb-5 sm:w-[calc(100%-3rem)]">

@@ -145,7 +145,7 @@ export const streamWorkspaceChat = async ({
     }),
   );
 
-const streamWorkspaceChatWithModelPreference = async ({
+const streamWorkspaceChatWithModelPreference = ({
   db,
   sessionId,
   userId,
@@ -165,22 +165,18 @@ const streamWorkspaceChatWithModelPreference = async ({
   const trimmedMessage = message.trim();
   const effectiveLeaseId = randomUUID();
   if (trimmedMessage.length < 2) {
-    return new Response(
-      "Write a fuller message so the AI can respond usefully.",
-      {
+    return Promise.resolve(
+      new Response("Write a fuller message so the AI can respond usefully.", {
         status: 400,
-      },
+      }),
     );
   }
 
-  const plan = await trainingCurriculumRepository.getOwnedActivePlan({
+  const planPromise = trainingCurriculumRepository.getOwnedActivePlan({
     db,
     sessionId,
     userId,
   });
-  if (!plan) {
-    return new Response("Learning project not found.", { status: 404 });
-  }
 
   const stream = createUIMessageStream<WorkspaceChatUIMessage>({
     onError: (error) =>
@@ -197,6 +193,7 @@ const streamWorkspaceChatWithModelPreference = async ({
           data: { status, label },
         });
       };
+      writeStatus("preparing", "Preparing feedback");
       // Partials are speculative — they stream before the turn's transactional
       // writes commit, so a failed commit can orphan text the learner already
       // read (the repair turn replays the committed reply). Only finalize()
@@ -205,6 +202,10 @@ const streamWorkspaceChatWithModelPreference = async ({
         writer,
         partId: WORKSPACE_ASSISTANT_TEXT_PART_ID,
       });
+      const plan = await planPromise;
+      if (!plan) {
+        throw new WorkspaceUserError("Learning project not found.");
+      }
 
       const turnDeps = {
         ...createWorkspaceTurnRepositoryDeps(db),
@@ -303,8 +304,6 @@ const streamWorkspaceChatWithModelPreference = async ({
             }),
           ),
       };
-      writeStatus("preparing", "Preparing feedback");
-
       const turn = await resolveWorkspaceTurn({
         sessionId,
         authorizedPlan: plan,
@@ -359,11 +358,13 @@ const streamWorkspaceChatWithModelPreference = async ({
     },
   });
 
-  return createUIMessageStreamResponse({
-    stream,
-    headers: {
-      "Cache-Control": "no-cache, no-transform",
-      "X-Accel-Buffering": "no",
-    },
-  });
+  return Promise.resolve(
+    createUIMessageStreamResponse({
+      stream,
+      headers: {
+        "Cache-Control": "no-cache, no-transform",
+        "X-Accel-Buffering": "no",
+      },
+    }),
+  );
 };
