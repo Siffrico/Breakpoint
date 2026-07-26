@@ -2,7 +2,6 @@ import type { Result } from "../../../lib/result";
 import type {
   EducationUnitState,
   PhaseResponseRecord,
-  UnitContent,
 } from "../types/training.types";
 import type { UnitPreparationDependencies } from "../unit-preparation/prepare-unit-content";
 import { err, ok } from "../../../lib/result";
@@ -29,10 +28,6 @@ interface PrepareUnitDependencies extends UnitPreparationDependencies {
     unitContentId: string,
     sessionId: string,
   ) => Promise<PhaseResponseRecord[]>;
-  saveNodeBriefing: (input: {
-    nodeId: string;
-    briefing: NonNullable<UnitContent["clusterBriefing"]>;
-  }) => Promise<UnitContent["clusterBriefing"]>;
 }
 
 /**
@@ -81,32 +76,26 @@ export const prepareUnitWorkflow = async ({
     (item) =>
       item.parentNodeId === node.parentNodeId && item.kind === node.kind,
   );
-  const briefingPromise = parentNode
-    ? generateClusterBriefing({
-        slotKind: node.kind,
-        totalSlots: siblingUnits.length || 1,
-        clusterContext: {
-          title: parentNode.title,
-          summary: parentNode.summary,
-          whyItMatters: parentNode.whyItMatters,
-        },
-      }).catch(() => null)
-    : Promise.resolve(null);
-
   try {
-    const [preparedUnit, generatedBriefing] = await Promise.all([
-      runPrepareUnit({ node, sessionId, deps }),
-      briefingPromise,
-    ]);
-
-    if (parentNode && generatedBriefing) {
-      await deps
-        .saveNodeBriefing({
-          nodeId: parentNode.id,
-          briefing: generatedBriefing,
-        })
-        .catch(() => null);
-    }
+    const preparedUnit = await runPrepareUnit({
+      node,
+      sessionId,
+      deps,
+      prepareClusterBriefing: parentNode
+        ? async () => ({
+            nodeId: parentNode.id,
+            briefing: await generateClusterBriefing({
+              slotKind: "unit",
+              totalSlots: siblingUnits.length || 1,
+              clusterContext: {
+                title: parentNode.title,
+                summary: parentNode.summary,
+                whyItMatters: parentNode.whyItMatters,
+              },
+            }),
+          })
+        : undefined,
+    });
 
     const canonicalUnit = (await deps.getUnitByNodeId(nodeId)) ?? preparedUnit;
     const responses = await deps.getPhaseResponses(canonicalUnit.id, sessionId);

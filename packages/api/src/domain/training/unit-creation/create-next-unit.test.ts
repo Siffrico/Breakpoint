@@ -50,7 +50,8 @@ const openSkill = {
 };
 
 describe("createNextUnit", () => {
-  it("resumes preparation when an open unit has no content", async () => {
+  it("resumes missing content without generating knowledge for an open unit", async () => {
+    const ensureSkillKnowledge = vi.fn(() => Effect.void);
     const prepareUnitEffect = vi.fn(() => Effect.void);
     const appendUnit = vi.fn();
 
@@ -58,7 +59,9 @@ describe("createNextUnit", () => {
       createNextUnit({
         skillNodeId: "cluster-1",
         deps: {
-          loadSkill: () => Effect.succeed(openSkill),
+          ensureSkillKnowledge,
+          loadOpenUnit: () => Effect.succeed(openUnit),
+          loadSkill: () => Effect.die("should not load the frontier"),
           resolveDirective: () => Effect.die("should not resolve"),
           appendUnit,
           hasUnitContent: () => Effect.succeed(false),
@@ -69,6 +72,7 @@ describe("createNextUnit", () => {
     );
 
     expect(result).toBe(openUnit);
+    expect(ensureSkillKnowledge).not.toHaveBeenCalled();
     expect(prepareUnitEffect).toHaveBeenCalledOnce();
     expect(prepareUnitEffect).toHaveBeenCalledWith(openUnit);
     expect(appendUnit).not.toHaveBeenCalled();
@@ -81,7 +85,9 @@ describe("createNextUnit", () => {
       createNextUnit({
         skillNodeId: "cluster-1",
         deps: {
-          loadSkill: () => Effect.succeed(openSkill),
+          ensureSkillKnowledge: () => Effect.void,
+          loadOpenUnit: () => Effect.succeed(openUnit),
+          loadSkill: () => Effect.die("should not load the frontier"),
           resolveDirective: () => Effect.die("should not resolve"),
           appendUnit: () => Effect.die("should not append"),
           hasUnitContent: () => Effect.succeed(true),
@@ -101,6 +107,8 @@ describe("createNextUnit", () => {
         createNextUnit({
           skillNodeId: "cluster-1",
           deps: {
+            ensureSkillKnowledge: () => Effect.void,
+            loadOpenUnit: () => Effect.succeed(null),
             loadSkill: () => Effect.succeed({ ...openSkill, openUnit: null }),
             resolveDirective: () => Effect.die("should not resolve"),
             appendUnit: () => Effect.die("should not append"),
@@ -111,6 +119,40 @@ describe("createNextUnit", () => {
         }),
       ),
     ).rejects.toBeInstanceOf(KnowledgeTargetsMissingError);
+  });
+
+  it("prepares a contentless unit adopted from a concurrent append", async () => {
+    const adopted = { id: "unit-adopted" };
+    const prepareUnitEffect = vi.fn(() => Effect.void);
+
+    const result = await Effect.runPromise(
+      createNextUnit({
+        skillNodeId: "skill",
+        deps: {
+          ensureSkillKnowledge: () => Effect.void,
+          loadOpenUnit: () => Effect.succeed(null),
+          loadSkill: () =>
+            Effect.succeed({
+              ...openSkill,
+              openUnit: null,
+              entries: [entry("a")],
+            }),
+          resolveDirective: () =>
+            Effect.succeed({
+              directive: { targetItemRating: 1200 } as never,
+              promptBlock: "",
+            }),
+          appendUnit: () =>
+            Effect.succeed({ node: adopted, created: false }),
+          hasUnitContent: () => Effect.succeed(false),
+          prepareUnitEffect,
+          selectTargets,
+        },
+      }),
+    );
+
+    expect(result).toBe(adopted);
+    expect(prepareUnitEffect).toHaveBeenCalledWith(adopted);
   });
 
   it("writes the selected targets onto the appended unit", async () => {
@@ -124,6 +166,8 @@ describe("createNextUnit", () => {
         skillNodeId: "skill",
         complexityBudget: 2,
         deps: {
+          ensureSkillKnowledge: () => Effect.void,
+          loadOpenUnit: () => Effect.succeed(null),
           loadSkill: () =>
             Effect.succeed({
               ...openSkill,
@@ -164,6 +208,8 @@ describe("createNextUnit", () => {
         skillNodeId: "ability",
         complexityBudget: 2,
         deps: {
+          ensureSkillKnowledge: () => Effect.void,
+          loadOpenUnit: () => Effect.succeed(null),
           loadSkill: () =>
             Effect.succeed({
               ...openSkill,

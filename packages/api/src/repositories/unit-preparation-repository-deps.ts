@@ -31,6 +31,17 @@ export const createUnitPreparationRepositoryDeps = (
     trainingCurriculumRepository.createUnitContentIfAbsent({ db, ...payload }),
   replaceUnitContent: (payload) =>
     trainingCurriculumRepository.replaceUnitContent({ db, ...payload }),
+  // A savepoint keeps this optional write from aborting the unit-build
+  // transaction while still making successful content + briefing atomic.
+  saveNodeBriefing: (payload) =>
+    db
+      .transaction(async (tx) =>
+        trainingCurriculumRepository.saveNodeBriefing({
+          db: tx as unknown as Database,
+          ...payload,
+        }),
+      )
+      .catch(() => null),
   // Rebinds the deps to the lock's own connection so the whole build rides
   // one pooled connection instead of holding the lock on one and querying
   // through others (which can deadlock an exhausted pool).

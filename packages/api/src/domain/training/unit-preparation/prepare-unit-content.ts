@@ -68,6 +68,10 @@ export interface UnitPreparationDependencies {
     teachbackSetup: UnitContent["teachbackSetup"];
     scenario: UnitContent["scenario"];
   }) => Promise<UnitContent | null>;
+  readonly saveNodeBriefing: (input: {
+    nodeId: string;
+    briefing: NonNullable<UnitContent["clusterBriefing"]>;
+  }) => Promise<UnitContent["clusterBriefing"]>;
   /**
    * Holds this node's build lock while `run` executes. Concurrent prepares
    * for the same node must serialize here (the loser re-checks and skips),
@@ -86,6 +90,11 @@ export interface PrepareUnitContentInput {
   readonly sessionId: string;
   readonly deps: UnitPreparationDependencies;
   readonly forceRefresh?: boolean;
+  /** Optional non-critical briefing work that must share the node build lock. */
+  readonly prepareClusterBriefing?: () => Promise<{
+    nodeId: string;
+    briefing: NonNullable<UnitContent["clusterBriefing"]>;
+  }>;
 }
 
 const MAX_RESTARTS = 2;
@@ -169,11 +178,12 @@ const assembleSeedContext = ({
  * produces the one durable unit-content row; and fails only with a tagged
  * preparation error.
  */
-export const prepareUnitContent = ({
+const prepareUnitContentUnlocked = ({
   node,
   sessionId,
   deps,
   forceRefresh = false,
+  prepareClusterBriefing,
 }: PrepareUnitContentInput): Effect.Effect<UnitContent, UnitPreparationError> =>
   Effect.gen(function* () {
     const existing = yield* Effect.tryPromise({
@@ -187,6 +197,10 @@ export const prepareUnitContent = ({
         }),
     });
     if (existing && !forceRefresh) return existing;
+
+    const briefingPromise = prepareClusterBriefing
+      ? prepareClusterBriefing().catch(() => null)
+      : Promise.resolve(null);
 
     const [planNodes, targetIdentity, priorLearning, knowledge] =
       yield* Effect.tryPromise({
@@ -230,12 +244,12 @@ export const prepareUnitContent = ({
       }),
     );
 
-    return yield* Effect.tryPromise({
+    const created = yield* Effect.tryPromise({
       try: async () => {
         const persist = forceRefresh
           ? deps.replaceUnitContent
           : deps.createUnitContentIfAbsent;
-        const created = await persist({
+        const persisted = await persist({
           nodeId: node.id,
           title: setup.title,
           seedPrompt: setup.seedPrompt,
@@ -245,8 +259,8 @@ export const prepareUnitContent = ({
           teachbackSetup: setup.teachbackSetup,
           scenario: setup.scenario,
         });
-        if (!created) throw new Error("Unit content write returned no row.");
-        return created;
+        if (!persisted) throw new Error("Unit content write returned no row.");
+        return persisted;
       },
       catch: (cause) =>
         new UnitPersistError({
@@ -254,4 +268,43 @@ export const prepareUnitContent = ({
           cause,
         }),
     });
+    const briefing = yield* Effect.promise(() => briefingPromise);
+    if (briefing) {
+      yield* Effect.promise(() =>
+        deps.saveNodeBriefing(briefing).catch(() => null),
+      );
+    }
+    return created;
+  });
+
+const lockFailure = (cause: unknown): UnitPreparationError => {
+  if (
+    cause instanceof UnitContextMissingError ||
+    cause instanceof UnitScaffoldError ||
+    cause instanceof UnitPersistError
+  ) {
+    return cause;
+  }
+  return new UnitPersistError({
+    message: "Unit preparation lock failed.",
+    cause,
+  });
+};
+
+/**
+ * Takes a unit node, session id, and persistence/provider dependencies;
+ * serializes the complete check → generate → persist path for that node; and
+ * produces the one durable unit-content row.
+ */
+export const prepareUnitContent = (
+  input: PrepareUnitContentInput,
+): Effect.Effect<UnitContent, UnitPreparationError> =>
+  Effect.tryPromise({
+    try: () =>
+      input.deps.withUnitBuildLock(input.node.id, (lockedDeps) =>
+        Effect.runPromise(
+          prepareUnitContentUnlocked({ ...input, deps: lockedDeps }),
+        ),
+      ),
+    catch: lockFailure,
   });

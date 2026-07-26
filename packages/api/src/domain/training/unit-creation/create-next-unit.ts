@@ -49,6 +49,13 @@ export const buildDynamicUnitDifficultyBands = (
 };
 
 export interface CreateNextUnitDependencies<TNode> {
+  ensureSkillKnowledge: (
+    skillNodeId: string,
+  ) => Effect.Effect<unknown, DbError>;
+  loadOpenUnit: (
+    skillNodeId: string,
+    unitStatus: "planned" | "ready",
+  ) => Effect.Effect<TNode | null, DbError>;
   loadSkill: (
     skillNodeId: string,
     unitStatus: "planned" | "ready",
@@ -165,7 +172,9 @@ export const createNextUnitNode = <TNode extends { id: string }>({
       practicedSkillNodeId,
       status,
     });
-    return { node: persisted.node, needsContent: persisted.created };
+    if (persisted.created) return { node: persisted.node, needsContent: true };
+    const hasContent = yield* deps.hasUnitContent(persisted.node.id);
+    return { node: persisted.node, needsContent: !hasContent };
   });
 
 /**
@@ -184,6 +193,14 @@ export const createNextUnit = <TNode extends { id: string }>({
   deps: CreateNextUnitDependencies<TNode>;
 }): Effect.Effect<TNode | null, CreateNextUnitError> =>
   Effect.gen(function* () {
+    const openUnit = yield* deps.loadOpenUnit(skillNodeId, status);
+    if (openUnit) {
+      const hasContent = yield* deps.hasUnitContent(openUnit.id);
+      if (!hasContent) yield* deps.prepareUnitEffect(openUnit);
+      return openUnit;
+    }
+
+    yield* deps.ensureSkillKnowledge(skillNodeId);
     const created = yield* createNextUnitNode({
       skillNodeId,
       complexityBudget,

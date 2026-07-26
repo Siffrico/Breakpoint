@@ -29,6 +29,10 @@ interface LockedPregenerationDependencies<TNode> {
 }
 
 export interface PregenerateNextUnitDependencies<TNode> {
+  /** Runs before the advance transaction; may perform a singleflight model call. */
+  ensureSkillKnowledge: (
+    skillNodeId: string,
+  ) => Effect.Effect<unknown, DbError>;
   withLock: <A>(input: {
     sessionId: string;
     key: typeof ADVANCE_COMPLETED_UNIT_LOCK_KEY;
@@ -65,6 +69,7 @@ export const pregenerateNextUnit = <TNode>({
   deps: PregenerateNextUnitDependencies<TNode>;
 }): Effect.Effect<void, DbError | CreateNextUnitError> =>
   Effect.gen(function* () {
+    yield* deps.ensureSkillKnowledge(skillNodeId);
     const created = yield* deps.withLock({
       sessionId,
       key: ADVANCE_COMPLETED_UNIT_LOCK_KEY,

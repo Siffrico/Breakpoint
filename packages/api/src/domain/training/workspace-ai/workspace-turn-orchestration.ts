@@ -377,22 +377,6 @@ const claimTurnAndLoadTranscript = ({
 // Education-unit path (v4 FSM)
 // ---------------------------------------------------------------------------
 
-/**
- * Reads whether the immediately-prior education turn force-advanced Connect
- * into Solve after exhausting the grill budget. That signal cannot be
- * recovered from the durable state (connectGrills is reset on the transition —
- * see fsm.ts), so it is persisted on the phase-response metadata and read back
- * here to drive the next Solve turn's "teach the missed idea first" directive.
- */
-const readPendingConnectTeach = (
-  unitResponses: ResolvedWorkspaceTurn["unitResponses"],
-): boolean => {
-  const lastEducation = [...unitResponses]
-    .reverse()
-    .find((response) => response.phase === "ai_education");
-  return lastEducation?.metadata?.forcedConnectAdvance === true;
-};
-
 const readSolveTaskPending = (
   unitRun: ResolvedWorkspaceTurn["unitRun"],
   unitResponses: ResolvedWorkspaceTurn["unitResponses"],
@@ -550,7 +534,6 @@ export const runEducationUnitTurn = ({
       passes: recipe.passes,
       memories,
       difficultyLine: difficultySnapshot.promptBlock,
-      pendingConnectTeach: readPendingConnectTeach(unitResponses),
       solveTaskPending,
       scenarioSpec: unitRun.scenarioSpec,
       knowledge,

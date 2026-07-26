@@ -317,13 +317,7 @@ export const saveUnitPhaseResult = ({
   WorkspaceTurnRepo
 > =>
   Effect.gen(function* () {
-    const {
-      nextState,
-      event,
-      forcedConnectAdvance,
-      gradeReasoning,
-      ratingWrite,
-    } = turnResult;
+    const { nextState, event, gradeReasoning, ratingWrite } = turnResult;
     const aiMessage = turnResult.assistantMessage;
     const mastered = nextState.phase === "mastered";
 
@@ -396,7 +390,6 @@ export const saveUnitPhaseResult = ({
       metadata: {
         aiEducationStage: nextState.phase,
         phasePass: nextState.pass,
-        forcedConnectAdvance: forcedConnectAdvance || undefined,
         promptKind: "education_unit",
         modelPurpose: "education",
         verdict: verdictLabel(event),

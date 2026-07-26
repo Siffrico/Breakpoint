@@ -113,7 +113,6 @@ export const TrainingUnitPhaseResponse = pgTable(
       stateSnapshot?: unknown;
       aiEducationStage?: "orient" | "connect" | "solve" | "teach" | "mastered";
       phasePass?: number;
-      forcedConnectAdvance?: boolean;
       recallUnitId?: string;
       promptKind?:
         | "onboarding_curriculum"

@@ -24,6 +24,7 @@ import { trainingCurriculumRepository } from "./repositories/training-curriculum
 import { trainingUnitRunRepository } from "./repositories/training-unit-run-repository";
 import {
   createUnitCreationRepositoryDeps,
+  ensureSkillKnowledge,
   loadProgressionState,
 } from "./repositories/unit-creation-repository-deps";
 import {
@@ -219,6 +220,14 @@ const streamWorkspaceChatWithModelPreference = ({
             pregenerateNextUnit<UnitCreationNode>({
               ...input,
               deps: {
+                ensureSkillKnowledge: (skillNodeId) =>
+                  queryWithClient(db, "ensurePregeneratedSkillKnowledge", () =>
+                    ensureSkillKnowledge({
+                      db,
+                      skillNodeId,
+                      targetIdentity: plan.targetIdentity,
+                    }),
+                  ),
                 withLock: ({ sessionId: lockedSessionId, key, run }) =>
                   queryWithClient(db, "pregenerateNextUnit", () =>
                     db.transaction(async (tx) => {

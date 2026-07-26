@@ -24,7 +24,6 @@ const baseInput = (
   passes: 3,
   memories: [],
   difficultyLine: null,
-  pendingConnectTeach: false,
   solveTaskPending: false,
   scenarioSpec: null,
   knowledge: null,
@@ -50,34 +49,6 @@ describe("buildUnitTurnContext", () => {
     expect(context).toContain("Phase: connect (round 2 of 3)");
     expect(context).toContain("Target the learner at rating 1200.");
     expect(context).toContain("They over-index on the first visible symptom.");
-  });
-
-  it("adds the missed-connection teaching directive only to the next Solve turn", () => {
-    const solveContext = buildUnitTurnContext(
-      baseInput({
-        state: {
-          ...initialState("unit-1", "education-unit-v2"),
-          phase: "solve",
-        },
-        pendingConnectTeach: true,
-      }),
-    );
-    expect(solveContext).toContain(
-      "The learner did not reconstruct the connection on their own",
-    );
-
-    const connectContext = buildUnitTurnContext(
-      baseInput({
-        state: {
-          ...initialState("unit-1", "education-unit-v2"),
-          phase: "connect",
-        },
-        pendingConnectTeach: true,
-      }),
-    );
-    expect(connectContext).not.toContain(
-      "The learner did not reconstruct the connection on their own",
-    );
   });
 
   it("makes the first Solve turn's required event explicit", () => {

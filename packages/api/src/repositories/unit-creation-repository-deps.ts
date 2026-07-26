@@ -36,6 +36,7 @@ import {
 import { prepareUnitContent } from "../domain/training/unit-preparation/prepare-unit-content";
 import { queryWithClient } from "../effect/db";
 import { resolvePlanSeedRating } from "./plan-seed-rating";
+import { withSkillKnowledgeBuildLock } from "./skill-knowledge-build-lock";
 import { skillKnowledgeRepository } from "./skill-knowledge-repository";
 import { appendDynamicUnitNode } from "./training-curriculum-node-writer";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
@@ -53,31 +54,43 @@ export const ensureSkillKnowledge = async ({
 }: {
   db: Database;
   skillNodeId: string;
-  targetIdentity: string;
-}) => {
-  const cluster = await trainingCurriculumRepository.getNodeById({
-    db,
-    nodeId: skillNodeId,
-  });
-  if (!cluster?.skillMap) return null;
-  const existing = await skillKnowledgeRepository.listKnowledge({
+  targetIdentity?: string;
+}) =>
+  withSkillKnowledgeBuildLock({
     db,
     skillNodeId,
+    run: async (lockDb) => {
+      const cluster = await trainingCurriculumRepository.getNodeById({
+        db: lockDb,
+        nodeId: skillNodeId,
+      });
+      if (!cluster?.skillMap || cluster.kind !== "skill") return null;
+      const existing = await skillKnowledgeRepository.listKnowledge({
+        db: lockDb,
+        skillNodeId,
+      });
+      if (existing.length > 0) return existing;
+      const plan = targetIdentity
+        ? null
+        : await lockDb.query.TrainingCurriculumPlan.findFirst({
+            where: eq(TrainingCurriculumPlan.id, cluster.planId),
+          });
+      const identity = targetIdentity ?? plan?.targetIdentity;
+      if (!identity) return null;
+      const knowledge = await designSkillKnowledge({
+        title: cluster.title,
+        summary: cluster.summary,
+        targetIdentity: identity,
+        workflow: cluster.skillMap.workflow,
+        masteryContract: cluster.skillMap.masteryContract,
+      });
+      return skillKnowledgeRepository.ensureKnowledge({
+        db: lockDb,
+        skillNodeId,
+        questions: knowledge.questions,
+      });
+    },
   });
-  if (existing.length > 0) return existing;
-  const knowledge = await designSkillKnowledge({
-    title: cluster.title,
-    summary: cluster.summary,
-    targetIdentity,
-    workflow: cluster.skillMap.workflow,
-    masteryContract: cluster.skillMap.masteryContract,
-  });
-  return skillKnowledgeRepository.ensureKnowledge({
-    db,
-    skillNodeId,
-    questions: knowledge.questions,
-  });
-};
 
 export const createUnitCreationRepositoryDeps = ({
   db,
@@ -101,6 +114,21 @@ export const createUnitCreationRepositoryDeps = ({
   };
 
   return {
+    ensureSkillKnowledge: (skillNodeId) =>
+      queryWithClient(db, "ensureSkillKnowledge", () =>
+        ensureSkillKnowledge({ db, skillNodeId }),
+      ),
+    loadOpenUnit: (skillNodeId, unitStatus) =>
+      queryWithClient(db, "loadOpenUnitForUnitCreation", async () =>
+        (await db.query.TrainingCurriculumNode.findFirst({
+          where: and(
+            eq(TrainingCurriculumNode.parentNodeId, skillNodeId),
+            eq(TrainingCurriculumNode.kind, "unit"),
+            eq(TrainingCurriculumNode.status, unitStatus),
+          ),
+          orderBy: [desc(TrainingCurriculumNode.orderIndex)],
+        })) ?? null,
+      ),
     loadSkill: (skillNodeId, unitStatus) =>
       queryWithClient(db, "loadSkillForUnitCreation", async () => {
         const node = await db.query.TrainingCurriculumNode.findFirst({
@@ -180,24 +208,10 @@ export const createUnitCreationRepositoryDeps = ({
               openUnit: openUnit ?? null,
             };
           }
-          let entries = await skillKnowledgeRepository.listKnowledge({
+          const entries = await skillKnowledgeRepository.listKnowledge({
             db,
             skillNodeId,
           });
-          if (entries.length === 0) {
-            const plan = await db.query.TrainingCurriculumPlan.findFirst({
-              where: eq(TrainingCurriculumPlan.id, node.planId),
-            });
-            if (!plan) return null;
-            // Locked skills skip the build-time prewarm, so this unlock-time
-            // ensure is their first knowledge-map generation.
-            entries =
-              (await ensureSkillKnowledge({
-                db,
-                skillNodeId,
-                targetIdentity: plan.targetIdentity,
-              })) ?? [];
-          }
           return {
             title: node.title,
             whyItMatters: node.whyItMatters,

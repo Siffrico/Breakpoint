@@ -4,14 +4,6 @@
 // free: it turns the durable state + unit material + learner signals into the
 // single "## Context" message the orchestrator prepends to the transcript
 // before calling a phase agent. It never talks to the model, DB, or Goldilocks.
-//
-// Two teaching directives are derived here rather than decided by the agents:
-//   - micro-teach (solve): recoverable from post-transition state, because the
-//     solveRepairs counter persists within the solve phase.
-//   - teach-missed-connection (solve): NOT recoverable from state — the
-//     connectGrills counter is reset the instant a forced connect->solve
-//     advance happens (see fsm.ts). The orchestrator carries that one-shot
-//     signal forward as `pendingConnectTeach`.
 
 import type { UnitContent } from "../types/training.types";
 import type { ScenarioSpecRecord } from "./scenario-spec";
@@ -44,12 +36,6 @@ export interface UnitTurnContextInput {
    * passes READ difficulty). Null when no rating exists yet.
    */
   difficultyLine: string | null;
-  /**
-   * One-shot: the previous Connect was force-advanced after exhausting the
-   * grill budget, so this Solve turn must teach the missed idea before posing
-   * the problem. Only meaningful on a solve turn.
-   */
-  pendingConnectTeach: boolean;
   /**
    * True on the first education Solve turn, before the solve task itself has
    * been presented. Derived from the last committed phase event.
@@ -100,14 +86,8 @@ const bullet = (lines: readonly string[]): string =>
 
 /** The explicit per-turn output contract the solve agent looks for. */
 const buildOutputContract = (input: UnitTurnContextInput): string | null => {
-  const { state, policy, pendingConnectTeach } = input;
+  const { state, policy } = input;
   const directives: string[] = [];
-
-  if (pendingConnectTeach && state.phase === "solve") {
-    directives.push(
-      "The learner did not reconstruct the connection on their own and was advanced anyway. Before posing the solve problem, briefly teach the missed idea, anchored on their own last attempt.",
-    );
-  }
 
   if (input.solveTaskPending && state.phase === "solve") {
     directives.push(

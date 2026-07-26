@@ -212,8 +212,6 @@ const createPrepareUnitDependencies = (
       unitContentId,
       sessionId,
     }),
-  saveNodeBriefing: (payload) =>
-    trainingCurriculumRepository.saveNodeBriefing({ db, ...payload }),
 });
 
 export const trainingRouter = {

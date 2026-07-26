@@ -46,6 +46,10 @@ const makeDeps = ({
     }),
   );
   const deps: PregenerateNextUnitDependencies<TestNode> = {
+    ensureSkillKnowledge: () =>
+      Effect.sync(() => {
+        events.push("ensureSkillKnowledge");
+      }),
     withLock: ({ sessionId, key, run }) => {
       lockInputs.push({ sessionId, key });
       return Effect.gen(function* () {
@@ -89,6 +93,7 @@ describe("pregenerateNextUnit", () => {
 
     // The LLM call must never run while the advance lock is held.
     expect(events).toEqual([
+      "ensureSkillKnowledge",
       "lock:acquired",
       "createUnitNode",
       "lock:released",

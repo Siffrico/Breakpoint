@@ -4,6 +4,16 @@ import type { UnitContent } from "../types/training.types";
 import { getUnitWorkflow } from "./get-unit-workflow";
 
 const runPrepareUnitMock = vi.fn<(input: unknown) => Promise<UnitContent>>();
+const generateClusterBriefingMock = vi.fn(() =>
+  Promise.resolve({
+    briefingArc: "A diagnostic sequence.",
+    briefingMap: [{ position: 1, role: "Isolate the causal signal." }],
+  }),
+);
+
+vi.mock("../generate-cluster-briefing", () => ({
+  generateClusterBriefing: () => generateClusterBriefingMock(),
+}));
 
 vi.mock("../unit-preparation/prepare-unit-edge", () => ({
   runPrepareUnit: (input: unknown) => runPrepareUnitMock(input),
@@ -11,9 +21,20 @@ vi.mock("../unit-preparation/prepare-unit-edge", () => ({
 
 const { prepareUnitWorkflow } = await import("./prepare-unit-workflow");
 
+const parentNode = {
+  id: "cluster-1",
+  parentNodeId: null,
+  kind: "skill",
+  title: "Diagnose incidents",
+  summary: "Find causes from evidence.",
+  whyItMatters: "Correct diagnosis prevents compounding failures.",
+  orderIndex: 0,
+  status: "ready",
+};
+
 const node = {
   id: "node-1",
-  parentNodeId: null,
+  parentNodeId: parentNode.id,
   kind: "unit",
   title: "Diagnose the failure",
   summary: "Use evidence before choosing a fix.",
@@ -56,19 +77,27 @@ const unit = {
 } satisfies UnitContent;
 
 describe("explicit unit preparation recovery", () => {
-  beforeEach(() => runPrepareUnitMock.mockReset());
+  beforeEach(() => {
+    runPrepareUnitMock.mockReset();
+    generateClusterBriefingMock.mockClear();
+  });
 
   it("keeps reads pure and allows an explicit command to recover a failed prewarm", async () => {
     let storedUnit: UnitContent | null = null;
     runPrepareUnitMock
       .mockRejectedValueOnce(new Error("prewarm failed"))
-      .mockImplementationOnce(() => {
+      .mockImplementationOnce(async (input) => {
+        const prepareClusterBriefing = (
+          input as { prepareClusterBriefing?: () => Promise<void> }
+        ).prepareClusterBriefing;
+        await prepareClusterBriefing?.();
         storedUnit = unit;
-        return Promise.resolve(unit);
+        return unit;
       });
+    const saveNodeBriefing = vi.fn(() => Promise.resolve(null));
 
     const deps: Parameters<typeof prepareUnitWorkflow>[0]["deps"] = {
-      getPlanNodesBySession: () => Promise.resolve([node]),
+      getPlanNodesBySession: () => Promise.resolve([parentNode, node]),
       getUnitByNodeId: () => Promise.resolve(storedUnit),
       getPhaseResponses: () => Promise.resolve([]),
       getTargetIdentity: () => Promise.resolve("Incident commander"),
@@ -90,7 +119,7 @@ describe("explicit unit preparation recovery", () => {
         }),
       createUnitContentIfAbsent: () => Promise.resolve(unit),
       replaceUnitContent: () => Promise.resolve(unit),
-      saveNodeBriefing: () => Promise.resolve(null),
+      saveNodeBriefing,
       withUnitBuildLock: (_nodeId, run) => run(deps),
     };
 
@@ -121,6 +150,7 @@ describe("explicit unit preparation recovery", () => {
       deps,
     });
     expect(recovered.success).toBe(true);
+    expect(generateClusterBriefingMock).toHaveBeenCalledOnce();
 
     const readAfterRecovery = await getUnitWorkflow({
       nodeId: node.id,

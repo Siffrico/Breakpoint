@@ -119,6 +119,7 @@ const makeDeps = (
     ),
     createUnitContentIfAbsent: vi.fn(() => Promise.resolve(unit)),
     replaceUnitContent: vi.fn(() => Promise.resolve(unit)),
+    saveNodeBriefing: vi.fn(() => Promise.resolve(null)),
     withUnitBuildLock: (_nodeId, run) => run(deps),
     ...overrides,
   };
@@ -153,20 +154,109 @@ describe("prepareUnitContent", () => {
     expect(result).toBe(unit);
   });
 
-  it("short-circuits an existing row without spending an LLM call", async () => {
-    const deps = makeDeps({
+  it("locks before re-checking and short-circuits an existing row", async () => {
+    const lockedDeps = makeDeps({
       getUnitByNodeId: vi.fn(() => Promise.resolve(unit)),
     });
+    const lockedNodeIds: string[] = [];
+    const withUnitBuildLock: UnitPreparationDependencies["withUnitBuildLock"] =
+      (nodeId, run) => {
+        lockedNodeIds.push(nodeId);
+        return run(lockedDeps);
+      };
+    const deps = { ...lockedDeps, withUnitBuildLock };
 
     const result = await Effect.runPromise(
       prepareUnitContent({ node, sessionId: "session-1", deps }),
     );
 
     expect(result).toBe(unit);
+    expect(lockedNodeIds).toEqual([node.id]);
     expect(runSeedStageMock).not.toHaveBeenCalled();
     expect(deps.getPlanNodesBySession).not.toHaveBeenCalled();
     expect(deps.createUnitContentIfAbsent).not.toHaveBeenCalled();
     expect(deps.replaceUnitContent).not.toHaveBeenCalled();
+  });
+
+  it("singleflights scaffold and briefing work across concurrent prepares", async () => {
+    runSeedStageMock.mockResolvedValue(setup);
+    let storedUnit: UnitContent | null = null;
+    let lockTail = Promise.resolve();
+    const createUnitContentIfAbsent = vi.fn(() => {
+      storedUnit = unit;
+      return Promise.resolve(unit);
+    });
+    const lockedDeps = makeDeps({
+      getUnitByNodeId: vi.fn(() => Promise.resolve(storedUnit)),
+      createUnitContentIfAbsent,
+      withUnitBuildLock: async (_nodeId, run) => {
+        const previous = lockTail;
+        let release!: () => void;
+        lockTail = new Promise<void>((resolveLock) => {
+          release = resolveLock;
+        });
+        await previous;
+        try {
+          return await run(lockedDeps);
+        } finally {
+          release();
+        }
+      },
+    });
+    const prepareClusterBriefing = vi.fn(() =>
+      Promise.resolve({
+        nodeId: "cluster-1",
+        briefing: {
+          briefingArc: "A diagnostic sequence.",
+          briefingMap: [
+            { position: 1, role: "Isolate the causal signal." },
+          ],
+        },
+      }),
+    );
+    const input = {
+      node,
+      sessionId: "session-1",
+      deps: lockedDeps,
+      prepareClusterBriefing,
+    };
+
+    await Promise.all([
+      Effect.runPromise(prepareUnitContent(input)),
+      Effect.runPromise(prepareUnitContent(input)),
+    ]);
+
+    expect(runSeedStageMock).toHaveBeenCalledTimes(1);
+    expect(prepareClusterBriefing).toHaveBeenCalledTimes(1);
+    expect(lockedDeps.saveNodeBriefing).toHaveBeenCalledTimes(1);
+    expect(createUnitContentIfAbsent).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not fail prepared content when optional briefing persistence fails", async () => {
+    runSeedStageMock.mockResolvedValue(setup);
+    const deps = makeDeps({
+      saveNodeBriefing: vi.fn(() => Promise.reject(new Error("briefing write"))),
+    });
+
+    const result = await Effect.runPromise(
+      prepareUnitContent({
+        node,
+        sessionId: "session-1",
+        deps,
+        prepareClusterBriefing: () =>
+          Promise.resolve({
+            nodeId: "cluster-1",
+            briefing: {
+              briefingArc: "A diagnostic sequence.",
+              briefingMap: [
+                { position: 1, role: "Isolate the causal signal." },
+              ],
+            },
+          }),
+      }),
+    );
+
+    expect(result).toBe(unit);
   });
 
   it("retries a provider failure and then persists the successful scaffold", async () => {

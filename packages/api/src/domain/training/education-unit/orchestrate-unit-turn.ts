@@ -62,13 +62,6 @@ export interface UnitTurnResult {
   event: UnitEvent;
   /** The durable cursor AFTER applying the event. */
   nextState: UnitState;
-  /**
-   * True when this Connect failure exhausted the grill budget and the learner
-   * was force-advanced to Solve. The caller must persist this so the next
-   * Solve turn's context knows to teach the missed idea (the connectGrills
-   * counter is gone after the transition — see fsm.ts).
-   */
-  forcedConnectAdvance: boolean;
   /** The grader's one-sentence reasoning, for persistence metadata. */
   gradeReasoning: string | null;
   /**
@@ -399,8 +392,6 @@ export const runUnitTurn = (
       );
     }
 
-    const forcedConnectAdvance = false;
-
     const nextState = transition(state, event, recipe);
 
     // The rating evidence IS the event: toUnitEvent already validated the
@@ -413,7 +404,6 @@ export const runUnitTurn = (
       assistantMessage: learnerMessage.data,
       event,
       nextState,
-      forcedConnectAdvance,
       gradeReasoning: reasoning,
       ratingWrite,
       scenarioSpec: recordedSpec,
