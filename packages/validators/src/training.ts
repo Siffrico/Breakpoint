@@ -455,10 +455,55 @@ export const UnitMasteryDimensionSchema = z.object({
   surrogateTraps: z.array(z.string().min(1)).min(1).max(6),
 });
 
-export const UnitMasteryContractSchema = z.object({
-  version: z.literal(1),
-  dimensions: z.array(UnitMasteryDimensionSchema).min(1).max(4),
+export const UnitMasteryContractSchema = z
+  .object({
+    version: z.literal(1),
+    dimensions: z.array(UnitMasteryDimensionSchema).min(1).max(4),
+  })
+  .superRefine((contract, ctx) => {
+    const ids = new Set<string>();
+    contract.dimensions.forEach((dimension, index) => {
+      if (ids.has(dimension.id)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["dimensions", index, "id"],
+          message: `Duplicate mastery dimension id: ${dimension.id}.`,
+        });
+      }
+      ids.add(dimension.id);
+    });
+  });
+
+export const EducationExperienceSnapshotSchema = z.object({
+  id: z.string().min(1).max(96),
+  version: z.number().int().positive(),
 });
+
+export const UnitCapabilityTodoSchema = z
+  .object({
+    dimensionId: ContractDimensionIdSchema,
+    status: z.enum(["pending", "completed"]),
+    evidence: z.string().min(1).nullable(),
+  })
+  .superRefine((todo, ctx) => {
+    if (todo.status === "completed" && todo.evidence === null) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["evidence"],
+        message: "A completed capability todo requires learner evidence.",
+      });
+    }
+    if (todo.status === "pending" && todo.evidence !== null) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["evidence"],
+        message: "A pending capability todo cannot retain completion evidence.",
+      });
+    }
+  });
+
+export const UnitRunModeSchema = z.enum(["learning", "review", "complete"]);
+export const UnitRunKindSchema = z.enum(["education", "recall"]);
 
 // The education_unit teaching loop is modelled by the education-unit FSM
 // (packages/api .../education-unit/fsm.ts). These are its coarse phases — the
@@ -478,7 +523,7 @@ export const WorkspaceEducationStageSchema = z.enum(
 
 // The phases a scenario-evaluation contract can be attached to. Only the two
 // graded phases produce scenarios; recall carries its own.
-const WorkspaceScenarioStageSchema = z.enum(["connect", "solve", "recall"]);
+const WorkspaceScenarioStageSchema = z.enum(["review", "recall"]);
 
 export const ScenarioEvaluationDimensionSchema = z.object({
   dimensionId: ContractDimensionIdSchema,
@@ -539,6 +584,34 @@ export const ScenarioEvaluationContractSchema = z.object({
   evaluatorNotes: z.array(z.string().min(1)).max(6),
   verifier: ScenarioVerifierSchema.optional(),
 });
+
+export const UnitReviewChallengeSchema = z.object({
+  prompt: z.string().min(24),
+  contract: ScenarioEvaluationContractSchema,
+});
+
+export const UnitReviewTodoSchema = z
+  .object({
+    todoId: ContractDimensionIdSchema,
+    status: z.enum(["pending", "completed"]),
+    evidence: z.string().min(1).nullable(),
+  })
+  .superRefine((todo, ctx) => {
+    if (todo.status === "completed" && todo.evidence === null) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["evidence"],
+        message: "A completed review todo requires evidence.",
+      });
+    }
+    if (todo.status === "pending" && todo.evidence !== null) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["evidence"],
+        message: "A pending review todo cannot retain evidence.",
+      });
+    }
+  });
 
 export const EvaluationDimensionResultSchema = z.object({
   dimensionId: ContractDimensionIdSchema,
@@ -894,6 +967,14 @@ export type UnitDifficultySnapshot = z.infer<
 export type UnitScenarioSpec = z.infer<typeof UnitScenarioSpecSchema>;
 export type ScenarioFormat = z.infer<typeof ScenarioFormatSchema>;
 export type ScenarioArchetype = z.infer<typeof ScenarioArchetypeSchema>;
+export type EducationExperienceSnapshot = z.infer<
+  typeof EducationExperienceSnapshotSchema
+>;
+export type UnitCapabilityTodo = z.infer<typeof UnitCapabilityTodoSchema>;
+export type UnitRunMode = z.infer<typeof UnitRunModeSchema>;
+export type UnitRunKind = z.infer<typeof UnitRunKindSchema>;
+export type UnitReviewChallenge = z.infer<typeof UnitReviewChallengeSchema>;
+export type UnitReviewTodo = z.infer<typeof UnitReviewTodoSchema>;
 export type ScenarioMcqOption = z.infer<typeof ScenarioMcqOptionSchema>;
 export type DifficultyVector = z.infer<typeof DifficultyVectorSchema>;
 export type UnitScenarioSpecRecord = z.infer<
