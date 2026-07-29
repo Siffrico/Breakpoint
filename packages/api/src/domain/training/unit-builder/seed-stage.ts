@@ -33,7 +33,8 @@ Output discipline:
 - the clusterArcFrame must explain what earlier slots establish and what this slot changes, complicates, or synthesizes
 - the complexityBudget must be 1, 2, or 3 based on the true teaching load of this concept
 - prefer 1 for foundational concepts unless the mechanism is genuinely dense; use 3 only when the concept needs extended reasoning, edge cases, or formal structure
-- the conceptTarget, misconceptionTarget, and proofTargets must be concrete enough for later agents to use directly`;
+- conceptTarget and misconceptionTarget must be concrete enough for the mentor to diagnose directly
+- unitMasteryContract dimensions are the unit's capability todos: each must describe autonomous learner performance, observable evidence, realistic failure signals, and fluent-but-shallow surrogate traps`;
 
 const DERIVED_QUESTION_RULES = `- Title the unit as the single practitioner question this unit answers. The title is what the learner is answering by the end, so it must be a genuine question: second-person, ending in "?", and about doing the work rather than about a term.
   - Default to "How do you ...?" — e.g. "How do you map an existing signup flow?"
@@ -103,7 +104,9 @@ Rules:
 - seedHint may tell them what kind of move to make in the situation, but must not give away the concept.
 - scenario.title should title the situation itself, not the lesson.
 - scenario.focusAreas should contain 2 or 3 precise evaluation targets.
-- proofTargets should name what later stages must verify.
+- unitMasteryContract must contain 2 to 4 capability dimensions that together cover every target knowledge item and the unit's real workflow judgment.
+- Every mastery dimension must describe something the learner can autonomously explain, decide, diagnose, execute, or transfer; never an agent activity such as "teach" or "ask".
+- passSignals must be observable in the learner's own reasoning or action, failSignals must identify concrete breakdowns, and surrogateTraps must catch fluent imitation that lacks the mechanism.
 - workedExampleBrief should tell the Build stage what kind of example would best unlock the concept.
 - clusterArcFrame must not answer the seed prompt or teach the lesson content.
 - complexityBudget 1 = foundational, 2 = intermediate, 3 = advanced.

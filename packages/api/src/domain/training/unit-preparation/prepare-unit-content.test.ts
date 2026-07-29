@@ -70,7 +70,29 @@ const setup = {
   conceptTarget: "discriminating evidence",
   misconceptionTarget: "temporal proximity proves causality",
   workedExampleBrief: "Compare two low-risk probes.",
-  proofTargets: ["chooses a discriminating probe", "updates from evidence"],
+  unitMasteryContract: {
+    version: 1,
+    dimensions: [
+      {
+        id: "choose-discriminating-probe",
+        name: "Choose a discriminating probe",
+        description:
+          "Select a low-risk probe whose result separates the live causal hypotheses.",
+        passSignals: ["Predicts how each hypothesis responds to the probe"],
+        failSignals: ["Chooses a probe both hypotheses predict identically"],
+        surrogateTraps: ["Names a familiar diagnostic without comparing predictions"],
+      },
+      {
+        id: "update-from-evidence",
+        name: "Update from evidence",
+        description:
+          "Use the observed result to narrow causes and choose the next diagnostic move.",
+        passSignals: ["Eliminates or weakens a hypothesis from the observed result"],
+        failSignals: ["Keeps the original diagnosis regardless of the result"],
+        surrogateTraps: ["Restates the evidence without changing the causal model"],
+      },
+    ],
+  },
 } satisfies SeedStageOutput;
 
 const unit = {
@@ -89,7 +111,7 @@ const unit = {
   practicePrompts: null,
   teachbackSetup: setup.teachbackSetup,
   scenario: setup.scenario,
-  unitMasteryContract: null,
+  unitMasteryContract: setup.unitMasteryContract,
   difficultyBands: null,
 } satisfies UnitContent;
 
@@ -271,7 +293,11 @@ describe("prepareUnitContent", () => {
 
     expect(result).toBe(unit);
     expect(runSeedStageMock).toHaveBeenCalledTimes(2);
-    expect(deps.createUnitContentIfAbsent).toHaveBeenCalledTimes(1);
+    expect(deps.createUnitContentIfAbsent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        unitMasteryContract: setup.unitMasteryContract,
+      }),
+    );
     expect(deps.replaceUnitContent).not.toHaveBeenCalled();
   });
 

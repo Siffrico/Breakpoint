@@ -57,6 +57,7 @@ export interface UnitPreparationDependencies {
     complexityBudget: UnitContent["complexityBudget"];
     teachbackSetup: UnitContent["teachbackSetup"];
     scenario: UnitContent["scenario"];
+    unitMasteryContract: NonNullable<UnitContent["unitMasteryContract"]>;
   }) => Promise<UnitContent | null>;
   readonly replaceUnitContent: (input: {
     nodeId: string;
@@ -67,6 +68,7 @@ export interface UnitPreparationDependencies {
     complexityBudget: UnitContent["complexityBudget"];
     teachbackSetup: UnitContent["teachbackSetup"];
     scenario: UnitContent["scenario"];
+    unitMasteryContract: NonNullable<UnitContent["unitMasteryContract"]>;
   }) => Promise<UnitContent | null>;
   readonly saveNodeBriefing: (input: {
     nodeId: string;
@@ -258,6 +260,7 @@ const prepareUnitContentUnlocked = ({
           complexityBudget: setup.complexityBudget,
           teachbackSetup: setup.teachbackSetup,
           scenario: setup.scenario,
+          unitMasteryContract: setup.unitMasteryContract,
         });
         if (!persisted) throw new Error("Unit content write returned no row.");
         return persisted;
