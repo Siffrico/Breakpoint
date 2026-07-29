@@ -78,14 +78,11 @@ const getEducationWorkingLabel = (
 ): string => {
   if (isRecall) return "Designing a checkpoint";
   switch (stage) {
-    case "orient":
-      return "Designing your scenario";
-    case "connect":
-    case "solve":
-      return "Reading your answer";
-    case "teach":
-      return "Preparing the explanation";
-    case "mastered":
+    case "learning":
+      return "Understanding your reasoning";
+    case "review":
+      return "Stress-testing your answer";
+    case "complete":
     case null:
       return "Reading your answer";
   }
@@ -97,14 +94,11 @@ const getEducationWritingLabel = (
 ): string => {
   if (isRecall) return "Writing the checkpoint";
   switch (stage) {
-    case "orient":
-      return "Writing the scenario";
-    case "connect":
-    case "solve":
-      return "Writing feedback";
-    case "teach":
-      return "Explaining the concept";
-    case "mastered":
+    case "learning":
+      return "Writing your next challenge";
+    case "review":
+      return "Writing the pressure test";
+    case "complete":
     case null:
       return "Writing feedback";
   }
@@ -265,7 +259,10 @@ const streamWorkspaceChatWithModelPreference = ({
                                       unitContentId: unit.id,
                                     })
                                   : null;
-                                return unitRun?.phase === "mastered";
+                                return (
+                                  unitRun?.kind === "education" &&
+                                  unitRun.mode === "complete"
+                                );
                               },
                             ),
                           getProgressionState: ({ skillNodeId, userId }) =>
@@ -328,7 +325,7 @@ const streamWorkspaceChatWithModelPreference = ({
 
       // Flip to the "writing" label the moment the reply starts streaming. The
       // partial callback fires only once the assistantMessage field is being
-      // produced (see run-phase-agent), so this transition is truthful: the
+      // produced by either unit agent, so this transition is truthful: the
       // model is done reading and is now writing.
       let startedWriting = false;
       const result = await runWorkspaceTurn(

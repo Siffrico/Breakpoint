@@ -1,6 +1,7 @@
-import { Data, Effect } from "effect";
+import { Effect } from "effect";
 
 import type { EducationExperienceSnapshot } from "@acme/validators";
+import { EducationExperienceSnapshotSchema } from "@acme/validators";
 
 export interface ExperienceTodoDefinition {
   readonly id: string;
@@ -9,7 +10,10 @@ export interface ExperienceTodoDefinition {
 }
 
 export interface EducationExperienceDefinition {
-  readonly snapshot: EducationExperienceSnapshot;
+  readonly snapshot: {
+    readonly id: string;
+    readonly version: number;
+  };
   readonly main: {
     readonly instructions: string;
   };
@@ -61,22 +65,21 @@ export const DEFAULT_EDUCATION_EXPERIENCE = {
   },
 } as const satisfies EducationExperienceDefinition;
 
-export class EducationExperienceNotFoundError extends Data.TaggedError(
-  "EducationExperienceNotFoundError",
-)<{ readonly id: string; readonly version: number }> {}
+export const snapshotEducationExperience = (
+  experience: EducationExperienceDefinition,
+): EducationExperienceSnapshot =>
+  EducationExperienceSnapshotSchema.parse({
+    id: experience.snapshot.id,
+    version: experience.snapshot.version,
+    main: experience.main,
+    reviewer: experience.reviewer,
+  });
 
 export const resolveEducationExperience = (
   snapshot: EducationExperienceSnapshot,
-): Effect.Effect<
-  EducationExperienceDefinition,
-  EducationExperienceNotFoundError
-> =>
-  snapshot.id === DEFAULT_EDUCATION_EXPERIENCE.snapshot.id &&
-  snapshot.version === DEFAULT_EDUCATION_EXPERIENCE.snapshot.version
-    ? Effect.succeed(DEFAULT_EDUCATION_EXPERIENCE)
-    : Effect.fail(
-        new EducationExperienceNotFoundError({
-          id: snapshot.id,
-          version: snapshot.version,
-        }),
-      );
+): Effect.Effect<EducationExperienceDefinition> =>
+  Effect.succeed({
+    snapshot: { id: snapshot.id, version: snapshot.version },
+    main: snapshot.main,
+    reviewer: snapshot.reviewer,
+  });

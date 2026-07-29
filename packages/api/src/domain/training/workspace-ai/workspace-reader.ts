@@ -2,7 +2,7 @@ import type { Effect } from "effect";
 import { Context, Effect as Fx } from "effect";
 
 import type { DbError } from "../../../effect/errors";
-import type { PersistedUnitRun } from "../education-unit/unit";
+import type { PersistedUnitRun } from "../education-unit/unit-state";
 import type { RecallCandidate } from "../policies/recall-decay";
 import type {
   CurriculumPlan,
@@ -137,10 +137,6 @@ export interface AiWorkspaceReaderSource {
     sessionId: string,
     unitId: string,
   ) => Promise<WorkspaceAiMessage[]>;
-  readonly getScenarioAttemptStartedAt: (input: {
-    scenarioAttemptId: string;
-    nodeId: string;
-  }) => Promise<Date | null>;
 }
 
 export interface AiWorkspaceReaderShape {
@@ -148,10 +144,6 @@ export interface AiWorkspaceReaderShape {
     sessionId: string,
     unitId: string,
   ) => Effect.Effect<WorkspaceAiMessage[], DbError>;
-  readonly getScenarioAttemptStartedAt: (input: {
-    scenarioAttemptId: string;
-    nodeId: string;
-  }) => Effect.Effect<Date | null, DbError>;
 }
 
 export class AiWorkspaceReader extends Context.Service<
@@ -164,8 +156,4 @@ export const makeAiWorkspaceReader = (
 ): AiWorkspaceReaderShape => ({
   listUnitMessages: (sessionId, unitId) =>
     read("listUnitMessages", () => source.listUnitMessages(sessionId, unitId)),
-  getScenarioAttemptStartedAt: (input) =>
-    read("getScenarioAttemptStartedAt", () =>
-      source.getScenarioAttemptStartedAt(input),
-    ),
 });

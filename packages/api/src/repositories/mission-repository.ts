@@ -86,7 +86,7 @@ export const MissionRepoLive = Layer.effect(
               run: {
                 id: TrainingUnitRun.id,
                 sessionId: TrainingUnitRun.sessionId,
-                phase: TrainingUnitRun.phase,
+                mode: TrainingUnitRun.mode,
               },
               unit: {
                 id: TrainingUnitContent.id,

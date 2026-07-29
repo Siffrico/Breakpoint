@@ -2,10 +2,10 @@
  * Transcript-bounding policy — the ONE file you edit to retune how a single
  * unit's transcript is capped before it is handed to a model.
  *
- * Since each unit is its own chat, there is no cross-unit summary anymore: a
- * unit's turn count is bounded by the FSM, and these limits are only a safety
- * net against a pathologically long single message. Change a number, change
- * behaviour; the pure functions in `compaction.ts` read these.
+ * Each unit is its own chat and structured todo evidence survives outside the
+ * verbatim window. These limits prevent a long adaptive loop or one oversized
+ * answer from exhausting context. Change a number, change behaviour; the pure
+ * functions in `compaction.ts` read these.
  */
 export interface CompactionPolicy {
   /**

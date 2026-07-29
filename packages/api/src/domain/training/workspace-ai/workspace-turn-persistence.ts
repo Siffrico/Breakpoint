@@ -1,12 +1,10 @@
 import { Effect } from "effect";
 
+import type { UnitDifficultySnapshot } from "@acme/validators";
+
 import type { DbError } from "../../../effect/errors";
-import type { UnitTurnResult } from "../education-unit/orchestrate-unit-turn";
-import type {
-  PersistedUnitRun,
-  UnitDifficultySnapshot,
-  UnitEvent,
-} from "../education-unit/unit";
+import type { UnitTurnResult } from "../education-unit/run-unit-turn";
+import type { PersistedUnitRun } from "../education-unit/unit-state";
 import type {
   CurriculumPlan,
   Debrief,
@@ -15,17 +13,13 @@ import type {
   UnitContent,
 } from "../types/training.types";
 import type {
-  WorkspaceAiEducationOutput,
   WorkspaceAiMessage,
   WorkspaceAiState,
   WorkspaceAiTurnResult,
 } from "./types";
+import type { RatingEvidenceError } from "./workspace-errors";
 import type { WorkspaceTurnDependencies } from "./workspace-turn";
-import { isRecallRecipe } from "../education-unit/unit";
-import {
-  RatingEvidenceError,
-  WorkspacePersistenceError,
-} from "./workspace-errors";
+import { WorkspacePersistenceError } from "./workspace-errors";
 import { planNextWorkspaceTurn } from "./workspace-turn";
 import { WorkspaceTurnRepo } from "./workspace-turn-repo";
 
@@ -40,14 +34,9 @@ export interface WorkspaceTurnPersistenceDependencies
     turnId: string;
     leaseId: string;
   }) => Promise<
-    // claimedAt: first arrival of this turnId, durable across lease reclaims
-    // and failed-turn retries — anchors server-side attempt timing.
     | { status: "claimed"; claimedAt: Date }
     | { status: "processing" }
-    | {
-        status: "completed";
-        assistantMessage: WorkspaceAiMessage;
-      }
+    | { status: "completed"; assistantMessage: WorkspaceAiMessage }
   >;
   appendMessage: (input: {
     sessionId: string;
@@ -58,7 +47,6 @@ export interface WorkspaceTurnPersistenceDependencies
     turnId?: string | null;
     metadata?: WorkspaceAiMessage["metadata"];
   }) => Promise<WorkspaceAiMessage | null>;
-  /** The active unit's transcript only — each unit is its own chat. */
   listUnitMessages: (
     sessionId: string,
     unitId: string,
@@ -75,10 +63,6 @@ export interface WorkspaceTurnPersistenceDependencies
     leaseId: string;
     run: PersistedUnitRun;
   }) => Promise<boolean>;
-  /**
-   * Extends both leases; `false` means this lease no longer owns them and the
-   * heartbeat should stop. Optional so lightweight test doubles can omit it.
-   */
   renewWorkspaceLeases?: (input: {
     sessionId: string;
     unitContentId: string;
@@ -93,18 +77,6 @@ export interface WorkspaceTurnPersistenceDependencies
 }
 
 export type WorkspaceAiTurnPersistenceResult = WorkspaceAiTurnResult;
-
-export interface WorkspaceOutputContractCommit {
-  unitContentId: string;
-  unitMasteryContract?: UnitContent["unitMasteryContract"];
-  openScenarioContract?: {
-    scenarioAttemptId: string;
-    scenarioPrompt: string;
-    scenarioContract: NonNullable<
-      WorkspaceAiEducationOutput["scenarioEvaluationContract"]
-    >;
-  };
-}
 
 export interface WorkspaceAssistantMessageCommit {
   sessionId: string;
@@ -156,24 +128,10 @@ export interface WorkspaceEducationTurnCommit {
   unitLeaseId: string;
   userMessage: WorkspaceUserMessageCommit | null;
   assistantMessage: WorkspaceAssistantMessageCommit;
-  contracts: WorkspaceOutputContractCommit | null;
   phaseResponse: WorkspacePhaseResponseCommit;
   ratingEvaluation: WorkspaceRatingEvaluationCommit | null;
-  /**
-   * Mastery check-offs commit atomically with the turn — a lost lease or a
-   * failed commit must never leave checked entries without a mastered turn.
-   */
   knowledgeCheckOff: WorkspaceKnowledgeCheckOffCommit | null;
-  /**
-   * Recall verdicts strengthen or weaken the composed knowledge items
-   * atomically with the rated turn (see policies/recall-decay.ts).
-   */
   knowledgeReinforcement?: { knowledgeIds: string[]; passed: boolean } | null;
-  /**
-   * Every passed solve credits the unit's target concepts with one coverage
-   * rep (the foundation regime's mastery counter — engine/concept-coverage.ts),
-   * atomically with the verdict that earned it.
-   */
   conceptCoverage?: { knowledgeIds: string[] } | null;
   scenarioPresentation: {
     userId: string;
@@ -182,10 +140,6 @@ export interface WorkspaceEducationTurnCommit {
     presentedAt: Date;
   } | null;
   solvePresentation: {
-    /**
-     * Null on a recall presentation, where the attempt is opened in the same
-     * commit — the repository stamps the attempt it just opened.
-     */
     scenarioAttemptId: string | null;
     presentedAt: Date;
   } | null;
@@ -214,52 +168,31 @@ export interface WorkspaceRatingEvaluationCommit {
   bands: readonly DifficultyBand[] | null;
 }
 
-const getDifficultyDirectiveMetadata = (reason?: string | null) =>
-  reason ? { difficultyDirectiveReason: reason } : null;
-
-/** A short, stable verdict word for the persisted phase-response metadata. */
-const verdictLabel = (event: UnitEvent): string => {
-  switch (event.type) {
-    case "teach_done":
-      return "teach_done";
-    case "phase_continues":
-      return event.reason;
-    case "connection_graded":
-      return event.connected ? "connected" : "not_connected";
-    case "solution_graded":
-      return event.passed ? "passed" : "not_passed";
-  }
-};
-
-/**
- * A minimal completion debrief for a mastered unit. The v4 loop's evidence
- * lives in the transcript and the pass-2 solve grade, not in a structured
- * strengths/improvements payload, so this is deliberately thin.
- */
-const buildUnitCompletionDebrief = (
-  message: string,
-  reasoning: string | null,
-): Debrief => ({
+const buildUnitCompletionDebrief = (result: UnitTurnResult): Debrief => ({
   seedResponse: "",
-  finalArticulation: message,
-  growthDimensions: ["Completed the unit through both passes."],
-  score: 100,
+  finalArticulation: result.assistantMessage,
+  growthDimensions: ["Completed mentor practice and adversarial review."],
+  score: result.reviewGrade?.score ?? 100,
   readiness: "ready_for_next_unit",
-  strengths: [reasoning ?? "Mastered the unit's transfer scenario."],
-  improvements: ["Keep applying this under new, realistic constraints."],
+  strengths: [
+    result.reviewGrade?.reasoning ??
+      "Demonstrated every capability under independent pressure.",
+  ],
+  improvements: ["Keep transferring this judgment into real work."],
   failureTags: [],
   nextStep: "Continue to the next training unit.",
 });
 
-/**
- * Persists one education-unit FSM turn: the user + assistant messages, a phase
- * response carrying the new phase, the advanced unit-run cursor, an optional
- * optional exactly-once Goldilocks write from the first scored pass-2 Solve,
- * completion attempt once the unit is mastered. The `state` fallback is only
- * used when the curriculum has no next runnable turn (unit just mastered and
- * awaiting the Next-Unit gate).
- */
-export const saveUnitPhaseResult = ({
+const verdictLabel = (result: UnitTurnResult): string => {
+  if (result.reviewGrade) {
+    return result.reviewGrade.passed ? "review_passed" : "review_continues";
+  }
+  if (result.presentedReviewChallenge) return "review_prompted";
+  if (result.completedCapabilityId) return "capability_completed";
+  return "learning_continues";
+};
+
+export const saveUnitTurnResult = ({
   sessionId,
   userId,
   message,
@@ -271,17 +204,13 @@ export const saveUnitPhaseResult = ({
   knowledgeCheckOff = null,
   knowledgeReinforcement = null,
   conceptCoverage = null,
-  writeOnPass = 2,
-  writesRating = true,
-  openRecallAttempt = false,
-  recallEntryIds = null,
+  tracksRating,
   difficultySnapshot,
-  scenarioAttemptId,
   difficultyDirectiveReason,
   turnId,
   turnLeaseId,
   persistUserMessage,
-  phaseResponseSequence,
+  responseSequence,
   deps,
 }: {
   sessionId: string;
@@ -295,21 +224,13 @@ export const saveUnitPhaseResult = ({
   knowledgeCheckOff?: WorkspaceKnowledgeCheckOffCommit | null;
   knowledgeReinforcement?: { knowledgeIds: string[]; passed: boolean } | null;
   conceptCoverage?: { knowledgeIds: string[] } | null;
-  /** The recipe's measured round (goldilocks.writeOnPass); v1/recall 2, v2 3. */
-  writeOnPass?: PersistedUnitRun["pass"];
-  /** Foundation units are criterion-referenced and never open rating attempts. */
-  writesRating?: boolean;
-  /** True when this turn's prompted commit must open the recall attempt. */
-  openRecallAttempt?: boolean;
-  /** Composed entry ids, stamped on the recall presentation's metadata. */
-  recallEntryIds?: string[] | null;
+  tracksRating: boolean;
   difficultySnapshot: UnitDifficultySnapshot;
-  scenarioAttemptId: string | null;
   difficultyDirectiveReason?: string | null;
   turnId: string;
   turnLeaseId: string;
   persistUserMessage: boolean;
-  phaseResponseSequence: number;
+  responseSequence: number;
   deps: WorkspaceTurnPersistenceDependencies;
 }): Effect.Effect<
   WorkspaceAiTurnPersistenceResult,
@@ -317,94 +238,56 @@ export const saveUnitPhaseResult = ({
   WorkspaceTurnRepo
 > =>
   Effect.gen(function* () {
-    const { nextState, event, gradeReasoning, ratingWrite } = turnResult;
-    const aiMessage = turnResult.assistantMessage;
-    const mastered = nextState.phase === "mastered";
-
     const nextRun: PersistedUnitRun = {
-      ...nextState,
+      ...turnResult.nextRun,
       sessionId,
       userId,
       difficultySnapshot,
-      // The connect agent records a spec only when it poses a scenario; on every
-      // other turn this is null, and the upsert coalesces null onto the stored
-      // spec so it is preserved rather than wiped. See the repository.
-      scenarioSpec: turnResult.scenarioSpec,
     };
-
-    const prompted =
-      event.type === "phase_continues" && event.reason === "prompted";
-    // The measured round is the recipe's write round (v1/recall: 2, v2: 3).
-    // Attempts and solve timing are opened only there — earlier rounds are
-    // formative and never feed the rating.
-    const isTeachProbePresentation =
-      event.type === "teach_done" &&
-      nextRun.pass === writeOnPass &&
-      nextRun.phase === "connect" &&
-      turnResult.scenarioSpec?.pass === writeOnPass;
-    // A recall presentation opens the attempt and stamps Solve timing in one
-    // commit: the composed scenario IS the solve task, so presentation and
-    // solve-start are the same moment.
-    const isRecallPresentation =
-      openRecallAttempt && prompted && nextRun.phase === "solve";
-    const tracksRatingAttempt =
-      writesRating || isRecallRecipe(nextRun.recipeVersion);
-    const scenarioPresentation =
-      (tracksRatingAttempt &&
-        nextRun.pass === writeOnPass &&
-        nextRun.phase === "connect" &&
-        (prompted || isTeachProbePresentation)) ||
-      isRecallPresentation
-        ? {
-            userId,
-            nodeId: difficultySnapshot.nodeId,
-            snapshot: difficultySnapshot,
-            presentedAt: new Date(),
-          }
-        : null;
-    const solvePresentation =
-      tracksRatingAttempt &&
-      nextRun.pass === writeOnPass &&
-      nextRun.phase === "solve" &&
-      prompted
-        ? isRecallPresentation
-          ? { scenarioAttemptId: null, presentedAt: new Date() }
-          : scenarioAttemptId
-            ? { scenarioAttemptId, presentedAt: new Date() }
-            : yield* new RatingEvidenceError({
-                message:
-                  "The measured Solve cannot be presented without a scenario attempt.",
-              })
-        : null;
-
+    const complete = nextRun.mode === "complete";
+    const opensRatingAttempt =
+      tracksRating &&
+      turnResult.presentedReviewChallenge &&
+      !nextRun.hasReviewGrade;
+    const presentedAt = new Date();
+    const scenarioPresentation = opensRatingAttempt
+      ? {
+          userId,
+          nodeId: difficultySnapshot.nodeId,
+          snapshot: difficultySnapshot,
+          presentedAt,
+        }
+      : null;
+    const solvePresentation = opensRatingAttempt
+      ? { scenarioAttemptId: null, presentedAt }
+      : null;
     const phaseResponse: WorkspacePhaseResponseCommit = {
       unitContentId: unit.id,
       sessionId,
       userId,
-      phase: "ai_education",
-      sequence: phaseResponseSequence,
+      phase: nextRun.kind === "recall" ? "ai_recall" : "ai_education",
+      sequence: responseSequence,
       userResponse: message,
-      aiResponse: aiMessage,
-      passed: mastered,
-      score: ratingWrite?.score ?? null,
+      aiResponse: turnResult.assistantMessage,
+      passed: complete,
+      score: turnResult.reviewGrade?.score ?? null,
       metadata: {
-        aiEducationStage: nextState.phase,
-        phasePass: nextState.pass,
-        promptKind: "education_unit",
-        modelPurpose: "education",
-        verdict: verdictLabel(event),
+        aiEducationStage: nextRun.mode,
+        promptKind: nextRun.kind === "recall" ? "recall" : "education_unit",
+        modelPurpose:
+          turnResult.actor === "reviewer" ? "evaluation" : "education",
+        verdict: verdictLabel(turnResult),
+        evaluationSummary: turnResult.reviewGrade?.reasoning,
+        dimensionResults: turnResult.reviewGrade
+          ? [...turnResult.reviewGrade.dimensionResults]
+          : undefined,
         difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
         goldilocksUpdated: ratingEvaluation ? true : undefined,
-        recallEntryIds:
-          isRecallPresentation && recallEntryIds ? recallEntryIds : undefined,
-        feedback: aiMessage,
+        feedback: turnResult.assistantMessage,
       },
     };
-
-    // A mastered recall is a checkpoint, not a unit completion: the node was
-    // completed by the original run and must not gain a second attempt row.
     const completion =
-      mastered && !isRecallRecipe(nextRun.recipeVersion)
+      complete && nextRun.kind === "education"
         ? {
             nodeId: unit.nodeId,
             attempt: {
@@ -412,7 +295,7 @@ export const saveUnitPhaseResult = ({
               userId,
               unitId: unit.id,
               response: message,
-              debrief: buildUnitCompletionDebrief(message, gradeReasoning),
+              debrief: buildUnitCompletionDebrief(turnResult),
               finalArticulation: message,
               growthDimensions: [] as string[],
             },
@@ -437,13 +320,14 @@ export const saveUnitPhaseResult = ({
       assistantMessage: {
         sessionId,
         role: "assistant",
-        content: aiMessage,
+        content: turnResult.assistantMessage,
         slot: "education_unit",
         unitId: unit.nodeId,
         turnId,
-        metadata: getDifficultyDirectiveMetadata(difficultyDirectiveReason),
+        metadata: difficultyDirectiveReason
+          ? { difficultyDirectiveReason }
+          : null,
       },
-      contracts: null,
       phaseResponse,
       ratingEvaluation,
       knowledgeCheckOff,
@@ -465,7 +349,6 @@ export const saveUnitPhaseResult = ({
           cause,
         }),
     });
-
     const messages = yield* Effect.tryPromise({
       try: () => deps.listUnitMessages(sessionId, unit.nodeId),
       catch: (cause) =>
@@ -477,10 +360,7 @@ export const saveUnitPhaseResult = ({
     });
 
     return {
-      state: nextWorkspaceState ?? {
-        ...state,
-        educationStage: nextState.phase,
-      },
+      state: nextWorkspaceState ?? { ...state, educationStage: nextRun.mode },
       messages,
       assistantMessage,
     };

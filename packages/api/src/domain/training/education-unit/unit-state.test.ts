@@ -20,7 +20,8 @@ const masteryContract = {
     {
       id: "explain-mechanism",
       name: "Explain the mechanism",
-      description: "Explain what changes, what acts, and why the result follows.",
+      description:
+        "Explain what changes, what acts, and why the result follows.",
       passSignals: ["Names the causal chain"],
       failSignals: ["Only repeats the rule"],
       surrogateTraps: ["Uses terminology without a causal explanation"],
@@ -82,13 +83,15 @@ const completeLearning = async () => {
   const first = await Effect.runPromise(
     completeCurrentCapabilityTodo(makeRun(), {
       todoId: "explain-mechanism",
-      evidence: "The learner explained the full causal chain in their own words.",
+      evidence:
+        "The learner explained the full causal chain in their own words.",
     }),
   );
   return Effect.runPromise(
     completeCurrentCapabilityTodo(first, {
       todoId: "transfer-decision",
-      evidence: "The learner re-derived and defended the move on a novel surface.",
+      evidence:
+        "The learner re-derived and defended the move on a novel surface.",
     }),
   );
 };
@@ -104,11 +107,38 @@ describe("unit state", () => {
     ]);
   });
 
+  it("snapshots capability and experience definitions for the active run", () => {
+    const sourceContract = structuredClone(masteryContract);
+    const sourceExperience = structuredClone(DEFAULT_EDUCATION_EXPERIENCE);
+    const run = createUnitRun({
+      unitId: "unit-1",
+      sessionId: "session-1",
+      userId: "user-1",
+      kind: "education",
+      masteryContract: sourceContract,
+      experience: sourceExperience,
+    });
+
+    const sourceDimension = sourceContract.dimensions[0];
+    if (!sourceDimension) throw new Error("Expected a source dimension.");
+    sourceDimension.description = "Changed after run creation.";
+    (sourceExperience.main as { instructions: string }).instructions =
+      "Changed after run creation.";
+
+    expect(run.masteryContract.dimensions[0]?.description).toBe(
+      masteryContract.dimensions[0]?.description,
+    );
+    expect(run.experience.main.instructions).toBe(
+      DEFAULT_EDUCATION_EXPERIENCE.main.instructions,
+    );
+  });
+
   it("only permits the current todo to complete with evidence", async () => {
     const exit = await Effect.runPromiseExit(
       completeCurrentCapabilityTodo(makeRun(), {
         todoId: "transfer-decision",
-        evidence: "The learner made a good transfer decision with clear reasoning.",
+        evidence:
+          "The learner made a good transfer decision with clear reasoning.",
       }),
     );
 
@@ -122,9 +152,9 @@ describe("unit state", () => {
     const run = await completeLearning();
 
     expect(run.mode).toBe("review");
-    expect(run.capabilityTodos.every((todo) => todo.status === "completed")).toBe(
-      true,
-    );
+    expect(
+      run.capabilityTodos.every((todo) => todo.status === "completed"),
+    ).toBe(true);
   });
 
   it("requires a persisted challenge before grading", async () => {
@@ -133,7 +163,8 @@ describe("unit state", () => {
       recordReviewGrade({
         run,
         verdict: "continue",
-        feedback: "The answer needs a stronger causal defense before it is stable.",
+        feedback:
+          "The answer needs a stronger causal defense before it is stable.",
         completedTodos: [],
         nextChallenge: challenge,
       }),
@@ -154,7 +185,8 @@ describe("unit state", () => {
         completedTodos: [
           {
             todoId: "test-without-tutor-framing",
-            evidence: "The learner solved a novel surface without copied framing.",
+            evidence:
+              "The learner solved a novel surface without copied framing.",
           },
         ],
         nextChallenge: null,

@@ -119,15 +119,18 @@ export const createUnitCreationRepositoryDeps = ({
         ensureSkillKnowledge({ db, skillNodeId }),
       ),
     loadOpenUnit: (skillNodeId, unitStatus) =>
-      queryWithClient(db, "loadOpenUnitForUnitCreation", async () =>
-        (await db.query.TrainingCurriculumNode.findFirst({
-          where: and(
-            eq(TrainingCurriculumNode.parentNodeId, skillNodeId),
-            eq(TrainingCurriculumNode.kind, "unit"),
-            eq(TrainingCurriculumNode.status, unitStatus),
-          ),
-          orderBy: [desc(TrainingCurriculumNode.orderIndex)],
-        })) ?? null,
+      queryWithClient(
+        db,
+        "loadOpenUnitForUnitCreation",
+        async () =>
+          (await db.query.TrainingCurriculumNode.findFirst({
+            where: and(
+              eq(TrainingCurriculumNode.parentNodeId, skillNodeId),
+              eq(TrainingCurriculumNode.kind, "unit"),
+              eq(TrainingCurriculumNode.status, unitStatus),
+            ),
+            orderBy: [desc(TrainingCurriculumNode.orderIndex)],
+          })) ?? null,
       ),
     loadSkill: (skillNodeId, unitStatus) =>
       queryWithClient(db, "loadSkillForUnitCreation", async () => {

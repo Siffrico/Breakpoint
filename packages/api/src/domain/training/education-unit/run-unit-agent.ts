@@ -66,7 +66,8 @@ const callModel = async <TSchema extends z.ZodTypeAny>(
   firstVisibleTimer = setTimeout(() => {
     firstVisibleController.abort(
       new UnitAgentFirstVisibleTimeoutError({
-        message: "The AI did not begin a substantive reply within five seconds.",
+        message:
+          "The AI did not begin a substantive reply within five seconds.",
       }),
     );
   }, FIRST_VISIBLE_TIMEOUT_MS);

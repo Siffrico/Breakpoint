@@ -1,33 +1,49 @@
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
-import type { PersistedUnitRun } from "../domain/training/education-unit/unit";
 import type { WorkspaceEducationTurnCommit } from "../domain/training/workspace-ai/workspace-turn-persistence";
+import { DEFAULT_EDUCATION_EXPERIENCE } from "../domain/training/education-unit/experience";
+import { createUnitRun } from "../domain/training/education-unit/unit-state";
 import { WorkspaceTurnRepo } from "../domain/training/workspace-ai/workspace-turn-repo";
 import {
   createWorkspaceTurnRepositoryDeps,
   workspaceTurnRepoLayer,
 } from "./workspace-turn-repository-deps";
 
-const freshRun: PersistedUnitRun = {
+const freshRun = createUnitRun({
   unitId: "00000000-0000-0000-0000-000000000003",
   sessionId: "00000000-0000-0000-0000-000000000001",
   userId: "user-1",
-  recipeVersion: "education-unit-v2",
-  phase: "orient",
-  pass: 1,
-  connectGrills: 0,
-  solveRepairs: 0,
-  connectTeachDue: false,
-  difficultySnapshot: null,
-  scenarioSpec: null,
-};
+  kind: "education",
+  experience: DEFAULT_EDUCATION_EXPERIENCE,
+  masteryContract: {
+    version: 1,
+    dimensions: [
+      {
+        id: "make-decision",
+        name: "Make the decision",
+        description: "Make and defend the target decision.",
+        passSignals: ["Defends the decision"],
+        failSignals: ["Guesses without evidence"],
+        surrogateTraps: ["Uses vocabulary without reasoning"],
+      },
+    ],
+  },
+});
 
 describe("workspace unit lease acquisition", () => {
   it("materializes a missing projected run while claiming its lease", async () => {
     const returning = vi.fn(() => Promise.resolve([{ id: "unit-run" }]));
-    const onConflictDoUpdate = vi.fn(() => ({ returning }));
-    const values = vi.fn(() => ({ onConflictDoUpdate }));
+    const onConflictDoUpdate = vi.fn(
+      (_input: {
+        target: unknown[];
+        set: Record<string, unknown>;
+        setWhere: unknown;
+      }) => ({ returning }),
+    );
+    const values = vi.fn((_input: Record<string, unknown>) => ({
+      onConflictDoUpdate,
+    }));
     const insert = vi.fn(() => ({ values }));
     const db = { insert } as unknown as Parameters<
       typeof createWorkspaceTurnRepositoryDeps
@@ -43,26 +59,29 @@ describe("workspace unit lease acquisition", () => {
     });
 
     expect(claimed).toBe(true);
-    expect(values).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sessionId: freshRun.sessionId,
-        unitContentId: freshRun.unitId,
-        recipeVersion: freshRun.recipeVersion,
-        phase: freshRun.phase,
-        turnLeaseId: "00000000-0000-0000-0000-000000000099",
-        turnLeaseExpiresAt: expect.any(Date),
-      }),
-    );
-    expect(onConflictDoUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        target: expect.any(Array),
-        set: expect.objectContaining({
-          turnLeaseId: "00000000-0000-0000-0000-000000000099",
-          turnLeaseExpiresAt: expect.any(Date),
-        }),
-        setWhere: expect.anything(),
-      }),
-    );
+    const inserted = values.mock.calls[0]?.[0];
+    expect(inserted).toMatchObject({
+      sessionId: freshRun.sessionId,
+      unitContentId: freshRun.unitId,
+      kind: freshRun.kind,
+      mode: freshRun.mode,
+      experienceId: freshRun.experience.id,
+      experienceVersion: freshRun.experience.version,
+      experienceJson: freshRun.experience,
+      masteryContractJson: freshRun.masteryContract,
+      capabilityTodosJson: freshRun.capabilityTodos,
+      reviewTodosJson: freshRun.reviewTodos,
+      turnLeaseId: "00000000-0000-0000-0000-000000000099",
+    });
+    expect(inserted?.turnLeaseExpiresAt).toBeInstanceOf(Date);
+
+    const conflict = onConflictDoUpdate.mock.calls[0]?.[0];
+    expect(conflict?.target).toHaveLength(2);
+    expect(conflict?.set).toMatchObject({
+      turnLeaseId: "00000000-0000-0000-0000-000000000099",
+    });
+    expect(conflict?.set.turnLeaseExpiresAt).toBeInstanceOf(Date);
+    expect(conflict?.setWhere).toBeDefined();
   });
 
   it("reports contention when the atomic claim returns no row", async () => {
@@ -112,7 +131,6 @@ describe("workspace turn lease fencing", () => {
         unitId: "00000000-0000-0000-0000-000000000002",
         turnId: "turn-1",
       },
-      contracts: null,
       phaseResponse: {
         unitContentId: "00000000-0000-0000-0000-000000000003",
         sessionId: "00000000-0000-0000-0000-000000000001",
@@ -123,18 +141,7 @@ describe("workspace turn lease fencing", () => {
       knowledgeCheckOff: null,
       scenarioPresentation: null,
       solvePresentation: null,
-      nextRun: {
-        unitId: "00000000-0000-0000-0000-000000000003",
-        sessionId: "00000000-0000-0000-0000-000000000001",
-        userId: "user-1",
-        recipeVersion: "education-unit-v2",
-        phase: "solve",
-        pass: 1,
-        connectGrills: 0,
-        solveRepairs: 0,
-        scenarioSpec: null,
-        difficultySnapshot: null,
-      },
+      nextRun: freshRun,
       completion: null,
       touchSessionId: "00000000-0000-0000-0000-000000000001",
     } satisfies WorkspaceEducationTurnCommit;
@@ -178,7 +185,6 @@ describe("workspace turn lease fencing", () => {
         unitId: "00000000-0000-0000-0000-000000000002",
         turnId: "turn-1",
       },
-      contracts: null,
       phaseResponse: {
         unitContentId: "00000000-0000-0000-0000-000000000003",
         sessionId: "00000000-0000-0000-0000-000000000001",
@@ -189,18 +195,7 @@ describe("workspace turn lease fencing", () => {
       knowledgeCheckOff: null,
       scenarioPresentation: null,
       solvePresentation: null,
-      nextRun: {
-        unitId: "00000000-0000-0000-0000-000000000003",
-        sessionId: "00000000-0000-0000-0000-000000000001",
-        userId: "user-1",
-        recipeVersion: "education-unit-v2",
-        phase: "solve",
-        pass: 1,
-        connectGrills: 0,
-        solveRepairs: 0,
-        scenarioSpec: null,
-        difficultySnapshot: null,
-      },
+      nextRun: freshRun,
       completion: null,
       touchSessionId: "00000000-0000-0000-0000-000000000001",
     } satisfies WorkspaceEducationTurnCommit;

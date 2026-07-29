@@ -1,8 +1,8 @@
 import { Data } from "effect";
 
 import type { DbError } from "../../../effect/errors";
-import type { PhaseAgentError } from "../education-unit/agents/errors";
-import type { EducationUnitContractError } from "../education-unit/orchestrate-unit-turn";
+import type { UnitAgentError } from "../education-unit/agent-errors";
+import type { UnitTurnContractError } from "../education-unit/run-unit-turn";
 
 export class CurriculumNotReadyError extends Data.TaggedError(
   "CurriculumNotReadyError",
@@ -44,7 +44,7 @@ export class RatingEvidenceError extends Data.TaggedError(
   readonly cause?: unknown;
 }> {}
 
-export type InteractivePhaseAgentError = PhaseAgentError;
+export type InteractiveUnitAgentError = UnitAgentError;
 
 export type WorkspaceEducationTurnError =
   | WorkspaceInputError
@@ -52,5 +52,5 @@ export type WorkspaceEducationTurnError =
   | WorkspacePersistenceError
   | DbError
   | RatingEvidenceError
-  | InteractivePhaseAgentError
-  | EducationUnitContractError;
+  | InteractiveUnitAgentError
+  | UnitTurnContractError;

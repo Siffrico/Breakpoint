@@ -17,11 +17,11 @@ describe("agent config", () => {
   });
 
   it("labels inherited interactive limits as default", () => {
-    expect(getAgentConfig("scenarioCoach")).toMatchObject({
+    expect(getAgentConfig("unitMentor")).toMatchObject({
       reasoningTokenLimit: "default",
       outputTokenLimit: "default",
       totalGenerationTokenLimit: "default",
-      maxSteps: 3,
+      maxSteps: 1,
       search: "default",
     });
   });

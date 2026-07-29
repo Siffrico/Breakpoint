@@ -1,26 +1,35 @@
 import assert from "node:assert/strict";
 import { test } from "vitest";
 
-import type { PersistedUnitRun } from "../education-unit/unit";
 import type { CurriculumNode } from "../types/training.types";
+import { DEFAULT_EDUCATION_EXPERIENCE } from "../education-unit/experience";
+import { createUnitRun } from "../education-unit/unit-state";
 import {
   assertUnitCanAdvance,
   getUnitAdvanceGate,
   isUnitAwaitingAdvance,
 } from "./workspace-turn";
 
-const baseRun = {
+const baseRun = createUnitRun({
   unitId: "unit-1",
   sessionId: "session-1",
   userId: "user-1",
-  recipeVersion: "education-unit-v2",
-  phase: "connect",
-  pass: 1,
-  connectGrills: 0,
-  solveRepairs: 0,
-  scenarioSpec: null,
-  difficultySnapshot: null,
-} satisfies PersistedUnitRun;
+  kind: "education",
+  experience: DEFAULT_EDUCATION_EXPERIENCE,
+  masteryContract: {
+    version: 1,
+    dimensions: [
+      {
+        id: "make-decision",
+        name: "Make the decision",
+        description: "Make and defend the target decision.",
+        passSignals: ["Defends the decision"],
+        failSignals: ["Guesses without evidence"],
+        surrogateTraps: ["Uses vocabulary without reasoning"],
+      },
+    ],
+  },
+});
 
 const readyNode = {
   id: "node-1",
@@ -39,11 +48,7 @@ const readyNode = {
 } satisfies CurriculumNode;
 
 void test("unit advance gate is enabled only after the unit is mastered while node remains ready", () => {
-  const masteredRun = {
-    ...baseRun,
-    phase: "mastered",
-    pass: 2,
-  } satisfies PersistedUnitRun;
+  const masteredRun = { ...baseRun, mode: "complete" as const };
 
   assert.equal(isUnitAwaitingAdvance({ node: readyNode, run: baseRun }), false);
   assert.equal(

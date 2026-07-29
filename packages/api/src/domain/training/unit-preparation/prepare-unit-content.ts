@@ -198,7 +198,8 @@ const prepareUnitContentUnlocked = ({
           cause,
         }),
     });
-    if (existing && !forceRefresh) return existing;
+    if (existing?.unitMasteryContract && !forceRefresh) return existing;
+    const replacesExistingContent = existing !== null;
 
     const briefingPromise = prepareClusterBriefing
       ? prepareClusterBriefing().catch(() => null)
@@ -248,7 +249,7 @@ const prepareUnitContentUnlocked = ({
 
     const created = yield* Effect.tryPromise({
       try: async () => {
-        const persist = forceRefresh
+        const persist = replacesExistingContent
           ? deps.replaceUnitContent
           : deps.createUnitContentIfAbsent;
         const persisted = await persist({

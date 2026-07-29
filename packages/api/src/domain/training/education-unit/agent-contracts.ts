@@ -14,7 +14,8 @@ export const MentorOutputSchema = z
     completedTodo: z
       .object({
         todoId: z.string().min(1),
-        evidence: z.string().min(12),
+        evidenceQuote: z.string().min(3),
+        rationale: z.string().min(12),
       })
       .strict()
       .nullable(),
@@ -42,7 +43,6 @@ const completedReviewTodo = z
 
 const reviewGradeBase = {
   assistantMessage: LearnerFacingMessageSchema,
-  score: z.number().int().min(0).max(100),
   errorCodes: z.array(z.string().min(1)).max(3),
   gradeReasoning: z.string().min(12),
   dimensionResults: z.array(EvaluationDimensionResultSchema).min(1).max(4),
@@ -65,11 +65,17 @@ const passedReview = z
   })
   .strict()
   .superRefine((output, ctx) => {
-    if (output.score < 80) {
+    const composite = Math.round(
+      output.dimensionResults.reduce(
+        (total, dimension) => total + dimension.score,
+        0,
+      ) / output.dimensionResults.length,
+    );
+    if (composite < 80) {
       ctx.addIssue({
         code: "custom",
-        path: ["score"],
-        message: "A passing review requires a score of at least 80.",
+        path: ["dimensionResults"],
+        message: "A passing review requires a composite of at least 80.",
       });
     }
     output.dimensionResults.forEach((dimension, index) => {
@@ -77,7 +83,8 @@ const passedReview = z
         ctx.addIssue({
           code: "custom",
           path: ["dimensionResults", index, "score"],
-          message: "A passing review requires every dimension to score at least 70.",
+          message:
+            "A passing review requires every dimension to score at least 70.",
         });
       }
     });

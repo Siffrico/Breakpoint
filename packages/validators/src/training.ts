@@ -193,14 +193,6 @@ export const DifficultyBandSchema = z.object({
  */
 export const ScenarioArchetypeSchema = z.enum(["select", "transform", "judge"]);
 
-/** One MCQ answer option authored into a select-archetype ScenarioSpec. */
-export const ScenarioMcqOptionSchema = z.object({
-  letter: z.enum(["A", "B", "C", "D", "E"]),
-  text: z.string().min(1),
-  /** For distractors: the misconception this option is the natural conclusion of. */
-  misconceptionCode: z.string().min(1).optional(),
-});
-
 export const ScenarioFormatSchema = z
   .object({
     id: z.string().min(1),
@@ -286,57 +278,6 @@ export const ScenarioDirectiveSchema = z.object({
   targetMisconceptionCode: z.string().nullable(),
   reason: z.string(),
   nextProgress: JobProgressStateSchema,
-});
-
-/**
- * The ScenarioSpec stored on a unit run — the scenario agent's backwards-authored
- * artifact (see education-unit/scenario-spec.ts). `targetSkill` is the unit-level
- * invariant. One scenario per unit run: later rounds EVOLVE the same world
- * (stateA/stateB shift, friction escalates) instead of replacing the surface.
- *
- * Authoring order is enforced by prompt: chasm (the causal claim being tested)
- * first, then a world state where it fires, then the dressing — never the
- * reverse. `stateA`/`stateB`/`chasm`/`frictionNoise` are optional at the record
- * level only so specs persisted before v2 still parse; live structured output requires them.
- */
-export const UnitScenarioSpecSchema = z.object({
-  targetSkill: z.string().min(1),
-  surface: z.string().min(1),
-  /** State A: the current, imperfect reality the learner is dropped into. */
-  stateA: z.string().min(1).optional(),
-  /** State B: the desired outcome the learner must reach. */
-  stateB: z.string().min(1).optional(),
-  /** The chasm: the causal claim / cognitive leap that crossing A→B requires. */
-  chasm: z.string().min(1).optional(),
-  /** Friction & noise: the messy reality variables that make it realistic. */
-  frictionNoise: z.string().min(1).optional(),
-  formatId: z.string().min(1).optional(),
-  reasoningPathSteps: z.array(z.string().min(1)).optional(),
-  withheldGivens: z.array(z.string()).optional(),
-  embeddedAlternatives: z.array(z.string()).optional(),
-  /**
-   * Select archetype only: the Solve beat's answer options, authored at
-   * Connect time alongside the rest of the spec. `correctLetter` names the
-   * key; every other option must carry a misconceptionCode so a wrong pick
-   * is diagnostic, not just wrong.
-   */
-  options: z.array(ScenarioMcqOptionSchema).min(3).max(5).optional(),
-  correctLetter: z.enum(["A", "B", "C", "D", "E"]).optional(),
-  canonicalAnswer: z.string().min(1),
-  reasoningPath: z.string().min(1),
-  rubric: z.string().min(1),
-});
-
-/**
- * The persisted form of a ScenarioSpec: the agent-emitted spec plus the round
- * it was recorded on, stamped by the orchestrator (never by the model). The
- * round tag lets the context builder tell a prior round's spec (render the
- * evolution constraint) from the current round's own spec (render the grading
- * reference). Optional only for rows written before the tag existed; an
- * untagged spec is treated as round 1's.
- */
-export const UnitScenarioSpecRecordSchema = UnitScenarioSpecSchema.extend({
-  pass: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
 });
 
 /** The calibrated-difficulty snapshot stored on a unit run. */
@@ -474,10 +415,35 @@ export const UnitMasteryContractSchema = z
     });
   });
 
-export const EducationExperienceSnapshotSchema = z.object({
+const EducationExperienceTodoSchema = z.object({
   id: z.string().min(1).max(96),
-  version: z.number().int().positive(),
+  goal: z.string().min(1),
+  completionEvidence: z.array(z.string().min(1)).min(1),
 });
+
+export const EducationExperienceSnapshotSchema = z
+  .object({
+    id: z.string().min(1).max(96),
+    version: z.number().int().positive(),
+    main: z.object({ instructions: z.string().min(1) }),
+    reviewer: z.object({
+      instructions: z.string().min(1),
+      todos: z.array(EducationExperienceTodoSchema).min(1).max(8),
+    }),
+  })
+  .superRefine((experience, ctx) => {
+    const ids = new Set<string>();
+    experience.reviewer.todos.forEach((todo, index) => {
+      if (ids.has(todo.id)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["reviewer", "todos", index, "id"],
+          message: `Duplicate reviewer todo id: ${todo.id}.`,
+        });
+      }
+      ids.add(todo.id);
+    });
+  });
 
 export const UnitCapabilityTodoSchema = z
   .object({
@@ -959,7 +925,6 @@ export type ScenarioDirective = z.infer<typeof ScenarioDirectiveSchema>;
 export type UnitDifficultySnapshot = z.infer<
   typeof UnitDifficultySnapshotSchema
 >;
-export type UnitScenarioSpec = z.infer<typeof UnitScenarioSpecSchema>;
 export type ScenarioFormat = z.infer<typeof ScenarioFormatSchema>;
 export type ScenarioArchetype = z.infer<typeof ScenarioArchetypeSchema>;
 export type EducationExperienceSnapshot = z.infer<
@@ -970,11 +935,7 @@ export type UnitRunMode = z.infer<typeof UnitRunModeSchema>;
 export type UnitRunKind = z.infer<typeof UnitRunKindSchema>;
 export type UnitReviewChallenge = z.infer<typeof UnitReviewChallengeSchema>;
 export type UnitReviewTodo = z.infer<typeof UnitReviewTodoSchema>;
-export type ScenarioMcqOption = z.infer<typeof ScenarioMcqOptionSchema>;
 export type DifficultyVector = z.infer<typeof DifficultyVectorSchema>;
-export type UnitScenarioSpecRecord = z.infer<
-  typeof UnitScenarioSpecRecordSchema
->;
 export type CurriculumNode = z.infer<typeof CurriculumNodeSchema>;
 export type ProjectOverview = z.infer<typeof ProjectOverviewSchema>;
 export type ProjectOverviewSummary = z.infer<

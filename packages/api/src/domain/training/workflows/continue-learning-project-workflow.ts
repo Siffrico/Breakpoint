@@ -5,10 +5,7 @@ import { err, ok } from "../../../lib/result";
 interface ContinueLearningProjectDependencies {
   getActivePlan: (sessionId: string) => Promise<CurriculumPlan | null>;
   recoverSkillUnits: () => Promise<void>;
-  startUnitPreparation: (input: {
-    nodeId: string;
-    sessionId: string;
-  }) => void;
+  startUnitPreparation: (input: { nodeId: string; sessionId: string }) => void;
 }
 
 /**

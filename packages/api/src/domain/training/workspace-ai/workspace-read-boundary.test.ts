@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { PersistedUnitRun } from "../education-unit/unit";
+import type { PersistedUnitRun } from "../education-unit/unit-state";
 import type { RecallCandidate } from "../policies/recall-decay";
 import type {
   CurriculumNode,
   CurriculumPlan,
   UnitContent,
 } from "../types/training.types";
+import { DEFAULT_EDUCATION_EXPERIENCE } from "../education-unit/experience";
+import { createUnitRun } from "../education-unit/unit-state";
 import { UnitNotReadyError } from "../unit-preparation/errors";
 import { getAiWorkspaceWorkflow } from "../workflows/get-ai-workspace-workflow";
 import { planNextWorkspaceTurn, resolveWorkspaceTurn } from "./workspace-turn";
@@ -40,26 +42,37 @@ const recallPlan = {
   id: "plan-1",
   nodes: [completedNode, readyNode],
 } as CurriculumPlan;
+const masteryContract = {
+  version: 1 as const,
+  dimensions: [
+    {
+      id: "stable-boundaries",
+      name: "Use stable boundaries",
+      description: "Keep responsibility at the canonical boundary.",
+      passSignals: ["Chooses the canonical boundary"],
+      failSignals: ["Duplicates responsibility"],
+      surrogateTraps: ["Names the boundary without using it"],
+    },
+  ],
+};
 const recallUnit = {
   id: "unit-content-recall",
   nodeId: completedNode.id,
+  unitMasteryContract: masteryContract,
 } as UnitContent;
 const activeUnit = {
   id: "unit-content-active",
   nodeId: readyNode.id,
+  unitMasteryContract: masteryContract,
 } as UnitContent;
-const recallRun = {
+const recallRun = createUnitRun({
   unitId: recallUnit.id,
   sessionId: "session-1",
   userId: "user-1",
-  recipeVersion: "recall-v2",
-  phase: "solve",
-  pass: 2,
-  connectGrills: 0,
-  solveRepairs: 1,
-  scenarioSpec: null,
-  difficultySnapshot: null,
-} satisfies PersistedUnitRun;
+  kind: "recall",
+  masteryContract,
+  experience: DEFAULT_EDUCATION_EXPERIENCE,
+});
 const recallCandidate = {
   id: "entry-1",
   questionId: "question-1",
@@ -79,14 +92,14 @@ const recallPresentation = {
   unitContentId: recallUnit.id,
   sessionId: "session-1",
   userId: "user-1",
-  phase: "ai_education" as const,
+  phase: "ai_recall" as const,
   sequence: 0,
   userResponse: "Start checkpoint",
   aiResponse: "Scenario",
   passed: false,
   score: null,
   metadata: {
-    aiEducationStage: "solve" as const,
+    aiEducationStage: "review" as const,
     recallEntryIds: [recallCandidate.id],
   },
   createdAt: new Date("2026-07-05T00:00:00Z"),
@@ -145,7 +158,6 @@ describe("workspace read preparation boundary", () => {
         retireInFlightRecallRun: () => Promise.resolve(),
         getUnitByNodeId: () => Promise.resolve(null),
         ...noRecallProjectionDeps,
-        getScenarioAttemptStartedAt: () => Promise.resolve(null),
         // Deliberately pass the former capabilities to guard against a
         // regression even if callers retain stale dependency objects.
         ...stalePreparationDeps,
@@ -193,6 +205,7 @@ describe("workspace read preparation boundary", () => {
     const unit = {
       id: "unit-content-1",
       nodeId: readyNode.id,
+      unitMasteryContract: masteryContract,
     } as UnitContent;
     const upsertUnitRun = vi.fn();
 
@@ -210,22 +223,19 @@ describe("workspace read preparation boundary", () => {
       },
     });
 
-    expect(turn.unitRun).toEqual({
-      unitId: unit.id,
-      sessionId: "session-1",
-      userId: null,
-      recipeVersion: "education-unit-v2",
-      phase: "orient",
-      pass: 1,
-      connectGrills: 0,
-      solveRepairs: 0,
-      scenarioSpec: null,
-      difficultySnapshot: null,
-    });
+    expect(turn.unitRun).toEqual(
+      createUnitRun({
+        unitId: unit.id,
+        sessionId: "session-1",
+        kind: "education",
+        masteryContract,
+        experience: DEFAULT_EDUCATION_EXPERIENCE,
+      }),
+    );
     expect(turn.state).toMatchObject({
       mode: "education_unit",
-      educationStage: "orient",
-      workflowId: "education-unit-v2",
+      educationStage: "learning",
+      workflowId: "breakpoint-mentor@1",
     });
     expect(upsertUnitRun).not.toHaveBeenCalled();
   });
@@ -235,6 +245,7 @@ describe("workspace read preparation boundary", () => {
     const unit = {
       id: "unit-content-1",
       nodeId: readyNode.id,
+      unitMasteryContract: masteryContract,
     } as UnitContent;
 
     await resolveWorkspaceTurn({
@@ -274,8 +285,8 @@ describe("durable recall projection", () => {
     expect(turn.state).toMatchObject({
       recallUnitId: completedNode.id,
       activeUnitId: null,
-      workflowId: "recall-v2",
-      educationStage: "solve",
+      workflowId: "breakpoint-mentor@1",
+      educationStage: "review",
     });
     expect(turn.unitRun).toBe(recallRun);
     expect(turn.recallFocus?.primary.id).toBe(recallCandidate.id);
@@ -305,7 +316,7 @@ describe("durable recall projection", () => {
     expect(turn.state).toMatchObject({
       activeUnitId: readyNode.id,
       recallUnitId: null,
-      workflowId: "education-unit-v2",
+      workflowId: "breakpoint-mentor@1",
     });
     expect(deps.retireInFlightRecallRun).toHaveBeenCalledWith(
       "session-1",
@@ -328,7 +339,7 @@ describe("durable recall projection", () => {
     expect(turn.state).toMatchObject({
       activeUnitId: readyNode.id,
       recallUnitId: null,
-      workflowId: "education-unit-v2",
+      workflowId: "breakpoint-mentor@1",
     });
   });
 });
@@ -373,7 +384,6 @@ describe("workspace view reads", () => {
         getUnitByNodeId: () => Promise.resolve(activeUnit),
         // Nothing decayed: the active unit is the live chat.
         ...noRecallProjectionDeps,
-        getScenarioAttemptStartedAt: () => Promise.resolve(null),
       },
     });
 
@@ -382,7 +392,7 @@ describe("workspace view reads", () => {
     expect(view.state).toMatchObject({
       activeUnitId: readyNode.id,
       recallUnitId: null,
-      educationStage: "orient",
+      educationStage: "learning",
     });
     expect(view.messages).toEqual([
       unitMessage(readyNode.id, "Scenario prompt"),
@@ -409,7 +419,6 @@ describe("workspace view reads", () => {
         getRecallCandidatesByIds,
         getMostOverdueRecallCandidate,
         listUnitMessages,
-        getScenarioAttemptStartedAt: () => Promise.resolve(null),
       },
     });
 
@@ -417,16 +426,14 @@ describe("workspace view reads", () => {
     expect(view.state).toMatchObject({
       recallUnitId: completedNode.id,
       activeUnitId: null,
-      workflowId: "recall-v2",
-      educationStage: "solve",
+      workflowId: "breakpoint-mentor@1",
+      educationStage: "review",
     });
     expect(view.messages).toEqual([
       unitMessage(completedNode.id, `Chat for ${completedNode.id}`),
     ]);
     expect(view.introMessage).toMatchObject({ helper: "Recall" });
     // A recall interlude has no scenario plan of its own.
-    expect(view.evaluationPlan).toBeNull();
-    expect(view.evaluationProgress).toBeNull();
     expect(listUnitMessages).toHaveBeenCalledWith(
       "session-1",
       completedNode.id,
@@ -439,10 +446,15 @@ describe("workspace view reads", () => {
 
   it("locks unit advancement while a due recall is live", async () => {
     const activeMasteredRun = {
-      ...recallRun,
-      unitId: activeUnit.id,
-      recipeVersion: "education-unit-v2",
-      phase: "mastered",
+      ...createUnitRun({
+        unitId: activeUnit.id,
+        sessionId: "session-1",
+        userId: "user-1",
+        kind: "education",
+        masteryContract,
+        experience: DEFAULT_EDUCATION_EXPERIENCE,
+      }),
+      mode: "complete" as const,
     } satisfies PersistedUnitRun;
     const getMostOverdueRecallCandidate = vi
       .fn()
@@ -465,7 +477,6 @@ describe("workspace view reads", () => {
         getRecallCandidatesByIds: () => Promise.resolve([]),
         getMostOverdueRecallCandidate,
         getRecallCompanionCandidate,
-        getScenarioAttemptStartedAt: () => Promise.resolve(null),
       },
     });
 
@@ -488,7 +499,6 @@ describe("workspace view reads", () => {
       ...recallDeps(["deleted-entry"]),
       getRecallCandidatesByIds: () => Promise.resolve([]),
       listUnitMessages: () => Promise.resolve([]),
-      getScenarioAttemptStartedAt: () => Promise.resolve(null),
     };
 
     const result = await getAiWorkspaceWorkflow({
@@ -522,7 +532,6 @@ describe("workspace view reads", () => {
         retireInFlightRecallRun: () => Promise.resolve(),
         getUnitByNodeId: () => Promise.resolve(null),
         ...noRecallProjectionDeps,
-        getScenarioAttemptStartedAt: () => Promise.resolve(null),
       },
     });
 

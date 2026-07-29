@@ -10,8 +10,10 @@ import type {
   UnitRunKind,
   UnitRunMode,
 } from "@acme/validators";
+import { UnitMasteryContractSchema } from "@acme/validators";
 
 import type { EducationExperienceDefinition } from "./experience";
+import { snapshotEducationExperience } from "./experience";
 
 export interface PersistedUnitRun {
   readonly unitId: string;
@@ -20,6 +22,7 @@ export interface PersistedUnitRun {
   readonly kind: UnitRunKind;
   readonly mode: UnitRunMode;
   readonly experience: EducationExperienceSnapshot;
+  readonly masteryContract: UnitMasteryContract;
   readonly capabilityTodos: readonly UnitCapabilityTodo[];
   readonly reviewTodos: readonly UnitReviewTodo[];
   readonly activeReviewChallenge: UnitReviewChallenge | null;
@@ -82,7 +85,8 @@ export const createUnitRun = ({
   userId: userId ?? null,
   kind,
   mode: kind === "recall" ? "review" : "learning",
-  experience: experience.snapshot,
+  experience: snapshotEducationExperience(experience),
+  masteryContract: UnitMasteryContractSchema.parse(masteryContract),
   capabilityTodos:
     kind === "recall"
       ? completedCapabilityTodos(masteryContract)
@@ -104,7 +108,9 @@ export const completeCurrentCapabilityTodo = (
   update: { readonly todoId: string; readonly evidence: string },
 ): Effect.Effect<PersistedUnitRun, UnitStateContractError> => {
   if (run.mode !== "learning") {
-    return contractFailure("Capability todos can only advance in learning mode.");
+    return contractFailure(
+      "Capability todos can only advance in learning mode.",
+    );
   }
   const current = getCurrentCapabilityTodo(run);
   if (!current) {

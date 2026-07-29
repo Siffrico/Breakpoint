@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import type { DifficultyVector, ScenarioFormat } from "@acme/validators";
 
 import {
-  countVector,
   deriveCanonicalDifficultyBands,
   predictItemRating,
 } from "./difficulty-bridge";
@@ -77,17 +76,5 @@ describe("difficulty bridge", () => {
     expect(() =>
       predictItemRating({ ...base, formatId: "missing" }, formats),
     ).toThrow(RangeError);
-  });
-
-  it("returns null when a legacy spec lacks vector arrays", () => {
-    expect(
-      countVector({
-        targetSkill: "x",
-        surface: "s",
-        canonicalAnswer: "a",
-        reasoningPath: "r",
-        rubric: "u",
-      }),
-    ).toBeNull();
   });
 });

@@ -19,7 +19,8 @@ const loadPostgresUrlFromDotenv = () => {
 
 loadPostgresUrlFromDotenv();
 
-const wait = (ms: number) => new Promise((resolveWait) => setTimeout(resolveWait, ms));
+const wait = (ms: number) =>
+  new Promise((resolveWait) => setTimeout(resolveWait, ms));
 
 describe("skill knowledge build lock concurrency", () => {
   it.skipIf(!process.env.POSTGRES_URL)(

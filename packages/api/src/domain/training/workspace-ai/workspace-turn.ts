@@ -2,7 +2,7 @@ import type { Effect as EffectType } from "effect";
 import { Cause, Effect, Exit } from "effect";
 
 import type { DbError } from "../../../effect/errors";
-import type { PersistedUnitRun } from "../education-unit/unit";
+import type { PersistedUnitRun } from "../education-unit/unit-state";
 import type { RecallCandidate, RecallTarget } from "../policies/recall-decay";
 import type {
   CurriculumNode,
@@ -12,12 +12,8 @@ import type {
 } from "../types/training.types";
 import type { WorkspaceAiState } from "./types";
 import type { WorkspaceProjectionReaderSource } from "./workspace-reader";
-import { initialState, recallInitialState } from "../education-unit/fsm";
-import {
-  CURRENT_RECIPE_VERSION,
-  isRecallRecipe,
-  RECALL_RECIPE_VERSION,
-} from "../education-unit/unit";
+import { DEFAULT_EDUCATION_EXPERIENCE } from "../education-unit/experience";
+import { createUnitRun } from "../education-unit/unit-state";
 import { UnitNotReadyError } from "../unit-preparation/errors";
 import { isUnitMidFlight, planWorkspaceTurn } from "./orchestrator";
 import {
@@ -67,7 +63,10 @@ export const isUnitAwaitingAdvance = ({
   node: Pick<CurriculumNode, "kind" | "status"> | null;
   run: PersistedUnitRun | null;
 }) =>
-  isLearningUnit(node) && node.status === "ready" && run?.phase === "mastered";
+  isLearningUnit(node) &&
+  node.status === "ready" &&
+  run?.kind === "education" &&
+  run.mode === "complete";
 
 export const assertUnitCanAdvance = ({
   node,
@@ -85,7 +84,7 @@ export const assertUnitCanAdvance = ({
   if (node.status !== "ready") {
     throw new Error("Unit is not active.");
   }
-  if (run?.phase !== "mastered") {
+  if (run?.kind !== "education" || run.mode !== "complete") {
     throw new Error("Unit is not complete yet.");
   }
 };
@@ -123,10 +122,9 @@ export const findWorkspaceTurnNode = ({
 
 /**
  * Produces a recall run projection without materializing it. An in-flight
- * recall run (prompted but not yet graded) resumes; anything else — the
- * mastered education run, a finished earlier recall — projects a fresh
- * cursor at the scored Solve moment. The first claimed commit materializes
- * it, resetting the row onto the recall recipe.
+ * recall run with unfinished review resumes; anything else projects a fresh
+ * reviewer run. The first claimed commit materializes it on the shared unit
+ * row.
  */
 export const resolveRecallRunProjection = ({
   sessionId,
@@ -139,21 +137,21 @@ export const resolveRecallRunProjection = ({
   unit: UnitContent;
   existing: PersistedUnitRun | null;
 }): PersistedUnitRun => {
-  if (
-    existing &&
-    isRecallRecipe(existing.recipeVersion) &&
-    existing.phase !== "mastered"
-  ) {
+  if (existing?.kind === "recall" && existing.mode !== "complete") {
     return existing;
   }
+  if (!unit.unitMasteryContract) {
+    throw new Error("The recall unit has no capability contract.");
+  }
 
-  return {
-    ...recallInitialState(unit.id, RECALL_RECIPE_VERSION),
+  return createUnitRun({
+    unitId: unit.id,
     sessionId,
-    userId: userId ?? null,
-    difficultySnapshot: null,
-    scenarioSpec: null,
-  };
+    userId,
+    kind: "recall",
+    masteryContract: unit.unitMasteryContract,
+    experience: DEFAULT_EDUCATION_EXPERIENCE,
+  });
 };
 
 /** Rehydrates the persisted one-or-two entry recall target. */
@@ -313,19 +311,21 @@ export const resolveUnitRunProjection = ({
   unit: UnitContent;
   existing: PersistedUnitRun | null;
 }): PersistedUnitRun => {
-  if (existing) {
+  if (existing?.kind === "education") {
     return existing;
   }
+  if (!unit.unitMasteryContract) {
+    throw new Error("The education unit has no capability contract.");
+  }
 
-  // A brand-new run always begins at the FSM's opening phase on the current
-  // recipe. `initialState` owns the phase/pass/counter defaults.
-  return {
-    ...initialState(unit.id, CURRENT_RECIPE_VERSION),
+  return createUnitRun({
+    unitId: unit.id,
     sessionId,
-    userId: userId ?? null,
-    difficultySnapshot: null,
-    scenarioSpec: null,
-  };
+    userId,
+    kind: "education",
+    masteryContract: unit.unitMasteryContract,
+    experience: DEFAULT_EDUCATION_EXPERIENCE,
+  });
 };
 
 export interface NextReadyUnitProjection {
@@ -488,8 +488,8 @@ export const resolveWorkspaceTurnEffect = ({
 
     const resolvedState = {
       ...state,
-      educationStage: unitRun.phase,
-      workflowId: unitRun.recipeVersion,
+      educationStage: unitRun.mode,
+      workflowId: `${unitRun.experience.id}@${unitRun.experience.version}`,
     };
 
     return {

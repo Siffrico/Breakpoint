@@ -114,25 +114,6 @@ const getErrorCode = (message: string) => {
   return "INTERNAL_SERVER_ERROR" as const;
 };
 
-const createGetAiWorkspaceDependencies = (db: Database, userId: string) => ({
-  ...createWorkspaceTurnRepositoryDeps(db),
-  getScenarioAttemptStartedAt: async ({
-    scenarioAttemptId,
-    nodeId,
-  }: {
-    scenarioAttemptId: string;
-    nodeId: string;
-  }) => {
-    const attempt = await trainingRatingRepository.getOpenScenarioById({
-      db,
-      scenarioAttemptId,
-      userId,
-      nodeId,
-    });
-    return attempt?.presentedAt ?? null;
-  },
-});
-
 const throwOnFailure = <T>(result: {
   success: boolean;
   data?: T;
@@ -571,7 +552,7 @@ export const trainingRouter = {
       return throwOnFailure(
         await getAiWorkspaceWorkflow({
           sessionId: input.sessionId,
-          deps: createGetAiWorkspaceDependencies(ctx.db, ctx.session.user.id),
+          deps: createWorkspaceTurnRepositoryDeps(ctx.db),
         }),
       );
     }),

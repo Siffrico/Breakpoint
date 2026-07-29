@@ -52,7 +52,6 @@ import type {
   CreateProjectInput,
   ProjectBuildState,
 } from "../orchestration/build-project";
-import type { AttemptTiming, EvaluationPlan } from "../workspace-ai/types";
 
 export type {
   CurriculumNode,
@@ -211,29 +210,18 @@ export interface PhaseResponseMetadata {
   latencyMs?: number | null;
   signals?: EducationUnitAttemptSignals;
   stateSnapshot?: EducationUnitState;
-  // The education-unit FSM phase this response left the run in (see
-  // education-unit/unit.ts UnitPhase). Replaces the retired 9-step rulebook ids.
-  aiEducationStage?: "orient" | "connect" | "solve" | "teach" | "mastered";
-  // Which pass (1 or 2) the phase belonged to.
-  phasePass?: number;
+  aiEducationStage?: "learning" | "review" | "complete";
   recallUnitId?: string;
-  promptKind?:
-    | "onboarding_curriculum"
-    | "education_unit"
-    | "recall"
-    | "evaluate_feedback";
+  promptKind?: "education_unit" | "recall";
   modelPurpose?: string;
   verdict?: string;
   evaluationSummary?: string;
   failedDimensions?: string[];
   dimensionResults?: EvaluationDimensionResult[];
-  evaluationPlan?: EvaluationPlan;
-  attemptTiming?: AttemptTiming;
   scenarioAttemptId?: string;
   // Syllabus entries composed into a recall presentation; the verdict turn
   // reinforces exactly these, immune to the decay target shifting mid-interlude.
   recallEntryIds?: string[];
-  nextScenarioPrompt?: boolean;
   manualDifficultySignal?: "too_easy" | "too_hard";
   difficultyDirectiveReason?: string;
   goldilocksUpdated?: boolean;

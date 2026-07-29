@@ -7,9 +7,12 @@ import type {
   UnitReviewChallenge,
 } from "@acme/validators";
 
+import type {
+  ReviewGradeOutput,
+  ReviewPresentationOutput,
+} from "./agent-contracts";
 import type { UnitAgentError } from "./agent-errors";
 import type { EducationExperienceDefinition } from "./experience";
-import type { MentorOutput, ReviewGradeOutput, ReviewPresentationOutput } from "./agent-contracts";
 import type { PersistedUnitRun } from "./unit-state";
 import { runMentorAgent } from "./mentor-agent";
 import {
@@ -60,6 +63,30 @@ const LIVE_DEPENDENCIES: UnitTurnDependencies = {
 const contractFailure = (message: string) =>
   Effect.fail(new UnitTurnContractError({ message }));
 
+const readContext = (
+  buildContext: (run: PersistedUnitRun) => string,
+  run: PersistedUnitRun,
+): Effect.Effect<string, UnitTurnContractError> =>
+  Effect.try({
+    try: () => buildContext(run),
+    catch: (cause) =>
+      new UnitTurnContractError({
+        message:
+          cause instanceof Error
+            ? cause.message
+            : "Unit context could not be constructed.",
+      }),
+  });
+
+const latestUserText = (transcript: readonly ModelMessage[]): string | null => {
+  const message = [...transcript]
+    .reverse()
+    .find((candidate) => candidate.role === "user");
+  return message && typeof message.content === "string"
+    ? message.content
+    : null;
+};
+
 const exactIds = (actual: readonly string[], expected: readonly string[]) =>
   actual.length === expected.length &&
   new Set(actual).size === actual.length &&
@@ -108,11 +135,13 @@ const validateGrade = ({
   output,
   run,
   masteryContract,
+  learnerText,
 }: {
   output: ReviewGradeOutput;
   run: PersistedUnitRun;
   masteryContract: UnitMasteryContract;
-}): Effect.Effect<void, UnitTurnContractError> => {
+  learnerText: string;
+}): Effect.Effect<number, UnitTurnContractError> => {
   const challenge = run.activeReviewChallenge;
   if (!challenge) {
     return contractFailure("The reviewer has no persisted challenge to grade.");
@@ -128,13 +157,41 @@ const validateGrade = ({
       "Review grades must cover exactly the active challenge dimensions once.",
     );
   }
-  if (output.score < 80 && output.errorCodes.length === 0) {
+  const normalizedLearnerText = learnerText.toLocaleLowerCase();
+  const citesOnlyLearnerEvidence = output.dimensionResults.every(
+    (dimension) => {
+      const quote = dimension.evidence
+        .trim()
+        .replace(/^["“”]+|["“”]+$/g, "")
+        .toLocaleLowerCase();
+      return quote.length >= 3 && normalizedLearnerText.includes(quote);
+    },
+  );
+  if (!citesOnlyLearnerEvidence) {
+    return contractFailure(
+      "Every review dimension must cite an exact quote from the learner's latest answer.",
+    );
+  }
+  const score = Math.round(
+    output.dimensionResults.reduce(
+      (total, dimension) => total + dimension.score,
+      0,
+    ) / output.dimensionResults.length,
+  );
+  if (score < 80 && output.errorCodes.length === 0) {
     return contractFailure("A sub-80 review grade requires an error code.");
   }
-  if (output.score >= 80 && output.errorCodes.length > 0) {
-    return contractFailure("An 80+ review grade cannot carry failure error codes.");
+  if (score >= 80 && output.errorCodes.length > 0) {
+    return contractFailure(
+      "An 80+ review grade cannot carry failure error codes.",
+    );
   }
   if (output.verdict === "pass") {
+    if (!run.hasReviewGrade) {
+      return contractFailure(
+        "The first adversarial grade must push the learner through one further pressure test before passing.",
+      );
+    }
     const allCapabilityIds = masteryContract.dimensions.map(
       (dimension) => dimension.id,
     );
@@ -144,7 +201,7 @@ const validateGrade = ({
       );
     }
   }
-  return Effect.void;
+  return Effect.succeed(score);
 };
 
 const challengeFromPresentation = (
@@ -184,10 +241,12 @@ const presentReview = ({
   deps: UnitTurnDependencies;
 }): Effect.Effect<UnitTurnResult, UnitAgentError | UnitTurnContractError> =>
   Effect.gen(function* () {
+    const context = yield* readContext(buildContext, run);
     const result = yield* deps.runReviewPresentation({
       messages: transcript,
-      context: buildContext(run),
+      context,
       experience,
+      reviewStage: run.kind === "recall" ? "recall" : "review",
       onPartialAssistantMessage,
     });
     const challenge = yield* validateChallenge({
@@ -235,9 +294,10 @@ export const runUnitTurn = (
     }
 
     if (run.mode === "learning") {
+      const context = yield* readContext(buildContext, run);
       const result = yield* deps.runMentor({
         messages: transcript,
-        context: buildContext(run),
+        context,
         experience,
         onPartialAssistantMessage,
       });
@@ -252,10 +312,21 @@ export const runUnitTurn = (
           presentedReviewChallenge: false,
         };
       }
-      const advanced = yield* completeCurrentCapabilityTodo(
-        run,
-        result.object.completedTodo,
-      ).pipe(
+      const completion = result.object.completedTodo;
+      const learnerText = latestUserText(transcript);
+      if (
+        !learnerText
+          ?.toLocaleLowerCase()
+          .includes(completion.evidenceQuote.trim().toLocaleLowerCase())
+      ) {
+        return yield* contractFailure(
+          "Capability evidence must quote the learner's latest message exactly.",
+        );
+      }
+      const advanced = yield* completeCurrentCapabilityTodo(run, {
+        todoId: completion.todoId,
+        evidence: `“${completion.evidenceQuote.trim()}” — ${completion.rationale.trim()}`,
+      }).pipe(
         Effect.mapError(
           (error) => new UnitTurnContractError({ message: error.message }),
         ),
@@ -275,7 +346,7 @@ export const runUnitTurn = (
         assistantMessage: result.object.assistantMessage,
         nextRun: advanced,
         actor: "mentor" as const,
-        completedCapabilityId: result.object.completedTodo.todoId,
+        completedCapabilityId: completion.todoId,
         reviewGrade: null,
         ratingWrite: null,
         presentedReviewChallenge: false,
@@ -294,14 +365,26 @@ export const runUnitTurn = (
       });
     }
 
+    const context = yield* readContext(buildContext, run);
     const result = yield* deps.runReviewGrade({
       messages: transcript,
-      context: buildContext(run),
+      context,
       activeChallenge: run.activeReviewChallenge,
       experience,
       onPartialAssistantMessage,
     });
-    yield* validateGrade({ output: result.object, run, masteryContract });
+    const learnerText = latestUserText(transcript);
+    if (!learnerText) {
+      return yield* contractFailure(
+        "Adversarial grading requires the learner's latest answer.",
+      );
+    }
+    const score = yield* validateGrade({
+      output: result.object,
+      run,
+      masteryContract,
+      learnerText,
+    });
     const nextChallenge = nextChallengeFromGrade(result.object);
     if (nextChallenge) {
       yield* validateChallenge({
@@ -328,7 +411,7 @@ export const runUnitTurn = (
       actor: "reviewer" as const,
       completedCapabilityId: null,
       reviewGrade: {
-        score: result.object.score,
+        score,
         errorCodes: result.object.errorCodes,
         reasoning: result.object.gradeReasoning,
         dimensionResults: result.object.dimensionResults,
@@ -337,9 +420,9 @@ export const runUnitTurn = (
       ratingWrite: run.hasReviewGrade
         ? null
         : {
-            score: result.object.score,
+            score,
             errorCodes: result.object.errorCodes,
           },
-      presentedReviewChallenge: false,
+      presentedReviewChallenge: nextChallenge !== null,
     };
   });

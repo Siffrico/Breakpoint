@@ -1,12 +1,13 @@
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
-import type { PersistedUnitRun } from "../education-unit/unit";
 import type {
   CurriculumNode,
   CurriculumPlan,
   UnitContent,
 } from "../types/training.types";
+import { DEFAULT_EDUCATION_EXPERIENCE } from "../education-unit/experience";
+import { createUnitRun } from "../education-unit/unit-state";
 import { advanceCompletedUnitWorkflow } from "./advance-completed-unit-workflow";
 
 const currentNode = {
@@ -46,17 +47,28 @@ const unit = {
 } as UnitContent;
 
 const masteredRun = {
-  unitId: unit.id,
-  sessionId: "session-1",
-  userId: "user-1",
-  recipeVersion: "education-unit-v2",
-  phase: "mastered",
-  pass: 2,
-  connectGrills: 0,
-  solveRepairs: 0,
-  scenarioSpec: null,
-  difficultySnapshot: null,
-} satisfies PersistedUnitRun;
+  ...createUnitRun({
+    unitId: unit.id,
+    sessionId: "session-1",
+    userId: "user-1",
+    kind: "education",
+    experience: DEFAULT_EDUCATION_EXPERIENCE,
+    masteryContract: {
+      version: 1,
+      dimensions: [
+        {
+          id: "perform-workflow",
+          name: "Perform the workflow",
+          description: "Perform and defend the target workflow.",
+          passSignals: ["Performs the workflow"],
+          failSignals: ["Cannot perform the workflow"],
+          surrogateTraps: ["Describes terminology without performing"],
+        },
+      ],
+    },
+  }),
+  mode: "complete" as const,
+};
 
 describe("advanceCompletedUnitWorkflow", () => {
   it("routes a mastered ability unit to its required mission without completing it", async () => {
