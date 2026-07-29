@@ -283,6 +283,7 @@ describe("durable recall projection", () => {
     });
 
     expect(turn.state).toMatchObject({
+      promptKind: "recall",
       recallUnitId: completedNode.id,
       activeUnitId: null,
       workflowId: "breakpoint-mentor@1",
@@ -424,6 +425,7 @@ describe("workspace view reads", () => {
 
     const view = readyView(result);
     expect(view.state).toMatchObject({
+      promptKind: "recall",
       recallUnitId: completedNode.id,
       activeUnitId: null,
       workflowId: "breakpoint-mentor@1",

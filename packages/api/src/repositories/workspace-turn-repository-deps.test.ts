@@ -76,7 +76,7 @@ describe("workspace unit lease acquisition", () => {
     expect(inserted?.turnLeaseExpiresAt).toBeInstanceOf(Date);
 
     const conflict = onConflictDoUpdate.mock.calls[0]?.[0];
-    expect(conflict?.target).toHaveLength(2);
+    expect(conflict?.target).toHaveLength(3);
     expect(conflict?.set).toMatchObject({
       turnLeaseId: "00000000-0000-0000-0000-000000000099",
     });

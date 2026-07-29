@@ -48,7 +48,7 @@ const challenge = {
   },
   contract: {
     version: 1,
-    scenarioStage: "review",
+    runKind: "education",
     scenarioPromptSummary: "Choose under a novel production constraint.",
     testedDimensions: [
       {

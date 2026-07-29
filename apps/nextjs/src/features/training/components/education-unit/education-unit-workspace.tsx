@@ -964,9 +964,11 @@ function EducationUnitWorkspaceComponent({
 
   const anchorTitle =
     streamState?.recallUnitTitle ?? streamState?.activeUnitTitle ?? unit.title;
-  const anchorStage = streamState?.recallUnitId
-    ? "recall"
-    : (streamState?.educationStage ?? null);
+  const anchorRunKind = streamState
+    ? streamState.promptKind === "recall"
+      ? "recall"
+      : "main"
+    : null;
   // Rendering is gated on the scenario still being there, not on the flag
   // alone, so a scenario that goes away (pass advance, unit advance) can never
   // leave an empty panel sitting over the trail.
@@ -1139,7 +1141,7 @@ function EducationUnitWorkspaceComponent({
         <div className="flex min-h-0 flex-1 flex-col">
           <ScenarioAnchor
             title={anchorTitle}
-            stage={anchorStage}
+            runKind={anchorRunKind}
             isScenarioOpen={hasScenario ? showScenario : null}
             onToggleScenario={() => setIsScenarioOpen((open) => !open)}
             columnClassName={CHAT_COLUMN_CLASS}
@@ -1173,7 +1175,7 @@ function EducationUnitWorkspaceComponent({
       <main className="bp-page-bg text-foreground relative flex h-dvh flex-col px-5 pt-3 sm:px-8 lg:px-10">
         <ScenarioAnchor
           title={anchorTitle}
-          stage={anchorStage}
+          runKind={anchorRunKind}
           isScenarioOpen={hasScenario ? showScenario : null}
           onToggleScenario={() => setIsScenarioOpen((open) => !open)}
           columnClassName={CHAT_COLUMN_CLASS}

@@ -83,7 +83,7 @@ export const planWorkspaceTurn = ({
     // resolution projects the recall recipe instead of a fresh full unit.
     return {
       mode: "education_unit",
-      promptKind: "education_unit",
+      promptKind: "recall",
       educationStage: "review",
       workflowId: null,
       activeUnitId: null,

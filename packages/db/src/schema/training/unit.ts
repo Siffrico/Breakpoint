@@ -199,9 +199,10 @@ export const TrainingUnitRun = pgTable(
       .$onUpdateFn(() => new Date()),
   }),
   (table) => [
-    uniqueIndex("becoming_unit_run_session_unit_idx").on(
+    uniqueIndex("becoming_unit_run_session_unit_kind_idx").on(
       table.sessionId,
       table.unitContentId,
+      table.kind,
     ),
     index("becoming_unit_run_session_idx").on(table.sessionId),
   ],

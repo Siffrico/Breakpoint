@@ -2,7 +2,7 @@ import { z } from "zod/v4";
 
 import { WorkspaceEducationStageSchema } from "@acme/validators";
 
-export const WorkspaceAiPromptKindSchema = z.literal("education_unit");
+export const WorkspaceAiPromptKindSchema = z.enum(["education_unit", "recall"]);
 export const WorkspaceAiEducationStageSchema = WorkspaceEducationStageSchema;
 export const WorkspaceAiTurnModeSchema = z.literal("education_unit");
 

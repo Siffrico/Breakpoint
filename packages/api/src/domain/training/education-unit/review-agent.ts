@@ -31,13 +31,13 @@ export const runReviewPresentationAgent = ({
   messages,
   context,
   experience,
-  reviewStage,
+  runKind,
   onPartialAssistantMessage,
 }: {
   messages: readonly ModelMessage[];
   context: string;
   experience: EducationExperienceDefinition;
-  reviewStage: "review" | "recall";
+  runKind: "education" | "recall";
   onPartialAssistantMessage?: (content: string) => void;
 }): Effect.Effect<{ object: ReviewPresentationOutput }, UnitAgentError> =>
   runUnitAgent({
@@ -45,7 +45,7 @@ export const runReviewPresentationAgent = ({
     purpose: "evaluation",
     system: REVIEWER_SYSTEM,
     messages,
-    context: `## Experience behavior\n${experience.reviewer.instructions}\n\n${context}\n\n## This turn: open adversarial review\nPresent the first independent pressure test. Test the capability dimensions on a novel surface and begin satisfying the reviewer todos. assistantMessage must contain only the complete learner-facing challenge. Author its exact private contract and calibrated difficulty vector in the dedicated fields. Set contract.scenarioStage to ${reviewStage}.`,
+    context: `## Experience behavior\n${experience.reviewer.instructions}\n\n${context}\n\n## This turn: open adversarial review\nPresent the first independent pressure test. Test the capability dimensions on a novel surface and begin satisfying the reviewer todos. assistantMessage must contain only the complete learner-facing challenge. Author its exact private contract and calibrated difficulty vector in the dedicated fields. Set contract.runKind to ${runKind}.`,
     schema: ReviewPresentationOutputSchema,
     schemaName: "unit_review_presentation",
     maxOutputTokens: 3_000,

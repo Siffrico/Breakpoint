@@ -96,6 +96,7 @@ export const trainingUnitRunRepository = {
       where: and(
         eq(TrainingUnitRun.sessionId, sessionId),
         eq(TrainingUnitRun.unitContentId, unitContentId),
+        eq(TrainingUnitRun.kind, "education"),
       ),
     });
 
@@ -172,7 +173,11 @@ export const trainingUnitRunRepository = {
       .insert(TrainingUnitRun)
       .values(values)
       .onConflictDoUpdate({
-        target: [TrainingUnitRun.sessionId, TrainingUnitRun.unitContentId],
+        target: [
+          TrainingUnitRun.sessionId,
+          TrainingUnitRun.unitContentId,
+          TrainingUnitRun.kind,
+        ],
         set: {
           userId: values.userId,
           kind: values.kind,

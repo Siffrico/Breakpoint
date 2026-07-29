@@ -25,7 +25,7 @@ const masteryContract = {
 
 const challengeContract = {
   version: 1 as const,
-  scenarioStage: "review" as const,
+  runKind: "education" as const,
   scenarioPromptSummary: "Choose under a changed production constraint.",
   testedDimensions: [
     {

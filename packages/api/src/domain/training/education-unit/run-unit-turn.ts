@@ -101,10 +101,9 @@ const validateChallenge = ({
   run: PersistedUnitRun;
   masteryContract: UnitMasteryContract;
 }): Effect.Effect<UnitReviewChallenge, UnitTurnContractError> => {
-  const expectedStage = run.kind === "recall" ? "recall" : "review";
-  if (challenge.contract.scenarioStage !== expectedStage) {
+  if (challenge.contract.runKind !== run.kind) {
     return contractFailure(
-      `Review challenge stage must be ${expectedStage}, not ${challenge.contract.scenarioStage}.`,
+      `Review challenge run kind must be ${run.kind}, not ${challenge.contract.runKind}.`,
     );
   }
   const knownIds = masteryContract.dimensions.map((dimension) => dimension.id);
@@ -246,7 +245,7 @@ const presentReview = ({
       messages: transcript,
       context,
       experience,
-      reviewStage: run.kind === "recall" ? "recall" : "review",
+      runKind: run.kind,
       onPartialAssistantMessage,
     });
     const challenge = yield* validateChallenge({

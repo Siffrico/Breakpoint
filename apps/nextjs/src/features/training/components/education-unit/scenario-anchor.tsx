@@ -1,38 +1,36 @@
 "use client";
 
 /**
- * The pinned header of the unit workspace: unit title, current learning mode,
- * and review progress stay anchored while exchanges cycle below.
+ * The pinned header of the unit workspace: unit title and run kind stay
+ * anchored while exchanges cycle below.
  *
  * The scenario itself is not summarised here. It is a full read behind the
  * anchor's toggle — the header states where you are, the panel states what you
  * were asked to do, and neither paraphrases the other.
  */
 
-const STAGE_LABELS: Record<string, string> = {
-  learning: "Mentoring",
-  review: "Review",
+const RUN_KIND_LABELS: Record<string, string> = {
+  main: "Main",
   recall: "Recall",
-  complete: "Complete",
 };
 
 export function ScenarioAnchor({
   title,
-  stage,
+  runKind,
   isScenarioOpen,
   onToggleScenario,
   columnClassName,
 }: {
   title: string;
-  stage: string | null;
+  runKind: string | null;
   /** Null when this turn has no showable scenario — the toggle is then absent. */
   isScenarioOpen: boolean | null;
   onToggleScenario: () => void;
   columnClassName: string;
 }) {
-  const stageLabel = stage
-    ? (STAGE_LABELS[stage] ??
-      stage.charAt(0).toUpperCase() + stage.slice(1).replaceAll("_", " "))
+  const runKindLabel = runKind
+    ? (RUN_KIND_LABELS[runKind] ??
+      runKind.charAt(0).toUpperCase() + runKind.slice(1).replaceAll("_", " "))
     : null;
 
   return (
@@ -54,9 +52,9 @@ export function ScenarioAnchor({
                 {isScenarioOpen ? "Back to chat" : "See scenario"}
               </button>
             ) : null}
-            {stageLabel ? (
+            {runKindLabel ? (
               <span className="border-foreground/[0.12] text-foreground/56 rounded-full border px-2.5 py-0.5 text-[11px] leading-4">
-                {stageLabel}
+                {runKindLabel}
               </span>
             ) : null}
           </div>

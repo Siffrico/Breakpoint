@@ -481,9 +481,7 @@ export const WorkspaceEducationStageSchema = z.enum(
   WORKSPACE_EDUCATION_STAGE_IDS,
 );
 
-// The phases a scenario-evaluation contract can be attached to. Only the two
-// graded phases produce scenarios; recall carries its own.
-const WorkspaceScenarioStageSchema = z.enum(["review", "recall"]);
+const WorkspaceScenarioRunKindSchema = UnitRunKindSchema;
 
 export const ScenarioEvaluationDimensionSchema = z.object({
   dimensionId: ContractDimensionIdSchema,
@@ -537,7 +535,7 @@ export const ScenarioVerifierSchema = z
 
 export const ScenarioEvaluationContractSchema = z.object({
   version: z.literal(1),
-  scenarioStage: WorkspaceScenarioStageSchema,
+  runKind: WorkspaceScenarioRunKindSchema,
   scenarioPromptSummary: z.string().min(1),
   testedDimensions: z.array(ScenarioEvaluationDimensionSchema).min(1).max(4),
   learnerVisibleCriteria: z.array(z.string().min(1)).min(1).max(5),

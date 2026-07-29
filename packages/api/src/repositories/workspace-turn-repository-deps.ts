@@ -75,7 +75,11 @@ const claimWorkspaceUnitLease = async ({
       turnLeaseExpiresAt: workspaceLeaseExpiry(now),
     })
     .onConflictDoUpdate({
-      target: [TrainingUnitRun.sessionId, TrainingUnitRun.unitContentId],
+      target: [
+        TrainingUnitRun.sessionId,
+        TrainingUnitRun.unitContentId,
+        TrainingUnitRun.kind,
+      ],
       set: {
         turnLeaseId: leaseId,
         turnLeaseExpiresAt: workspaceLeaseExpiry(now),
@@ -315,6 +319,7 @@ const commitEducationTurn = async ({
         where: and(
           eq(TrainingUnitRun.sessionId, input.nextRun.sessionId),
           eq(TrainingUnitRun.unitContentId, input.nextRun.unitId),
+          eq(TrainingUnitRun.kind, input.nextRun.kind),
         ),
       });
       if (!unitRun) {

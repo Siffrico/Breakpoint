@@ -40,7 +40,7 @@ describe("education scenario attempt identity", () => {
       scenarioPrompt: "Solve this scenario.",
       scenarioContract: {
         version: 1,
-        scenarioStage: "review",
+        runKind: "education",
         scenarioPromptSummary: "Solve this scenario.",
         testedDimensions: [
           {

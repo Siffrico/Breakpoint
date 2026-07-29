@@ -71,6 +71,7 @@ export const MissionRepoLive = Layer.effect(
               eq(TrainingUnitRun.userId, userId),
               eq(TrainingUnitRun.unitContentId, unitContentId),
               eq(TrainingUnitRun.sessionId, sessionId),
+              eq(TrainingUnitRun.kind, "education"),
             ),
           });
           return run?.id ?? null;
