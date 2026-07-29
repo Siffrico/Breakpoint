@@ -39,12 +39,15 @@ interface WorkspaceLiveWorkspaceProps {
   aiWorkspace: AiWorkspace | null;
   activeNodeTitle: string | null;
   workspaceLoadError: string | null;
+  unitPreparationFailure: string | null;
   unitPreparing: boolean;
+  unitPreparationRetryPending: boolean;
   preview: boolean;
   advancePending: boolean;
   coach: UnitCoachController;
   onBackToCurrentChat: (event: MouseEvent<HTMLAnchorElement>) => void;
   onRetryWorkspace: () => void;
+  onRetryUnitPreparation: () => void;
   onRunningChange: (running: boolean) => void;
   onTurnCountChange: (count: number) => void;
   onUnitStateChange: (unit: EducationUnit) => void;
@@ -61,12 +64,15 @@ function WorkspaceLiveWorkspaceComponent({
   aiWorkspace,
   activeNodeTitle,
   workspaceLoadError,
+  unitPreparationFailure,
   unitPreparing,
+  unitPreparationRetryPending,
   preview,
   advancePending,
   coach,
   onBackToCurrentChat,
   onRetryWorkspace,
+  onRetryUnitPreparation,
   onRunningChange,
   onTurnCountChange,
   onUnitStateChange,
@@ -154,16 +160,22 @@ function WorkspaceLiveWorkspaceComponent({
                     <PreparingPanel
                       label={
                         workspaceLoadError ??
+                        unitPreparationFailure ??
                         activeNodeTitle ??
                         "Preparing unit"
                       }
-                      active={workspaceLoadError == null}
+                      active={
+                        workspaceLoadError == null &&
+                        unitPreparationFailure == null
+                      }
                       detail={
                         workspaceLoadError
                           ? "The workspace could not be loaded. Try again."
-                          : unitPreparing
-                            ? "This page will continue automatically."
-                            : undefined
+                          : unitPreparationFailure
+                            ? "Preparation stopped before the unit was ready."
+                            : unitPreparing
+                              ? "This page will continue automatically."
+                              : undefined
                       }
                     />
                     {workspaceLoadError ? (
@@ -173,6 +185,18 @@ function WorkspaceLiveWorkspaceComponent({
                         className="text-foreground/70 hover:text-foreground mt-3 self-start text-[13px] underline underline-offset-4"
                       >
                         Try again
+                      </button>
+                    ) : null}
+                    {unitPreparationFailure ? (
+                      <button
+                        type="button"
+                        onClick={onRetryUnitPreparation}
+                        disabled={unitPreparationRetryPending}
+                        className="text-foreground/70 hover:text-foreground disabled:text-foreground/35 mt-3 self-start text-[13px] underline underline-offset-4"
+                      >
+                        {unitPreparationRetryPending
+                          ? "Trying again…"
+                          : "Try again"}
                       </button>
                     ) : null}
                   </div>

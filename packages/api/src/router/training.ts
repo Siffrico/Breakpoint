@@ -21,6 +21,7 @@ import { getAiWorkspaceWorkflow } from "../domain/training/workflows/get-ai-work
 import { getHomeStateWorkflow } from "../domain/training/workflows/get-home-state-workflow";
 import { getProfileWorkflow } from "../domain/training/workflows/get-profile-workflow";
 import { getProjectTopicWorkflow } from "../domain/training/workflows/get-project-topic-workflow";
+import { getUnitReadinessWorkflow } from "../domain/training/workflows/get-unit-readiness-workflow";
 import { getUnitWorkflow } from "../domain/training/workflows/get-unit-workflow";
 import { getWorkspaceIndexWorkflow } from "../domain/training/workflows/get-workspace-index-workflow";
 import { getWorkspaceShellWorkflow } from "../domain/training/workflows/get-workspace-shell-workflow";
@@ -74,6 +75,7 @@ const NodeSessionSchema = z.object({
 // re-park. Kept under serverless response limits; each parked request holds
 // one pooled DB connection, so the bound also caps connection dwell time.
 const AWAIT_UNIT_TIMEOUT_MS = 20_000;
+const AWAIT_UNIT_START_GRACE_MS = 1_000;
 
 const CreateLearningProjectSchema = z.object({
   title: z.string().min(2).max(120),
@@ -776,16 +778,26 @@ export const trainingRouter = {
         });
       }
 
-      await awaitUnitBuildSettled({
-        db: ctx.db,
+      return getUnitReadinessWorkflow({
         nodeId: input.nodeId,
-        timeoutMs: AWAIT_UNIT_TIMEOUT_MS,
+        deps: {
+          awaitBuildSettled: (nodeId) =>
+            awaitUnitBuildSettled({
+              db: ctx.db,
+              nodeId,
+              timeoutMs: AWAIT_UNIT_TIMEOUT_MS,
+            }),
+          getUnitByNodeId: (nodeId) =>
+            trainingCurriculumRepository.getUnitByNodeId({
+              db: ctx.db,
+              nodeId,
+            }),
+          waitForStartGrace: () =>
+            new Promise((resolve) =>
+              setTimeout(resolve, AWAIT_UNIT_START_GRACE_MS),
+            ),
+        },
       });
-      const unit = await trainingCurriculumRepository.getUnitByNodeId({
-        db: ctx.db,
-        nodeId: input.nodeId,
-      });
-      return { ready: Boolean(unit) };
     }),
 
   home: protectedProcedure

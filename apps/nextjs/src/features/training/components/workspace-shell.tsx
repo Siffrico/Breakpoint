@@ -242,12 +242,15 @@ export function WorkspaceShell({
           aiWorkspace={vm.aiWorkspace}
           activeNodeTitle={vm.activeNode?.title ?? null}
           workspaceLoadError={vm.workspaceLoadError}
+          unitPreparationFailure={vm.unitPreparationFailure}
           unitPreparing={vm.unitPreparing}
+          unitPreparationRetryPending={vm.unitPreparationRetryPending}
           preview={preview}
           advancePending={advance.activeTransition != null}
           coach={coach}
           onBackToCurrentChat={handleBackToCurrentChat}
           onRetryWorkspace={vm.retryWorkspaceLoad}
+          onRetryUnitPreparation={vm.retryUnitPreparation}
           onRunningChange={setIsSessionRunning}
           onTurnCountChange={handleOnboardingTurnCount}
           onUnitStateChange={vm.onUnitStateChange}

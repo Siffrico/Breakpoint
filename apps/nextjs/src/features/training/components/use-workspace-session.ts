@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { RouterOutputs } from "@acme/api";
 
@@ -175,11 +175,15 @@ export function useWorkspaceSession({
         retry: false,
         refetchOnWindowFocus: false,
         refetchInterval: (query) =>
-          query.state.data?.ready ? false : query.state.error ? 10_000 : 3_000,
+          query.state.data?.kind === "preparing"
+            ? 3_000
+            : query.state.error
+              ? 10_000
+              : false,
       },
     ),
   );
-  const awaitedUnitReady = awaitUnitQuery.data?.ready ?? false;
+  const awaitedUnitReady = awaitUnitQuery.data?.kind === "ready";
   useEffect(() => {
     if (!awaitedUnitReady) return;
     void queryClient.invalidateQueries({
@@ -193,6 +197,35 @@ export function useWorkspaceSession({
     selectedSessionId,
     trpc.training.aiWorkspace,
   ]);
+  const preparationFailure =
+    awaitUnitQuery.data?.kind === "failed"
+      ? {
+          ...awaitUnitQuery.data,
+          nodeId: preparingNodeId ?? "",
+        }
+      : null;
+  const retryUnitPreparation = useMutation(
+    trpc.training.continueLearningProject.mutationOptions({
+      onSuccess: async () => {
+        await Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: trpc.training.aiWorkspace.queryKey({
+              sessionId: selectedSessionId,
+            }),
+          }),
+          queryClient.invalidateQueries({
+            queryKey: trpc.training.awaitUnit.queryKey({
+              sessionId: selectedSessionId,
+              nodeId: preparationFailure?.nodeId ?? "",
+            }),
+          }),
+        ]);
+      },
+    }),
+  );
+  const retryPreparation = useCallback(() => {
+    retryUnitPreparation.mutate({ sessionId: selectedSessionId });
+  }, [retryUnitPreparation, selectedSessionId]);
 
   // Optimistic unit overlay: a running turn streams unit-state updates faster
   // than the unit query refetches. The overlay only shadows the same unit in
@@ -275,6 +308,11 @@ export function useWorkspaceSession({
     selectedProject,
     serverProjects,
     unitAdvanceGate,
+    unitPreparationFailure: preparationFailure
+      ? (retryUnitPreparation.error?.message ?? preparationFailure.message)
+      : null,
+    retryUnitPreparation: retryPreparation,
+    unitPreparationRetryPending: retryUnitPreparation.isPending,
     unitPreparing,
     workspaceLoadError,
     retryWorkspaceLoad,
