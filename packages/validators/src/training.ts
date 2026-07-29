@@ -505,16 +505,10 @@ export const UnitCapabilityTodoSchema = z
 export const UnitRunModeSchema = z.enum(["learning", "review", "complete"]);
 export const UnitRunKindSchema = z.enum(["education", "recall"]);
 
-// The education_unit teaching loop is modelled by the education-unit FSM
-// (packages/api .../education-unit/fsm.ts). These are its coarse phases — the
-// durable cursor persisted on the unit run row — not the retired 9-step
-// verdict rulebook. "mastered" is the terminal phase.
 export const WORKSPACE_EDUCATION_STAGE_IDS = [
-  "orient",
-  "connect",
-  "solve",
-  "teach",
-  "mastered",
+  "learning",
+  "review",
+  "complete",
 ] as const;
 
 export const WorkspaceEducationStageSchema = z.enum(
@@ -587,6 +581,7 @@ export const ScenarioEvaluationContractSchema = z.object({
 
 export const UnitReviewChallengeSchema = z.object({
   prompt: z.string().min(24),
+  difficultyVector: DifficultyVectorSchema,
   contract: ScenarioEvaluationContractSchema,
 });
 

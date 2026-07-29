@@ -39,6 +39,12 @@ const masteryContract = {
 const challenge = {
   prompt:
     "A novel production constraint invalidates the familiar solution. Choose the next move and defend it from the mechanism.",
+  difficultyVector: {
+    formatId: "frq",
+    reasoningPathSteps: 3,
+    withheldGivens: 1,
+    embeddedAlternatives: 2,
+  },
   contract: {
     version: 1,
     scenarioStage: "review",

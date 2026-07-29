@@ -50,33 +50,19 @@ export const AGENT_CONFIG = {
     purpose: "projectOverview",
     limits: "purpose-profile",
   },
-  orientTeacher: {
+  unitMentor: {
     description:
-      "Introduces a unit with a usable mental model and one concise expert worked example.",
+      "Persistently mentors one capability todo at a time until the learner demonstrates autonomous ability.",
     purpose: "education",
     limits: "default",
-    maxSteps: 3,
+    maxSteps: 1,
   },
-  scenarioCoach: {
+  adversarialReviewer: {
     description:
-      "Runs the Connect beat by posing and evolving a scenario until the learner reconstructs its causal mechanism.",
-    purpose: "education",
+      "Stress-tests completed capabilities, pushes improvement, and produces authoritative Goldilocks evidence.",
+    purpose: "evaluation",
     limits: "default",
-    maxSteps: 3,
-  },
-  solutionEvaluator: {
-    description:
-      "Runs the Solve beat by grading the learner's reasoning and returning immediate repair-oriented feedback.",
-    purpose: "education",
-    limits: "default",
-    maxSteps: 3,
-  },
-  seamTeacher: {
-    description:
-      "Diagnoses a learner's attempt, teaches the corrected model, and evolves the scenario for transfer.",
-    purpose: "education",
-    limits: "default",
-    maxSteps: 3,
+    maxSteps: 1,
   },
   unitCoach: {
     description:
