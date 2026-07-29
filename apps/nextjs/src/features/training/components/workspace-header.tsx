@@ -6,11 +6,8 @@ import { ArrowRight, Lightbulb, SidebarSimple } from "@phosphor-icons/react";
 
 import { Button } from "@acme/ui/button";
 
-import type { AiWorkspace, WorkspaceMode } from "./use-workspace-session";
+import type { WorkspaceMode } from "./use-workspace-session";
 import { AssistantRichText } from "./assistant-rich-text";
-import { WorkspaceHeaderTimer } from "./workspace-header-timer";
-
-type EvaluationPlan = NonNullable<AiWorkspace["evaluationPlan"]>;
 
 const ACTION_CLASS =
   "relative inline-flex h-7 shrink-0 cursor-pointer items-center justify-center gap-1 whitespace-nowrap rounded-[9px] border border-[var(--bp-toolbar-border)] bg-[var(--bp-toolbar-surface)] bg-clip-padding px-3 text-sm font-medium text-foreground shadow-[var(--bp-toolbar-shadow)] outline-none transition-colors hover:bg-[var(--bp-toolbar-surface-hover)] focus-visible:ring-2 focus-visible:ring-foreground/20 disabled:pointer-events-none disabled:opacity-64 [&_svg]:pointer-events-none [&_svg]:-mx-0.5 [&_svg]:size-4 [&_svg]:shrink-0 [&_svg:not([class*='opacity-'])]:opacity-85 [&_svg:not([class*='text-'])]:text-foreground/70";
@@ -22,8 +19,6 @@ interface WorkspaceHeaderProps {
   isSessionRunning: boolean;
   onboardingTurnCount: number;
   manualSetupHref: string | null;
-  runningEvaluationPlan: EvaluationPlan | null;
-  attemptStartedAt: number | null;
   hasLiveUnit: boolean;
   canAdvanceUnit: boolean;
   advancePending: boolean;
@@ -43,8 +38,6 @@ function WorkspaceHeaderComponent({
   isSessionRunning,
   onboardingTurnCount,
   manualSetupHref,
-  runningEvaluationPlan,
-  attemptStartedAt,
   hasLiveUnit,
   canAdvanceUnit,
   advancePending,
@@ -99,13 +92,6 @@ function WorkspaceHeaderComponent({
           </h1>
         )}
       </div>
-
-      {runningEvaluationPlan && attemptStartedAt != null ? (
-        <WorkspaceHeaderTimer
-          plan={runningEvaluationPlan}
-          attemptStartedAt={attemptStartedAt}
-        />
-      ) : null}
 
       {mode === "onboarding" && manualSetupHref ? (
         <div className="flex shrink-0 items-center gap-1.5">

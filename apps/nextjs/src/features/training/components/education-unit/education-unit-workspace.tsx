@@ -622,7 +622,7 @@ function EducationUnitWorkspaceComponent({
   }, [unit.nodeId]);
   useEffect(() => {
     if (preview || effectiveIsRunning) return;
-    if (streamState?.educationStage !== "mastered") return;
+    if (streamState?.educationStage !== "complete") return;
     if (aiWorkspace?.unitAdvanceGate.status === "enabled") return;
     if (masteredInvalidatedRef.current) return;
     masteredInvalidatedRef.current = true;
@@ -786,7 +786,7 @@ function EducationUnitWorkspaceComponent({
   );
   const awaitingUnitAdvance =
     aiWorkspace?.unitAdvanceGate.status === "enabled" ||
-    streamState?.educationStage === "mastered";
+    streamState?.educationStage === "complete";
   const awaitingNextUnitContent =
     advancePending ||
     (aiWorkspace?.state?.activeUnitId != null &&
@@ -903,8 +903,7 @@ function EducationUnitWorkspaceComponent({
       );
       setMessages((current) =>
         current.filter(
-          (item) =>
-            !(item.role === "user" && item.metadata?.failed === true),
+          (item) => !(item.role === "user" && item.metadata?.failed === true),
         ),
       );
     } catch {
@@ -968,12 +967,6 @@ function EducationUnitWorkspaceComponent({
   const anchorStage = streamState?.recallUnitId
     ? "recall"
     : (streamState?.educationStage ?? null);
-  const anchorProgress = aiWorkspace?.evaluationProgress
-    ? {
-        completed: aiWorkspace.evaluationProgress.completedAttempts,
-        total: aiWorkspace.evaluationProgress.scenarioCount,
-      }
-    : null;
   // Rendering is gated on the scenario still being there, not on the flag
   // alone, so a scenario that goes away (pass advance, unit advance) can never
   // leave an empty panel sitting over the trail.
@@ -1147,7 +1140,6 @@ function EducationUnitWorkspaceComponent({
           <ScenarioAnchor
             title={anchorTitle}
             stage={anchorStage}
-            progress={anchorProgress}
             isScenarioOpen={hasScenario ? showScenario : null}
             onToggleScenario={() => setIsScenarioOpen((open) => !open)}
             columnClassName={CHAT_COLUMN_CLASS}
@@ -1182,7 +1174,6 @@ function EducationUnitWorkspaceComponent({
         <ScenarioAnchor
           title={anchorTitle}
           stage={anchorStage}
-          progress={anchorProgress}
           isScenarioOpen={hasScenario ? showScenario : null}
           onToggleScenario={() => setIsScenarioOpen((open) => !open)}
           columnClassName={CHAT_COLUMN_CLASS}

@@ -211,8 +211,6 @@ export function WorkspaceShell({
           isSessionRunning={isSessionRunning}
           onboardingTurnCount={onboardingTurnCount}
           manualSetupHref={manualSetupHref}
-          runningEvaluationPlan={vm.runningEvaluationPlan}
-          attemptStartedAt={vm.attemptStartedAt}
           hasLiveUnit={vm.liveUnit != null}
           canAdvanceUnit={advance.canAdvance}
           advancePending={advance.isPending}

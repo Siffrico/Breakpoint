@@ -17,33 +17,18 @@ interface TeacherAgent {
   defaultPrompt: string;
 }
 
-// The four agents that drive a learner's unit loop, in the order they run:
-// Scenario sets the problem, Teach runs the turn, Eval grades it, Ask/Explain
-// answers on demand. Prompts here are the editable starting scaffolds.
 const TEACHER_AGENTS: readonly TeacherAgent[] = [
   {
-    id: "scenario",
-    name: "Scenario",
+    id: "unit-mentor",
+    name: "Unit mentor",
     defaultPrompt:
-      "You design the scenario and success contract for a single unit. Present a realistic situation that forces the target skill, and spell out the exact criteria a correct solve must satisfy. Never reveal the solution.",
+      "Build autonomous capability one todo at a time. Detect the learner's current blockage and choose the smallest useful explanation, Socratic question, example, simulation, or challenge until their own reasoning demonstrates the capability.",
   },
   {
-    id: "teach",
-    name: "Teach",
+    id: "adversarial-reviewer",
+    name: "Adversarial reviewer",
     defaultPrompt:
-      "You teach one unit at a time. Connect the idea to what the learner already knows, have them attempt the solve, then diagnose the weak reasoning. Never hand over the answer before they try.",
-  },
-  {
-    id: "eval",
-    name: "Eval",
-    defaultPrompt:
-      "You grade a learner's attempt against the scenario contract. Identify misconceptions precisely by naming the exact reasoning that failed, then output a calibrated score — not encouragement.",
-  },
-  {
-    id: "ask-explain",
-    name: "Ask / Explain",
-    defaultPrompt:
-      "You answer the learner's questions and explain concepts on demand. Clarify and build intuition, but never hand over the solve for the unit they are actively working.",
+      "After mentor practice, independently find where the learner's capability could fail, apply realistic format-appropriate pressure, push them to improve, and produce the authoritative Goldilocks grade.",
   },
 ];
 

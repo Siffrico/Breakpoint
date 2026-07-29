@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * The pinned header of the scenario workspace: unit title, current FSM phase,
- * and scenario-attempt progress stay anchored while exchanges cycle below.
+ * The pinned header of the unit workspace: unit title, current learning mode,
+ * and review progress stay anchored while exchanges cycle below.
  *
  * The scenario itself is not summarised here. It is a full read behind the
  * anchor's toggle — the header states where you are, the panel states what you
@@ -10,24 +10,21 @@
  */
 
 const STAGE_LABELS: Record<string, string> = {
-  connect: "Connect",
-  solve: "Solve",
-  teach: "Teach",
+  learning: "Mentoring",
+  review: "Review",
   recall: "Recall",
-  mastered: "Mastered",
+  complete: "Complete",
 };
 
 export function ScenarioAnchor({
   title,
   stage,
-  progress,
   isScenarioOpen,
   onToggleScenario,
   columnClassName,
 }: {
   title: string;
   stage: string | null;
-  progress: { completed: number; total: number } | null;
   /** Null when this turn has no showable scenario — the toggle is then absent. */
   isScenarioOpen: boolean | null;
   onToggleScenario: () => void;
@@ -60,25 +57,6 @@ export function ScenarioAnchor({
             {stageLabel ? (
               <span className="border-foreground/[0.12] text-foreground/56 rounded-full border px-2.5 py-0.5 text-[11px] leading-4">
                 {stageLabel}
-              </span>
-            ) : null}
-            {progress && progress.total > 1 ? (
-              <span
-                className="flex items-center gap-1"
-                aria-label={`Scenario ${Math.min(progress.completed + 1, progress.total)} of ${progress.total}`}
-                title={`${progress.completed} of ${progress.total} scenarios complete`}
-              >
-                {Array.from({ length: progress.total }, (_, index) => (
-                  <span
-                    key={index}
-                    className={[
-                      "size-1.5 rounded-full",
-                      index < progress.completed
-                        ? "bg-foreground/70"
-                        : "bg-foreground/[0.16]",
-                    ].join(" ")}
-                  />
-                ))}
               </span>
             ) : null}
           </div>
