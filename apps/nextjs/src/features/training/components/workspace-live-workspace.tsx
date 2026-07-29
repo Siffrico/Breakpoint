@@ -38,12 +38,13 @@ interface WorkspaceLiveWorkspaceProps {
   liveUnit: EducationUnit | null;
   aiWorkspace: AiWorkspace | null;
   activeNodeTitle: string | null;
-  workspaceShellError: string | null;
+  workspaceLoadError: string | null;
   unitPreparing: boolean;
   preview: boolean;
   advancePending: boolean;
   coach: UnitCoachController;
   onBackToCurrentChat: (event: MouseEvent<HTMLAnchorElement>) => void;
+  onRetryWorkspace: () => void;
   onRunningChange: (running: boolean) => void;
   onTurnCountChange: (count: number) => void;
   onUnitStateChange: (unit: EducationUnit) => void;
@@ -59,12 +60,13 @@ function WorkspaceLiveWorkspaceComponent({
   liveUnit,
   aiWorkspace,
   activeNodeTitle,
-  workspaceShellError,
+  workspaceLoadError,
   unitPreparing,
   preview,
   advancePending,
   coach,
   onBackToCurrentChat,
+  onRetryWorkspace,
   onRunningChange,
   onTurnCountChange,
   onUnitStateChange,
@@ -138,21 +140,41 @@ function WorkspaceLiveWorkspaceComponent({
                     onAskCoachAboutSelection={coach.askAboutSelection}
                   />
                 ) : null}
+                {mode === "complete" ? (
+                  <div className="flex min-h-[60vh] flex-col justify-center">
+                    <PreparingPanel
+                      label="Learning project complete"
+                      active={false}
+                      detail="You completed every ability in this learning project."
+                    />
+                  </div>
+                ) : null}
                 {mode === "idle" ? (
                   <div className="flex min-h-[60vh] flex-col justify-center">
                     <PreparingPanel
                       label={
-                        workspaceShellError ??
+                        workspaceLoadError ??
                         activeNodeTitle ??
                         "Preparing unit"
                       }
-                      active={workspaceShellError == null}
+                      active={workspaceLoadError == null}
                       detail={
-                        unitPreparing
-                          ? "This page will continue automatically."
-                          : undefined
+                        workspaceLoadError
+                          ? "The workspace could not be loaded. Try again."
+                          : unitPreparing
+                            ? "This page will continue automatically."
+                            : undefined
                       }
                     />
+                    {workspaceLoadError ? (
+                      <button
+                        type="button"
+                        onClick={onRetryWorkspace}
+                        className="text-foreground/70 hover:text-foreground mt-3 self-start text-[13px] underline underline-offset-4"
+                      >
+                        Try again
+                      </button>
+                    ) : null}
                   </div>
                 ) : null}
               </div>

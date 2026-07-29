@@ -141,6 +141,48 @@ void test("a claimed, in-flight education turn is rejected before running the mo
   );
 });
 
+void test("a committed mastery turn is replayed after the unit becomes awaiting advance", async () => {
+  const masteredRun = { ...unitRun, phase: "mastered" as const };
+  const masteredTurn = { ...turn, unitRun: masteredRun };
+  const assistantMessage = {
+    id: "00000000-0000-0000-0000-000000000101",
+    role: "assistant" as const,
+    content: "You mastered this unit.",
+    sequence: 2,
+    slot: "education_unit",
+    unitId: unitRun.unitId,
+    turnId: "turn-replay",
+    metadata: null,
+  };
+  const claimWorkspaceUnitLease = vi.fn(() => Promise.resolve(true));
+  const deps = {
+    claimWorkspaceTurn: () =>
+      Promise.resolve({ status: "completed" as const, assistantMessage }),
+    listUnitMessages: () => Promise.resolve([assistantMessage]),
+    getUnitByNodeId: () => Promise.resolve(turn.unit),
+    getPhaseResponses: () => Promise.resolve([]),
+    getUnitRun: () => Promise.resolve(masteredRun),
+    getInFlightRecallRun: () => Promise.resolve(null),
+    claimWorkspaceUnitLease,
+    ...noRecallProjectionDeps,
+  } as unknown as WorkspaceTurnOrchestrationDependencies;
+
+  const result = await runEducationTest(
+    runEducationUnitTurn({
+      sessionId: unitRun.sessionId,
+      userId: "user-1",
+      turnId: "turn-replay",
+      turnLeaseId: "00000000-0000-0000-0000-000000000097",
+      message: "My final answer",
+      turn: masteredTurn,
+      deps,
+    }),
+  );
+
+  expect(result.assistantMessage).toEqual(assistantMessage);
+  expect(claimWorkspaceUnitLease).not.toHaveBeenCalled();
+});
+
 void test("a concurrent unit lease is rejected before running the model", async () => {
   const runUnitTurn = vi.fn();
   const markWorkspaceTurnFailed = vi.fn(() => Promise.resolve());

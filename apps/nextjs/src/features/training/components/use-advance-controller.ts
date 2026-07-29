@@ -87,7 +87,10 @@ export function useAdvanceController({
         ),
     );
 
-    if (serverAdvanced && serverProjectHasNextNode) {
+    if (
+      aiWorkspace?.projectComplete ||
+      (serverAdvanced && serverProjectHasNextNode)
+    ) {
       const frameId = window.requestAnimationFrame(() => {
         setAdvanceTransition((current) =>
           current === activeTransition ? null : current,

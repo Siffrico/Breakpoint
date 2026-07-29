@@ -58,6 +58,28 @@ const makeDb = (updatedAt: Date) => {
 };
 
 describe("buildProjectCheckpointRepository", () => {
+  it("rejects a stale owner before running a project persistence callback", async () => {
+    const runPersistence = vi.fn(() => Promise.resolve("saved"));
+    const returning = vi.fn(() => Promise.resolve([]));
+    const where = vi.fn(() => ({ returning }));
+    const set = vi.fn(() => ({ where }));
+    const update = vi.fn(() => ({ set }));
+    const transaction = vi.fn(
+      (callback: (tx: { update: typeof update }) => Promise<unknown>) =>
+        callback({ update }),
+    );
+
+    await expect(
+      buildProjectCheckpointRepository.withRunOwnership({
+        db: { transaction } as never,
+        sessionId: "session-id",
+        ownershipToken: "stale-lease",
+        run: runPersistence,
+      }),
+    ).rejects.toThrow("lease is no longer valid");
+    expect(runPersistence).not.toHaveBeenCalled();
+  });
+
   it("turns an unexpected build failure into a retryable error snapshot", async () => {
     const { db } = makeDb(new Date());
 

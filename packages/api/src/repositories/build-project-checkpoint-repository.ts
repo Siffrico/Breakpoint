@@ -88,6 +88,34 @@ export const isProjectBuildRunPayload = (
 };
 
 export const buildProjectCheckpointRepository = {
+  withRunOwnership: async <T>({
+    db,
+    sessionId,
+    ownershipToken,
+    run,
+  }: {
+    db: Database;
+    sessionId: string;
+    ownershipToken: string;
+    run: (db: Database) => Promise<T>;
+  }): Promise<T> =>
+    db.transaction(async (tx) => {
+      const dbTx = tx as unknown as Database;
+      const [owned] = await dbTx
+        .update(TrainingProjectBuildCheckpoint)
+        .set({ leaseId: ownershipToken })
+        .where(
+          and(
+            eq(TrainingProjectBuildCheckpoint.sessionId, sessionId),
+            eq(TrainingProjectBuildCheckpoint.step, "run"),
+            eq(TrainingProjectBuildCheckpoint.leaseId, ownershipToken),
+          ),
+        )
+        .returning({ id: TrainingProjectBuildCheckpoint.id });
+      if (!owned) throw new Error("Project build lease is no longer valid.");
+      return run(dbTx);
+    }),
+
   listRunsBySessionIds: async ({
     db,
     sessionIds,

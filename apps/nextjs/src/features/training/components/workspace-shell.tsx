@@ -167,10 +167,12 @@ export function WorkspaceShell({
       : vm.mode === "onboarding"
         ? (vm.resolvedOnboardingState?.activeQuestion?.prompt ??
           "Start a new learning track")
-        : (advance.activeTransition?.title ??
-          vm.liveUnit?.title ??
-          vm.activeNode?.title ??
-          "Preparing your next unit");
+        : vm.mode === "complete"
+          ? "Project complete"
+          : (advance.activeTransition?.title ??
+            vm.liveUnit?.title ??
+            vm.activeNode?.title ??
+            "Preparing your next unit");
 
   return (
     <div
@@ -239,16 +241,13 @@ export function WorkspaceShell({
           liveUnit={vm.liveUnit}
           aiWorkspace={vm.aiWorkspace}
           activeNodeTitle={vm.activeNode?.title ?? null}
-          workspaceShellError={
-            vm.workspaceShellQuery.isError
-              ? vm.workspaceShellQuery.error.message
-              : null
-          }
+          workspaceLoadError={vm.workspaceLoadError}
           unitPreparing={vm.unitPreparing}
           preview={preview}
           advancePending={advance.activeTransition != null}
           coach={coach}
           onBackToCurrentChat={handleBackToCurrentChat}
+          onRetryWorkspace={vm.retryWorkspaceLoad}
           onRunningChange={setIsSessionRunning}
           onTurnCountChange={handleOnboardingTurnCount}
           onUnitStateChange={vm.onUnitStateChange}

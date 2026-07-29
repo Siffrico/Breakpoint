@@ -378,6 +378,7 @@ describe("workspace view reads", () => {
     });
 
     const view = readyView(result);
+    expect(view.projectComplete).toBe(false);
     expect(view.state).toMatchObject({
       activeUnitId: readyNode.id,
       recallUnitId: null,
@@ -527,6 +528,7 @@ describe("workspace view reads", () => {
 
     const view = readyView(result);
     expect(view.state).toBeNull();
+    expect(view.projectComplete).toBe(true);
     expect(view.messages).toEqual([]);
     expect(listUnitMessages).not.toHaveBeenCalled();
   });

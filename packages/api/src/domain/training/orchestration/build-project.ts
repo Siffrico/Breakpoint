@@ -252,6 +252,7 @@ export interface BuildProjectDeps {
   /** Upsert one artifact's registry row (status + last-good/partial payload). */
   saveArtifact: (input: {
     sessionId: string;
+    ownershipToken: string;
     step: ProjectBuildArtifactStep;
     sourceKey: string;
     payload: unknown;
@@ -271,6 +272,7 @@ export interface BuildProjectDeps {
   /** Create (or return) the durable "generating" plan shell. Returns its id. */
   ensureShell: (input: {
     sessionId: string;
+    ownershipToken: string;
     userId: string | null;
     title: string;
     summary: string;
@@ -283,6 +285,7 @@ export interface BuildProjectDeps {
    */
   persistCurriculum: (input: {
     sessionId: string;
+    ownershipToken: string;
     userId: string | null;
     planId: string;
     report: IdentityReport;
@@ -291,11 +294,13 @@ export interface BuildProjectDeps {
   /** Write the overview onto the plan, independently of node creation. */
   persistOverview: (input: {
     sessionId: string;
+    ownershipToken: string;
     overview: { title: string; summary: string; body: string };
   }) => Promise<void>;
   /** Flip the plan active + complete the session. Returns the freshly-read plan. */
   finalize: (input: {
     sessionId: string;
+    ownershipToken: string;
     planId: string;
   }) => Promise<CurriculumPlan | null>;
   prepareUnit: (input: {
@@ -491,6 +496,10 @@ export const buildProjectFromOnboarding = async ({
     error,
   });
   let ownershipToken: string | null = null;
+  const requireOwnershipToken = () => {
+    if (!ownershipToken) throw new Error("Project build lease is not claimed.");
+    return ownershipToken;
+  };
   let stopHeartbeat: () => void = () => undefined;
   const updateRun = (status: ProjectBuildRunStatus, error?: string) =>
     ownershipToken
@@ -532,6 +541,7 @@ export const buildProjectFromOnboarding = async ({
     }
     return deps.saveArtifact({
       sessionId,
+      ownershipToken: requireOwnershipToken(),
       step,
       sourceKey,
       payload,
@@ -550,6 +560,7 @@ export const buildProjectFromOnboarding = async ({
         .then(() =>
           deps.saveArtifact({
             sessionId,
+            ownershipToken: requireOwnershipToken(),
             step,
             sourceKey,
             payload: partial,
@@ -640,6 +651,7 @@ export const buildProjectFromOnboarding = async ({
   try {
     const shell = await deps.ensureShell({
       sessionId,
+      ownershipToken: requireOwnershipToken(),
       userId,
       title: projectName,
       summary: input.summary.trim(),
@@ -695,6 +707,7 @@ export const buildProjectFromOnboarding = async ({
     emit();
     await deps.persistCurriculum({
       sessionId,
+      ownershipToken: requireOwnershipToken(),
       userId,
       planId,
       report: design.identityReport,
@@ -818,7 +831,11 @@ export const buildProjectFromOnboarding = async ({
   emit();
   let plan: CurriculumPlan | null;
   try {
-    plan = await deps.finalize({ sessionId, planId });
+    plan = await deps.finalize({
+      sessionId,
+      ownershipToken: requireOwnershipToken(),
+      planId,
+    });
   } catch {
     // finalize failed: only trust an *already-active* plan (a prior attempt may
     // have flipped it). getActivePlan returns a profile-linked shell even while
@@ -874,7 +891,11 @@ export const buildProjectFromOnboarding = async ({
             overviewRecord?.payload,
           );
           if (cached.success) {
-            await deps.persistOverview({ sessionId, overview: cached.data });
+            await deps.persistOverview({
+              sessionId,
+              ownershipToken: requireOwnershipToken(),
+              overview: cached.data,
+            });
             await recordArtifact(
               "overview",
               "complete",
@@ -904,7 +925,11 @@ export const buildProjectFromOnboarding = async ({
           );
         }
         const overview = parsedOverview.data;
-        await deps.persistOverview({ sessionId, overview });
+        await deps.persistOverview({
+          sessionId,
+          ownershipToken: requireOwnershipToken(),
+          overview,
+        });
         await recordArtifact(
           "overview",
           "complete",

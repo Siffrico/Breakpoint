@@ -169,10 +169,16 @@ export const createBuildProjectDeps = (db: Database): BuildProjectDeps => ({
       sourceKey,
     }),
 
-  saveArtifact: (payload) =>
-    buildProjectCheckpointRepository.upsertArtifact({
+  saveArtifact: ({ ownershipToken, ...payload }) =>
+    buildProjectCheckpointRepository.withRunOwnership({
       db,
-      ...payload,
+      sessionId: payload.sessionId,
+      ownershipToken,
+      run: (dbTx) =>
+        buildProjectCheckpointRepository.upsertArtifact({
+          db: dbTx,
+          ...payload,
+        }),
     }),
 
   getStartingPoint: async (sessionId) => {
@@ -206,86 +212,109 @@ export const createBuildProjectDeps = (db: Database): BuildProjectDeps => ({
 
   ensureShell: async ({
     sessionId,
+    ownershipToken,
     userId,
     title,
     summary,
     targetIdentity,
     seedRating,
   }) => {
-    const plan = await buildProjectCurriculumRepository.upsertPlanShell({
+    const plan = await buildProjectCheckpointRepository.withRunOwnership({
       db,
       sessionId,
-      userId,
-      title,
-      summary,
-      targetIdentity,
-      seedRating,
+      ownershipToken,
+      run: (dbTx) =>
+        buildProjectCurriculumRepository.upsertPlanShell({
+          db: dbTx,
+          sessionId,
+          userId,
+          title,
+          summary,
+          targetIdentity,
+          seedRating,
+        }),
     });
     return { id: plan.id };
   },
 
   persistCurriculum: async ({
     sessionId,
+    ownershipToken,
     userId,
     planId,
     report,
     blueprint,
   }) => {
-    await db.transaction(async (tx) => {
-      const dbTx = tx as unknown as Database;
-      const profile = await buildProjectProfileRepository.upsertProfileVersion({
-        db: dbTx,
-        sessionId,
-        userId,
-        report,
-      });
-      if (!profile) {
-        throw new ArtifactBuildError(
-          "Failed to save the learner profile.",
-          "save",
-        );
-      }
-      await buildProjectCurriculumRepository.linkPlanProfileVersion({
-        db: dbTx,
-        planId,
-        profileVersionId: profile.version.id,
-      });
-      await buildProjectCurriculumRepository.replacePlanNodes({
-        db: dbTx,
-        planId,
-        blueprint,
-        title: blueprint.title,
-        summary: blueprint.summary,
-        targetIdentity: blueprint.targetIdentity,
-      });
+    await buildProjectCheckpointRepository.withRunOwnership({
+      db,
+      sessionId,
+      ownershipToken,
+      run: async (dbTx) => {
+        const profile =
+          await buildProjectProfileRepository.upsertProfileVersion({
+            db: dbTx,
+            sessionId,
+            userId,
+            report,
+          });
+        if (!profile) {
+          throw new ArtifactBuildError(
+            "Failed to save the learner profile.",
+            "save",
+          );
+        }
+        await buildProjectCurriculumRepository.linkPlanProfileVersion({
+          db: dbTx,
+          planId,
+          profileVersionId: profile.version.id,
+        });
+        await buildProjectCurriculumRepository.replacePlanNodes({
+          db: dbTx,
+          planId,
+          blueprint,
+          title: blueprint.title,
+          summary: blueprint.summary,
+          targetIdentity: blueprint.targetIdentity,
+        });
+      },
     });
   },
 
-  persistOverview: ({ sessionId, overview }) =>
-    buildProjectCurriculumRepository.updatePlanOverview({
+  persistOverview: ({ sessionId, ownershipToken, overview }) =>
+    buildProjectCheckpointRepository.withRunOwnership({
       db,
       sessionId,
-      overview,
+      ownershipToken,
+      run: (dbTx) =>
+        buildProjectCurriculumRepository.updatePlanOverview({
+          db: dbTx,
+          sessionId,
+          overview,
+        }),
     }),
 
-  finalize: ({ sessionId, planId }) =>
-    db.transaction(async (tx) => {
-      const dbTx = tx as unknown as Database;
-      await buildProjectCurriculumRepository.finalizePlan({
-        db: dbTx,
-        planId,
-        status: "active",
-      });
-      await trainingOnboardingRepository.updateSession({
-        db: dbTx,
-        sessionId,
-        status: "complete",
-        completedAt: new Date(),
-      });
-      return trainingCurriculumRepository.getActivePlan({
-        db: dbTx,
-        sessionId,
-      });
+  finalize: ({ sessionId, ownershipToken, planId }) =>
+    buildProjectCheckpointRepository.withRunOwnership({
+      db,
+      sessionId,
+      ownershipToken,
+      run: async (dbTx) => {
+        await buildProjectCurriculumRepository.finalizePlan({
+          db: dbTx,
+          planId,
+          status: "active",
+        });
+        await trainingOnboardingRepository.updateSession({
+          db: dbTx,
+          sessionId,
+          status: "complete",
+          completedAt: new Date(),
+        });
+        return trainingCurriculumRepository.getActivePlan({
+          db: dbTx,
+          sessionId,
+        });
+      },
     }),
 
   prepareUnit: ({ node, sessionId }) =>

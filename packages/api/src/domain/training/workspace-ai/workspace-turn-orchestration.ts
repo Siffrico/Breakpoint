@@ -429,12 +429,6 @@ export const runEducationUnitTurn = ({
 
     const { plan, state, node, unit, unitRun, unitResponses } = turn;
 
-    if (isUnitAwaitingAdvance({ node, run: unitRun })) {
-      return yield* new WorkspaceInputError({
-        message: "This unit is complete. Press Next Unit to continue.",
-      });
-    }
-
     const loadedTranscript = yield* claimTurnAndLoadTranscript({
       sessionId,
       slot: "education_unit",
@@ -457,6 +451,12 @@ export const runEducationUnitTurn = ({
         messages: loadedTranscript.messages,
         assistantMessage: loadedTranscript.assistantMessage,
       };
+    }
+
+    if (isUnitAwaitingAdvance({ node, run: unitRun })) {
+      return yield* new WorkspaceInputError({
+        message: "This unit is complete. Press Next Unit to continue.",
+      });
     }
     const ratingScope = resolveRatingScope({ unit, planNodes: plan.nodes });
     const recallFocus = turn.recallFocus;

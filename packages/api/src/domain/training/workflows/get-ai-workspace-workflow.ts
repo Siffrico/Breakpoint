@@ -37,6 +37,7 @@ interface GetAiWorkspaceDependencies
 
 export interface AiWorkspaceView {
   plan: CurriculumPlan;
+  projectComplete: boolean;
   state: WorkspaceAiState | null;
   messages: WorkspaceAiMessage[];
   introMessage: {
@@ -152,6 +153,15 @@ export const getAiWorkspaceWorkflowEffect = ({
           }
         : null,
     });
+    const abilityNodes = plan.nodes.filter((node) => node.kind === "ability");
+    const terminalNodes =
+      abilityNodes.length > 0
+        ? abilityNodes
+        : plan.nodes.filter((node) => node.kind === "unit");
+    const projectComplete =
+      state === null &&
+      terminalNodes.length > 0 &&
+      terminalNodes.every((node) => node.status === "completed");
 
     // A recall interlude resumes the source unit's durable run cursor, exactly
     // as the send path resolves it — the view must report the same stage the
@@ -219,6 +229,7 @@ export const getAiWorkspaceWorkflowEffect = ({
       kind: "ready",
       workspace: {
         plan,
+        projectComplete,
         state: resolvedState,
         messages,
         evaluationPlan: isActiveUnitEducation

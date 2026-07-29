@@ -20,7 +20,12 @@ export type LearningProject =
   RouterOutputs["training"]["listLearningProjects"][number];
 export type ChatHistory = RouterOutputs["training"]["chatHistory"];
 export type WorkspaceShellState = RouterOutputs["training"]["workspaceShell"];
-export type WorkspaceMode = "history" | "onboarding" | "unit" | "idle";
+export type WorkspaceMode =
+  | "history"
+  | "onboarding"
+  | "unit"
+  | "complete"
+  | "idle";
 
 const LOCKED_UNIT_ADVANCE_GATE = { status: "locked" } as const;
 
@@ -209,13 +214,40 @@ export function useWorkspaceSession({
     [selectedSessionId],
   );
 
+  const workspaceLoadError = workspaceShellQuery.isError
+    ? workspaceShellQuery.error.message
+    : aiWorkspaceQuery.isError
+      ? aiWorkspaceQuery.error.message
+      : unitQuery.isError
+        ? unitQuery.error.message
+        : null;
+  const retryWorkspaceShell = workspaceShellQuery.refetch;
+  const retryAiWorkspace = aiWorkspaceQuery.refetch;
+  const retryUnit = unitQuery.refetch;
+  const retryWorkspaceLoad = useCallback(() => {
+    if (workspaceShellQuery.isError) void retryWorkspaceShell();
+    if (aiWorkspaceQuery.isError) void retryAiWorkspace();
+    if (unitQuery.isError) void retryUnit();
+  }, [
+    aiWorkspaceQuery.isError,
+    retryAiWorkspace,
+    retryUnit,
+    retryWorkspaceShell,
+    unitQuery.isError,
+    workspaceShellQuery.isError,
+  ]);
+
   const mode: WorkspaceMode = isHistorySelected
     ? "history"
     : resolvedOnboardingState
       ? "onboarding"
-      : liveUnit
-        ? "unit"
-        : "idle";
+      : workspaceLoadError
+        ? "idle"
+        : aiWorkspace?.projectComplete
+          ? "complete"
+          : liveUnit
+            ? "unit"
+            : "idle";
 
   const unitAdvanceGate =
     aiWorkspace?.unitAdvanceGate ?? LOCKED_UNIT_ADVANCE_GATE;
@@ -244,6 +276,8 @@ export function useWorkspaceSession({
     serverProjects,
     unitAdvanceGate,
     unitPreparing,
+    workspaceLoadError,
+    retryWorkspaceLoad,
     workspaceShellQuery,
   };
 }
