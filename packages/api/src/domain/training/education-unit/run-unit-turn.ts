@@ -312,19 +312,9 @@ export const runUnitTurn = (
         };
       }
       const completion = result.object.completedTodo;
-      const learnerText = latestUserText(transcript);
-      if (
-        !learnerText
-          ?.toLocaleLowerCase()
-          .includes(completion.evidenceQuote.trim().toLocaleLowerCase())
-      ) {
-        return yield* contractFailure(
-          "Capability evidence must quote the learner's latest message exactly.",
-        );
-      }
       const advanced = yield* completeCurrentCapabilityTodo(run, {
         todoId: completion.todoId,
-        evidence: `“${completion.evidenceQuote.trim()}” — ${completion.rationale.trim()}`,
+        evidence: "Completed by the mentor.",
       }).pipe(
         Effect.mapError(
           (error) => new UnitTurnContractError({ message: error.message }),

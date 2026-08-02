@@ -122,8 +122,8 @@ describe("runUnitTurn", () => {
     expect(result.nextRun.capabilityTodos[0]?.status).toBe("pending");
   });
 
-  it("rejects mentor completion evidence that is not in the learner's latest message", async () => {
-    const error = await Effect.runPromise(
+  it("completes a mentor todo with only its id", async () => {
+    const result = await Effect.runPromise(
       runUnitTurn(
         input(),
         deps({
@@ -133,17 +133,17 @@ describe("runUnitTurn", () => {
                 assistantMessage: "Move on.",
                 completedTodo: {
                   todoId: "derive-under-pressure",
-                  evidenceQuote: "A claim the learner never made.",
-                  rationale:
-                    "This fabricated quote would otherwise release the capability todo.",
                 },
               },
             }),
         }),
-      ).pipe(Effect.flip),
+      ),
     );
 
-    expect(error.message).toContain("quote the learner's latest message");
+    expect(result.nextRun.capabilityTodos[0]).toMatchObject({
+      status: "completed",
+      evidence: "Completed by the mentor.",
+    });
   });
 
   it("hands the final mentor completion directly to adversarial review", async () => {
@@ -158,9 +158,6 @@ describe("runUnitTurn", () => {
                   "You re-derived the move correctly from the changed constraint.",
                 completedTodo: {
                   todoId: "derive-under-pressure",
-                  evidenceQuote: "I would derive it again.",
-                  rationale:
-                    "The learner explicitly chose to re-derive the move under the changed constraint.",
                 },
               },
             }),
@@ -187,9 +184,6 @@ describe("runUnitTurn", () => {
                 assistantMessage: "Now test it independently.",
                 completedTodo: {
                   todoId: "derive-under-pressure",
-                  evidenceQuote: "I would derive it again.",
-                  rationale:
-                    "The learner independently committed to deriving the changed decision.",
                 },
               },
             }),
@@ -242,9 +236,6 @@ describe("runUnitTurn", () => {
                   "You derived the mechanism, so now test it under pressure.",
                 completedTodo: {
                   todoId: "derive-under-pressure",
-                  evidenceQuote: "I would derive it again.",
-                  rationale:
-                    "The learner independently committed to deriving the changed decision.",
                 },
               },
             }),

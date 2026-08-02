@@ -14,8 +14,6 @@ export const MentorOutputSchema = z
     completedTodo: z
       .object({
         todoId: z.string().min(1),
-        evidenceQuote: z.string().min(3),
-        rationale: z.string().min(12),
       })
       .strict()
       .nullable(),
