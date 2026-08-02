@@ -33,9 +33,9 @@ export const runMentorAgent = ({
   runUnitAgent({
     agent: "mentor",
     purpose: "education",
-    system: MENTOR_SYSTEM,
+    system: `${MENTOR_SYSTEM}\n\n## Customized behavior\n${experience.main.instructions}`,
     messages,
-    context: `## Experience behavior\n${experience.main.instructions}\n\n${context}\n\n## This turn\nRespond to the learner's latest message. Work only on the first unchecked capability. If their latest independent performance completes it, record the exact evidence and naturally move them toward the next capability; otherwise keep it unchecked and make the best next mentoring move.`,
+    context: `${context}\n\n## This turn\nRespond to the learner's latest message. Work only on the first unchecked capability. If their latest independent performance completes it, record the completion and naturally move them toward the next capability; otherwise keep it unchecked and make the best next mentoring move.`,
     schema: MentorOutputSchema,
     schemaName: "unit_mentor_output",
     maxOutputTokens: 2_600,

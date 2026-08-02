@@ -1,7 +1,13 @@
 import { Effect } from "effect";
 
-import type { EducationExperienceSnapshot } from "@acme/validators";
-import { EducationExperienceSnapshotSchema } from "@acme/validators";
+import type {
+  EducationExperienceCustomization,
+  EducationExperienceSnapshot,
+} from "@acme/validators";
+import {
+  EducationExperienceCustomizationSchema,
+  EducationExperienceSnapshotSchema,
+} from "@acme/validators";
 
 export interface ExperienceTodoDefinition {
   readonly id: string;
@@ -64,6 +70,29 @@ export const DEFAULT_EDUCATION_EXPERIENCE = {
     ],
   },
 } as const satisfies EducationExperienceDefinition;
+
+export const DEFAULT_EDUCATION_EXPERIENCE_CUSTOMIZATION =
+  EducationExperienceCustomizationSchema.parse({
+    main: DEFAULT_EDUCATION_EXPERIENCE.main,
+    reviewer: DEFAULT_EDUCATION_EXPERIENCE.reviewer,
+  });
+
+export const resolveEducationExperienceCustomization = (
+  preference: {
+    readonly version: number;
+    readonly customization: EducationExperienceCustomization;
+  } | null,
+): EducationExperienceDefinition =>
+  preference
+    ? {
+        snapshot: {
+          id: "customized-breakpoint-mentor",
+          version: preference.version,
+        },
+        main: preference.customization.main,
+        reviewer: preference.customization.reviewer,
+      }
+    : DEFAULT_EDUCATION_EXPERIENCE;
 
 export const snapshotEducationExperience = (
   experience: EducationExperienceDefinition,

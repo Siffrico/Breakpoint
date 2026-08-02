@@ -1,8 +1,47 @@
 import type {
+  EducationExperienceCustomization,
   ProfileAccount,
   ProfileBilling,
   ProfileGeneral,
 } from "@acme/validators";
+
+const previewEducationCustomization = {
+  main: {
+    instructions:
+      "Build autonomous capability one todo at a time. Diagnose the learner's present blocker and choose the smallest high-leverage mentoring move.",
+  },
+  reviewer: {
+    instructions:
+      "Independently find where the learner's capability could fail, apply realistic pressure, and grade the resulting performance honestly.",
+    todos: [
+      {
+        id: "test-without-tutor-framing",
+        goal: "Test the capabilities without copying the mentor's framing.",
+        completionEvidence: ["The learner responds on a novel surface."],
+      },
+      {
+        id: "probe-plausible-failure",
+        goal: "Probe the most plausible real-world failure.",
+        completionEvidence: ["The challenge exposes or closes a fragility."],
+      },
+      {
+        id: "force-improvement",
+        goal: "Make the learner defend, revise, or extend the work.",
+        completionEvidence: ["The learner independently repairs the weakness."],
+      },
+      {
+        id: "grade-goldilocks-evidence",
+        goal: "Produce calibrated evidence for Goldilocks.",
+        completionEvidence: ["Every capability receives a cited score."],
+      },
+    ],
+  },
+} satisfies EducationExperienceCustomization;
+
+export const previewEducationExperience = {
+  customization: previewEducationCustomization,
+  defaults: previewEducationCustomization,
+};
 
 export const previewProfileGeneral: ProfileGeneral = {
   sessionId: "00000000-0000-0000-0000-000000000000",

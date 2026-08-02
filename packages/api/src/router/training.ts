@@ -552,7 +552,7 @@ export const trainingRouter = {
       return throwOnFailure(
         await getAiWorkspaceWorkflow({
           sessionId: input.sessionId,
-          deps: createWorkspaceTurnRepositoryDeps(ctx.db),
+          deps: createWorkspaceTurnRepositoryDeps(ctx.db, ctx.session.user.id),
         }),
       );
     }),

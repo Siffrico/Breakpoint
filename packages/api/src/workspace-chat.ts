@@ -203,7 +203,7 @@ const streamWorkspaceChatWithModelPreference = ({
       }
 
       const turnDeps = {
-        ...createWorkspaceTurnRepositoryDeps(db),
+        ...createWorkspaceTurnRepositoryDeps(db, userId),
         scheduleBackgroundTask,
         pregenerateNextUnit: (input: {
           sessionId: string;

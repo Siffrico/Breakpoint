@@ -415,19 +415,50 @@ export const UnitMasteryContractSchema = z
     });
   });
 
-const EducationExperienceTodoSchema = z.object({
-  id: z.string().min(1).max(96),
-  goal: z.string().min(1),
-  completionEvidence: z.array(z.string().min(1)).min(1),
+export const EducationExperienceTodoSchema = z.object({
+  id: ContractDimensionIdSchema,
+  goal: z.string().trim().min(1).max(2_000),
+  completionEvidence: z
+    .array(z.string().trim().min(1).max(2_000))
+    .min(1)
+    .max(8),
 });
+
+const EducationExperienceInstructionsSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(12_000);
+
+export const EducationExperienceCustomizationSchema = z
+  .object({
+    main: z.object({ instructions: EducationExperienceInstructionsSchema }),
+    reviewer: z.object({
+      instructions: EducationExperienceInstructionsSchema,
+      todos: z.array(EducationExperienceTodoSchema).min(1).max(8),
+    }),
+  })
+  .superRefine((experience, ctx) => {
+    const ids = new Set<string>();
+    experience.reviewer.todos.forEach((todo, index) => {
+      if (ids.has(todo.id)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["reviewer", "todos", index, "id"],
+          message: `Duplicate reviewer todo id: ${todo.id}.`,
+        });
+      }
+      ids.add(todo.id);
+    });
+  });
 
 export const EducationExperienceSnapshotSchema = z
   .object({
     id: z.string().min(1).max(96),
     version: z.number().int().positive(),
-    main: z.object({ instructions: z.string().min(1) }),
+    main: z.object({ instructions: EducationExperienceInstructionsSchema }),
     reviewer: z.object({
-      instructions: z.string().min(1),
+      instructions: EducationExperienceInstructionsSchema,
       todos: z.array(EducationExperienceTodoSchema).min(1).max(8),
     }),
   })
@@ -927,6 +958,9 @@ export type ScenarioFormat = z.infer<typeof ScenarioFormatSchema>;
 export type ScenarioArchetype = z.infer<typeof ScenarioArchetypeSchema>;
 export type EducationExperienceSnapshot = z.infer<
   typeof EducationExperienceSnapshotSchema
+>;
+export type EducationExperienceCustomization = z.infer<
+  typeof EducationExperienceCustomizationSchema
 >;
 export type UnitCapabilityTodo = z.infer<typeof UnitCapabilityTodoSchema>;
 export type UnitRunMode = z.infer<typeof UnitRunModeSchema>;

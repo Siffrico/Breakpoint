@@ -176,7 +176,7 @@ export const streamUnitCoach = async ({
     return new Response("Invalid Unit Coach messages.", { status: 400 });
   }
 
-  const deps = createWorkspaceTurnRepositoryDeps(db);
+  const deps = createWorkspaceTurnRepositoryDeps(db, userId);
   let resolvedTurn;
   try {
     resolvedTurn = await resolveWorkspaceTurn({ sessionId, deps });

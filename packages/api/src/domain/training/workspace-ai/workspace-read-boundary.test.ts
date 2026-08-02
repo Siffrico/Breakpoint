@@ -240,6 +240,40 @@ describe("workspace read preparation boundary", () => {
     expect(upsertUnitRun).not.toHaveBeenCalled();
   });
 
+  it("snapshots the account customization onto a new unit run", async () => {
+    const unit = {
+      id: "unit-content-1",
+      nodeId: readyNode.id,
+      unitMasteryContract: masteryContract,
+    } as UnitContent;
+    const customizedExperience = {
+      ...DEFAULT_EDUCATION_EXPERIENCE,
+      snapshot: { id: "customized-breakpoint-mentor", version: 4 },
+      main: { instructions: "Use the customized mentor behavior." },
+    };
+
+    const turn = await resolveWorkspaceTurn({
+      sessionId: "session-1",
+      deps: {
+        getEducationExperience: () => Promise.resolve(customizedExperience),
+        getActivePlan: () => Promise.resolve(plan),
+        getPhaseResponses: () => Promise.resolve([]),
+        getUnitRun: () => Promise.resolve(null),
+        getInFlightRecallRun: () => Promise.resolve(null),
+        retireInFlightRecallRun: () => Promise.resolve(),
+        getUnitByNodeId: () => Promise.resolve(unit),
+        ...noRecallProjectionDeps,
+      },
+    });
+
+    expect(turn.unitRun.experience).toMatchObject({
+      id: "customized-breakpoint-mentor",
+      version: 4,
+      main: { instructions: "Use the customized mentor behavior." },
+    });
+    expect(turn.state.workflowId).toBe("customized-breakpoint-mentor@4");
+  });
+
   it("reuses an authorized plan without reading it again", async () => {
     const getActivePlan = vi.fn();
     const unit = {

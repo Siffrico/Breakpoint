@@ -28,8 +28,8 @@ const previews = [
     description: "Theme, model, and memory surfaces.",
   },
   {
-    href: "/ui/profile/teachers",
-    label: "Settings · Teachers",
+    href: "/ui/profile/customize",
+    label: "Settings · Customize",
     description: "Teacher agents and system prompts (WIP).",
   },
   {

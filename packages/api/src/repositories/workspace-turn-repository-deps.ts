@@ -4,9 +4,11 @@ import type { db as databaseClient } from "@acme/db/client";
 import { and, eq, isNull, lt, or } from "@acme/db";
 import {
   TrainingCurriculumNode,
+  TrainingEducationExperiencePreference,
   TrainingUnitRun,
   TrainingWorkspaceTurn,
 } from "@acme/db/schema";
+import { EducationExperienceCustomizationSchema } from "@acme/validators";
 
 import type { PersistedUnitRun } from "../domain/training/education-unit/unit-state";
 import type { JobRatingState } from "../domain/training/engine/rating";
@@ -15,6 +17,7 @@ import type { DifficultyBand } from "../domain/training/types/training.types";
 import type { WorkspaceAiMessage } from "../domain/training/workspace-ai/types";
 import type { WorkspaceTurnOrchestrationDependencies } from "../domain/training/workspace-ai/workspace-turn-orchestration";
 import type { WorkspaceEducationTurnCommit } from "../domain/training/workspace-ai/workspace-turn-persistence";
+import { resolveEducationExperienceCustomization } from "../domain/training/education-unit/experience";
 import { resolveScenarioFormat } from "../domain/training/engine/progression-model";
 import {
   auditDialCompliance,
@@ -519,6 +522,7 @@ export const workspaceTurnRepoLayer = (db: Database) =>
 
 export const createWorkspaceTurnRepositoryDeps = (
   db: Database,
+  userId?: string,
 ): WorkspaceTurnOrchestrationDependencies => {
   // Per-request seed cache: a multi-touch turn reads each node's seed once.
   const seedCache = new Map<string, Promise<JobRatingState | null>>();
@@ -529,8 +533,35 @@ export const createWorkspaceTurnRepositoryDeps = (
     seedCache.set(nodeId, pending);
     return pending;
   };
+  let experiencePromise: ReturnType<
+    NonNullable<
+      WorkspaceTurnOrchestrationDependencies["getEducationExperience"]
+    >
+  > | null = null;
+  const getEducationExperience = () => {
+    if (!userId) {
+      return Promise.resolve(resolveEducationExperienceCustomization(null));
+    }
+    experiencePromise ??=
+      db.query.TrainingEducationExperiencePreference.findFirst({
+        where: eq(TrainingEducationExperiencePreference.userId, userId),
+      }).then((preference) =>
+        resolveEducationExperienceCustomization(
+          preference
+            ? {
+                version: preference.version,
+                customization: EducationExperienceCustomizationSchema.parse(
+                  preference.customizationJson,
+                ),
+              }
+            : null,
+        ),
+      );
+    return experiencePromise;
+  };
 
   return {
+    getEducationExperience,
     getActivePlan: (sessionId: string) =>
       trainingCurriculumRepository.getActivePlan({ db, sessionId }),
     listUnitMessages: (sessionId: string, unitId: string) =>

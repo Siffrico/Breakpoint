@@ -2,6 +2,7 @@ import type { Effect as EffectType } from "effect";
 import { Cause, Effect, Exit } from "effect";
 
 import type { DbError } from "../../../effect/errors";
+import type { EducationExperienceDefinition } from "../education-unit/experience";
 import type { PersistedUnitRun } from "../education-unit/unit-state";
 import type { RecallCandidate, RecallTarget } from "../policies/recall-decay";
 import type {
@@ -131,11 +132,13 @@ export const resolveRecallRunProjection = ({
   userId,
   unit,
   existing,
+  experience = DEFAULT_EDUCATION_EXPERIENCE,
 }: {
   sessionId: string;
   userId?: string | null;
   unit: UnitContent;
   existing: PersistedUnitRun | null;
+  experience?: EducationExperienceDefinition;
 }): PersistedUnitRun => {
   if (existing?.kind === "recall" && existing.mode !== "complete") {
     return existing;
@@ -150,7 +153,7 @@ export const resolveRecallRunProjection = ({
     userId,
     kind: "recall",
     masteryContract: unit.unitMasteryContract,
-    experience: DEFAULT_EDUCATION_EXPERIENCE,
+    experience,
   });
 };
 
@@ -305,11 +308,13 @@ export const resolveUnitRunProjection = ({
   userId,
   unit,
   existing,
+  experience = DEFAULT_EDUCATION_EXPERIENCE,
 }: {
   sessionId: string;
   userId?: string | null;
   unit: UnitContent;
   existing: PersistedUnitRun | null;
+  experience?: EducationExperienceDefinition;
 }): PersistedUnitRun => {
   if (existing?.kind === "education") {
     return existing;
@@ -324,7 +329,7 @@ export const resolveUnitRunProjection = ({
     userId,
     kind: "education",
     masteryContract: unit.unitMasteryContract,
-    experience: DEFAULT_EDUCATION_EXPERIENCE,
+    experience,
   });
 };
 
@@ -365,11 +370,19 @@ export const loadNextReadyUnitProjection = ({
       ],
       { concurrency: 2 },
     );
+    const experience = existingRun
+      ? DEFAULT_EDUCATION_EXPERIENCE
+      : yield* reader.getEducationExperience();
     return {
       node,
       unit,
       responses,
-      run: resolveUnitRunProjection({ sessionId, unit, existing: existingRun }),
+      run: resolveUnitRunProjection({
+        sessionId,
+        unit,
+        existing: existingRun,
+        experience,
+      }),
     };
   });
 
@@ -472,11 +485,20 @@ export const resolveWorkspaceTurnEffect = ({
       ],
       { concurrency: 2 },
     );
+    const selectedExistingRun = isRecallTurn
+      ? (plannedRecall?.run ?? null)
+      : reusesActiveUnit
+        ? active.run
+        : existingRun;
+    const experience = selectedExistingRun
+      ? DEFAULT_EDUCATION_EXPERIENCE
+      : yield* reader.getEducationExperience();
     const unitRun = isRecallTurn
       ? resolveRecallRunProjection({
           sessionId,
           unit,
           existing: plannedRecall?.run ?? null,
+          experience,
         })
       : reusesActiveUnit && active.run
         ? active.run
@@ -484,6 +506,7 @@ export const resolveWorkspaceTurnEffect = ({
             sessionId,
             unit,
             existing: existingRun,
+            experience,
           });
 
     const resolvedState = {

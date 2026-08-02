@@ -163,6 +163,9 @@ export const getAiWorkspaceWorkflowEffect = ({
         sessionId,
         unit: recallUnit,
         existing: plannedRecall?.run ?? null,
+        experience: plannedRecall?.run
+          ? undefined
+          : yield* projectionReader.getEducationExperience(),
       });
       resolvedRun = recallRun;
       resolvedState = {

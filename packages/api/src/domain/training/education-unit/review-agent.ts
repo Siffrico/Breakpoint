@@ -43,9 +43,9 @@ export const runReviewPresentationAgent = ({
   runUnitAgent({
     agent: "reviewer",
     purpose: "evaluation",
-    system: REVIEWER_SYSTEM,
+    system: `${REVIEWER_SYSTEM}\n\n## Customized behavior\n${experience.reviewer.instructions}`,
     messages,
-    context: `## Experience behavior\n${experience.reviewer.instructions}\n\n${context}\n\n## This turn: open adversarial review\nPresent the first independent pressure test. Test the capability dimensions on a novel surface and begin satisfying the reviewer todos. assistantMessage must contain only the complete learner-facing challenge. Author its exact private contract and calibrated difficulty vector in the dedicated fields. Set contract.runKind to ${runKind}.`,
+    context: `${context}\n\n## This turn: open adversarial review\nPresent the first independent pressure test. Test the capability dimensions on a novel surface and begin satisfying the reviewer todos. assistantMessage must contain only the complete learner-facing challenge. Author its exact private contract and calibrated difficulty vector in the dedicated fields. Set contract.runKind to ${runKind}.`,
     schema: ReviewPresentationOutputSchema,
     schemaName: "unit_review_presentation",
     maxOutputTokens: 3_000,
@@ -69,9 +69,9 @@ export const runReviewGradeAgent = ({
   runUnitAgent({
     agent: "reviewer",
     purpose: "evaluation",
-    system: REVIEWER_SYSTEM,
+    system: `${REVIEWER_SYSTEM}\n\n## Customized behavior\n${experience.reviewer.instructions}`,
     messages,
-    context: `## Experience behavior\n${experience.reviewer.instructions}\n\n${context}\n\n## Immutable active challenge\n${JSON.stringify(activeChallenge)}\n\n## This turn: grade and push\nGrade the learner's latest answer only against the immutable active challenge. Return one result for every capability dimension tested by its contract. Mark reviewer todos complete only with concrete evidence. If every capability and reviewer todo is robust, pass. Otherwise continue: assistantMessage must include concise direct feedback followed by the complete next challenge, and nextChallenge must privately define that exact new challenge with the same scenarioStage as the active challenge.`,
+    context: `${context}\n\n## Immutable active challenge\n${JSON.stringify(activeChallenge)}\n\n## This turn: grade and push\nGrade the learner's latest answer only against the immutable active challenge. Return one result for every capability dimension tested by its contract. Mark reviewer todos complete only with concrete evidence. If every capability and reviewer todo is robust, pass. Otherwise continue: assistantMessage must include concise direct feedback followed by the complete next challenge, and nextChallenge must privately define that exact new challenge with the same scenarioStage as the active challenge.`,
     schema: ReviewGradeOutputSchema,
     schemaName: "unit_review_grade",
     maxOutputTokens: 3_600,

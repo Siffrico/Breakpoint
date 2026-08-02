@@ -4,11 +4,13 @@ import { and, eq, gte, sql } from "@acme/db";
 import {
   account,
   TrainingCurriculumPlan,
+  TrainingEducationExperiencePreference,
   TrainingIdentityProfile,
   TrainingIdentityProfileVersion,
   TrainingUnitAttempt,
   user,
 } from "@acme/db/schema";
+import { EducationExperienceCustomizationSchema } from "@acme/validators";
 
 import type { ProfileBilling } from "../domain/profile/types";
 import type { DatabaseClient } from "../effect/db";
@@ -177,6 +179,49 @@ export const ProfileRepoLive = Layer.effect(
 
       getBillingByUserId: () =>
         Effect.succeed<ProfileBilling>({ plan: "free", manageUrl: null }),
+
+      getEducationExperienceByUserId: (userId) =>
+        query("getEducationExperiencePreference", async (client) => {
+          const preference =
+            await client.query.TrainingEducationExperiencePreference.findFirst({
+              where: eq(TrainingEducationExperiencePreference.userId, userId),
+            });
+          return preference
+            ? {
+                version: preference.version,
+                customization: EducationExperienceCustomizationSchema.parse(
+                  preference.customizationJson,
+                ),
+              }
+            : null;
+        }),
+
+      updateEducationExperienceByUserId: (userId, customization) =>
+        query("updateEducationExperiencePreference", async (client) => {
+          const parsed =
+            EducationExperienceCustomizationSchema.parse(customization);
+          const [preference] = await client
+            .insert(TrainingEducationExperiencePreference)
+            .values({ userId, customizationJson: parsed })
+            .onConflictDoUpdate({
+              target: TrainingEducationExperiencePreference.userId,
+              set: {
+                version: sql`${TrainingEducationExperiencePreference.version} + 1`,
+                customizationJson: parsed,
+                updatedAt: new Date(),
+              },
+            })
+            .returning();
+          if (!preference) {
+            throw new Error("Education experience preference was not saved.");
+          }
+          return {
+            version: preference.version,
+            customization: EducationExperienceCustomizationSchema.parse(
+              preference.customizationJson,
+            ),
+          };
+        }),
     };
   }),
 );

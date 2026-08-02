@@ -2,6 +2,7 @@ import type { Effect } from "effect";
 import { Context, Effect as Fx } from "effect";
 
 import type { DbError } from "../../../effect/errors";
+import type { EducationExperienceDefinition } from "../education-unit/experience";
 import type { PersistedUnitRun } from "../education-unit/unit-state";
 import type { RecallCandidate } from "../policies/recall-decay";
 import type {
@@ -11,6 +12,7 @@ import type {
 } from "../types/training.types";
 import type { WorkspaceAiMessage } from "./types";
 import { makeDbError } from "../../../effect/db";
+import { DEFAULT_EDUCATION_EXPERIENCE } from "../education-unit/experience";
 
 const read = <A>(operation: string, run: () => Promise<A>) =>
   Fx.tryPromise({
@@ -19,6 +21,7 @@ const read = <A>(operation: string, run: () => Promise<A>) =>
   });
 
 export interface WorkspaceProjectionReaderSource {
+  readonly getEducationExperience?: () => Promise<EducationExperienceDefinition>;
   readonly getActivePlan: (sessionId: string) => Promise<CurriculumPlan | null>;
   readonly getPhaseResponses: (
     unitContentId: string,
@@ -55,6 +58,10 @@ export interface WorkspaceProjectionReaderSource {
 }
 
 export interface WorkspaceProjectionReaderShape {
+  readonly getEducationExperience: () => Effect.Effect<
+    EducationExperienceDefinition,
+    DbError
+  >;
   readonly getActivePlan: (
     sessionId: string,
   ) => Effect.Effect<CurriculumPlan | null, DbError>;
@@ -102,6 +109,10 @@ export class WorkspaceProjectionReader extends Context.Service<
 export const makeWorkspaceProjectionReader = (
   source: WorkspaceProjectionReaderSource,
 ): WorkspaceProjectionReaderShape => ({
+  getEducationExperience: () =>
+    source.getEducationExperience
+      ? read("getEducationExperience", source.getEducationExperience)
+      : Fx.succeed(DEFAULT_EDUCATION_EXPERIENCE),
   getActivePlan: (sessionId) =>
     read("getActivePlan", () => source.getActivePlan(sessionId)),
   getPhaseResponses: (unitContentId, sessionId) =>
