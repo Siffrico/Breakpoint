@@ -333,7 +333,7 @@ const streamWorkspaceChatWithModelPreference = ({
           userId,
           turnId,
           turnLeaseId: effectiveLeaseId,
-          message,
+          message: trimmedMessage,
           turn,
           deps: turnDeps,
           onAssistantMessage: (content) => {

@@ -14,13 +14,12 @@ import type {
 } from "../types/training.types";
 import type {
   WorkspaceAiMessage,
-  WorkspaceAiState,
   WorkspaceAiTurnResult,
 } from "./types";
 import type { RatingEvidenceError } from "./workspace-errors";
 import type { WorkspaceTurnDependencies } from "./workspace-turn";
 import { WorkspacePersistenceError } from "./workspace-errors";
-import { planNextWorkspaceTurn } from "./workspace-turn";
+import { resolveWorkspaceTurn } from "./workspace-turn";
 import { WorkspaceTurnRepo } from "./workspace-turn-repo";
 
 export interface WorkspaceTurnPersistenceDependencies
@@ -196,7 +195,6 @@ export const saveUnitTurnResult = ({
   sessionId,
   userId,
   message,
-  state,
   unit,
   plan,
   turnResult,
@@ -216,7 +214,6 @@ export const saveUnitTurnResult = ({
   sessionId: string;
   userId: string;
   message: string;
-  state: WorkspaceAiState;
   unit: UnitContent;
   plan: CurriculumPlan;
   turnResult: UnitTurnResult;
@@ -341,11 +338,22 @@ export const saveUnitTurnResult = ({
     });
 
     const nextWorkspaceState = yield* Effect.tryPromise({
-      try: () => planNextWorkspaceTurn({ sessionId, plan, deps }),
+      try: async () =>
+        (
+          await resolveWorkspaceTurn({
+            sessionId,
+            authorizedPlan: plan,
+            repairStaleRun: false,
+            deps: {
+              ...deps,
+              getActivePlan: () => Promise.resolve(plan),
+            },
+          })
+        ).state,
       catch: (cause) =>
         new WorkspacePersistenceError({
           message: "Workspace state could not be replanned.",
-          operation: "planNextWorkspaceTurn",
+          operation: "resolveWorkspaceTurn",
           cause,
         }),
     });
@@ -360,7 +368,7 @@ export const saveUnitTurnResult = ({
     });
 
     return {
-      state: nextWorkspaceState ?? { ...state, educationStage: nextRun.mode },
+      state: nextWorkspaceState,
       messages,
       assistantMessage,
     };

@@ -34,7 +34,10 @@ import {
   WorkspacePersistenceError,
 } from "./workspace-errors";
 import { WORKSPACE_LEASE_HEARTBEAT_MS } from "./workspace-lease";
-import { isUnitAwaitingAdvance, planNextWorkspaceTurn } from "./workspace-turn";
+import {
+  findLatestPhaseResponse,
+  isUnitAwaitingAdvance,
+} from "./workspace-turn";
 import { saveUnitTurnResult } from "./workspace-turn-persistence";
 
 interface ResolvedDifficultyDirectiveResult {
@@ -397,13 +400,6 @@ export const runEducationUnitTurn = ({
   WorkspaceTurnRepo
 > =>
   Effect.gen(function* () {
-    const trimmedMessage = message.trim();
-    if (trimmedMessage.length < 2) {
-      return yield* new WorkspaceInputError({
-        message: "Write a fuller message so the AI can respond usefully.",
-      });
-    }
-
     const { plan, state, node, unit, unitRun, unitResponses } = turn;
     if (isUnitAwaitingAdvance({ node, run: unitRun })) {
       return yield* new WorkspaceInputError({
@@ -417,16 +413,13 @@ export const runEducationUnitTurn = ({
       turnId,
       turnLeaseId,
       unitRun,
-      message: trimmedMessage,
+      message,
       deps,
     });
     if (loadedTranscript.kind === "cached") {
       onAssistantMessage?.(loadedTranscript.assistantMessage.content);
-      const nextState = yield* persistPromise("planNextWorkspaceTurn", () =>
-        planNextWorkspaceTurn({ sessionId, plan, deps }),
-      );
       return {
-        state: nextState ?? state,
+        state,
         messages: loadedTranscript.messages,
         assistantMessage: loadedTranscript.assistantMessage,
       };
@@ -524,14 +517,13 @@ export const runEducationUnitTurn = ({
       onPartialAssistantMessage,
     });
 
-    const scenarioAttemptId = [...unitResponses]
-      .reverse()
-      .find(
-        (response) =>
-          (response.phase === "ai_education" ||
-            response.phase === "ai_recall") &&
-          response.metadata?.scenarioAttemptId,
-      )?.metadata?.scenarioAttemptId;
+    const scenarioAttemptId = findLatestPhaseResponse(
+      unitResponses,
+      (response) =>
+        (response.phase === "ai_education" ||
+          response.phase === "ai_recall") &&
+        response.metadata?.scenarioAttemptId !== undefined,
+    )?.metadata?.scenarioAttemptId;
     let ratingEvaluation: WorkspaceRatingEvaluationCommit | null = null;
     if (tracksRating && turnResult.ratingWrite) {
       if (!scenarioAttemptId) {
@@ -594,10 +586,10 @@ export const runEducationUnitTurn = ({
             evidenceNodeId: unit.nodeId,
           }
         : null;
-    const presentedRecallEntryIds = [...unitResponses]
-      .reverse()
-      .find((response) => response.metadata?.recallEntryIds)
-      ?.metadata?.recallEntryIds;
+    const presentedRecallEntryIds = findLatestPhaseResponse(
+      unitResponses,
+      (response) => response.metadata?.recallEntryIds !== undefined,
+    )?.metadata?.recallEntryIds;
     const composedEntryIds = recallFocus
       ? [
           recallFocus.primary.id,
@@ -619,8 +611,7 @@ export const runEducationUnitTurn = ({
     const result = yield* saveUnitTurnResult({
       sessionId,
       userId,
-      message: trimmedMessage,
-      state,
+      message,
       unit,
       plan,
       turnResult,

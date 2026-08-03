@@ -28,6 +28,17 @@ import {
 
 export type WorkspaceTurnDependencies = WorkspaceProjectionReaderSource;
 
+export const findLatestPhaseResponse = <T extends PhaseResponseRecord>(
+  responses: readonly T[],
+  matches: (response: T) => boolean,
+): T | undefined => {
+  for (let index = responses.length - 1; index >= 0; index -= 1) {
+    const response = responses[index];
+    if (response && matches(response)) return response;
+  }
+  return undefined;
+};
+
 export interface ResolvedWorkspaceTurn {
   plan: CurriculumPlan;
   state: WorkspaceAiState;
@@ -186,18 +197,14 @@ const rehydrateRecallTarget = ({
 const resolvePersistedRecall = ({
   plan,
   run,
-  responses,
+  knowledgeIds,
   candidates,
 }: {
   plan: CurriculumPlan;
   run: PersistedUnitRun;
-  responses: readonly PhaseResponseRecord[];
+  knowledgeIds: readonly string[] | undefined;
   candidates: readonly RecallCandidate[];
 }): PlannedRecall | null => {
-  const knowledgeIds = [...responses]
-    .reverse()
-    .find((response) => response.metadata?.recallEntryIds)
-    ?.metadata?.recallEntryIds;
   const target = knowledgeIds
     ? rehydrateRecallTarget({ knowledgeIds, candidates })
     : null;
@@ -232,17 +239,17 @@ export const loadPlannedRecall = ({
         inFlightRun.unitId,
         sessionId,
       );
-      const knowledgeIds = [...responses]
-        .reverse()
-        .find((response) => response.metadata?.recallEntryIds)
-        ?.metadata?.recallEntryIds;
+      const knowledgeIds = findLatestPhaseResponse(
+        responses,
+        (response) => response.metadata?.recallEntryIds !== undefined,
+      )?.metadata?.recallEntryIds;
       const candidates = knowledgeIds
         ? yield* reader.getRecallCandidatesByIds(plan.id, knowledgeIds)
         : [];
       const resumed = resolvePersistedRecall({
         plan,
         run: inFlightRun,
-        responses,
+        knowledgeIds,
         candidates,
       });
       if (resumed) return resumed;
@@ -394,9 +401,11 @@ export const loadNextReadyUnitProjection = ({
 export const resolveWorkspaceTurnEffect = ({
   sessionId,
   authorizedPlan,
+  repairStaleRun = true,
 }: {
   sessionId: string;
   authorizedPlan?: CurriculumPlan;
+  repairStaleRun?: boolean;
 }): EffectType.Effect<
   ResolvedWorkspaceTurn,
   | DbError
@@ -434,7 +443,7 @@ export const resolveWorkspaceTurnEffect = ({
       plan,
       active,
       inFlightRun,
-      repairStaleRun: true,
+      repairStaleRun,
     });
 
     const state = planWorkspaceTurn({
@@ -529,73 +538,23 @@ export const resolveWorkspaceTurnEffect = ({
 export const resolveWorkspaceTurn = async ({
   sessionId,
   authorizedPlan,
+  repairStaleRun,
   deps,
 }: {
   sessionId: string;
   authorizedPlan?: CurriculumPlan;
+  repairStaleRun?: boolean;
   deps: WorkspaceProjectionReaderSource;
 }): Promise<ResolvedWorkspaceTurn> => {
   const exit = await Effect.runPromiseExit(
-    resolveWorkspaceTurnEffect({ sessionId, authorizedPlan }).pipe(
-      Effect.provideService(
-        WorkspaceProjectionReader,
-        makeWorkspaceProjectionReader(deps),
-      ),
-    ),
-  );
-
-  if (Exit.isSuccess(exit)) return exit.value;
-  throw Cause.squash(exit.cause);
-};
-
-/**
- * Takes a session id and current plan, produces the next runnable workspace
- * state, and returns null only when the curriculum has no next runnable turn.
- */
-export const planNextWorkspaceTurn = async ({
-  sessionId,
-  plan,
-  deps,
-}: {
-  sessionId: string;
-  plan: CurriculumPlan;
-  deps: Omit<WorkspaceTurnDependencies, "getActivePlan">;
-}): Promise<WorkspaceAiState | null> => {
-  const exit = await Effect.runPromiseExit(
-    Effect.gen(function* () {
-      const reader = yield* WorkspaceProjectionReader;
-      const [active, inFlightRun] = yield* Effect.all(
-        [
-          loadNextReadyUnitProjection({ sessionId, nodes: plan.nodes }),
-          reader.getInFlightRecallRun(sessionId),
-        ],
-        { concurrency: 2 },
-      );
-      const plannedRecall = yield* loadPlannedRecall({
-        sessionId,
-        plan,
-        active,
-        inFlightRun,
-        repairStaleRun: true,
-      });
-      return planWorkspaceTurn({
-        nodes: plan.nodes,
-        activeUnitResponses: active.responses,
-        activeUnitRun: active.run,
-        recallTarget: plannedRecall
-          ? {
-              unitNodeId: plannedRecall.node.id,
-              unitTitle: plannedRecall.node.title,
-            }
-          : null,
-      });
+    resolveWorkspaceTurnEffect({
+      sessionId,
+      authorizedPlan,
+      repairStaleRun,
     }).pipe(
       Effect.provideService(
         WorkspaceProjectionReader,
-        makeWorkspaceProjectionReader({
-          ...deps,
-          getActivePlan: () => Promise.resolve(plan),
-        }),
+        makeWorkspaceProjectionReader(deps),
       ),
     ),
   );

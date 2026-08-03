@@ -11,7 +11,7 @@ import { DEFAULT_EDUCATION_EXPERIENCE } from "../education-unit/experience";
 import { createUnitRun } from "../education-unit/unit-state";
 import { UnitNotReadyError } from "../unit-preparation/errors";
 import { getAiWorkspaceWorkflow } from "../workflows/get-ai-workspace-workflow";
-import { planNextWorkspaceTurn, resolveWorkspaceTurn } from "./workspace-turn";
+import { resolveWorkspaceTurn } from "./workspace-turn";
 
 const readyNode = {
   id: "node-1",
@@ -327,15 +327,18 @@ describe("durable recall projection", () => {
     expect(turn.recallFocus?.primary.id).toBe(recallCandidate.id);
   });
 
-  it("keeps the post-commit replan on the unfinished recall", async () => {
+  it("resolves the unfinished recall after a committed turn", async () => {
     const { getActivePlan: _getActivePlan, ...deps } = recallDeps();
-    const state = await planNextWorkspaceTurn({
+    const turn = await resolveWorkspaceTurn({
       sessionId: "session-1",
-      plan: recallPlan,
-      deps,
+      authorizedPlan: recallPlan,
+      deps: {
+        ...deps,
+        getActivePlan: () => Promise.resolve(recallPlan),
+      },
     });
 
-    expect(state).toMatchObject({
+    expect(turn.state).toMatchObject({
       recallUnitId: completedNode.id,
       activeUnitId: null,
     });
