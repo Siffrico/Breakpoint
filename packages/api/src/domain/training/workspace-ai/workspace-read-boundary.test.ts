@@ -1,3 +1,4 @@
+import { Effect, Layer } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PersistedUnitRun } from "../education-unit/unit-state";
@@ -5,13 +6,17 @@ import type { RecallCandidate } from "../policies/recall-decay";
 import type {
   CurriculumNode,
   CurriculumPlan,
+  PhaseResponseRecord,
   UnitContent,
 } from "../types/training.types";
+import type { WorkspaceTurnOrchestrationDependencies } from "./workspace-turn-orchestration";
 import { DEFAULT_EDUCATION_EXPERIENCE } from "../education-unit/experience";
 import { createUnitRun } from "../education-unit/unit-state";
 import { UnitNotReadyError } from "../unit-preparation/errors";
 import { getAiWorkspaceWorkflow } from "../workflows/get-ai-workspace-workflow";
 import { resolveWorkspaceTurn } from "./workspace-turn";
+import { runEducationUnitTurn } from "./workspace-turn-orchestration";
+import { WorkspaceTurnRepo } from "./workspace-turn-repo";
 
 const readyNode = {
   id: "node-1",
@@ -38,9 +43,23 @@ const completedNode = {
   orderIndex: 0,
   status: "completed",
 } satisfies CurriculumNode;
+const abilityNode = {
+  ...completedNode,
+  id: "ability-1",
+  parentNodeId: null,
+  kind: "ability",
+  title: "Ability",
+} satisfies CurriculumNode;
+const skillNode = {
+  ...completedNode,
+  id: "cluster-1",
+  parentNodeId: abilityNode.id,
+  kind: "skill",
+  title: "Skill",
+} satisfies CurriculumNode;
 const recallPlan = {
   id: "plan-1",
-  nodes: [completedNode, readyNode],
+  nodes: [abilityNode, skillNode, completedNode, readyNode],
 } as CurriculumPlan;
 const masteryContract = {
   version: 1 as const,
@@ -325,6 +344,177 @@ describe("durable recall projection", () => {
     });
     expect(turn.unitRun).toBe(recallRun);
     expect(turn.recallFocus?.primary.id).toBe(recallCandidate.id);
+  });
+
+  it("persists and resumes the fresh recall target after presenting its review", async () => {
+    const phaseResponses: PhaseResponseRecord[] = [];
+    let inFlightRecallRun: PersistedUnitRun | null = null;
+    const activeRun = {
+      ...createUnitRun({
+        unitId: activeUnit.id,
+        sessionId: "session-1",
+        userId: "user-1",
+        kind: "education",
+        masteryContract,
+        experience: DEFAULT_EDUCATION_EXPERIENCE,
+      }),
+      mode: "complete" as const,
+    };
+    const deps: WorkspaceTurnOrchestrationDependencies = {
+      getActivePlan: () => Promise.resolve(recallPlan),
+      getPhaseResponses: (unitContentId: string) =>
+        Promise.resolve(unitContentId === recallUnit.id ? phaseResponses : []),
+      getUnitRun: (_sessionId: string, unitContentId: string) =>
+        Promise.resolve(unitContentId === activeUnit.id ? activeRun : null),
+      getInFlightRecallRun: () => Promise.resolve(inFlightRecallRun),
+      retireInFlightRecallRun: () => Promise.resolve(),
+      getUnitByNodeId: (nodeId: string) =>
+        Promise.resolve(nodeId === completedNode.id ? recallUnit : activeUnit),
+      getRecallCandidatesByIds: () => Promise.resolve([recallCandidate]),
+      getMostOverdueRecallCandidate: () =>
+        Promise.resolve(inFlightRecallRun ? null : recallCandidate),
+      getRecallCompanionCandidate: () => Promise.resolve(null),
+      claimWorkspaceTurn: () =>
+        Promise.resolve({ status: "claimed" as const, claimedAt: new Date() }),
+      appendMessage: () => Promise.resolve(null),
+      listUnitMessages: () => Promise.resolve([]),
+      markWorkspaceTurnFailed: () => Promise.resolve(),
+      claimWorkspaceUnitLease: () => Promise.resolve(true),
+      releaseWorkspaceUnitLease: () => Promise.resolve(),
+      listMemories: () => Promise.resolve([]),
+      resolveDifficultyDirective: () =>
+        Promise.resolve({
+          directive: {
+            intent: "probe",
+            bandOrder: 0,
+            supportLevel: "none",
+            targetItemRating: 1200,
+            targetMisconceptionCode: null,
+            reason: "Probe durable recall.",
+            nextProgress: { bandOrder: 0, supportLevel: "none" },
+          },
+          promptBlock: "Probe durable recall.",
+          ratingSnapshot: "rating snapshot",
+          learnerRating: 1200,
+          format: {
+            id: "frq",
+            label: "Free response",
+            kind: "frq",
+            description: "Explain the decision.",
+          },
+          dialPreset: {
+            steps: [3, 3],
+            withheldGivens: [1, 1],
+            alternatives: [2, 2],
+          },
+        }),
+      runUnitTurn: ({ run }) =>
+        Effect.succeed({
+          assistantMessage: "Defend the canonical boundary under pressure.",
+          nextRun: {
+            ...run,
+            activeReviewChallenge: {
+              prompt: "Defend the canonical boundary under pressure.",
+              difficultyVector: {
+                formatId: "frq",
+                reasoningPathSteps: 3,
+                withheldGivens: 1,
+                embeddedAlternatives: 2,
+              },
+              contract: {
+                version: 1 as const,
+                runKind: "recall",
+                scenarioPromptSummary: "Choose and defend the next move.",
+                testedDimensions: [
+                  {
+                    dimensionId: "stable-boundaries",
+                    promptRole: "Test transfer.",
+                    expectedStrongMoves: ["Defends the canonical boundary"],
+                    acceptableVariants: [],
+                    commonWrongMoves: ["Duplicates responsibility"],
+                    scoreBands: {
+                      strong: "Defends the boundary causally.",
+                      partial: "Names the boundary without a causal defense.",
+                      weak: "Duplicates responsibility.",
+                    },
+                  },
+                ],
+                learnerVisibleCriteria: ["Choose and defend one move."],
+                evaluatorNotes: [],
+              },
+            },
+          },
+          actor: "reviewer" as const,
+          completedCapabilityId: null,
+          reviewGrade: null,
+          ratingWrite: null,
+          presentedReviewChallenge: true,
+        }),
+    };
+
+    const freshTurn = await resolveWorkspaceTurn({
+      sessionId: "session-1",
+      deps,
+    });
+    expect(freshTurn.recallFocus?.primary.id).toBe(recallCandidate.id);
+
+    await Effect.runPromise(
+      runEducationUnitTurn({
+        sessionId: "session-1",
+        userId: "user-1",
+        turnId: "turn-1",
+        turnLeaseId: "lease-1",
+        message: "Start recall",
+        turn: freshTurn,
+        deps,
+      }).pipe(
+        Effect.provide(
+          Layer.succeed(WorkspaceTurnRepo, {
+            commitEducationTurn: (input) =>
+              Effect.sync(() => {
+                inFlightRecallRun = input.nextRun;
+                phaseResponses.push({
+                  id: "response-1",
+                  unitContentId: input.phaseResponse.unitContentId,
+                  sessionId: input.phaseResponse.sessionId,
+                  userId: input.phaseResponse.userId,
+                  phase: input.phaseResponse.phase,
+                  sequence: input.phaseResponse.sequence ?? 0,
+                  userResponse: input.phaseResponse.userResponse,
+                  aiResponse: input.phaseResponse.aiResponse ?? null,
+                  passed: input.phaseResponse.passed ?? null,
+                  score: input.phaseResponse.score ?? null,
+                  metadata: input.phaseResponse.metadata ?? null,
+                  createdAt: new Date(),
+                });
+                return {
+                  assistantMessage: {
+                    role: "assistant",
+                    content: input.assistantMessage.content,
+                    sequence: 1,
+                    slot: "education_unit",
+                    unitId: completedNode.id,
+                    turnId: "turn-1",
+                    metadata: null,
+                  },
+                };
+              }),
+          }),
+        ),
+      ),
+    );
+
+    const resumedTurn = await resolveWorkspaceTurn({
+      sessionId: "session-1",
+      deps,
+    });
+    expect(phaseResponses[0]?.metadata?.recallEntryIds).toEqual([
+      recallCandidate.id,
+    ]);
+    expect(resumedTurn.recallFocus?.primary.id).toBe(recallCandidate.id);
+    expect(resumedTurn.unitRun.activeReviewChallenge?.prompt).toBe(
+      "Defend the canonical boundary under pressure.",
+    );
   });
 
   it("resolves the unfinished recall after a committed turn", async () => {
