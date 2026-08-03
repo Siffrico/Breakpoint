@@ -330,9 +330,17 @@ export const saveUnitTurnResult = ({
         slot: "education_unit",
         unitId: unit.nodeId,
         turnId,
-        metadata: difficultyDirectiveReason
-          ? { difficultyDirectiveReason }
-          : null,
+        metadata:
+          turnResult.actor === "reviewer"
+            ? {
+                passNumber: nextRun.reviewPass,
+                ...(difficultyDirectiveReason
+                  ? { difficultyDirectiveReason }
+                  : {}),
+              }
+            : difficultyDirectiveReason
+              ? { difficultyDirectiveReason }
+              : null,
       },
       phaseResponse,
       ratingEvaluation,
@@ -377,6 +385,7 @@ export const saveUnitTurnResult = ({
     });
 
     return {
+      passNumber: nextRun.reviewPass,
       state: nextWorkspaceState,
       messages,
       assistantMessage,

@@ -25,7 +25,6 @@ import type {
 import type { WorkspaceTurnRepo } from "./workspace-turn-repo";
 import { resolveEducationExperience } from "../education-unit/experience";
 import {
-  authorPass2Challenge,
   runPassAdvanceTurn,
   runUnitTurn,
 } from "../education-unit/run-unit-turn";
@@ -99,7 +98,6 @@ export interface WorkspaceTurnOrchestrationDependencies
   /** Test seam for deterministic education-unit contract tests. */
   runUnitTurn?: typeof runUnitTurn;
   runPassAdvanceTurn?: typeof runPassAdvanceTurn;
-  authorPass2Challenge?: typeof authorPass2Challenge;
   savePendingPass2Challenge?: (input: {
     sessionId: string;
     unitContentId: string;
@@ -457,7 +455,7 @@ export const runEducationUnitTurn = ({
       });
     }
     const advancesPass = action === "advance_pass";
-    if (advancesPass && unitRun.mode !== "awaiting_pass2") {
+    if (advancesPass && unitRun.mode !== "awaiting_next_pass") {
       return yield* new WorkspaceInputError({
         message: "There is no next challenge to open yet.",
       });
@@ -476,6 +474,7 @@ export const runEducationUnitTurn = ({
     if (loadedTranscript.kind === "cached") {
       onAssistantMessage?.(loadedTranscript.assistantMessage.content);
       return {
+        passNumber: unitRun.reviewPass,
         state,
         messages: loadedTranscript.messages,
         assistantMessage: loadedTranscript.assistantMessage,
@@ -704,44 +703,6 @@ export const runEducationUnitTurn = ({
       deps,
     });
 
-    if (settlesPass1 && deps.savePendingPass2Challenge) {
-      const authorChallenge = deps.authorPass2Challenge ?? authorPass2Challenge;
-      const savePendingPass2Challenge = deps.savePendingPass2Challenge;
-      const runPregeneration = () =>
-        Effect.runPromise(
-          authorChallenge({
-            run: turnResult.nextRun,
-            transcript: turnInput.transcript,
-            experience,
-            buildContext,
-          }).pipe(
-            Effect.flatMap((challenge) =>
-              Effect.tryPromise(() =>
-                savePendingPass2Challenge({
-                  sessionId,
-                  unitContentId: unit.id,
-                  kind: turnResult.nextRun.kind,
-                  challenge,
-                }),
-              ),
-            ),
-            Effect.tapCause((cause) =>
-              Effect.logError("Pass 2 pre-generation failed", {
-                sessionId,
-                unitContentId: unit.id,
-                cause,
-              }),
-            ),
-            Effect.ignore,
-          ),
-        );
-      if (deps.scheduleBackgroundTask) {
-        deps.scheduleBackgroundTask(runPregeneration);
-      } else {
-        void runPregeneration();
-      }
-    }
-
     const skillNodeId = node.parentNodeId;
     if (
       completed &&
@@ -773,6 +734,7 @@ export const runEducationUnitTurn = ({
     }
     onAssistantMessage?.(result.assistantMessage.content);
     return {
+      passNumber: result.passNumber,
       state: result.state,
       messages: result.messages,
       assistantMessage: result.assistantMessage,

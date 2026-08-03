@@ -1,9 +1,6 @@
 import { z } from "zod/v4";
 
-import type {
-  EvaluationDimensionResult,
-  UnitRunKind,
-} from "@acme/validators";
+import type { EvaluationDimensionResult, UnitRunKind } from "@acme/validators";
 import {
   DifficultyVectorSchema,
   EvaluationDimensionResultSchema,
@@ -25,7 +22,22 @@ export const mentorOutputSchema = (currentCapabilityId: string) =>
       assistantMessage: LearnerFacingMessageSchema,
       completedCapabilityId: z.literal(currentCapabilityId).nullable(),
     })
-    .strict();
+    .strict()
+    .superRefine((output, ctx) => {
+      if (
+        output.completedCapabilityId === null &&
+        /\bmark (?:this|it|the (?:capability|unit|todo))(?: one)? complete\b/i.test(
+          output.assistantMessage,
+        )
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["completedCapabilityId"],
+          message:
+            "A completion claim requires completedCapabilityId to be set.",
+        });
+      }
+    });
 
 // ---------------------------------------------------------------------------
 // Critic contracts
@@ -79,18 +91,21 @@ const MIN_EVIDENCE_CHARACTERS = 3;
 
 const evidenceSchema = (learnerAnswer: string) => {
   const haystack = normalizeEvidence(learnerAnswer);
-  return z.string().min(1).refine(
-    (quote) => {
-      const needle = normalizeEvidence(quote);
-      return (
-        needle.length >= MIN_EVIDENCE_CHARACTERS && haystack.includes(needle)
-      );
-    },
-    {
-      message:
-        "evidence must be a verbatim quote from the learner's latest answer",
-    },
-  );
+  return z
+    .string()
+    .min(1)
+    .refine(
+      (quote) => {
+        const needle = normalizeEvidence(quote);
+        return (
+          needle.length >= MIN_EVIDENCE_CHARACTERS && haystack.includes(needle)
+        );
+      },
+      {
+        message:
+          "evidence must be a verbatim quote from the learner's latest answer",
+      },
+    );
 };
 
 export interface ChallengeShape {
@@ -107,7 +122,11 @@ export interface ChallengeShape {
  * that drifts off the calibrated format or invents a capability cannot be
  * produced in the first place.
  */
-const challengeFields = ({ dimensionIds, formatId, runKind }: ChallengeShape) => ({
+const challengeFields = ({
+  dimensionIds,
+  formatId,
+  runKind,
+}: ChallengeShape) => ({
   difficultyVector: formatId
     ? DifficultyVectorSchema.extend({ formatId: z.literal(formatId) })
     : DifficultyVectorSchema,
@@ -130,7 +149,11 @@ export const reviewPresentationSchema = (shape: ChallengeShape) =>
       assistantMessage: LearnerFacingMessageSchema,
       ...challengeFields(shape),
     })
-    .strict();
+    .strict()
+    .refine((output) => output.assistantMessage.includes("?"), {
+      path: ["assistantMessage"],
+      message: "A review challenge must visibly ask the learner a question.",
+    });
 
 export interface GradeShape {
   /** Exactly the dimensions the active challenge's contract tests. */
@@ -139,24 +162,21 @@ export interface GradeShape {
   readonly learnerAnswer: string;
   readonly formatId: string | null;
   readonly runKind: UnitRunKind;
-  /** False once this pass has already spent its one targeted repair. */
-  readonly repairAllowed: boolean;
+  /** Whether the active item is the pass's independent scenario. */
+  readonly isMainScenario: boolean;
 }
 
 /**
  * Grade plus critique plus — when the answer left a gap — the one targeted
  * exercise that repairs it. There is no verdict field: whether a repair happens
- * is derived from the scores, and a second repair in the same pass is
- * unrepresentable because `targetedExercise` collapses to `z.null()`. That is
- * the loop cap expressed as structure rather than as a counter someone must
- * remember to check.
+ * is derived from the scores. A repair can itself expose a remaining gap, so
+ * the same contract permits another targeted application.
  */
 export const reviewGradeSchema = ({
   testedDimensionIds,
   learnerAnswer,
   formatId,
   runKind,
-  repairAllowed,
 }: GradeShape) =>
   z
     .object({
@@ -171,18 +191,16 @@ export const reviewGradeSchema = ({
           }),
         )
         .length(testedDimensionIds.length),
-      targetedExercise: repairAllowed
-        ? z
-            .object(
-              challengeFields({
-                dimensionIds: testedDimensionIds,
-                formatId,
-                runKind,
-              }),
-            )
-            .strict()
-            .nullable()
-        : z.null(),
+      targetedExercise: z
+        .object(
+          challengeFields({
+            dimensionIds: testedDimensionIds,
+            formatId,
+            runKind,
+          }),
+        )
+        .strict()
+        .nullable(),
     })
     .strict()
     .superRefine((output, ctx) => {
@@ -197,7 +215,7 @@ export const reviewGradeSchema = ({
         });
       }
       const gap = hasModelGap(output.dimensionResults);
-      if (gap && repairAllowed && output.targetedExercise === null) {
+      if (gap && output.targetedExercise === null) {
         ctx.addIssue({
           code: "custom",
           path: ["targetedExercise"],

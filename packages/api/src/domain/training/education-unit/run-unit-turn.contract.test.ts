@@ -289,7 +289,7 @@ describe("runUnitTurn", () => {
       ),
     );
 
-    expect(settledPass1.nextRun.mode).toBe("awaiting_pass2");
+    expect(settledPass1.nextRun.mode).toBe("awaiting_next_pass");
     expect(settledPass1.settledPass).toBe(1);
     expect(settledPass1.ratingWrite).toBeNull();
 
@@ -300,13 +300,16 @@ describe("runUnitTurn", () => {
     };
     const advanced = await Effect.runPromise(
       runPassAdvanceTurn(
-        input({
-          ...settledPass1.nextRun,
-          pendingPass2Challenge: pass2Challenge,
-        }),
+        input(settledPass1.nextRun),
         deps({
           runReviewPresentation: () =>
-            Effect.die("A parked Pass-2 challenge should avoid authoring."),
+            Effect.succeed({
+              object: {
+                assistantMessage: pass2Challenge.prompt,
+                difficultyVector,
+                contract: challengeContract,
+              },
+            }),
         }),
       ),
     );

@@ -26,9 +26,9 @@ export interface PersistedUnitRun {
   readonly capabilityTodos: readonly UnitCapabilityTodo[];
   readonly activeReviewChallenge: UnitReviewChallenge | null;
   readonly reviewerFeedback: string | null;
-  /** 1 repairs the model gap; 2 verifies the repair transfers unaided. */
+  /** The current independent scenario pass. */
   readonly reviewPass: UnitReviewPass;
-  /** One targeted repair per pass; resets when Pass 2 is claimed. */
+  /** Whether this pass's main scenario exposed a gap. */
   readonly repairSpent: boolean;
   readonly pendingPass2Challenge: UnitReviewChallenge | null;
   readonly difficultySnapshot: UnitDifficultySnapshot | null;
@@ -151,9 +151,8 @@ const requireGradableRun = (run: PersistedUnitRun, feedback: string) => {
 };
 
 /**
- * The gap is real, so the critic replaces the graded challenge with the one
- * compact exercise that repairs it. Still Pass 1 — the pass has now spent its
- * only repair, which is what makes a second one unrepresentable next turn.
+ * A gap replaces the active item with a targeted application. The reviewer may
+ * repair again until the learner demonstrates the insight.
  */
 export const recordTargetedExercise = ({
   run,
@@ -166,11 +165,6 @@ export const recordTargetedExercise = ({
 }): Effect.Effect<PersistedUnitRun, UnitStateContractError> => {
   const invalid = requireGradableRun(run, feedback);
   if (invalid) return invalid;
-  if (run.repairSpent) {
-    return contractFailure(
-      "This pass has already spent its one targeted repair.",
-    );
-  }
   return Effect.succeed({
     ...run,
     reviewerFeedback: feedback.trim(),
@@ -180,10 +174,8 @@ export const recordTargetedExercise = ({
 };
 
 /**
- * Nothing left to repair in this pass. Pass 1 of an education run parks in
- * `awaiting_pass2` for the learner's Enter; every other settle completes the
- * run. Recall runs are Pass 1 only — a spaced checkpoint verifies retrieval,
- * not transfer.
+ * A settled education pass waits for Enter. Pass 1 always earns Pass 2; later
+ * passes finish only when their independent scenario had no gap.
  */
 export const settleReviewPass = ({
   run,
@@ -194,47 +186,45 @@ export const settleReviewPass = ({
 }): Effect.Effect<PersistedUnitRun, UnitStateContractError> => {
   const invalid = requireGradableRun(run, feedback);
   if (invalid) return invalid;
-  const holdsForPass2 = run.kind === "education" && run.reviewPass === 1;
+  const awaitsNextPass =
+    run.kind === "education" && (run.reviewPass === 1 || run.repairSpent);
   return Effect.succeed({
     ...run,
     reviewerFeedback: feedback.trim(),
     activeReviewChallenge: null,
-    mode: holdsForPass2 ? "awaiting_pass2" : "complete",
+    mode: awaitsNextPass ? "awaiting_next_pass" : "complete",
   });
 };
 
-/** Parks a backgrounded Pass-2 challenge on a run that is holding for Enter. */
+/** Legacy pre-generation support for a run waiting for its next pass. */
 export const recordPendingPass2Challenge = (
   run: PersistedUnitRun,
   challenge: UnitReviewChallenge,
 ): Effect.Effect<PersistedUnitRun, UnitStateContractError> => {
-  if (run.mode !== "awaiting_pass2") {
-    return contractFailure(
-      "A pending Pass 2 challenge requires a settled Pass 1.",
-    );
+  if (run.mode !== "awaiting_next_pass") {
+    return contractFailure("A pending challenge requires a settled pass.");
   }
   return Effect.succeed({ ...run, pendingPass2Challenge: challenge });
 };
 
 /**
- * The learner pressed Enter. Pass 2 opens with a fresh whole scenario and its
- * own repair budget; the unit never touched `complete`, so the Next Unit gate
- * stayed shut throughout.
+ * The learner pressed Enter. The next independent scenario opens without
+ * completing the unit, regardless of how many passes preceded it.
  */
-export const claimPass2 = ({
+export const claimNextPass = ({
   run,
   challenge,
 }: {
   run: PersistedUnitRun;
   challenge: UnitReviewChallenge;
 }): Effect.Effect<PersistedUnitRun, UnitStateContractError> => {
-  if (run.mode !== "awaiting_pass2") {
-    return contractFailure("Pass 2 requires a settled Pass 1.");
+  if (run.mode !== "awaiting_next_pass") {
+    return contractFailure("The next pass requires a settled pass.");
   }
   return Effect.succeed({
     ...run,
     mode: "review",
-    reviewPass: 2,
+    reviewPass: run.reviewPass + 1,
     repairSpent: false,
     activeReviewChallenge: challenge,
     pendingPass2Challenge: null,

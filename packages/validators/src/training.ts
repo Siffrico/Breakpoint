@@ -452,27 +452,22 @@ export const UnitCapabilityTodoSchema = z.object({
   status: z.enum(["pending", "completed"]),
 });
 
-/**
- * `awaiting_pass2` is a settled Pass 1 holding for the learner's Enter. It is a
- * mode rather than a flag so the composer, the turn planner, and the advance
- * gate all read one value — and so `complete` (which lights up Next Unit) stays
- * unreachable until Pass 2 has actually been graded.
- */
+/** A settled pass waits for Enter before its next independent scenario. */
 export const UnitRunModeSchema = z.enum([
   "learning",
   "review",
-  "awaiting_pass2",
+  "awaiting_next_pass",
   "complete",
 ]);
 export const UnitRunKindSchema = z.enum(["education", "recall"]);
 
-/** Which of the two adversarial passes a review-mode run is on. */
-export const UnitReviewPassSchema = z.union([z.literal(1), z.literal(2)]);
+/** Independent scenarios are unbounded; only Pass 2 feeds Goldilocks. */
+export const UnitReviewPassSchema = z.number().int().positive();
 
 export const WORKSPACE_EDUCATION_STAGE_IDS = [
   "learning",
   "review",
-  "awaiting_pass2",
+  "awaiting_next_pass",
   "complete",
 ] as const;
 

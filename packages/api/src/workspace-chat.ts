@@ -55,6 +55,7 @@ interface WorkspaceChatDataParts extends Record<string, unknown> {
     text: string;
   };
   "workspace-turn-state": {
+    passNumber: number;
     state: WorkspaceAiState;
   };
 }
@@ -82,7 +83,7 @@ const getEducationWorkingLabel = (
       return "Understanding your reasoning";
     case "review":
       return "Stress-testing your answer";
-    case "awaiting_pass2":
+    case "awaiting_next_pass":
       return "Opening the next challenge";
     case "complete":
     case null:
@@ -100,7 +101,7 @@ const getEducationWritingLabel = (
       return "Writing your next challenge";
     case "review":
       return "Writing the pressure test";
-    case "awaiting_pass2":
+    case "awaiting_next_pass":
       return "Writing the next challenge";
     case "complete":
     case null:
@@ -350,7 +351,7 @@ const streamWorkspaceChatWithModelPreference = ({
           onAssistantMessage: (content) => {
             assistantText.finalize(content);
           },
-          onPartialAssistantMessage: (content) => {
+          onPartialAssistantMessage: () => {
             if (!startedWriting) {
               startedWriting = true;
               writeStatus(
@@ -358,7 +359,6 @@ const streamWorkspaceChatWithModelPreference = ({
                 getEducationWritingLabel(educationStage, isRecallTurn),
               );
             }
-            assistantText.pushPartial(content);
           },
         }).pipe(Effect.provide(workspaceTurnRepoLayer(db))),
         { signal },
@@ -367,7 +367,7 @@ const streamWorkspaceChatWithModelPreference = ({
       writer.write({
         type: "data-workspace-turn-state",
         id: "workspace-turn-state",
-        data: { state: result.state },
+        data: { passNumber: result.passNumber, state: result.state },
       });
       writeStatus("complete", "Complete");
       writer.write({ type: "finish", finishReason: "stop" });

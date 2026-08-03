@@ -18,7 +18,7 @@ import {
   runReviewPresentationAgent,
 } from "./review-agent";
 import {
-  claimPass2,
+  claimNextPass,
   completeCurrentCapabilityTodo,
   getCurrentCapabilityTodo,
   recordReviewChallenge,
@@ -163,12 +163,9 @@ const presentReview = ({
   });
 
 /**
- * Authors Pass 2's whole scenario without touching the run's mode. Called in
- * the background at the Pass-1 settle commit so the learner's Enter costs a
- * read, and again synchronously on the Enter path if that background write
- * never landed.
+ * Authors the next independent scenario without touching the parked run.
  */
-export const authorPass2Challenge = (
+export const authorNextPassChallenge = (
   {
     run,
     transcript,
@@ -181,14 +178,10 @@ export const authorPass2Challenge = (
     buildContext: Pick<UnitContextBuilders, "forPresenter">;
   },
   deps: UnitTurnDependencies = LIVE_DEPENDENCIES,
-): Effect.Effect<
-  UnitReviewChallenge,
-  UnitAgentError | UnitTurnContractError
-> =>
+): Effect.Effect<UnitReviewChallenge, UnitAgentError | UnitTurnContractError> =>
   Effect.gen(function* () {
-    // Projected, not persisted: the presenter must compose for Pass 2 while the
-    // durable run is still parked in `awaiting_pass2`.
-    const projected = { ...run, reviewPass: 2 as const };
+    // The presenter sees the next pass while the durable run is still parked.
+    const projected = { ...run, reviewPass: run.reviewPass + 1 };
     const context = yield* readContext(buildContext.forPresenter, projected);
     const result = yield* deps.runReviewPresentation({
       messages: transcript,
@@ -199,7 +192,7 @@ export const authorPass2Challenge = (
         formatId: run.difficultySnapshot?.format?.id ?? null,
         runKind: run.kind,
       },
-      pass: 2,
+      pass: projected.reviewPass,
     });
     return challengeFromPresentation(result.object);
   });
@@ -246,13 +239,14 @@ const gradeReview = ({
         learnerAnswer,
         formatId: run.difficultySnapshot?.format?.id ?? null,
         runKind: run.kind,
-        repairAllowed: !run.repairSpent,
+        isMainScenario: !run.repairSpent,
       },
       onPartialAssistantMessage,
     });
 
     const output = result.object;
-    const settledPass = output.targetedExercise === null ? run.reviewPass : null;
+    const settledPass =
+      output.targetedExercise === null ? run.reviewPass : null;
     const nextRun = yield* (
       output.targetedExercise
         ? recordTargetedExercise({
@@ -280,11 +274,9 @@ const gradeReview = ({
         dimensionResults: output.dimensionResults,
         passed: !hasModelGap(output.dimensionResults),
       },
-      // Glicko reads the run's final pass only. Pass 1 is diagnostic and its
-      // second half is scaffolded by the critique the learner just read, so
-      // rating it would rate the scaffolding.
+      // Goldilocks reads only Pass 2's independent scenario, never a repair.
       ratingWrite:
-        nextRun.mode === "complete"
+        run.reviewPass === 2 && !run.repairSpent
           ? { score, errorCodes: output.errorCodes }
           : null,
       presentedReviewChallenge: output.targetedExercise !== null,
@@ -293,10 +285,8 @@ const gradeReview = ({
   });
 
 /**
- * The Enter press between passes. Carries no learner answer, so it grades
- * nothing: it reveals the pre-authored Pass-2 scenario and flips the run into
- * Pass 2 of the same unit. The unit never reaches `complete` here, which is
- * what keeps the Next Unit flow out of this transition entirely.
+ * Enter starts the next independent pass. It carries no learner answer and
+ * never completes the unit.
  */
 export const runPassAdvanceTurn = (
   {
@@ -315,19 +305,15 @@ export const runPassAdvanceTurn = (
   deps: UnitTurnDependencies = LIVE_DEPENDENCIES,
 ): Effect.Effect<UnitTurnResult, UnitAgentError | UnitTurnContractError> =>
   Effect.gen(function* () {
-    if (run.mode !== "awaiting_pass2") {
-      return yield* contractFailure("There is no next challenge to open yet.");
+    if (run.mode !== "awaiting_next_pass") {
+      return yield* contractFailure("There is no next pass to open yet.");
     }
-    // A missing pre-generation is a latency cost, never a correctness one:
-    // authoring it here is the same call the background task would have made.
-    const challenge =
-      run.pendingPass2Challenge ??
-      (yield* authorPass2Challenge(
-        { run, transcript, experience, buildContext },
-        deps,
-      ));
+    const challenge = yield* authorNextPassChallenge(
+      { run, transcript, experience, buildContext },
+      deps,
+    );
     onPartialAssistantMessage?.(challenge.prompt);
-    const nextRun = yield* claimPass2({ run, challenge }).pipe(asTurnError);
+    const nextRun = yield* claimNextPass({ run, challenge }).pipe(asTurnError);
     return {
       assistantMessage: challenge.prompt,
       nextRun,
@@ -360,7 +346,7 @@ export const runUnitTurn = (
     if (run.mode === "complete") {
       return yield* contractFailure("The education unit is already complete.");
     }
-    if (run.mode === "awaiting_pass2") {
+    if (run.mode === "awaiting_next_pass") {
       return yield* contractFailure(
         "This challenge is finished. Press Enter to continue.",
       );

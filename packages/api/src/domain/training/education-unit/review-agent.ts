@@ -74,14 +74,12 @@ export const runReviewPresentationAgent = ({
     onPartialAssistantMessage,
   });
 
-const gradeTurnInstruction = (repairAllowed: boolean) =>
-  repairAllowed
-    ? `## This turn: critique, then repair
-Grade the learner's latest answer against the immutable active challenge only, returning one result for every dimension its contract tests. Then write the critique: find the first place their reasoning diverged from the expert path and name the high-level idea underneath it.
-
-If your scores show a real gap, assistantMessage is the critique followed by one compact targeted exercise on a different surface, and targetedExercise privately defines exactly that exercise. If your scores show no real gap, assistantMessage closes the pass — name what now holds and stop — and targetedExercise is null.`
-    : `## This turn: verify the repair
-The learner has answered the targeted exercise. Grade it against the immutable active challenge and say plainly whether the idea landed. There is no further exercise this pass: targetedExercise must be null. Close in two or three sentences — what they did differently this time, and what that now lets them do.`;
+const gradeTurnInstruction = (isMainScenario: boolean) =>
+  isMainScenario
+    ? `## This turn: diagnose the main scenario
+Grade the learner's latest answer against the immutable active challenge. If it exposes a gap, explain the first mental-model divergence and give one compact targeted application. If it passes, close this pass. targetedExercise must match the score-derived gap.`
+    : `## This turn: verify the insight
+Grade the learner's latest targeted application. If it still exposes a gap, explain it and give another targeted application. If it lands, close this pass. targetedExercise must match the score-derived gap.`;
 
 export const runReviewGradeAgent = ({
   messages,
@@ -101,13 +99,10 @@ export const runReviewGradeAgent = ({
   runUnitAgent({
     agent: "reviewer",
     purpose: "evaluation",
-    // The diagnostic grade is where the expert-vs-learner comparison happens
-    // and is the one call worth thinking budget. The post-repair re-grade is
-    // verification against a gap that has already been located.
-    reasoning: shape.repairAllowed ? "medium" : "low",
+    reasoning: shape.isMainScenario ? "medium" : "low",
     system: `${CRITIC_SYSTEM}\n\n## Customized behavior\n${experience.reviewer.instructions}`,
     messages,
-    context: `${context}\n\n## Immutable active challenge\n${JSON.stringify(activeChallenge)}\n\n${gradeTurnInstruction(shape.repairAllowed)}`,
+    context: `${context}\n\n## Immutable active challenge\n${JSON.stringify(activeChallenge)}\n\n${gradeTurnInstruction(shape.isMainScenario)}`,
     schema: reviewGradeSchema(shape),
     schemaName: "unit_review_grade",
     maxOutputTokens: 3_600,

@@ -17,6 +17,7 @@ import { DefaultChatTransport, isTextUIPart } from "ai";
 import type { RouterOutputs, WorkspaceStreamStatus } from "@acme/api";
 import { Button } from "@acme/ui/button";
 import { ChatComposerDock, WorkspaceStatusLine } from "@acme/ui/chat";
+import { Separator } from "@acme/ui/separator";
 import { toast } from "@acme/ui/toast";
 
 import type { ExchangeMessage } from "./exchange-grouping";
@@ -29,7 +30,6 @@ import {
 } from "~/features/training/hooks/use-autosaved-response-draft";
 import { useTRPC } from "~/trpc/react";
 import { groupLiveExchanges } from "./exchange-grouping";
-import { ExchangeReceipt } from "./exchange-receipt";
 import { FocusComposer } from "./focus-composer";
 import { countWords } from "./receipt-summary";
 import { ScenarioAnchor } from "./scenario-anchor";
@@ -68,6 +68,7 @@ interface WorkspaceChatData extends Record<string, unknown> {
   // (a restarted model attempt); rendered instead of the text parts.
   "workspace-final-text": { text: string };
   "workspace-turn-state": {
+    passNumber: number;
     state: NonNullable<AiWorkspace["state"]>;
   };
 }
@@ -75,6 +76,7 @@ interface WorkspaceChatMetadata {
   action?: "submit_answer" | "advance_pass";
   synthetic?: boolean;
   difficultyDirectiveReason?: string;
+  passNumber?: number;
   failed?: boolean;
   turnId?: string;
 }
@@ -443,6 +445,22 @@ const getChatMessageText = (message: WorkspaceChatMessage) => {
   );
 };
 
+const getPassNumber = (message: WorkspaceChatMessage): number | undefined => {
+  if (message.metadata?.passNumber) return message.metadata.passNumber;
+  for (const part of message.parts) {
+    if (
+      part.type === "data-workspace-turn-state" &&
+      typeof part.data === "object" &&
+      part.data !== null &&
+      "passNumber" in part.data &&
+      typeof part.data.passNumber === "number"
+    ) {
+      return part.data.passNumber;
+    }
+  }
+  return undefined;
+};
+
 const getWorkspaceStatus = (
   message: WorkspaceChatMessage,
 ): WorkspaceStatusData | null => {
@@ -709,6 +727,13 @@ function EducationUnitWorkspaceComponent({
   const fallbackTurn = getFallbackTurn(unit);
   const scenario = getScenario(aiWorkspace);
   const hasScenario = scenario !== null;
+  const scenarioMissingFromTranscript =
+    scenario !== null &&
+    !chatMessages.some(
+      (message) =>
+        message.role === "assistant" &&
+        getChatMessageText(message).includes(scenario.stateA),
+    );
   const latestAssistantPromptId = useMemo(() => {
     const assistantPromptCount = chatMessages.filter(
       (message) =>
@@ -782,7 +807,7 @@ function EducationUnitWorkspaceComponent({
     aiWorkspace?.unitAdvanceGate.status === "enabled" ||
     streamState?.educationStage === "complete";
   const awaitingPassAdvance =
-    !preview && streamState?.educationStage === "awaiting_pass2";
+    !preview && streamState?.educationStage === "awaiting_next_pass";
   const awaitingNextUnitContent =
     advancePending ||
     (aiWorkspace?.state?.activeUnitId != null &&
@@ -969,7 +994,7 @@ function EducationUnitWorkspaceComponent({
     }),
   );
   const grouped = groupLiveExchanges(exchangeMessages);
-  const receiptHistory = grouped.history.reduce<typeof grouped.history>(
+  const exchangeHistory = grouped.history.reduce<typeof grouped.history>(
     (history, exchange) => {
       const previous = history[history.length - 1];
       if (!exchange.answer && exchange.prompt && previous?.prompt) {
@@ -987,6 +1012,37 @@ function EducationUnitWorkspaceComponent({
     },
     [],
   );
+  const exchangeHistoryWithPassBoundaries = exchangeHistory.reduce<{
+    previousPassNumber: number | undefined;
+    entries: {
+      exchange: (typeof exchangeHistory)[number];
+      passNumber: number | undefined;
+      startsPass: boolean;
+    }[];
+  }>(
+    (state, exchange) => {
+      const promptMessage = exchange.prompt
+        ? chatMessages.find((message) => message.id === exchange.prompt?.id)
+        : undefined;
+      const passNumber = promptMessage
+        ? getPassNumber(promptMessage)
+        : undefined;
+      return {
+        previousPassNumber: passNumber ?? state.previousPassNumber,
+        entries: [
+          ...state.entries,
+          {
+            exchange,
+            passNumber,
+            startsPass:
+              passNumber !== undefined &&
+              passNumber !== state.previousPassNumber,
+          },
+        ],
+      };
+    },
+    { previousPassNumber: undefined, entries: [] },
+  ).entries;
   const activePrompt = grouped.activePrompt;
   const pendingAnswer = grouped.pendingAnswer;
   const activePromptMessage = activePrompt
@@ -1007,7 +1063,8 @@ function EducationUnitWorkspaceComponent({
   // Rendering is gated on the scenario still being there, not on the flag
   // alone, so a scenario that goes away (pass advance, unit advance) can never
   // leave an empty panel sitting over the trail.
-  const showScenario = isScenarioOpen && scenario !== null;
+  const showScenario =
+    scenario !== null && (isScenarioOpen || scenarioMissingFromTranscript);
 
   const trailContent = awaitingNextUnitContent ? (
     <PromptTurn prompt="" statusLabel="Thinking…" />
@@ -1023,26 +1080,38 @@ function EducationUnitWorkspaceComponent({
     />
   ) : (
     <>
-      {receiptHistory.length > 0 ? (
-        <div
-          className={`${CHAT_COLUMN_CLASS} flex flex-col gap-1.5 pt-1 pb-3 font-sans`}
-        >
-          {receiptHistory.map((exchange, index) => (
-            <ExchangeReceipt
-              key={
-                exchange.prompt?.id ??
-                exchange.answer?.id ??
-                `exchange-${index}`
-              }
-              exchange={exchange}
-              fallbackTitle={`Exchange ${index + 1}`}
-              canRevise={canCompose && !effectiveIsRunning}
-              onRevise={startAnswerRevision}
-              onAskCoach={onAskCoachAboutAnswer}
-            />
-          ))}
-        </div>
-      ) : null}
+      {exchangeHistoryWithPassBoundaries.map(
+        ({ exchange, passNumber, startsPass }, index) => (
+          <div
+            key={
+              exchange.prompt?.id ?? exchange.answer?.id ?? `exchange-${index}`
+            }
+          >
+            {startsPass && passNumber !== undefined && passNumber > 1 ? (
+              <div className="py-5">
+                <Separator />
+              </div>
+            ) : null}
+            {exchange.prompt ? (
+              <PromptTurn prompt={exchange.prompt.text} />
+            ) : null}
+            {exchange.answer ? (
+              <SubmittedAnswerReceipt
+                text={exchange.answer.text}
+                canRevise={canCompose && !effectiveIsRunning}
+                onRevise={() =>
+                  startAnswerRevision(exchange.answer?.text ?? "")
+                }
+                onAskCoach={
+                  onAskCoachAboutAnswer
+                    ? () => onAskCoachAboutAnswer(exchange.answer?.text ?? "")
+                    : undefined
+                }
+              />
+            ) : null}
+          </div>
+        ),
+      )}
 
       {activePrompt ? (
         <PromptTurn
@@ -1130,7 +1199,7 @@ function EducationUnitWorkspaceComponent({
           onStop={handleStop}
           onExpand={() => setIsExpanded(true)}
           onRunCoachCommand={onRunCommand}
-          disabled={!canCompose || effectiveIsRunning}
+          disabled={(!canCompose && !awaitingPassAdvance) || effectiveIsRunning}
           isRunning={effectiveIsRunning}
           textareaRef={composerTextareaRef}
           placeholder={composerPlaceholder}

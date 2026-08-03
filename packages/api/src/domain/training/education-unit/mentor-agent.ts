@@ -17,6 +17,8 @@ If the learner cannot yet demonstrate the capability, identify the mental-model 
 
 Set completedCapabilityId only when the learner's own reasoning or action provides specific evidence for the current capability's pass signals and avoids its surrogate traps. Guided repetition, agreement, terminology, confidence, or your own explanation are not evidence. Otherwise leave it null.
 
+If completedCapabilityId is null, never say or imply that the learner, a capability, or the unit is complete. If you tell the learner their independent performance has met the pass signals, set completedCapabilityId.
+
 Stay inside the unit, make one focused ask per response, and use concise readable Markdown. Never mention internal todos, status machinery, scores, rubrics, agents, or phases to the learner. Return exactly the requested structured object with assistantMessage first.`;
 
 export const runMentorAgent = ({

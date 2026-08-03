@@ -69,7 +69,9 @@ const mapUnitRun = (
     sessionId: row.sessionId,
     userId: row.userId,
     kind: UnitRunKindSchema.parse(row.kind),
-    mode: UnitRunModeSchema.parse(row.mode),
+    mode: UnitRunModeSchema.parse(
+      row.mode === "awaiting_pass2" ? "awaiting_next_pass" : row.mode,
+    ),
     experience,
     masteryContract,
     capabilityTodos,
@@ -150,7 +152,7 @@ export const trainingUnitRunRepository = {
 
   /**
    * Parks a backgrounded Pass-2 challenge. Guarded on the run still holding at
-   * `awaiting_pass2` with an empty slot, so a task that lands after the learner
+   * `awaiting_next_pass` with an empty slot, so a task that lands after the learner
    * already pressed Enter (or after a second task won the race) is a no-op
    * rather than a challenge swap mid-pass.
    */
@@ -175,7 +177,7 @@ export const trainingUnitRunRepository = {
           eq(TrainingUnitRun.sessionId, sessionId),
           eq(TrainingUnitRun.unitContentId, unitContentId),
           eq(TrainingUnitRun.kind, kind),
-          eq(TrainingUnitRun.mode, "awaiting_pass2"),
+          eq(TrainingUnitRun.mode, "awaiting_next_pass"),
           isNull(TrainingUnitRun.pendingPass2ChallengeJson),
           isNull(TrainingUnitRun.turnLeaseId),
         ),

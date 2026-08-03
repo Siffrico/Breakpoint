@@ -9,7 +9,7 @@ import {
   assertUnitCanAdvance,
   getUnitAdvanceGate,
   isUnitAwaitingAdvance,
-  isUnitAwaitingPass2,
+  isUnitAwaitingNextPass,
 } from "./workspace-turn";
 
 const baseRun = createUnitRun({
@@ -88,11 +88,11 @@ void test("unit advance assertion rejects unmastered runs and accepts idempotent
 void test("a settled Pass 1 remains in the current unit with Next Unit locked", () => {
   const awaitingPass2Run = {
     ...baseRun,
-    mode: "awaiting_pass2" as const,
+    mode: "awaiting_next_pass" as const,
   };
 
   assert.equal(
-    isUnitAwaitingPass2({ node: readyNode, run: awaitingPass2Run }),
+    isUnitAwaitingNextPass({ node: readyNode, run: awaitingPass2Run }),
     true,
   );
   assert.equal(
@@ -113,6 +113,6 @@ void test("a settled Pass 1 remains in the current unit with Next Unit locked", 
       activeUnitResponses: [],
       activeUnitRun: awaitingPass2Run,
     })?.educationStage,
-    "awaiting_pass2",
+    "awaiting_next_pass",
   );
 });

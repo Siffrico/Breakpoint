@@ -94,8 +94,8 @@ const memoriesSection = (memories: readonly Memory[]) =>
   `## Learner context\n${bulletList(memories.map((memory) => memory.content))}`;
 
 const priorFindingSection = (run: PersistedUnitRun) =>
-  run.reviewPass === 2 && run.reviewerFeedback
-    ? `## Already repaired in Pass 1\n${run.reviewerFeedback}`
+  run.reviewPass > 1 && run.reviewerFeedback
+    ? `## Earlier repair\n${run.reviewerFeedback}`
     : null;
 
 /**

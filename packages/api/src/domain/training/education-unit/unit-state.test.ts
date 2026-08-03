@@ -8,7 +8,7 @@ import type {
 
 import { DEFAULT_EDUCATION_EXPERIENCE } from "./experience";
 import {
-  claimPass2,
+  claimNextPass,
   completeCurrentCapabilityTodo,
   createUnitRun,
   recordPendingPass2Challenge,
@@ -172,11 +172,11 @@ describe("unit state", () => {
       }),
     );
 
-    expect(complete.mode).toBe("awaiting_pass2");
+    expect(complete.mode).toBe("awaiting_next_pass");
     expect(complete.reviewPass).toBe(1);
   });
 
-  it("spends one repair per pass and resets it when Pass 2 opens", async () => {
+  it("allows repeated repairs and resets the pass gap when the next pass opens", async () => {
     const reviewing = await Effect.runPromise(
       recordReviewChallenge(await completeLearning(), challenge),
     );
@@ -188,10 +188,18 @@ describe("unit state", () => {
       }),
     );
     expect(repaired.repairSpent).toBe(true);
+    const repairedAgain = await Effect.runPromise(
+      recordTargetedExercise({
+        run: repaired,
+        feedback: "Apply the same causal distinction in this smaller case.",
+        exercise: challenge,
+      }),
+    );
+    expect(repairedAgain.repairSpent).toBe(true);
 
     const settled = await Effect.runPromise(
       settleReviewPass({
-        run: repaired,
+        run: repairedAgain,
         feedback: "The repaired explanation now holds under pressure.",
       }),
     );
@@ -199,7 +207,7 @@ describe("unit state", () => {
       recordPendingPass2Challenge(settled, challenge),
     );
     const pass2 = await Effect.runPromise(
-      claimPass2({ run: parked, challenge }),
+      claimNextPass({ run: parked, challenge }),
     );
 
     expect(pass2).toMatchObject({
@@ -210,7 +218,33 @@ describe("unit state", () => {
     });
   });
 
-  it("completes when Pass 2 settles", async () => {
+  it("opens another pass after a repaired failed Pass 2", async () => {
+    const reviewing = await Effect.runPromise(
+      recordReviewChallenge(await completeLearning(), challenge),
+    );
+    const pass1 = await Effect.runPromise(
+      settleReviewPass({ run: reviewing, feedback: "Pass 1 holds under pressure." }),
+    );
+    const pass2 = await Effect.runPromise(claimNextPass({ run: pass1, challenge }));
+    const repaired = await Effect.runPromise(
+      recordTargetedExercise({
+        run: pass2,
+        feedback: "The independent pass exposed one remaining model gap.",
+        exercise: challenge,
+      }),
+    );
+    const settled = await Effect.runPromise(
+      settleReviewPass({
+        run: repaired,
+        feedback: "The targeted application now demonstrates the insight.",
+      }),
+    );
+    const pass3 = await Effect.runPromise(claimNextPass({ run: settled, challenge }));
+
+    expect(pass3).toMatchObject({ mode: "review", reviewPass: 3, repairSpent: false });
+  });
+
+  it("completes when a clean Pass 2 settles", async () => {
     const reviewing = await Effect.runPromise(
       recordReviewChallenge(await completeLearning(), challenge),
     );
@@ -221,7 +255,7 @@ describe("unit state", () => {
       }),
     );
     const pass2 = await Effect.runPromise(
-      claimPass2({ run: settled, challenge }),
+      claimNextPass({ run: settled, challenge }),
     );
     const complete = await Effect.runPromise(
       settleReviewPass({

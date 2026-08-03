@@ -17,6 +17,7 @@ export const WorkspaceAiMessageSchema = z.object({
   metadata: z
     .object({
       difficultyDirectiveReason: z.string().min(1).optional(),
+      passNumber: z.number().int().positive().optional(),
       hiddenFromTranscript: z.boolean().optional(),
     })
     .nullable()
@@ -35,6 +36,7 @@ export const WorkspaceAiStateSchema = z.object({
 });
 
 export const WorkspaceAiTurnResultSchema = z.object({
+  passNumber: z.number().int().positive(),
   state: WorkspaceAiStateSchema,
   messages: z.array(WorkspaceAiMessageSchema),
   assistantMessage: WorkspaceAiMessageSchema,
