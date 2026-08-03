@@ -72,7 +72,7 @@ interface WorkspaceChatData extends Record<string, unknown> {
   };
 }
 interface WorkspaceChatMetadata {
-  action?: "submit_answer";
+  action?: "submit_answer" | "advance_pass";
   synthetic?: boolean;
   difficultyDirectiveReason?: string;
   failed?: boolean;
@@ -781,6 +781,8 @@ function EducationUnitWorkspaceComponent({
   const awaitingUnitAdvance =
     aiWorkspace?.unitAdvanceGate.status === "enabled" ||
     streamState?.educationStage === "complete";
+  const awaitingPassAdvance =
+    !preview && streamState?.educationStage === "awaiting_pass2";
   const awaitingNextUnitContent =
     advancePending ||
     (aiWorkspace?.state?.activeUnitId != null &&
@@ -808,6 +810,7 @@ function EducationUnitWorkspaceComponent({
     !workspaceUnavailable &&
     !missingTranscriptForResumedUnit &&
     !awaitingNextUnitContent &&
+    !awaitingPassAdvance &&
     (recallIsLive || (!awaitingUnitAdvance && fallbackTurn.canCompose));
   const composerPlaceholder = canCompose
     ? "Submit your answer."
@@ -817,9 +820,11 @@ function EducationUnitWorkspaceComponent({
         ? "Preparing the next unit…"
         : missingTranscriptForResumedUnit
           ? "Refresh to resume this unit safely."
-          : awaitingUnitAdvance
-            ? "Press Next Unit to continue."
-            : "This unit is complete.";
+          : awaitingPassAdvance
+            ? "Press Enter to continue."
+            : awaitingUnitAdvance
+              ? "Press Next Unit to continue."
+              : "This unit is complete.";
 
   useEffect(() => {
     onRunningChange?.(effectiveIsRunning);
@@ -905,6 +910,24 @@ function EducationUnitWorkspaceComponent({
     }
   };
 
+  const handleAdvancePass = async () => {
+    if (!awaitingPassAdvance || effectiveIsRunning) return;
+    clearError();
+    setIsScenarioOpen(false);
+    const turnId = createWorkspaceTurnId();
+    try {
+      await sendMessage(undefined, {
+        body: {
+          action: "advance_pass",
+          sessionId,
+          turnId,
+        },
+      });
+    } catch {
+      toast.error("The next challenge could not be opened. Try again.");
+    }
+  };
+
   const startAnswerRevision = (text: string) => {
     setResponse(text);
     setIsExpanded(false);
@@ -946,6 +969,24 @@ function EducationUnitWorkspaceComponent({
     }),
   );
   const grouped = groupLiveExchanges(exchangeMessages);
+  const receiptHistory = grouped.history.reduce<typeof grouped.history>(
+    (history, exchange) => {
+      const previous = history[history.length - 1];
+      if (!exchange.answer && exchange.prompt && previous?.prompt) {
+        history[history.length - 1] = {
+          ...previous,
+          prompt: {
+            ...previous.prompt,
+            text: `${previous.prompt.text}\n\n${exchange.prompt.text}`,
+          },
+        };
+        return history;
+      }
+      history.push(exchange);
+      return history;
+    },
+    [],
+  );
   const activePrompt = grouped.activePrompt;
   const pendingAnswer = grouped.pendingAnswer;
   const activePromptMessage = activePrompt
@@ -982,11 +1023,11 @@ function EducationUnitWorkspaceComponent({
     />
   ) : (
     <>
-      {grouped.history.length > 0 ? (
+      {receiptHistory.length > 0 ? (
         <div
           className={`${CHAT_COLUMN_CLASS} flex flex-col gap-1.5 pt-1 pb-3 font-sans`}
         >
-          {grouped.history.map((exchange, index) => (
+          {receiptHistory.map((exchange, index) => (
             <ExchangeReceipt
               key={
                 exchange.prompt?.id ??
@@ -1093,6 +1134,8 @@ function EducationUnitWorkspaceComponent({
           isRunning={effectiveIsRunning}
           textareaRef={composerTextareaRef}
           placeholder={composerPlaceholder}
+          awaitingPassAdvance={awaitingPassAdvance}
+          onAdvancePass={() => void handleAdvancePass()}
           awaitingUnitAdvance={enterAdvancesUnit}
           onAdvanceUnit={onAdvanceUnit}
         />

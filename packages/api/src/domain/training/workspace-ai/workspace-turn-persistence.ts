@@ -1,6 +1,9 @@
 import { Effect } from "effect";
 
-import type { UnitDifficultySnapshot } from "@acme/validators";
+import type {
+  UnitDifficultySnapshot,
+  WorkspaceTurnAction,
+} from "@acme/validators";
 
 import type { DbError } from "../../../effect/errors";
 import type { UnitTurnResult } from "../education-unit/run-unit-turn";
@@ -23,7 +26,7 @@ export interface WorkspaceTurnPersistenceDependencies
   extends Omit<WorkspaceTurnDependencies, "getActivePlan"> {
   claimWorkspaceTurn: (input: {
     sessionId: string;
-    action: "submit_answer";
+    action: WorkspaceTurnAction;
     content: string;
     slot: string | null;
     unitId?: string | null;
@@ -241,10 +244,16 @@ export const saveUnitTurnResult = ({
       difficultySnapshot,
     };
     const complete = nextRun.mode === "complete";
+    // The rating attempt opens on the challenge Glicko will actually score:
+    // the *opening* scenario of the run's final pass. A targeted repair
+    // (repairSpent) is scaffolded practice, and an education Pass 1 is
+    // diagnostic — neither is the performance being rated.
+    const finalPass = nextRun.kind === "recall" ? 1 : 2;
     const opensRatingAttempt =
       tracksRating &&
       turnResult.presentedReviewChallenge &&
-      !nextRun.hasReviewGrade;
+      !nextRun.repairSpent &&
+      nextRun.reviewPass === finalPass;
     const presentedAt = new Date();
     const scenarioPresentation = opensRatingAttempt
       ? {

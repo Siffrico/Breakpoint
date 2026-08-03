@@ -5,6 +5,7 @@ import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { Effect } from "effect";
 
 import type { db as databaseClient } from "@acme/db/client";
+import type { WorkspaceTurnAction } from "@acme/validators";
 import { sql } from "@acme/db";
 
 import type {
@@ -81,6 +82,8 @@ const getEducationWorkingLabel = (
       return "Understanding your reasoning";
     case "review":
       return "Stress-testing your answer";
+    case "awaiting_pass2":
+      return "Opening the next challenge";
     case "complete":
     case null:
       return "Reading your answer";
@@ -97,6 +100,8 @@ const getEducationWritingLabel = (
       return "Writing your next challenge";
     case "review":
       return "Writing the pressure test";
+    case "awaiting_pass2":
+      return "Writing the next challenge";
     case "complete":
     case null:
       return "Writing feedback";
@@ -112,6 +117,7 @@ export const streamWorkspaceChat = async ({
   db,
   sessionId,
   userId,
+  action = "submit_answer",
   message,
   turnId,
   modelName,
@@ -121,6 +127,7 @@ export const streamWorkspaceChat = async ({
   db: Database;
   sessionId: string;
   userId: string;
+  action?: WorkspaceTurnAction;
   message: string;
   turnId: string;
   modelName?: string | null;
@@ -132,6 +139,7 @@ export const streamWorkspaceChat = async ({
       db,
       sessionId,
       userId,
+      action,
       message,
       turnId,
       signal,
@@ -143,6 +151,7 @@ const streamWorkspaceChatWithModelPreference = ({
   db,
   sessionId,
   userId,
+  action,
   message,
   turnId,
   signal,
@@ -151,6 +160,7 @@ const streamWorkspaceChatWithModelPreference = ({
   db: Database;
   sessionId: string;
   userId: string;
+  action: WorkspaceTurnAction;
   message: string;
   turnId: string;
   signal?: AbortSignal;
@@ -158,7 +168,7 @@ const streamWorkspaceChatWithModelPreference = ({
 }) => {
   const trimmedMessage = message.trim();
   const effectiveLeaseId = randomUUID();
-  if (trimmedMessage.length < 2) {
+  if (action === "submit_answer" && trimmedMessage.length < 2) {
     return Promise.resolve(
       new Response("Write a fuller message so the AI can respond usefully.", {
         status: 400,
@@ -333,6 +343,7 @@ const streamWorkspaceChatWithModelPreference = ({
           userId,
           turnId,
           turnLeaseId: effectiveLeaseId,
+          action,
           message: trimmedMessage,
           turn,
           deps: turnDeps,

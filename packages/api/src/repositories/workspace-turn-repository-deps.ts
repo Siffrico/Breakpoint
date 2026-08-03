@@ -71,7 +71,9 @@ const claimWorkspaceUnitLease = async ({
       capabilityTodosJson: [...run.capabilityTodos],
       activeReviewChallengeJson: run.activeReviewChallenge,
       reviewerFeedback: run.reviewerFeedback,
-      hasReviewGrade: run.hasReviewGrade,
+      reviewPass: run.reviewPass,
+      repairSpent: run.repairSpent,
+      pendingPass2ChallengeJson: run.pendingPass2Challenge,
       difficultySnapshotJson: run.difficultySnapshot,
       turnLeaseId: leaseId,
       turnLeaseExpiresAt: workspaceLeaseExpiry(now),
@@ -596,6 +598,8 @@ export const createWorkspaceTurnRepositoryDeps = (
         sessionId,
         unitContentId,
       }),
+    savePendingPass2Challenge: (input) =>
+      trainingUnitRunRepository.setPendingPass2Challenge({ db, ...input }),
     getInFlightRecallRun: (sessionId: string) =>
       trainingUnitRunRepository.getInFlightRecallRun({ db, sessionId }),
     retireInFlightRecallRun: (sessionId: string, unitContentId: string) =>

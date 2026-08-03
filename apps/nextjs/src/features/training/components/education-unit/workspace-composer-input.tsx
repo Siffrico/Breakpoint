@@ -78,6 +78,8 @@ export function WorkspaceComposerInput({
   isRunning,
   textareaRef,
   placeholder,
+  awaitingPassAdvance = false,
+  onAdvancePass,
   awaitingUnitAdvance = false,
   onAdvanceUnit,
 }: {
@@ -91,6 +93,8 @@ export function WorkspaceComposerInput({
   isRunning: boolean;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   placeholder: string;
+  awaitingPassAdvance?: boolean;
+  onAdvancePass?: () => void;
   awaitingUnitAdvance?: boolean;
   onAdvanceUnit?: () => void;
 }) {
@@ -107,6 +111,7 @@ export function WorkspaceComposerInput({
   }));
 
   const handleValueChange = (nextValue: string) => {
+    if (disabled) return;
     setActiveIndex(0);
     setDismissed(false);
     onValueChange(nextValue);
@@ -133,6 +138,17 @@ export function WorkspaceComposerInput({
   };
 
   const handleKeyDownCapture = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (
+      awaitingPassAdvance &&
+      event.key === "Enter" &&
+      !event.shiftKey &&
+      !event.nativeEvent.isComposing
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      onAdvancePass?.();
+      return;
+    }
     if (
       awaitingUnitAdvance &&
       event.key === "Enter" &&

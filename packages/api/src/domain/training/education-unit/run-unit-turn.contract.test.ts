@@ -5,7 +5,7 @@ import type { UnitMasteryContract } from "@acme/validators";
 
 import type { UnitTurnDependencies } from "./run-unit-turn";
 import { DEFAULT_EDUCATION_EXPERIENCE } from "./experience";
-import { runUnitTurn } from "./run-unit-turn";
+import { runPassAdvanceTurn, runUnitTurn } from "./run-unit-turn";
 import { createUnitRun } from "./unit-state";
 
 const masteryContract = {
@@ -68,7 +68,8 @@ const input = (run = baseRun()) => ({
   experience: DEFAULT_EDUCATION_EXPERIENCE,
   buildContext: {
     forMentor: () => "Unit context with the capability checklist.",
-    forReviewer: () => "Unit context with the mastery contract.",
+    forPresenter: () => "Unit context for authoring the challenge.",
+    forCritic: () => "Unit context with the mastery contract.",
   },
 });
 
@@ -96,7 +97,6 @@ const deps = (
       object: {
         assistantMessage:
           "Your defense still copies the original rule. Try this changed case and re-derive the move.",
-        verdict: "continue" as const,
         errorCodes: ["procedure-replay"],
         gradeReasoning:
           "The learner repeated the procedure without deriving it.",
@@ -108,7 +108,7 @@ const deps = (
             missing: "A causal derivation from the changed constraint.",
           },
         ],
-        nextChallenge: { difficultyVector, contract: challengeContract },
+        targetedExercise: { difficultyVector, contract: challengeContract },
       },
     }),
   ...overrides,
@@ -217,7 +217,7 @@ describe("runUnitTurn", () => {
     ]);
   });
 
-  it("requires a second adversarial pressure test before review can pass", async () => {
+  it("spends one targeted repair when the first grade finds a gap", async () => {
     const opened = await Effect.runPromise(
       runUnitTurn(
         input(),
@@ -232,36 +232,18 @@ describe("runUnitTurn", () => {
         }),
       ),
     );
-    const error = await Effect.runPromise(
-      runUnitTurn(
-        input(opened.nextRun),
-        deps({
-          runReviewGrade: () =>
-            Effect.succeed({
-              object: {
-                assistantMessage: "Pass.",
-                verdict: "pass" as const,
-                errorCodes: [],
-                gradeReasoning: "The first answer was strong.",
-                dimensionResults: [
-                  {
-                    dimensionId: "derive-under-pressure",
-                    score: 90,
-                    evidence: "I would derive it again.",
-                    missing: null,
-                  },
-                ],
-                nextChallenge: null,
-              },
-            }),
-        }),
-      ).pipe(Effect.flip),
+    const repaired = await Effect.runPromise(
+      runUnitTurn(input(opened.nextRun), deps()),
     );
 
-    expect(error.message).toContain("first adversarial grade");
+    expect(repaired.nextRun.mode).toBe("review");
+    expect(repaired.nextRun.repairSpent).toBe(true);
+    expect(repaired.nextRun.activeReviewChallenge).not.toBeNull();
+    expect(repaired.settledPass).toBeNull();
+    expect(repaired.ratingWrite).toBeNull();
   });
 
-  it("writes Goldilocks evidence only for the first adversarial grade", async () => {
+  it("holds after Pass 1, opens Pass 2, and rates only the final settle", async () => {
     const opened = await Effect.runPromise(
       runUnitTurn(
         input(),
@@ -277,25 +259,18 @@ describe("runUnitTurn", () => {
         }),
       ),
     );
-    const firstGrade = await Effect.runPromise(
+    const repair = await Effect.runPromise(
       runUnitTurn(input(opened.nextRun), deps()),
     );
-
-    expect(firstGrade.ratingWrite).toEqual({
-      score: 62,
-      errorCodes: ["procedure-replay"],
-    });
-
-    const passed = await Effect.runPromise(
+    const settledPass1 = await Effect.runPromise(
       runUnitTurn(
-        input(firstGrade.nextRun),
+        input(repair.nextRun),
         deps({
           runReviewGrade: () =>
             Effect.succeed({
               object: {
                 assistantMessage:
                   "You re-derived and defended the decision under the new pressure.",
-                verdict: "pass" as const,
                 errorCodes: [],
                 gradeReasoning:
                   "The learner used the mechanism and remained stable under pressure.",
@@ -307,7 +282,64 @@ describe("runUnitTurn", () => {
                     missing: null,
                   },
                 ],
-                nextChallenge: null,
+                targetedExercise: null,
+              },
+            }),
+        }),
+      ),
+    );
+
+    expect(settledPass1.nextRun.mode).toBe("awaiting_pass2");
+    expect(settledPass1.settledPass).toBe(1);
+    expect(settledPass1.ratingWrite).toBeNull();
+
+    const pass2Challenge = {
+      prompt: "Transfer the same judgment to a different production system.",
+      difficultyVector,
+      contract: challengeContract,
+    };
+    const advanced = await Effect.runPromise(
+      runPassAdvanceTurn(
+        input({
+          ...settledPass1.nextRun,
+          pendingPass2Challenge: pass2Challenge,
+        }),
+        deps({
+          runReviewPresentation: () =>
+            Effect.die("A parked Pass-2 challenge should avoid authoring."),
+        }),
+      ),
+    );
+
+    expect(advanced.nextRun).toMatchObject({
+      mode: "review",
+      reviewPass: 2,
+      repairSpent: false,
+      activeReviewChallenge: pass2Challenge,
+      pendingPass2Challenge: null,
+    });
+
+    const passed = await Effect.runPromise(
+      runUnitTurn(
+        input(advanced.nextRun),
+        deps({
+          runReviewGrade: () =>
+            Effect.succeed({
+              object: {
+                assistantMessage:
+                  "The judgment transferred cleanly to the new system.",
+                errorCodes: [],
+                gradeReasoning:
+                  "The learner independently transferred the causal mechanism.",
+                dimensionResults: [
+                  {
+                    dimensionId: "derive-under-pressure",
+                    score: 91,
+                    evidence: "I would derive it again.",
+                    missing: null,
+                  },
+                ],
+                targetedExercise: null,
               },
             }),
         }),
@@ -315,6 +347,7 @@ describe("runUnitTurn", () => {
     );
 
     expect(passed.nextRun.mode).toBe("complete");
-    expect(passed.ratingWrite).toBeNull();
+    expect(passed.settledPass).toBe(2);
+    expect(passed.ratingWrite).toEqual({ score: 91, errorCodes: [] });
   });
 });

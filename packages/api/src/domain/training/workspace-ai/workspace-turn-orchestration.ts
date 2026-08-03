@@ -2,7 +2,12 @@ import type { ModelMessage } from "ai";
 import type { Scope } from "effect";
 import { Cause, Effect, Exit } from "effect";
 
-import type { ScenarioFormat, UnitDifficultySnapshot } from "@acme/validators";
+import type {
+  ScenarioFormat,
+  UnitDifficultySnapshot,
+  UnitReviewChallenge,
+  WorkspaceTurnAction,
+} from "@acme/validators";
 
 import type { Memory } from "../../memory/types";
 import type { DifficultyDialPreset, ScenarioDirective } from "../engine/rating";
@@ -19,10 +24,15 @@ import type {
 } from "./workspace-turn-persistence";
 import type { WorkspaceTurnRepo } from "./workspace-turn-repo";
 import { resolveEducationExperience } from "../education-unit/experience";
-import { runUnitTurn } from "../education-unit/run-unit-turn";
 import {
+  authorPass2Challenge,
+  runPassAdvanceTurn,
+  runUnitTurn,
+} from "../education-unit/run-unit-turn";
+import {
+  buildCritiqueContext,
   buildMentorContext,
-  buildReviewerContext,
+  buildPresenterContext,
 } from "../education-unit/unit-context";
 import { boundTranscript } from "../engine/compaction";
 import { regimeForNodeKind } from "../engine/progression-model";
@@ -88,6 +98,14 @@ export interface WorkspaceTurnOrchestrationDependencies
   }) => Promise<OpenScenarioResult | null>;
   /** Test seam for deterministic education-unit contract tests. */
   runUnitTurn?: typeof runUnitTurn;
+  runPassAdvanceTurn?: typeof runPassAdvanceTurn;
+  authorPass2Challenge?: typeof authorPass2Challenge;
+  savePendingPass2Challenge?: (input: {
+    sessionId: string;
+    unitContentId: string;
+    kind: string;
+    challenge: UnitReviewChallenge;
+  }) => Promise<void>;
   pregenerateNextUnit?: (input: {
     sessionId: string;
     userId: string;
@@ -250,6 +268,13 @@ const heartbeatLeases = ({
 
 const SLOT = "education_unit" as const;
 
+/**
+ * What the learner sees where a difficulty note normally sits, on the turn that
+ * closes Pass 1. Deliberately not a section of prose: the transition should read
+ * as momentum, not as a status report about internal passes.
+ */
+const PASS_ONE_SETTLED_NOTE = "Nice. One more challenge.";
+
 const claimTurnAndLoadTranscript = ({
   sessionId,
   unitId,
@@ -257,6 +282,7 @@ const claimTurnAndLoadTranscript = ({
   turnId,
   turnLeaseId,
   unitRun,
+  action,
   message,
   deps,
 }: {
@@ -266,6 +292,7 @@ const claimTurnAndLoadTranscript = ({
   turnId: string;
   turnLeaseId: string;
   unitRun: ResolvedWorkspaceTurn["unitRun"];
+  action: WorkspaceTurnAction;
   message: string;
   deps: WorkspaceTurnOrchestrationDependencies;
 }): Effect.Effect<
@@ -282,7 +309,7 @@ const claimTurnAndLoadTranscript = ({
         persistPromise("claimWorkspaceTurn", () =>
           deps.claimWorkspaceTurn({
             sessionId,
-            action: "submit_answer",
+            action,
             content: message,
             slot: SLOT,
             unitId,
@@ -359,26 +386,34 @@ const claimTurnAndLoadTranscript = ({
     // progress and needs no summarization model on the hot path.
     //
     // The learner's message is committed with the turn, not before it, so the
-    // model's view of this turn has to be assembled here.
-    const messages = [
-      ...persistedMessages,
-      {
-        role: "user" as const,
-        content: message,
-        sequence:
-          Math.max(-1, ...persistedMessages.map((item) => item.sequence)) + 1,
-        slot: SLOT,
-        unitId,
-        turnId,
-        metadata: null,
-      },
-    ];
+    // model's view of this turn has to be assembled here. An `advance_pass`
+    // carries no answer at all — appending an empty user turn would put a blank
+    // learner message in the transcript for the next grade to score.
+    const messages =
+      action === "advance_pass"
+        ? persistedMessages
+        : [
+            ...persistedMessages,
+            {
+              role: "user" as const,
+              content: message,
+              sequence:
+                Math.max(
+                  -1,
+                  ...persistedMessages.map((item) => item.sequence),
+                ) + 1,
+              slot: SLOT,
+              unitId,
+              turnId,
+              metadata: null,
+            },
+          ];
 
     return {
       kind: "claimed",
       messages,
       transcript: boundTranscript(messages),
-      claimedDurableTurn: true,
+      claimedDurableTurn: action !== "advance_pass",
       claimedAt: claim.claimedAt,
     };
   });
@@ -392,6 +427,7 @@ export const runEducationUnitTurn = ({
   userId,
   turnId,
   turnLeaseId,
+  action = "submit_answer",
   message,
   turn,
   deps,
@@ -402,6 +438,7 @@ export const runEducationUnitTurn = ({
   userId: string;
   turnId: string;
   turnLeaseId: string;
+  action?: WorkspaceTurnAction;
   message: string;
   turn: ResolvedWorkspaceTurn;
   deps: WorkspaceTurnOrchestrationDependencies;
@@ -419,6 +456,12 @@ export const runEducationUnitTurn = ({
         message: "This unit is complete. Press Next Unit to continue.",
       });
     }
+    const advancesPass = action === "advance_pass";
+    if (advancesPass && unitRun.mode !== "awaiting_pass2") {
+      return yield* new WorkspaceInputError({
+        message: "There is no next challenge to open yet.",
+      });
+    }
     const loadedTranscript = yield* claimTurnAndLoadTranscript({
       sessionId,
       unitId: unit.nodeId,
@@ -426,6 +469,7 @@ export const runEducationUnitTurn = ({
       turnId,
       turnLeaseId,
       unitRun,
+      action,
       message,
       deps,
     });
@@ -519,17 +563,22 @@ export const runEducationUnitTurn = ({
     const buildContext = {
       forMentor: (run: typeof unitRun) =>
         `${buildMentorContext(contextInput(run))}${recallContext}`,
-      forReviewer: (run: typeof unitRun) =>
-        `${buildReviewerContext(contextInput(run))}${recallContext}`,
+      forPresenter: (run: typeof unitRun) =>
+        `${buildPresenterContext(contextInput(run))}${recallContext}`,
+      forCritic: (run: typeof unitRun) =>
+        `${buildCritiqueContext(contextInput(run))}${recallContext}`,
     };
 
-    const turnResult = yield* (deps.runUnitTurn ?? runUnitTurn)({
+    const turnInput = {
       run: { ...unitRun, difficultySnapshot },
       transcript: toModelMessages(loadedTranscript.transcript),
       experience,
       buildContext,
       onPartialAssistantMessage,
-    });
+    };
+    const turnResult = advancesPass
+      ? yield* (deps.runPassAdvanceTurn ?? runPassAdvanceTurn)(turnInput)
+      : yield* (deps.runUnitTurn ?? runUnitTurn)(turnInput);
 
     const scenarioAttemptId = findLatestPhaseResponse(
       unitResponses,
@@ -591,6 +640,8 @@ export const runEducationUnitTurn = ({
     }
 
     const completed = turnResult.nextRun.mode === "complete";
+    const settlesPass1 =
+      turnResult.settledPass === 1 && turnResult.nextRun.kind === "education";
     const knowledgeCheckOff =
       completed && turnResult.nextRun.kind === "education" && knowledge
         ? {
@@ -640,7 +691,9 @@ export const runEducationUnitTurn = ({
           ? composedEntryIds
           : null,
       difficultySnapshot,
-      difficultyDirectiveReason: difficultySnapshot.directive.reason,
+      difficultyDirectiveReason: settlesPass1
+        ? PASS_ONE_SETTLED_NOTE
+        : difficultySnapshot.directive.reason,
       turnId,
       turnLeaseId,
       persistUserMessage: loadedTranscript.claimedDurableTurn,
@@ -650,6 +703,44 @@ export const runEducationUnitTurn = ({
       ).length,
       deps,
     });
+
+    if (settlesPass1 && deps.savePendingPass2Challenge) {
+      const authorChallenge = deps.authorPass2Challenge ?? authorPass2Challenge;
+      const savePendingPass2Challenge = deps.savePendingPass2Challenge;
+      const runPregeneration = () =>
+        Effect.runPromise(
+          authorChallenge({
+            run: turnResult.nextRun,
+            transcript: turnInput.transcript,
+            experience,
+            buildContext,
+          }).pipe(
+            Effect.flatMap((challenge) =>
+              Effect.tryPromise(() =>
+                savePendingPass2Challenge({
+                  sessionId,
+                  unitContentId: unit.id,
+                  kind: turnResult.nextRun.kind,
+                  challenge,
+                }),
+              ),
+            ),
+            Effect.tapCause((cause) =>
+              Effect.logError("Pass 2 pre-generation failed", {
+                sessionId,
+                unitContentId: unit.id,
+                cause,
+              }),
+            ),
+            Effect.ignore,
+          ),
+        );
+      if (deps.scheduleBackgroundTask) {
+        deps.scheduleBackgroundTask(runPregeneration);
+      } else {
+        void runPregeneration();
+      }
+    }
 
     const skillNodeId = node.parentNodeId;
     if (

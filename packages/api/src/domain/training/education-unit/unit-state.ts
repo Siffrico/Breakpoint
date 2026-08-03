@@ -6,6 +6,7 @@ import type {
   UnitDifficultySnapshot,
   UnitMasteryContract,
   UnitReviewChallenge,
+  UnitReviewPass,
   UnitRunKind,
   UnitRunMode,
 } from "@acme/validators";
@@ -25,7 +26,11 @@ export interface PersistedUnitRun {
   readonly capabilityTodos: readonly UnitCapabilityTodo[];
   readonly activeReviewChallenge: UnitReviewChallenge | null;
   readonly reviewerFeedback: string | null;
-  readonly hasReviewGrade: boolean;
+  /** 1 repairs the model gap; 2 verifies the repair transfers unaided. */
+  readonly reviewPass: UnitReviewPass;
+  /** One targeted repair per pass; resets when Pass 2 is claimed. */
+  readonly repairSpent: boolean;
+  readonly pendingPass2Challenge: UnitReviewChallenge | null;
   readonly difficultySnapshot: UnitDifficultySnapshot | null;
 }
 
@@ -72,7 +77,9 @@ export const createUnitRun = ({
   ),
   activeReviewChallenge: null,
   reviewerFeedback: null,
-  hasReviewGrade: false,
+  reviewPass: 1,
+  repairSpent: false,
+  pendingPass2Challenge: null,
   difficultySnapshot: null,
 });
 
@@ -129,44 +136,107 @@ export const recordReviewChallenge = (
   return Effect.succeed({ ...run, activeReviewChallenge: challenge });
 };
 
-export const recordReviewGrade = ({
-  run,
-  verdict,
-  feedback,
-  nextChallenge,
-}: {
-  run: PersistedUnitRun;
-  verdict: "continue" | "pass";
-  feedback: string;
-  nextChallenge: UnitReviewChallenge | null;
-}): Effect.Effect<PersistedUnitRun, UnitStateContractError> => {
+const requireGradableRun = (run: PersistedUnitRun, feedback: string) => {
   if (run.mode !== "review" || !run.activeReviewChallenge) {
     return contractFailure(
       "A review grade requires one persisted active challenge.",
     );
   }
-  const reviewerFeedback = feedback.trim();
-  if (reviewerFeedback.length < 12) {
+  if (feedback.trim().length < 12) {
     return contractFailure(
       "A review grade requires substantive learner-facing feedback.",
     );
   }
-  if (verdict === "pass" && nextChallenge !== null) {
-    return contractFailure(
-      "A passed review cannot leave another challenge active.",
-    );
-  }
-  if (verdict === "continue" && nextChallenge === null) {
-    return contractFailure(
-      "A continuing review must record the next adversarial challenge.",
-    );
-  }
+  return null;
+};
 
+/**
+ * The gap is real, so the critic replaces the graded challenge with the one
+ * compact exercise that repairs it. Still Pass 1 — the pass has now spent its
+ * only repair, which is what makes a second one unrepresentable next turn.
+ */
+export const recordTargetedExercise = ({
+  run,
+  feedback,
+  exercise,
+}: {
+  run: PersistedUnitRun;
+  feedback: string;
+  exercise: UnitReviewChallenge;
+}): Effect.Effect<PersistedUnitRun, UnitStateContractError> => {
+  const invalid = requireGradableRun(run, feedback);
+  if (invalid) return invalid;
+  if (run.repairSpent) {
+    return contractFailure(
+      "This pass has already spent its one targeted repair.",
+    );
+  }
   return Effect.succeed({
     ...run,
-    mode: verdict === "pass" ? "complete" : "review",
-    reviewerFeedback,
-    hasReviewGrade: true,
-    activeReviewChallenge: nextChallenge,
+    reviewerFeedback: feedback.trim(),
+    repairSpent: true,
+    activeReviewChallenge: exercise,
+  });
+};
+
+/**
+ * Nothing left to repair in this pass. Pass 1 of an education run parks in
+ * `awaiting_pass2` for the learner's Enter; every other settle completes the
+ * run. Recall runs are Pass 1 only — a spaced checkpoint verifies retrieval,
+ * not transfer.
+ */
+export const settleReviewPass = ({
+  run,
+  feedback,
+}: {
+  run: PersistedUnitRun;
+  feedback: string;
+}): Effect.Effect<PersistedUnitRun, UnitStateContractError> => {
+  const invalid = requireGradableRun(run, feedback);
+  if (invalid) return invalid;
+  const holdsForPass2 = run.kind === "education" && run.reviewPass === 1;
+  return Effect.succeed({
+    ...run,
+    reviewerFeedback: feedback.trim(),
+    activeReviewChallenge: null,
+    mode: holdsForPass2 ? "awaiting_pass2" : "complete",
+  });
+};
+
+/** Parks a backgrounded Pass-2 challenge on a run that is holding for Enter. */
+export const recordPendingPass2Challenge = (
+  run: PersistedUnitRun,
+  challenge: UnitReviewChallenge,
+): Effect.Effect<PersistedUnitRun, UnitStateContractError> => {
+  if (run.mode !== "awaiting_pass2") {
+    return contractFailure(
+      "A pending Pass 2 challenge requires a settled Pass 1.",
+    );
+  }
+  return Effect.succeed({ ...run, pendingPass2Challenge: challenge });
+};
+
+/**
+ * The learner pressed Enter. Pass 2 opens with a fresh whole scenario and its
+ * own repair budget; the unit never touched `complete`, so the Next Unit gate
+ * stayed shut throughout.
+ */
+export const claimPass2 = ({
+  run,
+  challenge,
+}: {
+  run: PersistedUnitRun;
+  challenge: UnitReviewChallenge;
+}): Effect.Effect<PersistedUnitRun, UnitStateContractError> => {
+  if (run.mode !== "awaiting_pass2") {
+    return contractFailure("Pass 2 requires a settled Pass 1.");
+  }
+  return Effect.succeed({
+    ...run,
+    mode: "review",
+    reviewPass: 2,
+    repairSpent: false,
+    activeReviewChallenge: challenge,
+    pendingPass2Challenge: null,
   });
 };

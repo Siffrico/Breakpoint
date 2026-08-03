@@ -11,17 +11,60 @@ import {
 type StructuredModel = Parameters<typeof streamText>[0]["model"];
 type StructuredOnChunk = Parameters<typeof streamText>[0]["onChunk"];
 
-const getReasoningProviderOptions = (budget: number) => {
-  const effort = budget >= 8_192 ? "high" : budget >= 4_096 ? "medium" : "low";
-  return {
-    openai: { reasoningEffort: effort, reasoningSummary: "auto" as const },
-    google: {
-      // Gemini 3 uses thinkingLevel; older Gemini models ignore it and retain
-      // their provider default rather than receiving an invalid token budget.
-      thinkingConfig: { thinkingLevel: effort, includeThoughts: true },
-    },
-    openrouter: { reasoning: { enabled: true, max_tokens: budget } },
-  };
+type ProviderOptions = NonNullable<
+  Parameters<typeof streamText>[0]["providerOptions"]
+>;
+
+/**
+ * How hard a call should think. `ai@6` still has no portable top-level
+ * `reasoning` setting, so this is the one place the three providers' spellings
+ * are reconciled — callers name an effort, never a vendor key.
+ */
+export type ReasoningEffort = "none" | "low" | "medium" | "high";
+
+const effortForBudget = (budget: number): ReasoningEffort =>
+  budget >= 8_192 ? "high" : budget >= 4_096 ? "medium" : "low";
+
+const getReasoningProviderOptions = (
+  effort: ReasoningEffort,
+  budget?: number,
+): ProviderOptions =>
+  effort === "none"
+    ? {
+        openai: { reasoningEffort: "minimal" },
+        google: { thinkingConfig: { thinkingBudget: 0, includeThoughts: false } },
+        openrouter: { reasoning: { enabled: false, effort: "none" } },
+      }
+    : {
+        openai: { reasoningEffort: effort, reasoningSummary: "auto" },
+        google: {
+          // Gemini 3 uses thinkingLevel; older Gemini models ignore it and
+          // retain their provider default rather than receiving an invalid
+          // token budget.
+          thinkingConfig: { thinkingLevel: effort, includeThoughts: true },
+        },
+        openrouter:
+          budget === undefined
+            ? { reasoning: { enabled: true, effort } }
+            : { reasoning: { enabled: true, max_tokens: budget } },
+      };
+
+/**
+ * Per-provider merge. A whole-object spread here would silently drop a
+ * caller's provider options the moment a reasoning effort is also set — the
+ * two configure different keys under the same provider and both must survive.
+ */
+const mergeProviderOptions = (
+  base: ProviderOptions | undefined,
+  overrides: ProviderOptions | undefined,
+): ProviderOptions | undefined => {
+  if (!base) return overrides;
+  if (!overrides) return base;
+  const merged: ProviderOptions = { ...base };
+  for (const [provider, options] of Object.entries(overrides)) {
+    merged[provider] = { ...merged[provider], ...options };
+  }
+  return merged;
 };
 
 /**
@@ -45,6 +88,7 @@ export const invokeStructuredModel = <TSchema extends z.ZodTypeAny>({
   onChunk,
   providerOptions,
   maxOutputTokens,
+  reasoning,
 }: {
   model: StructuredModel;
   schema: TSchema;
@@ -62,6 +106,8 @@ export const invokeStructuredModel = <TSchema extends z.ZodTypeAny>({
   onChunk?: StructuredOnChunk;
   providerOptions?: Parameters<typeof streamText>[0]["providerOptions"];
   maxOutputTokens?: number;
+  /** Explicit effort for this call; overrides the profile's budget mapping. */
+  reasoning?: ReasoningEffort;
 }): StreamTextResult<
   ToolSet,
   ReturnType<typeof Output.object<z.infer<TSchema>>>
@@ -100,12 +146,25 @@ export const invokeStructuredModel = <TSchema extends z.ZodTypeAny>({
             profile.maxOutputTokens + profile.reasoningBudgetTokens,
         }
       : {}),
-    ...(providerOptions ? { providerOptions } : {}),
-    ...(profile && profile.reasoningBudgetTokens > 0
-      ? {
-          providerOptions: getReasoningProviderOptions(
-            profile.reasoningBudgetTokens,
-          ),
-        }
-      : {}),
+    ...(() => {
+      const effort =
+        reasoning ??
+        (profile && profile.reasoningBudgetTokens > 0
+          ? effortForBudget(profile.reasoningBudgetTokens)
+          : undefined);
+      const resolved = mergeProviderOptions(
+        providerOptions,
+        effort === undefined
+          ? undefined
+          : getReasoningProviderOptions(
+              effort,
+              // An explicit effort names the dial directly; only the profile
+              // path expresses itself as an OpenRouter token budget.
+              reasoning === undefined
+                ? profile?.reasoningBudgetTokens
+                : undefined,
+            ),
+      );
+      return resolved ? { providerOptions: resolved } : {};
+    })(),
   });

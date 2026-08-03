@@ -192,6 +192,7 @@ describe("saveUnitTurnResult", () => {
           reviewGrade: null,
           ratingWrite: null,
           presentedReviewChallenge: true,
+          settledPass: null,
         },
         ratingEvaluation: null,
         tracksRating: true,

@@ -101,7 +101,7 @@ export const TrainingUnitPhaseResponse = pgTable(
         reasoningStyle: string;
       };
       stateSnapshot?: unknown;
-      aiEducationStage?: "learning" | "review" | "complete";
+      aiEducationStage?: "learning" | "review" | "awaiting_pass2" | "complete";
       recallUnitId?: string;
       promptKind?: "education_unit" | "recall";
       modelPurpose?: string;
@@ -182,7 +182,15 @@ export const TrainingUnitRun = pgTable(
     capabilityTodosJson: t.jsonb().$type<UnitCapabilityTodo[]>().notNull(),
     activeReviewChallengeJson: t.jsonb().$type<UnitReviewChallenge | null>(),
     reviewerFeedback: t.text(),
-    hasReviewGrade: t.boolean().notNull().default(false),
+    /** Which adversarial pass the run is on: 1 repairs, 2 verifies transfer. */
+    reviewPass: t.integer().notNull().default(1),
+    /** One targeted repair per pass. Reset when the run claims Pass 2. */
+    repairSpent: t.boolean().notNull().default(false),
+    /**
+     * Pass 2's challenge, authored in the background while the learner reads
+     * the Pass-1 close, so pressing Enter costs a read rather than a model call.
+     */
+    pendingPass2ChallengeJson: t.jsonb().$type<UnitReviewChallenge | null>(),
     difficultySnapshotJson: t
       .jsonb()
       .$type<TrainingUnitDifficultySnapshotJson | null>(),

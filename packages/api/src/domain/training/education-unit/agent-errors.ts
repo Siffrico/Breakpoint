@@ -23,12 +23,23 @@ export class UnitAgentFirstVisibleTimeoutError extends Data.TaggedError(
   "UnitAgentFirstVisibleTimeoutError",
 )<{ readonly message: string }> {}
 
+/**
+ * The whole call outran its budget. Deliberately not retryable: the inactivity
+ * clock cannot catch a model looping inside its reasoning trace (each delta
+ * re-arms it), and retrying a call that already burned the budget just doubles
+ * the wait the learner is sitting through.
+ */
+export class UnitAgentWallClockTimeoutError extends Data.TaggedError(
+  "UnitAgentWallClockTimeoutError",
+)<{ readonly message: string }> {}
+
 export type UnitAgentError =
   | UnitAgentSchemaError
   | UnitAgentTransientProviderError
   | UnitAgentProviderRejectedError
   | UnitAgentTimeoutError
-  | UnitAgentFirstVisibleTimeoutError;
+  | UnitAgentFirstVisibleTimeoutError
+  | UnitAgentWallClockTimeoutError;
 
 export const isRetryableUnitAgentError = (error: UnitAgentError): boolean =>
   error._tag === "UnitAgentTimeoutError" ||
@@ -36,6 +47,7 @@ export const isRetryableUnitAgentError = (error: UnitAgentError): boolean =>
 
 export const classifyUnitAgentFailure = (error: unknown): UnitAgentError => {
   if (error instanceof UnitAgentFirstVisibleTimeoutError) return error;
+  if (error instanceof UnitAgentWallClockTimeoutError) return error;
 
   const message =
     error instanceof Error && error.message

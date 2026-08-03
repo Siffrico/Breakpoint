@@ -80,6 +80,18 @@ export const isUnitAwaitingAdvance = ({
   run?.kind === "education" &&
   run.mode === "complete";
 
+export const isUnitAwaitingPass2 = ({
+  node,
+  run,
+}: {
+  node: Pick<CurriculumNode, "kind" | "status"> | null;
+  run: PersistedUnitRun | null;
+}) =>
+  isLearningUnit(node) &&
+  node.status === "ready" &&
+  run?.kind === "education" &&
+  run.mode === "awaiting_pass2";
+
 export const assertUnitCanAdvance = ({
   node,
   run,

@@ -23,6 +23,7 @@ const logFields = (
     case "WorkspaceInputError":
     case "TurnLeaseConflictError":
     case "UnitAgentFirstVisibleTimeoutError":
+    case "UnitAgentWallClockTimeoutError":
     case "UnitAgentTimeoutError":
     case "UnitAgentTransientProviderError":
     case "UnitAgentProviderRejectedError":
@@ -59,6 +60,8 @@ export const translateWorkspaceTurnErrors = <A, R>(
       UnitAgentTimeoutError: (error) =>
         trpcFailure(error, "TIMEOUT", feedbackFailureMessage),
       UnitAgentFirstVisibleTimeoutError: (error) =>
+        trpcFailure(error, "TIMEOUT", feedbackFailureMessage),
+      UnitAgentWallClockTimeoutError: (error) =>
         trpcFailure(error, "TIMEOUT", feedbackFailureMessage),
       UnitAgentTransientProviderError: (error) =>
         trpcFailure(error, "INTERNAL_SERVER_ERROR", feedbackFailureMessage),

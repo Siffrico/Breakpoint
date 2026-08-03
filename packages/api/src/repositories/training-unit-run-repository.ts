@@ -1,11 +1,13 @@
 import type { db as databaseClient } from "@acme/db/client";
-import { and, desc, eq, ne, sql } from "@acme/db";
+import type { UnitReviewChallenge } from "@acme/validators";
+import { and, desc, eq, isNull, ne, sql } from "@acme/db";
 import { TrainingUnitRun } from "@acme/db/schema";
 import {
   EducationExperienceSnapshotSchema,
   UnitCapabilityTodoSchema,
   UnitMasteryContractSchema,
   UnitReviewChallengeSchema,
+  UnitReviewPassSchema,
   UnitRunKindSchema,
   UnitRunModeSchema,
 } from "@acme/validators";
@@ -75,7 +77,11 @@ const mapUnitRun = (
       row.activeReviewChallengeJson,
     ),
     reviewerFeedback: row.reviewerFeedback,
-    hasReviewGrade: row.hasReviewGrade,
+    reviewPass: UnitReviewPassSchema.parse(row.reviewPass),
+    repairSpent: row.repairSpent,
+    pendingPass2Challenge: UnitReviewChallengeSchema.nullable().parse(
+      row.pendingPass2ChallengeJson,
+    ),
     difficultySnapshot: row.difficultySnapshotJson,
   };
 };
@@ -142,6 +148,40 @@ export const trainingUnitRunRepository = {
       );
   },
 
+  /**
+   * Parks a backgrounded Pass-2 challenge. Guarded on the run still holding at
+   * `awaiting_pass2` with an empty slot, so a task that lands after the learner
+   * already pressed Enter (or after a second task won the race) is a no-op
+   * rather than a challenge swap mid-pass.
+   */
+  setPendingPass2Challenge: async ({
+    db,
+    sessionId,
+    unitContentId,
+    kind,
+    challenge,
+  }: {
+    db: Database;
+    sessionId: string;
+    unitContentId: string;
+    kind: string;
+    challenge: UnitReviewChallenge;
+  }): Promise<void> => {
+    await db
+      .update(TrainingUnitRun)
+      .set({ pendingPass2ChallengeJson: challenge })
+      .where(
+        and(
+          eq(TrainingUnitRun.sessionId, sessionId),
+          eq(TrainingUnitRun.unitContentId, unitContentId),
+          eq(TrainingUnitRun.kind, kind),
+          eq(TrainingUnitRun.mode, "awaiting_pass2"),
+          isNull(TrainingUnitRun.pendingPass2ChallengeJson),
+          isNull(TrainingUnitRun.turnLeaseId),
+        ),
+      );
+  },
+
   upsertUnitRun: async ({
     db,
     run,
@@ -162,7 +202,9 @@ export const trainingUnitRunRepository = {
       capabilityTodosJson: [...run.capabilityTodos],
       activeReviewChallengeJson: run.activeReviewChallenge,
       reviewerFeedback: run.reviewerFeedback,
-      hasReviewGrade: run.hasReviewGrade,
+      reviewPass: run.reviewPass,
+      repairSpent: run.repairSpent,
+      pendingPass2ChallengeJson: run.pendingPass2Challenge,
       difficultySnapshotJson: run.difficultySnapshot,
     };
 
@@ -186,7 +228,9 @@ export const trainingUnitRunRepository = {
           capabilityTodosJson: values.capabilityTodosJson,
           activeReviewChallengeJson: values.activeReviewChallengeJson,
           reviewerFeedback: values.reviewerFeedback,
-          hasReviewGrade: values.hasReviewGrade,
+          reviewPass: values.reviewPass,
+          repairSpent: values.repairSpent,
+          pendingPass2ChallengeJson: values.pendingPass2ChallengeJson,
           difficultySnapshotJson: sql`case when ${TrainingUnitRun.kind} = excluded.kind and ${TrainingUnitRun.experienceId} = excluded.experience_id and ${TrainingUnitRun.experienceVersion} = excluded.experience_version and ${TrainingUnitRun.mode} != 'complete' then coalesce(${TrainingUnitRun.difficultySnapshotJson}, excluded.difficulty_snapshot_json) else excluded.difficulty_snapshot_json end`,
         },
       })

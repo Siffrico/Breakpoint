@@ -4,10 +4,12 @@ import { test } from "vitest";
 import type { CurriculumNode } from "../types/training.types";
 import { DEFAULT_EDUCATION_EXPERIENCE } from "../education-unit/experience";
 import { createUnitRun } from "../education-unit/unit-state";
+import { planWorkspaceTurn } from "./orchestrator";
 import {
   assertUnitCanAdvance,
   getUnitAdvanceGate,
   isUnitAwaitingAdvance,
+  isUnitAwaitingPass2,
 } from "./workspace-turn";
 
 const baseRun = createUnitRun({
@@ -80,5 +82,37 @@ void test("unit advance assertion rejects unmastered runs and accepts idempotent
       node: { ...readyNode, status: "completed" },
       run: baseRun,
     }),
+  );
+});
+
+void test("a settled Pass 1 remains in the current unit with Next Unit locked", () => {
+  const awaitingPass2Run = {
+    ...baseRun,
+    mode: "awaiting_pass2" as const,
+  };
+
+  assert.equal(
+    isUnitAwaitingPass2({ node: readyNode, run: awaitingPass2Run }),
+    true,
+  );
+  assert.equal(
+    isUnitAwaitingAdvance({ node: readyNode, run: awaitingPass2Run }),
+    false,
+  );
+  assert.deepEqual(
+    getUnitAdvanceGate({
+      node: readyNode,
+      run: awaitingPass2Run,
+      nextNode: null,
+    }),
+    { status: "locked" },
+  );
+  assert.equal(
+    planWorkspaceTurn({
+      nodes: [readyNode],
+      activeUnitResponses: [],
+      activeUnitRun: awaitingPass2Run,
+    })?.educationStage,
+    "awaiting_pass2",
   );
 });

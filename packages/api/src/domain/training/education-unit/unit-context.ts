@@ -76,11 +76,16 @@ const renderCapabilityProgress = (run: PersistedUnitRun) => {
 const destinationSection = (targetIdentity: string) =>
   `## Learner destination\n${targetIdentity}`;
 
-const unitSection = (unit: UnitContent) =>
-  `## Unit\nTitle: ${unit.title}\nLearning goal: ${unit.learningGoal}\nWhy it matters: ${unit.whyItMatters}\nSeed situation: ${unit.seedPrompt}\nPrivate seed hint: ${unit.seedHint}`;
+const unitSection = (unit: UnitContent, includeSeedHint: boolean) =>
+  `## Unit\nTitle: ${unit.title}\nLearning goal: ${unit.learningGoal}\nWhy it matters: ${unit.whyItMatters}\nSeed situation: ${unit.seedPrompt}${
+    includeSeedHint ? `\nPrivate seed hint: ${unit.seedHint}` : ""
+  }`;
+
+const expertWorkflowSection = (knowledge: UnitKnowledgeContext) =>
+  `## Expert workflow\n${knowledge.workflow.name}: ${knowledge.workflow.steps.join(" → ")}`;
 
 const knowledgeSection = (knowledge: UnitKnowledgeContext) =>
-  `## Expert workflow\n${knowledge.workflow.name}: ${knowledge.workflow.steps.join(" → ")}\nAuthored question: ${knowledge.framing?.question ?? "None"}\nAlready demonstrated: ${knowledge.checked.map((entry) => `${entry.label}: ${entry.content}`).join("; ") || "None"}\nThis unit must land:\n${bulletList(knowledge.targets.map((entry) => `${entry.id} — ${entry.kind} — ${entry.label}: ${entry.content}`))}`;
+  `${expertWorkflowSection(knowledge)}\nAuthored question: ${knowledge.framing?.question ?? "None"}\nAlready demonstrated: ${knowledge.checked.map((entry) => `${entry.label}: ${entry.content}`).join("; ") || "None"}\nThis unit must land:\n${bulletList(knowledge.targets.map((entry) => `${entry.id} — ${entry.kind} — ${entry.label}: ${entry.content}`))}`;
 
 const goldilocksSection = (difficultyDirection: string) =>
   `## Goldilocks direction\n${difficultyDirection}`;
@@ -88,49 +93,55 @@ const goldilocksSection = (difficultyDirection: string) =>
 const memoriesSection = (memories: readonly Memory[]) =>
   `## Learner context\n${bulletList(memories.map((memory) => memory.content))}`;
 
-const sharedSections = ({
-  unit,
-  targetIdentity,
-  memories,
-  knowledge,
-  difficultyDirection,
-}: UnitContextInput) => ({
-  destination: destinationSection(targetIdentity),
-  unit: unitSection(unit),
-  knowledge: knowledge ? knowledgeSection(knowledge) : null,
-  goldilocks: difficultyDirection
-    ? goldilocksSection(difficultyDirection)
-    : null,
-  memories: memories.length > 0 ? memoriesSection(memories) : null,
-});
+const priorFindingSection = (run: PersistedUnitRun) =>
+  run.reviewPass === 2 && run.reviewerFeedback
+    ? `## Already repaired in Pass 1\n${run.reviewerFeedback}`
+    : null;
 
 /**
  * The mentor never sees adversarial findings: reviewer feedback is only ever
  * written in review mode, which the run never leaves back into learning.
  */
-export const buildMentorContext = (input: UnitContextInput): string => {
-  const shared = sharedSections(input);
-  return joinSections([
-    shared.destination,
-    shared.unit,
+export const buildMentorContext = (input: UnitContextInput): string =>
+  joinSections([
+    destinationSection(input.targetIdentity),
+    unitSection(input.unit, true),
     `## Capability progress\n${renderCapabilityProgress(input.run)}`,
-    shared.knowledge,
-    shared.goldilocks,
-    shared.memories,
-  ]);
-};
-
-export const buildReviewerContext = (input: UnitContextInput): string => {
-  const shared = sharedSections(input);
-  return joinSections([
-    shared.destination,
-    shared.unit,
-    `## Mastery contract\n${renderMasteryContract(input.run)}`,
-    shared.knowledge,
-    shared.goldilocks,
-    shared.memories,
-    input.run.reviewerFeedback
-      ? `## Latest adversarial finding\n${input.run.reviewerFeedback}`
+    input.knowledge ? knowledgeSection(input.knowledge) : null,
+    input.difficultyDirection
+      ? goldilocksSection(input.difficultyDirection)
       : null,
+    input.memories.length > 0 ? memoriesSection(input.memories) : null,
   ]);
-};
+
+/**
+ * Authoring a challenge needs the unit, the contract it must test, and the
+ * calibrated difficulty. It does not need the mentor's private seed hint (that
+ * is an answer key) or the learner's memories (a scenario tuned to what the
+ * learner already told us is a scenario they have already half-solved).
+ */
+export const buildPresenterContext = (input: UnitContextInput): string =>
+  joinSections([
+    destinationSection(input.targetIdentity),
+    unitSection(input.unit, false),
+    `## Mastery contract\n${renderMasteryContract(input.run)}`,
+    input.knowledge ? knowledgeSection(input.knowledge) : null,
+    input.difficultyDirection
+      ? goldilocksSection(input.difficultyDirection)
+      : null,
+    priorFindingSection(input.run),
+  ]);
+
+/**
+ * The critic's window, deliberately narrow: the rubric it grades against and
+ * the expert path it compares the learner to, and nothing else. No seed hint,
+ * no memories, no Goldilocks direction — a grader that knows the intended
+ * answer, the learner's history, or the difficulty it was aiming for is
+ * grading something other than the answer in front of it.
+ */
+export const buildCritiqueContext = (input: UnitContextInput): string =>
+  joinSections([
+    `## Mastery contract\n${renderMasteryContract(input.run)}`,
+    input.knowledge ? expertWorkflowSection(input.knowledge) : null,
+    priorFindingSection(input.run),
+  ]);

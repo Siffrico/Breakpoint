@@ -35,6 +35,9 @@ export const runMentorAgent = ({
   runUnitAgent({
     agent: "mentor",
     purpose: "education",
+    // Every learner turn goes through here and the judgement is binary
+    // (is this capability demonstrated yet), so latency wins over deliberation.
+    reasoning: "none",
     system: `${MENTOR_SYSTEM}\n\n## Customized behavior\n${experience.main.instructions}`,
     messages,
     context: `${context}\n\n## This turn\nRespond to the learner's latest message. Work only on capability ${currentCapabilityId}, the first unchecked one. If their latest independent performance completes it, record the completion and naturally move them toward the next capability; otherwise keep it unchecked and make the best next mentoring move.`,

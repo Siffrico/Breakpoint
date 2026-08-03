@@ -122,9 +122,10 @@ export const POST = async (req: NextRequest) => {
   const body = parsed.data;
 
   const { sessionId, turnId } = body;
+  const action = body.action ?? "submit_answer";
   const submittedMessage = resolveSubmittedMessage(body);
   if (
-    submittedMessage.length === 0 ||
+    (action === "submit_answer" && submittedMessage.length === 0) ||
     submittedMessage.length > WORKSPACE_CHAT_MESSAGE_MAX_CHARS
   ) {
     return new Response("Invalid request body", { status: 400 });
@@ -134,6 +135,7 @@ export const POST = async (req: NextRequest) => {
     db,
     sessionId,
     userId: session.user.id,
+    action,
     message: submittedMessage,
     turnId,
     modelName: resolveModelPreference(req, body.model),

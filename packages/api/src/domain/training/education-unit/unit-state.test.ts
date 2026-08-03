@@ -8,10 +8,13 @@ import type {
 
 import { DEFAULT_EDUCATION_EXPERIENCE } from "./experience";
 import {
+  claimPass2,
   completeCurrentCapabilityTodo,
   createUnitRun,
+  recordPendingPass2Challenge,
   recordReviewChallenge,
-  recordReviewGrade,
+  recordTargetedExercise,
+  settleReviewPass,
 } from "./unit-state";
 
 const masteryContract = {
@@ -148,32 +151,86 @@ describe("unit state", () => {
   it("requires a persisted challenge before grading", async () => {
     const run = await completeLearning();
     const exit = await Effect.runPromiseExit(
-      recordReviewGrade({
+      settleReviewPass({
         run,
-        verdict: "continue",
         feedback:
           "The answer needs a stronger causal defense before it is stable.",
-        nextChallenge: challenge,
       }),
     );
 
     expect(Exit.isFailure(exit)).toBe(true);
   });
 
-  it("completes from a passing review", async () => {
+  it("settles Pass 1 without opening the Next Unit gate", async () => {
     const run = await Effect.runPromise(
       recordReviewChallenge(await completeLearning(), challenge),
     );
     const complete = await Effect.runPromise(
-      recordReviewGrade({
+      settleReviewPass({
         run,
-        verdict: "pass",
         feedback: "The learner defended and improved the work under pressure.",
-        nextChallenge: null,
+      }),
+    );
+
+    expect(complete.mode).toBe("awaiting_pass2");
+    expect(complete.reviewPass).toBe(1);
+  });
+
+  it("spends one repair per pass and resets it when Pass 2 opens", async () => {
+    const reviewing = await Effect.runPromise(
+      recordReviewChallenge(await completeLearning(), challenge),
+    );
+    const repaired = await Effect.runPromise(
+      recordTargetedExercise({
+        run: reviewing,
+        feedback: "The causal boundary is still missing; repair it here.",
+        exercise: challenge,
+      }),
+    );
+    expect(repaired.repairSpent).toBe(true);
+
+    const settled = await Effect.runPromise(
+      settleReviewPass({
+        run: repaired,
+        feedback: "The repaired explanation now holds under pressure.",
+      }),
+    );
+    const parked = await Effect.runPromise(
+      recordPendingPass2Challenge(settled, challenge),
+    );
+    const pass2 = await Effect.runPromise(
+      claimPass2({ run: parked, challenge }),
+    );
+
+    expect(pass2).toMatchObject({
+      mode: "review",
+      reviewPass: 2,
+      repairSpent: false,
+      pendingPass2Challenge: null,
+    });
+  });
+
+  it("completes when Pass 2 settles", async () => {
+    const reviewing = await Effect.runPromise(
+      recordReviewChallenge(await completeLearning(), challenge),
+    );
+    const settled = await Effect.runPromise(
+      settleReviewPass({
+        run: reviewing,
+        feedback: "The first pass now holds under realistic pressure.",
+      }),
+    );
+    const pass2 = await Effect.runPromise(
+      claimPass2({ run: settled, challenge }),
+    );
+    const complete = await Effect.runPromise(
+      settleReviewPass({
+        run: pass2,
+        feedback: "The mechanism transferred independently on Pass 2.",
       }),
     );
 
     expect(complete.mode).toBe("complete");
-    expect(complete.hasReviewGrade).toBe(true);
+    expect(complete.reviewPass).toBe(2);
   });
 });

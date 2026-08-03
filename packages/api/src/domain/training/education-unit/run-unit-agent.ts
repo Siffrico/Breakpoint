@@ -2,6 +2,7 @@ import type { ModelMessage } from "ai";
 import type { z } from "zod/v4";
 import { Duration, Effect, Schedule } from "effect";
 
+import type { ReasoningEffort } from "../engine/invoke-structured-model";
 import type { AiModelPurpose } from "../engine/model-router";
 import type { UnitAgentError } from "./agent-errors";
 import { invokeStructuredModel } from "../engine/invoke-structured-model";
@@ -10,6 +11,7 @@ import {
   classifyUnitAgentFailure,
   isRetryableUnitAgentError,
   UnitAgentFirstVisibleTimeoutError,
+  UnitAgentWallClockTimeoutError,
 } from "./agent-errors";
 
 export interface UnitAgentResult<T> {
@@ -26,6 +28,7 @@ interface RunUnitAgentInput<TSchema extends z.ZodTypeAny> {
   readonly schemaName: string;
   readonly maxOutputTokens: number;
   readonly errorMessage: string;
+  readonly reasoning: ReasoningEffort;
   readonly onPartialAssistantMessage?: (content: string) => void;
 }
 
@@ -33,6 +36,7 @@ const MAX_RESTARTS = 1;
 const MAX_SCHEMA_REPAIRS = 1;
 const INACTIVITY_TIMEOUT_MS = 10_000;
 const FIRST_VISIBLE_TIMEOUT_MS = 5_000;
+const WALL_CLOCK_TIMEOUT_MS = 90_000;
 const MIN_VISIBLE_CHARACTERS = 24;
 
 interface AttemptResult<T> extends UnitAgentResult<T> {
@@ -47,8 +51,10 @@ const callModel = async <TSchema extends z.ZodTypeAny>(
   const model = requireAiModelForPurpose(input.purpose, input.errorMessage);
   const inactivityController = new AbortController();
   const firstVisibleController = new AbortController();
+  const wallClockController = new AbortController();
   let inactivityTimer: ReturnType<typeof setTimeout> | undefined;
   let firstVisibleTimer: ReturnType<typeof setTimeout> | undefined;
+  let firstVisibleSatisfied = false;
   const armInactivityTimeout = () => {
     if (inactivityTimer !== undefined) clearTimeout(inactivityTimer);
     inactivityTimer = setTimeout(() => {
@@ -57,20 +63,44 @@ const callModel = async <TSchema extends z.ZodTypeAny>(
       );
     }, INACTIVITY_TIMEOUT_MS);
   };
+  /**
+   * Starts the "is anything visible yet" clock. It cannot start at call time:
+   * reasoning tokens never reach `partialOutputStream`, so a thinking model
+   * would abort before it had a chance to write a word. The clock begins at the
+   * first chunk that is not part of the reasoning trace.
+   */
+  const armFirstVisibleTimeout = () => {
+    if (firstVisibleSatisfied || firstVisibleTimer !== undefined) return;
+    firstVisibleTimer = setTimeout(() => {
+      firstVisibleController.abort(
+        new UnitAgentFirstVisibleTimeoutError({
+          message:
+            "The AI did not begin a substantive reply within five seconds.",
+        }),
+      );
+    }, FIRST_VISIBLE_TIMEOUT_MS);
+  };
+  const clearFirstVisibleTimeout = () => {
+    firstVisibleSatisfied = true;
+    if (firstVisibleTimer !== undefined) {
+      clearTimeout(firstVisibleTimer);
+      firstVisibleTimer = undefined;
+    }
+  };
   const abortSignal = AbortSignal.any([
     parentSignal,
     inactivityController.signal,
     firstVisibleController.signal,
+    wallClockController.signal,
   ]);
   armInactivityTimeout();
-  firstVisibleTimer = setTimeout(() => {
-    firstVisibleController.abort(
-      new UnitAgentFirstVisibleTimeoutError({
-        message:
-          "The AI did not begin a substantive reply within five seconds.",
+  const wallClockTimer = setTimeout(() => {
+    wallClockController.abort(
+      new UnitAgentWallClockTimeoutError({
+        message: "The AI took too long to produce a complete reply.",
       }),
     );
-  }, FIRST_VISIBLE_TIMEOUT_MS);
+  }, WALL_CLOCK_TIMEOUT_MS);
 
   try {
     const result = invokeStructuredModel({
@@ -86,9 +116,10 @@ const callModel = async <TSchema extends z.ZodTypeAny>(
       maxSteps: 1,
       maxOutputTokens: input.maxOutputTokens,
       abortSignal,
-      onChunk: armInactivityTimeout,
-      providerOptions: {
-        openrouter: { reasoning: { enabled: false, effort: "none" } },
+      reasoning: input.reasoning,
+      onChunk: ({ chunk }) => {
+        armInactivityTimeout();
+        if (!chunk.type.startsWith("reasoning")) armFirstVisibleTimeout();
       },
     });
 
@@ -102,12 +133,8 @@ const callModel = async <TSchema extends z.ZodTypeAny>(
           ? partial.assistantMessage
           : undefined;
       if (typeof assistantMessage === "string") {
-        if (
-          firstVisibleTimer !== undefined &&
-          assistantMessage.trim().length >= MIN_VISIBLE_CHARACTERS
-        ) {
-          clearTimeout(firstVisibleTimer);
-          firstVisibleTimer = undefined;
+        if (assistantMessage.trim().length >= MIN_VISIBLE_CHARACTERS) {
+          clearFirstVisibleTimeout();
         }
         input.onPartialAssistantMessage?.(assistantMessage);
       }
@@ -127,10 +154,14 @@ const callModel = async <TSchema extends z.ZodTypeAny>(
     if (firstVisibleController.signal.aborted) {
       throw firstVisibleController.signal.reason;
     }
+    if (wallClockController.signal.aborted) {
+      throw wallClockController.signal.reason;
+    }
     throw error;
   } finally {
     if (inactivityTimer !== undefined) clearTimeout(inactivityTimer);
     if (firstVisibleTimer !== undefined) clearTimeout(firstVisibleTimer);
+    clearTimeout(wallClockTimer);
   }
 };
 

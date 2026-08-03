@@ -17,8 +17,19 @@ const WorkspaceChatMessageSchema = z.looseObject({
     .max(100),
 });
 
+/**
+ * What a workspace turn is claiming. `advance_pass` is the learner pressing
+ * Enter to move from a settled Pass 1 into Pass 2 of the same unit: it carries
+ * no answer, so it is the one action that runs without learner text.
+ */
+export const WorkspaceTurnActionSchema = z.enum([
+  "submit_answer",
+  "advance_pass",
+]);
+
 export const WorkspaceChatRequestSchema = z
   .object({
+    action: WorkspaceTurnActionSchema.optional(),
     message: z.string().max(WORKSPACE_CHAT_MESSAGE_MAX_CHARS).optional(),
     messages: z.array(WorkspaceChatMessageSchema).max(100).optional(),
     model: z.string().max(120).optional(),
@@ -26,7 +37,10 @@ export const WorkspaceChatRequestSchema = z
     turnId: z.string().min(1).max(96),
   })
   .refine(
-    (body) => typeof body.message === "string" || Array.isArray(body.messages),
+    (body) =>
+      body.action === "advance_pass" ||
+      typeof body.message === "string" ||
+      Array.isArray(body.messages),
     { message: "A message is required." },
   );
 
@@ -438,12 +452,27 @@ export const UnitCapabilityTodoSchema = z.object({
   status: z.enum(["pending", "completed"]),
 });
 
-export const UnitRunModeSchema = z.enum(["learning", "review", "complete"]);
+/**
+ * `awaiting_pass2` is a settled Pass 1 holding for the learner's Enter. It is a
+ * mode rather than a flag so the composer, the turn planner, and the advance
+ * gate all read one value — and so `complete` (which lights up Next Unit) stays
+ * unreachable until Pass 2 has actually been graded.
+ */
+export const UnitRunModeSchema = z.enum([
+  "learning",
+  "review",
+  "awaiting_pass2",
+  "complete",
+]);
 export const UnitRunKindSchema = z.enum(["education", "recall"]);
+
+/** Which of the two adversarial passes a review-mode run is on. */
+export const UnitReviewPassSchema = z.union([z.literal(1), z.literal(2)]);
 
 export const WORKSPACE_EDUCATION_STAGE_IDS = [
   "learning",
   "review",
+  "awaiting_pass2",
   "complete",
 ] as const;
 
@@ -881,6 +910,8 @@ export type EducationExperienceCustomization = z.infer<
 export type UnitCapabilityTodo = z.infer<typeof UnitCapabilityTodoSchema>;
 export type UnitRunMode = z.infer<typeof UnitRunModeSchema>;
 export type UnitRunKind = z.infer<typeof UnitRunKindSchema>;
+export type UnitReviewPass = z.infer<typeof UnitReviewPassSchema>;
+export type WorkspaceTurnAction = z.infer<typeof WorkspaceTurnActionSchema>;
 export type UnitReviewChallenge = z.infer<typeof UnitReviewChallengeSchema>;
 export type DifficultyVector = z.infer<typeof DifficultyVectorSchema>;
 export type CurriculumNode = z.infer<typeof CurriculumNodeSchema>;

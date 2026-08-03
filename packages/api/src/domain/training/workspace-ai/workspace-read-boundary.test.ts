@@ -449,6 +449,7 @@ describe("durable recall projection", () => {
           reviewGrade: null,
           ratingWrite: null,
           presentedReviewChallenge: true,
+          settledPass: null,
         }),
     };
 
