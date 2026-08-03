@@ -14,7 +14,7 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { DefaultChatTransport, isTextUIPart } from "ai";
 
-import type { RouterOutputs } from "@acme/api";
+import type { RouterOutputs, WorkspaceStreamStatus } from "@acme/api";
 import { Button } from "@acme/ui/button";
 import { ChatComposerDock, WorkspaceStatusLine } from "@acme/ui/chat";
 import { toast } from "@acme/ui/toast";
@@ -58,12 +58,6 @@ interface WorkspaceFallbackTurn {
   prompt: string;
   canCompose: boolean;
 }
-type WorkspaceStreamStatus =
-  | "preparing"
-  | "thinking"
-  | "evaluating"
-  | "saving"
-  | "complete";
 interface WorkspaceStatusData {
   status: WorkspaceStreamStatus;
   label: string;

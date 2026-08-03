@@ -20,4 +20,5 @@ type RouterOutputs = inferRouterOutputs<AppRouter>;
 
 export { type AppRouter, appRouter } from "./root";
 export { createTRPCContext } from "./trpc";
+export type { WorkspaceStreamStatus } from "./workspace-chat";
 export type { RouterInputs, RouterOutputs };

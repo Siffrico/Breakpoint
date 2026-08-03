@@ -34,12 +34,11 @@ import {
 
 type Database = typeof databaseClient;
 
-type WorkspaceStreamStatus =
-  | "preparing"
-  | "thinking"
-  | "evaluating"
-  | "saving"
-  | "complete";
+/**
+ * The status beats a turn can emit, in order. Exported as the wire contract so
+ * the client renders this union rather than a second copy of it.
+ */
+export type WorkspaceStreamStatus = "preparing" | "thinking" | "complete";
 
 interface WorkspaceChatDataParts extends Record<string, unknown> {
   "workspace-status": {

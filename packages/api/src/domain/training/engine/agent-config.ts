@@ -142,6 +142,3 @@ export const getAgentConfig = (id: AgentId): ResolvedAgentConfig => {
     ...resolveLimits(definition),
   };
 };
-
-export const listAgentConfigs = (): ResolvedAgentConfig[] =>
-  (Object.keys(AGENT_CONFIG) as AgentId[]).map(getAgentConfig);

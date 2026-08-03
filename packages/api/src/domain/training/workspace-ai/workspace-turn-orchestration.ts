@@ -243,27 +243,25 @@ const heartbeatLeases = ({
   ).pipe(Effect.asVoid);
 };
 
+const SLOT = "education_unit" as const;
+
 const claimTurnAndLoadTranscript = ({
   sessionId,
-  slot,
   unitId,
   unitContentId,
   turnId,
   turnLeaseId,
   unitRun,
   message,
-  appendSyntheticUserMessage,
   deps,
 }: {
   sessionId: string;
-  slot: "education_unit" | "recall";
   unitId: string;
   unitContentId: string;
   turnId: string;
   turnLeaseId: string;
   unitRun: ResolvedWorkspaceTurn["unitRun"];
   message: string;
-  appendSyntheticUserMessage: boolean;
   deps: WorkspaceTurnOrchestrationDependencies;
 }): Effect.Effect<
   LoadedTurnTranscript,
@@ -276,7 +274,7 @@ const claimTurnAndLoadTranscript = ({
         sessionId,
         action: "submit_answer",
         content: message,
-        slot,
+        slot: SLOT,
         unitId,
         turnId,
         leaseId: turnLeaseId,
@@ -297,27 +295,25 @@ const claimTurnAndLoadTranscript = ({
         message: "This turn is already being processed.",
       });
     }
-    if (slot === "education_unit") {
-      yield* Effect.addFinalizer((exit) =>
-        Exit.isFailure(exit)
-          ? releaseClaimedTurn({
-              sessionId,
-              unitContentId,
-              turnId,
-              turnLeaseId,
-              reason: Cause.hasInterruptsOnly(exit.cause)
-                ? "Education turn ended before its atomic commit completed."
-                : (() => {
-                    const failure = Cause.squash(exit.cause);
-                    return failure instanceof Error
-                      ? failure.message
-                      : "Education turn ended before its atomic commit completed.";
-                  })(),
-              deps,
-            })
-          : Effect.void,
-      );
-    }
+    yield* Effect.addFinalizer((exit) =>
+      Exit.isFailure(exit)
+        ? releaseClaimedTurn({
+            sessionId,
+            unitContentId,
+            turnId,
+            turnLeaseId,
+            reason: Cause.hasInterruptsOnly(exit.cause)
+              ? "Education turn ended before its atomic commit completed."
+              : (() => {
+                  const failure = Cause.squash(exit.cause);
+                  return failure instanceof Error
+                    ? failure.message
+                    : "Education turn ended before its atomic commit completed.";
+                })(),
+            deps,
+          })
+        : Effect.void,
+    );
     const claimedUnit = yield* persistPromise("claimWorkspaceUnitLease", () =>
       deps.claimWorkspaceUnitLease({
         sessionId,
@@ -346,22 +342,21 @@ const claimTurnAndLoadTranscript = ({
       "listWorkspaceMessages",
       () => deps.listUnitMessages(sessionId, unitId),
     );
-    const messages = appendSyntheticUserMessage
-      ? [
-          ...persistedMessages,
-          {
-            role: "user" as const,
-            content: message,
-            sequence:
-              Math.max(-1, ...persistedMessages.map((item) => item.sequence)) +
-              1,
-            slot,
-            unitId,
-            turnId,
-            metadata: null,
-          },
-        ]
-      : persistedMessages;
+    // The learner's message is committed with the turn, not before it, so the
+    // model's view of this turn has to be assembled here.
+    const messages = [
+      ...persistedMessages,
+      {
+        role: "user" as const,
+        content: message,
+        sequence:
+          Math.max(-1, ...persistedMessages.map((item) => item.sequence)) + 1,
+        slot: SLOT,
+        unitId,
+        turnId,
+        metadata: null,
+      },
+    ];
 
     return {
       kind: "claimed",
@@ -417,14 +412,12 @@ export const runEducationUnitTurn = ({
     }
     const loadedTranscript = yield* claimTurnAndLoadTranscript({
       sessionId,
-      slot: "education_unit",
       unitId: unit.nodeId,
       unitContentId: unit.id,
       turnId,
       turnLeaseId,
       unitRun,
       message: trimmedMessage,
-      appendSyntheticUserMessage: true,
       deps,
     });
     if (loadedTranscript.kind === "cached") {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { getAgentConfig, listAgentConfigs } from "./agent-config";
+import { getAgentConfig } from "./agent-config";
 
 describe("agent config", () => {
   it("resolves artifact limits from the canonical purpose profile", () => {
@@ -24,10 +24,5 @@ describe("agent config", () => {
       maxSteps: 1,
       search: "default",
     });
-  });
-
-  it("lists every declared agent exactly once", () => {
-    const configs = listAgentConfigs();
-    expect(new Set(configs.map(({ id }) => id)).size).toBe(configs.length);
   });
 });

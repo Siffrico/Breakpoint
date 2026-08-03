@@ -8,7 +8,10 @@ import type { AiModelPreference } from "@acme/validators";
 import { AiModelPreferenceSchema, DEFAULT_AI_MODEL } from "@acme/validators";
 
 import type { ModelTier } from "../prompts/types";
+import type { AiModelPurpose } from "./run-profiles";
 import { getRunProfile } from "./run-profiles";
+
+export type { AiModelPurpose };
 
 type AiProvider = "google" | "openai" | "openrouter";
 
@@ -56,39 +59,8 @@ const preferenceStore = new AsyncLocalStorage<AiModelPreference>();
 const getActiveStack = (): ModelStack =>
   PREFERENCE_STACKS[preferenceStore.getStore() ?? DEFAULT_AI_MODEL];
 
-export type AiModelPurpose =
-  | "onboarding"
-  | "curriculum"
-  | "knowledge"
-  | "buildContent"
-  | "failure"
-  | "ghost"
-  | "education"
-  | "recall"
-  | "evaluation"
-  | "tutor"
-  | "projectOverview"
-  | "mission"
-  | "default";
-
-const PURPOSE_TIER: Record<AiModelPurpose, ModelTier> = {
-  onboarding: "critical",
-  curriculum: "critical",
-  knowledge: "critical",
-  buildContent: "critical",
-  failure: "critical",
-  ghost: "critical",
-  education: "critical",
-  recall: "standard",
-  evaluation: "critical",
-  tutor: "standard",
-  projectOverview: "standard",
-  mission: "standard",
-  default: "standard",
-};
-
 export const getModelTierForPurpose = (purpose: AiModelPurpose): ModelTier =>
-  PURPOSE_TIER[purpose];
+  getRunProfile(purpose).tier;
 
 const getEnv = (name: string): string | undefined => {
   const value = process.env[name]?.trim();
@@ -263,5 +235,3 @@ export const requireAiModelForPurpose = (
 
 export const getMissingAiKeyMessage = (context: string): string =>
   getProviderMissingKeyMessage(getSelectedProvider(), context);
-
-export const getModelForTier = getAiModelForTier;
