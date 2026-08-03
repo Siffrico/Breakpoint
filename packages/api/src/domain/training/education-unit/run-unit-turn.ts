@@ -13,6 +13,7 @@ import type {
 } from "./agent-contracts";
 import type { UnitAgentError } from "./agent-errors";
 import type { EducationExperienceDefinition } from "./experience";
+import type { UnitContextAudience } from "./unit-context";
 import type { PersistedUnitRun } from "./unit-state";
 import { runMentorAgent } from "./mentor-agent";
 import {
@@ -28,6 +29,11 @@ import {
 export class UnitTurnContractError extends Data.TaggedError(
   "UnitTurnContractError",
 )<{ readonly message: string }> {}
+
+export type BuildUnitTurnContext = (
+  run: PersistedUnitRun,
+  audience: UnitContextAudience,
+) => string;
 
 export interface UnitTurnResult {
   readonly assistantMessage: string;
@@ -64,11 +70,12 @@ const contractFailure = (message: string) =>
   Effect.fail(new UnitTurnContractError({ message }));
 
 const readContext = (
-  buildContext: (run: PersistedUnitRun) => string,
+  buildContext: BuildUnitTurnContext,
   run: PersistedUnitRun,
+  audience: UnitContextAudience,
 ): Effect.Effect<string, UnitTurnContractError> =>
   Effect.try({
-    try: () => buildContext(run),
+    try: () => buildContext(run, audience),
     catch: (cause) =>
       new UnitTurnContractError({
         message:
@@ -235,12 +242,12 @@ const presentReview = ({
   masteryContract: UnitMasteryContract;
   transcript: readonly ModelMessage[];
   experience: EducationExperienceDefinition;
-  buildContext: (run: PersistedUnitRun) => string;
+  buildContext: BuildUnitTurnContext;
   onPartialAssistantMessage?: (content: string) => void;
   deps: UnitTurnDependencies;
 }): Effect.Effect<UnitTurnResult, UnitAgentError | UnitTurnContractError> =>
   Effect.gen(function* () {
-    const context = yield* readContext(buildContext, run);
+    const context = yield* readContext(buildContext, run, "reviewer");
     const result = yield* deps.runReviewPresentation({
       messages: transcript,
       context,
@@ -282,7 +289,7 @@ export const runUnitTurn = (
     masteryContract: UnitMasteryContract;
     transcript: readonly ModelMessage[];
     experience: EducationExperienceDefinition;
-    buildContext: (run: PersistedUnitRun) => string;
+    buildContext: BuildUnitTurnContext;
     onPartialAssistantMessage?: (content: string) => void;
   },
   deps: UnitTurnDependencies = LIVE_DEPENDENCIES,
@@ -293,7 +300,7 @@ export const runUnitTurn = (
     }
 
     if (run.mode === "learning") {
-      const context = yield* readContext(buildContext, run);
+      const context = yield* readContext(buildContext, run, "mentor");
       const result = yield* deps.runMentor({
         messages: transcript,
         context,
@@ -354,7 +361,7 @@ export const runUnitTurn = (
       });
     }
 
-    const context = yield* readContext(buildContext, run);
+    const context = yield* readContext(buildContext, run, "reviewer");
     const result = yield* deps.runReviewGrade({
       messages: transcript,
       context,

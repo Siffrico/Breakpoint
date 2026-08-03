@@ -21,33 +21,19 @@ export interface UnitKnowledgeContext {
   }[];
 }
 
+export type UnitContextAudience = "mentor" | "reviewer";
+
 const bullets = (values: readonly string[]) =>
   values.map((value) => `- ${value}`).join("\n");
 
-export const buildUnitContext = ({
-  unit,
-  run,
-  experience,
-  targetIdentity,
-  memories,
-  knowledge,
-  difficultyLine,
-}: {
-  unit: UnitContent;
-  run: PersistedUnitRun;
-  experience: EducationExperienceDefinition;
-  targetIdentity: string;
-  memories: readonly Memory[];
-  knowledge: UnitKnowledgeContext | null;
-  difficultyLine: string | null;
-}): string => {
+const renderCapabilityTodos = (run: PersistedUnitRun): string => {
   const dimensionById = new Map(
     run.masteryContract.dimensions.map((dimension) => [
       dimension.id,
       dimension,
     ]),
   );
-  const capabilityTodos = run.capabilityTodos
+  return run.capabilityTodos
     .map((todo, index) => {
       const dimension = dimensionById.get(todo.dimensionId);
       if (!dimension) {
@@ -58,10 +44,16 @@ export const buildUnitContext = ({
       return `${index + 1}. [${todo.status === "completed" ? "x" : " "}] ${dimension.name} (${dimension.id})\n   Goal: ${dimension.description}\n   Pass evidence: ${dimension.passSignals.join("; ")}\n   Failure signals: ${dimension.failSignals.join("; ")}\n   Surrogate traps: ${dimension.surrogateTraps.join("; ")}\n   Recorded evidence: ${todo.evidence ?? "None"}`;
     })
     .join("\n");
+};
+
+const renderReviewTodos = (
+  run: PersistedUnitRun,
+  experience: EducationExperienceDefinition,
+): string => {
   const reviewTodoById = new Map(
     experience.reviewer.todos.map((todo) => [todo.id, todo]),
   );
-  const reviewTodos = run.reviewTodos
+  return run.reviewTodos
     .map((todo, index) => {
       const definition = reviewTodoById.get(todo.todoId);
       if (!definition) {
@@ -70,11 +62,33 @@ export const buildUnitContext = ({
       return `${index + 1}. [${todo.status === "completed" ? "x" : " "}] ${definition.goal} (${definition.id})\n   Completion evidence: ${definition.completionEvidence.join("; ")}\n   Recorded evidence: ${todo.evidence ?? "None"}`;
     })
     .join("\n");
+};
+
+export const buildUnitContext = ({
+  audience,
+  unit,
+  run,
+  experience,
+  targetIdentity,
+  memories,
+  knowledge,
+  difficultyLine,
+}: {
+  audience: UnitContextAudience;
+  unit: UnitContent;
+  run: PersistedUnitRun;
+  experience: EducationExperienceDefinition;
+  targetIdentity: string;
+  memories: readonly Memory[];
+  knowledge: UnitKnowledgeContext | null;
+  difficultyLine: string | null;
+}): string => {
   const sections = [
     `## Learner destination\n${targetIdentity}`,
     `## Unit\nTitle: ${unit.title}\nLearning goal: ${unit.learningGoal}\nWhy it matters: ${unit.whyItMatters}\nSeed situation: ${unit.seedPrompt}\nPrivate seed hint: ${unit.seedHint}`,
-    `## Capability todos\n${capabilityTodos}`,
-    `## Reviewer todos\n${reviewTodos}`,
+    audience === "mentor"
+      ? `## Capability todos\n${renderCapabilityTodos(run)}`
+      : `## Reviewer todos\n${renderReviewTodos(run, experience)}`,
   ];
 
   if (knowledge) {

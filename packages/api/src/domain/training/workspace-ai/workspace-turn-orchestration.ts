@@ -20,6 +20,7 @@ import type {
 import type { WorkspaceTurnRepo } from "./workspace-turn-repo";
 import { resolveEducationExperience } from "../education-unit/experience";
 import { runUnitTurn } from "../education-unit/run-unit-turn";
+import type { UnitContextAudience } from "../education-unit/unit-context";
 import { buildUnitContext } from "../education-unit/unit-context";
 import { boundTranscript } from "../engine/compaction";
 import { regimeForNodeKind } from "../engine/progression-model";
@@ -506,8 +507,12 @@ export const runEducationUnitTurn = ({
             : ""
         }\nThis is a spaced review, not a fresh lesson.`
       : "";
-    const buildContext = (run: typeof unitRun) =>
+    const buildContext = (
+      run: typeof unitRun,
+      audience: UnitContextAudience,
+    ) =>
       `${buildUnitContext({
+        audience,
         unit,
         run: { ...run, difficultySnapshot },
         experience,
