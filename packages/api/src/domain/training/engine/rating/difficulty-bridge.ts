@@ -1,8 +1,4 @@
-import type {
-  DifficultyVector,
-  ScenarioFormat,
-  UnitScenarioSpec,
-} from "@acme/validators";
+import type { DifficultyVector, ScenarioFormat } from "@acme/validators";
 
 import type { DifficultyBand } from "./decide";
 import type { DifficultyDialPreset } from "./difficulty-priors";
@@ -12,25 +8,6 @@ import {
   BASE_PER_FORMAT_KIND,
   DIFFICULTY_COUNT_WEIGHTS,
 } from "./difficulty-priors";
-
-export const countVector = (
-  spec: UnitScenarioSpec,
-): DifficultyVector | null => {
-  if (
-    !spec.formatId ||
-    !spec.reasoningPathSteps ||
-    !spec.withheldGivens ||
-    !spec.embeddedAlternatives
-  ) {
-    return null;
-  }
-  return {
-    formatId: spec.formatId,
-    reasoningPathSteps: spec.reasoningPathSteps.length,
-    withheldGivens: spec.withheldGivens.length,
-    embeddedAlternatives: spec.embeddedAlternatives.length,
-  };
-};
 
 export const predictItemRating = (
   vector: DifficultyVector,

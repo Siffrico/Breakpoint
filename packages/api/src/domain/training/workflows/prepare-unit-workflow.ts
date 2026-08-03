@@ -60,7 +60,7 @@ export const prepareUnitWorkflow = async ({
   const existingResponses = existingUnit
     ? await deps.getPhaseResponses(existingUnit.id, sessionId)
     : [];
-  if (existingUnit) {
+  if (existingUnit?.unitMasteryContract) {
     return ok(
       getEducationUnitState({
         unit: existingUnit,

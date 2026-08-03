@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { deriveServerAttemptTiming } from "./evaluation-plan";
+import { deriveServerAttemptTiming } from "./attempt-timing";
 
 describe("deriveServerAttemptTiming", () => {
   it("derives all decision fields from server timestamps", () => {

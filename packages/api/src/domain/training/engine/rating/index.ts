@@ -57,7 +57,6 @@ export {
 } from "./difficulty-priors";
 export {
   auditDialCompliance,
-  countVector,
   deriveCanonicalDifficultyBands,
   predictItemRating,
 } from "./difficulty-bridge";

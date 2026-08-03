@@ -4,8 +4,8 @@ import { generateObject } from "ai";
 import type { PromptContext, PromptTemplate } from "../prompts/types";
 import { composePrompt } from "../prompts/compose";
 import {
+  getAiModelForTier,
   getMissingAiKeyMessage,
-  getModelForTier,
   requireAiModelForPurpose,
 } from "./model-router";
 import { logPromptExecution } from "./observe";
@@ -34,7 +34,7 @@ export const executePrompt = async <TSchema extends z.ZodTypeAny>({
 }: ExecuteOptions<TSchema>): Promise<z.infer<TSchema>> => {
   const model = isEvaluationTemplate(template)
     ? requireAiModelForPurpose("evaluation", "AI-generated training workflows")
-    : getModelForTier(template.tier);
+    : getAiModelForTier(template.tier);
   if (!model) {
     throw new Error(getMissingAiKeyMessage("AI-generated training workflows"));
   }

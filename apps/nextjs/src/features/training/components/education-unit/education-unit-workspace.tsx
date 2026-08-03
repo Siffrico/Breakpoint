@@ -14,7 +14,7 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { DefaultChatTransport, isTextUIPart } from "ai";
 
-import type { RouterOutputs } from "@acme/api";
+import type { RouterOutputs, WorkspaceStreamStatus } from "@acme/api";
 import { Button } from "@acme/ui/button";
 import { ChatComposerDock, WorkspaceStatusLine } from "@acme/ui/chat";
 import { toast } from "@acme/ui/toast";
@@ -58,12 +58,6 @@ interface WorkspaceFallbackTurn {
   prompt: string;
   canCompose: boolean;
 }
-type WorkspaceStreamStatus =
-  | "preparing"
-  | "thinking"
-  | "evaluating"
-  | "saving"
-  | "complete";
 interface WorkspaceStatusData {
   status: WorkspaceStreamStatus;
   label: string;
@@ -622,7 +616,7 @@ function EducationUnitWorkspaceComponent({
   }, [unit.nodeId]);
   useEffect(() => {
     if (preview || effectiveIsRunning) return;
-    if (streamState?.educationStage !== "mastered") return;
+    if (streamState?.educationStage !== "complete") return;
     if (aiWorkspace?.unitAdvanceGate.status === "enabled") return;
     if (masteredInvalidatedRef.current) return;
     masteredInvalidatedRef.current = true;
@@ -786,7 +780,7 @@ function EducationUnitWorkspaceComponent({
   );
   const awaitingUnitAdvance =
     aiWorkspace?.unitAdvanceGate.status === "enabled" ||
-    streamState?.educationStage === "mastered";
+    streamState?.educationStage === "complete";
   const awaitingNextUnitContent =
     advancePending ||
     (aiWorkspace?.state?.activeUnitId != null &&
@@ -903,8 +897,7 @@ function EducationUnitWorkspaceComponent({
       );
       setMessages((current) =>
         current.filter(
-          (item) =>
-            !(item.role === "user" && item.metadata?.failed === true),
+          (item) => !(item.role === "user" && item.metadata?.failed === true),
         ),
       );
     } catch {
@@ -965,14 +958,10 @@ function EducationUnitWorkspaceComponent({
 
   const anchorTitle =
     streamState?.recallUnitTitle ?? streamState?.activeUnitTitle ?? unit.title;
-  const anchorStage = streamState?.recallUnitId
-    ? "recall"
-    : (streamState?.educationStage ?? null);
-  const anchorProgress = aiWorkspace?.evaluationProgress
-    ? {
-        completed: aiWorkspace.evaluationProgress.completedAttempts,
-        total: aiWorkspace.evaluationProgress.scenarioCount,
-      }
+  const anchorRunKind = streamState
+    ? streamState.promptKind === "recall"
+      ? "recall"
+      : "main"
     : null;
   // Rendering is gated on the scenario still being there, not on the flag
   // alone, so a scenario that goes away (pass advance, unit advance) can never
@@ -1146,8 +1135,7 @@ function EducationUnitWorkspaceComponent({
         <div className="flex min-h-0 flex-1 flex-col">
           <ScenarioAnchor
             title={anchorTitle}
-            stage={anchorStage}
-            progress={anchorProgress}
+            runKind={anchorRunKind}
             isScenarioOpen={hasScenario ? showScenario : null}
             onToggleScenario={() => setIsScenarioOpen((open) => !open)}
             columnClassName={CHAT_COLUMN_CLASS}
@@ -1181,8 +1169,7 @@ function EducationUnitWorkspaceComponent({
       <main className="bp-page-bg text-foreground relative flex h-dvh flex-col px-5 pt-3 sm:px-8 lg:px-10">
         <ScenarioAnchor
           title={anchorTitle}
-          stage={anchorStage}
-          progress={anchorProgress}
+          runKind={anchorRunKind}
           isScenarioOpen={hasScenario ? showScenario : null}
           onToggleScenario={() => setIsScenarioOpen((open) => !open)}
           columnClassName={CHAT_COLUMN_CLASS}

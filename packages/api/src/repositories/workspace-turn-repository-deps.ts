@@ -4,21 +4,23 @@ import type { db as databaseClient } from "@acme/db/client";
 import { and, eq, isNull, lt, or } from "@acme/db";
 import {
   TrainingCurriculumNode,
+  TrainingEducationExperiencePreference,
   TrainingUnitRun,
   TrainingWorkspaceTurn,
 } from "@acme/db/schema";
+import { EducationExperienceCustomizationSchema } from "@acme/validators";
 
-import type { PersistedUnitRun } from "../domain/training/education-unit/unit";
+import type { PersistedUnitRun } from "../domain/training/education-unit/unit-state";
 import type { JobRatingState } from "../domain/training/engine/rating";
 import type { RecallCandidate } from "../domain/training/policies/recall-decay";
 import type { DifficultyBand } from "../domain/training/types/training.types";
 import type { WorkspaceAiMessage } from "../domain/training/workspace-ai/types";
 import type { WorkspaceTurnOrchestrationDependencies } from "../domain/training/workspace-ai/workspace-turn-orchestration";
 import type { WorkspaceEducationTurnCommit } from "../domain/training/workspace-ai/workspace-turn-persistence";
+import { resolveEducationExperienceCustomization } from "../domain/training/education-unit/experience";
 import { resolveScenarioFormat } from "../domain/training/engine/progression-model";
 import {
   auditDialCompliance,
-  countVector,
   predictItemRating,
 } from "../domain/training/engine/rating";
 import {
@@ -59,20 +61,28 @@ const claimWorkspaceUnitLease = async ({
     .values({
       sessionId,
       unitContentId,
-      userId: run.userId ?? null,
-      recipeVersion: run.recipeVersion,
-      phase: run.phase,
-      pass: run.pass,
-      connectGrills: run.connectGrills,
-      solveRepairs: run.solveRepairs,
-      connectTeachDue: run.connectTeachDue ?? false,
+      userId: run.userId,
+      kind: run.kind,
+      mode: run.mode,
+      experienceId: run.experience.id,
+      experienceVersion: run.experience.version,
+      experienceJson: run.experience,
+      masteryContractJson: run.masteryContract,
+      capabilityTodosJson: [...run.capabilityTodos],
+      reviewTodosJson: [...run.reviewTodos],
+      activeReviewChallengeJson: run.activeReviewChallenge,
+      reviewerFeedback: run.reviewerFeedback,
+      hasReviewGrade: run.hasReviewGrade,
       difficultySnapshotJson: run.difficultySnapshot,
-      scenarioSpecJson: run.scenarioSpec,
       turnLeaseId: leaseId,
       turnLeaseExpiresAt: workspaceLeaseExpiry(now),
     })
     .onConflictDoUpdate({
-      target: [TrainingUnitRun.sessionId, TrainingUnitRun.unitContentId],
+      target: [
+        TrainingUnitRun.sessionId,
+        TrainingUnitRun.unitContentId,
+        TrainingUnitRun.kind,
+      ],
       set: {
         turnLeaseId: leaseId,
         turnLeaseExpiresAt: workspaceLeaseExpiry(now),
@@ -283,36 +293,6 @@ const markWorkspaceTurnFailed = async ({
     );
 };
 
-const applyContracts = async ({
-  db,
-  contracts,
-}: {
-  db: Database;
-  contracts: WorkspaceEducationTurnCommit["contracts"];
-}) => {
-  if (!contracts) return;
-
-  if (contracts.unitMasteryContract) {
-    await trainingCurriculumRepository.updateUnitMasteryContract({
-      db,
-      unitContentId: contracts.unitContentId,
-      unitMasteryContract: contracts.unitMasteryContract,
-    });
-  }
-
-  if (contracts.openScenarioContract) {
-    const updated = await trainingRatingRepository.updateScenarioContract({
-      db,
-      ...contracts.openScenarioContract,
-    });
-    if (!updated) {
-      throw new Error(
-        "Scenario evaluation contract could not be attached to an open scenario.",
-      );
-    }
-  }
-};
-
 const commitEducationTurn = async ({
   db,
   input,
@@ -336,14 +316,13 @@ const commitEducationTurn = async ({
       unitContentId: input.nextRun.unitId,
       leaseId: input.unitLeaseId,
     });
-    await applyContracts({ db: txDb, contracts: input.contracts });
-
     let presentedScenarioAttemptId: string | null = null;
     if (input.scenarioPresentation) {
       const unitRun = await txDb.query.TrainingUnitRun.findFirst({
         where: and(
           eq(TrainingUnitRun.sessionId, input.nextRun.sessionId),
           eq(TrainingUnitRun.unitContentId, input.nextRun.unitId),
+          eq(TrainingUnitRun.kind, input.nextRun.kind),
         ),
       });
       if (!unitRun) {
@@ -352,11 +331,13 @@ const commitEducationTurn = async ({
         );
       }
       const presentation = input.scenarioPresentation;
-      const vector = input.nextRun.scenarioSpec
-        ? countVector(input.nextRun.scenarioSpec)
-        : null;
+      const activeChallenge = input.nextRun.activeReviewChallenge;
+      if (!activeChallenge) {
+        throw new Error("A rating attempt requires its review challenge.");
+      }
+      const vector = activeChallenge.difficultyVector;
       let itemRating = presentation.snapshot.directive.targetItemRating;
-      if (vector && presentation.snapshot.format) {
+      if (presentation.snapshot.format) {
         try {
           itemRating = predictItemRating(vector, [
             presentation.snapshot.format,
@@ -399,17 +380,20 @@ const commitEducationTurn = async ({
           itemRating,
           difficultyVector: vector,
           scenarioPrompt: input.assistantMessage.content,
+          scenarioContract: activeChallenge.contract,
           presentedAt: presentation.presentedAt,
         });
       presentedScenarioAttemptId = attempt.id;
     }
     if (input.solvePresentation) {
-      // A recall presentation opens its attempt in this same commit and
-      // stamps it directly; education stamps the attempt opened at Connect.
+      // The review presentation opens its rating attempt in this same commit
+      // and stamps the learner's answer clock directly.
       const solveAttemptId =
         input.solvePresentation.scenarioAttemptId ?? presentedScenarioAttemptId;
       if (!solveAttemptId) {
-        throw new Error("Solve presentation has no scenario attempt to stamp.");
+        throw new Error(
+          "Review presentation has no scenario attempt to stamp.",
+        );
       }
       await trainingRatingRepository.stampSolvePresentation({
         db: txDb,
@@ -529,7 +513,7 @@ export const workspaceTurnRepoLayer = (db: Database) =>
         Effect.withSpan("workspace-turn.commit", {
           attributes: {
             purpose: "education",
-            phase: input.nextRun.phase,
+            mode: input.nextRun.mode,
             attempt: 1,
           },
         }),
@@ -538,6 +522,7 @@ export const workspaceTurnRepoLayer = (db: Database) =>
 
 export const createWorkspaceTurnRepositoryDeps = (
   db: Database,
+  userId?: string,
 ): WorkspaceTurnOrchestrationDependencies => {
   // Per-request seed cache: a multi-touch turn reads each node's seed once.
   const seedCache = new Map<string, Promise<JobRatingState | null>>();
@@ -548,8 +533,35 @@ export const createWorkspaceTurnRepositoryDeps = (
     seedCache.set(nodeId, pending);
     return pending;
   };
+  let experiencePromise: ReturnType<
+    NonNullable<
+      WorkspaceTurnOrchestrationDependencies["getEducationExperience"]
+    >
+  > | null = null;
+  const getEducationExperience = () => {
+    if (!userId) {
+      return Promise.resolve(resolveEducationExperienceCustomization(null));
+    }
+    experiencePromise ??=
+      db.query.TrainingEducationExperiencePreference.findFirst({
+        where: eq(TrainingEducationExperiencePreference.userId, userId),
+      }).then((preference) =>
+        resolveEducationExperienceCustomization(
+          preference
+            ? {
+                version: preference.version,
+                customization: EducationExperienceCustomizationSchema.parse(
+                  preference.customizationJson,
+                ),
+              }
+            : null,
+        ),
+      );
+    return experiencePromise;
+  };
 
   return {
+    getEducationExperience,
     getActivePlan: (sessionId: string) =>
       trainingCurriculumRepository.getActivePlan({ db, sessionId }),
     listUnitMessages: (sessionId: string, unitId: string) =>

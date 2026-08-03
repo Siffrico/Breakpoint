@@ -3,10 +3,9 @@ import { Cause, Effect, Exit } from "effect";
 
 import type { DbError } from "../../../effect/errors";
 import type { Result } from "../../../lib/result";
-import type { PersistedUnitRun } from "../education-unit/unit";
+import type { PersistedUnitRun } from "../education-unit/unit-state";
 import type { CurriculumPlan } from "../types/training.types";
 import type {
-  EvaluationPlan,
   WorkspaceAiMessage,
   WorkspaceAiState,
 } from "../workspace-ai/types";
@@ -15,7 +14,6 @@ import type {
   WorkspaceProjectionReaderSource,
 } from "../workspace-ai/workspace-reader";
 import { err, ok } from "../../../lib/result";
-import { getEvaluationProgress } from "../workspace-ai/evaluation-plan";
 import { planWorkspaceTurn } from "../workspace-ai/orchestrator";
 import { CurriculumNotReadyError } from "../workspace-ai/workspace-errors";
 import {
@@ -43,12 +41,6 @@ export interface AiWorkspaceView {
   introMessage: {
     prompt: string;
     helper: string | null;
-  } | null;
-  evaluationPlan: EvaluationPlan | null;
-  evaluationProgress: {
-    completedAttempts: number;
-    scenarioCount: number;
-    attemptStartedAt: Date | null;
   } | null;
   unitAdvanceGate: ReturnType<typeof getUnitAdvanceGate>;
   scenario: ScenarioBrief | null;
@@ -110,37 +102,24 @@ export const getAiWorkspaceWorkflowEffect = ({
       return { kind: "preparing", nodeId: active.node.id } as const;
     }
 
-    const activeScenarioAttemptId = active.responses
-      .slice()
-      .reverse()
-      .find((response) => response.metadata?.scenarioAttemptId)
-      ?.metadata?.scenarioAttemptId;
-
     // The active unit's transcript is fetched speculatively: it is the live
     // transcript unless a due recall wins below, and waiting for the recall
     // decision would serialize the common case behind it.
-    const [plannedRecall, activeUnitMessages, attemptStartedAt] =
-      yield* Effect.all(
-        [
-          loadPlannedRecall({
-            sessionId,
-            plan,
-            active,
-            inFlightRun,
-            repairStaleRun: false,
-          }),
-          active.node
-            ? displayReader.listUnitMessages(sessionId, active.node.id)
-            : Effect.succeed<WorkspaceAiMessage[]>([]),
-          active.unit && activeScenarioAttemptId
-            ? displayReader.getScenarioAttemptStartedAt({
-                scenarioAttemptId: activeScenarioAttemptId,
-                nodeId: active.unit.nodeId,
-              })
-            : Effect.succeed(null),
-        ],
-        { concurrency: 3 },
-      );
+    const [plannedRecall, activeUnitMessages] = yield* Effect.all(
+      [
+        loadPlannedRecall({
+          sessionId,
+          plan,
+          active,
+          inFlightRun,
+          repairStaleRun: false,
+        }),
+        active.node
+          ? displayReader.listUnitMessages(sessionId, active.node.id)
+          : Effect.succeed<WorkspaceAiMessage[]>([]),
+      ],
+      { concurrency: 2 },
+    );
 
     const state = planWorkspaceTurn({
       nodes: plan.nodes,
@@ -184,12 +163,15 @@ export const getAiWorkspaceWorkflowEffect = ({
         sessionId,
         unit: recallUnit,
         existing: plannedRecall?.run ?? null,
+        experience: plannedRecall?.run
+          ? undefined
+          : yield* projectionReader.getEducationExperience(),
       });
       resolvedRun = recallRun;
       resolvedState = {
         ...state,
-        educationStage: recallRun.phase,
-        workflowId: recallRun.recipeVersion,
+        educationStage: recallRun.mode,
+        workflowId: `${recallRun.experience.id}@${recallRun.experience.version}`,
       };
     }
 
@@ -210,12 +192,6 @@ export const getAiWorkspaceWorkflowEffect = ({
           ? activeUnitMessages
           : yield* displayReader.listUnitMessages(sessionId, liveUnitId);
 
-    // Scenario-plan progress belongs to the active unit's education run; a
-    // recall interlude is a single checkpoint with no plan to report.
-    const isActiveUnitEducation =
-      resolvedState?.mode === "education_unit" &&
-      resolvedState.recallUnitId === null;
-    const evaluationProgress = getEvaluationProgress(active.responses);
     const activeNode = active.node;
     const nextLearningNode =
       activeNode == null
@@ -232,17 +208,6 @@ export const getAiWorkspaceWorkflowEffect = ({
         projectComplete,
         state: resolvedState,
         messages,
-        evaluationPlan: isActiveUnitEducation
-          ? evaluationProgress.latestPlan
-          : null,
-        evaluationProgress:
-          isActiveUnitEducation && evaluationProgress.latestPlan
-            ? {
-                completedAttempts: evaluationProgress.completedAttempts,
-                scenarioCount: evaluationProgress.latestPlan.scenarioCount,
-                attemptStartedAt,
-              }
-            : null,
         unitAdvanceGate:
           resolvedState?.recallUnitId != null
             ? { status: "locked" }
@@ -286,42 +251,17 @@ export const getAiWorkspaceWorkflow = async ({
   throw failure;
 };
 
-/**
- * Projects the run's recorded scenario spec down to the fields a learner may
- * see. Returns null whenever there is no scenario worth showing, which the
- * client reads as "render no scenario affordance at all".
- *
- * Two ways the spec is unshowable, both closed here rather than in the UI:
- *
- *   - It is STALE. The run's pass cursor advances at teach → connect, but the
- *     new round's spec is only recorded once Connect poses it. In that window
- *     `run.pass` is already N+1 while the stored spec is still tagged N, and
- *     that spec describes the scenario the learner just finished. Requiring the
- *     tags to agree means a lagging spec is simply not shown — and the gap is
- *     harmless, because during it the freshly posed scenario is still the
- *     on-screen active prompt. (An untagged spec predates the tag: it is pass
- *     one's, per the same convention the context builder uses.)
- *
- *   - It is PRE-V2. `stateA`/`stateB` are optional only so specs persisted
- *     before the A→B shape still parse. Without both there is no scenario to
- *     state, and half a panel is worse than none, so those rows get no brief.
- *
- * Fields are copied one by one, never spread: the same object carries
- * `canonicalAnswer`, `reasoningPath`, `rubric` and `correctLetter`, and a
- * spread would ship the answer key to the browser the moment a field is added.
- */
+/** Projects only learner-safe fields from the private review contract. */
 export const projectScenarioBrief = (
   run: PersistedUnitRun | null,
 ): ScenarioBrief | null => {
-  const spec = run?.scenarioSpec;
-  if (!run || !spec) return null;
-  if ((spec.pass ?? 1) !== run.pass) return null;
-  if (!spec.stateA || !spec.stateB) return null;
+  const challenge = run?.activeReviewChallenge;
+  if (!challenge) return null;
 
   return {
-    stateA: spec.stateA,
-    stateB: spec.stateB,
-    frictionNoise: spec.frictionNoise ?? null,
+    stateA: challenge.prompt,
+    stateB: challenge.contract.learnerVisibleCriteria.join("\n"),
+    frictionNoise: null,
   };
 };
 

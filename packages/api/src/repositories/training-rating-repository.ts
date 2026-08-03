@@ -282,6 +282,7 @@ export const trainingRatingRepository = {
     itemRating,
     difficultyVector,
     scenarioPrompt,
+    scenarioContract,
     presentedAt,
   }: {
     db: Database;
@@ -293,6 +294,7 @@ export const trainingRatingRepository = {
     itemRating: number;
     difficultyVector?: DifficultyVector | null;
     scenarioPrompt: string;
+    scenarioContract: ScenarioEvaluationContract;
     presentedAt: Date;
   }) => {
     const [inserted] = await db
@@ -309,6 +311,8 @@ export const trainingRatingRepository = {
         unitRunId,
         originTurnId,
         scenarioPrompt,
+        scenarioContractJson: scenarioContract,
+        contractVersion: scenarioContract.version,
         presentedAt,
       })
       .onConflictDoNothing({
@@ -338,6 +342,8 @@ export const trainingRatingRepository = {
       JSON.stringify(existing.difficultyVectorJson) !==
         JSON.stringify(difficultyVector ?? null) ||
       existing.scenarioPrompt !== scenarioPrompt ||
+      JSON.stringify(existing.scenarioContractJson) !==
+        JSON.stringify(scenarioContract) ||
       existing.originTurnId !== originTurnId
     ) {
       throw new Error(
@@ -396,36 +402,6 @@ export const trainingRatingRepository = {
         eq(TrainingScenarioAttempt.status, "open"),
       ),
     })) ?? null,
-
-  updateScenarioContract: async ({
-    db,
-    scenarioAttemptId,
-    scenarioPrompt,
-    scenarioContract,
-  }: {
-    db: Database;
-    scenarioAttemptId: string;
-    scenarioPrompt: string;
-    scenarioContract: ScenarioEvaluationContract;
-  }) => {
-    const [row] = await db
-      .update(TrainingScenarioAttempt)
-      .set({
-        scenarioPrompt: sql<string>`coalesce(${TrainingScenarioAttempt.scenarioPrompt}, ${scenarioPrompt})`,
-        scenarioContractJson: scenarioContract,
-        contractVersion: scenarioContract.version,
-        presentedAt: sql<Date>`coalesce(${TrainingScenarioAttempt.presentedAt}, now())`,
-      })
-      .where(
-        and(
-          eq(TrainingScenarioAttempt.id, scenarioAttemptId),
-          eq(TrainingScenarioAttempt.status, "open"),
-        ),
-      )
-      .returning();
-
-    return row ?? null;
-  },
 
   applyManualDifficultyNudge: async ({
     db,

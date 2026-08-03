@@ -8,8 +8,7 @@
  *   addressed/resolved ──(error code reappears)──► active (occurrences++)
  *
  * The two-step resolution is deliberate: one good answer after remediation is
- * evidence, two is a pattern. Error codes come from the evaluator's closed
- * taxonomy (ERROR_CLASSIFICATION_PROTOCOL), never free text.
+ * evidence, two is a pattern.
  */
 
 export type MisconceptionStatus = "active" | "addressed" | "resolved";

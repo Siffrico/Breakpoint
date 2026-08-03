@@ -2,7 +2,8 @@ import type { Effect as EffectType } from "effect";
 import { Cause, Effect, Exit } from "effect";
 
 import type { DbError } from "../../../effect/errors";
-import type { PersistedUnitRun } from "../education-unit/unit";
+import type { EducationExperienceDefinition } from "../education-unit/experience";
+import type { PersistedUnitRun } from "../education-unit/unit-state";
 import type { RecallCandidate, RecallTarget } from "../policies/recall-decay";
 import type {
   CurriculumNode,
@@ -12,12 +13,8 @@ import type {
 } from "../types/training.types";
 import type { WorkspaceAiState } from "./types";
 import type { WorkspaceProjectionReaderSource } from "./workspace-reader";
-import { initialState, recallInitialState } from "../education-unit/fsm";
-import {
-  CURRENT_RECIPE_VERSION,
-  isRecallRecipe,
-  RECALL_RECIPE_VERSION,
-} from "../education-unit/unit";
+import { DEFAULT_EDUCATION_EXPERIENCE } from "../education-unit/experience";
+import { createUnitRun } from "../education-unit/unit-state";
 import { UnitNotReadyError } from "../unit-preparation/errors";
 import { isUnitMidFlight, planWorkspaceTurn } from "./orchestrator";
 import {
@@ -30,6 +27,17 @@ import {
 } from "./workspace-reader";
 
 export type WorkspaceTurnDependencies = WorkspaceProjectionReaderSource;
+
+export const findLatestPhaseResponse = <T extends PhaseResponseRecord>(
+  responses: readonly T[],
+  matches: (response: T) => boolean,
+): T | undefined => {
+  for (let index = responses.length - 1; index >= 0; index -= 1) {
+    const response = responses[index];
+    if (response && matches(response)) return response;
+  }
+  return undefined;
+};
 
 export interface ResolvedWorkspaceTurn {
   plan: CurriculumPlan;
@@ -67,7 +75,10 @@ export const isUnitAwaitingAdvance = ({
   node: Pick<CurriculumNode, "kind" | "status"> | null;
   run: PersistedUnitRun | null;
 }) =>
-  isLearningUnit(node) && node.status === "ready" && run?.phase === "mastered";
+  isLearningUnit(node) &&
+  node.status === "ready" &&
+  run?.kind === "education" &&
+  run.mode === "complete";
 
 export const assertUnitCanAdvance = ({
   node,
@@ -85,7 +96,7 @@ export const assertUnitCanAdvance = ({
   if (node.status !== "ready") {
     throw new Error("Unit is not active.");
   }
-  if (run?.phase !== "mastered") {
+  if (run?.kind !== "education" || run.mode !== "complete") {
     throw new Error("Unit is not complete yet.");
   }
 };
@@ -123,37 +134,38 @@ export const findWorkspaceTurnNode = ({
 
 /**
  * Produces a recall run projection without materializing it. An in-flight
- * recall run (prompted but not yet graded) resumes; anything else — the
- * mastered education run, a finished earlier recall — projects a fresh
- * cursor at the scored Solve moment. The first claimed commit materializes
- * it, resetting the row onto the recall recipe.
+ * recall run with unfinished review resumes; anything else projects a fresh
+ * reviewer run. The first claimed commit materializes it on the shared unit
+ * row.
  */
 export const resolveRecallRunProjection = ({
   sessionId,
   userId,
   unit,
   existing,
+  experience = DEFAULT_EDUCATION_EXPERIENCE,
 }: {
   sessionId: string;
   userId?: string | null;
   unit: UnitContent;
   existing: PersistedUnitRun | null;
+  experience?: EducationExperienceDefinition;
 }): PersistedUnitRun => {
-  if (
-    existing &&
-    isRecallRecipe(existing.recipeVersion) &&
-    existing.phase !== "mastered"
-  ) {
+  if (existing?.kind === "recall" && existing.mode !== "complete") {
     return existing;
   }
+  if (!unit.unitMasteryContract) {
+    throw new Error("The recall unit has no capability contract.");
+  }
 
-  return {
-    ...recallInitialState(unit.id, RECALL_RECIPE_VERSION),
+  return createUnitRun({
+    unitId: unit.id,
     sessionId,
-    userId: userId ?? null,
-    difficultySnapshot: null,
-    scenarioSpec: null,
-  };
+    userId,
+    kind: "recall",
+    masteryContract: unit.unitMasteryContract,
+    experience,
+  });
 };
 
 /** Rehydrates the persisted one-or-two entry recall target. */
@@ -185,18 +197,14 @@ const rehydrateRecallTarget = ({
 const resolvePersistedRecall = ({
   plan,
   run,
-  responses,
+  knowledgeIds,
   candidates,
 }: {
   plan: CurriculumPlan;
   run: PersistedUnitRun;
-  responses: readonly PhaseResponseRecord[];
+  knowledgeIds: readonly string[] | undefined;
   candidates: readonly RecallCandidate[];
 }): PlannedRecall | null => {
-  const knowledgeIds = [...responses]
-    .reverse()
-    .find((response) => response.metadata?.recallEntryIds)
-    ?.metadata?.recallEntryIds;
   const target = knowledgeIds
     ? rehydrateRecallTarget({ knowledgeIds, candidates })
     : null;
@@ -231,17 +239,17 @@ export const loadPlannedRecall = ({
         inFlightRun.unitId,
         sessionId,
       );
-      const knowledgeIds = [...responses]
-        .reverse()
-        .find((response) => response.metadata?.recallEntryIds)
-        ?.metadata?.recallEntryIds;
+      const knowledgeIds = findLatestPhaseResponse(
+        responses,
+        (response) => response.metadata?.recallEntryIds !== undefined,
+      )?.metadata?.recallEntryIds;
       const candidates = knowledgeIds
         ? yield* reader.getRecallCandidatesByIds(plan.id, knowledgeIds)
         : [];
       const resumed = resolvePersistedRecall({
         plan,
         run: inFlightRun,
-        responses,
+        knowledgeIds,
         candidates,
       });
       if (resumed) return resumed;
@@ -307,25 +315,29 @@ export const resolveUnitRunProjection = ({
   userId,
   unit,
   existing,
+  experience = DEFAULT_EDUCATION_EXPERIENCE,
 }: {
   sessionId: string;
   userId?: string | null;
   unit: UnitContent;
   existing: PersistedUnitRun | null;
+  experience?: EducationExperienceDefinition;
 }): PersistedUnitRun => {
-  if (existing) {
+  if (existing?.kind === "education") {
     return existing;
   }
+  if (!unit.unitMasteryContract) {
+    throw new Error("The education unit has no capability contract.");
+  }
 
-  // A brand-new run always begins at the FSM's opening phase on the current
-  // recipe. `initialState` owns the phase/pass/counter defaults.
-  return {
-    ...initialState(unit.id, CURRENT_RECIPE_VERSION),
+  return createUnitRun({
+    unitId: unit.id,
     sessionId,
-    userId: userId ?? null,
-    difficultySnapshot: null,
-    scenarioSpec: null,
-  };
+    userId,
+    kind: "education",
+    masteryContract: unit.unitMasteryContract,
+    experience,
+  });
 };
 
 export interface NextReadyUnitProjection {
@@ -365,11 +377,19 @@ export const loadNextReadyUnitProjection = ({
       ],
       { concurrency: 2 },
     );
+    const experience = existingRun
+      ? DEFAULT_EDUCATION_EXPERIENCE
+      : yield* reader.getEducationExperience();
     return {
       node,
       unit,
       responses,
-      run: resolveUnitRunProjection({ sessionId, unit, existing: existingRun }),
+      run: resolveUnitRunProjection({
+        sessionId,
+        unit,
+        existing: existingRun,
+        experience,
+      }),
     };
   });
 
@@ -381,9 +401,11 @@ export const loadNextReadyUnitProjection = ({
 export const resolveWorkspaceTurnEffect = ({
   sessionId,
   authorizedPlan,
+  repairStaleRun = true,
 }: {
   sessionId: string;
   authorizedPlan?: CurriculumPlan;
+  repairStaleRun?: boolean;
 }): EffectType.Effect<
   ResolvedWorkspaceTurn,
   | DbError
@@ -421,7 +443,7 @@ export const resolveWorkspaceTurnEffect = ({
       plan,
       active,
       inFlightRun,
-      repairStaleRun: true,
+      repairStaleRun,
     });
 
     const state = planWorkspaceTurn({
@@ -472,11 +494,20 @@ export const resolveWorkspaceTurnEffect = ({
       ],
       { concurrency: 2 },
     );
+    const selectedExistingRun = isRecallTurn
+      ? (plannedRecall?.run ?? null)
+      : reusesActiveUnit
+        ? active.run
+        : existingRun;
+    const experience = selectedExistingRun
+      ? DEFAULT_EDUCATION_EXPERIENCE
+      : yield* reader.getEducationExperience();
     const unitRun = isRecallTurn
       ? resolveRecallRunProjection({
           sessionId,
           unit,
           existing: plannedRecall?.run ?? null,
+          experience,
         })
       : reusesActiveUnit && active.run
         ? active.run
@@ -484,12 +515,13 @@ export const resolveWorkspaceTurnEffect = ({
             sessionId,
             unit,
             existing: existingRun,
+            experience,
           });
 
     const resolvedState = {
       ...state,
-      educationStage: unitRun.phase,
-      workflowId: unitRun.recipeVersion,
+      educationStage: unitRun.mode,
+      workflowId: `${unitRun.experience.id}@${unitRun.experience.version}`,
     };
 
     return {
@@ -506,73 +538,23 @@ export const resolveWorkspaceTurnEffect = ({
 export const resolveWorkspaceTurn = async ({
   sessionId,
   authorizedPlan,
+  repairStaleRun,
   deps,
 }: {
   sessionId: string;
   authorizedPlan?: CurriculumPlan;
+  repairStaleRun?: boolean;
   deps: WorkspaceProjectionReaderSource;
 }): Promise<ResolvedWorkspaceTurn> => {
   const exit = await Effect.runPromiseExit(
-    resolveWorkspaceTurnEffect({ sessionId, authorizedPlan }).pipe(
-      Effect.provideService(
-        WorkspaceProjectionReader,
-        makeWorkspaceProjectionReader(deps),
-      ),
-    ),
-  );
-
-  if (Exit.isSuccess(exit)) return exit.value;
-  throw Cause.squash(exit.cause);
-};
-
-/**
- * Takes a session id and current plan, produces the next runnable workspace
- * state, and returns null only when the curriculum has no next runnable turn.
- */
-export const planNextWorkspaceTurn = async ({
-  sessionId,
-  plan,
-  deps,
-}: {
-  sessionId: string;
-  plan: CurriculumPlan;
-  deps: Omit<WorkspaceTurnDependencies, "getActivePlan">;
-}): Promise<WorkspaceAiState | null> => {
-  const exit = await Effect.runPromiseExit(
-    Effect.gen(function* () {
-      const reader = yield* WorkspaceProjectionReader;
-      const [active, inFlightRun] = yield* Effect.all(
-        [
-          loadNextReadyUnitProjection({ sessionId, nodes: plan.nodes }),
-          reader.getInFlightRecallRun(sessionId),
-        ],
-        { concurrency: 2 },
-      );
-      const plannedRecall = yield* loadPlannedRecall({
-        sessionId,
-        plan,
-        active,
-        inFlightRun,
-        repairStaleRun: true,
-      });
-      return planWorkspaceTurn({
-        nodes: plan.nodes,
-        activeUnitResponses: active.responses,
-        activeUnitRun: active.run,
-        recallTarget: plannedRecall
-          ? {
-              unitNodeId: plannedRecall.node.id,
-              unitTitle: plannedRecall.node.title,
-            }
-          : null,
-      });
+    resolveWorkspaceTurnEffect({
+      sessionId,
+      authorizedPlan,
+      repairStaleRun,
     }).pipe(
       Effect.provideService(
         WorkspaceProjectionReader,
-        makeWorkspaceProjectionReader({
-          ...deps,
-          getActivePlan: () => Promise.resolve(plan),
-        }),
+        makeWorkspaceProjectionReader(deps),
       ),
     ),
   );

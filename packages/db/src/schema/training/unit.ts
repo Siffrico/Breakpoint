@@ -1,8 +1,12 @@
 import { index, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
 
 import type {
+  EducationExperienceSnapshot,
+  UnitCapabilityTodo,
   UnitDifficultySnapshot,
-  UnitScenarioSpecRecord,
+  UnitMasteryContract,
+  UnitReviewChallenge,
+  UnitReviewTodo,
 } from "@acme/validators";
 
 import { user } from "../../auth-schema";
@@ -16,20 +20,7 @@ import { TrainingOnboardingSession } from "./onboarding";
  */
 export type TrainingUnitDifficultySnapshotJson = UnitDifficultySnapshot;
 
-/** The persisted ScenarioSpec column type; canonical schema in @acme/validators. */
-export type TrainingUnitScenarioSpecJson = UnitScenarioSpecRecord;
-
-export interface TrainingUnitMasteryContractJson {
-  version: 1;
-  dimensions: {
-    id: string;
-    name: string;
-    description: string;
-    passSignals: string[];
-    failSignals: string[];
-    surrogateTraps: string[];
-  }[];
-}
+export type TrainingUnitMasteryContractJson = UnitMasteryContract;
 
 export const TrainingUnitContent = pgTable(
   "becoming_unit_content",
@@ -111,14 +102,9 @@ export const TrainingUnitPhaseResponse = pgTable(
         reasoningStyle: string;
       };
       stateSnapshot?: unknown;
-      aiEducationStage?: "orient" | "connect" | "solve" | "teach" | "mastered";
-      phasePass?: number;
+      aiEducationStage?: "learning" | "review" | "complete";
       recallUnitId?: string;
-      promptKind?:
-        | "onboarding_curriculum"
-        | "education_unit"
-        | "recall"
-        | "evaluate_feedback";
+      promptKind?: "education_unit" | "recall";
       modelPurpose?: string;
       verdict?: string;
       evaluationSummary?: string;
@@ -129,23 +115,8 @@ export const TrainingUnitPhaseResponse = pgTable(
         evidence: string;
         missing: string | null;
       }[];
-      evaluationPlan?: {
-        mode: "intuition_sprint" | "deep_reasoning" | "standard";
-        scenarioCount: 1 | 2 | 3;
-        timeLimitSeconds: 30 | 45 | 60 | 300 | 600;
-        feedbackMode: "full_after_each";
-        reason: string;
-      };
-      attemptTiming?: {
-        elapsedSeconds: number;
-        timeLimitSeconds: number;
-        overrunSeconds: number;
-        wasOverTime: boolean;
-        pausedSeconds?: number;
-      };
       scenarioAttemptId?: string;
       recallEntryIds?: string[];
-      nextScenarioPrompt?: boolean;
       manualDifficultySignal?: "too_easy" | "too_hard";
       difficultyDirectiveReason?: string;
       goldilocksUpdated?: boolean;
@@ -200,26 +171,23 @@ export const TrainingUnitRun = pgTable(
       .notNull()
       .references(() => TrainingOnboardingSession.id, { onDelete: "cascade" }),
     userId: t.text().references(() => user.id, { onDelete: "set null" }),
-    // The durable cursor for the education-unit FSM (see education-unit/unit.ts).
-    recipeVersion: t
+    kind: t.varchar({ length: 24 }).notNull().default("education"),
+    mode: t.varchar({ length: 24 }).notNull().default("learning"),
+    experienceId: t
       .varchar({ length: 96 })
       .notNull()
-      .default("education-unit-v2"),
-    phase: t.varchar({ length: 32 }).notNull().default("orient"),
-    pass: t.integer().notNull().default(1),
-    connectGrills: t.integer().notNull().default(0),
-    solveRepairs: t.integer().notNull().default(0),
-    // One-shot help marker for the v2 connect loop: armed when a failed grade
-    // spends the grill budget, consumed by the turn that delivers the teach.
-    connectTeachDue: t.boolean().notNull().default(false),
+      .default("breakpoint-mentor"),
+    experienceVersion: t.integer().notNull().default(1),
+    experienceJson: t.jsonb().$type<EducationExperienceSnapshot>().notNull(),
+    masteryContractJson: t.jsonb().$type<UnitMasteryContract>().notNull(),
+    capabilityTodosJson: t.jsonb().$type<UnitCapabilityTodo[]>().notNull(),
+    reviewTodosJson: t.jsonb().$type<UnitReviewTodo[]>().notNull(),
+    activeReviewChallengeJson: t.jsonb().$type<UnitReviewChallenge | null>(),
+    reviewerFeedback: t.text(),
+    hasReviewGrade: t.boolean().notNull().default(false),
     difficultySnapshotJson: t
       .jsonb()
       .$type<TrainingUnitDifficultySnapshotJson | null>(),
-    // The active ScenarioSpec (see education-unit/scenario-spec.ts). Rides the
-    // same row read as the FSM cursor — no extra query. Unlike difficulty, it is
-    // REPLACEABLE: pass 1's spec is stored, then pass 2's connect overwrites it
-    // (after reading pass 1's as its "new surface" constraint).
-    scenarioSpecJson: t.jsonb().$type<TrainingUnitScenarioSpecJson | null>(),
     turnLeaseId: t.uuid(),
     turnLeaseExpiresAt: t.timestamp({ mode: "date", withTimezone: true }),
     createdAt: t
@@ -231,9 +199,10 @@ export const TrainingUnitRun = pgTable(
       .$onUpdateFn(() => new Date()),
   }),
   (table) => [
-    uniqueIndex("becoming_unit_run_session_unit_idx").on(
+    uniqueIndex("becoming_unit_run_session_unit_kind_idx").on(
       table.sessionId,
       table.unitContentId,
+      table.kind,
     ),
     index("becoming_unit_run_session_idx").on(table.sessionId),
   ],

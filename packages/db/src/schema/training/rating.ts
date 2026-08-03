@@ -3,6 +3,7 @@ import { index, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
 import type {
   DifficultyVector,
   ScenarioDirective,
+  ScenarioEvaluationContract,
   SupportLevel,
 } from "@acme/validators";
 
@@ -36,25 +37,7 @@ export interface TrainingRecentAttemptJson {
  */
 export type TrainingScenarioDirectiveJson = ScenarioDirective;
 
-export interface TrainingScenarioEvaluationContractJson {
-  version: 1;
-  scenarioStage: "connect" | "solve" | "recall";
-  scenarioPromptSummary: string;
-  testedDimensions: {
-    dimensionId: string;
-    promptRole: string;
-    expectedStrongMoves: string[];
-    acceptableVariants: string[];
-    commonWrongMoves: string[];
-    scoreBands: {
-      strong: string;
-      partial: string;
-      weak: string;
-    };
-  }[];
-  learnerVisibleCriteria: string[];
-  evaluatorNotes: string[];
-}
+export type TrainingScenarioEvaluationContractJson = ScenarioEvaluationContract;
 
 export const TrainingJobProgress = pgTable(
   "becoming_training_job_progress",

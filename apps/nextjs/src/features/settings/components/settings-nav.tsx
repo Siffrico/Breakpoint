@@ -6,16 +6,16 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
-  ChalkboardTeacher,
   CreditCard,
   Gear,
   Plus,
+  SlidersHorizontal,
   User,
 } from "@phosphor-icons/react";
 
 import { cn } from "@acme/ui";
 
-export type SettingsTabKey = "profile" | "general" | "teachers" | "billing";
+export type SettingsTabKey = "profile" | "general" | "customize" | "billing";
 
 export interface TopicNavItem {
   sessionId: string;
@@ -33,7 +33,7 @@ interface TabDef {
 const accountTabs: readonly TabDef[] = [
   { key: "profile", label: "Profile", icon: User },
   { key: "general", label: "General", icon: Gear },
-  { key: "teachers", label: "Teachers", icon: ChalkboardTeacher, wip: true },
+  { key: "customize", label: "Customize", icon: SlidersHorizontal },
   { key: "billing", label: "Billing", icon: CreditCard },
 ];
 

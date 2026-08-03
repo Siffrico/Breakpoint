@@ -1,13 +1,17 @@
 import type { db as databaseClient } from "@acme/db/client";
 import { and, desc, eq, ne, sql } from "@acme/db";
 import { TrainingUnitRun } from "@acme/db/schema";
+import {
+  EducationExperienceSnapshotSchema,
+  UnitCapabilityTodoSchema,
+  UnitMasteryContractSchema,
+  UnitReviewChallengeSchema,
+  UnitReviewTodoSchema,
+  UnitRunKindSchema,
+  UnitRunModeSchema,
+} from "@acme/validators";
 
-import type {
-  PassIndex,
-  PersistedUnitRun,
-  UnitPhase,
-} from "../domain/training/education-unit/unit";
-import { RECALL_RECIPE_VERSION } from "../domain/training/education-unit/unit";
+import type { PersistedUnitRun } from "../domain/training/education-unit/unit-state";
 
 type Database = typeof databaseClient;
 
@@ -26,46 +30,57 @@ const canonicalJson = (value: unknown): string => {
   return JSON.stringify(value);
 };
 
-// Narrow the free-text varchar columns back onto the FSM's literal unions. A
-// row that predates the FSM (or was hand-edited) is a corrupt cursor, not a
-// recoverable state, so we fail loudly rather than silently coercing.
-const UNIT_PHASES: readonly UnitPhase[] = [
-  "orient",
-  "connect",
-  "solve",
-  "teach",
-  "mastered",
-];
-
-const parsePhase = (value: string): UnitPhase => {
-  if ((UNIT_PHASES as readonly string[]).includes(value)) {
-    return value as UnitPhase;
-  }
-  throw new Error(`Unit run has an unknown phase: "${value}".`);
-};
-
-const parsePass = (value: number): PassIndex => {
-  if (value === 1 || value === 2 || value === 3) {
-    return value;
-  }
-  throw new Error(`Unit run has an invalid pass: ${value}.`);
-};
-
 const mapUnitRun = (
   row: typeof TrainingUnitRun.$inferSelect,
-): PersistedUnitRun => ({
-  unitId: row.unitContentId,
-  sessionId: row.sessionId,
-  userId: row.userId,
-  recipeVersion: row.recipeVersion,
-  phase: parsePhase(row.phase),
-  pass: parsePass(row.pass),
-  connectGrills: row.connectGrills,
-  solveRepairs: row.solveRepairs,
-  connectTeachDue: row.connectTeachDue,
-  difficultySnapshot: row.difficultySnapshotJson,
-  scenarioSpec: row.scenarioSpecJson,
-});
+): PersistedUnitRun => {
+  const experience = EducationExperienceSnapshotSchema.parse(
+    row.experienceJson,
+  );
+  if (
+    experience.id !== row.experienceId ||
+    experience.version !== row.experienceVersion
+  ) {
+    throw new Error(
+      "Unit run experience identity does not match its immutable snapshot.",
+    );
+  }
+  const masteryContract = UnitMasteryContractSchema.parse(
+    row.masteryContractJson,
+  );
+  const capabilityTodos = UnitCapabilityTodoSchema.array().parse(
+    row.capabilityTodosJson,
+  );
+  const expectedIds = masteryContract.dimensions.map(
+    (dimension) => dimension.id,
+  );
+  const persistedIds = capabilityTodos.map((todo) => todo.dimensionId);
+  if (
+    expectedIds.length !== persistedIds.length ||
+    expectedIds.some((id, index) => persistedIds[index] !== id)
+  ) {
+    throw new Error(
+      "Unit run capability todos do not match its snapshotted mastery contract.",
+    );
+  }
+
+  return {
+    unitId: row.unitContentId,
+    sessionId: row.sessionId,
+    userId: row.userId,
+    kind: UnitRunKindSchema.parse(row.kind),
+    mode: UnitRunModeSchema.parse(row.mode),
+    experience,
+    masteryContract,
+    capabilityTodos,
+    reviewTodos: UnitReviewTodoSchema.array().parse(row.reviewTodosJson),
+    activeReviewChallenge: UnitReviewChallengeSchema.nullable().parse(
+      row.activeReviewChallengeJson,
+    ),
+    reviewerFeedback: row.reviewerFeedback,
+    hasReviewGrade: row.hasReviewGrade,
+    difficultySnapshot: row.difficultySnapshotJson,
+  };
+};
 
 export const trainingUnitRunRepository = {
   getUnitRun: async ({
@@ -81,6 +96,7 @@ export const trainingUnitRunRepository = {
       where: and(
         eq(TrainingUnitRun.sessionId, sessionId),
         eq(TrainingUnitRun.unitContentId, unitContentId),
+        eq(TrainingUnitRun.kind, "education"),
       ),
     });
 
@@ -97,8 +113,8 @@ export const trainingUnitRunRepository = {
     const row = await db.query.TrainingUnitRun.findFirst({
       where: and(
         eq(TrainingUnitRun.sessionId, sessionId),
-        eq(TrainingUnitRun.recipeVersion, RECALL_RECIPE_VERSION),
-        ne(TrainingUnitRun.phase, "mastered"),
+        eq(TrainingUnitRun.kind, "recall"),
+        ne(TrainingUnitRun.mode, "complete"),
       ),
       orderBy: [desc(TrainingUnitRun.updatedAt)],
     });
@@ -117,13 +133,13 @@ export const trainingUnitRunRepository = {
   }): Promise<void> => {
     await db
       .update(TrainingUnitRun)
-      .set({ phase: "mastered" })
+      .set({ mode: "complete" })
       .where(
         and(
           eq(TrainingUnitRun.sessionId, sessionId),
           eq(TrainingUnitRun.unitContentId, unitContentId),
-          eq(TrainingUnitRun.recipeVersion, RECALL_RECIPE_VERSION),
-          ne(TrainingUnitRun.phase, "mastered"),
+          eq(TrainingUnitRun.kind, "recall"),
+          ne(TrainingUnitRun.mode, "complete"),
         ),
       );
   },
@@ -138,42 +154,44 @@ export const trainingUnitRunRepository = {
     const values = {
       sessionId: run.sessionId,
       unitContentId: run.unitId,
-      userId: run.userId ?? null,
-      recipeVersion: run.recipeVersion,
-      phase: run.phase,
-      pass: run.pass,
-      connectGrills: run.connectGrills,
-      solveRepairs: run.solveRepairs,
-      connectTeachDue: run.connectTeachDue ?? false,
+      userId: run.userId,
+      kind: run.kind,
+      mode: run.mode,
+      experienceId: run.experience.id,
+      experienceVersion: run.experience.version,
+      experienceJson: run.experience,
+      masteryContractJson: run.masteryContract,
+      capabilityTodosJson: [...run.capabilityTodos],
+      reviewTodosJson: [...run.reviewTodos],
+      activeReviewChallengeJson: run.activeReviewChallenge,
+      reviewerFeedback: run.reviewerFeedback,
+      hasReviewGrade: run.hasReviewGrade,
       difficultySnapshotJson: run.difficultySnapshot,
-      scenarioSpecJson: run.scenarioSpec,
     };
 
     const [row] = await db
       .insert(TrainingUnitRun)
       .values(values)
       .onConflictDoUpdate({
-        target: [TrainingUnitRun.sessionId, TrainingUnitRun.unitContentId],
+        target: [
+          TrainingUnitRun.sessionId,
+          TrainingUnitRun.unitContentId,
+          TrainingUnitRun.kind,
+        ],
         set: {
           userId: values.userId,
-          recipeVersion: values.recipeVersion,
-          phase: values.phase,
-          pass: values.pass,
-          connectGrills: values.connectGrills,
-          solveRepairs: values.solveRepairs,
-          connectTeachDue: values.connectTeachDue,
-          // Write-once WITHIN a live run. A recipe change (a recall run resets
-          // a mastered education row, or vice versa) is a new run — and so is
-          // a fresh cursor over a mastered row on the SAME recipe (recall
-          // recurs on recall-v2; passed or retired, the old row is finished):
-          // the incoming snapshot replaces the old one wholesale.
-          difficultySnapshotJson: sql`case when ${TrainingUnitRun.recipeVersion} = excluded.recipe_version and ${TrainingUnitRun.phase} != 'mastered' then coalesce(${TrainingUnitRun.difficultySnapshotJson}, excluded.difficulty_snapshot_json) else excluded.difficulty_snapshot_json end`,
-          // Replaceable, unlike difficulty (which is coalesced write-once): a
-          // turn that produces a new spec overwrites; a turn that produces none
-          // (null) preserves the stored one. So pass 2's connect replaces pass
-          // 1's spec, but ordinary grill/solve turns never wipe it. A recipe
-          // change — or a new run over a mastered row — starts clean.
-          scenarioSpecJson: sql`case when ${TrainingUnitRun.recipeVersion} = excluded.recipe_version and ${TrainingUnitRun.phase} != 'mastered' then coalesce(excluded.scenario_spec_json, ${TrainingUnitRun.scenarioSpecJson}) else excluded.scenario_spec_json end`,
+          kind: values.kind,
+          mode: values.mode,
+          experienceId: values.experienceId,
+          experienceVersion: values.experienceVersion,
+          experienceJson: values.experienceJson,
+          masteryContractJson: values.masteryContractJson,
+          capabilityTodosJson: values.capabilityTodosJson,
+          reviewTodosJson: values.reviewTodosJson,
+          activeReviewChallengeJson: values.activeReviewChallengeJson,
+          reviewerFeedback: values.reviewerFeedback,
+          hasReviewGrade: values.hasReviewGrade,
+          difficultySnapshotJson: sql`case when ${TrainingUnitRun.kind} = excluded.kind and ${TrainingUnitRun.experienceId} = excluded.experience_id and ${TrainingUnitRun.experienceVersion} = excluded.experience_version and ${TrainingUnitRun.mode} != 'complete' then coalesce(${TrainingUnitRun.difficultySnapshotJson}, excluded.difficulty_snapshot_json) else excluded.difficulty_snapshot_json end`,
         },
       })
       .returning();

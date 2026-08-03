@@ -1,0 +1,61 @@
+import { APICallError } from "ai";
+import { Data } from "effect";
+
+import { classifyFailure } from "../orchestration/agent-runtime";
+
+export class UnitAgentSchemaError extends Data.TaggedError(
+  "UnitAgentSchemaError",
+)<{ readonly message: string; readonly cause?: unknown }> {}
+
+export class UnitAgentTransientProviderError extends Data.TaggedError(
+  "UnitAgentTransientProviderError",
+)<{ readonly message: string; readonly cause?: unknown }> {}
+
+export class UnitAgentProviderRejectedError extends Data.TaggedError(
+  "UnitAgentProviderRejectedError",
+)<{ readonly message: string; readonly cause?: unknown }> {}
+
+export class UnitAgentTimeoutError extends Data.TaggedError(
+  "UnitAgentTimeoutError",
+)<{ readonly message: string; readonly cause?: unknown }> {}
+
+export class UnitAgentFirstVisibleTimeoutError extends Data.TaggedError(
+  "UnitAgentFirstVisibleTimeoutError",
+)<{ readonly message: string }> {}
+
+export type UnitAgentError =
+  | UnitAgentSchemaError
+  | UnitAgentTransientProviderError
+  | UnitAgentProviderRejectedError
+  | UnitAgentTimeoutError
+  | UnitAgentFirstVisibleTimeoutError;
+
+export const isRetryableUnitAgentError = (error: UnitAgentError): boolean =>
+  error._tag === "UnitAgentTimeoutError" ||
+  error._tag === "UnitAgentTransientProviderError";
+
+export const classifyUnitAgentFailure = (error: unknown): UnitAgentError => {
+  if (error instanceof UnitAgentFirstVisibleTimeoutError) return error;
+
+  const message =
+    error instanceof Error && error.message
+      ? error.message
+      : "Education unit agent call failed.";
+  const kind = classifyFailure(error, false);
+
+  switch (kind) {
+    case "schema":
+    case "partial":
+      return new UnitAgentSchemaError({ message, cause: error });
+    case "timeout":
+      return new UnitAgentTimeoutError({ message, cause: error });
+    case "provider":
+    case "save":
+      return APICallError.isInstance(error) &&
+        (error.statusCode === undefined ||
+          error.statusCode === 429 ||
+          error.statusCode >= 500)
+        ? new UnitAgentTransientProviderError({ message, cause: error })
+        : new UnitAgentProviderRejectedError({ message, cause: error });
+  }
+};

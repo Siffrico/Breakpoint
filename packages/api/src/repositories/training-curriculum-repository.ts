@@ -589,24 +589,6 @@ export const trainingCurriculumRepository = {
       : null;
   },
 
-  updateUnitMasteryContract: async ({
-    db,
-    unitContentId,
-    unitMasteryContract,
-  }: {
-    db: Database;
-    unitContentId: string;
-    unitMasteryContract: UnitContent["unitMasteryContract"];
-  }) => {
-    const [unit] = await db
-      .update(TrainingUnitContent)
-      .set({ unitMasteryContractJson: unitMasteryContract })
-      .where(eq(TrainingUnitContent.id, unitContentId))
-      .returning();
-
-    return unit ?? null;
-  },
-
   saveNodeBriefing: async ({
     db,
     nodeId,

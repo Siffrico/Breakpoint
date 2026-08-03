@@ -1,6 +1,9 @@
 import { z } from "zod/v4";
 
-import { PreSeedUnitContentDraftSchema } from "@acme/validators";
+import {
+  PreSeedUnitContentDraftSchema,
+  UnitMasteryContractSchema,
+} from "@acme/validators";
 
 import { FOUNDATION_UNIT_KNOWLEDGE_CAP } from "../unit-creation/target-selection";
 
@@ -75,7 +78,7 @@ export const SeedStageOutputSchema = PreSeedUnitContentDraftSchema.extend({
   conceptTarget: z.string().min(1),
   misconceptionTarget: z.string().min(1),
   workedExampleBrief: z.string().min(1),
-  proofTargets: z.array(z.string().min(1)).min(2).max(5),
+  unitMasteryContract: UnitMasteryContractSchema,
 });
 
 export type PriorLearningRecord = z.infer<typeof PriorLearningRecordSchema>;

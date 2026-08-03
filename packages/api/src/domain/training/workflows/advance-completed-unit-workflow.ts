@@ -2,7 +2,7 @@ import { Duration, Effect, Schedule } from "effect";
 
 import type { DbError } from "../../../effect/errors";
 import type { Result } from "../../../lib/result";
-import type { PersistedUnitRun } from "../education-unit/unit";
+import type { PersistedUnitRun } from "../education-unit/unit-state";
 import type { MasteryProgressionState } from "../engine/plan-progression";
 import type {
   CurriculumNode,

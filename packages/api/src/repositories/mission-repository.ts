@@ -71,6 +71,7 @@ export const MissionRepoLive = Layer.effect(
               eq(TrainingUnitRun.userId, userId),
               eq(TrainingUnitRun.unitContentId, unitContentId),
               eq(TrainingUnitRun.sessionId, sessionId),
+              eq(TrainingUnitRun.kind, "education"),
             ),
           });
           return run?.id ?? null;
@@ -86,7 +87,7 @@ export const MissionRepoLive = Layer.effect(
               run: {
                 id: TrainingUnitRun.id,
                 sessionId: TrainingUnitRun.sessionId,
-                phase: TrainingUnitRun.phase,
+                mode: TrainingUnitRun.mode,
               },
               unit: {
                 id: TrainingUnitContent.id,

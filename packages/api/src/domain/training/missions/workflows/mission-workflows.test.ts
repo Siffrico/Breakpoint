@@ -16,7 +16,7 @@ const PLAN = { steps: ["Do it"] } as unknown as MissionPlan;
 const PROOF = { notes: "Done" } as unknown as MissionProof;
 
 const ACCESS: MissionAccess = {
-  run: { id: "run-1", sessionId: "session-1", phase: "mastered" },
+  run: { id: "run-1", sessionId: "session-1", mode: "complete" },
   unit: { id: "unit-1", title: "Diagnose", scenarioFocusAreas: ["evidence"] },
   node: { id: "node-1", summary: "Use evidence first." },
   parentNode: { kind: "ability" },
@@ -57,7 +57,7 @@ describe("mission workflows", () => {
   it("reports ineligibility as an answer rather than a failure", async () => {
     const repo = makeRepo({
       loadMissionAccess: () =>
-        Effect.succeed({ ...ACCESS, run: { ...ACCESS.run, phase: "solve" } }),
+        Effect.succeed({ ...ACCESS, run: { ...ACCESS.run, mode: "review" } }),
     });
 
     const exit = await run(

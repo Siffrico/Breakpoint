@@ -1,10 +1,15 @@
 import type { TRPCRouterRecord } from "@trpc/server";
 
-import { UpdateProfileGeneralInputSchema } from "@acme/validators";
+import {
+  EducationExperienceCustomizationSchema,
+  UpdateProfileGeneralInputSchema,
+} from "@acme/validators";
 
 import { getProfileAccountWorkflow } from "../domain/profile/workflows/get-account";
 import { getProfileBillingWorkflow } from "../domain/profile/workflows/get-billing";
+import { getEducationExperienceWorkflow } from "../domain/profile/workflows/get-education-experience";
 import { getProfileGeneralWorkflow } from "../domain/profile/workflows/get-general";
+import { updateEducationExperienceWorkflow } from "../domain/profile/workflows/update-education-experience";
 import { updateProfileGeneralWorkflow } from "../domain/profile/workflows/update-general";
 import { requireOwnedSession, runProfile } from "../effect/profile-edge";
 import { trainingOnboardingRepository } from "../repositories/training-onboarding-repository";
@@ -82,4 +87,17 @@ export const profileRouter = {
   getBilling: protectedProcedure.query(({ ctx }) =>
     runProfile(ctx.db, getProfileBillingWorkflow(ctx.session.user.id)),
   ),
+
+  getEducationExperience: protectedProcedure.query(({ ctx }) =>
+    runProfile(ctx.db, getEducationExperienceWorkflow(ctx.session.user.id)),
+  ),
+
+  updateEducationExperience: protectedProcedure
+    .input(EducationExperienceCustomizationSchema)
+    .mutation(({ ctx, input }) =>
+      runProfile(
+        ctx.db,
+        updateEducationExperienceWorkflow(ctx.session.user.id, input),
+      ),
+    ),
 } satisfies TRPCRouterRecord;

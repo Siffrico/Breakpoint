@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { DbError } from "../../../effect/errors";
-import { AgentTimeoutError } from "../education-unit/agents/errors";
+import { UnitAgentTimeoutError } from "../education-unit/agent-errors";
 import {
   TurnLeaseConflictError,
   WorkspaceInputError,
@@ -22,7 +22,7 @@ describe("runWorkspaceTurn", () => {
       "Turn is already processing.",
     ],
     [
-      new AgentTimeoutError({ message: "provider timed out" }),
+      new UnitAgentTimeoutError({ message: "provider timed out" }),
       "TIMEOUT",
       "AI feedback could not be prepared.",
     ],

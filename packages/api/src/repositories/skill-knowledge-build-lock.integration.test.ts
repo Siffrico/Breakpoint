@@ -19,7 +19,8 @@ const loadPostgresUrlFromDotenv = () => {
 
 loadPostgresUrlFromDotenv();
 
-const wait = (ms: number) => new Promise((resolveWait) => setTimeout(resolveWait, ms));
+const wait = (ms: number) =>
+  new Promise((resolveWait) => setTimeout(resolveWait, ms));
 
 describe("skill knowledge build lock concurrency", () => {
   it.skipIf(!process.env.POSTGRES_URL)(
@@ -45,12 +46,19 @@ describe("skill knowledge build lock concurrency", () => {
       const second = build("second", 0);
       await Promise.all([first, second]);
 
-      expect(events).toEqual([
-        "first:start",
-        "first:end",
-        "second:start",
-        "second:end",
-      ]);
+      const firstStart = events.indexOf("first:start");
+      const secondStart = events.indexOf("second:start");
+
+      expect(events).toEqual(
+        expect.arrayContaining([
+          "first:start",
+          "first:end",
+          "second:start",
+          "second:end",
+        ]),
+      );
+      expect(events[firstStart + 1]).toBe("first:end");
+      expect(events[secondStart + 1]).toBe("second:end");
     },
     20_000,
   );

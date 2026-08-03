@@ -4,11 +4,10 @@ import { DEFAULT_COMPACTION_POLICY } from "./policy";
 /**
  * Per-unit transcript bounding. Pure — no AI SDK, no DB, no HTTP.
  *
- * Each education unit is now its own chat: a turn's model context is scoped to
- * the active unit, and a unit's turn count is bounded by the FSM (grill/repair
- * budgets over two passes). So there is no cross-unit growth to summarise away
- * — the only remaining risk is one pathologically long single message, which
- * this file guards without ever calling a model.
+ * Each education unit is its own chat. Capability and review evidence are
+ * durable structured state, so old prose may leave the model window without
+ * losing the completion record. This bounds both long answers and long mentor
+ * loops without adding another summarization agent.
  */
 
 /** Minimum shape bounding needs: only the rendered text matters. */
@@ -33,8 +32,8 @@ const clampMessage = <T extends BoundableMessage>(
 /**
  * Bound a single unit's transcript for a model call: middle-truncate any one
  * oversized message, then drop whole oldest messages if the total still blows
- * the char budget. A safety net against a marathon answer, not a summariser —
- * cross-unit memory is carried structurally (ratings, knowledge, recall).
+ * the char budget. It is not a summariser: durable todos, ratings, knowledge,
+ * and recall carry the state that must survive.
  */
 export const boundTranscript = <T extends BoundableMessage>(
   messages: T[],

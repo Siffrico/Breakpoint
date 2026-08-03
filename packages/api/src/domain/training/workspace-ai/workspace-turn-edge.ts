@@ -22,12 +22,12 @@ const logFields = (
       return { tag: error._tag, operation: error.operation };
     case "WorkspaceInputError":
     case "TurnLeaseConflictError":
-    case "AgentFirstVisibleTimeoutError":
-    case "AgentTimeoutError":
-    case "AgentTransientProviderError":
-    case "AgentProviderRejectedError":
-    case "AgentSchemaError":
-    case "EducationUnitContractError":
+    case "UnitAgentFirstVisibleTimeoutError":
+    case "UnitAgentTimeoutError":
+    case "UnitAgentTransientProviderError":
+    case "UnitAgentProviderRejectedError":
+    case "UnitAgentSchemaError":
+    case "UnitTurnContractError":
       return { tag: error._tag };
   }
 };
@@ -56,17 +56,17 @@ export const translateWorkspaceTurnErrors = <A, R>(
         trpcFailure(error, "INTERNAL_SERVER_ERROR", feedbackFailureMessage),
       RatingEvidenceError: (error) =>
         trpcFailure(error, "INTERNAL_SERVER_ERROR", feedbackFailureMessage),
-      AgentTimeoutError: (error) =>
+      UnitAgentTimeoutError: (error) =>
         trpcFailure(error, "TIMEOUT", feedbackFailureMessage),
-      AgentFirstVisibleTimeoutError: (error) =>
+      UnitAgentFirstVisibleTimeoutError: (error) =>
         trpcFailure(error, "TIMEOUT", feedbackFailureMessage),
-      AgentTransientProviderError: (error) =>
+      UnitAgentTransientProviderError: (error) =>
         trpcFailure(error, "INTERNAL_SERVER_ERROR", feedbackFailureMessage),
-      AgentProviderRejectedError: (error) =>
+      UnitAgentProviderRejectedError: (error) =>
         trpcFailure(error, "INTERNAL_SERVER_ERROR", feedbackFailureMessage),
-      AgentSchemaError: (error) =>
+      UnitAgentSchemaError: (error) =>
         trpcFailure(error, "INTERNAL_SERVER_ERROR", feedbackFailureMessage),
-      EducationUnitContractError: (error) =>
+      UnitTurnContractError: (error) =>
         trpcFailure(error, "INTERNAL_SERVER_ERROR", feedbackFailureMessage),
     }),
   );

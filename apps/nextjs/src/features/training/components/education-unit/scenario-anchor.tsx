@@ -1,41 +1,36 @@
 "use client";
 
 /**
- * The pinned header of the scenario workspace: unit title, current FSM phase,
- * and scenario-attempt progress stay anchored while exchanges cycle below.
+ * The pinned header of the unit workspace: unit title and run kind stay
+ * anchored while exchanges cycle below.
  *
  * The scenario itself is not summarised here. It is a full read behind the
  * anchor's toggle — the header states where you are, the panel states what you
  * were asked to do, and neither paraphrases the other.
  */
 
-const STAGE_LABELS: Record<string, string> = {
-  connect: "Connect",
-  solve: "Solve",
-  teach: "Teach",
+const RUN_KIND_LABELS: Record<string, string> = {
+  main: "Main",
   recall: "Recall",
-  mastered: "Mastered",
 };
 
 export function ScenarioAnchor({
   title,
-  stage,
-  progress,
+  runKind,
   isScenarioOpen,
   onToggleScenario,
   columnClassName,
 }: {
   title: string;
-  stage: string | null;
-  progress: { completed: number; total: number } | null;
+  runKind: string | null;
   /** Null when this turn has no showable scenario — the toggle is then absent. */
   isScenarioOpen: boolean | null;
   onToggleScenario: () => void;
   columnClassName: string;
 }) {
-  const stageLabel = stage
-    ? (STAGE_LABELS[stage] ??
-      stage.charAt(0).toUpperCase() + stage.slice(1).replaceAll("_", " "))
+  const runKindLabel = runKind
+    ? (RUN_KIND_LABELS[runKind] ??
+      runKind.charAt(0).toUpperCase() + runKind.slice(1).replaceAll("_", " "))
     : null;
 
   return (
@@ -57,28 +52,9 @@ export function ScenarioAnchor({
                 {isScenarioOpen ? "Back to chat" : "See scenario"}
               </button>
             ) : null}
-            {stageLabel ? (
+            {runKindLabel ? (
               <span className="border-foreground/[0.12] text-foreground/56 rounded-full border px-2.5 py-0.5 text-[11px] leading-4">
-                {stageLabel}
-              </span>
-            ) : null}
-            {progress && progress.total > 1 ? (
-              <span
-                className="flex items-center gap-1"
-                aria-label={`Scenario ${Math.min(progress.completed + 1, progress.total)} of ${progress.total}`}
-                title={`${progress.completed} of ${progress.total} scenarios complete`}
-              >
-                {Array.from({ length: progress.total }, (_, index) => (
-                  <span
-                    key={index}
-                    className={[
-                      "size-1.5 rounded-full",
-                      index < progress.completed
-                        ? "bg-foreground/70"
-                        : "bg-foreground/[0.16]",
-                    ].join(" ")}
-                  />
-                ))}
+                {runKindLabel}
               </span>
             ) : null}
           </div>

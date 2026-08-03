@@ -7,7 +7,7 @@ describe("isEligibleForMission", () => {
     for (const kind of ["ability", "skill_cluster"]) {
       expect(
         isEligibleForMission({
-          run: { phase: "mastered" },
+          run: { mode: "complete" },
           parentNode: { kind },
         }),
       ).toBe(true);
@@ -17,7 +17,7 @@ describe("isEligibleForMission", () => {
   it("rejects a run that has not reached mastery", () => {
     expect(
       isEligibleForMission({
-        run: { phase: "solve" },
+        run: { mode: "review" },
         parentNode: { kind: "ability" },
       }),
     ).toBe(false);
@@ -26,7 +26,7 @@ describe("isEligibleForMission", () => {
   it("rejects a mastered unit whose parent does not earn a mission", () => {
     expect(
       isEligibleForMission({
-        run: { phase: "mastered" },
+        run: { mode: "complete" },
         parentNode: { kind: "root" },
       }),
     ).toBe(false);
@@ -34,7 +34,7 @@ describe("isEligibleForMission", () => {
 
   it("rejects an orphan unit with no parent node", () => {
     expect(
-      isEligibleForMission({ run: { phase: "mastered" }, parentNode: null }),
+      isEligibleForMission({ run: { mode: "complete" }, parentNode: null }),
     ).toBe(false);
   });
 });

@@ -49,7 +49,7 @@ export interface MissionAccess {
   readonly run: {
     readonly id: string;
     readonly sessionId: string;
-    readonly phase: string;
+    readonly mode: string;
   };
   readonly unit: {
     readonly id: string;

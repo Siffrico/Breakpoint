@@ -3,7 +3,6 @@ export {
   getAiModelForPurpose,
   getAiModelForTier,
   getMissingAiKeyMessage,
-  getModelForTier,
   requireAiModelForPurpose,
 } from "./model-router";
 export type { AiModelPurpose } from "./model-router";

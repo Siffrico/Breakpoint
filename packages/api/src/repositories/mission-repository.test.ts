@@ -60,10 +60,10 @@ const createdUserIds: string[] = [];
 /** Seeds plan → node(parent) → node(unit) → unit content → unit run. */
 const seedUnitRun = async ({
   parentKind,
-  phase,
+  mode,
 }: {
   parentKind: string;
-  phase: string;
+  mode: "learning" | "review" | "complete";
 }) => {
   const { db } = await import("@acme/db/client");
   const userId = `mission-test-${randomUUID()}`;
@@ -162,7 +162,37 @@ const seedUnitRun = async ({
       unitContentId: unit.id,
       sessionId: session.id,
       userId,
-      phase,
+      mode,
+      experienceJson: {
+        id: "breakpoint-mentor",
+        version: 1,
+        main: { instructions: "Mentor the active capability." },
+        reviewer: {
+          instructions: "Pressure-test the learned capabilities.",
+          todos: [
+            {
+              id: "grade",
+              goal: "Grade the evidence.",
+              completionEvidence: ["The evidence is graded."],
+            },
+          ],
+        },
+      },
+      masteryContractJson: {
+        version: 1,
+        dimensions: [
+          {
+            id: "perform-workflow",
+            name: "Perform the workflow",
+            description: "Perform and defend the workflow.",
+            passSignals: ["Performs it"],
+            failSignals: ["Cannot perform it"],
+            surrogateTraps: ["Only names it"],
+          },
+        ],
+      },
+      capabilityTodosJson: [],
+      reviewTodosJson: [],
     })
     .returning({ id: TrainingUnitRun.id });
   if (!run) throw new Error("Expected a unit run.");
@@ -219,7 +249,7 @@ describe("MissionRepoLive", () => {
     async () => {
       const seed = await seedUnitRun({
         parentKind: "ability",
-        phase: "mastered",
+        mode: "complete",
       });
 
       const access = expectSuccess(
@@ -235,7 +265,7 @@ describe("MissionRepoLive", () => {
       );
 
       expect(access).not.toBeNull();
-      expect(access?.run.phase).toBe("mastered");
+      expect(access?.run.mode).toBe("complete");
       expect(access?.parentNode?.kind).toBe("ability");
       expect(access?.plan.targetIdentity).toBe("Incident commander");
       expect(access?.unit.scenarioFocusAreas).toEqual([
@@ -252,7 +282,7 @@ describe("MissionRepoLive", () => {
     async () => {
       const seed = await seedUnitRun({
         parentKind: "ability",
-        phase: "mastered",
+        mode: "complete",
       });
       const { db } = await import("@acme/db/client");
       await db
@@ -285,7 +315,7 @@ describe("MissionRepoLive", () => {
     async () => {
       const seed = await seedUnitRun({
         parentKind: "ability",
-        phase: "mastered",
+        mode: "complete",
       });
       const { db } = await import("@acme/db/client");
       await db.insert(TrainingMission).values({
@@ -324,7 +354,7 @@ describe("MissionRepoLive", () => {
     async () => {
       const seed = await seedUnitRun({
         parentKind: "ability",
-        phase: "mastered",
+        mode: "complete",
       });
       const { db } = await import("@acme/db/client");
       const [mission] = await db

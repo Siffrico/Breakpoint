@@ -284,18 +284,10 @@ export function useWorkspaceSession({
 
   const unitAdvanceGate =
     aiWorkspace?.unitAdvanceGate ?? LOCKED_UNIT_ADVANCE_GATE;
-  const attemptStartedAt =
-    aiWorkspace?.evaluationProgress?.attemptStartedAt?.getTime() ?? null;
-  const runningEvaluationPlan =
-    aiWorkspace?.evaluationPlan && attemptStartedAt != null
-      ? aiWorkspace.evaluationPlan
-      : null;
-
   return {
     aiWorkspace,
     activeNode,
     activeNodeId,
-    attemptStartedAt,
     chatHistoryQuery,
     isHistorySelected,
     isInitialSession,
@@ -304,7 +296,6 @@ export function useWorkspaceSession({
     onUnitStateChange,
     resolvedChatHistory,
     resolvedOnboardingState,
-    runningEvaluationPlan,
     selectedProject,
     serverProjects,
     unitAdvanceGate,

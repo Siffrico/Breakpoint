@@ -1,4 +1,4 @@
-import type { PersistedUnitRun } from "../education-unit/unit";
+import type { PersistedUnitRun } from "../education-unit/unit-state";
 import type {
   CurriculumNode,
   PhaseResponseRecord,
@@ -27,7 +27,7 @@ export interface PlannedRecallTarget {
 /**
  * A recall interlude may only interrupt at a unit boundary: before the first
  * education turn of the next unit, or after the current one is mastered.
- * Mid-FSM learners are never yanked out of a half-finished unit.
+ * Learners are never interrupted while the mentor or reviewer is mid-unit.
  */
 export const isUnitMidFlight = ({
   activeUnitResponses,
@@ -38,12 +38,12 @@ export const isUnitMidFlight = ({
 }): boolean =>
   activeUnitResponses.some((response) => response.phase === "ai_education") &&
   activeUnitRun != null &&
-  activeUnitRun.phase !== "mastered";
+  activeUnitRun.mode !== "complete";
 
 /**
  * Takes phase response history; produces the phase the unit last left off in;
- * defaults to the FSM's opening phase ("orient") when no durable phase exists
- * yet. Only a fallback — the durable cursor is the unit-run row's `phase`.
+ * defaults to the mentor loop when no durable mode exists yet. Only a fallback
+ * — the durable cursor is the unit-run row's `mode`.
  */
 export const getCurrentEducationStage = (
   responses: PhaseResponseRecord[],
@@ -55,7 +55,7 @@ export const getCurrentEducationStage = (
     ?.metadata?.aiEducationStage;
 
   const parsedState = WorkspaceAiEducationStageSchema.safeParse(latestState);
-  return parsedState.success ? parsedState.data : "orient";
+  return parsedState.success ? parsedState.data : "learning";
 };
 
 /**
@@ -83,8 +83,8 @@ export const planWorkspaceTurn = ({
     // resolution projects the recall recipe instead of a fresh full unit.
     return {
       mode: "education_unit",
-      promptKind: "education_unit",
-      educationStage: "solve",
+      promptKind: "recall",
+      educationStage: "review",
       workflowId: null,
       activeUnitId: null,
       activeUnitTitle: null,
@@ -102,8 +102,10 @@ export const planWorkspaceTurn = ({
     mode: "education_unit",
     promptKind: "education_unit",
     educationStage:
-      activeUnitRun?.phase ?? getCurrentEducationStage(activeUnitResponses),
-    workflowId: activeUnitRun?.recipeVersion ?? null,
+      activeUnitRun?.mode ?? getCurrentEducationStage(activeUnitResponses),
+    workflowId: activeUnitRun
+      ? `${activeUnitRun.experience.id}@${activeUnitRun.experience.version}`
+      : null,
     activeUnitId: activeUnit.id,
     activeUnitTitle: activeUnit.title,
     recallUnitId: null,

@@ -142,8 +142,7 @@ describe("createNextUnit", () => {
               directive: { targetItemRating: 1200 } as never,
               promptBlock: "",
             }),
-          appendUnit: () =>
-            Effect.succeed({ node: adopted, created: false }),
+          appendUnit: () => Effect.succeed({ node: adopted, created: false }),
           hasUnitContent: () => Effect.succeed(false),
           prepareUnitEffect,
           selectTargets,

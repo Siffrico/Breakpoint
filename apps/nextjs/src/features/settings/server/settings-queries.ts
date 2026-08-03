@@ -49,6 +49,11 @@ export const getProfileBilling = async () => {
   return caller.profile.getBilling();
 };
 
+export const getEducationExperience = async () => {
+  const caller = await createCaller();
+  return caller.profile.getEducationExperience();
+};
+
 export const listMemories = async () => {
   const caller = await createCaller();
   return caller.memory.list();

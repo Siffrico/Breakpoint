@@ -21,9 +21,9 @@ export const isEligibleForMission = ({
   run,
   parentNode,
 }: {
-  readonly run: { readonly phase: string };
+  readonly run: { readonly mode: string };
   readonly parentNode: { readonly kind: string } | null;
 }): boolean =>
-  run.phase === "mastered" &&
+  run.mode === "complete" &&
   parentNode !== null &&
   MISSION_EARNING_PARENT_KINDS.includes(parentNode.kind);
