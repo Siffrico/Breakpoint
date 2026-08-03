@@ -5,6 +5,7 @@ import { Cause, Effect, Exit } from "effect";
 import type { ScenarioFormat, UnitDifficultySnapshot } from "@acme/validators";
 
 import type { Memory } from "../../memory/types";
+import type { UnitContextAudience } from "../education-unit/unit-context";
 import type { DifficultyDialPreset, ScenarioDirective } from "../engine/rating";
 import type { DifficultyBand } from "../types/training.types";
 import type { WorkspaceAiMessage, WorkspaceAiTurnResult } from "./types";
@@ -20,7 +21,6 @@ import type {
 import type { WorkspaceTurnRepo } from "./workspace-turn-repo";
 import { resolveEducationExperience } from "../education-unit/experience";
 import { runUnitTurn } from "../education-unit/run-unit-turn";
-import type { UnitContextAudience } from "../education-unit/unit-context";
 import { buildUnitContext } from "../education-unit/unit-context";
 import { boundTranscript } from "../engine/compaction";
 import { regimeForNodeKind } from "../engine/progression-model";
@@ -493,10 +493,7 @@ export const runEducationUnitTurn = ({
             : ""
         }\nThis is a spaced review, not a fresh lesson.`
       : "";
-    const buildContext = (
-      run: typeof unitRun,
-      audience: UnitContextAudience,
-    ) =>
+    const buildContext = (run: typeof unitRun, audience: UnitContextAudience) =>
       `${buildUnitContext({
         audience,
         unit,
@@ -520,8 +517,7 @@ export const runEducationUnitTurn = ({
     const scenarioAttemptId = findLatestPhaseResponse(
       unitResponses,
       (response) =>
-        (response.phase === "ai_education" ||
-          response.phase === "ai_recall") &&
+        (response.phase === "ai_education" || response.phase === "ai_recall") &&
         response.metadata?.scenarioAttemptId !== undefined,
     )?.metadata?.scenarioAttemptId;
     let ratingEvaluation: WorkspaceRatingEvaluationCommit | null = null;
@@ -620,6 +616,12 @@ export const runEducationUnitTurn = ({
       knowledgeReinforcement,
       conceptCoverage,
       tracksRating,
+      recallEntryIds:
+        recallFocus &&
+        unitRun.activeReviewChallenge === null &&
+        turnResult.presentedReviewChallenge
+          ? composedEntryIds
+          : null,
       difficultySnapshot,
       difficultyDirectiveReason: difficultySnapshot.directive.reason,
       turnId,

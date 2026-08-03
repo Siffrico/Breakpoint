@@ -12,10 +12,7 @@ import type {
   PhaseResponseRecord,
   UnitContent,
 } from "../types/training.types";
-import type {
-  WorkspaceAiMessage,
-  WorkspaceAiTurnResult,
-} from "./types";
+import type { WorkspaceAiMessage, WorkspaceAiTurnResult } from "./types";
 import type { RatingEvidenceError } from "./workspace-errors";
 import type { WorkspaceTurnDependencies } from "./workspace-turn";
 import { WorkspacePersistenceError } from "./workspace-errors";
@@ -203,6 +200,7 @@ export const saveUnitTurnResult = ({
   knowledgeReinforcement = null,
   conceptCoverage = null,
   tracksRating,
+  recallEntryIds = null,
   difficultySnapshot,
   difficultyDirectiveReason,
   turnId,
@@ -222,6 +220,7 @@ export const saveUnitTurnResult = ({
   knowledgeReinforcement?: { knowledgeIds: string[]; passed: boolean } | null;
   conceptCoverage?: { knowledgeIds: string[] } | null;
   tracksRating: boolean;
+  recallEntryIds?: string[] | null;
   difficultySnapshot: UnitDifficultySnapshot;
   difficultyDirectiveReason?: string | null;
   turnId: string;
@@ -280,6 +279,7 @@ export const saveUnitTurnResult = ({
           : undefined,
         difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
         goldilocksUpdated: ratingEvaluation ? true : undefined,
+        recallEntryIds: recallEntryIds ?? undefined,
         feedback: turnResult.assistantMessage,
       },
     };
