@@ -4,7 +4,7 @@ import type { Effect } from "effect";
 import type { MentorOutput } from "./agent-contracts";
 import type { UnitAgentError } from "./agent-errors";
 import type { EducationExperienceDefinition } from "./experience";
-import { MentorOutputSchema } from "./agent-contracts";
+import { mentorOutputSchema } from "./agent-contracts";
 import { runUnitAgent } from "./run-unit-agent";
 
 const MENTOR_SYSTEM = `You are Breakpoint's persistent education-unit mentor.
@@ -15,7 +15,7 @@ The capability todo list defines WHAT the learner must become able to do, never 
 
 If the learner cannot yet demonstrate the capability, identify the mental-model blockage from their actual words and help precisely enough for them to make the next cognitive move. Do not keep questioning when a direct explanation would be more useful. Do not explain what they already understand. Keep operational burden with yourself and cognitive judgment with the learner.
 
-Only report completedTodo when the learner's own reasoning or action provides specific evidence for the current capability's pass signals and avoids its surrogate traps. Guided repetition, agreement, terminology, confidence, or your own explanation are not evidence. Complete at most one todo per turn, using its exact id.
+Set completedCapabilityId only when the learner's own reasoning or action provides specific evidence for the current capability's pass signals and avoids its surrogate traps. Guided repetition, agreement, terminology, confidence, or your own explanation are not evidence. Otherwise leave it null.
 
 Stay inside the unit, make one focused ask per response, and use concise readable Markdown. Never mention internal todos, status machinery, scores, rubrics, agents, or phases to the learner. Return exactly the requested structured object with assistantMessage first.`;
 
@@ -23,11 +23,13 @@ export const runMentorAgent = ({
   messages,
   context,
   experience,
+  currentCapabilityId,
   onPartialAssistantMessage,
 }: {
   messages: readonly ModelMessage[];
   context: string;
   experience: EducationExperienceDefinition;
+  currentCapabilityId: string;
   onPartialAssistantMessage?: (content: string) => void;
 }): Effect.Effect<{ object: MentorOutput }, UnitAgentError> =>
   runUnitAgent({
@@ -35,8 +37,8 @@ export const runMentorAgent = ({
     purpose: "education",
     system: `${MENTOR_SYSTEM}\n\n## Customized behavior\n${experience.main.instructions}`,
     messages,
-    context: `${context}\n\n## This turn\nRespond to the learner's latest message. Work only on the first unchecked capability. If their latest independent performance completes it, record the completion and naturally move them toward the next capability; otherwise keep it unchecked and make the best next mentoring move.`,
-    schema: MentorOutputSchema,
+    context: `${context}\n\n## This turn\nRespond to the learner's latest message. Work only on capability ${currentCapabilityId}, the first unchecked one. If their latest independent performance completes it, record the completion and naturally move them toward the next capability; otherwise keep it unchecked and make the best next mentoring move.`,
+    schema: mentorOutputSchema(currentCapabilityId),
     schemaName: "unit_mentor_output",
     maxOutputTokens: 2_600,
     errorMessage: "Failed to run the education-unit mentor.",

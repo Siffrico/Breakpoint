@@ -5,7 +5,6 @@ import { Cause, Effect, Exit } from "effect";
 import type { ScenarioFormat, UnitDifficultySnapshot } from "@acme/validators";
 
 import type { Memory } from "../../memory/types";
-import type { UnitContextAudience } from "../education-unit/unit-context";
 import type { DifficultyDialPreset, ScenarioDirective } from "../engine/rating";
 import type { DifficultyBand } from "../types/training.types";
 import type { WorkspaceAiMessage, WorkspaceAiTurnResult } from "./types";
@@ -21,7 +20,10 @@ import type {
 import type { WorkspaceTurnRepo } from "./workspace-turn-repo";
 import { resolveEducationExperience } from "../education-unit/experience";
 import { runUnitTurn } from "../education-unit/run-unit-turn";
-import { buildUnitContext } from "../education-unit/unit-context";
+import {
+  buildMentorContext,
+  buildReviewerContext,
+} from "../education-unit/unit-context";
 import { boundTranscript } from "../engine/compaction";
 import { regimeForNodeKind } from "../engine/progression-model";
 import { resolveRatingScope } from "../orchestration/rating-scope";
@@ -272,22 +274,36 @@ const claimTurnAndLoadTranscript = ({
   Scope.Scope
 > =>
   Effect.gen(function* () {
-    const claim = yield* persistPromise("claimWorkspaceTurn", () =>
-      deps.claimWorkspaceTurn({
-        sessionId,
-        action: "submit_answer",
-        content: message,
-        slot: SLOT,
-        unitId,
-        turnId,
-        leaseId: turnLeaseId,
-      }),
+    // The claim and the message history do not depend on each other, and the
+    // path that matters — a fresh answer — needs both. Reading them together
+    // takes a round trip off the latency the learner actually waits through.
+    const [claim, persistedMessages] = yield* Effect.all(
+      [
+        persistPromise("claimWorkspaceTurn", () =>
+          deps.claimWorkspaceTurn({
+            sessionId,
+            action: "submit_answer",
+            content: message,
+            slot: SLOT,
+            unitId,
+            turnId,
+            leaseId: turnLeaseId,
+          }),
+        ),
+        persistPromise("listWorkspaceMessages", () =>
+          deps.listUnitMessages(sessionId, unitId),
+        ),
+      ],
+      { concurrency: 2 },
     );
 
     if (claim.status === "completed") {
       return {
         kind: "cached",
         assistantMessage: claim.assistantMessage,
+        // Re-read rather than reuse: the concurrent history read may have
+        // raced the commit that produced this very reply, so it can be
+        // missing the message being returned alongside it.
         messages: yield* persistPromise("listWorkspaceMessages", () =>
           deps.listUnitMessages(sessionId, unitId),
         ),
@@ -341,10 +357,7 @@ const claimTurnAndLoadTranscript = ({
     // Each unit is its own chat. Structured todo evidence survives outside the
     // verbatim window, so bounding a long adaptive loop cannot erase durable
     // progress and needs no summarization model on the hot path.
-    const persistedMessages = yield* persistPromise(
-      "listWorkspaceMessages",
-      () => deps.listUnitMessages(sessionId, unitId),
-    );
+    //
     // The learner's message is committed with the turn, not before it, so the
     // model's view of this turn has to be assembled here.
     const messages = [
@@ -438,12 +451,14 @@ export const runEducationUnitTurn = ({
     const ratingScope = resolveRatingScope({ unit, planNodes: plan.nodes });
     const recallFocus = turn.recallFocus;
     const getUnitKnowledgeContext = deps.getUnitKnowledgeContext;
-    const loadKnowledge =
-      !recallFocus && getUnitKnowledgeContext
-        ? persistPromise("getUnitKnowledgeContext", () =>
-            getUnitKnowledgeContext(unit.nodeId),
-          )
-        : Effect.succeed(null);
+    // Recall turns need the expert workflow too — it is what the reviewer
+    // grades a retrieval attempt against. Loading it costs nothing here
+    // because it rides along with the other two reads.
+    const loadKnowledgeContext = getUnitKnowledgeContext
+      ? persistPromise("getUnitKnowledgeContext", () =>
+          getUnitKnowledgeContext(unit.nodeId),
+        )
+      : Effect.succeed(null);
     const [memories, resolvedDifficulty, knowledge] = yield* Effect.all(
       [
         persistPromise("listMemories", () => deps.listMemories(userId)),
@@ -457,7 +472,7 @@ export const runEducationUnitTurn = ({
                 bands: ratingScope.bands,
               }),
             ),
-        loadKnowledge,
+        loadKnowledgeContext,
       ],
       { concurrency: 3 },
     );
@@ -493,16 +508,20 @@ export const runEducationUnitTurn = ({
             : ""
         }\nThis is a spaced review, not a fresh lesson.`
       : "";
-    const buildContext = (run: typeof unitRun, audience: UnitContextAudience) =>
-      `${buildUnitContext({
-        audience,
-        unit,
-        run: { ...run, difficultySnapshot },
-        targetIdentity: plan.targetIdentity,
-        memories,
-        knowledge,
-        difficultyLine: difficultySnapshot.promptBlock,
-      })}${recallContext}`;
+    const contextInput = (run: typeof unitRun) => ({
+      unit,
+      run: { ...run, difficultySnapshot },
+      targetIdentity: plan.targetIdentity,
+      memories,
+      knowledge,
+      difficultyDirection: difficultySnapshot.promptBlock,
+    });
+    const buildContext = {
+      forMentor: (run: typeof unitRun) =>
+        `${buildMentorContext(contextInput(run))}${recallContext}`,
+      forReviewer: (run: typeof unitRun) =>
+        `${buildReviewerContext(contextInput(run))}${recallContext}`,
+    };
 
     const turnResult = yield* (deps.runUnitTurn ?? runUnitTurn)({
       run: { ...unitRun, difficultySnapshot },

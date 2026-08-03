@@ -8,17 +8,19 @@ import {
 
 export const LearnerFacingMessageSchema = z.string().trim().min(24).max(8_000);
 
-export const MentorOutputSchema = z
-  .object({
-    assistantMessage: LearnerFacingMessageSchema,
-    completedTodo: z
-      .object({
-        todoId: z.string().min(1),
-      })
-      .strict()
-      .nullable(),
-  })
-  .strict();
+/**
+ * The mentor may only ever check off the capability it is currently working on,
+ * so that id is baked into the schema as a literal. Naming a stale, unknown, or
+ * out-of-order capability is unrepresentable rather than rejected after the
+ * model has already streamed a reply to the learner.
+ */
+export const mentorOutputSchema = (currentCapabilityId: string) =>
+  z
+    .object({
+      assistantMessage: LearnerFacingMessageSchema,
+      completedCapabilityId: z.literal(currentCapabilityId).nullable(),
+    })
+    .strict();
 
 const reviewChallengeFields = {
   difficultyVector: DifficultyVectorSchema,
@@ -92,7 +94,7 @@ export const ReviewGradeOutputSchema = z.discriminatedUnion("verdict", [
   passedReview,
 ]);
 
-export type MentorOutput = z.infer<typeof MentorOutputSchema>;
+export type MentorOutput = z.infer<ReturnType<typeof mentorOutputSchema>>;
 export type ReviewPresentationOutput = z.infer<
   typeof ReviewPresentationOutputSchema
 >;

@@ -66,7 +66,10 @@ const input = (run = baseRun()) => ({
   run,
   transcript: [{ role: "user" as const, content: "I would derive it again." }],
   experience: DEFAULT_EDUCATION_EXPERIENCE,
-  buildContext: () => "Unit context with capability and reviewer todos.",
+  buildContext: {
+    forMentor: () => "Unit context with the capability checklist.",
+    forReviewer: () => "Unit context with the mastery contract.",
+  },
 });
 
 const deps = (
@@ -76,7 +79,7 @@ const deps = (
     Effect.succeed({
       object: {
         assistantMessage: "Try the same decision after the constraint changes.",
-        completedTodo: null,
+        completedCapabilityId: null,
       },
     }),
   runReviewPresentation: () =>
@@ -129,9 +132,7 @@ describe("runUnitTurn", () => {
             Effect.succeed({
               object: {
                 assistantMessage: "Move on.",
-                completedTodo: {
-                  todoId: "derive-under-pressure",
-                },
+                completedCapabilityId: "derive-under-pressure",
               },
             }),
         }),
@@ -144,6 +145,8 @@ describe("runUnitTurn", () => {
   });
 
   it("hands the final mentor completion directly to adversarial review", async () => {
+    const mentorMessage =
+      "You re-derived the move correctly from the changed constraint.";
     const result = await Effect.runPromise(
       runUnitTurn(
         input(),
@@ -151,11 +154,8 @@ describe("runUnitTurn", () => {
           runMentor: () =>
             Effect.succeed({
               object: {
-                assistantMessage:
-                  "You re-derived the move correctly from the changed constraint.",
-                completedTodo: {
-                  todoId: "derive-under-pressure",
-                },
+                assistantMessage: mentorMessage,
+                completedCapabilityId: "derive-under-pressure",
               },
             }),
         }),
@@ -164,10 +164,57 @@ describe("runUnitTurn", () => {
 
     expect(result.actor).toBe("reviewer");
     expect(result.nextRun.mode).toBe("review");
-    expect(result.nextRun.activeReviewChallenge?.prompt).toBe(
-      result.assistantMessage,
-    );
+    expect(result.completedCapabilityId).toBe("derive-under-pressure");
     expect(result.presentedReviewChallenge).toBe(true);
+    // The persisted challenge stays the challenge alone; the learner-facing
+    // reply carries the mentor's handoff in front of it.
+    const challengePrompt = result.nextRun.activeReviewChallenge?.prompt;
+    expect(challengePrompt).toBeDefined();
+    expect(result.assistantMessage).toBe(
+      `${mentorMessage}\n\n${challengePrompt}`,
+    );
+  });
+
+  it("streams the reviewer handoff as a continuation of the mentor's message", async () => {
+    const mentorMessage = "That derivation holds. Now defend it under load.";
+    const streamed: string[] = [];
+    await Effect.runPromise(
+      runUnitTurn(
+        {
+          ...input(),
+          onPartialAssistantMessage: (content) => streamed.push(content),
+        },
+        deps({
+          runMentor: ({ onPartialAssistantMessage }) => {
+            onPartialAssistantMessage?.(mentorMessage);
+            return Effect.succeed({
+              object: {
+                assistantMessage: mentorMessage,
+                completedCapabilityId: "derive-under-pressure",
+              },
+            });
+          },
+          runReviewPresentation: ({ onPartialAssistantMessage }) => {
+            onPartialAssistantMessage?.("The production constraint changed.");
+            return Effect.succeed({
+              object: {
+                assistantMessage:
+                  "The production constraint changed. Choose the next move and defend it.",
+                difficultyVector,
+                contract: challengeContract,
+              },
+            });
+          },
+        }),
+      ),
+    );
+
+    // Every snapshot extends the previous one, so the stream never has to
+    // retract text the learner has already read.
+    expect(streamed).toEqual([
+      mentorMessage,
+      `${mentorMessage}\n\nThe production constraint changed.`,
+    ]);
   });
 
   it("requires a second adversarial pressure test before review can pass", async () => {
@@ -179,9 +226,7 @@ describe("runUnitTurn", () => {
             Effect.succeed({
               object: {
                 assistantMessage: "Now test it independently.",
-                completedTodo: {
-                  todoId: "derive-under-pressure",
-                },
+                completedCapabilityId: "derive-under-pressure",
               },
             }),
         }),
@@ -226,9 +271,7 @@ describe("runUnitTurn", () => {
               object: {
                 assistantMessage:
                   "You derived the mechanism, so now test it under pressure.",
-                completedTodo: {
-                  todoId: "derive-under-pressure",
-                },
+                completedCapabilityId: "derive-under-pressure",
               },
             }),
         }),

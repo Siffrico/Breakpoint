@@ -12,7 +12,6 @@ import type {
 } from "./agent-contracts";
 import type { UnitAgentError } from "./agent-errors";
 import type { EducationExperienceDefinition } from "./experience";
-import type { UnitContextAudience } from "./unit-context";
 import type { PersistedUnitRun } from "./unit-state";
 import { runMentorAgent } from "./mentor-agent";
 import {
@@ -21,6 +20,7 @@ import {
 } from "./review-agent";
 import {
   completeCurrentCapabilityTodo,
+  getCurrentCapabilityTodo,
   recordReviewChallenge,
   recordReviewGrade,
 } from "./unit-state";
@@ -29,10 +29,14 @@ export class UnitTurnContractError extends Data.TaggedError(
   "UnitTurnContractError",
 )<{ readonly message: string }> {}
 
-export type BuildUnitTurnContext = (
-  run: PersistedUnitRun,
-  audience: UnitContextAudience,
-) => string;
+/**
+ * Two disjoint views of the same run, built by separate functions. There is no
+ * audience flag to get wrong, so the mentor's view cannot reach the reviewer.
+ */
+export interface UnitContextBuilders {
+  readonly forMentor: (run: PersistedUnitRun) => string;
+  readonly forReviewer: (run: PersistedUnitRun) => string;
+}
 
 export interface UnitTurnResult {
   readonly assistantMessage: string;
@@ -69,12 +73,11 @@ const contractFailure = (message: string) =>
   Effect.fail(new UnitTurnContractError({ message }));
 
 const readContext = (
-  buildContext: BuildUnitTurnContext,
+  build: (run: PersistedUnitRun) => string,
   run: PersistedUnitRun,
-  audience: UnitContextAudience,
 ): Effect.Effect<string, UnitTurnContractError> =>
   Effect.try({
-    try: () => buildContext(run, audience),
+    try: () => build(run),
     catch: (cause) =>
       new UnitTurnContractError({
         message:
@@ -237,12 +240,12 @@ const presentReview = ({
   run: PersistedUnitRun;
   transcript: readonly ModelMessage[];
   experience: EducationExperienceDefinition;
-  buildContext: BuildUnitTurnContext;
+  buildContext: UnitContextBuilders;
   onPartialAssistantMessage?: (content: string) => void;
   deps: UnitTurnDependencies;
 }): Effect.Effect<UnitTurnResult, UnitAgentError | UnitTurnContractError> =>
   Effect.gen(function* () {
-    const context = yield* readContext(buildContext, run, "reviewer");
+    const context = yield* readContext(buildContext.forReviewer, run);
     const result = yield* deps.runReviewPresentation({
       messages: transcript,
       context,
@@ -281,7 +284,7 @@ export const runUnitTurn = (
     run: PersistedUnitRun;
     transcript: readonly ModelMessage[];
     experience: EducationExperienceDefinition;
-    buildContext: BuildUnitTurnContext;
+    buildContext: UnitContextBuilders;
     onPartialAssistantMessage?: (content: string) => void;
   },
   deps: UnitTurnDependencies = LIVE_DEPENDENCIES,
@@ -292,16 +295,25 @@ export const runUnitTurn = (
     }
 
     if (run.mode === "learning") {
-      const context = yield* readContext(buildContext, run, "mentor");
-      const result = yield* deps.runMentor({
+      const currentCapability = getCurrentCapabilityTodo(run);
+      if (!currentCapability) {
+        return yield* contractFailure(
+          "The learning run has no pending capability todo.",
+        );
+      }
+      const context = yield* readContext(buildContext.forMentor, run);
+      const mentor = yield* deps.runMentor({
         messages: transcript,
         context,
         experience,
+        currentCapabilityId: currentCapability.dimensionId,
         onPartialAssistantMessage,
       });
-      if (!result.object.completedTodo) {
+      const mentorMessage = mentor.object.assistantMessage;
+      const completedCapabilityId = mentor.object.completedCapabilityId;
+      if (!completedCapabilityId) {
         return {
-          assistantMessage: result.object.assistantMessage,
+          assistantMessage: mentorMessage,
           nextRun: run,
           actor: "mentor" as const,
           completedCapabilityId: null,
@@ -310,33 +322,44 @@ export const runUnitTurn = (
           presentedReviewChallenge: false,
         };
       }
-      const completion = result.object.completedTodo;
       const advanced = yield* completeCurrentCapabilityTodo(
         run,
-        completion.todoId,
+        completedCapabilityId,
       ).pipe(
         Effect.mapError(
           (error) => new UnitTurnContractError({ message: error.message }),
         ),
       );
-      if (advanced.mode === "review") {
-        return yield* presentReview({
-          run: advanced,
-          transcript,
-          experience,
-          buildContext,
-          onPartialAssistantMessage,
-          deps,
-        });
+      if (advanced.mode !== "review") {
+        return {
+          assistantMessage: mentorMessage,
+          nextRun: advanced,
+          actor: "mentor" as const,
+          completedCapabilityId,
+          reviewGrade: null,
+          ratingWrite: null,
+          presentedReviewChallenge: false,
+        };
       }
+      // The learner has already read the mentor's closing words. Continuing
+      // that message with the reviewer's opening challenge — rather than
+      // returning the challenge alone — keeps the committed reply an extension
+      // of what was streamed, so the stream never retracts text it has shown.
+      const handoff = `${mentorMessage}\n\n`;
+      const review = yield* presentReview({
+        run: advanced,
+        transcript,
+        experience,
+        buildContext,
+        onPartialAssistantMessage: onPartialAssistantMessage
+          ? (challenge) => onPartialAssistantMessage(`${handoff}${challenge}`)
+          : undefined,
+        deps,
+      });
       return {
-        assistantMessage: result.object.assistantMessage,
-        nextRun: advanced,
-        actor: "mentor" as const,
-        completedCapabilityId: completion.todoId,
-        reviewGrade: null,
-        ratingWrite: null,
-        presentedReviewChallenge: false,
+        ...review,
+        assistantMessage: `${handoff}${review.assistantMessage}`,
+        completedCapabilityId,
       };
     }
 
@@ -351,7 +374,7 @@ export const runUnitTurn = (
       });
     }
 
-    const context = yield* readContext(buildContext, run, "reviewer");
+    const context = yield* readContext(buildContext.forReviewer, run);
     const result = yield* deps.runReviewGrade({
       messages: transcript,
       context,
