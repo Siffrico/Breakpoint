@@ -415,89 +415,28 @@ export const UnitMasteryContractSchema = z
     });
   });
 
-export const EducationExperienceTodoSchema = z.object({
-  id: ContractDimensionIdSchema,
-  goal: z.string().trim().min(1).max(2_000),
-  completionEvidence: z
-    .array(z.string().trim().min(1).max(2_000))
-    .min(1)
-    .max(8),
-});
-
 const EducationExperienceInstructionsSchema = z
   .string()
   .trim()
   .min(1)
   .max(12_000);
 
-export const EducationExperienceCustomizationSchema = z
-  .object({
-    main: z.object({ instructions: EducationExperienceInstructionsSchema }),
-    reviewer: z.object({
-      instructions: EducationExperienceInstructionsSchema,
-      todos: z.array(EducationExperienceTodoSchema).min(1).max(8),
-    }),
-  })
-  .superRefine((experience, ctx) => {
-    const ids = new Set<string>();
-    experience.reviewer.todos.forEach((todo, index) => {
-      if (ids.has(todo.id)) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["reviewer", "todos", index, "id"],
-          message: `Duplicate reviewer todo id: ${todo.id}.`,
-        });
-      }
-      ids.add(todo.id);
-    });
-  });
+export const EducationExperienceCustomizationSchema = z.object({
+  main: z.object({ instructions: EducationExperienceInstructionsSchema }),
+  reviewer: z.object({ instructions: EducationExperienceInstructionsSchema }),
+});
 
-export const EducationExperienceSnapshotSchema = z
-  .object({
-    id: z.string().min(1).max(96),
-    version: z.number().int().positive(),
-    main: z.object({ instructions: EducationExperienceInstructionsSchema }),
-    reviewer: z.object({
-      instructions: EducationExperienceInstructionsSchema,
-      todos: z.array(EducationExperienceTodoSchema).min(1).max(8),
-    }),
-  })
-  .superRefine((experience, ctx) => {
-    const ids = new Set<string>();
-    experience.reviewer.todos.forEach((todo, index) => {
-      if (ids.has(todo.id)) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["reviewer", "todos", index, "id"],
-          message: `Duplicate reviewer todo id: ${todo.id}.`,
-        });
-      }
-      ids.add(todo.id);
-    });
-  });
+export const EducationExperienceSnapshotSchema = z.object({
+  id: z.string().min(1).max(96),
+  version: z.number().int().positive(),
+  main: z.object({ instructions: EducationExperienceInstructionsSchema }),
+  reviewer: z.object({ instructions: EducationExperienceInstructionsSchema }),
+});
 
-export const UnitCapabilityTodoSchema = z
-  .object({
-    dimensionId: ContractDimensionIdSchema,
-    status: z.enum(["pending", "completed"]),
-    evidence: z.string().min(1).nullable(),
-  })
-  .superRefine((todo, ctx) => {
-    if (todo.status === "completed" && todo.evidence === null) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["evidence"],
-        message: "A completed capability todo requires learner evidence.",
-      });
-    }
-    if (todo.status === "pending" && todo.evidence !== null) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["evidence"],
-        message: "A pending capability todo cannot retain completion evidence.",
-      });
-    }
-  });
+export const UnitCapabilityTodoSchema = z.object({
+  dimensionId: ContractDimensionIdSchema,
+  status: z.enum(["pending", "completed"]),
+});
 
 export const UnitRunModeSchema = z.enum(["learning", "review", "complete"]);
 export const UnitRunKindSchema = z.enum(["education", "recall"]);
@@ -579,29 +518,6 @@ export const UnitReviewChallengeSchema = z.object({
   difficultyVector: DifficultyVectorSchema,
   contract: ScenarioEvaluationContractSchema,
 });
-
-export const UnitReviewTodoSchema = z
-  .object({
-    todoId: ContractDimensionIdSchema,
-    status: z.enum(["pending", "completed"]),
-    evidence: z.string().min(1).nullable(),
-  })
-  .superRefine((todo, ctx) => {
-    if (todo.status === "completed" && todo.evidence === null) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["evidence"],
-        message: "A completed review todo requires evidence.",
-      });
-    }
-    if (todo.status === "pending" && todo.evidence !== null) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["evidence"],
-        message: "A pending review todo cannot retain evidence.",
-      });
-    }
-  });
 
 export const EvaluationDimensionResultSchema = z.object({
   dimensionId: ContractDimensionIdSchema,
@@ -966,7 +882,6 @@ export type UnitCapabilityTodo = z.infer<typeof UnitCapabilityTodoSchema>;
 export type UnitRunMode = z.infer<typeof UnitRunModeSchema>;
 export type UnitRunKind = z.infer<typeof UnitRunKindSchema>;
 export type UnitReviewChallenge = z.infer<typeof UnitReviewChallengeSchema>;
-export type UnitReviewTodo = z.infer<typeof UnitReviewTodoSchema>;
 export type DifficultyVector = z.infer<typeof DifficultyVectorSchema>;
 export type CurriculumNode = z.infer<typeof CurriculumNodeSchema>;
 export type ProjectOverview = z.infer<typeof ProjectOverviewSchema>;

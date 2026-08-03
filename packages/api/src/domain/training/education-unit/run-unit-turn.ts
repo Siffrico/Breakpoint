@@ -3,7 +3,6 @@ import { Data, Effect } from "effect";
 
 import type {
   EvaluationDimensionResult,
-  UnitMasteryContract,
   UnitReviewChallenge,
 } from "@acme/validators";
 
@@ -102,18 +101,18 @@ const exactIds = (actual: readonly string[], expected: readonly string[]) =>
 const validateChallenge = ({
   challenge,
   run,
-  masteryContract,
 }: {
   challenge: UnitReviewChallenge;
   run: PersistedUnitRun;
-  masteryContract: UnitMasteryContract;
 }): Effect.Effect<UnitReviewChallenge, UnitTurnContractError> => {
   if (challenge.contract.runKind !== run.kind) {
     return contractFailure(
       `Review challenge run kind must be ${run.kind}, not ${challenge.contract.runKind}.`,
     );
   }
-  const knownIds = masteryContract.dimensions.map((dimension) => dimension.id);
+  const knownIds = run.masteryContract.dimensions.map(
+    (dimension) => dimension.id,
+  );
   const testedIds = challenge.contract.testedDimensions.map(
     (dimension) => dimension.dimensionId,
   );
@@ -140,12 +139,10 @@ const validateChallenge = ({
 const validateGrade = ({
   output,
   run,
-  masteryContract,
   learnerText,
 }: {
   output: ReviewGradeOutput;
   run: PersistedUnitRun;
-  masteryContract: UnitMasteryContract;
   learnerText: string;
 }): Effect.Effect<number, UnitTurnContractError> => {
   const challenge = run.activeReviewChallenge;
@@ -198,7 +195,7 @@ const validateGrade = ({
         "The first adversarial grade must push the learner through one further pressure test before passing.",
       );
     }
-    const allCapabilityIds = masteryContract.dimensions.map(
+    const allCapabilityIds = run.masteryContract.dimensions.map(
       (dimension) => dimension.id,
     );
     if (!exactIds(actualIds, allCapabilityIds)) {
@@ -231,7 +228,6 @@ const nextChallengeFromGrade = (
 
 const presentReview = ({
   run,
-  masteryContract,
   transcript,
   experience,
   buildContext,
@@ -239,7 +235,6 @@ const presentReview = ({
   deps,
 }: {
   run: PersistedUnitRun;
-  masteryContract: UnitMasteryContract;
   transcript: readonly ModelMessage[];
   experience: EducationExperienceDefinition;
   buildContext: BuildUnitTurnContext;
@@ -258,7 +253,6 @@ const presentReview = ({
     const challenge = yield* validateChallenge({
       challenge: challengeFromPresentation(result.object),
       run,
-      masteryContract,
     });
     const nextRun = yield* recordReviewChallenge(run, challenge).pipe(
       Effect.mapError(
@@ -279,14 +273,12 @@ const presentReview = ({
 export const runUnitTurn = (
   {
     run,
-    masteryContract,
     transcript,
     experience,
     buildContext,
     onPartialAssistantMessage,
   }: {
     run: PersistedUnitRun;
-    masteryContract: UnitMasteryContract;
     transcript: readonly ModelMessage[];
     experience: EducationExperienceDefinition;
     buildContext: BuildUnitTurnContext;
@@ -319,10 +311,10 @@ export const runUnitTurn = (
         };
       }
       const completion = result.object.completedTodo;
-      const advanced = yield* completeCurrentCapabilityTodo(run, {
-        todoId: completion.todoId,
-        evidence: "Completed by the mentor.",
-      }).pipe(
+      const advanced = yield* completeCurrentCapabilityTodo(
+        run,
+        completion.todoId,
+      ).pipe(
         Effect.mapError(
           (error) => new UnitTurnContractError({ message: error.message }),
         ),
@@ -330,7 +322,6 @@ export const runUnitTurn = (
       if (advanced.mode === "review") {
         return yield* presentReview({
           run: advanced,
-          masteryContract,
           transcript,
           experience,
           buildContext,
@@ -352,7 +343,6 @@ export const runUnitTurn = (
     if (!run.activeReviewChallenge) {
       return yield* presentReview({
         run,
-        masteryContract,
         transcript,
         experience,
         buildContext,
@@ -378,7 +368,6 @@ export const runUnitTurn = (
     const score = yield* validateGrade({
       output: result.object,
       run,
-      masteryContract,
       learnerText,
     });
     const nextChallenge = nextChallengeFromGrade(result.object);
@@ -386,14 +375,12 @@ export const runUnitTurn = (
       yield* validateChallenge({
         challenge: nextChallenge,
         run,
-        masteryContract,
       });
     }
     const nextRun = yield* recordReviewGrade({
       run,
       verdict: result.object.verdict,
       feedback: result.object.assistantMessage,
-      completedTodos: result.object.completedReviewTodos,
       nextChallenge,
     }).pipe(
       Effect.mapError(

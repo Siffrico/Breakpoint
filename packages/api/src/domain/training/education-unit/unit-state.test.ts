@@ -81,18 +81,10 @@ const makeRun = () =>
 
 const completeLearning = async () => {
   const first = await Effect.runPromise(
-    completeCurrentCapabilityTodo(makeRun(), {
-      todoId: "explain-mechanism",
-      evidence:
-        "The learner explained the full causal chain in their own words.",
-    }),
+    completeCurrentCapabilityTodo(makeRun(), "explain-mechanism"),
   );
   return Effect.runPromise(
-    completeCurrentCapabilityTodo(first, {
-      todoId: "transfer-decision",
-      evidence:
-        "The learner re-derived and defended the move on a novel surface.",
-    }),
+    completeCurrentCapabilityTodo(first, "transfer-decision"),
   );
 };
 
@@ -102,8 +94,8 @@ describe("unit state", () => {
 
     expect(run.mode).toBe("learning");
     expect(run.capabilityTodos).toEqual([
-      { dimensionId: "explain-mechanism", status: "pending", evidence: null },
-      { dimensionId: "transfer-decision", status: "pending", evidence: null },
+      { dimensionId: "explain-mechanism", status: "pending" },
+      { dimensionId: "transfer-decision", status: "pending" },
     ]);
   });
 
@@ -133,13 +125,9 @@ describe("unit state", () => {
     );
   });
 
-  it("only permits the current todo to complete with evidence", async () => {
+  it("only permits the current capability to complete", async () => {
     const exit = await Effect.runPromiseExit(
-      completeCurrentCapabilityTodo(makeRun(), {
-        todoId: "transfer-decision",
-        evidence:
-          "The learner made a good transfer decision with clear reasoning.",
-      }),
+      completeCurrentCapabilityTodo(makeRun(), "transfer-decision"),
     );
 
     expect(Exit.isFailure(exit)).toBe(true);
@@ -165,7 +153,6 @@ describe("unit state", () => {
         verdict: "continue",
         feedback:
           "The answer needs a stronger causal defense before it is stable.",
-        completedTodos: [],
         nextChallenge: challenge,
       }),
     );
@@ -173,48 +160,15 @@ describe("unit state", () => {
     expect(Exit.isFailure(exit)).toBe(true);
   });
 
-  it("requires every reviewer todo before passing", async () => {
+  it("completes from a passing review", async () => {
     const run = await Effect.runPromise(
       recordReviewChallenge(await completeLearning(), challenge),
-    );
-    const exit = await Effect.runPromiseExit(
-      recordReviewGrade({
-        run,
-        verdict: "pass",
-        feedback: "The learner remained stable under the changed constraint.",
-        completedTodos: [
-          {
-            todoId: "test-without-tutor-framing",
-            evidence:
-              "The learner solved a novel surface without copied framing.",
-          },
-        ],
-        nextChallenge: null,
-      }),
-    );
-
-    expect(Exit.isFailure(exit)).toBe(true);
-    if (Exit.isFailure(exit)) {
-      expect(String(exit.cause)).toContain("every review todo");
-    }
-  });
-
-  it("completes only from a fully evidenced reviewer pass", async () => {
-    const run = await Effect.runPromise(
-      recordReviewChallenge(await completeLearning(), challenge),
-    );
-    const completedTodos = DEFAULT_EDUCATION_EXPERIENCE.reviewer.todos.map(
-      (todo) => ({
-        todoId: todo.id,
-        evidence: `The review produced concrete evidence for ${todo.id}.`,
-      }),
     );
     const complete = await Effect.runPromise(
       recordReviewGrade({
         run,
         verdict: "pass",
         feedback: "The learner defended and improved the work under pressure.",
-        completedTodos,
         nextChallenge: null,
       }),
     );

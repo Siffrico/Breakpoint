@@ -6,7 +6,6 @@ import {
   UnitCapabilityTodoSchema,
   UnitMasteryContractSchema,
   UnitReviewChallengeSchema,
-  UnitReviewTodoSchema,
   UnitRunKindSchema,
   UnitRunModeSchema,
 } from "@acme/validators";
@@ -72,7 +71,6 @@ const mapUnitRun = (
     experience,
     masteryContract,
     capabilityTodos,
-    reviewTodos: UnitReviewTodoSchema.array().parse(row.reviewTodosJson),
     activeReviewChallenge: UnitReviewChallengeSchema.nullable().parse(
       row.activeReviewChallengeJson,
     ),
@@ -162,7 +160,6 @@ export const trainingUnitRunRepository = {
       experienceJson: run.experience,
       masteryContractJson: run.masteryContract,
       capabilityTodosJson: [...run.capabilityTodos],
-      reviewTodosJson: [...run.reviewTodos],
       activeReviewChallengeJson: run.activeReviewChallenge,
       reviewerFeedback: run.reviewerFeedback,
       hasReviewGrade: run.hasReviewGrade,
@@ -187,7 +184,6 @@ export const trainingUnitRunRepository = {
           experienceJson: values.experienceJson,
           masteryContractJson: values.masteryContractJson,
           capabilityTodosJson: values.capabilityTodosJson,
-          reviewTodosJson: values.reviewTodosJson,
           activeReviewChallengeJson: values.activeReviewChallengeJson,
           reviewerFeedback: values.reviewerFeedback,
           hasReviewGrade: values.hasReviewGrade,

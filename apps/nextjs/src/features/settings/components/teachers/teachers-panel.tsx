@@ -1,19 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import {
-  ArrowDown,
-  ArrowUp,
-  CaretDown,
-  Plus,
-  Trash,
-} from "@phosphor-icons/react";
+import { CaretDown } from "@phosphor-icons/react";
 import { useMutation } from "@tanstack/react-query";
 
 import type { RouterOutputs } from "@acme/api";
 import { cn } from "@acme/ui";
 import { Button } from "@acme/ui/button";
-import { Input } from "@acme/ui/input";
 import { Textarea } from "@acme/ui/textarea";
 import { toast } from "@acme/ui/toast";
 
@@ -23,8 +16,6 @@ import { useTRPC } from "~/trpc/react";
 
 type ExperienceState = RouterOutputs["profile"]["getEducationExperience"];
 type Customization = ExperienceState["customization"];
-type ReviewerTodo = Customization["reviewer"]["todos"][number];
-
 const cloneCustomization = (value: Customization): Customization =>
   structuredClone(value);
 
@@ -96,65 +87,6 @@ export function CustomizePanel({ initial }: { initial: ExperienceState }) {
   const reviewerEdited =
     JSON.stringify(draft.reviewer) !==
     JSON.stringify(initial.defaults.reviewer);
-
-  const updateReviewerTodo = (
-    todoId: string,
-    update: (todo: ReviewerTodo) => ReviewerTodo,
-  ) => {
-    setDraft((current) => ({
-      ...current,
-      reviewer: {
-        ...current.reviewer,
-        todos: current.reviewer.todos.map((todo) =>
-          todo.id === todoId ? update(todo) : todo,
-        ),
-      },
-    }));
-  };
-
-  const moveReviewerTodo = (index: number, direction: -1 | 1) => {
-    setDraft((current) => {
-      const todos = [...current.reviewer.todos];
-      const destination = index + direction;
-      if (destination < 0 || destination >= todos.length) return current;
-      const [todo] = todos.splice(index, 1);
-      if (!todo) return current;
-      todos.splice(destination, 0, todo);
-      return {
-        ...current,
-        reviewer: { ...current.reviewer, todos },
-      };
-    });
-  };
-
-  const removeReviewerTodo = (todoId: string) => {
-    setDraft((current) => ({
-      ...current,
-      reviewer: {
-        ...current.reviewer,
-        todos: current.reviewer.todos.filter((todo) => todo.id !== todoId),
-      },
-    }));
-  };
-
-  const addReviewerTodo = () => {
-    setDraft((current) => ({
-      ...current,
-      reviewer: {
-        ...current.reviewer,
-        todos: [
-          ...current.reviewer.todos,
-          {
-            id: `review-${crypto.randomUUID()}`,
-            goal: "New review requirement",
-            completionEvidence: [
-              "Describe the evidence required to complete it.",
-            ],
-          },
-        ],
-      },
-    }));
-  };
 
   return (
     <div>
@@ -236,90 +168,6 @@ export function CustomizePanel({ initial }: { initial: ExperienceState }) {
                 rows={6}
                 className="text-[12.5px] leading-5"
               />
-
-              <div className="mt-5 flex items-center justify-between">
-                <div className="text-foreground/70 text-[11px] font-medium">
-                  Ordered review todos
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={draft.reviewer.todos.length >= 8}
-                  onClick={addReviewerTodo}
-                >
-                  <Plus size={13} />
-                  Add todo
-                </Button>
-              </div>
-
-              <div className="mt-2.5 space-y-2.5">
-                {draft.reviewer.todos.map((todo, index) => (
-                  <div
-                    key={todo.id}
-                    className="border-foreground/10 bg-background/45 rounded-md border p-3"
-                  >
-                    <div className="flex items-start gap-2">
-                      <span className="text-foreground/40 mt-2 text-[11px] tabular-nums">
-                        {index + 1}
-                      </span>
-                      <Input
-                        aria-label={`Review todo ${index + 1}`}
-                        value={todo.goal}
-                        onChange={(event) =>
-                          updateReviewerTodo(todo.id, (current) => ({
-                            ...current,
-                            goal: event.target.value,
-                          }))
-                        }
-                        className="flex-1"
-                      />
-                      <div className="flex shrink-0 items-center">
-                        <button
-                          type="button"
-                          aria-label="Move todo up"
-                          disabled={index === 0}
-                          onClick={() => moveReviewerTodo(index, -1)}
-                          className="text-foreground/48 hover:text-foreground p-1.5 disabled:opacity-25"
-                        >
-                          <ArrowUp size={14} />
-                        </button>
-                        <button
-                          type="button"
-                          aria-label="Move todo down"
-                          disabled={index === draft.reviewer.todos.length - 1}
-                          onClick={() => moveReviewerTodo(index, 1)}
-                          className="text-foreground/48 hover:text-foreground p-1.5 disabled:opacity-25"
-                        >
-                          <ArrowDown size={14} />
-                        </button>
-                        <button
-                          type="button"
-                          aria-label="Delete todo"
-                          disabled={draft.reviewer.todos.length === 1}
-                          onClick={() => removeReviewerTodo(todo.id)}
-                          className="text-foreground/48 hover:text-destructive p-1.5 disabled:opacity-25"
-                        >
-                          <Trash size={14} />
-                        </button>
-                      </div>
-                    </div>
-                    <label className="text-foreground/45 mt-2 block text-[10.5px] font-medium">
-                      Completion evidence, one signal per line
-                    </label>
-                    <Textarea
-                      value={todo.completionEvidence.join("\n")}
-                      onChange={(event) =>
-                        updateReviewerTodo(todo.id, (current) => ({
-                          ...current,
-                          completionEvidence: event.target.value.split("\n"),
-                        }))
-                      }
-                      rows={2}
-                      className="mt-1 text-[12px] leading-4"
-                    />
-                  </div>
-                ))}
-              </div>
             </div>
           ) : null}
         </div>

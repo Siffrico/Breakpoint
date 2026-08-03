@@ -9,12 +9,6 @@ import {
   EducationExperienceSnapshotSchema,
 } from "@acme/validators";
 
-export interface ExperienceTodoDefinition {
-  readonly id: string;
-  readonly goal: string;
-  readonly completionEvidence: readonly string[];
-}
-
 export interface EducationExperienceDefinition {
   readonly snapshot: {
     readonly id: string;
@@ -25,7 +19,6 @@ export interface EducationExperienceDefinition {
   };
   readonly reviewer: {
     readonly instructions: string;
-    readonly todos: readonly ExperienceTodoDefinition[];
   };
 }
 
@@ -38,36 +31,6 @@ export const DEFAULT_EDUCATION_EXPERIENCE = {
   reviewer: {
     instructions:
       "Act as an adversarial afterburner: independently find where the learner's capability could fail, apply realistic format-appropriate pressure, make the learner improve the weak point, and grade the resulting performance honestly.",
-    todos: [
-      {
-        id: "test-without-tutor-framing",
-        goal: "Test the target capabilities without copying the mentor's framing or examples.",
-        completionEvidence: [
-          "The learner responds to a novel surface without relying on wording supplied by the mentor.",
-        ],
-      },
-      {
-        id: "probe-plausible-failure",
-        goal: "Find and probe the most plausible way the learner's model could break in real work.",
-        completionEvidence: [
-          "The challenge closes shallow shortcuts and exposes a specific fragility or demonstrates stability.",
-        ],
-      },
-      {
-        id: "force-improvement",
-        goal: "Push the learner to defend, revise, or extend the work where pressure reveals a weakness.",
-        completionEvidence: [
-          "The learner independently repairs the weakness or justifies why the challenged decision remains sound.",
-        ],
-      },
-      {
-        id: "grade-goldilocks-evidence",
-        goal: "Produce calibrated evidence for Goldilocks from the adversarial performance.",
-        completionEvidence: [
-          "Every capability dimension has a cited score and the primary error classification is recorded.",
-        ],
-      },
-    ],
   },
 } as const satisfies EducationExperienceDefinition;
 

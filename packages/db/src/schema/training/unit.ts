@@ -6,7 +6,6 @@ import type {
   UnitDifficultySnapshot,
   UnitMasteryContract,
   UnitReviewChallenge,
-  UnitReviewTodo,
 } from "@acme/validators";
 
 import { user } from "../../auth-schema";
@@ -181,7 +180,6 @@ export const TrainingUnitRun = pgTable(
     experienceJson: t.jsonb().$type<EducationExperienceSnapshot>().notNull(),
     masteryContractJson: t.jsonb().$type<UnitMasteryContract>().notNull(),
     capabilityTodosJson: t.jsonb().$type<UnitCapabilityTodo[]>().notNull(),
-    reviewTodosJson: t.jsonb().$type<UnitReviewTodo[]>().notNull(),
     activeReviewChallengeJson: t.jsonb().$type<UnitReviewChallenge | null>(),
     reviewerFeedback: t.text(),
     hasReviewGrade: t.boolean().notNull().default(false),

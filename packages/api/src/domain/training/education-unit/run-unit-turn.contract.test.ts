@@ -64,7 +64,6 @@ const baseRun = () =>
 
 const input = (run = baseRun()) => ({
   run,
-  masteryContract,
   transcript: [{ role: "user" as const, content: "I would derive it again." }],
   experience: DEFAULT_EDUCATION_EXPERIENCE,
   buildContext: () => "Unit context with capability and reviewer todos.",
@@ -106,7 +105,6 @@ const deps = (
             missing: "A causal derivation from the changed constraint.",
           },
         ],
-        completedReviewTodos: [],
         nextChallenge: { difficultyVector, contract: challengeContract },
       },
     }),
@@ -142,7 +140,6 @@ describe("runUnitTurn", () => {
 
     expect(result.nextRun.capabilityTodos[0]).toMatchObject({
       status: "completed",
-      evidence: "Completed by the mentor.",
     });
   });
 
@@ -209,11 +206,6 @@ describe("runUnitTurn", () => {
                     missing: null,
                   },
                 ],
-                completedReviewTodos:
-                  DEFAULT_EDUCATION_EXPERIENCE.reviewer.todos.map((todo) => ({
-                    todoId: todo.id,
-                    evidence: `Evidence for ${todo.id}.`,
-                  })),
                 nextChallenge: null,
               },
             }),
@@ -251,12 +243,6 @@ describe("runUnitTurn", () => {
       errorCodes: ["procedure-replay"],
     });
 
-    const allReviewTodos = DEFAULT_EDUCATION_EXPERIENCE.reviewer.todos.map(
-      (todo) => ({
-        todoId: todo.id,
-        evidence: `The learner supplied concrete evidence for ${todo.id}.`,
-      }),
-    );
     const passed = await Effect.runPromise(
       runUnitTurn(
         input(firstGrade.nextRun),
@@ -278,7 +264,6 @@ describe("runUnitTurn", () => {
                     missing: null,
                   },
                 ],
-                completedReviewTodos: allReviewTodos,
                 nextChallenge: null,
               },
             }),

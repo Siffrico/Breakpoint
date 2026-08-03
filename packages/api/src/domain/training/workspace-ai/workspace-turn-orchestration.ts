@@ -498,7 +498,6 @@ export const runEducationUnitTurn = ({
         audience,
         unit,
         run: { ...run, difficultySnapshot },
-        experience,
         targetIdentity: plan.targetIdentity,
         memories,
         knowledge,
@@ -507,7 +506,6 @@ export const runEducationUnitTurn = ({
 
     const turnResult = yield* (deps.runUnitTurn ?? runUnitTurn)({
       run: { ...unitRun, difficultySnapshot },
-      masteryContract: unitRun.masteryContract,
       transcript: toModelMessages(loadedTranscript.transcript),
       experience,
       buildContext,

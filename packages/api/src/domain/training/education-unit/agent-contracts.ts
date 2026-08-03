@@ -32,19 +32,11 @@ export const ReviewPresentationOutputSchema = z
   })
   .strict();
 
-const completedReviewTodo = z
-  .object({
-    todoId: z.string().min(1),
-    evidence: z.string().min(12),
-  })
-  .strict();
-
 const reviewGradeBase = {
   assistantMessage: LearnerFacingMessageSchema,
   errorCodes: z.array(z.string().min(1)).max(3),
   gradeReasoning: z.string().min(12),
   dimensionResults: z.array(EvaluationDimensionResultSchema).min(1).max(4),
-  completedReviewTodos: z.array(completedReviewTodo).max(4),
 };
 
 const continuingReview = z

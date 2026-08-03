@@ -1,6 +1,5 @@
 import type { Memory } from "../../memory/types";
 import type { UnitContent } from "../types/training.types";
-import type { EducationExperienceDefinition } from "./experience";
 import type { PersistedUnitRun } from "./unit-state";
 
 export interface UnitKnowledgeContext {
@@ -26,7 +25,23 @@ export type UnitContextAudience = "mentor" | "reviewer";
 const bullets = (values: readonly string[]) =>
   values.map((value) => `- ${value}`).join("\n");
 
-const renderCapabilityTodos = (run: PersistedUnitRun): string => {
+const renderDimension = ({
+  dimension,
+  status,
+}: {
+  dimension: PersistedUnitRun["masteryContract"]["dimensions"][number];
+  status?: "pending" | "completed";
+}) =>
+  `${status ? `[${status === "completed" ? "x" : " "}] ` : ""}${dimension.name} (${dimension.id})\n   Goal: ${dimension.description}\n   Pass evidence: ${dimension.passSignals.join("; ")}\n   Failure signals: ${dimension.failSignals.join("; ")}\n   Surrogate traps: ${dimension.surrogateTraps.join("; ")}`;
+
+const renderMasteryContract = (run: PersistedUnitRun) =>
+  run.masteryContract.dimensions
+    .map(
+      (dimension, index) => `${index + 1}. ${renderDimension({ dimension })}`,
+    )
+    .join("\n");
+
+const renderCapabilityProgress = (run: PersistedUnitRun) => {
   const dimensionById = new Map(
     run.masteryContract.dimensions.map((dimension) => [
       dimension.id,
@@ -41,25 +56,7 @@ const renderCapabilityTodos = (run: PersistedUnitRun): string => {
           `Unknown persisted capability todo: ${todo.dimensionId}.`,
         );
       }
-      return `${index + 1}. [${todo.status === "completed" ? "x" : " "}] ${dimension.name} (${dimension.id})\n   Goal: ${dimension.description}\n   Pass evidence: ${dimension.passSignals.join("; ")}\n   Failure signals: ${dimension.failSignals.join("; ")}\n   Surrogate traps: ${dimension.surrogateTraps.join("; ")}\n   Recorded evidence: ${todo.evidence ?? "None"}`;
-    })
-    .join("\n");
-};
-
-const renderReviewTodos = (
-  run: PersistedUnitRun,
-  experience: EducationExperienceDefinition,
-): string => {
-  const reviewTodoById = new Map(
-    experience.reviewer.todos.map((todo) => [todo.id, todo]),
-  );
-  return run.reviewTodos
-    .map((todo, index) => {
-      const definition = reviewTodoById.get(todo.todoId);
-      if (!definition) {
-        throw new Error(`Unknown persisted review todo: ${todo.todoId}.`);
-      }
-      return `${index + 1}. [${todo.status === "completed" ? "x" : " "}] ${definition.goal} (${definition.id})\n   Completion evidence: ${definition.completionEvidence.join("; ")}\n   Recorded evidence: ${todo.evidence ?? "None"}`;
+      return `${index + 1}. ${renderDimension({ dimension, status: todo.status })}`;
     })
     .join("\n");
 };
@@ -68,7 +65,6 @@ export const buildUnitContext = ({
   audience,
   unit,
   run,
-  experience,
   targetIdentity,
   memories,
   knowledge,
@@ -77,7 +73,6 @@ export const buildUnitContext = ({
   audience: UnitContextAudience;
   unit: UnitContent;
   run: PersistedUnitRun;
-  experience: EducationExperienceDefinition;
   targetIdentity: string;
   memories: readonly Memory[];
   knowledge: UnitKnowledgeContext | null;
@@ -87,8 +82,8 @@ export const buildUnitContext = ({
     `## Learner destination\n${targetIdentity}`,
     `## Unit\nTitle: ${unit.title}\nLearning goal: ${unit.learningGoal}\nWhy it matters: ${unit.whyItMatters}\nSeed situation: ${unit.seedPrompt}\nPrivate seed hint: ${unit.seedHint}`,
     audience === "mentor"
-      ? `## Capability todos\n${renderCapabilityTodos(run)}`
-      : `## Reviewer todos\n${renderReviewTodos(run, experience)}`,
+      ? `## Capability progress\n${renderCapabilityProgress(run)}`
+      : `## Mastery contract\n${renderMasteryContract(run)}`,
   ];
 
   if (knowledge) {
@@ -96,8 +91,9 @@ export const buildUnitContext = ({
       `## Expert workflow\n${knowledge.workflow.name}: ${knowledge.workflow.steps.join(" → ")}\nAuthored question: ${knowledge.framing?.question ?? "None"}\nAlready demonstrated: ${knowledge.checked.map((entry) => `${entry.label}: ${entry.content}`).join("; ") || "None"}\nThis unit must land:\n${bullets(knowledge.targets.map((entry) => `${entry.id} — ${entry.kind} — ${entry.label}: ${entry.content}`))}`,
     );
   }
-  if (difficultyLine)
+  if (difficultyLine) {
     sections.push(`## Goldilocks direction\n${difficultyLine}`);
+  }
   if (memories.length > 0) {
     sections.push(
       `## Learner context\n${bullets(memories.map((memory) => memory.content))}`,

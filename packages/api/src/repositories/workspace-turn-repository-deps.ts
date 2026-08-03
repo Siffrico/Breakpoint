@@ -69,7 +69,6 @@ const claimWorkspaceUnitLease = async ({
       experienceJson: run.experience,
       masteryContractJson: run.masteryContract,
       capabilityTodosJson: [...run.capabilityTodos],
-      reviewTodosJson: [...run.reviewTodos],
       activeReviewChallengeJson: run.activeReviewChallenge,
       reviewerFeedback: run.reviewerFeedback,
       hasReviewGrade: run.hasReviewGrade,

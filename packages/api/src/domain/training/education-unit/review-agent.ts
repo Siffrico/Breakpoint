@@ -23,9 +23,9 @@ Stay independent. Do not trust the mentor's confidence, reuse its wording, or re
 
 Match the review to the response format. For MCQ, author diagnostic distractors and require a letter plus reasoning so guessing cannot pass. For FRQ, require the actual judgment, causal explanation, revision, diagnosis, design, or workflow move the domain demands.
 
-Every presented challenge must carry a private immutable evaluation contract and difficulty vector. Every dimension's evidence field must be an exact verbatim quote from the learner's latest answer. Fluent language without the mechanism is a failure signal. The server derives the composite from your dimension scores. A pass requires composite >= 80, every tested dimension >= 70, every reviewer todo complete, and no remaining primary failure code.
+Every presented challenge must carry a private immutable evaluation contract and difficulty vector. Every dimension's evidence field must be an exact verbatim quote from the learner's latest answer. Fluent language without the mechanism is a failure signal. The server derives the composite from your dimension scores. A pass requires composite >= 80, every tested dimension >= 70, and no remaining primary failure code.
 
-The first graded challenge must always lead to one further pressure test, even when the answer is strong; use the second test to attack the most plausible remaining fragility. When review continues, assistantMessage should briefly name the evidence-backed fragility and then present the next realistic pressure test in the same response. The next private contract must grade exactly that visible challenge. Never expose scores, answer keys, private contracts, reviewer todos, agent machinery, or Goldilocks to the learner. Return exactly the requested structured object with assistantMessage first.`;
+The first graded challenge must always lead to one further pressure test, even when the answer is strong; use the second test to attack the most plausible remaining fragility. When review continues, assistantMessage should briefly name the evidence-backed fragility and then present the next realistic pressure test in the same response. The next private contract must grade exactly that visible challenge. Never expose scores, answer keys, private contracts, agent machinery, or Goldilocks to the learner. Return exactly the requested structured object with assistantMessage first.`;
 
 export const runReviewPresentationAgent = ({
   messages,
@@ -45,7 +45,7 @@ export const runReviewPresentationAgent = ({
     purpose: "evaluation",
     system: `${REVIEWER_SYSTEM}\n\n## Customized behavior\n${experience.reviewer.instructions}`,
     messages,
-    context: `${context}\n\n## This turn: open adversarial review\nPresent the first independent pressure test. Test the capability dimensions on a novel surface and begin satisfying the reviewer todos. assistantMessage must contain only the complete learner-facing challenge. Author its exact private contract and calibrated difficulty vector in the dedicated fields. Set contract.runKind to ${runKind}.`,
+    context: `${context}\n\n## This turn: open adversarial review\nPresent the first independent pressure test. Test the capability dimensions on a novel surface. assistantMessage must contain only the complete learner-facing challenge. Author its exact private contract and calibrated difficulty vector in the dedicated fields. Set contract.runKind to ${runKind}.`,
     schema: ReviewPresentationOutputSchema,
     schemaName: "unit_review_presentation",
     maxOutputTokens: 3_000,
@@ -71,7 +71,7 @@ export const runReviewGradeAgent = ({
     purpose: "evaluation",
     system: `${REVIEWER_SYSTEM}\n\n## Customized behavior\n${experience.reviewer.instructions}`,
     messages,
-    context: `${context}\n\n## Immutable active challenge\n${JSON.stringify(activeChallenge)}\n\n## This turn: grade and push\nGrade the learner's latest answer only against the immutable active challenge. Return one result for every capability dimension tested by its contract. Mark reviewer todos complete only with concrete evidence. If every capability and reviewer todo is robust, pass. Otherwise continue: assistantMessage must include concise direct feedback followed by the complete next challenge, and nextChallenge must privately define that exact new challenge with the same scenarioStage as the active challenge.`,
+    context: `${context}\n\n## Immutable active challenge\n${JSON.stringify(activeChallenge)}\n\n## This turn: grade and push\nGrade the learner's latest answer only against the immutable active challenge. Return one result for every capability dimension tested by its contract. If every capability is robust, pass. Otherwise continue: assistantMessage must include concise direct feedback followed by the complete next challenge, and nextChallenge must privately define that exact new challenge with the same scenarioStage as the active challenge.`,
     schema: ReviewGradeOutputSchema,
     schemaName: "unit_review_grade",
     maxOutputTokens: 3_600,

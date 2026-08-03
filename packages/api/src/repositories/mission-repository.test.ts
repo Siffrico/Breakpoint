@@ -169,13 +169,6 @@ const seedUnitRun = async ({
         main: { instructions: "Mentor the active capability." },
         reviewer: {
           instructions: "Pressure-test the learned capabilities.",
-          todos: [
-            {
-              id: "grade",
-              goal: "Grade the evidence.",
-              completionEvidence: ["The evidence is graded."],
-            },
-          ],
         },
       },
       masteryContractJson: {
@@ -192,7 +185,6 @@ const seedUnitRun = async ({
         ],
       },
       capabilityTodosJson: [],
-      reviewTodosJson: [],
     })
     .returning({ id: TrainingUnitRun.id });
   if (!run) throw new Error("Expected a unit run.");

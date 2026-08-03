@@ -70,7 +70,6 @@ describe("workspace unit lease acquisition", () => {
       experienceJson: freshRun.experience,
       masteryContractJson: freshRun.masteryContract,
       capabilityTodosJson: freshRun.capabilityTodos,
-      reviewTodosJson: freshRun.reviewTodos,
       turnLeaseId: "00000000-0000-0000-0000-000000000099",
     });
     expect(inserted?.turnLeaseExpiresAt).toBeInstanceOf(Date);
