@@ -8,7 +8,7 @@ describe("normalizeAssistantMarkdown", () => {
       "## The map  One mechanism.  ### Expert trip  1. Inspect the trace.  2. Verify the result.";
 
     expect(normalizeAssistantMarkdown(content)).toBe(
-      "## The map\n\nOne mechanism.\n\n### Expert trip\n\n1. Inspect the trace.\n\n2. Verify the result.",
+      "One mechanism.\n\n1. Inspect the trace.\n\n2. Verify the result.",
     );
   });
 
@@ -17,16 +17,31 @@ describe("normalizeAssistantMarkdown", () => {
       "## Flow  ```mermaid graph TD  request-->cache ```  Notice the cache lookup.";
 
     expect(normalizeAssistantMarkdown(content)).toBe(
-      "## Flow\n\n```mermaid\ngraph TD\n\nrequest-->cache\n```\n\nNotice the cache lookup.",
+      "```mermaid\ngraph TD\n\nrequest-->cache\n```\n\nNotice the cache lookup.",
     );
   });
 
-  it("does not rewrite ordinary prose or already valid Markdown", () => {
+  it("does not rewrite ordinary prose", () => {
     expect(normalizeAssistantMarkdown("Keep  intentional spacing.")).toBe(
       "Keep  intentional spacing.",
     );
-    expect(normalizeAssistantMarkdown("## Heading\n\nParagraph.")).toBe(
-      "## Heading\n\nParagraph.",
+  });
+
+  it("removes section-label headings the assistant should not emit", () => {
+    expect(normalizeAssistantMarkdown("## Feedback\n\nParagraph.")).toBe(
+      "Paragraph.",
     );
+    expect(normalizeAssistantMarkdown("The Scenario\n---\n\nParagraph.")).toBe(
+      "Paragraph.",
+    );
+  });
+
+  it("keeps a horizontal rule and code comments that only look like headings", () => {
+    expect(normalizeAssistantMarkdown("Above.\n\n---\n\nBelow.")).toBe(
+      "Above.\n\n---\n\nBelow.",
+    );
+    expect(
+      normalizeAssistantMarkdown("```bash\n# install deps\npnpm i\n```"),
+    ).toBe("```bash\n# install deps\npnpm i\n```");
   });
 });

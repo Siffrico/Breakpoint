@@ -9,8 +9,9 @@
  * were asked to do, and neither paraphrases the other.
  */
 
+// "Main" is the default state of every unit, so labelling it says nothing —
+// only a run that departs from the main line earns a badge.
 const RUN_KIND_LABELS: Record<string, string> = {
-  main: "Main",
   recall: "Recall",
 };
 
@@ -28,10 +29,7 @@ export function ScenarioAnchor({
   onToggleScenario: () => void;
   columnClassName: string;
 }) {
-  const runKindLabel = runKind
-    ? (RUN_KIND_LABELS[runKind] ??
-      runKind.charAt(0).toUpperCase() + runKind.slice(1).replaceAll("_", " "))
-    : null;
+  const runKindLabel = runKind ? (RUN_KIND_LABELS[runKind] ?? null) : null;
 
   return (
     <div className="border-foreground/[0.08] bg-background/95 shrink-0 border-b backdrop-blur-sm">

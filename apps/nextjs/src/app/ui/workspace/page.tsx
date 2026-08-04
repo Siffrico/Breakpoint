@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
 
 import { WorkspaceShell } from "~/features/training/components/workspace-shell";
-import { previewEducationUnit } from "~/features/training/lib/education-unit-preview";
+import {
+  previewAiWorkspace,
+  previewEducationUnit,
+} from "~/features/training/lib/education-unit-preview";
 import {
   previewLearningProjects,
   previewPlanState,
@@ -16,12 +19,19 @@ export const metadata: Metadata = {
 };
 
 export default function UiPreviewWorkspacePage() {
-  getQueryClient().setQueryData(
+  const queryClient = getQueryClient();
+  queryClient.setQueryData(
     trpc.training.unit.queryKey({
       sessionId: previewSessionId,
       nodeId: previewEducationUnit.nodeId,
     }),
     previewEducationUnit,
+  );
+  // The workspace query is disabled under `preview`, so this seeded transcript
+  // is what the trail renders — the preview's stand-in for a live chat.
+  queryClient.setQueryData(
+    trpc.training.aiWorkspace.queryKey({ sessionId: previewSessionId }),
+    previewAiWorkspace,
   );
 
   return (

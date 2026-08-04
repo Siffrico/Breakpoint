@@ -4,18 +4,10 @@ import type { UIMessage } from "ai";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useChat } from "@ai-sdk/react";
-import {
-  CaretDown,
-  CaretRight,
-  ChatCircle,
-  Copy,
-  PencilSimple,
-} from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { DefaultChatTransport, isTextUIPart } from "ai";
 
 import type { RouterOutputs, WorkspaceStreamStatus } from "@acme/api";
-import { Button } from "@acme/ui/button";
 import { ChatComposerDock, WorkspaceStatusLine } from "@acme/ui/chat";
 import { Separator } from "@acme/ui/separator";
 import { toast } from "@acme/ui/toast";
@@ -31,7 +23,7 @@ import {
 import { useTRPC } from "~/trpc/react";
 import { groupLiveExchanges } from "./exchange-grouping";
 import { FocusComposer } from "./focus-composer";
-import { countWords } from "./receipt-summary";
+import { MessageActions } from "./message-actions";
 import { ScenarioAnchor } from "./scenario-anchor";
 import {
   ASK_COACH_SOURCE_ATTRIBUTE,
@@ -117,9 +109,7 @@ const createWorkspaceTurnId = () =>
 const buildPreviewWorkspaceReply = (answerText: string) => {
   const normalized = answerText.trim();
 
-  return `## Feedback
-
-This is a useful answer because it names the central failure: the loop optimized the benchmark, not the real deployment outcome.
+  return `This is a useful answer because it names the central failure: the loop optimized the benchmark, not the real deployment outcome.
 
 What I would strengthen:
 
@@ -145,18 +135,23 @@ function PromptTurn({
   helper,
   difficultyDirectiveReason = null,
   statusLabel = null,
+  copyable = true,
 }: {
   prompt: string;
   helper?: string | null;
   difficultyDirectiveReason?: string | null;
   statusLabel?: string | null;
+  /** False for the notice turns (unavailable, resume-blocked) — those are UI
+      copy, not something the learner would ever want on their clipboard. */
+  copyable?: boolean;
 }) {
   return (
-    <section className="py-3 font-sans">
-      {/* Assistant content fills the column edge-to-edge (no extra px), so its
-          right edge matches the submitted-answer receipt's right edge. */}
+    <section className="py-[13px] font-sans">
+      {/* Assistant content fills the column edge-to-edge (no extra px); the
+          learner's receipt answers it from the right. `group` scopes the
+          hover that reveals this turn's actions. */}
       <div
-        className={CHAT_COLUMN_CLASS}
+        className={`${CHAT_COLUMN_CLASS} group`}
         {...{ [ASK_COACH_SOURCE_ATTRIBUTE]: "" }}
       >
         {statusLabel ? (
@@ -183,6 +178,9 @@ function PromptTurn({
             content={helper}
             className="text-foreground/48 mt-3 text-[13px] leading-6 [&_em]:not-italic"
           />
+        ) : null}
+        {copyable && prompt.trim() ? (
+          <MessageActions align="start" text={prompt} />
         ) : null}
       </div>
     </section>
@@ -245,104 +243,52 @@ function SubmittedAnswerReceipt({
   onRetry?: () => void;
   onAskCoach?: () => void;
 }) {
-  const [isOpen, setIsOpen] = useState(false);
-  const wordCount = countWords(text);
-  const wordLabel = `${wordCount} ${wordCount === 1 ? "word" : "words"}`;
-
-  const copySubmittedAnswer = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast.success("Answer copied.");
-    } catch {
-      toast.error("Answer could not be copied.");
-    }
-  };
-
   return (
-    <section className="py-3 font-sans">
+    <section className="py-[13px] font-sans">
       <div className={CHAT_COLUMN_CLASS}>
-        {/* Mirrors the user bubble: column-relative width, right-anchored. */}
-        <div className="border-foreground/[0.14] bg-foreground/[0.055] ml-auto w-fit max-w-[min(82%,64ch)] rounded-md border">
-          <button
-            type="button"
-            onClick={() => setIsOpen((current) => !current)}
-            className="text-foreground/72 hover:bg-foreground/[0.035] focus-visible:bg-foreground/[0.045] flex min-h-10 w-full items-center justify-between gap-4 px-3.5 text-left text-[13px] transition-colors outline-none focus:outline-none"
-            aria-expanded={isOpen}
-          >
-            <span className="flex min-w-0 items-center gap-2.5">
-              {isOpen ? (
-                <CaretDown size={13} weight="bold" className="shrink-0" />
-              ) : (
-                <CaretRight size={13} weight="bold" className="shrink-0" />
-              )}
-              <span className="text-foreground/78 font-medium">
-                Submitted answer
-              </span>
+        {/* The learner's turn as a right-aligned chat message. The block is
+            shrink-to-fit and pushed right by ml-auto, so its right edge lands
+            on the column's right edge — the same edge as the composer — while
+            a short answer keeps a short bubble. `group` scopes the hover that
+            reveals this message's actions. */}
+        <div className="group ml-auto w-fit max-w-[65%] min-w-[min(17rem,100%)]">
+          {/* No caption: the bubble's position already says whose turn this is.
+              The row carries transient send state only — and Retry stays
+              outside the hover row, because a send that failed must be
+              recoverable without first discovering that hover reveals things. */}
+          {pending || failed ? (
+            <div className="mb-1.5 flex items-center gap-2 text-[12px]">
               {pending ? (
                 <span className="text-foreground/38">Submitting...</span>
               ) : null}
               {failed ? (
                 <span className="text-destructive/80">Failed to send</span>
               ) : null}
-            </span>
-            <span className="text-foreground/38 shrink-0">{wordLabel}</span>
-          </button>
-
-          {isOpen ? (
-            <div className="border-foreground/[0.1] border-t">
-              <div className="px-3.5 py-3">
-                <p className="text-foreground/82 text-[14px] leading-6 whitespace-pre-wrap">
-                  {text}
-                </p>
-              </div>
-              <div className="border-foreground/[0.08] flex flex-wrap items-center gap-1 border-t px-2 py-1.5">
-                <Button
+              {failed && onRetry ? (
+                <button
                   type="button"
-                  variant="ghost"
-                  size="xs"
-                  onClick={() => void copySubmittedAnswer()}
-                  className="text-foreground/48 hover:text-foreground h-7 border-0 px-2 text-[11px] shadow-none before:hidden"
+                  onClick={onRetry}
+                  className="text-destructive/80 hover:bg-destructive/[0.08] hover:text-destructive rounded-sm px-1.5 py-0.5 transition-colors"
                 >
-                  <Copy size={13} />
-                  Copy
-                </Button>
-                {failed && onRetry ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="xs"
-                    onClick={onRetry}
-                    className="text-destructive/80 hover:text-destructive h-7 border-0 px-2 text-[11px] shadow-none before:hidden"
-                  >
-                    Retry
-                  </Button>
-                ) : null}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="xs"
-                  disabled={!canRevise}
-                  onClick={onRevise}
-                  className="text-foreground/48 hover:text-foreground h-7 border-0 px-2 text-[11px] shadow-none before:hidden"
-                >
-                  <PencilSimple size={13} />
-                  Revise
-                </Button>
-                {onAskCoach ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="xs"
-                    onClick={onAskCoach}
-                    className="text-foreground/48 hover:text-foreground h-7 border-0 px-2 text-[11px] shadow-none before:hidden"
-                  >
-                    <ChatCircle size={13} />
-                    Ask coach about this
-                  </Button>
-                ) : null}
-              </div>
+                  Retry
+                </button>
+              ) : null}
             </div>
           ) : null}
+
+          <div className="border-border bg-card rounded-lg border px-4 py-3">
+            <p className="text-foreground/88 text-[14px] leading-6 whitespace-pre-wrap">
+              {text}
+            </p>
+          </div>
+
+          <MessageActions
+            align="end"
+            text={text}
+            onEdit={onRevise}
+            editDisabled={!canRevise}
+            onAskCoach={onAskCoach}
+          />
         </div>
       </div>
     </section>
@@ -1081,11 +1027,13 @@ function EducationUnitWorkspaceComponent({
     <PromptTurn
       helper="Workspace unavailable"
       prompt="The AI workspace could not be loaded, so replying here could advance the wrong stage. Refresh the workspace before continuing."
+      copyable={false}
     />
   ) : missingTranscriptForResumedUnit ? (
     <PromptTurn
       helper="Resume unavailable"
       prompt={`This unit already has saved progress, but the AI workspace transcript for this stage is missing. Replying here could rewind the lesson. Refresh the workspace before continuing.\n\nCurrent checkpoint: ${fallbackTurn.prompt}`}
+      copyable={false}
     />
   ) : (
     <>
