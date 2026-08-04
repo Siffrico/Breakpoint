@@ -87,20 +87,19 @@ export function useAdvanceController({
         ),
     );
 
-    if (
-      aiWorkspace?.projectComplete ||
-      (serverAdvanced && serverProjectHasNextNode)
-    ) {
+    if (serverAdvanced && !serverProjectHasNextNode) {
+      void queryClient.invalidateQueries({
+        queryKey: trpc.training.listLearningProjects.queryKey(),
+      });
+    }
+
+    if (aiWorkspace?.projectComplete || serverAdvanced) {
       const frameId = window.requestAnimationFrame(() => {
         setAdvanceTransition((current) =>
           current === activeTransition ? null : current,
         );
       });
       return () => window.cancelAnimationFrame(frameId);
-    } else if (serverAdvanced) {
-      void queryClient.invalidateQueries({
-        queryKey: trpc.training.listLearningProjects.queryKey(),
-      });
     }
   }, [
     activeTransition,

@@ -1,17 +1,26 @@
 import type { ModelMessage } from "ai";
-import type { Effect } from "effect";
+import { Duration, Effect, Schedule } from "effect";
 
 import type { UnitReviewChallenge, UnitReviewPass } from "@acme/validators";
 
 import type {
-  ChallengeShape,
   GradeShape,
   ReviewGradeOutput,
   ReviewPresentationOutput,
 } from "./agent-contracts";
 import type { UnitAgentError } from "./agent-errors";
 import type { EducationExperienceDefinition } from "./experience";
-import { reviewGradeSchema, reviewPresentationSchema } from "./agent-contracts";
+import { invokeTextModel } from "../engine/invoke-structured-model";
+import { requireAiModelForPurpose } from "../engine/model-router";
+import {
+  PASSING_COMPOSITE,
+  PASSING_DIMENSION,
+  reviewGradeSchema,
+} from "./agent-contracts";
+import {
+  classifyUnitAgentFailure,
+  isRetryableUnitAgentError,
+} from "./agent-errors";
 import { runUnitAgent } from "./run-unit-agent";
 
 const CRITIC_SYSTEM = `You are Breakpoint's independent critic. You grade, but grading is the smaller half of the job: you exist to show a learner the exact place their mental model diverged from an expert's, in words they can feel.
@@ -29,6 +38,8 @@ Lead with the divergence, in their own frame. Quote their actual words back so t
 ## Targeted exercises
 When the scores you assign show a real gap, follow the critique immediately with ONE compact exercise that forces the same idea on a different surface — different domain, different framing, same underlying move. It must be small enough to answer in a paragraph and impossible to answer without the idea they just missed. Do not re-run the original scenario. Do not scaffold it with the answer.
 
+Put the critique alone in assistantMessage and the learner-facing exercise question in targetedExercise.prompt. The server presents them together while retaining the exercise as the immutable challenge for the next grade.
+
 When the scores show no real gap, do not manufacture one. Close cleanly and say what now holds.
 
 ## Evidence
@@ -39,7 +50,7 @@ Return exactly the requested structured object with assistantMessage first.`;
 const presentationTurnInstruction = (pass: UnitReviewPass) =>
   pass === 1
     ? `## This turn: open the review
-Present one whole realistic challenge on a surface the mentor never used. It must require the capability itself, not recall of the lesson. assistantMessage contains only the learner-facing challenge — no preamble about what you are doing. Author its exact private contract and difficulty vector in the dedicated fields.`
+Present one whole realistic challenge on a surface the mentor never used. It must require the capability itself, not recall of the lesson. assistantMessage contains only the learner-facing challenge — no preamble about what you are doing. The server owns the private evaluation contract; do not emit a rubric, scores, or metadata.`
     : `## This turn: open the transfer check
 The learner already repaired their gap under guidance. This is the unaided check that it transferred. Present one fresh whole scenario on ground they have not seen, in a different domain or framing from anything earlier in this unit. Minimal guidance: no hints, no scaffolding, no reference to what they just fixed, no callback to the earlier challenge. It should read as a new problem, not as a retest. assistantMessage contains only the challenge.`;
 
@@ -47,39 +58,69 @@ export const runReviewPresentationAgent = ({
   messages,
   context,
   experience,
-  shape,
   pass,
   onPartialAssistantMessage,
 }: {
   messages: readonly ModelMessage[];
   context: string;
   experience: EducationExperienceDefinition;
-  shape: ChallengeShape;
   pass: UnitReviewPass;
   onPartialAssistantMessage?: (content: string) => void;
-}): Effect.Effect<{ object: ReviewPresentationOutput }, UnitAgentError> =>
-  runUnitAgent({
-    agent: "reviewer",
-    purpose: "evaluation",
-    // Authoring a scenario is generative, not diagnostic — the expensive
-    // thinking belongs in the grade, not here.
-    reasoning: "low",
-    system: `${CRITIC_SYSTEM}\n\n## Customized behavior\n${experience.reviewer.instructions}`,
-    messages,
-    context: `${context}\n\n${presentationTurnInstruction(pass)}`,
-    schema: reviewPresentationSchema(shape),
-    schemaName: "unit_review_presentation",
-    maxOutputTokens: 3_000,
-    errorMessage: "Failed to open the adversarial review.",
-    onPartialAssistantMessage,
+}): Effect.Effect<{ object: ReviewPresentationOutput }, UnitAgentError> => {
+  const attempt = Effect.tryPromise({
+    try: async (signal) => {
+      const result = invokeTextModel({
+        model: requireAiModelForPurpose(
+          "evaluation",
+          "Failed to open the adversarial review.",
+        ),
+        system: `${CRITIC_SYSTEM}\n\n## Customized behavior\n${experience.reviewer.instructions}`,
+        prompt: [
+          ...messages,
+          {
+            role: "user",
+            content: `${context}\n\n${presentationTurnInstruction(pass)}`,
+          },
+        ],
+        cache: true,
+        maxOutputTokens: 3_000,
+        reasoning: "low",
+        abortSignal: AbortSignal.any([signal, AbortSignal.timeout(90_000)]),
+      });
+      let assistantMessage = "";
+      for await (const delta of result.textStream) {
+        assistantMessage += delta;
+        onPartialAssistantMessage?.(assistantMessage);
+      }
+      assistantMessage = assistantMessage.trim();
+      if (!assistantMessage) {
+        throw new Error("The reviewer returned an empty challenge.");
+      }
+      return { object: { assistantMessage } };
+    },
+    catch: classifyUnitAgentFailure,
   });
 
-const gradeTurnInstruction = (isMainScenario: boolean) =>
-  isMainScenario
+  return Effect.retry(attempt, {
+    schedule: Schedule.exponential(Duration.millis(200), 2).pipe(
+      Schedule.both(Schedule.recurs(1)),
+    ),
+    while: isRetryableUnitAgentError,
+  });
+};
+
+const gradeTurnInstruction = (isMainScenario: boolean) => {
+  const task = isMainScenario
     ? `## This turn: diagnose the main scenario
 Grade the learner's latest answer against the immutable active challenge. If it exposes a gap, explain the first mental-model divergence and give one compact targeted application. If it passes, close this pass. targetedExercise must match the score-derived gap.`
     : `## This turn: verify the insight
 Grade the learner's latest targeted application. If it still exposes a gap, explain it and give another targeted application. If it lands, close this pass. targetedExercise must match the score-derived gap.`;
+
+  return `${task}
+
+## Score scale
+Every dimension score is an integer percentage from 0 to 100, never a 1-3 ordinal. A pass requires a composite score of at least ${PASSING_COMPOSITE} and every dimension at least ${PASSING_DIMENSION}. Make the scores, errorCodes, targetedExercise, and learner-facing conclusion agree.`;
+};
 
 export const runReviewGradeAgent = ({
   messages,

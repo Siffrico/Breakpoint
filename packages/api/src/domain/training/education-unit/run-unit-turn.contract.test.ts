@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { UnitMasteryContract } from "@acme/validators";
 
 import type { UnitTurnDependencies } from "./run-unit-turn";
+import type { PersistedUnitRun } from "./unit-state";
 import { DEFAULT_EDUCATION_EXPERIENCE } from "./experience";
 import { runPassAdvanceTurn, runUnitTurn } from "./run-unit-turn";
 import { createUnitRun } from "./unit-state";
@@ -52,15 +53,42 @@ const difficultyVector = {
   embeddedAlternatives: 2,
 };
 
-const baseRun = () =>
-  createUnitRun({
+const baseRun = (): PersistedUnitRun => ({
+  ...createUnitRun({
     unitId: "unit-1",
     sessionId: "session-1",
     userId: "user-1",
     kind: "education",
     masteryContract,
     experience: DEFAULT_EDUCATION_EXPERIENCE,
-  });
+  }),
+  difficultySnapshot: {
+    nodeId: "node-1",
+    directive: {
+      intent: "probe" as const,
+      bandOrder: 0,
+      supportLevel: "none" as const,
+      targetItemRating: 1200,
+      targetMisconceptionCode: null,
+      reason: "Probe independent transfer.",
+      nextProgress: { bandOrder: 0, supportLevel: "none" as const },
+    },
+    promptBlock: "Probe independent transfer.",
+    ratingSnapshot: "rating snapshot",
+    learnerRating: 1200,
+    format: {
+      id: "frq",
+      label: "Free response",
+      kind: "frq" as const,
+      description: "Explain the decision.",
+    },
+    dialPreset: {
+      steps: [3, 3],
+      withheldGivens: [1, 1],
+      alternatives: [2, 2],
+    },
+  },
+});
 
 const input = (run = baseRun()) => ({
   run,
@@ -88,8 +116,6 @@ const deps = (
       object: {
         assistantMessage:
           "The production constraint changed. Choose the next move and defend it.",
-        difficultyVector,
-        contract: challengeContract,
       },
     }),
   runReviewGrade: () =>
@@ -97,7 +123,7 @@ const deps = (
       object: {
         assistantMessage:
           "Your defense still copies the original rule. Try this changed case and re-derive the move.",
-        errorCodes: ["procedure-replay"],
+        errorCodes: [],
         gradeReasoning:
           "The learner repeated the procedure without deriving it.",
         dimensionResults: [
@@ -108,7 +134,10 @@ const deps = (
             missing: "A causal derivation from the changed constraint.",
           },
         ],
-        targetedExercise: { difficultyVector, contract: challengeContract },
+        targetedExercise: {
+          prompt:
+            "A different service now has the same failure. Which move changes, and why?",
+        },
       },
     }),
   ...overrides,
@@ -200,8 +229,6 @@ describe("runUnitTurn", () => {
               object: {
                 assistantMessage:
                   "The production constraint changed. Choose the next move and defend it.",
-                difficultyVector,
-                contract: challengeContract,
               },
             });
           },
@@ -238,7 +265,15 @@ describe("runUnitTurn", () => {
 
     expect(repaired.nextRun.mode).toBe("review");
     expect(repaired.nextRun.repairSpent).toBe(true);
-    expect(repaired.nextRun.activeReviewChallenge).not.toBeNull();
+    expect(repaired.nextRun.activeReviewChallenge?.prompt).toBe(
+      "A different service now has the same failure. Which move changes, and why?",
+    );
+    expect(repaired.reviewGrade?.errorCodes).toEqual([
+      "gap:derive-under-pressure",
+    ]);
+    expect(repaired.assistantMessage).toContain(
+      repaired.nextRun.activeReviewChallenge?.prompt,
+    );
     expect(repaired.settledPass).toBeNull();
     expect(repaired.ratingWrite).toBeNull();
   });
@@ -306,8 +341,6 @@ describe("runUnitTurn", () => {
             Effect.succeed({
               object: {
                 assistantMessage: pass2Challenge.prompt,
-                difficultyVector,
-                contract: challengeContract,
               },
             }),
         }),
@@ -318,7 +351,14 @@ describe("runUnitTurn", () => {
       mode: "review",
       reviewPass: 2,
       repairSpent: false,
-      activeReviewChallenge: pass2Challenge,
+      activeReviewChallenge: {
+        prompt: pass2Challenge.prompt,
+        difficultyVector,
+        contract: {
+          runKind: "education",
+          testedDimensions: [{ dimensionId: "derive-under-pressure" }],
+        },
+      },
       pendingPass2Challenge: null,
     });
 
@@ -352,5 +392,42 @@ describe("runUnitTurn", () => {
     expect(passed.nextRun.mode).toBe("complete");
     expect(passed.settledPass).toBe(2);
     expect(passed.ratingWrite).toEqual({ score: 91, errorCodes: [] });
+  });
+
+  it("claims a prepared next-pass challenge without another model call", async () => {
+    const preparedChallenge = {
+      prompt: "Diagnose the same constraint on an unfamiliar system.",
+      difficultyVector,
+      contract: challengeContract,
+    };
+    const awaitingNextPass = {
+      ...input().run,
+      mode: "awaiting_next_pass" as const,
+      pendingPass2Challenge: preparedChallenge,
+    };
+    let presentationCalls = 0;
+    const runReviewPresentation = () => {
+      presentationCalls += 1;
+      return Effect.succeed({
+        object: {
+          assistantMessage: "Unexpected model-authored challenge.",
+        },
+      });
+    };
+
+    const advanced = await Effect.runPromise(
+      runPassAdvanceTurn(
+        input(awaitingNextPass),
+        deps({ runReviewPresentation }),
+      ),
+    );
+
+    expect(presentationCalls).toBe(0);
+    expect(advanced.nextRun).toMatchObject({
+      mode: "review",
+      reviewPass: 2,
+      activeReviewChallenge: preparedChallenge,
+      pendingPass2Challenge: null,
+    });
   });
 });

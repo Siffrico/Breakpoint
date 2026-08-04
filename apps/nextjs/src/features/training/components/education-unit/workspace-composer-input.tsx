@@ -160,6 +160,17 @@ export function WorkspaceComposerInput({
       onAdvanceUnit?.();
       return;
     }
+    if (
+      !disabled &&
+      event.key === "Enter" &&
+      !event.shiftKey &&
+      !event.nativeEvent.isComposing
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      handleSubmit();
+      return;
+    }
     if (!menuOpen) return;
 
     if (event.key === "ArrowDown") {
@@ -174,7 +185,7 @@ export function WorkspaceComposerInput({
       );
       return;
     }
-    if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
+    if (event.key === "Tab") {
       event.preventDefault();
       event.stopPropagation();
       runSelectedCommand();

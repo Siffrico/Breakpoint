@@ -19,7 +19,7 @@ Set completedCapabilityId only when the learner's own reasoning or action provid
 
 If completedCapabilityId is null, never say or imply that the learner, a capability, or the unit is complete. If you tell the learner their independent performance has met the pass signals, set completedCapabilityId.
 
-Stay inside the unit, make one focused ask per response, and use concise readable Markdown. Never mention internal todos, status machinery, scores, rubrics, agents, or phases to the learner. Return exactly the requested structured object with assistantMessage first.`;
+Stay inside the unit, make one focused ask per response, and use concise readable Markdown. When the capability remains incomplete, end with one explicit question the learner can answer; never leave them with a transition promise such as "let's move forward" but no ask. Never mention internal todos, status machinery, scores, rubrics, agents, or phases to the learner. Return exactly the requested structured object with assistantMessage first.`;
 
 export const runMentorAgent = ({
   messages,

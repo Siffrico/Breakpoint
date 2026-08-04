@@ -11,6 +11,7 @@ import {
   classifyUnitAgentFailure,
   isRetryableUnitAgentError,
   UnitAgentFirstVisibleTimeoutError,
+  UnitAgentSchemaError,
   UnitAgentWallClockTimeoutError,
 } from "./agent-errors";
 
@@ -171,7 +172,16 @@ const attempt = <TSchema extends z.ZodTypeAny>(
   Effect.tryPromise({
     try: (signal) => callModel(input, signal),
     catch: classifyUnitAgentFailure,
-  });
+  }).pipe(
+    Effect.mapError((error) =>
+      error._tag === "UnitAgentSchemaError"
+        ? new UnitAgentSchemaError({
+            ...error,
+            schemaName: input.schemaName,
+          })
+        : error,
+    ),
+  );
 
 const retrySchedule = Schedule.exponential(Duration.millis(200), 2).pipe(
   Schedule.both(Schedule.recurs(MAX_RESTARTS)),

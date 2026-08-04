@@ -25,6 +25,7 @@ import type {
 import type { WorkspaceTurnRepo } from "./workspace-turn-repo";
 import { resolveEducationExperience } from "../education-unit/experience";
 import {
+  authorNextPassChallenge,
   runPassAdvanceTurn,
   runUnitTurn,
 } from "../education-unit/run-unit-turn";
@@ -702,6 +703,46 @@ export const runEducationUnitTurn = ({
       ).length,
       deps,
     });
+
+    const savePendingPass2Challenge = deps.savePendingPass2Challenge;
+    if (
+      turnResult.nextRun.mode === "awaiting_next_pass" &&
+      savePendingPass2Challenge
+    ) {
+      const runPassPregeneration = () =>
+        Effect.runPromise(
+          authorNextPassChallenge({
+            run: turnResult.nextRun,
+            transcript: toModelMessages(loadedTranscript.transcript),
+            experience,
+            buildContext,
+          }).pipe(
+            Effect.flatMap((challenge) =>
+              Effect.tryPromise(() =>
+                savePendingPass2Challenge({
+                  sessionId,
+                  unitContentId: unit.id,
+                  kind: turnResult.nextRun.kind,
+                  challenge,
+                }),
+              ),
+            ),
+            Effect.tapCause((cause) =>
+              Effect.logError("next pass pre-generation failed", {
+                sessionId,
+                unitContentId: unit.id,
+                cause,
+              }),
+            ),
+            Effect.ignore,
+          ),
+        );
+      if (deps.scheduleBackgroundTask) {
+        deps.scheduleBackgroundTask(runPassPregeneration);
+      } else {
+        void runPassPregeneration();
+      }
+    }
 
     const skillNodeId = node.parentNodeId;
     if (

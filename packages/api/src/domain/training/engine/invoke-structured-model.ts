@@ -8,8 +8,8 @@ import {
   withCacheBreakpoints,
 } from "./prompt-cache";
 
-type StructuredModel = Parameters<typeof streamText>[0]["model"];
-type StructuredOnChunk = Parameters<typeof streamText>[0]["onChunk"];
+type AiModel = Parameters<typeof streamText>[0]["model"];
+type ModelOnChunk = Parameters<typeof streamText>[0]["onChunk"];
 
 type ProviderOptions = NonNullable<
   Parameters<typeof streamText>[0]["providerOptions"]
@@ -32,7 +32,9 @@ const getReasoningProviderOptions = (
   effort === "none"
     ? {
         openai: { reasoningEffort: "minimal" },
-        google: { thinkingConfig: { thinkingBudget: 0, includeThoughts: false } },
+        google: {
+          thinkingConfig: { thinkingBudget: 0, includeThoughts: false },
+        },
         openrouter: { reasoning: { enabled: false, effort: "none" } },
       }
     : {
@@ -90,7 +92,7 @@ export const invokeStructuredModel = <TSchema extends z.ZodTypeAny>({
   maxOutputTokens,
   reasoning,
 }: {
-  model: StructuredModel;
+  model: AiModel;
   schema: TSchema;
   schemaName: string;
   system: string;
@@ -103,7 +105,7 @@ export const invokeStructuredModel = <TSchema extends z.ZodTypeAny>({
   /** Pace partial-output deltas for checkpoint streaming (resilient agent). */
   smoothPartials?: boolean;
   abortSignal?: AbortSignal;
-  onChunk?: StructuredOnChunk;
+  onChunk?: ModelOnChunk;
   providerOptions?: Parameters<typeof streamText>[0]["providerOptions"];
   maxOutputTokens?: number;
   /** Explicit effort for this call; overrides the profile's budget mapping. */
@@ -167,4 +169,44 @@ export const invokeStructuredModel = <TSchema extends z.ZodTypeAny>({
       );
       return resolved ? { providerOptions: resolved } : {};
     })(),
+  });
+
+export const invokeTextModel = ({
+  model,
+  system,
+  prompt,
+  cache = false,
+  abortSignal,
+  onChunk,
+  maxOutputTokens,
+  reasoning,
+}: {
+  model: AiModel;
+  system: string;
+  prompt: string | ModelMessage[];
+  cache?: boolean;
+  abortSignal?: AbortSignal;
+  onChunk?: ModelOnChunk;
+  maxOutputTokens?: number;
+  reasoning: ReasoningEffort;
+}): StreamTextResult<ToolSet, ReturnType<typeof Output.text>> =>
+  streamText({
+    model,
+    ...(cache && Array.isArray(prompt)
+      ? {
+          prompt: withCacheBreakpoints([
+            {
+              role: "system",
+              content: system,
+              providerOptions: CACHE_CONTROL_PROVIDER_OPTIONS,
+            },
+            ...prompt,
+          ]),
+        }
+      : { system, prompt }),
+    stopWhen: stepCountIs(1),
+    abortSignal,
+    onChunk,
+    ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
+    providerOptions: getReasoningProviderOptions(reasoning),
   });

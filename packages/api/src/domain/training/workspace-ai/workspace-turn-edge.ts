@@ -27,9 +27,14 @@ const logFields = (
     case "UnitAgentTimeoutError":
     case "UnitAgentTransientProviderError":
     case "UnitAgentProviderRejectedError":
-    case "UnitAgentSchemaError":
     case "UnitTurnContractError":
       return { tag: error._tag };
+    case "UnitAgentSchemaError":
+      return {
+        tag: error._tag,
+        schemaName: error.schemaName,
+        message: error.message.slice(-1_000).replace(/\s+/g, " "),
+      };
   }
 };
 

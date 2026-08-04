@@ -1048,6 +1048,15 @@ function EducationUnitWorkspaceComponent({
   const activePromptMessage = activePrompt
     ? (chatMessages.find((message) => message.id === activePrompt.id) ?? null)
     : null;
+  const activePassNumber = activePromptMessage
+    ? getPassNumber(activePromptMessage)
+    : undefined;
+  const previousPassNumber =
+    exchangeHistoryWithPassBoundaries.at(-1)?.passNumber;
+  const activePromptStartsPass =
+    activePassNumber !== undefined &&
+    activePassNumber > 1 &&
+    activePassNumber !== previousPassNumber;
   const activeLiveStatus =
     effectiveIsRunning && activePromptMessage
       ? getWorkspaceStatus(activePromptMessage)
@@ -1114,18 +1123,25 @@ function EducationUnitWorkspaceComponent({
       )}
 
       {activePrompt ? (
-        <PromptTurn
-          prompt={activePrompt.text}
-          helper={null}
-          difficultyDirectiveReason={
-            activePromptMessage?.metadata?.difficultyDirectiveReason ?? null
-          }
-          statusLabel={
-            activeLiveStatus && activeLiveStatus.status !== "complete"
-              ? activeLiveStatus.label
-              : null
-          }
-        />
+        <>
+          {activePromptStartsPass ? (
+            <div className="py-5">
+              <Separator />
+            </div>
+          ) : null}
+          <PromptTurn
+            prompt={activePrompt.text}
+            helper={null}
+            difficultyDirectiveReason={
+              activePromptMessage?.metadata?.difficultyDirectiveReason ?? null
+            }
+            statusLabel={
+              activeLiveStatus && activeLiveStatus.status !== "complete"
+                ? activeLiveStatus.label
+                : null
+            }
+          />
+        </>
       ) : (
         <PromptTurn
           prompt={introMessage?.prompt ?? fallbackTurn.prompt}

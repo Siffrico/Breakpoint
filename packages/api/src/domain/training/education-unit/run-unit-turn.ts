@@ -2,7 +2,9 @@ import type { ModelMessage } from "ai";
 import { Data, Effect } from "effect";
 
 import type {
+  DifficultyVector,
   EvaluationDimensionResult,
+  ScenarioEvaluationContract,
   UnitReviewChallenge,
   UnitReviewPass,
 } from "@acme/validators";
@@ -11,7 +13,11 @@ import type { ReviewPresentationOutput } from "./agent-contracts";
 import type { UnitAgentError } from "./agent-errors";
 import type { EducationExperienceDefinition } from "./experience";
 import type { PersistedUnitRun } from "./unit-state";
-import { compositeScore, hasModelGap } from "./agent-contracts";
+import {
+  compositeScore,
+  hasModelGap,
+  PASSING_COMPOSITE,
+} from "./agent-contracts";
 import { runMentorAgent } from "./mentor-agent";
 import {
   runReviewGradeAgent,
@@ -106,16 +112,78 @@ const latestUserText = (transcript: readonly ModelMessage[]): string | null => {
     : null;
 };
 
-const capabilityIds = (run: PersistedUnitRun) =>
-  run.masteryContract.dimensions.map((dimension) => dimension.id);
+const midpoint = ([minimum, maximum]: readonly [number, number]): number =>
+  Math.round((minimum + maximum) / 2);
+
+const difficultyVectorFor = (
+  run: PersistedUnitRun,
+): Effect.Effect<DifficultyVector, UnitTurnContractError> => {
+  const format = run.difficultySnapshot?.format;
+  const dialPreset = run.difficultySnapshot?.dialPreset;
+  if (!format || !dialPreset) {
+    return contractFailure(
+      "The unit has no calibrated format and difficulty preset.",
+    );
+  }
+  return Effect.succeed({
+    formatId: format.id,
+    reasoningPathSteps: midpoint(dialPreset.steps),
+    withheldGivens: midpoint(dialPreset.withheldGivens),
+    embeddedAlternatives: midpoint(dialPreset.alternatives),
+  });
+};
+
+const evaluationContractFor = (
+  run: PersistedUnitRun,
+  prompt: string,
+): ScenarioEvaluationContract => ({
+  version: 1,
+  runKind: run.kind,
+  scenarioPromptSummary:
+    prompt
+      .split(/\n\s*\n/)
+      .find((part) => part.trim().length > 0)
+      ?.trim() ?? prompt,
+  testedDimensions: run.masteryContract.dimensions.map((dimension) => ({
+    dimensionId: dimension.id,
+    promptRole: dimension.description,
+    expectedStrongMoves: dimension.passSignals,
+    acceptableVariants: [],
+    commonWrongMoves: [
+      ...dimension.failSignals,
+      ...dimension.surrogateTraps,
+    ].slice(0, 6),
+    scoreBands: {
+      strong: `Demonstrates ${dimension.passSignals.join("; ")}.`,
+      partial: `Shows part of ${dimension.description}, but leaves a material gap in the reasoning.`,
+      weak: `Shows ${dimension.failSignals.join("; ")}.`,
+    },
+  })),
+  learnerVisibleCriteria: run.masteryContract.dimensions.map(
+    (dimension) => dimension.description,
+  ),
+  evaluatorNotes: run.masteryContract.dimensions
+    .flatMap((dimension) => dimension.surrogateTraps)
+    .slice(0, 6),
+});
 
 const challengeFromPresentation = (
+  run: PersistedUnitRun,
   output: ReviewPresentationOutput,
+  difficultyVector: DifficultyVector,
 ): UnitReviewChallenge => ({
   prompt: output.assistantMessage,
-  difficultyVector: output.difficultyVector,
-  contract: output.contract,
+  difficultyVector,
+  contract: evaluationContractFor(run, output.assistantMessage),
 });
+
+const presentationContext = (
+  context: string,
+  difficultyVector: DifficultyVector,
+): string => `${context}
+
+## Exact structural target
+Author the scenario to this server-owned target: ${JSON.stringify(difficultyVector)}. Return only the learner-facing scenario in assistantMessage.`;
 
 const presentReview = ({
   run,
@@ -134,22 +202,22 @@ const presentReview = ({
 }): Effect.Effect<UnitTurnResult, UnitAgentError | UnitTurnContractError> =>
   Effect.gen(function* () {
     const context = yield* readContext(buildContext.forPresenter, run);
+    const difficultyVector = yield* difficultyVectorFor(run);
     const result = yield* deps.runReviewPresentation({
       messages: transcript,
-      context,
+      context: presentationContext(context, difficultyVector),
       experience,
-      shape: {
-        dimensionIds: capabilityIds(run),
-        formatId: run.difficultySnapshot?.format?.id ?? null,
-        runKind: run.kind,
-      },
       pass: run.reviewPass,
       onPartialAssistantMessage,
     });
-    const nextRun = yield* recordReviewChallenge(
+    const challenge = challengeFromPresentation(
       run,
-      challengeFromPresentation(result.object),
-    ).pipe(asTurnError);
+      result.object,
+      difficultyVector,
+    );
+    const nextRun = yield* recordReviewChallenge(run, challenge).pipe(
+      asTurnError,
+    );
     return {
       assistantMessage: result.object.assistantMessage,
       nextRun,
@@ -183,18 +251,14 @@ export const authorNextPassChallenge = (
     // The presenter sees the next pass while the durable run is still parked.
     const projected = { ...run, reviewPass: run.reviewPass + 1 };
     const context = yield* readContext(buildContext.forPresenter, projected);
+    const difficultyVector = yield* difficultyVectorFor(run);
     const result = yield* deps.runReviewPresentation({
       messages: transcript,
-      context,
+      context: presentationContext(context, difficultyVector),
       experience,
-      shape: {
-        dimensionIds: capabilityIds(run),
-        formatId: run.difficultySnapshot?.format?.id ?? null,
-        runKind: run.kind,
-      },
       pass: projected.reviewPass,
     });
-    return challengeFromPresentation(result.object);
+    return challengeFromPresentation(run, result.object, difficultyVector);
   });
 
 const gradeReview = ({
@@ -237,14 +301,24 @@ const gradeReview = ({
           (dimension) => dimension.dimensionId,
         ),
         learnerAnswer,
-        formatId: run.difficultySnapshot?.format?.id ?? null,
-        runKind: run.kind,
         isMainScenario: !run.repairSpent,
       },
       onPartialAssistantMessage,
     });
 
     const output = result.object;
+    const gap = hasModelGap(output.dimensionResults);
+    const errorCodes = gap
+      ? output.errorCodes.length > 0
+        ? output.errorCodes
+        : output.dimensionResults
+            .filter((dimension) => dimension.score < PASSING_COMPOSITE)
+            .map((dimension) => `gap:${dimension.dimensionId}`)
+            .slice(0, 3)
+      : [];
+    const learnerMessage = output.targetedExercise
+      ? `${output.assistantMessage}\n\n${output.targetedExercise.prompt}`
+      : output.assistantMessage;
     const settledPass =
       output.targetedExercise === null ? run.reviewPass : null;
     const nextRun = yield* (
@@ -253,9 +327,12 @@ const gradeReview = ({
             run,
             feedback: output.assistantMessage,
             exercise: {
-              prompt: output.assistantMessage,
-              difficultyVector: output.targetedExercise.difficultyVector,
-              contract: output.targetedExercise.contract,
+              prompt: output.targetedExercise.prompt,
+              difficultyVector: activeChallenge.difficultyVector,
+              contract: {
+                ...activeChallenge.contract,
+                scenarioPromptSummary: output.targetedExercise.prompt,
+              },
             },
           })
         : settleReviewPass({ run, feedback: output.assistantMessage })
@@ -263,22 +340,20 @@ const gradeReview = ({
 
     const score = compositeScore(output.dimensionResults);
     return {
-      assistantMessage: output.assistantMessage,
+      assistantMessage: learnerMessage,
       nextRun,
       actor: "reviewer" as const,
       completedCapabilityId: null,
       reviewGrade: {
         score,
-        errorCodes: output.errorCodes,
+        errorCodes,
         reasoning: output.gradeReasoning,
         dimensionResults: output.dimensionResults,
-        passed: !hasModelGap(output.dimensionResults),
+        passed: !gap,
       },
       // Goldilocks reads only Pass 2's independent scenario, never a repair.
       ratingWrite:
-        run.reviewPass === 2 && !run.repairSpent
-          ? { score, errorCodes: output.errorCodes }
-          : null,
+        run.reviewPass === 2 && !run.repairSpent ? { score, errorCodes } : null,
       presentedReviewChallenge: output.targetedExercise !== null,
       settledPass,
     };
@@ -308,10 +383,12 @@ export const runPassAdvanceTurn = (
     if (run.mode !== "awaiting_next_pass") {
       return yield* contractFailure("There is no next pass to open yet.");
     }
-    const challenge = yield* authorNextPassChallenge(
-      { run, transcript, experience, buildContext },
-      deps,
-    );
+    const challenge =
+      run.pendingPass2Challenge ??
+      (yield* authorNextPassChallenge(
+        { run, transcript, experience, buildContext },
+        deps,
+      ));
     onPartialAssistantMessage?.(challenge.prompt);
     const nextRun = yield* claimNextPass({ run, challenge }).pipe(asTurnError);
     return {
