@@ -173,6 +173,11 @@ export const getAiWorkspaceWorkflowEffect = ({
         educationStage: recallRun.mode,
         workflowId: `${recallRun.experience.id}@${recallRun.experience.version}`,
       };
+    } else if (resolvedState && active.run) {
+      // Without this the stage is only ever delivered mid-stream, so a reload
+      // during a settled pass left the learner with a locked composer and an
+      // Enter that did nothing. The run's own list is the authority.
+      resolvedState = { ...resolvedState, educationStage: active.run.mode };
     }
 
     // Each unit is its own chat: show only the live unit's transcript (the

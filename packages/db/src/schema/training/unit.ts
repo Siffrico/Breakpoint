@@ -2,7 +2,7 @@ import { index, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
 
 import type {
   EducationExperienceSnapshot,
-  UnitCapabilityTodo,
+  UnitTodo,
   UnitDifficultySnapshot,
   UnitMasteryContract,
   UnitReviewChallenge,
@@ -179,7 +179,7 @@ export const TrainingUnitRun = pgTable(
     experienceVersion: t.integer().notNull().default(1),
     experienceJson: t.jsonb().$type<EducationExperienceSnapshot>().notNull(),
     masteryContractJson: t.jsonb().$type<UnitMasteryContract>().notNull(),
-    capabilityTodosJson: t.jsonb().$type<UnitCapabilityTodo[]>().notNull(),
+    capabilityTodosJson: t.jsonb().$type<UnitTodo[]>().notNull(),
     activeReviewChallengeJson: t.jsonb().$type<UnitReviewChallenge | null>(),
     reviewerFeedback: t.text(),
     /** The current independent scenario pass. */

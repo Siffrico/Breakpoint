@@ -7,7 +7,10 @@ import type { UnitTurnDependencies } from "./run-unit-turn";
 import type { PersistedUnitRun } from "./unit-state";
 import { DEFAULT_EDUCATION_EXPERIENCE } from "./experience";
 import { runPassAdvanceTurn, runUnitTurn } from "./run-unit-turn";
-import { createUnitRun } from "./unit-state";
+import {
+  attachChallenge,
+  createUnitRun,
+} from "./unit-state";
 
 const masteryContract = {
   version: 1,
@@ -134,10 +137,6 @@ const deps = (
             missing: "A causal derivation from the changed constraint.",
           },
         ],
-        targetedExercise: {
-          prompt:
-            "A different service now has the same failure. Which move changes, and why?",
-        },
       },
     }),
   ...overrides,
@@ -149,7 +148,7 @@ describe("runUnitTurn", () => {
 
     expect(result.actor).toBe("mentor");
     expect(result.nextRun.mode).toBe("learning");
-    expect(result.nextRun.capabilityTodos[0]?.status).toBe("pending");
+    expect(result.nextRun.todos[0]?.status).toBe("pending");
   });
 
   it("completes a mentor todo with only its id", async () => {
@@ -168,7 +167,7 @@ describe("runUnitTurn", () => {
       ),
     );
 
-    expect(result.nextRun.capabilityTodos[0]).toMatchObject({
+    expect(result.nextRun.todos[0]).toMatchObject({
       status: "completed",
     });
   });
@@ -244,7 +243,7 @@ describe("runUnitTurn", () => {
     ]);
   });
 
-  it("spends one targeted repair when the first grade finds a gap", async () => {
+  it("opens the next pass when a Pass 1 grade finds a gap", async () => {
     const opened = await Effect.runPromise(
       runUnitTurn(
         input(),
@@ -259,26 +258,22 @@ describe("runUnitTurn", () => {
         }),
       ),
     );
-    const repaired = await Effect.runPromise(
+    const graded = await Effect.runPromise(
       runUnitTurn(input(opened.nextRun), deps()),
     );
 
-    expect(repaired.nextRun.mode).toBe("review");
-    expect(repaired.nextRun.repairSpent).toBe(true);
-    expect(repaired.nextRun.activeReviewChallenge?.prompt).toBe(
-      "A different service now has the same failure. Which move changes, and why?",
-    );
-    expect(repaired.reviewGrade?.errorCodes).toEqual([
+    // Pass 1 cannot end the unit, so a gap simply parks the next scenario.
+    expect(graded.nextRun.mode).toBe("awaiting_next_pass");
+    expect(graded.nextRun.reviewPass).toBe(2);
+    expect(graded.settledPass).toBe(1);
+    expect(graded.reviewGrade?.passed).toBe(false);
+    expect(graded.reviewGrade?.errorCodes).toEqual([
       "gap:derive-under-pressure",
     ]);
-    expect(repaired.assistantMessage).toContain(
-      repaired.nextRun.activeReviewChallenge?.prompt,
-    );
-    expect(repaired.settledPass).toBeNull();
-    expect(repaired.ratingWrite).toBeNull();
+    expect(graded.ratingWrite).toBeNull();
   });
 
-  it("holds after Pass 1, opens Pass 2, and rates only the final settle", async () => {
+  it("holds after Pass 1, opens Pass 2, and rates only the decisive mark", async () => {
     const opened = await Effect.runPromise(
       runUnitTurn(
         input(),
@@ -294,12 +289,9 @@ describe("runUnitTurn", () => {
         }),
       ),
     );
-    const repair = await Effect.runPromise(
-      runUnitTurn(input(opened.nextRun), deps()),
-    );
     const settledPass1 = await Effect.runPromise(
       runUnitTurn(
-        input(repair.nextRun),
+        input(opened.nextRun),
         deps({
           runReviewGrade: () =>
             Effect.succeed({
@@ -317,32 +309,25 @@ describe("runUnitTurn", () => {
                     missing: null,
                   },
                 ],
-                targetedExercise: null,
               },
             }),
         }),
       ),
     );
 
+    // A clean Pass 1 still cannot finish the unit.
     expect(settledPass1.nextRun.mode).toBe("awaiting_next_pass");
     expect(settledPass1.settledPass).toBe(1);
     expect(settledPass1.ratingWrite).toBeNull();
 
-    const pass2Challenge = {
-      prompt: "Transfer the same judgment to a different production system.",
-      difficultyVector,
-      contract: challengeContract,
-    };
+    const pass2Prompt =
+      "Transfer the same judgment to a different production system.";
     const advanced = await Effect.runPromise(
       runPassAdvanceTurn(
         input(settledPass1.nextRun),
         deps({
           runReviewPresentation: () =>
-            Effect.succeed({
-              object: {
-                assistantMessage: pass2Challenge.prompt,
-              },
-            }),
+            Effect.succeed({ object: { assistantMessage: pass2Prompt } }),
         }),
       ),
     );
@@ -350,16 +335,14 @@ describe("runUnitTurn", () => {
     expect(advanced.nextRun).toMatchObject({
       mode: "review",
       reviewPass: 2,
-      repairSpent: false,
       activeReviewChallenge: {
-        prompt: pass2Challenge.prompt,
+        prompt: pass2Prompt,
         difficultyVector,
         contract: {
           runKind: "education",
           testedDimensions: [{ dimensionId: "derive-under-pressure" }],
         },
       },
-      pendingPass2Challenge: null,
     });
 
     const passed = await Effect.runPromise(
@@ -382,7 +365,6 @@ describe("runUnitTurn", () => {
                     missing: null,
                   },
                 ],
-                targetedExercise: null,
               },
             }),
         }),
@@ -394,31 +376,48 @@ describe("runUnitTurn", () => {
     expect(passed.ratingWrite).toEqual({ score: 91, errorCodes: [] });
   });
 
-  it("claims a prepared next-pass challenge without another model call", async () => {
+  it("replays a pre-generated challenge without another model call", async () => {
     const preparedChallenge = {
       prompt: "Diagnose the same constraint on an unfamiliar system.",
       difficultyVector,
       contract: challengeContract,
     };
-    const awaitingNextPass = {
-      ...input().run,
-      mode: "awaiting_next_pass" as const,
-      pendingPass2Challenge: preparedChallenge,
-    };
-    let presentationCalls = 0;
-    const runReviewPresentation = () => {
-      presentationCalls += 1;
-      return Effect.succeed({
-        object: {
-          assistantMessage: "Unexpected model-authored challenge.",
-        },
-      });
-    };
+    const opened = await Effect.runPromise(
+      runUnitTurn(
+        input(),
+        deps({
+          runMentor: () =>
+            Effect.succeed({
+              object: {
+                assistantMessage: "Now test it independently.",
+                completedCapabilityId: "derive-under-pressure",
+              },
+            }),
+        }),
+      ),
+    );
+    const answered = await Effect.runPromise(
+      runUnitTurn(input(opened.nextRun), deps()),
+    );
+    const parked = await Effect.runPromise(
+      attachChallenge({
+        run: answered.nextRun,
+        challenge: preparedChallenge,
+      }),
+    );
 
+    let presentationCalls = 0;
     const advanced = await Effect.runPromise(
       runPassAdvanceTurn(
-        input(awaitingNextPass),
-        deps({ runReviewPresentation }),
+        input(parked),
+        deps({
+          runReviewPresentation: () => {
+            presentationCalls += 1;
+            return Effect.succeed({
+              object: { assistantMessage: "Unexpected model-authored challenge." },
+            });
+          },
+        }),
       ),
     );
 
@@ -427,7 +426,7 @@ describe("runUnitTurn", () => {
       mode: "review",
       reviewPass: 2,
       activeReviewChallenge: preparedChallenge,
-      pendingPass2Challenge: null,
     });
+    expect(advanced.assistantMessage).toBe(preparedChallenge.prompt);
   });
 });

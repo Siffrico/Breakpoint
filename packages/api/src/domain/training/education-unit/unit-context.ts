@@ -60,7 +60,8 @@ const renderCapabilityProgress = (run: PersistedUnitRun) => {
     ]),
   );
   return numberedList(
-    run.capabilityTodos.map((todo) => {
+    run.todos.flatMap((todo) => {
+      if (todo.kind !== "capability") return [];
       const capability = capabilityById.get(todo.dimensionId);
       if (!capability) {
         throw new Error(
@@ -68,7 +69,7 @@ const renderCapabilityProgress = (run: PersistedUnitRun) => {
         );
       }
       const checkbox = todo.status === "completed" ? "[x]" : "[ ]";
-      return `${checkbox} ${renderCapability(capability)}`;
+      return [`${checkbox} ${renderCapability(capability)}`];
     }),
   );
 };

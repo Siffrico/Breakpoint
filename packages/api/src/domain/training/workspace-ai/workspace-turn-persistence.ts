@@ -18,6 +18,7 @@ import type {
 import type { WorkspaceAiMessage, WorkspaceAiTurnResult } from "./types";
 import type { RatingEvidenceError } from "./workspace-errors";
 import type { WorkspaceTurnDependencies } from "./workspace-turn";
+import { isDecisivePass } from "../education-unit/unit-state";
 import { WorkspacePersistenceError } from "./workspace-errors";
 import { resolveWorkspaceTurn } from "./workspace-turn";
 import { WorkspaceTurnRepo } from "./workspace-turn-repo";
@@ -244,16 +245,13 @@ export const saveUnitTurnResult = ({
       difficultySnapshot,
     };
     const complete = nextRun.mode === "complete";
-    // The rating attempt opens on the challenge Glicko will actually score:
-    // the *opening* scenario of the run's final pass. A targeted repair
-    // (repairSpent) is scaffolded practice, and an education Pass 1 is
-    // diagnostic — neither is the performance being rated.
-    const finalPass = nextRun.kind === "recall" ? 1 : 2;
+    // The rating attempt opens on the challenge Glicko will actually score: one
+    // whose mark can end the unit. An education Pass 1 is diagnostic, so it is
+    // not the performance being rated.
     const opensRatingAttempt =
       tracksRating &&
       turnResult.presentedReviewChallenge &&
-      !nextRun.repairSpent &&
-      nextRun.reviewPass === finalPass;
+      isDecisivePass(nextRun);
     const presentedAt = new Date();
     const scenarioPresentation = opensRatingAttempt
       ? {

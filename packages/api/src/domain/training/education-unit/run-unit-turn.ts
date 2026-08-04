@@ -24,12 +24,12 @@ import {
   runReviewPresentationAgent,
 } from "./review-agent";
 import {
-  claimNextPass,
+  closeSolve,
   completeCurrentCapabilityTodo,
-  getCurrentCapabilityTodo,
-  recordReviewChallenge,
-  recordTargetedExercise,
-  settleReviewPass,
+  currentTodo,
+  isDecisivePass,
+  markComplete,
+  presentSolve,
 } from "./unit-state";
 
 export class UnitTurnContractError extends Data.TaggedError(
@@ -185,7 +185,44 @@ const presentationContext = (
 ## Exact structural target
 Author the scenario to this server-owned target: ${JSON.stringify(difficultyVector)}. Return only the learner-facing scenario in assistantMessage.`;
 
-const presentReview = ({
+/**
+ * Writes one scenario for the run's pending solve. Used live and by
+ * pre-generation, so both paths produce the same shape.
+ */
+export const authorChallenge = (
+  {
+    run,
+    transcript,
+    experience,
+    buildContext,
+    onPartialAssistantMessage,
+  }: {
+    run: PersistedUnitRun;
+    transcript: readonly ModelMessage[];
+    experience: EducationExperienceDefinition;
+    buildContext: Pick<UnitContextBuilders, "forPresenter">;
+    onPartialAssistantMessage?: (content: string) => void;
+  },
+  deps: UnitTurnDependencies = LIVE_DEPENDENCIES,
+): Effect.Effect<UnitReviewChallenge, UnitAgentError | UnitTurnContractError> =>
+  Effect.gen(function* () {
+    const context = yield* readContext(buildContext.forPresenter, run);
+    const difficultyVector = yield* difficultyVectorFor(run);
+    const result = yield* deps.runReviewPresentation({
+      messages: transcript,
+      context: presentationContext(context, difficultyVector),
+      experience,
+      pass: run.reviewPass,
+      onPartialAssistantMessage,
+    });
+    return challengeFromPresentation(run, result.object, difficultyVector);
+  });
+
+/**
+ * Opens the pending solve. A pre-generated challenge is replayed as-is; only an
+ * empty slot costs a model call.
+ */
+const openSolve = ({
   run,
   transcript,
   experience,
@@ -201,25 +238,28 @@ const presentReview = ({
   deps: UnitTurnDependencies;
 }): Effect.Effect<UnitTurnResult, UnitAgentError | UnitTurnContractError> =>
   Effect.gen(function* () {
-    const context = yield* readContext(buildContext.forPresenter, run);
-    const difficultyVector = yield* difficultyVectorFor(run);
-    const result = yield* deps.runReviewPresentation({
-      messages: transcript,
-      context: presentationContext(context, difficultyVector),
-      experience,
-      pass: run.reviewPass,
-      onPartialAssistantMessage,
-    });
-    const challenge = challengeFromPresentation(
-      run,
-      result.object,
-      difficultyVector,
-    );
-    const nextRun = yield* recordReviewChallenge(run, challenge).pipe(
-      asTurnError,
-    );
+    const pending = currentTodo(run);
+    if (pending?.kind !== "solve" || pending.status !== "pending") {
+      return yield* contractFailure("There is no challenge to open.");
+    }
+    const challenge =
+      pending.challenge ??
+      (yield* authorChallenge(
+        {
+          run,
+          transcript,
+          experience,
+          buildContext,
+          onPartialAssistantMessage,
+        },
+        deps,
+      ));
+    if (pending.challenge) {
+      onPartialAssistantMessage?.(challenge.prompt);
+    }
+    const nextRun = yield* presentSolve({ run, challenge }).pipe(asTurnError);
     return {
-      assistantMessage: result.object.assistantMessage,
+      assistantMessage: challenge.prompt,
       nextRun,
       actor: "reviewer" as const,
       completedCapabilityId: null,
@@ -231,37 +271,10 @@ const presentReview = ({
   });
 
 /**
- * Authors the next independent scenario without touching the parked run.
+ * Grades the answered solve and marks the pass. The mark is the only thing that
+ * ends a unit; a non-decisive or failed mark appends the next pass.
  */
-export const authorNextPassChallenge = (
-  {
-    run,
-    transcript,
-    experience,
-    buildContext,
-  }: {
-    run: PersistedUnitRun;
-    transcript: readonly ModelMessage[];
-    experience: EducationExperienceDefinition;
-    buildContext: Pick<UnitContextBuilders, "forPresenter">;
-  },
-  deps: UnitTurnDependencies = LIVE_DEPENDENCIES,
-): Effect.Effect<UnitReviewChallenge, UnitAgentError | UnitTurnContractError> =>
-  Effect.gen(function* () {
-    // The presenter sees the next pass while the durable run is still parked.
-    const projected = { ...run, reviewPass: run.reviewPass + 1 };
-    const context = yield* readContext(buildContext.forPresenter, projected);
-    const difficultyVector = yield* difficultyVectorFor(run);
-    const result = yield* deps.runReviewPresentation({
-      messages: transcript,
-      context: presentationContext(context, difficultyVector),
-      experience,
-      pass: projected.reviewPass,
-    });
-    return challengeFromPresentation(run, result.object, difficultyVector);
-  });
-
-const gradeReview = ({
+const gradeSolve = ({
   run,
   transcript,
   experience,
@@ -280,7 +293,7 @@ const gradeReview = ({
     const activeChallenge = run.activeReviewChallenge;
     if (!activeChallenge) {
       return yield* contractFailure(
-        "The critic has no persisted challenge to grade.",
+        "The critic has no presented challenge to grade.",
       );
     }
     const learnerAnswer = latestUserText(transcript);
@@ -289,6 +302,8 @@ const gradeReview = ({
         "Grading requires the learner's latest answer.",
       );
     }
+    const decisive = isDecisivePass(run);
+    const answered = yield* closeSolve(run).pipe(asTurnError);
 
     const context = yield* readContext(buildContext.forCritic, run);
     const result = yield* deps.runReviewGrade({
@@ -301,7 +316,7 @@ const gradeReview = ({
           (dimension) => dimension.dimensionId,
         ),
         learnerAnswer,
-        isMainScenario: !run.repairSpent,
+        decisive,
       },
       onPartialAssistantMessage,
     });
@@ -316,31 +331,16 @@ const gradeReview = ({
             .map((dimension) => `gap:${dimension.dimensionId}`)
             .slice(0, 3)
       : [];
-    const learnerMessage = output.targetedExercise
-      ? `${output.assistantMessage}\n\n${output.targetedExercise.prompt}`
-      : output.assistantMessage;
-    const settledPass =
-      output.targetedExercise === null ? run.reviewPass : null;
-    const nextRun = yield* (
-      output.targetedExercise
-        ? recordTargetedExercise({
-            run,
-            feedback: output.assistantMessage,
-            exercise: {
-              prompt: output.targetedExercise.prompt,
-              difficultyVector: activeChallenge.difficultyVector,
-              contract: {
-                ...activeChallenge.contract,
-                scenarioPromptSummary: output.targetedExercise.prompt,
-              },
-            },
-          })
-        : settleReviewPass({ run, feedback: output.assistantMessage })
-    ).pipe(asTurnError);
+    const settledPass = answered.reviewPass;
+    const nextRun = yield* markComplete({
+      run: answered,
+      result: gap ? "fail" : "pass",
+      feedback: output.assistantMessage,
+    }).pipe(asTurnError);
 
     const score = compositeScore(output.dimensionResults);
     return {
-      assistantMessage: learnerMessage,
+      assistantMessage: output.assistantMessage,
       nextRun,
       actor: "reviewer" as const,
       completedCapabilityId: null,
@@ -351,17 +351,16 @@ const gradeReview = ({
         dimensionResults: output.dimensionResults,
         passed: !gap,
       },
-      // Goldilocks reads only Pass 2's independent scenario, never a repair.
-      ratingWrite:
-        run.reviewPass === 2 && !run.repairSpent ? { score, errorCodes } : null,
-      presentedReviewChallenge: output.targetedExercise !== null,
+      // Goldilocks reads only the marks that could end the unit.
+      ratingWrite: decisive ? { score, errorCodes } : null,
+      presentedReviewChallenge: false,
       settledPass,
     };
   });
 
 /**
- * Enter starts the next independent pass. It carries no learner answer and
- * never completes the unit.
+ * Enter opens the next pass's scenario. It carries no learner answer and never
+ * completes the unit.
  */
 export const runPassAdvanceTurn = (
   {
@@ -383,26 +382,20 @@ export const runPassAdvanceTurn = (
     if (run.mode !== "awaiting_next_pass") {
       return yield* contractFailure("There is no next pass to open yet.");
     }
-    const challenge =
-      run.pendingPass2Challenge ??
-      (yield* authorNextPassChallenge(
-        { run, transcript, experience, buildContext },
-        deps,
-      ));
-    onPartialAssistantMessage?.(challenge.prompt);
-    const nextRun = yield* claimNextPass({ run, challenge }).pipe(asTurnError);
-    return {
-      assistantMessage: challenge.prompt,
-      nextRun,
-      actor: "reviewer" as const,
-      completedCapabilityId: null,
-      reviewGrade: null,
-      ratingWrite: null,
-      presentedReviewChallenge: true,
-      settledPass: null,
-    };
+    return yield* openSolve({
+      run,
+      transcript,
+      experience,
+      buildContext,
+      onPartialAssistantMessage,
+      deps,
+    });
   });
 
+/**
+ * One turn is one look at the head of the list: a teaching move belongs to the
+ * mentor, everything from the solve onward belongs to the reviewer.
+ */
 export const runUnitTurn = (
   {
     run,
@@ -420,97 +413,89 @@ export const runUnitTurn = (
   deps: UnitTurnDependencies = LIVE_DEPENDENCIES,
 ): Effect.Effect<UnitTurnResult, UnitAgentError | UnitTurnContractError> =>
   Effect.gen(function* () {
-    if (run.mode === "complete") {
+    const head = currentTodo(run);
+    if (!head) {
       return yield* contractFailure("The education unit is already complete.");
     }
-    if (run.mode === "awaiting_next_pass") {
+
+    if (head.kind === "solve") {
+      return head.status === "presented"
+        ? yield* gradeSolve({
+            run,
+            transcript,
+            experience,
+            buildContext,
+            onPartialAssistantMessage,
+            deps,
+          })
+        : yield* contractFailure(
+            "This challenge is finished. Press Enter to continue.",
+          );
+    }
+
+    if (head.kind === "complete") {
+      // Reachable only if a previous turn died between the answer and the mark.
       return yield* contractFailure(
-        "This challenge is finished. Press Enter to continue.",
+        "This answer is still being marked. Try again in a moment.",
       );
     }
 
-    if (run.mode === "learning") {
-      const currentCapability = getCurrentCapabilityTodo(run);
-      if (!currentCapability) {
-        return yield* contractFailure(
-          "The learning run has no pending capability todo.",
-        );
-      }
-      const context = yield* readContext(buildContext.forMentor, run);
-      const mentor = yield* deps.runMentor({
-        messages: transcript,
-        context,
-        experience,
-        currentCapabilityId: currentCapability.dimensionId,
-        onPartialAssistantMessage,
-      });
-      const mentorMessage = mentor.object.assistantMessage;
-      const completedCapabilityId = mentor.object.completedCapabilityId;
-      if (!completedCapabilityId) {
-        return {
-          assistantMessage: mentorMessage,
-          nextRun: run,
-          actor: "mentor" as const,
-          completedCapabilityId: null,
-          reviewGrade: null,
-          ratingWrite: null,
-          presentedReviewChallenge: false,
-          settledPass: null,
-        };
-      }
-      const advanced = yield* completeCurrentCapabilityTodo(
-        run,
-        completedCapabilityId,
-      ).pipe(asTurnError);
-      if (advanced.mode !== "review") {
-        return {
-          assistantMessage: mentorMessage,
-          nextRun: advanced,
-          actor: "mentor" as const,
-          completedCapabilityId,
-          reviewGrade: null,
-          ratingWrite: null,
-          presentedReviewChallenge: false,
-          settledPass: null,
-        };
-      }
-      // The learner has already read the mentor's closing words. Continuing
-      // that message with the critic's opening challenge — rather than
-      // returning the challenge alone — keeps the committed reply an extension
-      // of what was streamed, so the stream never retracts text it has shown.
-      const handoff = `${mentorMessage}\n\n`;
-      const review = yield* presentReview({
-        run: advanced,
-        transcript,
-        experience,
-        buildContext,
-        onPartialAssistantMessage: onPartialAssistantMessage
-          ? (challenge) => onPartialAssistantMessage(`${handoff}${challenge}`)
-          : undefined,
-        deps,
-      });
+    const context = yield* readContext(buildContext.forMentor, run);
+    const mentor = yield* deps.runMentor({
+      messages: transcript,
+      context,
+      experience,
+      currentCapabilityId: head.dimensionId,
+      onPartialAssistantMessage,
+    });
+    const mentorMessage = mentor.object.assistantMessage;
+    const completedCapabilityId = mentor.object.completedCapabilityId;
+    if (!completedCapabilityId) {
       return {
-        ...review,
-        assistantMessage: `${handoff}${review.assistantMessage}`,
-        completedCapabilityId,
+        assistantMessage: mentorMessage,
+        nextRun: run,
+        actor: "mentor" as const,
+        completedCapabilityId: null,
+        reviewGrade: null,
+        ratingWrite: null,
+        presentedReviewChallenge: false,
+        settledPass: null,
       };
     }
-
-    return yield* run.activeReviewChallenge
-      ? gradeReview({
-          run,
-          transcript,
-          experience,
-          buildContext,
-          onPartialAssistantMessage,
-          deps,
-        })
-      : presentReview({
-          run,
-          transcript,
-          experience,
-          buildContext,
-          onPartialAssistantMessage,
-          deps,
-        });
+    const advanced = yield* completeCurrentCapabilityTodo(
+      run,
+      completedCapabilityId,
+    ).pipe(asTurnError);
+    if (currentTodo(advanced)?.kind === "capability") {
+      return {
+        assistantMessage: mentorMessage,
+        nextRun: advanced,
+        actor: "mentor" as const,
+        completedCapabilityId,
+        reviewGrade: null,
+        ratingWrite: null,
+        presentedReviewChallenge: false,
+        settledPass: null,
+      };
+    }
+    // The learner has already read the mentor's closing words. Continuing
+    // that message with the critic's opening challenge — rather than
+    // returning the challenge alone — keeps the committed reply an extension
+    // of what was streamed, so the stream never retracts text it has shown.
+    const handoff = `${mentorMessage}\n\n`;
+    const opened = yield* openSolve({
+      run: advanced,
+      transcript,
+      experience,
+      buildContext,
+      onPartialAssistantMessage: onPartialAssistantMessage
+        ? (challenge) => onPartialAssistantMessage(`${handoff}${challenge}`)
+        : undefined,
+      deps,
+    });
+    return {
+      ...opened,
+      assistantMessage: `${handoff}${opened.assistantMessage}`,
+      completedCapabilityId,
+    };
   });

@@ -114,6 +114,9 @@ const callModel = async <TSchema extends z.ZodTypeAny>(
         { role: "user", content: input.context } as ModelMessage,
       ],
       cache: true,
+      // Pace the structured-output text deltas so the learner-facing reply
+      // types out word by word instead of landing in JSON-parse bursts.
+      smoothPartials: true,
       maxSteps: 1,
       maxOutputTokens: input.maxOutputTokens,
       abortSignal,

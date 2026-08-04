@@ -351,7 +351,7 @@ const streamWorkspaceChatWithModelPreference = ({
           onAssistantMessage: (content) => {
             assistantText.finalize(content);
           },
-          onPartialAssistantMessage: () => {
+          onPartialAssistantMessage: (content) => {
             if (!startedWriting) {
               startedWriting = true;
               writeStatus(
@@ -359,6 +359,7 @@ const streamWorkspaceChatWithModelPreference = ({
                 getEducationWritingLabel(educationStage, isRecallTurn),
               );
             }
+            assistantText.pushPartial(content);
           },
         }).pipe(Effect.provide(workspaceTurnRepoLayer(db))),
         { signal },

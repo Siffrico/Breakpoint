@@ -119,15 +119,14 @@ export interface GradeShape {
   readonly testedDimensionIds: readonly string[];
   /** The learner's latest answer, which every evidence quote must come from. */
   readonly learnerAnswer: string;
-  /** Whether the active item is the pass's independent scenario. */
-  readonly isMainScenario: boolean;
+  /** Whether this mark can end the unit, or only opens another pass. */
+  readonly decisive: boolean;
 }
 
 /**
- * Grade plus critique plus — when the answer left a gap — the one targeted
- * exercise that repairs it. There is no verdict field: whether a repair happens
- * is derived from the scores. A repair can itself expose a remaining gap, so
- * the same contract permits another targeted application.
+ * Grade plus critique. There is no verdict field: pass or fail is derived from
+ * the scores the critic already committed to, so "did they get it" is never a
+ * second, separately-fallible judgement call.
  */
 export const reviewGradeSchema = ({
   testedDimensionIds,
@@ -154,15 +153,6 @@ export const reviewGradeSchema = ({
           }),
         )
         .length(testedDimensionIds.length),
-      targetedExercise: z
-        .object({
-          prompt: LearnerFacingMessageSchema.refine(
-            (prompt) => prompt.includes("?"),
-            "A targeted exercise must visibly ask the learner a question.",
-          ),
-        })
-        .strict()
-        .nullable(),
     })
     .strict()
     .superRefine((output, ctx) => {
@@ -174,23 +164,6 @@ export const reviewGradeSchema = ({
           code: "custom",
           path: ["dimensionResults"],
           message: "Grade each tested dimension exactly once.",
-        });
-      }
-      const gap = hasModelGap(output.dimensionResults);
-      if (gap && output.targetedExercise === null) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["targetedExercise"],
-          message:
-            "These scores show a gap, so this grade must carry one targeted exercise.",
-        });
-      }
-      if (!gap && output.targetedExercise !== null) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["targetedExercise"],
-          message:
-            "These scores show no gap, so this grade must not carry a targeted exercise.",
         });
       }
     });

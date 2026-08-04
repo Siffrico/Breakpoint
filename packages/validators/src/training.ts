@@ -447,6 +447,7 @@ export const EducationExperienceSnapshotSchema = z.object({
   reviewer: z.object({ instructions: EducationExperienceInstructionsSchema }),
 });
 
+/** Legacy row shape, read-only. Hydrated into a UnitTodo on load. */
 export const UnitCapabilityTodoSchema = z.object({
   dimensionId: ContractDimensionIdSchema,
   status: z.enum(["pending", "completed"]),
@@ -542,6 +543,48 @@ export const UnitReviewChallengeSchema = z.object({
   difficultyVector: DifficultyVectorSchema,
   contract: ScenarioEvaluationContractSchema,
 });
+
+/**
+ * A unit run teaches one capability. A pass is one route through it: the
+ * teaching moves, then the solve the learner answers, then the complete the
+ * reviewer marks. The list is the whole state — a pass is over when its list
+ * is done, and the complete's mark decides whether the unit ends or another
+ * pass is appended.
+ */
+export const UnitTodoStatusSchema = z.enum(["pending", "completed"]);
+export const UnitTodoResultSchema = z.enum(["pass", "fail"]);
+
+export const UnitTodoSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("capability"),
+    status: UnitTodoStatusSchema,
+    dimensionId: ContractDimensionIdSchema,
+  }),
+  z.object({
+    kind: z.literal("solve"),
+    /**
+     * `pending` is waiting to be shown, `presented` is on the learner's screen
+     * waiting for an answer. A later pass parks at `pending` until Enter.
+     */
+    status: z.enum(["pending", "presented", "completed"]),
+    pass: UnitReviewPassSchema,
+    /** Filled ahead of time by pre-generation; presented when this todo heads. */
+    challenge: UnitReviewChallengeSchema.nullable(),
+  }),
+  z.object({
+    kind: z.literal("complete"),
+    status: UnitTodoStatusSchema,
+    pass: UnitReviewPassSchema,
+    /**
+     * What this mark can do, fixed when the todo is created — the one place the
+     * difference between "ends the unit" and "opens another pass" is written
+     * down. `never` is an education warm-up, `pass` ends only on a clean mark,
+     * `any` is a one-shot checkpoint that closes either way.
+     */
+    endsOn: z.enum(["never", "pass", "any"]),
+    result: UnitTodoResultSchema.nullable(),
+  }),
+]);
 
 export const EvaluationDimensionResultSchema = z.object({
   dimensionId: ContractDimensionIdSchema,
@@ -903,6 +946,10 @@ export type EducationExperienceCustomization = z.infer<
   typeof EducationExperienceCustomizationSchema
 >;
 export type UnitCapabilityTodo = z.infer<typeof UnitCapabilityTodoSchema>;
+export type UnitTodo = z.infer<typeof UnitTodoSchema>;
+export type UnitTodoResult = z.infer<typeof UnitTodoResultSchema>;
+export type UnitSolveTodo = Extract<UnitTodo, { kind: "solve" }>;
+export type UnitCompleteTodo = Extract<UnitTodo, { kind: "complete" }>;
 export type UnitRunMode = z.infer<typeof UnitRunModeSchema>;
 export type UnitRunKind = z.infer<typeof UnitRunKindSchema>;
 export type UnitReviewPass = z.infer<typeof UnitReviewPassSchema>;

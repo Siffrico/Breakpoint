@@ -8,13 +8,14 @@ import type {
 
 import { DEFAULT_EDUCATION_EXPERIENCE } from "./experience";
 import {
-  claimNextPass,
+  attachChallenge,
+  closeSolve,
   completeCurrentCapabilityTodo,
   createUnitRun,
-  recordPendingPass2Challenge,
-  recordReviewChallenge,
-  recordTargetedExercise,
-  settleReviewPass,
+  currentTodo,
+  isDecisivePass,
+  markComplete,
+  presentSolve,
 } from "./unit-state";
 
 const masteryContract = {
@@ -91,15 +92,31 @@ const completeLearning = async () => {
   );
 };
 
+/** Answers the run's open challenge and takes the reviewer's mark. */
+const answerAndMark = async (
+  run: Awaited<ReturnType<typeof completeLearning>>,
+  result: "pass" | "fail",
+) => {
+  const presented = await Effect.runPromise(presentSolve({ run, challenge }));
+  const answered = await Effect.runPromise(closeSolve(presented));
+  return Effect.runPromise(
+    markComplete({
+      run: answered,
+      result,
+      feedback: "The mechanism held where it mattered, and here is why.",
+    }),
+  );
+};
+
 describe("unit state", () => {
-  it("starts education on the first pending capability", () => {
+  it("starts education on the first pending teaching move", () => {
     const run = makeRun();
 
     expect(run.mode).toBe("learning");
-    expect(run.capabilityTodos).toEqual([
-      { dimensionId: "explain-mechanism", status: "pending" },
-      { dimensionId: "transfer-decision", status: "pending" },
-    ]);
+    expect(currentTodo(run)).toMatchObject({
+      kind: "capability",
+      dimensionId: "explain-mechanism",
+    });
   });
 
   it("snapshots capability and experience definitions for the active run", () => {
@@ -139,132 +156,93 @@ describe("unit state", () => {
     }
   });
 
-  it("enters review only after every capability todo completes", async () => {
+  it("hands over to the solve once every teaching move completes", async () => {
     const run = await completeLearning();
 
+    expect(currentTodo(run)).toMatchObject({ kind: "solve", pass: 1 });
     expect(run.mode).toBe("review");
-    expect(
-      run.capabilityTodos.every((todo) => todo.status === "completed"),
-    ).toBe(true);
   });
 
-  it("requires a persisted challenge before grading", async () => {
+  it("refuses a mark before the challenge has been answered", async () => {
     const run = await completeLearning();
     const exit = await Effect.runPromiseExit(
-      settleReviewPass({
+      markComplete({
         run,
-        feedback:
-          "The answer needs a stronger causal defense before it is stable.",
+        result: "pass",
+        feedback: "The answer needs a stronger causal defense to be stable.",
       }),
     );
 
     expect(Exit.isFailure(exit)).toBe(true);
   });
 
-  it("settles Pass 1 without opening the Next Unit gate", async () => {
-    const run = await Effect.runPromise(
-      recordReviewChallenge(await completeLearning(), challenge),
-    );
-    const complete = await Effect.runPromise(
-      settleReviewPass({
-        run,
-        feedback: "The learner defended and improved the work under pressure.",
-      }),
-    );
+  it("cannot end the unit on Pass 1, whatever the mark says", async () => {
+    const learned = await completeLearning();
+    expect(isDecisivePass(learned)).toBe(false);
 
-    expect(complete.mode).toBe("awaiting_next_pass");
-    expect(complete.reviewPass).toBe(1);
+    for (const result of ["pass", "fail"] as const) {
+      const marked = await answerAndMark(learned, result);
+
+      expect(marked.mode).toBe("awaiting_next_pass");
+      expect(marked.reviewPass).toBe(2);
+      expect(currentTodo(marked)).toMatchObject({ kind: "solve", pass: 2 });
+    }
   });
 
-  it("allows repeated repairs and resets the pass gap when the next pass opens", async () => {
-    const reviewing = await Effect.runPromise(
-      recordReviewChallenge(await completeLearning(), challenge),
-    );
-    const repaired = await Effect.runPromise(
-      recordTargetedExercise({
-        run: reviewing,
-        feedback: "The causal boundary is still missing; repair it here.",
-        exercise: challenge,
-      }),
-    );
-    expect(repaired.repairSpent).toBe(true);
-    const repairedAgain = await Effect.runPromise(
-      recordTargetedExercise({
-        run: repaired,
-        feedback: "Apply the same causal distinction in this smaller case.",
-        exercise: challenge,
-      }),
-    );
-    expect(repairedAgain.repairSpent).toBe(true);
+  it("opens another pass when a decisive mark fails", async () => {
+    const pass2 = await answerAndMark(await completeLearning(), "fail");
+    expect(isDecisivePass(pass2)).toBe(true);
 
-    const settled = await Effect.runPromise(
-      settleReviewPass({
-        run: repairedAgain,
-        feedback: "The repaired explanation now holds under pressure.",
-      }),
-    );
-    const parked = await Effect.runPromise(
-      recordPendingPass2Challenge(settled, challenge),
-    );
-    const pass2 = await Effect.runPromise(
-      claimNextPass({ run: parked, challenge }),
-    );
+    const pass3 = await answerAndMark(pass2, "fail");
 
-    expect(pass2).toMatchObject({
-      mode: "review",
-      reviewPass: 2,
-      repairSpent: false,
-      pendingPass2Challenge: null,
-    });
+    expect(pass3.mode).toBe("awaiting_next_pass");
+    expect(pass3.reviewPass).toBe(3);
   });
 
-  it("opens another pass after a repaired failed Pass 2", async () => {
-    const reviewing = await Effect.runPromise(
-      recordReviewChallenge(await completeLearning(), challenge),
-    );
-    const pass1 = await Effect.runPromise(
-      settleReviewPass({ run: reviewing, feedback: "Pass 1 holds under pressure." }),
-    );
-    const pass2 = await Effect.runPromise(claimNextPass({ run: pass1, challenge }));
-    const repaired = await Effect.runPromise(
-      recordTargetedExercise({
-        run: pass2,
-        feedback: "The independent pass exposed one remaining model gap.",
-        exercise: challenge,
-      }),
-    );
-    const settled = await Effect.runPromise(
-      settleReviewPass({
-        run: repaired,
-        feedback: "The targeted application now demonstrates the insight.",
-      }),
-    );
-    const pass3 = await Effect.runPromise(claimNextPass({ run: settled, challenge }));
-
-    expect(pass3).toMatchObject({ mode: "review", reviewPass: 3, repairSpent: false });
-  });
-
-  it("completes when a clean Pass 2 settles", async () => {
-    const reviewing = await Effect.runPromise(
-      recordReviewChallenge(await completeLearning(), challenge),
-    );
-    const settled = await Effect.runPromise(
-      settleReviewPass({
-        run: reviewing,
-        feedback: "The first pass now holds under realistic pressure.",
-      }),
-    );
-    const pass2 = await Effect.runPromise(
-      claimNextPass({ run: settled, challenge }),
-    );
-    const complete = await Effect.runPromise(
-      settleReviewPass({
-        run: pass2,
-        feedback: "The mechanism transferred independently on Pass 2.",
-      }),
-    );
+  it("ends the unit when a decisive mark passes", async () => {
+    const pass2 = await answerAndMark(await completeLearning(), "pass");
+    const complete = await answerAndMark(pass2, "pass");
 
     expect(complete.mode).toBe("complete");
+    expect(currentTodo(complete)).toBeNull();
     expect(complete.reviewPass).toBe(2);
+  });
+
+  it("closes a recall checkpoint on one mark, pass or fail", async () => {
+    for (const result of ["pass", "fail"] as const) {
+      const recall = createUnitRun({
+        unitId: "unit-1",
+        sessionId: "session-1",
+        userId: "user-1",
+        kind: "recall",
+        masteryContract,
+        experience: DEFAULT_EDUCATION_EXPERIENCE,
+      });
+
+      expect(currentTodo(recall)).toMatchObject({ kind: "solve", pass: 1 });
+      expect(isDecisivePass(recall)).toBe(true);
+      const marked = await answerAndMark(recall, result);
+
+      expect(marked.mode).toBe("complete");
+      expect(currentTodo(marked)).toBeNull();
+    }
+  });
+
+  it("parks a pre-generated challenge on the unopened solve", async () => {
+    const pass2 = await answerAndMark(await completeLearning(), "pass");
+    const parked = await Effect.runPromise(
+      attachChallenge({ run: pass2, challenge }),
+    );
+
+    expect(parked.mode).toBe("awaiting_next_pass");
+    expect(currentTodo(parked)).toMatchObject({ kind: "solve", challenge });
+    // A second task landing on the same slot has nothing left to fill.
+    expect(
+      Exit.isFailure(
+        await Effect.runPromiseExit(
+          closeSolve(await Effect.runPromise(presentSolve({ run: parked, challenge }))),
+        ),
+      ),
+    ).toBe(false);
   });
 });
