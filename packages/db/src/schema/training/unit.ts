@@ -2,10 +2,9 @@ import { index, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
 
 import type {
   EducationExperienceSnapshot,
-  UnitTodo,
   UnitDifficultySnapshot,
   UnitMasteryContract,
-  UnitReviewChallenge,
+  UnitTodo,
 } from "@acme/validators";
 
 import { user } from "../../auth-schema";
@@ -101,7 +100,11 @@ export const TrainingUnitPhaseResponse = pgTable(
         reasoningStyle: string;
       };
       stateSnapshot?: unknown;
-      aiEducationStage?: "learning" | "review" | "awaiting_next_pass" | "complete";
+      aiEducationStage?:
+        | "learning"
+        | "review"
+        | "awaiting_next_pass"
+        | "complete";
       recallUnitId?: string;
       promptKind?: "education_unit" | "recall";
       modelPurpose?: string;
@@ -179,18 +182,8 @@ export const TrainingUnitRun = pgTable(
     experienceVersion: t.integer().notNull().default(1),
     experienceJson: t.jsonb().$type<EducationExperienceSnapshot>().notNull(),
     masteryContractJson: t.jsonb().$type<UnitMasteryContract>().notNull(),
-    capabilityTodosJson: t.jsonb().$type<UnitTodo[]>().notNull(),
-    activeReviewChallengeJson: t.jsonb().$type<UnitReviewChallenge | null>(),
+    todosJson: t.jsonb().$type<UnitTodo[]>().notNull(),
     reviewerFeedback: t.text(),
-    /** The current independent scenario pass. */
-    reviewPass: t.integer().notNull().default(1),
-    /** Whether the current pass has entered its targeted-repair loop. */
-    repairSpent: t.boolean().notNull().default(false),
-    /**
-     * Pass 2's challenge, authored in the background while the learner reads
-     * the Pass-1 close, so pressing Enter costs a read rather than a model call.
-     */
-    pendingPass2ChallengeJson: t.jsonb().$type<UnitReviewChallenge | null>(),
     difficultySnapshotJson: t
       .jsonb()
       .$type<TrainingUnitDifficultySnapshotJson | null>(),

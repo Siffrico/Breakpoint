@@ -1,26 +1,16 @@
 import type { db as databaseClient } from "@acme/db/client";
-import type {
-  UnitReviewChallenge,
-  UnitRunKind,
-  UnitTodo,
-} from "@acme/validators";
+import type { UnitReviewChallenge, UnitReviewPass } from "@acme/validators";
 import { and, desc, eq, isNull, ne, sql } from "@acme/db";
 import { TrainingUnitRun } from "@acme/db/schema";
 import {
   EducationExperienceSnapshotSchema,
-  UnitCapabilityTodoSchema,
   UnitMasteryContractSchema,
-  UnitReviewChallengeSchema,
-  UnitReviewPassSchema,
   UnitRunKindSchema,
   UnitTodoSchema,
 } from "@acme/validators";
 
 import type { PersistedUnitRun } from "../domain/training/education-unit/unit-state";
-import {
-  passTodos,
-  projectUnitRun,
-} from "../domain/training/education-unit/unit-state";
+import { projectUnitRun } from "../domain/training/education-unit/unit-state";
 
 type Database = typeof databaseClient;
 
@@ -37,64 +27,6 @@ const canonicalJson = (value: unknown): string => {
       .join(",")}}`;
   }
   return JSON.stringify(value);
-};
-
-/**
- * Rebuilds a todo list for a run persisted before the list existed. Only the
- * head has to be right — a resumed run needs to know what happens next, not
- * how it got here — so the tail is synthesized from the old mode fields.
- */
-const hydrateLegacyTodos = ({
-  row,
-  kind,
-}: {
-  row: typeof TrainingUnitRun.$inferSelect;
-  kind: UnitRunKind;
-}): UnitTodo[] => {
-  const capabilities = UnitCapabilityTodoSchema.array()
-    .parse(row.capabilityTodosJson)
-    .map((todo): UnitTodo => ({ kind: "capability", ...todo }));
-  const pass = UnitReviewPassSchema.parse(row.reviewPass);
-  const mode = row.mode === "awaiting_pass2" ? "awaiting_next_pass" : row.mode;
-  const active = UnitReviewChallengeSchema.nullable().parse(
-    row.activeReviewChallengeJson,
-  );
-  const pending = UnitReviewChallengeSchema.nullable().parse(
-    row.pendingPass2ChallengeJson,
-  );
-
-  if (mode === "complete") {
-    return [
-      ...capabilities.map((todo) => ({ ...todo, status: "completed" as const })),
-      ...passTodos(kind, pass).map((todo) => ({
-        ...todo,
-        status: "completed" as const,
-      })),
-    ];
-  }
-  if (mode === "learning") {
-    return [...capabilities, ...passTodos(kind, pass)];
-  }
-
-  const done = capabilities.map((todo) => ({
-    ...todo,
-    status: "completed" as const,
-  }));
-  const openPass = mode === "awaiting_next_pass" ? pass + 1 : pass;
-  const challenge = mode === "awaiting_next_pass" ? pending : active;
-  return [
-    ...done,
-    ...passTodos(kind, openPass).map((todo) =>
-      todo.kind === "solve"
-        ? {
-            ...todo,
-            challenge,
-            status:
-              mode === "review" && active ? ("presented" as const) : todo.status,
-          }
-        : todo,
-    ),
-  ];
 };
 
 const mapUnitRun = (
@@ -115,10 +47,7 @@ const mapUnitRun = (
     row.masteryContractJson,
   );
   const kind = UnitRunKindSchema.parse(row.kind);
-  const parsed = UnitTodoSchema.array().safeParse(row.capabilityTodosJson);
-  const todos = parsed.success
-    ? parsed.data
-    : hydrateLegacyTodos({ row, kind });
+  const todos = UnitTodoSchema.array().parse(row.todosJson);
 
   const expectedIds = masteryContract.dimensions.map(
     (dimension) => dimension.id,
@@ -146,16 +75,6 @@ const mapUnitRun = (
     reviewerFeedback: row.reviewerFeedback,
     difficultySnapshot: row.difficultySnapshotJson,
   });
-};
-
-/** The unopened solve's parked challenge, if pre-generation has filled it. */
-const pendingChallengeOf = (
-  run: PersistedUnitRun,
-): UnitReviewChallenge | null => {
-  const pending = run.todos.find((todo) => todo.status !== "completed");
-  return pending?.kind === "solve" && pending.status === "pending"
-    ? pending.challenge
-    : null;
 };
 
 export const trainingUnitRunRepository = {
@@ -207,17 +126,24 @@ export const trainingUnitRunRepository = {
     sessionId: string;
     unitContentId: string;
   }): Promise<void> => {
+    const row = await db.query.TrainingUnitRun.findFirst({
+      where: and(
+        eq(TrainingUnitRun.sessionId, sessionId),
+        eq(TrainingUnitRun.unitContentId, unitContentId),
+        eq(TrainingUnitRun.kind, "recall"),
+        ne(TrainingUnitRun.mode, "complete"),
+      ),
+    });
+    if (!row) return;
+
+    const run = mapUnitRun(row);
     await db
       .update(TrainingUnitRun)
-      .set({ mode: "complete" })
-      .where(
-        and(
-          eq(TrainingUnitRun.sessionId, sessionId),
-          eq(TrainingUnitRun.unitContentId, unitContentId),
-          eq(TrainingUnitRun.kind, "recall"),
-          ne(TrainingUnitRun.mode, "complete"),
-        ),
-      );
+      .set({
+        mode: "complete",
+        todosJson: run.todos.map((todo) => ({ ...todo, status: "completed" })),
+      })
+      .where(eq(TrainingUnitRun.id, row.id));
   },
 
   /**
@@ -226,17 +152,19 @@ export const trainingUnitRunRepository = {
    * lands after the learner already pressed Enter (or after a second task won
    * the race) is a no-op rather than a challenge swap mid-pass.
    */
-  setPendingPass2Challenge: async ({
+  setPendingChallenge: async ({
     db,
     sessionId,
     unitContentId,
     kind,
+    pass,
     challenge,
   }: {
     db: Database;
     sessionId: string;
     unitContentId: string;
     kind: string;
+    pass: UnitReviewPass;
     challenge: UnitReviewChallenge;
   }): Promise<void> => {
     const row = await db.query.TrainingUnitRun.findFirst({
@@ -251,6 +179,7 @@ export const trainingUnitRunRepository = {
     const pending = run.todos.find((todo) => todo.status !== "completed");
     if (
       pending?.kind !== "solve" ||
+      pending.pass !== pass ||
       pending.status !== "pending" ||
       pending.challenge
     ) {
@@ -262,17 +191,13 @@ export const trainingUnitRunRepository = {
 
     await db
       .update(TrainingUnitRun)
-      .set({
-        capabilityTodosJson: todos,
-        pendingPass2ChallengeJson: challenge,
-      })
+      .set({ todosJson: todos })
       .where(
         and(
           eq(TrainingUnitRun.sessionId, sessionId),
           eq(TrainingUnitRun.unitContentId, unitContentId),
           eq(TrainingUnitRun.kind, kind),
-          eq(TrainingUnitRun.mode, run.mode),
-          isNull(TrainingUnitRun.pendingPass2ChallengeJson),
+          eq(TrainingUnitRun.todosJson, row.todosJson),
           isNull(TrainingUnitRun.turnLeaseId),
         ),
       );
@@ -295,14 +220,8 @@ export const trainingUnitRunRepository = {
       experienceVersion: run.experience.version,
       experienceJson: run.experience,
       masteryContractJson: run.masteryContract,
-      capabilityTodosJson: [...run.todos],
-      // Projections of the todo list, written so existing reads and the
-      // pre-generation guard keep working against plain columns.
-      activeReviewChallengeJson: run.activeReviewChallenge,
+      todosJson: [...run.todos],
       reviewerFeedback: run.reviewerFeedback,
-      reviewPass: run.reviewPass,
-      repairSpent: false,
-      pendingPass2ChallengeJson: pendingChallengeOf(run),
       difficultySnapshotJson: run.difficultySnapshot,
     };
 
@@ -323,12 +242,8 @@ export const trainingUnitRunRepository = {
           experienceVersion: values.experienceVersion,
           experienceJson: values.experienceJson,
           masteryContractJson: values.masteryContractJson,
-          capabilityTodosJson: values.capabilityTodosJson,
-          activeReviewChallengeJson: values.activeReviewChallengeJson,
+          todosJson: values.todosJson,
           reviewerFeedback: values.reviewerFeedback,
-          reviewPass: values.reviewPass,
-          repairSpent: values.repairSpent,
-          pendingPass2ChallengeJson: values.pendingPass2ChallengeJson,
           difficultySnapshotJson: sql`case when ${TrainingUnitRun.kind} = excluded.kind and ${TrainingUnitRun.experienceId} = excluded.experience_id and ${TrainingUnitRun.experienceVersion} = excluded.experience_version and ${TrainingUnitRun.mode} != 'complete' then coalesce(${TrainingUnitRun.difficultySnapshotJson}, excluded.difficulty_snapshot_json) else excluded.difficulty_snapshot_json end`,
         },
       })

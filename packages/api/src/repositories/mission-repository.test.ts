@@ -184,7 +184,7 @@ const seedUnitRun = async ({
           },
         ],
       },
-      capabilityTodosJson: [],
+      todosJson: [],
     })
     .returning({ id: TrainingUnitRun.id });
   if (!run) throw new Error("Expected a unit run.");

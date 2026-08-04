@@ -6,6 +6,7 @@ import type {
   ScenarioFormat,
   UnitDifficultySnapshot,
   UnitReviewChallenge,
+  UnitReviewPass,
   WorkspaceTurnAction,
 } from "@acme/validators";
 
@@ -99,10 +100,11 @@ export interface WorkspaceTurnOrchestrationDependencies
   /** Test seam for deterministic education-unit contract tests. */
   runUnitTurn?: typeof runUnitTurn;
   runPassAdvanceTurn?: typeof runPassAdvanceTurn;
-  savePendingPass2Challenge?: (input: {
+  savePendingChallenge?: (input: {
     sessionId: string;
     unitContentId: string;
     kind: string;
+    pass: UnitReviewPass;
     challenge: UnitReviewChallenge;
   }) => Promise<void>;
   pregenerateNextUnit?: (input: {
@@ -704,10 +706,10 @@ export const runEducationUnitTurn = ({
       deps,
     });
 
-    const savePendingPass2Challenge = deps.savePendingPass2Challenge;
+    const savePendingChallenge = deps.savePendingChallenge;
     if (
       turnResult.nextRun.mode === "awaiting_next_pass" &&
-      savePendingPass2Challenge
+      savePendingChallenge
     ) {
       const runPassPregeneration = () =>
         Effect.runPromise(
@@ -719,10 +721,11 @@ export const runEducationUnitTurn = ({
           }).pipe(
             Effect.flatMap((challenge) =>
               Effect.tryPromise(() =>
-                savePendingPass2Challenge({
+                savePendingChallenge({
                   sessionId,
                   unitContentId: unit.id,
                   kind: turnResult.nextRun.kind,
+                  pass: turnResult.nextRun.reviewPass,
                   challenge,
                 }),
               ),
