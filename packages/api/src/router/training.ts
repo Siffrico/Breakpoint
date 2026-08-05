@@ -33,7 +33,6 @@ import { queryWithClient } from "../effect/db";
 import { runMission } from "../effect/mission-edge";
 import { missionLayer } from "../effect/runtime";
 import { buildProjectCheckpointRepository } from "../repositories/build-project-checkpoint-repository";
-import { recoverSkillUnits } from "../repositories/build-project-repository-deps";
 import { trainingCurriculumRepository } from "../repositories/training-curriculum-repository";
 import { trainingOnboardingRepository } from "../repositories/training-onboarding-repository";
 import { trainingRatingRepository } from "../repositories/training-rating-repository";
@@ -599,43 +598,13 @@ export const trainingRouter = {
                 db: ctx.db,
                 sessionId,
               }),
-            recoverSkillUnits: () =>
-              recoverSkillUnits({
-                db: ctx.db,
-                sessionId: input.sessionId,
-                userId: ctx.session.user.id,
-                scheduleBackgroundTask: ctx.scheduleBackgroundTask,
-              }),
-            startUnitPreparation: ({ nodeId, sessionId }) => {
-              const prepare = () =>
-                prepareUnitWorkflow({
+            hasUnitContent: async (nodeId) =>
+              Boolean(
+                await trainingCurriculumRepository.getUnitByNodeId({
+                  db: ctx.db,
                   nodeId,
-                  sessionId,
-                  deps: createPrepareUnitDependencies(ctx.db),
-                }).then(
-                  (result) => {
-                    if (!result.success) {
-                      console.error("First workspace unit preparation failed", {
-                        nodeId,
-                        sessionId,
-                        error: result.error,
-                      });
-                    }
-                  },
-                  (error: unknown) => {
-                    console.error("First workspace unit preparation failed", {
-                      nodeId,
-                      sessionId,
-                      error,
-                    });
-                  },
-                );
-              if (ctx.scheduleBackgroundTask) {
-                ctx.scheduleBackgroundTask(prepare);
-              } else {
-                void prepare();
-              }
-            },
+                }),
+              ),
           },
         }),
       );

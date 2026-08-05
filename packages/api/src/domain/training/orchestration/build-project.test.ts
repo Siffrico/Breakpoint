@@ -231,7 +231,10 @@ const makeDeps = (
       ),
     ),
     getActivePlan: vi.fn<BuildProjectDeps["getActivePlan"]>(() =>
-      Promise.resolve(planState.status === "active" ? plan : null),
+      Promise.resolve(planState.exists ? plan : null),
+    ),
+    hasUnitContent: vi.fn<BuildProjectDeps["hasUnitContent"]>(() =>
+      Promise.resolve(true),
     ),
     getStartingPoint: vi.fn<BuildProjectDeps["getStartingPoint"]>(() =>
       Promise.resolve(opts.startingPoint ?? null),
@@ -277,14 +280,11 @@ const makeDeps = (
       planState.status = "active";
       return Promise.resolve(plan);
     }),
-    prepareUnit: vi.fn<BuildProjectDeps["prepareUnit"]>(() =>
-      Promise.resolve(),
-    ),
     ensureSkillKnowledge: vi.fn<BuildProjectDeps["ensureSkillKnowledge"]>(() =>
       Promise.resolve(),
     ),
     createSkillUnit: vi.fn<BuildProjectDeps["createSkillUnit"]>(() =>
-      Promise.resolve(),
+      Promise.resolve({ id: "unit-1" }),
     ),
   };
 
@@ -308,6 +308,58 @@ const run = (
   });
 
 describe("buildProjectFromOnboarding", () => {
+  it("does not complete until the first unit content is prepared", async () => {
+    mockCurriculum.mockResolvedValue(curriculum);
+    mockOverview.mockResolvedValue(overview);
+    const { deps } = makeDeps();
+    const unitFixture = plan.nodes[0];
+    if (!unitFixture) throw new Error("Expected a unit fixture.");
+    const frontierPlan: CurriculumPlan = {
+      ...plan,
+      nextUnitId: null,
+      nodes: [
+        {
+          ...unitFixture,
+          id: "skill-1",
+          kind: "skill",
+          status: "ready",
+        },
+      ],
+    };
+    vi.mocked(deps.getActivePlan).mockResolvedValue(frontierPlan);
+    vi.mocked(deps.hasUnitContent).mockResolvedValue(false);
+    vi.mocked(deps.finalize).mockResolvedValue({
+      ...frontierPlan,
+      nextUnitId: "unit-1",
+      nodes: [
+        ...frontierPlan.nodes,
+        { ...unitFixture, id: "unit-1", parentNodeId: "skill-1" },
+      ],
+    });
+
+    const result = await run(deps);
+
+    expect(result.success).toBe(true);
+    expect(deps.ensureSkillKnowledge).toHaveBeenCalledWith({
+      skillNodeId: "skill-1",
+      targetIdentity: frontierPlan.targetIdentity,
+    });
+    expect(deps.createSkillUnit).toHaveBeenCalledWith({
+      skillNodeId: "skill-1",
+      sessionId: "session-id",
+      userId: "user-id",
+    });
+    const createOrder = vi.mocked(deps.createSkillUnit).mock
+      .invocationCallOrder[0];
+    const finalizeOrder = vi.mocked(deps.finalize).mock.invocationCallOrder[0];
+    expect(createOrder).toBeDefined();
+    expect(finalizeOrder).toBeDefined();
+    if (createOrder !== undefined && finalizeOrder !== undefined) {
+      expect(createOrder).toBeLessThan(finalizeOrder);
+    }
+    if (result.success) expect(result.data.firstUnitId).toBe("unit-1");
+  });
+
   it("prewarms only the unlocked skill's knowledge map and unit", async () => {
     mockCurriculum.mockResolvedValue(curriculum);
     mockOverview.mockResolvedValue(overview);

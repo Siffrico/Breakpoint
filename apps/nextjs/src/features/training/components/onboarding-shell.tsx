@@ -10,7 +10,6 @@ import {
   useRef,
   useState,
 } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import { ArrowClockwise, ArrowUp, Plus } from "@phosphor-icons/react";
@@ -27,7 +26,6 @@ import type {
   ProjectBuildState,
 } from "@acme/api/onboarding-chat";
 import type { StartingPointTier } from "@acme/validators";
-import { Button } from "@acme/ui/button";
 import {
   ChatComposerDock,
   ChatMessage,
@@ -54,7 +52,7 @@ import { CreateProjectConfirm } from "./onboarding/create-project-confirm";
 import { ProjectBuildCard } from "./onboarding/project-build-card";
 import { selectProjectBuildPart } from "./onboarding/select-project-build-part";
 import { StartingPointCheck } from "./onboarding/starting-point-check";
-import { UnfinishedOnboardingDialog } from "./onboarding/unfinished-onboarding-dialog";
+import { OnboardingUtilityActions } from "./onboarding/onboarding-utility-actions";
 
 type OnboardingState = RouterOutputs["training"]["startOnboarding"];
 
@@ -146,7 +144,8 @@ export function OnboardingShell({
   embedded = false,
   sessionId: sessionIdProp,
   initialState = null,
-  curriculumMode,
+  curriculumMode = "ability",
+  showCurriculumControl = false,
   onRunningChange,
   onTurnCountChange,
 }: {
@@ -160,6 +159,7 @@ export function OnboardingShell({
    * outside development.
    */
   curriculumMode?: "ability" | "topic";
+  showCurriculumControl?: boolean;
   variant?: "default" | "landscape";
   onRunningChange?: (isRunning: boolean) => void;
   onTurnCountChange?: (count: number) => void;
@@ -180,14 +180,22 @@ export function OnboardingShell({
   const [sessionId, setSessionId] = useState<string | null>(
     sessionIdProp ?? initialState?.sessionId ?? null,
   );
+  const [selectedCurriculumMode, setSelectedCurriculumMode] =
+    useState(curriculumMode);
   const [seedMessages] = useState<OnboardingChatUIMessage[]>(() =>
     transcriptToMessages(initialState),
   );
 
   const startOnboarding = useMutation(
     trpc.training.startOnboarding.mutationOptions({
-      onSuccess: (data) => {
+      onSuccess: (data, variables) => {
         setSessionId(data.sessionId);
+        setSelectedCurriculumMode(variables?.curriculumMode ?? "ability");
+        const modeParam =
+          variables?.curriculumMode === "topic" ? "&curriculum=topic" : "";
+        router.replace(
+          `/onboarding?session=${encodeURIComponent(data.sessionId)}${modeParam}`,
+        );
       },
       onError: (error) => toast.error(error.message),
     }),
@@ -208,8 +216,8 @@ export function OnboardingShell({
   useEffect(() => {
     if (preview || sessionId || startedRef.current) return;
     startedRef.current = true;
-    startOnboarding.mutate({ curriculumMode });
-  }, [curriculumMode, preview, sessionId, startOnboarding]);
+    startOnboarding.mutate({ curriculumMode: selectedCurriculumMode });
+  }, [preview, selectedCurriculumMode, sessionId, startOnboarding]);
 
   useEffect(() => {
     return () => {
@@ -296,11 +304,11 @@ export function OnboardingShell({
     },
   });
 
-  const seededFromStartRef = useRef(false);
+  const seededSessionIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (seededFromStartRef.current) return;
     if (!startOnboarding.data) return;
-    seededFromStartRef.current = true;
+    if (seededSessionIdRef.current === startOnboarding.data.sessionId) return;
+    seededSessionIdRef.current = startOnboarding.data.sessionId;
     setMessages(transcriptToMessages(startOnboarding.data));
   }, [setMessages, startOnboarding.data]);
 
@@ -480,17 +488,18 @@ export function OnboardingShell({
       : "/settings/topics";
 
   const manualSetupAction = !embedded ? (
-    <div className="absolute top-4 right-4 z-10 flex items-center gap-1.5">
-      <UnfinishedOnboardingDialog activeSessionId={sessionId} />
-      <Button
-        render={<Link href={manualSetupHref} />}
-        variant="outline"
-        size="sm"
-        className="border-foreground/12 bg-background/88 text-foreground/72 hover:border-foreground/22 hover:bg-foreground/[0.04] hover:text-foreground h-7 rounded-none px-2.5 text-[12px] shadow-sm backdrop-blur before:rounded-none"
-      >
-        Do manually
-      </Button>
-    </div>
+    <OnboardingUtilityActions
+      activeSessionId={sessionId}
+      manualSetupHref={manualSetupHref}
+      curriculumMode={selectedCurriculumMode}
+      showCurriculumControl={showCurriculumControl}
+      curriculumChangeDisabled={isStreaming || startOnboarding.isPending}
+      onCurriculumModeChange={(mode) => {
+        if (mode === selectedCurriculumMode) return;
+        setSelectedCurriculumMode(mode);
+        startOnboarding.mutate({ curriculumMode: mode });
+      }}
+    />
   ) : null;
 
   const composer = (

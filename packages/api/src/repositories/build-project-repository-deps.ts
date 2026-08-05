@@ -11,11 +11,8 @@ import {
   getMemoryContentHash,
   normalizeMemoryContent,
 } from "../domain/memory/policies/memory-caps";
-import { decideMasteryProgression } from "../domain/training/engine/plan-progression";
-import { requireAbilityStage } from "../domain/training/engine/progression-model";
 import { ArtifactBuildError } from "../domain/training/orchestration/agent-runtime";
 import { createNextUnit } from "../domain/training/unit-creation/create-next-unit";
-import { runPrepareUnit } from "../domain/training/unit-preparation/prepare-unit-edge";
 import { buildProjectCheckpointRepository } from "./build-project-checkpoint-repository";
 import { buildProjectCurriculumRepository } from "./build-project-curriculum-repository";
 import { buildProjectProfileRepository } from "./build-project-profile-repository";
@@ -23,12 +20,9 @@ import { memoryRepository } from "./memory-repository";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
 import { trainingOnboardingRepository } from "./training-onboarding-repository";
 import {
-  advanceSkillMapNode,
   createUnitCreationRepositoryDeps,
   ensureSkillKnowledge,
-  loadProgressionState,
 } from "./unit-creation-repository-deps";
-import { createUnitPreparationRepositoryDeps } from "./unit-preparation-repository-deps";
 
 type Database = typeof databaseClient;
 
@@ -49,87 +43,6 @@ export const ensureSkillUnit = async ({
       deps: createUnitCreationRepositoryDeps({ db, sessionId, userId }),
     }),
   );
-
-export const recoverSkillUnits = async ({
-  db,
-  sessionId,
-  userId,
-  scheduleBackgroundTask,
-}: {
-  db: Database;
-  sessionId: string;
-  userId: string;
-  scheduleBackgroundTask?: (task: () => Promise<void>) => void;
-}) => {
-  const plan = await trainingCurriculumRepository.getActivePlan({
-    db,
-    sessionId,
-  });
-  if (!plan) return;
-  const rawNodes = await trainingCurriculumRepository.listNodesByPlanIds({
-    db,
-    planIds: [plan.id],
-  });
-  // The recoverable frontier: ready skills and abilities with an open skillset
-  // stage. Planned-but-locked nodes are the progression engine's to open.
-  const skills = rawNodes.filter((node) => {
-    if (node.status !== "ready" || node.skillMap == null) return false;
-    if (node.kind === "skill") return true;
-    if (node.kind !== "ability") return false;
-    return requireAbilityStage(node.abilityStage) === "skillset";
-  });
-
-  const recoverSkill = async (node: {
-    id: string;
-    kind: string;
-    parentNodeId: string | null;
-  }) => {
-    const skillNodeId = node.id;
-    // Abilities own no knowledge map; their skillset units aggregate the child
-    // skills' knowledge items at unit-creation time.
-    if (node.kind !== "ability") {
-      const knowledge = await ensureSkillKnowledge({
-        db,
-        skillNodeId,
-        targetIdentity: plan.targetIdentity,
-      });
-      if (!knowledge) return;
-    }
-    const state = await loadProgressionState({ db, skillNodeId, userId });
-    if (!state) return;
-    const decision = decideMasteryProgression(state);
-    if (decision.intent === "create_unit") {
-      await ensureSkillUnit({ db, skillNodeId, sessionId, userId });
-    } else {
-      await advanceSkillMapNode({ db, nodeId: skillNodeId, sessionId, userId });
-    }
-  };
-
-  // Recovery may run knowledge generation (a slow AI call) per skill. Only the
-  // earliest incomplete skill — the one Continue is about to enter — is
-  // recovered synchronously; the rest are healed off the request path.
-  const [firstSkill, ...remainingSkills] = skills;
-  if (!firstSkill) return;
-  try {
-    await recoverSkill(firstSkill);
-  } catch (error) {
-    console.error("Skill unit recovery failed", {
-      skillNodeId: firstSkill.id,
-      error,
-    });
-  }
-  if (remainingSkills.length === 0) return;
-  const recoverRemaining = async () => {
-    await Promise.allSettled(
-      remainingSkills.map((skill) => recoverSkill(skill)),
-    );
-  };
-  if (scheduleBackgroundTask) {
-    scheduleBackgroundTask(recoverRemaining);
-  } else {
-    await recoverRemaining();
-  }
-};
 
 /**
  * Edge adapter that wires {@link BuildProjectDeps} to the repositories for a
@@ -155,6 +68,8 @@ export const createBuildProjectDeps = (db: Database): BuildProjectDeps => ({
 
   getActivePlan: (sessionId) =>
     trainingCurriculumRepository.getActivePlan({ db, sessionId }),
+  hasUnitContent: async (nodeId) =>
+    Boolean(await trainingCurriculumRepository.getUnitByNodeId({ db, nodeId })),
 
   claimRun: (payload) =>
     buildProjectCheckpointRepository.claimRun({ db, ...payload }),
@@ -334,12 +249,6 @@ export const createBuildProjectDeps = (db: Database): BuildProjectDeps => ({
       },
     }),
 
-  prepareUnit: ({ node, sessionId }) =>
-    runPrepareUnit({
-      node,
-      sessionId,
-      deps: createUnitPreparationRepositoryDeps(db),
-    }),
   ensureSkillKnowledge: (input) => ensureSkillKnowledge({ db, ...input }),
   createSkillUnit: ({ skillNodeId, sessionId, userId }) =>
     ensureSkillUnit({ db, skillNodeId, sessionId, userId }),

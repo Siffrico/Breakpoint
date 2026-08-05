@@ -48,6 +48,7 @@ import {
 export type ProjectBuildStep =
   | "name" // create the durable plan shell + resolve the saved name (instant)
   | "curriculum" // curriculum designer agent — identity report + skeleton + persist
+  | "unit" // prepare the first complete workspace unit
   | "overview" // project overview agent — the readable field map (best-effort)
   | "save"; // finalize: flip the plan active + complete the session
 
@@ -102,6 +103,7 @@ export interface ProjectBuildState {
 const STEP_LABELS: Record<ProjectBuildStep, string> = {
   name: "Naming your project",
   curriculum: "Designing your curriculum",
+  unit: "Preparing your first unit",
   overview: "Writing your overview",
   save: "Saving to your library",
 };
@@ -109,6 +111,7 @@ const STEP_LABELS: Record<ProjectBuildStep, string> = {
 const STEP_ORDER: ProjectBuildStep[] = [
   "name",
   "curriculum",
+  "unit",
   "overview",
   "save",
 ];
@@ -226,6 +229,7 @@ export interface BuildProjectDeps {
   } | null>;
   /** Full read for the final/complete snapshot. */
   getActivePlan: (sessionId: string) => Promise<CurriculumPlan | null>;
+  hasUnitContent: (nodeId: string) => Promise<boolean>;
   claimRun: (input: {
     sessionId: string;
     sourceKey: string;
@@ -321,10 +325,6 @@ export interface BuildProjectDeps {
     ownershipToken: string;
     planId: string;
   }) => Promise<CurriculumPlan | null>;
-  prepareUnit: (input: {
-    node: CurriculumPlan["nodes"][number];
-    sessionId: string;
-  }) => Promise<unknown>;
   ensureSkillKnowledge: (input: {
     skillNodeId: string;
     targetIdentity: string;
@@ -333,7 +333,7 @@ export interface BuildProjectDeps {
     skillNodeId: string;
     sessionId: string;
     userId: string;
-  }) => Promise<unknown>;
+  }) => Promise<{ id: string } | null>;
 }
 
 /**
@@ -673,7 +673,10 @@ export const buildProjectFromOnboarding = async ({
   const planRow = await deps.getPlanRow(sessionId);
   if (planRow?.status === "active" && !hasUnfinishedArtifact) {
     const existingPlan = await deps.getActivePlan(sessionId);
-    if (existingPlan) {
+    if (
+      existingPlan?.nextUnitId &&
+      (await deps.hasUnitContent(existingPlan.nextUnitId))
+    ) {
       for (const step of steps) step.status = "done";
       state.phase = "complete";
       state.projectName = existingPlan.title || projectName;
@@ -939,6 +942,65 @@ export const buildProjectFromOnboarding = async ({
     return fail(curriculumResult.error);
   }
 
+  // A project is launch-ready only when its first unit content has committed.
+  // Keeping this inside the resumable build makes Start learning a read-only
+  // navigation command instead of a hidden multi-model recovery request.
+  setStep("unit", "active");
+  emit();
+  if (!userId) {
+    return fail("I couldn't prepare your first unit. Want to try again?");
+  }
+  let launchPlan: CurriculumPlan | null;
+  try {
+    launchPlan = await deps.getActivePlan(sessionId);
+    if (
+      launchPlan?.nextUnitId &&
+      (await deps.hasUnitContent(launchPlan.nextUnitId))
+    ) {
+      state.firstUnitId = launchPlan.nextUnitId;
+      setStep("unit", "done");
+      emit();
+    } else {
+      const existingUnit = launchPlan?.nextUnitId
+        ? launchPlan.nodes.find((node) => node.id === launchPlan?.nextUnitId)
+        : null;
+      const firstFrontier = existingUnit?.parentNodeId
+        ? launchPlan?.nodes.find(
+            (node) => node.id === existingUnit.parentNodeId,
+          )
+        : launchPlan?.nodes
+            .filter(isPrewarmNode)
+            .sort((left, right) => left.orderIndex - right.orderIndex)[0];
+      if (!launchPlan || !firstFrontier) {
+        return fail("The curriculum has no ready starting point.");
+      }
+      await deps.ensureSkillKnowledge({
+        skillNodeId: firstFrontier.id,
+        targetIdentity: launchPlan.targetIdentity,
+      });
+      const firstUnit = await deps.createSkillUnit({
+        skillNodeId: firstFrontier.id,
+        sessionId,
+        userId,
+      });
+      if (!firstUnit) {
+        return fail("I couldn't prepare your first unit. Want to try again?");
+      }
+      state.firstUnitId = firstUnit.id;
+    }
+  } catch (error) {
+    return fail(
+      messageFrom(
+        error,
+        "I couldn't prepare your first unit. Want to try again?",
+      ),
+    );
+  }
+  if (steps.find((step) => step.id === "unit")?.status !== "done") {
+    setStep("unit", "done");
+    emit();
+  }
+
   // 5 — save/finalize: flip the plan active + complete the session.
   setStep("save", "active");
   emit();
@@ -989,7 +1051,7 @@ export const buildProjectFromOnboarding = async ({
   state.moduleCount = countModules(plan);
   state.modules = plan.nodes.filter(isModuleNode).map((node) => node.title);
   state.planId = plan.id;
-  state.firstUnitId = plan.nextUnitId;
+  state.firstUnitId = plan.nextUnitId ?? state.firstUnitId;
   state.targetIdentity = plan.targetIdentity;
   state.gaps = undefined;
   emit();
@@ -1075,30 +1137,16 @@ export const buildProjectFromOnboarding = async ({
     else void generateOverview();
   }
 
-  const firstReadyUnit = plan.nodes.find(
-    (node) => node.kind === "unit" && node.status === "ready",
-  );
-  if (firstReadyUnit) {
-    const prewarmFirstUnit = () =>
-      deps.prepareUnit({ node: firstReadyUnit, sessionId }).then(
-        () => undefined,
-        (error: unknown) => {
-          console.error("First workspace unit prewarm failed", {
-            nodeId: firstReadyUnit.id,
-            error,
-          });
-        },
-      );
-    if (scheduleBackgroundTask) {
-      scheduleBackgroundTask(prewarmFirstUnit);
-    } else {
-      void prewarmFirstUnit();
-    }
-  }
-
   const prewarmNodes = plan.nodes.filter(isPrewarmNode);
   const prewarmLimiter = createTaskLimiter(PREWARM_CONCURRENCY);
   for (const node of prewarmNodes) {
+    if (
+      node.id ===
+      plan.nodes.find((candidate) => candidate.id === state.firstUnitId)
+        ?.parentNodeId
+    ) {
+      continue;
+    }
     const prewarm = async () => {
       try {
         await prewarmLimiter(async () => {

@@ -37,6 +37,10 @@ const DEFAULT_STEP_DETAILS: Record<ProjectBuildStep, ProjectBuildStepDetail> = {
     title: "Curriculum draft",
     body: "Drafting the identity profile and independent skill map.",
   },
+  unit: {
+    title: "Launch unit",
+    body: "Preparing the first complete unit before opening the workspace.",
+  },
   overview: {
     title: "Overview draft",
     body: "Writing the field map that explains the project direction.",

@@ -271,9 +271,6 @@ export const runResilientAgent = async <TSchema extends z.ZodTypeAny>({
         system,
         prompt: activePrompt,
         tools: getSearchToolsForStructuredOutput(purpose),
-        // Pace the structured-output text deltas so onPartial flushes feel like
-        // a steady stream rather than chunky bursts.
-        smoothPartials: true,
         maxSteps: profile.maxSteps,
         profile,
       });

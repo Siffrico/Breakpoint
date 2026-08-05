@@ -158,6 +158,7 @@ export function useWorkspaceSession({
         enabled:
           !preview &&
           !isHistorySelected &&
+          workspaceResult?.kind === "ready" &&
           !unitPreparing &&
           Boolean(activeNode),
         retry: false,
@@ -205,7 +206,7 @@ export function useWorkspaceSession({
         }
       : null;
   const retryUnitPreparation = useMutation(
-    trpc.training.continueLearningProject.mutationOptions({
+    trpc.training.prepareUnit.mutationOptions({
       onSuccess: async () => {
         await Promise.all([
           queryClient.invalidateQueries({
@@ -224,8 +225,12 @@ export function useWorkspaceSession({
     }),
   );
   const retryPreparation = useCallback(() => {
-    retryUnitPreparation.mutate({ sessionId: selectedSessionId });
-  }, [retryUnitPreparation, selectedSessionId]);
+    if (!preparingNodeId) return;
+    retryUnitPreparation.mutate({
+      sessionId: selectedSessionId,
+      nodeId: preparingNodeId,
+    });
+  }, [preparingNodeId, retryUnitPreparation, selectedSessionId]);
 
   // Optimistic unit overlay: a running turn streams unit-state updates faster
   // than the unit query refetches. The overlay only shadows the same unit in
@@ -251,7 +256,7 @@ export function useWorkspaceSession({
     ? workspaceShellQuery.error.message
     : aiWorkspaceQuery.isError
       ? aiWorkspaceQuery.error.message
-      : unitQuery.isError
+      : workspaceResult?.kind === "ready" && unitQuery.isError
         ? unitQuery.error.message
         : null;
   const retryWorkspaceShell = workspaceShellQuery.refetch;

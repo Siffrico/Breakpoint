@@ -493,9 +493,7 @@ function CurriculumSidebarComponent({
 
   const handleNewProject = () => {
     if (preview) return;
-    // Make new-project intent explicit. A plain /onboarding visit restores the
-    // latest session, including a completed build card after an accidental reload.
-    router.push("/onboarding?new=1");
+    router.push("/onboarding");
   };
 
   const continueProject = useMutation(

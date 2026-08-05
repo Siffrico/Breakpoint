@@ -3,12 +3,13 @@
  * intentionally opts out of the domain "persistence-agnostic" import rule.
  */
 /* eslint-disable no-restricted-imports */
+import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { eq } from "@acme/db";
-import { TrainingCurriculumNode } from "@acme/db/schema";
+import { TrainingCurriculumNode, user } from "@acme/db/schema";
 
 import type {
   CurriculumDesignerOutput,
@@ -17,6 +18,7 @@ import type {
 import type { CreateProjectInput } from "./build-project";
 import { buildProjectCheckpointRepository } from "../../../repositories/build-project-checkpoint-repository";
 import { createBuildProjectDeps } from "../../../repositories/build-project-repository-deps";
+import { appendDynamicUnitNode } from "../../../repositories/training-curriculum-node-writer";
 import { trainingCurriculumRepository } from "../../../repositories/training-curriculum-repository";
 import { trainingOnboardingRepository } from "../../../repositories/training-onboarding-repository";
 import { buildProjectFromOnboarding } from "./build-project";
@@ -232,9 +234,15 @@ describe("buildProjectFromOnboarding repository integration", () => {
       try {
         await db.transaction(async (tx) => {
           const testDb = tx as unknown as typeof db;
+          const userId = `build-project-test-${randomUUID()}`;
+          await testDb.insert(user).values({
+            id: userId,
+            name: "Build project test",
+            email: `${userId}@example.test`,
+          });
           const session = await trainingOnboardingRepository.createSession({
             db: testDb,
-            userId: null,
+            userId,
           });
           expect(session).not.toBeNull();
           if (!session) throw new Error("Expected test session.");
@@ -263,12 +271,69 @@ describe("buildProjectFromOnboarding repository integration", () => {
             failureKind: "save",
           });
 
+          const repositoryDeps = createBuildProjectDeps(testDb);
           const result = await buildProjectFromOnboarding({
             sessionId: session.id,
-            userId: null,
+            userId,
             input,
             transcript: [],
-            deps: createBuildProjectDeps(testDb),
+            deps: {
+              ...repositoryDeps,
+              ensureSkillKnowledge: () => Promise.resolve([]),
+              createSkillUnit: async ({ skillNodeId }) => {
+                const created = await appendDynamicUnitNode({
+                  db: testDb,
+                  skillNodeId,
+                  title: "Launch unit",
+                  summary: "A prepared launch unit.",
+                  whyItMatters: "The project must open into usable work.",
+                  difficultyBands: [
+                    { order: 0, minRating: 850, maxRating: 1050 },
+                  ],
+                  targetKnowledgeIds: [],
+                });
+                await trainingCurriculumRepository.createUnitContentIfAbsent({
+                  db: testDb,
+                  nodeId: created.node.id,
+                  title: "Launch unit",
+                  seedPrompt: "Begin the launch unit.",
+                  seedHint: "Trace one concrete failure.",
+                  clusterArcFrame: "Diagnose before changing state.",
+                  complexityBudget: 1,
+                  teachbackSetup: {
+                    studentPersona: "A backend engineer",
+                    openingMisconception: "Replication removes uncertainty.",
+                    roundLadder: [
+                      {
+                        round: 1,
+                        objection: "Why does lag matter?",
+                        objective: "Locate the acknowledgement boundary.",
+                      },
+                    ],
+                    passSignals: ["Explains the causal boundary"],
+                    failureModes: ["Treats replication as instantaneous"],
+                  },
+                  scenario: {
+                    title: "Replica lag",
+                    focusAreas: ["causal tracing"],
+                  },
+                  unitMasteryContract: {
+                    version: 1,
+                    dimensions: [
+                      {
+                        id: "trace-cause",
+                        name: "Trace the cause",
+                        description: "Identify the causal boundary.",
+                        passSignals: ["Names the decisive boundary"],
+                        failSignals: ["Guesses from timing"],
+                        surrogateTraps: ["Repeats a familiar diagnosis"],
+                      },
+                    ],
+                  },
+                });
+                return created.node;
+              },
+            },
             onProgress: () => undefined,
           });
 
@@ -276,7 +341,7 @@ describe("buildProjectFromOnboarding repository integration", () => {
             throw new Error(result.error);
           }
           expect(result.data.moduleCount).toBe(2);
-          expect(result.data.firstUnitId).toBeNull();
+          expect(result.data.firstUnitId).not.toBeNull();
 
           const run = await buildProjectCheckpointRepository.getRun({
             db: testDb,

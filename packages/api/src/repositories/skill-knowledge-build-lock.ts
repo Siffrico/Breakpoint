@@ -1,14 +1,12 @@
 import type { db as databaseClient } from "@acme/db/client";
-import { sql } from "@acme/db";
+
+import { withNodeBuildLifecycle } from "./node-build-lifecycle";
 
 type Database = typeof databaseClient;
 
-const SKILL_KNOWLEDGE_BUILD_LOCK_SCOPE = "build-skill-knowledge";
-
 /**
- * Serializes the full knowledge check → model → persist path for one skill.
- * The callback receives the lock transaction so it never needs a second pool
- * connection while the model call is in flight.
+ * Serializes knowledge generation through a durable lease without retaining a
+ * database transaction or pooled connection during the model call.
  */
 export const withSkillKnowledgeBuildLock = async <T>({
   db,
@@ -19,12 +17,9 @@ export const withSkillKnowledgeBuildLock = async <T>({
   skillNodeId: string;
   run: (lockDb: Database) => Promise<T>;
 }): Promise<T> =>
-  db.transaction(async (tx) => {
-    await tx.execute(
-      sql`select set_config('idle_in_transaction_session_timeout', '0', true)`,
-    );
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtext(${skillNodeId}), hashtext(${SKILL_KNOWLEDGE_BUILD_LOCK_SCOPE}))`,
-    );
-    return run(tx as unknown as Database);
+  withNodeBuildLifecycle({
+    db,
+    kind: "skill_knowledge",
+    nodeId: skillNodeId,
+    run,
   });

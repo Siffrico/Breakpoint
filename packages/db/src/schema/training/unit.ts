@@ -64,6 +64,50 @@ export const TrainingUnitContent = pgTable(
   (table) => [uniqueIndex("becoming_unit_content_node_idx").on(table.nodeId)],
 );
 
+/**
+ * Durable ownership for model-backed node artifacts. A lease is claimed and
+ * committed in short transactions; the model call itself never owns a database
+ * connection. Both knowledge maps and unit content use this lifecycle.
+ */
+export const TrainingNodeBuild = pgTable(
+  "becoming_node_build",
+  (t) => ({
+    id: t.uuid().notNull().primaryKey().defaultRandom(),
+    nodeId: t
+      .uuid()
+      .notNull()
+      .references(() => TrainingCurriculumNode.id, { onDelete: "cascade" }),
+    kind: t.varchar({ length: 32 }).notNull(),
+    status: t.varchar({ length: 16 }).notNull().default("pending"),
+    attempts: t.integer().notNull().default(0),
+    leaseId: t.uuid(),
+    leaseExpiresAt: t.timestamp({ mode: "date", withTimezone: true }),
+    failureCode: t.varchar({ length: 64 }),
+    failureMessage: t.text(),
+    startedAt: t.timestamp({ mode: "date", withTimezone: true }),
+    completedAt: t.timestamp({ mode: "date", withTimezone: true }),
+    createdAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull()
+      .$onUpdateFn(() => new Date()),
+  }),
+  (table) => [
+    uniqueIndex("becoming_node_build_kind_node_idx").on(
+      table.kind,
+      table.nodeId,
+    ),
+    index("becoming_node_build_status_lease_idx").on(
+      table.status,
+      table.leaseExpiresAt,
+    ),
+  ],
+);
+
 export const TrainingUnitPhaseResponse = pgTable(
   "becoming_unit_phase_response",
   (t) => ({
