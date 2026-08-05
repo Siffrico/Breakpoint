@@ -190,6 +190,7 @@ const makeDeps = (
     startingPoint?: Awaited<
       ReturnType<BuildProjectDeps["getStartingPoint"]>
     > | null;
+    curriculumMode?: Awaited<ReturnType<BuildProjectDeps["getCurriculumMode"]>>;
   } = {},
 ) => {
   const store = new Map<
@@ -234,6 +235,9 @@ const makeDeps = (
     ),
     getStartingPoint: vi.fn<BuildProjectDeps["getStartingPoint"]>(() =>
       Promise.resolve(opts.startingPoint ?? null),
+    ),
+    getCurriculumMode: vi.fn<BuildProjectDeps["getCurriculumMode"]>(() =>
+      Promise.resolve(opts.curriculumMode ?? "ability"),
     ),
     persistScenarioInspiration: vi.fn<
       BuildProjectDeps["persistScenarioInspiration"]

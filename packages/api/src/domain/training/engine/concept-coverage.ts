@@ -11,6 +11,22 @@
 /** How many scored solves each concept must survive before it counts. */
 export const CONCEPT_COVERAGE_TARGET = 3;
 
+/**
+ * The same bar for an outcome node's syllabus (topic mode), set lower on
+ * purpose.
+ *
+ * Three works for a skill because a skill's concept list is short. An outcome's
+ * syllabus spans a whole slice of the topic — commonly 20-30 items — and a unit
+ * can only be load-bearing on two or three of them, so a target of three would
+ * demand roughly 36 units per outcome, or ~290 across an eight-outcome plan.
+ *
+ * At one, the gate asks the question it exists to ask: has this learner been
+ * tested across the WHOLE syllabus, or only the handful of axes the generator
+ * happened to favour? Depth is the rating gate's job, and it runs alongside
+ * this one — see plan-progression.ts.
+ */
+export const SYLLABUS_COVERAGE_TARGET = 1;
+
 export interface CoverageEntry {
   coverageCount: number;
 }

@@ -1,5 +1,5 @@
 import type { db as databaseClient } from "@acme/db/client";
-import type { SeedRating } from "@acme/validators";
+import type { CurriculumMode, SeedRating } from "@acme/validators";
 import { eq } from "@acme/db";
 import {
   TrainingCurriculumNode,
@@ -19,6 +19,7 @@ export const buildProjectCurriculumRepository = {
     title,
     summary,
     targetIdentity,
+    curriculumMode,
     seedRating = null,
   }: {
     db: Database;
@@ -27,6 +28,8 @@ export const buildProjectCurriculumRepository = {
     title: string;
     summary: string;
     targetIdentity: string;
+    /** Copied from the session; the node tree beneath takes this mode's shape. */
+    curriculumMode: CurriculumMode;
     seedRating?: SeedRating | null;
   }): Promise<typeof TrainingCurriculumPlan.$inferSelect> => {
     await db
@@ -39,6 +42,7 @@ export const buildProjectCurriculumRepository = {
         title,
         summary,
         targetIdentity,
+        curriculumMode,
         seedRating,
       })
       .onConflictDoNothing({
@@ -112,13 +116,15 @@ export const buildProjectCurriculumRepository = {
     summary?: string;
     targetIdentity?: string;
   }) => {
-    if (title || summary || targetIdentity) {
+    const { outcomeOrdering } = blueprint;
+    if (title || summary || targetIdentity || outcomeOrdering) {
       await db
         .update(TrainingCurriculumPlan)
         .set({
           ...(title ? { title } : {}),
           ...(summary ? { summary } : {}),
           ...(targetIdentity ? { targetIdentity } : {}),
+          ...(outcomeOrdering ? { outcomeOrdering } : {}),
         })
         .where(eq(TrainingCurriculumPlan.id, planId));
     }

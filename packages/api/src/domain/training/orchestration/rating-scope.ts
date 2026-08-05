@@ -32,7 +32,15 @@ export class CurriculumInvariantError extends Error {
   }
 }
 
-const RATING_SCOPE_KINDS = new Set<CurriculumNode["kind"]>(["ability"]);
+/**
+ * The node kinds that own a rating: an `ability` in ability mode, an `outcome`
+ * in topic mode. Both sit one level above their units and accumulate one
+ * cumulative ELO across everything practised beneath them.
+ */
+const RATING_SCOPE_KINDS = new Set<CurriculumNode["kind"]>([
+  "ability",
+  "outcome",
+]);
 
 /**
  * Walk a unit up to its nearest `ability` ancestor

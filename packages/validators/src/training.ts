@@ -179,7 +179,36 @@ export const CurriculumNodeKindSchema = z.enum([
   "ability",
   "skill",
   "unit",
+  // Outcome-curriculum (topic mode) only: one node = one main outcome, with
+  // units directly beneath it and no skill layer. See CurriculumModeSchema.
+  "outcome",
 ]);
+
+/**
+ * Which curriculum shape a plan was built with. Decided once, before the
+ * onboarding interview starts (the two modes use different consultants), and
+ * stamped onto the plan at build time.
+ *
+ *   ability — root → ability → skill → unit. Decomposes a target IDENTITY into
+ *     the recurring jobs a practitioner does, teaching each skill's concepts in
+ *     foundation units before integrating them.
+ *   topic   — root → outcome → unit. Narrows what "mastering this topic" MEANS
+ *     until each piece has one main outcome, then practises whole tasks
+ *     against that outcome. No skill layer, no foundation units.
+ */
+export const CurriculumModeSchema = z.enum(["ability", "topic"]);
+
+/**
+ * How a topic-mode plan sequences its outcome nodes.
+ *
+ *   sequential — master one outcome, then the next. Correct whenever a learner
+ *     can tell from a task alone which outcome it belongs to, which is the
+ *     common case (an SAT grid-in is never mistaken for a reading item).
+ *   interleaved — outcomes run concurrently. Correct only when telling them
+ *     apart is itself part of the performance, e.g. "is this a data problem or
+ *     a model problem?" in diagnosis-shaped topics.
+ */
+export const OutcomeOrderingSchema = z.enum(["sequential", "interleaved"]);
 
 export const CurriculumNodeStatusSchema = z.enum([
   "planned",
@@ -206,6 +235,49 @@ export const DifficultyBandSchema = z.object({
  *               justify from the mechanism. Absorbs critique/tradeoff/diagnose.
  */
 export const ScenarioArchetypeSchema = z.enum(["select", "transform", "judge"]);
+
+/**
+ * The task-generation contract for one outcome node (topic mode only).
+ *
+ * It answers "what does a well-formed task for this outcome look like?" and is
+ * authored once by the curriculum designer, so the scenario generator never
+ * re-derives it per task. Deliberately structured rather than a prose blob: a
+ * malformed brief fails schema validation at the agent boundary instead of
+ * silently degrading every task built from it.
+ *
+ * Note the division of labour with `StoredSkillMap.workflow`, which must not
+ * restate any of this: the workflow is how a good ANSWER is produced (what the
+ * grader checks reasoning against); the brief is how a good TASK is built.
+ */
+export const ScenarioBriefSchema = z.object({
+  taskShape: z
+    .string()
+    .min(1)
+    .describe(
+      "The physical form every task under this outcome takes, concretely enough to build from — e.g. 'one 25-60 word passage, one blank, four lettered options'.",
+    ),
+  qualityBar: z
+    .array(z.string().min(1))
+    .min(1)
+    .max(6)
+    .describe(
+      "What makes a generated task good, each checkable against the finished task — e.g. 'exactly one option survives the stated constraint'.",
+    ),
+  variationAxes: z
+    .array(z.string().min(1))
+    .min(1)
+    .max(8)
+    .describe(
+      "The dimensions along which tasks legitimately differ while still demanding the same main outcome.",
+    ),
+  neverDo: z
+    .array(z.string().min(1))
+    .min(1)
+    .max(6)
+    .describe(
+      "Failure modes the generator must avoid — the ways a task can look right but stop measuring the main outcome.",
+    ),
+});
 
 export const ScenarioFormatSchema = z
   .object({
@@ -926,6 +998,9 @@ export type OnboardingTranscriptMessage = z.infer<
 >;
 export type IdentityReport = z.infer<typeof IdentityReportSchema>;
 export type CurriculumNodeKind = z.infer<typeof CurriculumNodeKindSchema>;
+export type CurriculumMode = z.infer<typeof CurriculumModeSchema>;
+export type OutcomeOrdering = z.infer<typeof OutcomeOrderingSchema>;
+export type ScenarioBrief = z.infer<typeof ScenarioBriefSchema>;
 export type CurriculumNodeStatus = z.infer<typeof CurriculumNodeStatusSchema>;
 export type DifficultyBand = z.infer<typeof DifficultyBandSchema>;
 export type SupportLevel = z.infer<typeof SupportLevelSchema>;

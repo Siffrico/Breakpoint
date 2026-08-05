@@ -6,6 +6,7 @@ import {
   countSkillsBelowRepTarget,
   createRegimeTargetSelector,
   selectInterleavedTargets,
+  selectLeastCoveredTargets,
   selectSequentialTargets,
   SKILL_REP_TARGET,
   sliceFrontier,
@@ -283,5 +284,96 @@ describe("createRegimeTargetSelector", () => {
     expect(skillPracticeHistory).toHaveBeenCalledWith({
       abilityNodeId: "ability-1",
     });
+  });
+});
+
+describe("selectLeastCoveredTargets", () => {
+  const axis = (
+    id: string,
+    coverageCount: number,
+    overrides: Partial<FrontierItem> = {},
+  ): FrontierItem => entry(id, { coverageCount, questionId: id, ...overrides });
+
+  it("takes the least-covered syllabus entries first", () => {
+    const targets = selectLeastCoveredTargets(
+      [axis("well-covered", 4), axis("untouched", 0), axis("thin", 1)],
+      2,
+    );
+
+    expect(ids(targets)).toEqual(["untouched", "thin"]);
+  });
+
+  it("never lets a repeatedly-skipped entry starve", () => {
+    // The skipped entry keeps the lowest coverage, so it wins the next pick
+    // no matter how many units went to its neighbours first.
+    const skipped = axis("skipped", 0);
+    const targets = selectLeastCoveredTargets(
+      [axis("a", 3), axis("b", 3), skipped, axis("c", 3)],
+      1,
+    );
+
+    expect(ids(targets)).toEqual(["skipped"]);
+  });
+
+  it("breaks ties on the designer's dependency order", () => {
+    const targets = selectLeastCoveredTargets(
+      [
+        axis("third", 0, { questionOrderIndex: 2 }),
+        axis("first", 0, { questionOrderIndex: 0 }),
+        axis("second", 0, { questionOrderIndex: 1 }),
+      ],
+      2,
+    );
+
+    expect(ids(targets)).toEqual(["first", "second"]);
+  });
+
+  it("treats a missing coverage count as uncovered", () => {
+    const targets = selectLeastCoveredTargets(
+      [axis("counted", 2), entry("uncounted", { questionId: "uncounted" })],
+      1,
+    );
+
+    expect(ids(targets)).toEqual(["uncounted"]);
+  });
+
+  it("keeps drawing from the whole syllabus once every axis is checked off", () => {
+    // The breadth gate is satisfied here but the rating climb usually is not,
+    // so units keep coming — and they must keep rotating rather than replaying
+    // whichever axis happened to be checked off last.
+    const targets = selectLeastCoveredTargets(
+      [
+        axis("heavily-drilled", 6, { status: "checked" }),
+        axis("barely-seen", 1, { status: "checked" }),
+        axis("moderate", 3, { status: "checked" }),
+      ],
+      2,
+    );
+
+    expect(ids(targets)).toEqual(["barely-seen", "moderate"]);
+  });
+});
+
+describe("createRegimeTargetSelector main_outcome", () => {
+  it("selects by coverage and never reads skill practice history", async () => {
+    const skillPracticeHistory = vi.fn(() =>
+      Effect.succeed([] as SkillPractice[]),
+    );
+    const select = createRegimeTargetSelector({ skillPracticeHistory });
+
+    const targets = await Effect.runPromise(
+      select({
+        skillNodeId: "outcome-1",
+        regime: "main_outcome",
+        entries: [
+          entry("covered", { coverageCount: 2, questionId: "covered" }),
+          entry("fresh", { coverageCount: 0, questionId: "fresh" }),
+        ],
+        complexityBudget: 1,
+      }),
+    );
+
+    expect(ids(targets)).toEqual(["fresh"]);
+    expect(skillPracticeHistory).not.toHaveBeenCalled();
   });
 });

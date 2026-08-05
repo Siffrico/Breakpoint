@@ -62,6 +62,21 @@ Regime rules:
 - The question may be visible to the learner; the answer may not. Never name the target mechanisms and never let the scenario resolve its own pressure.`;
   }
 
+  if (regime === "main_outcome") {
+    const mainOutcome = context.planContext.clusterContext?.mainOutcome;
+    return `Regime: MAIN OUTCOME — unframed whole-task against a fixed demand.
+Every unit under this parent demands the same thing of the learner. That demand does not change from unit to unit; what changes is which part of the syllabus the task is built to exercise.
+
+${mainOutcome ? `The demand: ${mainOutcome}` : "The demand is stated in the cluster context below."}
+
+Regime rules:
+- title: a task-worded directive naming the concrete task the learner performs. Never phrase it as a question, and never name the syllabus items.
+- Build the seedPrompt as one whole task: a concrete situation and the thing the learner must produce, with no route prescribed between them.
+- The task must be judged by the demand above and nothing else. Do not add a second thing for the learner to satisfy.
+- Name no concepts and no framing questions anywhere the learner can see. The target syllabus items steer what the task must exercise; they stay invisible.
+- Difficulty comes from ambiguity and interacting constraints a performer would realistically face — never from withholding information they would realistically have.`;
+  }
+
   if (regime === "skillset") {
     return `Regime: SKILLSET — unframed whole-task.
 The learner already has local competence on this ability's questions. This unit tests whether they can decide, unprompted, which questions, knowledge, and methods matter inside one realistic task.

@@ -237,3 +237,146 @@ describe("planSkillMapAdvancement", () => {
     });
   });
 });
+
+describe("main_outcome mastery gate", () => {
+  const settled = {
+    regime: "main_outcome" as const,
+    syllabusItemsBelowCoverage: 0,
+    learnerRating: 1400,
+    ratingDeviation: 60,
+    masteryRating: 1350,
+  };
+
+  it("completes only when syllabus breadth and rating depth both hold", () => {
+    expect(decideMasteryProgression(settled)).toEqual({
+      intent: "node_complete",
+    });
+  });
+
+  it("keeps going while any syllabus entry is uncovered, however high the rating", () => {
+    expect(
+      decideMasteryProgression({
+        ...settled,
+        syllabusItemsBelowCoverage: 1,
+        learnerRating: 2000,
+      }),
+    ).toEqual({ intent: "create_unit" });
+  });
+
+  it("keeps going while the rating is short, however complete the coverage", () => {
+    expect(
+      decideMasteryProgression({ ...settled, learnerRating: 1200 }),
+    ).toEqual({ intent: "create_unit" });
+  });
+
+  it("keeps going while the rating is unsettled at the target", () => {
+    expect(
+      decideMasteryProgression({ ...settled, ratingDeviation: 150 }),
+    ).toEqual({ intent: "create_unit" });
+  });
+
+  it("honours a contract that narrows the deviation ceiling", () => {
+    expect(
+      decideMasteryProgression({
+        ...settled,
+        ratingDeviation: 60,
+        maxRatingDeviation: 40,
+      }),
+    ).toEqual({ intent: "create_unit" });
+  });
+});
+
+describe("planSkillMapAdvancement for outcome nodes", () => {
+  const outcomeTree = (
+    statuses: Record<string, ProgressionNode["status"]>,
+  ): ProgressionNode[] => [
+    node({ id: "root", kind: "root", status: "completed" }),
+    ...["outcome-1", "outcome-2", "outcome-3"].map((id, index) =>
+      node({
+        id,
+        kind: "outcome",
+        parentNodeId: "root",
+        status: statuses[id] ?? "planned",
+        orderIndex: index + 1,
+      }),
+    ),
+  ];
+
+  it("completes the mastered outcome and opens the next one", () => {
+    const advancement = planSkillMapAdvancement(
+      outcomeTree({ "outcome-1": "ready" }),
+      "outcome-1",
+    );
+
+    expect(advancement.kind).toBe("outcome_unit");
+    expect(advancement).toMatchObject({ outcomeNodeId: "outcome-2" });
+    expect(advancement.changes).toEqual([
+      { nodeId: "outcome-1", status: "completed" },
+      { nodeId: "outcome-2", status: "ready" },
+    ]);
+  });
+
+  it("adds no status change when the next outcome is already open", () => {
+    // An interleaved plan unlocks every outcome at build time, so the next one
+    // only has to become the node the following unit hangs off.
+    const advancement = planSkillMapAdvancement(
+      outcomeTree({
+        "outcome-1": "ready",
+        "outcome-2": "ready",
+        "outcome-3": "ready",
+      }),
+      "outcome-1",
+    );
+
+    expect(advancement).toMatchObject({
+      kind: "outcome_unit",
+      outcomeNodeId: "outcome-2",
+    });
+    expect(advancement.changes).toEqual([
+      { nodeId: "outcome-1", status: "completed" },
+    ]);
+  });
+
+  it("skips outcomes that are already completed", () => {
+    const advancement = planSkillMapAdvancement(
+      outcomeTree({
+        "outcome-1": "ready",
+        "outcome-2": "completed",
+      }),
+      "outcome-1",
+    );
+
+    expect(advancement).toMatchObject({ outcomeNodeId: "outcome-3" });
+  });
+
+  it("completes the plan when the last outcome masters", () => {
+    const advancement = planSkillMapAdvancement(
+      outcomeTree({
+        "outcome-1": "completed",
+        "outcome-2": "completed",
+        "outcome-3": "ready",
+      }),
+      "outcome-3",
+    );
+
+    expect(advancement.kind).toBe("plan_complete");
+  });
+
+  it("completes the plan for a single-outcome topic", () => {
+    const advancement = planSkillMapAdvancement(
+      [
+        node({ id: "root", kind: "root", status: "completed" }),
+        node({
+          id: "outcome-1",
+          kind: "outcome",
+          parentNodeId: "root",
+          status: "ready",
+          orderIndex: 1,
+        }),
+      ],
+      "outcome-1",
+    );
+
+    expect(advancement.kind).toBe("plan_complete");
+  });
+});

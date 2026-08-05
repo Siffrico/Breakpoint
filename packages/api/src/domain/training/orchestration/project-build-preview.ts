@@ -2,10 +2,17 @@ import type {
   CurriculumDesignerOutput,
   ProjectOverviewOutput,
 } from "../agents/contracts";
+import type { OutcomeCurriculumOutput } from "../outcome-curriculum/contracts";
 import type { ProjectBuildStep, ProjectBuildStepDetail } from "./build-project";
 
 export interface ProjectBuildArtifactPayload {
-  curriculum: DeepPartial<CurriculumDesignerOutput>;
+  /**
+   * Either mode's designer output. Both carry an identity report and a plan
+   * draft whose top-level list is the thing worth streaming — `abilities` in
+   * ability mode, `outcomes` in topic mode — so the preview reads whichever is
+   * present rather than branching on the mode it was never told.
+   */
+  curriculum: DeepPartial<CurriculumDesignerOutput | OutcomeCurriculumOutput>;
   overview: DeepPartial<ProjectOverviewOutput>;
 }
 
@@ -88,7 +95,12 @@ const previewCurriculum = (
   payload: ProjectBuildArtifactPayload["curriculum"],
 ): ProjectBuildStepDetail => {
   const plan = payload.planDraft;
-  const abilities = titledItems(plan?.abilities);
+  const abilities = titledItems(
+    plan && "abilities" in plan ? plan.abilities : undefined,
+  );
+  const outcomes = titledItems(
+    plan && "outcomes" in plan ? plan.outcomes : undefined,
+  );
 
   return detailFrom(
     "Curriculum draft",
@@ -97,7 +109,8 @@ const previewCurriculum = (
       line("Headline", payload.identityReport?.headline),
       line("Plan", plan?.title),
       line("Summary", plan?.summary),
-      listLine("Abilities", abilities),
+      abilities.length > 0 ? listLine("Abilities", abilities) : null,
+      outcomes.length > 0 ? listLine("Outcomes", outcomes) : null,
     ]),
   );
 };

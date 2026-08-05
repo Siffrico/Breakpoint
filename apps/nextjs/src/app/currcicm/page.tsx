@@ -37,6 +37,7 @@ const kindLabel: Record<PlanNode["kind"], string> = {
   root: "Path",
   skill: "Skill",
   unit: "Unit",
+  outcome: "Outcome",
 };
 
 function buildCurriculumTree(nodes: Plan["nodes"]): TreeNode[] {

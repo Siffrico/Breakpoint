@@ -36,6 +36,7 @@ describe("buildProjectCurriculumRepository.upsertPlanShell", () => {
       title: "systems programming",
       summary: "Build a runtime",
       targetIdentity: "systems programmer",
+      curriculumMode: "ability",
       seedRating: nextSeed,
     });
 
@@ -72,6 +73,7 @@ describe("buildProjectCurriculumRepository.upsertPlanShell", () => {
       title: "machine learning",
       summary: "Ship a model",
       targetIdentity: "ML engineer",
+      curriculumMode: "ability",
       seedRating,
     });
 

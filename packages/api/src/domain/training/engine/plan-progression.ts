@@ -71,7 +71,33 @@ export type MasteryProgressionState =
       /** Midpoint of the top band; see masteryRatingOf in progression-model.ts. */
       masteryRating: number;
       maxRatingDeviation?: number;
+    }
+  | {
+      /**
+       * Topic mode. Same two-gate structure as skillset, but breadth is the
+       * outcome's own syllabus coverage: an outcome node has no child skills to
+       * count reps against, and its syllabus is exactly the enumeration of what
+       * a learner must have been tested across.
+       */
+      regime: "main_outcome";
+      /** Syllabus items still short of the coverage target — the breadth gate. */
+      syllabusItemsBelowCoverage: number;
+      learnerRating: number;
+      ratingDeviation: number;
+      masteryRating: number;
+      maxRatingDeviation?: number;
     };
+
+/** Depth: the rating has settled at the top band, not just touched it. */
+const ratingGatePasses = (state: {
+  learnerRating: number;
+  ratingDeviation: number;
+  masteryRating: number;
+  maxRatingDeviation?: number;
+}): boolean =>
+  state.learnerRating >= state.masteryRating &&
+  state.ratingDeviation <=
+    (state.maxRatingDeviation ?? DEFAULT_MAX_RATING_DEVIATION);
 
 /**
  * Whether a completed node's progression is owned by the dynamic mastery loop
@@ -100,12 +126,15 @@ export const decideMasteryProgression: (
       : ({ intent: "create_unit" } as const);
   }),
   Match.when({ regime: "skillset" }, (state) => {
-    const maxRatingDeviation =
-      state.maxRatingDeviation ?? DEFAULT_MAX_RATING_DEVIATION;
     const mastered =
-      state.skillsBelowRepTarget === 0 &&
-      state.learnerRating >= state.masteryRating &&
-      state.ratingDeviation <= maxRatingDeviation;
+      state.skillsBelowRepTarget === 0 && ratingGatePasses(state);
+    return mastered
+      ? ({ intent: "node_complete" } as const)
+      : ({ intent: "create_unit" } as const);
+  }),
+  Match.when({ regime: "main_outcome" }, (state) => {
+    const mastered =
+      state.syllabusItemsBelowCoverage === 0 && ratingGatePasses(state);
     return mastered
       ? ({ intent: "node_complete" } as const)
       : ({ intent: "create_unit" } as const);
@@ -133,6 +162,13 @@ export type SkillMapAdvancement =
   | {
       kind: "skillset_unit";
       abilityNodeId: string;
+      changes: StatusChange[];
+      stageChanges: StageChange[];
+    }
+  | {
+      /** Topic mode: the next outcome's first unit. */
+      kind: "outcome_unit";
+      outcomeNodeId: string;
       changes: StatusChange[];
       stageChanges: StageChange[];
     }
@@ -195,6 +231,30 @@ export const planSkillMapAdvancement = (
       };
     }
     return { kind: "none", changes, stageChanges };
+  }
+
+  // Topic mode: outcomes are siblings under the root with no layer between
+  // them and their units, so mastering one simply opens the next. An outcome
+  // already `ready` (an interleaved plan unlocks them all at build time) needs
+  // no status change — it just becomes the node the next unit is created under.
+  if (mastered.kind === "outcome") {
+    const nextOutcome = ordered.find(
+      (node) =>
+        node.kind === "outcome" &&
+        node.parentNodeId === mastered.parentNodeId &&
+        node.orderIndex > mastered.orderIndex &&
+        statusOf(node) !== "completed",
+    );
+    if (!nextOutcome) return { kind: "plan_complete", changes, stageChanges };
+    if (nextOutcome.status === "planned") {
+      changes.push({ nodeId: nextOutcome.id, status: "ready" });
+    }
+    return {
+      kind: "outcome_unit",
+      outcomeNodeId: nextOutcome.id,
+      changes,
+      stageChanges,
+    };
   }
 
   if (mastered.kind === "ability") {

@@ -28,8 +28,8 @@ export const UnitBuilderContextSchema = z.object({
     orderIndex: z.number().int().min(0),
   }),
   planContext: z.object({
-    /** Parent regime: skill → foundation, ability → skillset. */
-    regime: z.enum(["foundation", "skillset"]).nullable(),
+    /** Parent regime: skill → foundation, ability → skillset, outcome → main_outcome. */
+    regime: z.enum(["foundation", "skillset", "main_outcome"]).nullable(),
     slotIndex: z.number().int().min(1),
     totalSlots: z.number().int().min(1),
     clusterContext: z
@@ -37,6 +37,11 @@ export const UnitBuilderContextSchema = z.object({
         title: z.string().min(1),
         summary: z.string().min(1),
         whyItMatters: z.string().min(1),
+        /**
+         * Topic mode only: the one thing every task under this parent demands.
+         * Null in ability mode, where the demand varies with the unit.
+         */
+        mainOutcome: z.string().min(1).nullable(),
       })
       .nullable(),
   }),

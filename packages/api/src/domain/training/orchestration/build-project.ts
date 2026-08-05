@@ -1,4 +1,8 @@
-import type { SeedRating, StartingPointTier } from "@acme/validators";
+import type {
+  CurriculumMode,
+  SeedRating,
+  StartingPointTier,
+} from "@acme/validators";
 
 import type { Result } from "../../../lib/result";
 import type {
@@ -6,6 +10,7 @@ import type {
   LearnerBrief,
   ProjectOverviewOutput,
 } from "../agents/contracts";
+import type { OutcomeCurriculumOutput } from "../outcome-curriculum/contracts";
 import type {
   CurriculumBlueprint,
   CurriculumPlan,
@@ -24,6 +29,9 @@ import { designCurriculum } from "../agents/curriculum-designer";
 import { normalizeLearningTrackName } from "../agents/onboarding-chat-agent";
 import { designProjectOverview } from "../agents/project-overview";
 import { seedFromStartingPoint } from "../engine/rating";
+import { OutcomeCurriculumOutputSchema } from "../outcome-curriculum/contracts";
+import { designOutcomeCurriculum } from "../outcome-curriculum/outcome-designer";
+import { buildOutcomeNodes } from "../outcome-curriculum/plan-nodes";
 import { ArtifactBuildError, isArtifactBuildError } from "./agent-runtime";
 import { buildCurriculumNodes } from "./curriculum-flow";
 import {
@@ -130,8 +138,10 @@ export interface CreateProjectInput {
   summary: string;
   /** Verb-first whole-performance titles shown on the confirm card and used as
    *  ability-title hints for the curriculum designer. Optional so resumed builds
-   *  from older checkpoints (which lack it) still typecheck. */
+   *  from older checkpoints (which lack it) still typecheck. Ability mode only. */
   abilities?: string[];
+  /** Topic mode's equivalent: the outcome titles the learner approved. */
+  outcomes?: string[];
   /** Where the learner is starting from, and why. Seeds the plan's rating.
    *  Optional for the same resume-compatibility reason. */
   startingPoint?: {
@@ -264,6 +274,13 @@ export interface BuildProjectDeps {
   getStartingPoint: (
     sessionId: string,
   ) => Promise<{ tier: StartingPointTier; label: string } | null>;
+  /**
+   * Which curriculum shape this session builds. Chosen before the interview
+   * (the two modes run different consultants) and read here rather than passed
+   * in the tool input, so a resumed build can never disagree with the session
+   * about which designer already ran.
+   */
+  getCurriculumMode: (sessionId: string) => Promise<CurriculumMode>;
   /** Persist onboarding-derived scenario inspiration into learner memory. */
   persistScenarioInspiration: (input: {
     userId: string;
@@ -277,6 +294,7 @@ export interface BuildProjectDeps {
     title: string;
     summary: string;
     targetIdentity: string;
+    curriculumMode: CurriculumMode;
     seedRating: SeedRating | null;
   }) => Promise<{ id: string }>;
   /**
@@ -318,16 +336,35 @@ export interface BuildProjectDeps {
   }) => Promise<unknown>;
 }
 
+/**
+ * A finished curriculum from either mode, tagged so the blueprint builder and
+ * the artifact re-parse never have to guess which designer produced it.
+ * `mode` is derived from the plan, never from inspecting the payload's shape.
+ */
+type CurriculumDesign =
+  | {
+      mode: "ability";
+      identityReport: IdentityReport;
+      planDraft: CurriculumDesignerOutput["planDraft"];
+    }
+  | {
+      mode: "topic";
+      identityReport: IdentityReport;
+      planDraft: OutcomeCurriculumOutput["planDraft"];
+    };
+
+/** The nodes shown as the project's modules: abilities, or topic-mode outcomes. */
 const isModuleNode = (node: { kind: string }): boolean =>
-  node.kind === "ability";
+  node.kind === "ability" || node.kind === "outcome";
 
 /**
- * Skills whose knowledge map is prewarmed at build time. Skills are gated
- * skill-by-skill: only unlocked (ready) ones need a knowledge map now — the rest
- * are generated lazily at unlock time.
+ * Nodes whose knowledge map (ability mode) or syllabus (topic mode) is
+ * generated at build time. Both are gated node-by-node: only unlocked (ready)
+ * ones are needed now, and the rest are generated lazily at unlock time. In a
+ * sequential topic plan that is exactly one node.
  */
-const isPrewarmSkillNode = (node: { kind: string; status: string }): boolean =>
-  node.kind === "skill" && node.status === "ready";
+const isPrewarmNode = (node: { kind: string; status: string }): boolean =>
+  (node.kind === "skill" || node.kind === "outcome") && node.status === "ready";
 
 /**
  * Ceiling on concurrent knowledge-map AI calls. The
@@ -406,6 +443,39 @@ const decide = (record?: ProjectBuildArtifactRecord): ArtifactAction => {
   return "generate"; // generating (crashed) or failed
 };
 
+/**
+ * Re-read a checkpointed curriculum artifact for a zero-token re-save.
+ *
+ * Validated against the schema of the plan's OWN mode, never sniffed from the
+ * payload: a resumed build must refuse a payload written by the other
+ * designer rather than persist a tree of the wrong shape. A refusal is safe —
+ * the caller falls through to a fresh generation.
+ */
+const parseCachedDesign = (
+  mode: CurriculumMode,
+  payload: unknown,
+):
+  | { success: true; data: CurriculumDesign }
+  | { success: false; data?: undefined } => {
+  const parsed =
+    mode === "topic"
+      ? OutcomeCurriculumOutputSchema.safeParse(payload)
+      : CurriculumDesignerOutputSchema.safeParse(payload);
+  if (!parsed.success) return { success: false };
+  return mode === "topic"
+    ? {
+        success: true,
+        data: {
+          mode,
+          ...(parsed.data as OutcomeCurriculumOutput),
+        },
+      }
+    : {
+        success: true,
+        data: { mode, ...(parsed.data as CurriculumDesignerOutput) },
+      };
+};
+
 /** Seed a continuation from a mid-stream crash or a truncated failure. */
 const seedFor = (record?: ProjectBuildArtifactRecord): unknown =>
   record && (record.status === "generating" || record.failureKind === "partial")
@@ -455,9 +525,12 @@ export const buildProjectFromOnboarding = async ({
 > => {
   const projectName = normalizeLearningTrackName(input.projectName);
   const brief = resolveLearnerBrief(input);
-  const persistedStartingPoint = await deps
-    .getStartingPoint(sessionId)
-    .catch(() => null);
+  const [persistedStartingPoint, curriculumMode] = await Promise.all([
+    deps.getStartingPoint(sessionId).catch(() => null),
+    // Fail closed to the original mode: a read failure must not silently
+    // rebuild a topic plan as an ability plan.
+    deps.getCurriculumMode(sessionId).catch(() => "ability" as const),
+  ]);
   const sourceKey = getProjectBuildSourceKey(input, persistedStartingPoint);
   const steps = initialSteps();
   const state: ProjectBuildState = {
@@ -571,8 +644,12 @@ export const buildProjectFromOnboarding = async ({
         .catch(() => undefined);
       partialTail.set(step, next);
     };
+  // Accepts either designer's partial: the preview and the checkpoint sink both
+  // read defensively, so neither needs to know which mode produced it.
   const curriculumPartialSink = (
-    partial: Partial<CurriculumDesignerOutput>,
+    partial:
+      | Partial<CurriculumDesignerOutput>
+      | Partial<OutcomeCurriculumOutput>,
   ) => {
     setArtifactDetail({ step: "curriculum", payload: partial });
     persistPartial("curriculum")(partial);
@@ -656,6 +733,7 @@ export const buildProjectFromOnboarding = async ({
       title: projectName,
       summary: input.summary.trim(),
       targetIdentity: input.targetIdentity.trim(),
+      curriculumMode,
       seedRating,
     });
     planId = shell.id;
@@ -686,21 +764,36 @@ export const buildProjectFromOnboarding = async ({
     }
   }
 
-  const buildBlueprint = (
-    design: CurriculumDesignerOutput,
-  ): CurriculumBlueprint => ({
-    title: projectName,
-    summary: design.planDraft.summary,
-    targetIdentity: design.identityReport.targetIdentity,
-    overview: null, // persisted separately via persistOverview
-    nodes: buildCurriculumNodes(
-      design.planDraft,
-      design.identityReport.targetIdentity,
-      design.identityReport.headline,
-    ),
-  });
+  const buildBlueprint = (design: CurriculumDesign): CurriculumBlueprint => {
+    const { identityReport } = design;
+    const shared = {
+      title: projectName,
+      summary: design.planDraft.summary,
+      targetIdentity: identityReport.targetIdentity,
+      overview: null, // persisted separately via persistOverview
+    };
+    return design.mode === "topic"
+      ? {
+          ...shared,
+          outcomeOrdering: design.planDraft.ordering,
+          nodes: buildOutcomeNodes(
+            design.planDraft,
+            identityReport.targetIdentity,
+            identityReport.headline,
+          ),
+        }
+      : {
+          ...shared,
+          outcomeOrdering: null,
+          nodes: buildCurriculumNodes(
+            design.planDraft,
+            identityReport.targetIdentity,
+            identityReport.headline,
+          ),
+        };
+  };
 
-  const persistDesign = async (design: CurriculumDesignerOutput) => {
+  const persistDesign = async (design: CurriculumDesign) => {
     const blueprint = buildBlueprint(design);
     state.modules = moduleTitles(blueprint);
     state.moduleCount = state.modules.length;
@@ -729,7 +822,8 @@ export const buildProjectFromOnboarding = async ({
     }
 
     if (action === "save_only") {
-      const cached = CurriculumDesignerOutputSchema.safeParse(
+      const cached = parseCachedDesign(
+        curriculumMode,
         curriculumRecord?.payload,
       );
       if (cached.success) {
@@ -766,19 +860,38 @@ export const buildProjectFromOnboarding = async ({
     }
 
     const attempts = attemptsBase + 1;
-    let design: CurriculumDesignerOutput;
+    let design: CurriculumDesign;
     try {
-      design = await designCurriculum({
-        brief,
-        transcript,
-        abilities: input.abilities,
-        options: {
-          onPartial: curriculumPartialSink,
-          seedPartial: seedFor(curriculumRecord) as
-            | Partial<CurriculumDesignerOutput>
-            | undefined,
-        },
-      });
+      design =
+        curriculumMode === "topic"
+          ? {
+              mode: "topic",
+              ...(await designOutcomeCurriculum({
+                topic: projectName,
+                transcript,
+                proposedOutcomes: input.outcomes,
+                options: {
+                  onPartial: curriculumPartialSink,
+                  seedPartial: seedFor(curriculumRecord) as
+                    | Partial<OutcomeCurriculumOutput>
+                    | undefined,
+                },
+              })),
+            }
+          : {
+              mode: "ability",
+              ...(await designCurriculum({
+                brief,
+                transcript,
+                abilities: input.abilities,
+                options: {
+                  onPartial: curriculumPartialSink,
+                  seedPartial: seedFor(curriculumRecord) as
+                    | Partial<CurriculumDesignerOutput>
+                    | undefined,
+                },
+              })),
+            };
       setArtifactDetail({ step: "curriculum", payload: design });
     } catch (error) {
       await recordArtifact(
@@ -983,33 +1096,34 @@ export const buildProjectFromOnboarding = async ({
     }
   }
 
-  const skills = plan.nodes.filter(isPrewarmSkillNode);
+  const prewarmNodes = plan.nodes.filter(isPrewarmNode);
   const prewarmLimiter = createTaskLimiter(PREWARM_CONCURRENCY);
-  for (const skill of skills) {
-    const prepareSkill = async () => {
+  for (const node of prewarmNodes) {
+    const prewarm = async () => {
       try {
         await prewarmLimiter(async () => {
           await deps.ensureSkillKnowledge({
-            skillNodeId: skill.id,
+            skillNodeId: node.id,
             targetIdentity: plan.targetIdentity,
           });
-          if (userId && skill.status === "ready") {
+          if (userId) {
             await deps.createSkillUnit({
-              skillNodeId: skill.id,
+              skillNodeId: node.id,
               sessionId,
               userId,
             });
           }
         });
       } catch (error) {
-        console.error("Skill knowledge prewarm failed", {
-          skillNodeId: skill.id,
+        console.error("Curriculum node prewarm failed", {
+          nodeId: node.id,
+          kind: node.kind,
           error,
         });
       }
     };
-    if (scheduleBackgroundTask) scheduleBackgroundTask(prepareSkill);
-    else void prepareSkill();
+    if (scheduleBackgroundTask) scheduleBackgroundTask(prewarm);
+    else void prewarm();
   }
 
   return ok({

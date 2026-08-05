@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { check, index, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
 
-import type { ScenarioArchetype } from "@acme/validators";
+import type { ScenarioArchetype, ScenarioBrief } from "@acme/validators";
 
 import { user } from "../../auth-schema";
 import { TrainingOnboardingSession } from "./onboarding";
@@ -28,6 +28,15 @@ export const TrainingCurriculumPlan = pgTable(
     // "generating" while the build fills the shell, "active" once the curriculum
     // (the required artifact) has landed. Free-form varchar — no enum migration.
     status: t.varchar({ length: 32 }).notNull().default("active"),
+    // Copied from the onboarding session at shell creation and never changed:
+    // the node tree beneath this plan has the shape this mode produced, so a
+    // plan built in one mode can never be reinterpreted as the other.
+    // See @acme/validators CurriculumModeSchema.
+    curriculumMode: t.varchar({ length: 24 }).notNull().default("ability"),
+    // Topic mode only: how the outcome nodes are sequenced, decided by the
+    // curriculum designer. Null on ability-mode plans.
+    // See @acme/validators OutcomeOrderingSchema.
+    outcomeOrdering: t.varchar({ length: 16 }),
     title: t.varchar({ length: 240 }).notNull(),
     summary: t.text().notNull(),
     targetIdentity: t.varchar({ length: 240 }).notNull(),
@@ -107,6 +116,11 @@ export const TrainingCurriculumNode = pgTable(
         maxRatingDeviation?: number;
       };
       scenarioArchetype: ScenarioArchetype;
+      // Outcome nodes only: the main outcome every task beneath this node is
+      // judged against, plus the contract for building a well-formed task.
+      // Absent on ability/skill nodes.
+      mainOutcome?: string;
+      scenarioBrief?: ScenarioBrief;
     }>(),
     orderIndex: t.integer().notNull(),
     depth: t.integer().notNull(),
@@ -131,6 +145,11 @@ export const TrainingCurriculumNode = pgTable(
       table.parentNodeId,
       table.practicedSkillNodeId,
     ),
+    // Shape invariant for both curriculum modes. `outcome` nodes (topic mode)
+    // behave like abilities in that they carry a skill map and own a rating,
+    // but they have no foundations→skillset progression, so their stage stays
+    // null. Keeping this strict is deliberate: a writer that produces a
+    // malformed node fails here rather than running as a degraded legacy node.
     check(
       "becoming_curriculum_node_v4_shape",
       sql`(
@@ -141,16 +160,17 @@ export const TrainingCurriculumNode = pgTable(
         )
         or (kind <> 'ability' and ability_stage is null)
       )
-      and kind in ('root', 'ability', 'skill', 'unit')
+      and kind in ('root', 'ability', 'skill', 'unit', 'outcome')
       and (
         (
-          kind in ('ability', 'skill')
+          kind in ('ability', 'skill', 'outcome')
           and skill_map is not null
           and coalesce(skill_map ->> 'scenarioArchetype', '') in ('select', 'transform', 'judge')
           and not (skill_map ? 'scenarioFormats')
         )
         or (kind in ('root', 'unit') and skill_map is null)
-      )`,
+      )
+      and (kind = 'outcome' or not (skill_map ? 'mainOutcome'))`,
     ),
   ],
 );

@@ -33,6 +33,12 @@ export interface FrontierItem {
   /** Position in the owning skill's dependency-ordered knowledge list. */
   orderIndex: number;
   /**
+   * Scored solves this entry has already been load-bearing in. Only the
+   * main_outcome selector reads it; the other two order by dependency and
+   * rep count instead.
+   */
+  coverageCount?: number;
+  /**
    * Skill that owns this item. Only meaningful on a skillset frontier, which
    * spans an ability's child skills; a foundation frontier is single-skill by
    * construction and leaves it unset.
@@ -40,7 +46,11 @@ export interface FrontierItem {
   ownerSkillId?: string | null;
 }
 
-export type UnitCreationRegime = "foundation" | "skillset" | null;
+export type UnitCreationRegime =
+  | "foundation"
+  | "skillset"
+  | "main_outcome"
+  | null;
 
 /** Max knowledge items one foundation sitting can give real reps to. */
 export const FOUNDATION_UNIT_KNOWLEDGE_CAP = 4;
@@ -187,6 +197,39 @@ export const selectInterleavedTargets = (
     .slice(0, complexityBudget);
 };
 
+/**
+ * Topic mode: the least-covered axes of this outcome's syllabus.
+ *
+ * The outcome's demand never changes, so what a unit is *for* is covering a
+ * part of the syllabus the learner has not been tested on yet. Taking the
+ * minimum coverage first gives the same no-starvation guarantee the skillset
+ * round-robin has: nothing can be skipped indefinitely, because a skipped
+ * entry's coverage stays lowest and it wins the very next pick.
+ *
+ * Ties break on `orderIndex`, which arrives in the designer's dependency order,
+ * so among equally-uncovered axes the earlier one leads.
+ */
+export const selectLeastCoveredTargets = (
+  entries: readonly FrontierItem[],
+  complexityBudget: 1 | 2 | 3,
+): FrontierItem[] => {
+  // Once every axis is checked off, the breadth gate is satisfied but the
+  // rating climb usually is not, so units keep coming. They are drawn from the
+  // whole syllabus by the same least-covered rule rather than from the shared
+  // recently-checked fallback, which replays one authored question and would
+  // spend the entire remaining climb on whichever axis happened to be last.
+  const unchecked = uncheckedOf(entries);
+  const pool = unchecked.length > 0 ? unchecked : entries;
+  return [...pool]
+    .sort(
+      (left, right) =>
+        (left.coverageCount ?? 0) - (right.coverageCount ?? 0) ||
+        left.questionOrderIndex - right.questionOrderIndex ||
+        left.orderIndex - right.orderIndex,
+    )
+    .slice(0, complexityBudget);
+};
+
 export interface UnitTargetSelectorInput {
   /** The skill or ability the unit is being created under. */
   skillNodeId: string;
@@ -221,11 +264,21 @@ export const createRegimeTargetSelector =
   ({
     skillPracticeHistory,
   }: RegimeTargetSelectorDependencies): UnitTargetSelector =>
-  ({ skillNodeId, regime, entries, complexityBudget }) =>
-    regime === "skillset"
-      ? Effect.map(
+  ({ skillNodeId, regime, entries, complexityBudget }) => {
+    switch (regime) {
+      case "skillset":
+        return Effect.map(
           skillPracticeHistory({ abilityNodeId: skillNodeId }),
           (practice) =>
             selectInterleavedTargets(entries, complexityBudget, practice),
-        )
-      : Effect.succeed(selectSequentialTargets(entries, complexityBudget));
+        );
+      case "main_outcome":
+        return Effect.succeed(
+          selectLeastCoveredTargets(entries, complexityBudget),
+        );
+      default:
+        return Effect.succeed(
+          selectSequentialTargets(entries, complexityBudget),
+        );
+    }
+  };

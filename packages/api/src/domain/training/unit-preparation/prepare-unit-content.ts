@@ -107,6 +107,18 @@ const RESTART_SCHEDULE = Schedule.exponential(Duration.millis(300), 2).pipe(
 const contextMissing = (message: string, cause?: unknown) =>
   new UnitContextMissingError({ message, cause });
 
+/**
+ * The parent's fixed demand, present only on outcome nodes (topic mode).
+ * `skillMap` arrives as `unknown` here — the plan-node projection deliberately
+ * does not model it — so this reads the one field it needs defensively rather
+ * than forcing a schema parse of a shape this file otherwise ignores.
+ */
+const mainOutcomeOf = (skillMap: unknown): string | null => {
+  if (typeof skillMap !== "object" || skillMap === null) return null;
+  const value = (skillMap as { mainOutcome?: unknown }).mainOutcome;
+  return typeof value === "string" && value.trim() ? value : null;
+};
+
 const assembleSeedContext = ({
   nodeId,
   planNodes,
@@ -167,6 +179,7 @@ const assembleSeedContext = ({
             title: parentNode.title,
             summary: parentNode.summary,
             whyItMatters: parentNode.whyItMatters,
+            mainOutcome: mainOutcomeOf(parentNode.skillMap),
           }
         : null,
     },

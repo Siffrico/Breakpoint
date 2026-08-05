@@ -10,6 +10,10 @@
 //     from the ability's floor, and can never gate mastery.
 //   skillset (ability) — the ELO tier climb. Mastered at peak rating with a
 //     tight deviation. Abilities own no knowledge map; their child skills do.
+//   main_outcome (outcome nodes, topic mode) — the same ELO climb as skillset,
+//     but its breadth gate is its OWN syllabus coverage rather than reps across
+//     child skills, because an outcome node has no children. See
+//     outcome-curriculum/ for the mode this belongs to.
 
 import type { ScenarioArchetype, ScenarioFormat } from "@acme/validators";
 
@@ -83,6 +87,12 @@ export const foundationCalibrationRamp = (abilityRamp: {
   peakRating: abilityRamp.startRating + FOUNDATION_RAMP_SPAN,
 });
 
+/** The rating gate shared by every regime that runs an ELO climb. */
+export interface RatingMasteryGate {
+  masteryRating: number;
+  maxRatingDeviation: number;
+}
+
 export type ProgressionModel =
   | {
       regime: "foundation";
@@ -94,7 +104,13 @@ export type ProgressionModel =
       regime: "skillset";
       workflow: StoredSkillMap["workflow"];
       bandRamp: { startRating: number; peakRating: number };
-      mastery: { masteryRating: number; maxRatingDeviation: number };
+      mastery: RatingMasteryGate;
+    }
+  | {
+      regime: "main_outcome";
+      workflow: StoredSkillMap["workflow"];
+      bandRamp: { startRating: number; peakRating: number };
+      mastery: RatingMasteryGate;
     };
 
 /**
@@ -109,6 +125,8 @@ export const regimeForNodeKind = (
       return "foundation";
     case "ability":
       return "skillset";
+    case "outcome":
+      return "main_outcome";
     default:
       return null;
   }
@@ -127,6 +145,11 @@ export const resolveProgressionModel = (node: {
   const regime = regimeForNodeKind(node.kind);
   if (!regime || !node.skillMap) return null;
   const { workflow, bandRamp, masteryContract } = node.skillMap;
+  const ratingGate = (): RatingMasteryGate => ({
+    masteryRating: masteryRatingOf(node.difficultyBands, bandRamp),
+    maxRatingDeviation:
+      masteryContract.maxRatingDeviation ?? DEFAULT_MAX_RATING_DEVIATION,
+  });
   switch (regime) {
     case "foundation":
       return {
@@ -135,16 +158,8 @@ export const resolveProgressionModel = (node: {
         calibrationRamp: foundationCalibrationRamp(bandRamp),
       };
     case "skillset":
-      return {
-        regime,
-        workflow,
-        bandRamp,
-        mastery: {
-          masteryRating: masteryRatingOf(node.difficultyBands, bandRamp),
-          maxRatingDeviation:
-            masteryContract.maxRatingDeviation ?? DEFAULT_MAX_RATING_DEVIATION,
-        },
-      };
+    case "main_outcome":
+      return { regime, workflow, bandRamp, mastery: ratingGate() };
   }
 };
 

@@ -3,9 +3,10 @@ import { TRPCError } from "@trpc/server";
 import { Effect } from "effect";
 import { z } from "zod/v4";
 
-import type { StartingPointTier } from "@acme/validators";
+import type { CurriculumMode, StartingPointTier } from "@acme/validators";
 import { sql } from "@acme/db";
 import {
+  CurriculumModeSchema,
   StartingPointTierSchema,
   WorkspaceShellInputSchema,
 } from "@acme/validators";
@@ -51,6 +52,26 @@ import { protectedProcedure } from "../trpc";
 const SessionIdSchema = z.object({
   sessionId: z.string().uuid(),
 });
+
+const StartOnboardingSchema = z.object({
+  curriculumMode: CurriculumModeSchema.optional(),
+});
+
+/**
+ * The curriculum mode a client asked for, gated to non-production.
+ *
+ * Topic mode is still being built out, so the toggle that requests it is a
+ * local development affordance. Enforcing that here rather than only hiding the
+ * control means a hand-crafted request cannot create a topic-mode session in
+ * production — a session's mode is permanent, so this is not somewhere to
+ * trust the client.
+ */
+const resolveRequestedCurriculumMode = (
+  requested: CurriculumMode | undefined,
+): CurriculumMode =>
+  requested === "topic" && process.env.NODE_ENV !== "production"
+    ? "topic"
+    : "ability";
 
 const SetStartingPointSchema = z.object({
   sessionId: z.string().uuid(),
@@ -228,22 +249,29 @@ export const trainingRouter = {
       }),
     ),
 
-  startOnboarding: protectedProcedure.mutation(async ({ ctx }) =>
-    throwOnFailure(
-      await startOnboardingWorkflow({
-        userId: ctx.session.user.id,
-        deps: {
-          createSession: (userId) =>
-            trainingOnboardingRepository.createSession({ db: ctx.db, userId }),
-          appendMessage: (input) =>
-            trainingOnboardingRepository.appendMessage({
-              db: ctx.db,
-              ...input,
-            }),
-        },
-      }),
+  startOnboarding: protectedProcedure
+    .input(StartOnboardingSchema.optional())
+    .mutation(async ({ ctx, input }) =>
+      throwOnFailure(
+        await startOnboardingWorkflow({
+          userId: ctx.session.user.id,
+          curriculumMode: resolveRequestedCurriculumMode(input?.curriculumMode),
+          deps: {
+            createSession: ({ userId, curriculumMode }) =>
+              trainingOnboardingRepository.createSession({
+                db: ctx.db,
+                userId,
+                curriculumMode,
+              }),
+            appendMessage: (message) =>
+              trainingOnboardingRepository.appendMessage({
+                db: ctx.db,
+                ...message,
+              }),
+          },
+        }),
+      ),
     ),
-  ),
 
   onboardingState: protectedProcedure
     .input(SessionIdSchema)

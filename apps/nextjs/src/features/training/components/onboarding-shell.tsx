@@ -146,6 +146,7 @@ export function OnboardingShell({
   embedded = false,
   sessionId: sessionIdProp,
   initialState = null,
+  curriculumMode,
   onRunningChange,
   onTurnCountChange,
 }: {
@@ -153,6 +154,12 @@ export function OnboardingShell({
   embedded?: boolean;
   sessionId?: string;
   initialState?: OnboardingState | null;
+  /**
+   * Which curriculum shape a newly started session builds toward. Only read
+   * when this mount actually starts a session; the server ignores "topic"
+   * outside development.
+   */
+  curriculumMode?: "ability" | "topic";
   variant?: "default" | "landscape";
   onRunningChange?: (isRunning: boolean) => void;
   onTurnCountChange?: (count: number) => void;
@@ -201,8 +208,8 @@ export function OnboardingShell({
   useEffect(() => {
     if (preview || sessionId || startedRef.current) return;
     startedRef.current = true;
-    startOnboarding.mutate();
-  }, [preview, sessionId, startOnboarding]);
+    startOnboarding.mutate({ curriculumMode });
+  }, [curriculumMode, preview, sessionId, startOnboarding]);
 
   useEffect(() => {
     return () => {

@@ -1,7 +1,10 @@
 import { Effect } from "effect";
 
 import type { db as databaseClient } from "@acme/db/client";
-import { StartingPointTierSchema } from "@acme/validators";
+import {
+  CurriculumModeSchema,
+  StartingPointTierSchema,
+} from "@acme/validators";
 
 import type { BuildProjectDeps } from "../domain/training/orchestration/build-project";
 import {
@@ -193,6 +196,18 @@ export const createBuildProjectDeps = (db: Database): BuildProjectDeps => ({
     return { tier: parsed.data, label: session.startingPointLabel };
   },
 
+  getCurriculumMode: async (sessionId) => {
+    const session = await trainingOnboardingRepository.getSession({
+      db,
+      sessionId,
+    });
+    // An unreadable or unrecognised value means the session predates the
+    // column, so it is an ability-mode session by construction.
+    return (
+      CurriculumModeSchema.safeParse(session?.curriculumMode).data ?? "ability"
+    );
+  },
+
   persistScenarioInspiration: async ({ userId, content }) => {
     const normalized = normalizeMemoryContent(content);
     const result = await memoryRepository.create({
@@ -217,6 +232,7 @@ export const createBuildProjectDeps = (db: Database): BuildProjectDeps => ({
     title,
     summary,
     targetIdentity,
+    curriculumMode,
     seedRating,
   }) => {
     const plan = await buildProjectCheckpointRepository.withRunOwnership({
@@ -231,6 +247,7 @@ export const createBuildProjectDeps = (db: Database): BuildProjectDeps => ({
           title,
           summary,
           targetIdentity,
+          curriculumMode,
           seedRating,
         }),
     });

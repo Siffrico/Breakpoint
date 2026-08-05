@@ -32,6 +32,7 @@ import type {
   OnboardingQuestion,
   OnboardingSlot,
   OnboardingTranscriptMessage,
+  OutcomeOrdering,
   PostSeedUnitContentDraft,
   PracticeEvaluation,
   PracticePrompt,
@@ -39,6 +40,7 @@ import type {
   PreSeedUnitContentDraft,
   ProjectOverview,
   ScenarioArchetype,
+  ScenarioBrief,
   ScenarioEvaluationContract,
   SubmitEducationUnitStep,
   TeachbackMessage,
@@ -125,6 +127,9 @@ export interface CurriculumNodeBlueprint {
       maxRatingDeviation?: number;
     };
     scenarioArchetype: ScenarioArchetype;
+    /** Outcome nodes only — see @acme/validators ScenarioBriefSchema. */
+    mainOutcome?: string;
+    scenarioBrief?: ScenarioBrief;
   } | null;
 }
 
@@ -148,6 +153,8 @@ export interface CurriculumBlueprint {
   targetIdentity: string;
   overview: ProjectOverview | null;
   nodes: CurriculumNodeBlueprint[];
+  /** Topic mode only: how the outcome nodes are sequenced. Null in ability mode. */
+  outcomeOrdering: OutcomeOrdering | null;
 }
 
 export interface OnboardingSessionState {

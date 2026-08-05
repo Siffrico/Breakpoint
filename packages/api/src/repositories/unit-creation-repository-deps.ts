@@ -15,7 +15,10 @@ import type { JobRatingState } from "../domain/training/engine/rating";
 import type { CreateNextUnitDependencies } from "../domain/training/unit-creation/create-next-unit";
 import type { SkillPractice } from "../domain/training/unit-creation/target-selection";
 import { designSkillKnowledge } from "../domain/training/agents/knowledge-mapper";
-import { CONCEPT_COVERAGE_TARGET } from "../domain/training/engine/concept-coverage";
+import {
+  CONCEPT_COVERAGE_TARGET,
+  SYLLABUS_COVERAGE_TARGET,
+} from "../domain/training/engine/concept-coverage";
 import {
   difficultyRampOf,
   regimeForNodeKind,
@@ -27,6 +30,7 @@ import {
   expandSkillBands,
 } from "../domain/training/engine/rating";
 import { resolveScenarioDirective } from "../domain/training/orchestration/goldilocks";
+import { designOutcomeSyllabus } from "../domain/training/outcome-curriculum/syllabus-mapper";
 import { advanceSkillMapNodeWorkflow } from "../domain/training/unit-creation/advance-skill-map-node";
 import { createNextUnit } from "../domain/training/unit-creation/create-next-unit";
 import {
@@ -64,7 +68,11 @@ export const ensureSkillKnowledge = async ({
         db: lockDb,
         nodeId: skillNodeId,
       });
-      if (!cluster?.skillMap || cluster.kind !== "skill") return null;
+      const skillMap = cluster?.skillMap;
+      if (!skillMap) return null;
+      const ownsKnowledge =
+        cluster.kind === "skill" || cluster.kind === "outcome";
+      if (!ownsKnowledge) return null;
       const existing = await skillKnowledgeRepository.listKnowledge({
         db: lockDb,
         skillNodeId,
@@ -77,17 +85,37 @@ export const ensureSkillKnowledge = async ({
           });
       const identity = targetIdentity ?? plan?.targetIdentity;
       if (!identity) return null;
-      const knowledge = await designSkillKnowledge({
-        title: cluster.title,
-        summary: cluster.summary,
-        targetIdentity: identity,
-        workflow: cluster.skillMap.workflow,
-        masteryContract: cluster.skillMap.masteryContract,
-      });
+      // Both modes persist into the same question/items tables; only the agent
+      // that authors them differs. In topic mode a "question" is a variation
+      // axis of the outcome's syllabus — see outcome-curriculum/contracts.ts.
+      const questions =
+        cluster.kind === "outcome"
+          ? (
+              await designOutcomeSyllabus({
+                targetIdentity: identity,
+                outcomeTitle: cluster.title,
+                mainOutcome: skillMap.mainOutcome ?? cluster.summary,
+                summary: cluster.summary,
+                workflow: skillMap.workflow,
+                exitCriteria: skillMap.masteryContract.exitCriteria,
+              })
+            ).axes.map((entry) => ({
+              question: entry.axis,
+              items: entry.items,
+            }))
+          : (
+              await designSkillKnowledge({
+                title: cluster.title,
+                summary: cluster.summary,
+                targetIdentity: identity,
+                workflow: skillMap.workflow,
+                masteryContract: skillMap.masteryContract,
+              })
+            ).questions;
       return skillKnowledgeRepository.ensureKnowledge({
         db: lockDb,
         skillNodeId,
-        questions: knowledge.questions,
+        questions,
       });
     },
   });
@@ -170,6 +198,27 @@ export const createUnitCreationRepositoryDeps = ({
           ),
           orderBy: [desc(TrainingCurriculumNode.orderIndex)],
         });
+
+        // Topic mode: an outcome node owns its syllabus directly, so the
+        // frontier is simply its own entries, weakest-covered first. Unlike the
+        // ability branch below, the stored status is left alone — these items
+        // check off against this very node, so it is already correct.
+        if (node.kind === "outcome") {
+          const entries = await skillKnowledgeRepository.listKnowledge({
+            db,
+            skillNodeId,
+          });
+          return {
+            title: node.title,
+            whyItMatters: node.whyItMatters,
+            regime,
+            entries: entries.map((entry) => ({
+              ...toFrontierItem(entry),
+              coverageCount: entry.coverageCount,
+            })),
+            openUnit: openUnit ?? null,
+          };
+        }
 
         // Skillset units (parent = ability): the "frontier" is the ability's
         // weakest concepts across ALL its skills — the least-covered ones are
@@ -397,6 +446,34 @@ export const loadProgressionState = async ({
       return {
         regime: "skillset",
         skillsBelowRepTarget: countSkillsBelowRepTarget(practice),
+        learnerRating: progress.ratingState.rating,
+        ratingDeviation: progress.ratingState.ratingDeviation,
+        masteryRating: model.mastery.masteryRating,
+        maxRatingDeviation: model.mastery.maxRatingDeviation,
+      };
+    }
+    case "main_outcome": {
+      const [seed, syllabus] = await Promise.all([
+        resolvePlanSeedRating({ db, nodeId: skillNodeId }),
+        skillKnowledgeRepository.listKnowledge({ db, skillNodeId }),
+      ]);
+      const progress = await trainingRatingRepository.loadJobProgress({
+        db,
+        userId,
+        nodeId: skillNodeId,
+        initialRatingState: seed ?? createInitialRatingState(),
+      });
+      return {
+        regime: "main_outcome",
+        // An empty syllabus is never mastered: it means the mapper has not run
+        // (or failed), not that the learner has covered everything. Reporting
+        // zero here would complete the outcome on rating alone.
+        syllabusItemsBelowCoverage:
+          syllabus.length === 0
+            ? 1
+            : syllabus.filter(
+                (entry) => entry.coverageCount < SYLLABUS_COVERAGE_TARGET,
+              ).length,
         learnerRating: progress.ratingState.rating,
         ratingDeviation: progress.ratingState.ratingDeviation,
         masteryRating: model.mastery.masteryRating,
