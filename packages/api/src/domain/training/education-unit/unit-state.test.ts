@@ -240,7 +240,9 @@ describe("unit state", () => {
     expect(
       Exit.isFailure(
         await Effect.runPromiseExit(
-          closeSolve(await Effect.runPromise(presentSolve({ run: parked, challenge }))),
+          closeSolve(
+            await Effect.runPromise(presentSolve({ run: parked, challenge })),
+          ),
         ),
       ),
     ).toBe(false);

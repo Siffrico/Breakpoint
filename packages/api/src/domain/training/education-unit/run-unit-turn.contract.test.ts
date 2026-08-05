@@ -7,10 +7,7 @@ import type { UnitTurnDependencies } from "./run-unit-turn";
 import type { PersistedUnitRun } from "./unit-state";
 import { DEFAULT_EDUCATION_EXPERIENCE } from "./experience";
 import { runPassAdvanceTurn, runUnitTurn } from "./run-unit-turn";
-import {
-  attachChallenge,
-  createUnitRun,
-} from "./unit-state";
+import { attachChallenge, createUnitRun } from "./unit-state";
 
 const masteryContract = {
   version: 1,
@@ -414,7 +411,9 @@ describe("runUnitTurn", () => {
           runReviewPresentation: () => {
             presentationCalls += 1;
             return Effect.succeed({
-              object: { assistantMessage: "Unexpected model-authored challenge." },
+              object: {
+                assistantMessage: "Unexpected model-authored challenge.",
+              },
             });
           },
         }),

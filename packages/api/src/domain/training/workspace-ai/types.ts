@@ -2,6 +2,8 @@ import { z } from "zod/v4";
 
 import { WorkspaceEducationStageSchema } from "@acme/validators";
 
+import { ScenarioBriefSchema } from "../education-unit/scenario-brief";
+
 export const WorkspaceAiPromptKindSchema = z.enum(["education_unit", "recall"]);
 export const WorkspaceAiEducationStageSchema = WorkspaceEducationStageSchema;
 export const WorkspaceAiTurnModeSchema = z.literal("education_unit");
@@ -38,6 +40,8 @@ export const WorkspaceAiStateSchema = z.object({
 export const WorkspaceAiTurnResultSchema = z.object({
   passNumber: z.number().int().positive(),
   state: WorkspaceAiStateSchema,
+  /** The brief for the pass this turn left on the board. */
+  scenario: ScenarioBriefSchema.nullable(),
   messages: z.array(WorkspaceAiMessageSchema),
   assistantMessage: WorkspaceAiMessageSchema,
 });

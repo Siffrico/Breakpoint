@@ -38,7 +38,9 @@ const numberedList = (entries: readonly string[]) =>
   entries.map((entry, index) => `${index + 1}. ${entry}`).join("\n");
 
 const joinSections = (sections: readonly (string | null)[]) =>
-  sections.filter((section): section is string => section !== null).join("\n\n");
+  sections
+    .filter((section): section is string => section !== null)
+    .join("\n\n");
 
 const renderCapability = (capability: Capability) =>
   `${capability.name} (${capability.id})

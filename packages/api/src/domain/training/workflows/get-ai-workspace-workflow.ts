@@ -3,6 +3,7 @@ import { Cause, Effect, Exit } from "effect";
 
 import type { DbError } from "../../../effect/errors";
 import type { Result } from "../../../lib/result";
+import type { ScenarioBrief } from "../education-unit/scenario-brief";
 import type { PersistedUnitRun } from "../education-unit/unit-state";
 import type { CurriculumPlan } from "../types/training.types";
 import type {
@@ -14,6 +15,7 @@ import type {
   WorkspaceProjectionReaderSource,
 } from "../workspace-ai/workspace-reader";
 import { err, ok } from "../../../lib/result";
+import { projectScenarioBrief } from "../education-unit/scenario-brief";
 import { planWorkspaceTurn } from "../workspace-ai/orchestrator";
 import { CurriculumNotReadyError } from "../workspace-ai/workspace-errors";
 import {
@@ -46,11 +48,7 @@ export interface AiWorkspaceView {
   scenario: ScenarioBrief | null;
 }
 
-export interface ScenarioBrief {
-  stateA: string;
-  stateB: string;
-  frictionNoise: string | null;
-}
+export type { ScenarioBrief };
 
 /**
  * Unit readiness is data, not an error: "preparing" is an expected state the
@@ -254,20 +252,6 @@ export const getAiWorkspaceWorkflow = async ({
     return err(failure.message);
   }
   throw failure;
-};
-
-/** Projects only learner-safe fields from the private review contract. */
-export const projectScenarioBrief = (
-  run: PersistedUnitRun | null,
-): ScenarioBrief | null => {
-  const challenge = run?.activeReviewChallenge;
-  if (!challenge) return null;
-
-  return {
-    stateA: challenge.prompt,
-    stateB: challenge.contract.learnerVisibleCriteria.join("\n"),
-    frictionNoise: null,
-  };
 };
 
 export const buildWorkspaceIntroMessage = ({

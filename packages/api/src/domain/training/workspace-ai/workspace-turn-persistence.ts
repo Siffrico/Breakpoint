@@ -18,6 +18,7 @@ import type {
 import type { WorkspaceAiMessage, WorkspaceAiTurnResult } from "./types";
 import type { RatingEvidenceError } from "./workspace-errors";
 import type { WorkspaceTurnDependencies } from "./workspace-turn";
+import { projectScenarioBrief } from "../education-unit/scenario-brief";
 import { isDecisivePass } from "../education-unit/unit-state";
 import { WorkspacePersistenceError } from "./workspace-errors";
 import { resolveWorkspaceTurn } from "./workspace-turn";
@@ -385,6 +386,10 @@ export const saveUnitTurnResult = ({
     return {
       passNumber: nextRun.reviewPass,
       state: nextWorkspaceState,
+      // Projected from the run this turn just wrote, so the brief the client
+      // receives belongs to the pass now on the board — the client's workspace
+      // read is bootstrap-frozen and would otherwise serve the prior pass.
+      scenario: projectScenarioBrief(nextRun),
       messages,
       assistantMessage,
     };

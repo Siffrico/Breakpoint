@@ -24,7 +24,11 @@ import { useTRPC } from "~/trpc/react";
 import { groupLiveExchanges } from "./exchange-grouping";
 import { FocusComposer } from "./focus-composer";
 import { MessageActions } from "./message-actions";
-import { ScenarioAnchor } from "./scenario-anchor";
+// `scenario-anchor.tsx` is retired from the workspace but kept in the tree: the
+// header bar it rendered (unit title + Recall badge) is deliberately off-site,
+// and the file stands as the reference if that orientation cue is ever wanted
+// back.
+import { ScenarioPeek, useScenarioPeek } from "./scenario-peek";
 import {
   ASK_COACH_SOURCE_ATTRIBUTE,
   SelectionAskCoach,
@@ -62,6 +66,7 @@ interface WorkspaceChatData extends Record<string, unknown> {
   "workspace-turn-state": {
     passNumber: number;
     state: NonNullable<AiWorkspace["state"]>;
+    scenario: AiWorkspaceScenario | null;
   };
 }
 interface WorkspaceChatMetadata {
@@ -184,45 +189,6 @@ function PromptTurn({
         ) : null}
       </div>
     </section>
-  );
-}
-
-/**
- * The scenario, read in full. Rendered as an overlay over the trail rather than
- * in place of it: the trail keeps its DOM and its scroll offset, so returning
- * lands exactly where you left, and a reply that streams in while you are
- * reading just accumulates behind the panel.
- */
-function ScenarioPanel({ scenario }: { scenario: AiWorkspaceScenario }) {
-  return (
-    <div className="bg-background absolute inset-0 z-10 overflow-y-auto">
-      <div className={`${CHAT_COLUMN_CLASS} py-6 font-sans`}>
-        <h2 className="text-foreground/52 text-[13px] font-medium tracking-[0.08em]">
-          THE SITUATION
-        </h2>
-        <p className="text-foreground/94 mt-2 text-[15px] leading-7">
-          {scenario.stateA}
-        </p>
-
-        <h2 className="text-foreground/52 mt-7 text-[13px] font-medium tracking-[0.08em]">
-          WHAT DONE LOOKS LIKE
-        </h2>
-        <p className="text-foreground/94 mt-2 text-[15px] leading-7">
-          {scenario.stateB}
-        </p>
-
-        {scenario.frictionNoise ? (
-          <>
-            <h2 className="text-foreground/52 mt-7 text-[13px] font-medium tracking-[0.08em]">
-              COMPLICATIONS
-            </h2>
-            <p className="text-foreground/94 mt-2 text-[15px] leading-7">
-              {scenario.frictionNoise}
-            </p>
-          </>
-        ) : null}
-      </div>
-    </div>
   );
 }
 
@@ -465,7 +431,6 @@ function EducationUnitWorkspaceComponent({
     enabled: !preview && unit.activeStage === "complete",
   });
   const [isExpanded, setIsExpanded] = useState(false);
-  const [isScenarioOpen, setIsScenarioOpen] = useState(false);
   const [previewIsRunning, setPreviewIsRunning] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -551,7 +516,10 @@ function EducationUnitWorkspaceComponent({
     });
   }, [effectiveIsRunning, initialChatMessages, setMessages]);
 
-  const streamState = useMemo(() => {
+  // The last turn-state part on the wire. The bootstrap read is frozen
+  // (staleTime: Infinity), so this — not `aiWorkspace` — is what stays true as
+  // passes advance within a session.
+  const latestTurnState = useMemo(() => {
     for (
       let messageIndex = chatMessages.length - 1;
       messageIndex >= 0;
@@ -563,12 +531,13 @@ function EducationUnitWorkspaceComponent({
         if (part.type !== "data-workspace-turn-state") continue;
         const data = part.data;
         if (typeof data === "object" && data != null && "state" in data) {
-          return data.state as NonNullable<AiWorkspace["state"]>;
+          return data as WorkspaceChatData["workspace-turn-state"];
         }
       }
     }
-    return aiWorkspace?.state ?? null;
-  }, [aiWorkspace?.state, chatMessages]);
+    return null;
+  }, [chatMessages]);
+  const streamState = latestTurnState?.state ?? aiWorkspace?.state ?? null;
 
   // One refetch per unit, at the moment the stream reports it mastered: the
   // shell's Next Unit gate lives in the aiWorkspace query, which is otherwise
@@ -671,8 +640,12 @@ function EducationUnitWorkspaceComponent({
 
   const introMessage = getIntroMessage(aiWorkspace);
   const fallbackTurn = getFallbackTurn(unit);
-  const scenario = getScenario(aiWorkspace);
-  const hasScenario = scenario !== null;
+  // A turn that has run reports the brief for the pass it left on the board;
+  // before then, the bootstrap read is the only source. Ordering matters — the
+  // reverse would show the previous pass's scenario after every advance.
+  const scenario = latestTurnState
+    ? latestTurnState.scenario
+    : getScenario(aiWorkspace);
   const scenarioMissingFromTranscript =
     scenario !== null &&
     !chatMessages.some(
@@ -818,8 +791,6 @@ function EducationUnitWorkspaceComponent({
       return;
     }
 
-    setIsScenarioOpen(false);
-
     if (preview) {
       setResponse("");
       setIsExpanded(false);
@@ -884,7 +855,6 @@ function EducationUnitWorkspaceComponent({
   const handleAdvancePass = async () => {
     if (!awaitingPassAdvance || effectiveIsRunning) return;
     clearError();
-    setIsScenarioOpen(false);
     const turnId = createWorkspaceTurnId();
     try {
       await sendMessage(undefined, {
@@ -1008,18 +978,27 @@ function EducationUnitWorkspaceComponent({
       ? getWorkspaceStatus(activePromptMessage)
       : null;
 
-  const anchorTitle =
-    streamState?.recallUnitTitle ?? streamState?.activeUnitTitle ?? unit.title;
-  const anchorRunKind = streamState
-    ? streamState.promptKind === "recall"
-      ? "recall"
-      : "main"
-    : null;
-  // Rendering is gated on the scenario still being there, not on the flag
-  // alone, so a scenario that goes away (pass advance, unit advance) can never
-  // leave an empty panel sitting over the trail.
-  const showScenario =
-    scenario !== null && (isScenarioOpen || scenarioMissingFromTranscript);
+  // `stateA` is the challenge itself, so it changes exactly when the pass does
+  // — the peek resets on that edge and a stale brief can never sit over a new
+  // one.
+  const { isOpen: isScenarioOpen, triggerProps } = useScenarioPeek({
+    scenarioKey: scenario?.stateA ?? null,
+    autoPin: scenarioMissingFromTranscript,
+  });
+
+  // With the anchor bar retired, the trigger floats over the trail's top-right
+  // gutter — the edge the sheet arrives from, so the pill reads as the handle
+  // that pulls it down. Backdrop blur keeps it legible over prompt text on
+  // narrow viewports where the column has no gutter to spare.
+  const scenarioTrigger = scenario ? (
+    <button
+      type="button"
+      {...triggerProps}
+      className="border-foreground/[0.12] bg-background/80 text-foreground/72 hover:border-foreground/25 hover:text-foreground/92 absolute top-3 right-4 z-30 touch-none rounded-full border px-2.5 py-0.5 text-[11px] leading-4 backdrop-blur-sm transition-colors duration-150 outline-none select-none focus-visible:ring-1 focus-visible:ring-current motion-reduce:transition-none sm:right-6"
+    >
+      Scenario
+    </button>
+  ) : null;
 
   const trailContent = awaitingNextUnitContent ? (
     <PromptTurn prompt="" statusLabel="Thinking…" />
@@ -1209,16 +1188,10 @@ function EducationUnitWorkspaceComponent({
             which spans past its own px padding out to the sidebar and wall —
             so this wrapper must stay unpositioned. */}
         <div className="flex min-h-0 flex-1 flex-col">
-          <ScenarioAnchor
-            title={anchorTitle}
-            runKind={anchorRunKind}
-            isScenarioOpen={hasScenario ? showScenario : null}
-            onToggleScenario={() => setIsScenarioOpen((open) => !open)}
-            columnClassName={CHAT_COLUMN_CLASS}
-          />
-          {/* Own positioning context for the scenario overlay — the outer
+          {/* Own positioning context for the peek and its trigger, clipped so
+              the retracted sheet cannot bleed past the top edge — the outer
               wrapper must stay unpositioned for the focus sheet. */}
-          <div className="relative flex min-h-0 flex-1 flex-col">
+          <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
             <div
               ref={scrollContainerRef}
               className="min-h-0 flex-1 overflow-y-auto"
@@ -1228,7 +1201,14 @@ function EducationUnitWorkspaceComponent({
                 <div ref={bottomRef} />
               </div>
             </div>
-            {showScenario ? <ScenarioPanel scenario={scenario} /> : null}
+            {scenario ? (
+              <ScenarioPeek
+                scenario={scenario}
+                open={isScenarioOpen}
+                columnClassName={CHAT_COLUMN_CLASS}
+              />
+            ) : null}
+            {scenarioTrigger}
           </div>
           <ChatComposerDock className="shrink-0 pt-2 pb-2">
             {inputZone}
@@ -1243,14 +1223,7 @@ function EducationUnitWorkspaceComponent({
   return (
     <>
       <main className="bp-page-bg text-foreground relative flex h-dvh flex-col px-5 pt-3 sm:px-8 lg:px-10">
-        <ScenarioAnchor
-          title={anchorTitle}
-          runKind={anchorRunKind}
-          isScenarioOpen={hasScenario ? showScenario : null}
-          onToggleScenario={() => setIsScenarioOpen((open) => !open)}
-          columnClassName={CHAT_COLUMN_CLASS}
-        />
-        <div className="relative flex min-h-0 flex-1 flex-col">
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <div
             ref={scrollContainerRef}
             className="min-h-0 flex-1 overflow-y-auto"
@@ -1260,7 +1233,14 @@ function EducationUnitWorkspaceComponent({
               <div ref={bottomRef} />
             </div>
           </div>
-          {showScenario ? <ScenarioPanel scenario={scenario} /> : null}
+          {scenario ? (
+            <ScenarioPeek
+              scenario={scenario}
+              open={isScenarioOpen}
+              columnClassName={CHAT_COLUMN_CLASS}
+            />
+          ) : null}
+          {scenarioTrigger}
         </div>
         <div className="bg-background/95 shrink-0 backdrop-blur-sm">
           <div className="mx-auto w-[calc(100%-2rem)] max-w-[48.9rem] pt-3 pb-5 sm:w-[calc(100%-3rem)]">

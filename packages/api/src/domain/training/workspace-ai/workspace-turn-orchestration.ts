@@ -30,6 +30,7 @@ import {
   runPassAdvanceTurn,
   runUnitTurn,
 } from "../education-unit/run-unit-turn";
+import { projectScenarioBrief } from "../education-unit/scenario-brief";
 import {
   buildCritiqueContext,
   buildMentorContext,
@@ -479,6 +480,7 @@ export const runEducationUnitTurn = ({
       return {
         passNumber: unitRun.reviewPass,
         state,
+        scenario: projectScenarioBrief(unitRun),
         messages: loadedTranscript.messages,
         assistantMessage: loadedTranscript.assistantMessage,
       };
@@ -780,6 +782,7 @@ export const runEducationUnitTurn = ({
     return {
       passNumber: result.passNumber,
       state: result.state,
+      scenario: result.scenario,
       messages: result.messages,
       assistantMessage: result.assistantMessage,
     };

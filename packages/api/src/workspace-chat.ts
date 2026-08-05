@@ -8,6 +8,7 @@ import type { db as databaseClient } from "@acme/db/client";
 import type { WorkspaceTurnAction } from "@acme/validators";
 import { sql } from "@acme/db";
 
+import type { ScenarioBrief } from "./domain/training/education-unit/scenario-brief";
 import type {
   WorkspaceAiEducationStage,
   WorkspaceAiState,
@@ -57,6 +58,12 @@ interface WorkspaceChatDataParts extends Record<string, unknown> {
   "workspace-turn-state": {
     passNumber: number;
     state: WorkspaceAiState;
+    /**
+     * The scenario for the pass this turn left on the board. Sent every turn
+     * because the client's workspace read is bootstrap-frozen: without it, a
+     * pass advance leaves the previous pass's brief on screen.
+     */
+    scenario: ScenarioBrief | null;
   };
 }
 
@@ -368,7 +375,11 @@ const streamWorkspaceChatWithModelPreference = ({
       writer.write({
         type: "data-workspace-turn-state",
         id: "workspace-turn-state",
-        data: { passNumber: result.passNumber, state: result.state },
+        data: {
+          passNumber: result.passNumber,
+          state: result.state,
+          scenario: result.scenario,
+        },
       });
       writeStatus("complete", "Complete");
       writer.write({ type: "finish", finishReason: "stop" });

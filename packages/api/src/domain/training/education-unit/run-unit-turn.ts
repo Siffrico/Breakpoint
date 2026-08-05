@@ -419,8 +419,21 @@ export const runUnitTurn = (
     }
 
     if (head.kind === "solve") {
-      return head.status === "presented"
-        ? yield* gradeSolve({
+      if (head.status === "presented") {
+        return yield* gradeSolve({
+          run,
+          transcript,
+          experience,
+          buildContext,
+          onPartialAssistantMessage,
+          deps,
+        });
+      }
+      // A recall run pre-completes its teaching moves, so its first solve is
+      // the head from the moment the run exists and nothing else can open it.
+      // Only a later pass parks behind Enter, so pass 1 opens here.
+      return head.pass === 1
+        ? yield* openSolve({
             run,
             transcript,
             experience,
