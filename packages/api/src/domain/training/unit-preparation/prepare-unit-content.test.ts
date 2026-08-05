@@ -28,19 +28,17 @@ const planNode = {
   orderIndex: 1,
   status: "ready",
 };
-const planNodes = [
-  {
-    id: "cluster-1",
-    parentNodeId: null,
-    kind: "ability",
-    title: "Diagnosis",
-    summary: "Find causes before fixes.",
-    whyItMatters: "Bad diagnosis compounds errors.",
-    orderIndex: 0,
-    status: "ready",
-  },
-  planNode,
-];
+const parentPlanNode = {
+  id: "cluster-1",
+  parentNodeId: null,
+  kind: "ability",
+  title: "Diagnosis",
+  summary: "Find causes before fixes.",
+  whyItMatters: "Bad diagnosis compounds errors.",
+  orderIndex: 0,
+  status: "ready",
+};
+const planNodes = [parentPlanNode, planNode];
 
 const setup = {
   title: "Isolate the failure",
@@ -180,6 +178,68 @@ describe("prepareUnitContent", () => {
     );
 
     expect(result).toBe(unit);
+  });
+
+  it("passes an outcome's task-generation contract to the seed stage", async () => {
+    runSeedStageMock.mockResolvedValue(setup);
+    const scenarioBrief = {
+      taskShape: "One passage, one blank, and four lettered options.",
+      qualityBar: ["Exactly one option satisfies the passage constraint."],
+      variationAxes: ["The constraint is carried by a contrast word."],
+      neverDo: ["Require knowledge outside the passage."],
+    };
+    const outcomeNodes = [
+      {
+        ...parentPlanNode,
+        kind: "outcome",
+        skillMap: {
+          mainOutcome: "Select the single defensible answer.",
+          scenarioBrief,
+        },
+      },
+      planNode,
+    ];
+
+    await Effect.runPromise(
+      prepareUnitContent({
+        node,
+        sessionId: "session-1",
+        deps: makeDeps({
+          getPlanNodesBySession: vi.fn(() => Promise.resolve(outcomeNodes)),
+        }),
+      }),
+    );
+
+    const seedContext = runSeedStageMock.mock.calls[0]?.[0];
+    expect(seedContext?.planContext.regime).toBe("main_outcome");
+    expect(seedContext?.planContext.clusterContext?.taskContract).toEqual({
+      mainOutcome: "Select the single defensible answer.",
+      scenarioBrief,
+    });
+  });
+
+  it("rejects an outcome missing its task-generation contract", async () => {
+    const outcomeNodes = [
+      { ...parentPlanNode, kind: "outcome", skillMap: {} },
+      planNode,
+    ];
+
+    const exit = await Effect.runPromiseExit(
+      prepareUnitContent({
+        node,
+        sessionId: "session-1",
+        deps: makeDeps({
+          getPlanNodesBySession: vi.fn(() => Promise.resolve(outcomeNodes)),
+        }),
+      }),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(String(exit.cause)).toContain("UnitContextMissingError");
+      expect(String(exit.cause)).toContain("task-generation contract");
+    }
+    expect(runSeedStageMock).not.toHaveBeenCalled();
   });
 
   it("locks before re-checking and short-circuits an existing row", async () => {

@@ -2,6 +2,7 @@ import { z } from "zod/v4";
 
 import {
   PreSeedUnitContentDraftSchema,
+  ScenarioBriefSchema,
   UnitMasteryContractSchema,
 } from "@acme/validators";
 
@@ -16,6 +17,11 @@ export const PriorLearningRecordSchema = z.object({
   improvements: z.array(z.string().min(1)),
   failureTags: z.array(z.string().min(1)),
   nextStep: z.string().min(1),
+});
+
+export const TopicTaskContractSchema = z.object({
+  mainOutcome: z.string().min(1),
+  scenarioBrief: ScenarioBriefSchema,
 });
 
 export const UnitBuilderContextSchema = z.object({
@@ -37,11 +43,8 @@ export const UnitBuilderContextSchema = z.object({
         title: z.string().min(1),
         summary: z.string().min(1),
         whyItMatters: z.string().min(1),
-        /**
-         * Topic mode only: the one thing every task under this parent demands.
-         * Null in ability mode, where the demand varies with the unit.
-         */
-        mainOutcome: z.string().min(1).nullable(),
+        /** Topic mode only: the fixed demand and task-generation constraints. */
+        taskContract: TopicTaskContractSchema.nullable(),
       })
       .nullable(),
   }),
