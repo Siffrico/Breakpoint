@@ -101,6 +101,19 @@ Grade the learner's latest answer against the immutable active challenge. This a
 Every dimension score is an integer percentage from 0 to 100, never a 1-3 ordinal. A pass requires a composite score of at least ${PASSING_COMPOSITE} and every dimension at least ${PASSING_DIMENSION}. Make the scores, errorCodes, and learner-facing conclusion agree.`;
 };
 
+const COGNITIVE_DIAGNOSIS_POLICY = `## This grading turn: cognitive diagnosis and JIT repair
+Scores and rubric evidence are private control data. The learner-facing response is not a report card. Its job is to reconstruct why the learner's move felt correct, locate the first hidden assumption that made it diverge from the expert workflow, and supply only the smallest fragment needed to rethink that move.
+
+When the answer has a real gap, complete cognitiveDiagnosis before finalizing assistantMessage:
+1. Identify what the learner was sensibly optimizing for or protecting.
+2. State the hidden assumption that made their choice locally logical.
+3. Classify the first cause as constraint blindness, a misapplied heuristic, or a missing prerequisite. Diagnose the cause, not its downstream symptoms.
+4. Choose one JIT intervention: the minimum mental model, rule, procedural cue, or syntax fragment that breaks that assumption. Do not teach the surrounding topic.
+
+Write assistantMessage as natural coaching, not a named template. In a few compact paragraphs, acknowledge the sound part of their reasoning and name the hidden assumption plainly; deliver the JIT intervention in one or two sentences; then end with exactly one focused question that makes them revise the relevant choice, causal step, or tradeoff without revealing the final answer. Do not use headings named Mirror, Pivot, Crucible, Diagnosis, or JIT. Do not mention scores, grading, rubrics, dimensions, agents, passes, scratchpads, or cognitiveDiagnosis.
+
+When there is no real gap, set cognitiveDiagnosis to null, do not invent a flaw or ask a remedial question, and close cleanly. When there is a gap, do not imply that one explanation completes the capability: the server will continue presenting fresh scenarios until the learner demonstrates the repaired model independently.`;
+
 const challengeForCritic = (
   challenge: UnitReviewChallenge,
 ): UnitReviewChallenge => {
@@ -127,7 +140,7 @@ export const runReviewGradeAgent = ({
     agent: "reviewer",
     purpose: "evaluation",
     reasoning: shape.decisive ? "medium" : "low",
-    system: `${CRITIC_SYSTEM}\n\n## Customized behavior\n${experience.reviewer.instructions}`,
+    system: `${CRITIC_SYSTEM}\n\n${COGNITIVE_DIAGNOSIS_POLICY}\n\n## Customized behavior\n${experience.reviewer.instructions}`,
     messages,
     context: `${context}\n\n## Immutable active challenge\n${JSON.stringify(challengeForCritic(activeChallenge))}\n\n${gradeTurnInstruction(shape.decisive)}`,
     schema: reviewGradeSchema(shape),

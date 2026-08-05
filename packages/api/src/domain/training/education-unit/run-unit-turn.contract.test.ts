@@ -74,6 +74,15 @@ const scenarioVerifier = {
   },
 };
 
+const cognitiveDiagnosis = {
+  optimizedFor: "Preserving the procedure that worked in the original case.",
+  hiddenAssumption:
+    "The changed production constraint does not alter which signal should control the decision.",
+  rootCause: "constraint_blindness" as const,
+  jitIntervention:
+    "Re-derive the move from the constraint that can invalidate the original procedure.",
+};
+
 const baseRun = (): PersistedUnitRun => ({
   ...createUnitRun({
     unitId: "unit-1",
@@ -144,10 +153,11 @@ const deps = (
     Effect.succeed({
       object: {
         assistantMessage:
-          "Your defense still copies the original rule. Try this changed case and re-derive the move.",
+          "Your defense preserves the procedure that worked before, which is sensible if the controlling constraint stayed fixed. The hidden assumption is that the changed production limit does not alter which signal should drive the decision.\n\nRe-derive the move from the constraint that can invalidate the original procedure. Which step of your original defense changes first once that constraint becomes controlling?",
         errorCodes: [],
         gradeReasoning:
           "The learner repeated the procedure without deriving it.",
+        cognitiveDiagnosis,
         dimensionResults: [
           {
             dimensionId: "derive-under-pressure",
@@ -324,6 +334,7 @@ describe("runUnitTurn", () => {
                 errorCodes: [],
                 gradeReasoning:
                   "The learner used the mechanism and remained stable under pressure.",
+                cognitiveDiagnosis: null,
                 dimensionResults: [
                   {
                     dimensionId: "derive-under-pressure",
@@ -385,6 +396,7 @@ describe("runUnitTurn", () => {
                 errorCodes: [],
                 gradeReasoning:
                   "The learner independently transferred the causal mechanism.",
+                cognitiveDiagnosis: null,
                 dimensionResults: [
                   {
                     dimensionId: "derive-under-pressure",

@@ -158,6 +158,28 @@ export interface GradeShape {
   readonly decisive: boolean;
 }
 
+const CognitiveDiagnosisSchema = z
+  .object({
+    optimizedFor: z
+      .string()
+      .min(1)
+      .describe("What the learner's reasoning was trying to protect or optimize."),
+    hiddenAssumption: z
+      .string()
+      .min(1)
+      .describe("The unstated belief that made the learner's move feel correct."),
+    rootCause: z.enum([
+      "constraint_blindness",
+      "misapplied_heuristic",
+      "missing_prerequisite",
+    ]),
+    jitIntervention: z
+      .string()
+      .min(1)
+      .describe("The single smallest mental model, rule, or syntax fragment needed now."),
+  })
+  .strict();
+
 /**
  * Grade plus critique. There is no verdict field: pass or fail is derived from
  * the scores the critic already committed to, so "did they get it" is never a
@@ -172,6 +194,7 @@ export const reviewGradeSchema = ({
       assistantMessage: LearnerFacingMessageSchema,
       errorCodes: z.array(z.string().min(1)).max(3),
       gradeReasoning: z.string().min(12),
+      cognitiveDiagnosis: CognitiveDiagnosisSchema.nullable(),
       dimensionResults: z
         .array(
           EvaluationDimensionResultSchema.extend({
@@ -199,6 +222,37 @@ export const reviewGradeSchema = ({
           code: "custom",
           path: ["dimensionResults"],
           message: "Grade each tested dimension exactly once.",
+        });
+      }
+
+      const gap = hasModelGap(output.dimensionResults);
+      if (gap && output.cognitiveDiagnosis === null) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["cognitiveDiagnosis"],
+          message: "a learner gap requires one private cognitive diagnosis",
+        });
+      }
+      if (!gap && output.cognitiveDiagnosis !== null) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["cognitiveDiagnosis"],
+          message: "do not manufacture a cognitive diagnosis for a clean answer",
+        });
+      }
+      if (gap && !output.assistantMessage.trimEnd().endsWith("?")) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["assistantMessage"],
+          message:
+            "feedback for a learner gap must end with one targeted application question",
+        });
+      }
+      if (/\b(?:the mirror|the pivot|the crucible)\b/i.test(output.assistantMessage)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["assistantMessage"],
+          message: "write naturally without named diagnostic template sections",
         });
       }
     });
