@@ -1,7 +1,10 @@
 import { z } from "zod/v4";
 
 import type { EvaluationDimensionResult } from "@acme/validators";
-import { EvaluationDimensionResultSchema } from "@acme/validators";
+import {
+  EvaluationDimensionResultSchema,
+  ScenarioVerifierSchema,
+} from "@acme/validators";
 
 export const LearnerFacingMessageSchema = z.string().trim().min(24).max(8_000);
 
@@ -44,6 +47,38 @@ export const mentorOutputSchema = (currentCapabilityId: string) =>
         });
       }
     });
+
+export const reviewPresentationSchema = z
+  .object({
+    assistantMessage: LearnerFacingMessageSchema,
+    verifier: ScenarioVerifierSchema,
+  })
+  .strict()
+  .superRefine((output, ctx) => {
+    output.verifier.shortcutFailures.forEach((failure, index) => {
+      const parts = failure.split("|").map((part) => part.trim());
+      if (parts.length !== 3 || parts.some((part) => part.length === 0)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["verifier", "shortcutFailures", index],
+          message:
+            "each shortcut failure must name the wrong path, why it is seductive, and why it fails",
+        });
+      }
+    });
+
+    if (
+      /<\/?scratchpad>|verifier\.|intendedSolution|shortcutFailures|rubricAudit/i.test(
+        output.assistantMessage,
+      )
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["assistantMessage"],
+        message: "learner-facing text must not expose private authoring data",
+      });
+    }
+  });
 
 // ---------------------------------------------------------------------------
 // Critic contracts
@@ -169,7 +204,7 @@ export const reviewGradeSchema = ({
     });
 
 export type MentorOutput = z.infer<ReturnType<typeof mentorOutputSchema>>;
-export interface ReviewPresentationOutput {
-  readonly assistantMessage: string;
-}
+export type ReviewPresentationOutput = z.infer<
+  typeof reviewPresentationSchema
+>;
 export type ReviewGradeOutput = z.infer<ReturnType<typeof reviewGradeSchema>>;

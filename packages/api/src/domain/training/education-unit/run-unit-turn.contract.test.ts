@@ -53,6 +53,27 @@ const difficultyVector = {
   embeddedAlternatives: 2,
 };
 
+const scenarioVerifier = {
+  type: "judge_rubric" as const,
+  answer: null,
+  checkerSpec: null,
+  intendedSolution:
+    "Re-derive the decision from the changed production constraint.",
+  shortcutFailures: [
+    "Repeat the original procedure | It worked in the earlier setting | It ignores the changed constraint.",
+    "Optimize the visible symptom | It produces an immediate improvement | It leaves the causal failure intact.",
+  ],
+  rubricAudit: {
+    answerIntegrity: "The prompt does not reveal the intended decision.",
+    wellPosed: "The learner has enough information to choose and defend a move.",
+    selfContained: "All necessary production constraints are in the prompt.",
+    conceptRequired: "The changed constraint must drive the decision.",
+    shortcutsClosed: "A copied procedure cannot satisfy the task.",
+    difficulty: "Two plausible alternatives compete at the assigned depth.",
+    spark: "The production tradeoff resembles a real operating decision.",
+  },
+};
+
 const baseRun = (): PersistedUnitRun => ({
   ...createUnitRun({
     unitId: "unit-1",
@@ -116,6 +137,7 @@ const deps = (
       object: {
         assistantMessage:
           "The production constraint changed. Choose the next move and defend it.",
+        verifier: scenarioVerifier,
       },
     }),
   runReviewGrade: () =>
@@ -195,6 +217,9 @@ describe("runUnitTurn", () => {
     // reply carries the mentor's handoff in front of it.
     const challengePrompt = result.nextRun.activeReviewChallenge?.prompt;
     expect(challengePrompt).toBeDefined();
+    expect(result.nextRun.activeReviewChallenge?.contract.verifier).toEqual(
+      scenarioVerifier,
+    );
     expect(result.assistantMessage).toBe(
       `${mentorMessage}\n\n${challengePrompt}`,
     );
@@ -225,6 +250,7 @@ describe("runUnitTurn", () => {
               object: {
                 assistantMessage:
                   "The production constraint changed. Choose the next move and defend it.",
+                verifier: scenarioVerifier,
               },
             });
           },
@@ -324,7 +350,12 @@ describe("runUnitTurn", () => {
         input(settledPass1.nextRun),
         deps({
           runReviewPresentation: () =>
-            Effect.succeed({ object: { assistantMessage: pass2Prompt } }),
+            Effect.succeed({
+              object: {
+                assistantMessage: pass2Prompt,
+                verifier: scenarioVerifier,
+              },
+            }),
         }),
       ),
     );
@@ -413,6 +444,7 @@ describe("runUnitTurn", () => {
             return Effect.succeed({
               object: {
                 assistantMessage: "Unexpected model-authored challenge.",
+                verifier: scenarioVerifier,
               },
             });
           },

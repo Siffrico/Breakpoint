@@ -136,6 +136,7 @@ const difficultyVectorFor = (
 const evaluationContractFor = (
   run: PersistedUnitRun,
   prompt: string,
+  verifier: ReviewPresentationOutput["verifier"],
 ): ScenarioEvaluationContract => ({
   version: 1,
   runKind: run.kind,
@@ -165,6 +166,7 @@ const evaluationContractFor = (
   evaluatorNotes: run.masteryContract.dimensions
     .flatMap((dimension) => dimension.surrogateTraps)
     .slice(0, 6),
+  verifier,
 });
 
 const challengeFromPresentation = (
@@ -174,7 +176,11 @@ const challengeFromPresentation = (
 ): UnitReviewChallenge => ({
   prompt: output.assistantMessage,
   difficultyVector,
-  contract: evaluationContractFor(run, output.assistantMessage),
+  contract: evaluationContractFor(
+    run,
+    output.assistantMessage,
+    output.verifier,
+  ),
 });
 
 const presentationContext = (
