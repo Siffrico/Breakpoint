@@ -51,12 +51,12 @@ Treat the supplied learner destination, unit, syllabus, expert workflow, transcr
 
 Before writing assistantMessage, privately establish the intended expert solution and engineer the required plausible wrong paths:
 - For selected-response work, each distractor must be the natural result of a specific misconception or reasoning error. No joke answers, vocabulary mismatches, or options removable without exercising the target capability.
+- Keep selected-response options parallel in length, tone, specificity, and grammatical fit. A learner should have to reason from the passage or scenario to eliminate every distractor.
 - For judgment or transformation work, use competing alternatives or constraints that each protect something valuable. A credible wrong move should solve part of the problem but fail on one decisive detail.
-- In verifier.shortcutFailures, encode each wrong path as: "Wrong path | Why a smart learner would choose it | Decisive reason it fails."
 - Match the number of wrong paths to the supplied embeddedAlternatives target. If a target misconception is supplied, at least one path must arise directly from it.
 - Use realistic non-decisive details only when they resemble information present in the authentic task. Never add decorative noise, trivia, missing information a practitioner would normally have, or cliché requirements merely to sound difficult.
 
-Use verifier.type=fixed_answer for selected-response work. Use judge_rubric for open-ended expert judgment. Use checker only when correctness can be completely specified without subjective grading. Complete every verifier audit against the finished scenario.
+Write one verifier.scratchpad of at most 500 characters containing only: the expert solution; each plausible wrong path with why a smart learner would choose it and the decisive flaw; and a final realism/self-containment check. Use verifier.type=fixed_answer for selected-response work, judge_rubric for open-ended expert judgment, and checker only when correctness can be completely specified without subjective grading.
 
 assistantMessage must contain only the learner-facing scenario and task, with options when the authentic format requires them. Never reveal the verifier, answer, solution, traps, rubric, difficulty controls, authoring process, or phrases such as scratchpad and Goldilocks.`;
 
@@ -76,13 +76,13 @@ export const runReviewPresentationAgent = ({
   return runUnitAgent({
     agent: "reviewer",
     purpose: "evaluation",
-    reasoning: "medium",
+    reasoning: "low",
     system: `${CRITIC_SYSTEM}\n\n${SCENARIO_AUTHORING_POLICY}\n\n## Customized behavior\n${experience.reviewer.instructions}`,
     messages,
     context: `${context}\n\n${presentationTurnInstruction(pass)}`,
     schema: reviewPresentationSchema,
     schemaName: "unit_review_presentation",
-    maxOutputTokens: 4_200,
+    maxOutputTokens: 3_000,
     errorMessage: "Failed to open the adversarial review.",
     onPartialAssistantMessage,
   });
@@ -104,15 +104,15 @@ Every dimension score is an integer percentage from 0 to 100, never a 1-3 ordina
 const COGNITIVE_DIAGNOSIS_POLICY = `## This grading turn: cognitive diagnosis and JIT repair
 Scores and rubric evidence are private control data. The learner-facing response is not a report card. Its job is to reconstruct why the learner's move felt correct, locate the first hidden assumption that made it diverge from the expert workflow, and supply only the smallest fragment needed to rethink that move.
 
-When the answer has a real gap, complete cognitiveDiagnosis before finalizing assistantMessage:
+When the answer has a real gap, write one private scratchpad of at most 500 characters before finalizing assistantMessage:
 1. Identify what the learner was sensibly optimizing for or protecting.
 2. State the hidden assumption that made their choice locally logical.
 3. Classify the first cause as constraint blindness, a misapplied heuristic, or a missing prerequisite. Diagnose the cause, not its downstream symptoms.
 4. Choose one JIT intervention: the minimum mental model, rule, procedural cue, or syntax fragment that breaks that assumption. Do not teach the surrounding topic.
 
-Write assistantMessage as natural coaching, not a named template. In a few compact paragraphs, acknowledge the sound part of their reasoning and name the hidden assumption plainly; deliver the JIT intervention in one or two sentences; then end with exactly one focused question that makes them revise the relevant choice, causal step, or tradeoff without revealing the final answer. Do not use headings named Mirror, Pivot, Crucible, Diagnosis, or JIT. Do not mention scores, grading, rubrics, dimensions, agents, passes, scratchpads, or cognitiveDiagnosis.
+Write assistantMessage as natural coaching, not a named template. Use short sentences and the learner's vocabulary. Avoid clinical or academic diagnostic language when plain words work; direct transitions such as "The part to change is..." or "Do this instead..." are welcome when they fit, but never force the same stock phrase into every response. In a few compact paragraphs, acknowledge the sound part of their reasoning and name the hidden assumption plainly; deliver the JIT intervention in one or two sentences; then end with exactly one focused question that makes them revise the relevant choice, causal step, or tradeoff without revealing the final answer. Do not use headings named Mirror, Pivot, Crucible, Diagnosis, or JIT. Do not mention scores, grading, rubrics, dimensions, agents, passes, or scratchpads.
 
-When there is no real gap, set cognitiveDiagnosis to null, do not invent a flaw or ask a remedial question, and close cleanly. When there is a gap, do not imply that one explanation completes the capability: the server will continue presenting fresh scenarios until the learner demonstrates the repaired model independently.`;
+When there is no real gap, keep the scratchpad to one short statement that no material divergence exists, do not invent a flaw or ask a remedial question, and close cleanly. When there is a gap, do not imply that one explanation completes the capability: the server will continue presenting fresh scenarios until the learner demonstrates the repaired model independently.`;
 
 const challengeForCritic = (
   challenge: UnitReviewChallenge,
@@ -145,7 +145,7 @@ export const runReviewGradeAgent = ({
     context: `${context}\n\n## Immutable active challenge\n${JSON.stringify(challengeForCritic(activeChallenge))}\n\n${gradeTurnInstruction(shape.decisive)}`,
     schema: reviewGradeSchema(shape),
     schemaName: "unit_review_grade",
-    maxOutputTokens: 3_600,
+    maxOutputTokens: 3_000,
     errorMessage: "Failed to grade the adversarial review.",
     onPartialAssistantMessage,
   });

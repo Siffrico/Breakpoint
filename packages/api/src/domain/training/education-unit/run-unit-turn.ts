@@ -353,7 +353,7 @@ const gradeSolve = ({
       reviewGrade: {
         score,
         errorCodes,
-        reasoning: output.gradeReasoning,
+        reasoning: output.scratchpad,
         dimensionResults: output.dimensionResults,
         passed: !gap,
       },

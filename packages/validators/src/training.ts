@@ -563,24 +563,12 @@ export const ScenarioEvaluationDimensionSchema = z.object({
   }),
 });
 
-export const ScenarioVerifierAuditSchema = z.object({
-  answerIntegrity: z.string().min(1),
-  wellPosed: z.string().min(1),
-  selfContained: z.string().min(1),
-  conceptRequired: z.string().min(1),
-  shortcutsClosed: z.string().min(1),
-  difficulty: z.string().min(1),
-  spark: z.string().min(1),
-});
-
 export const ScenarioVerifierSchema = z
   .object({
     type: z.enum(["fixed_answer", "checker", "judge_rubric"]),
     answer: z.string().min(1).nullable(),
     checkerSpec: z.string().min(1).nullable(),
-    intendedSolution: z.string().min(1),
-    shortcutFailures: z.array(z.string().min(1)).min(1).max(8),
-    rubricAudit: ScenarioVerifierAuditSchema,
+    scratchpad: z.string().trim().min(24).max(600),
   })
   .superRefine((verifier, ctx) => {
     if (verifier.type === "fixed_answer" && !verifier.answer) {

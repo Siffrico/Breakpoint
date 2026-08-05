@@ -57,30 +57,8 @@ const scenarioVerifier = {
   type: "judge_rubric" as const,
   answer: null,
   checkerSpec: null,
-  intendedSolution:
-    "Re-derive the decision from the changed production constraint.",
-  shortcutFailures: [
-    "Repeat the original procedure | It worked in the earlier setting | It ignores the changed constraint.",
-    "Optimize the visible symptom | It produces an immediate improvement | It leaves the causal failure intact.",
-  ],
-  rubricAudit: {
-    answerIntegrity: "The prompt does not reveal the intended decision.",
-    wellPosed: "The learner has enough information to choose and defend a move.",
-    selfContained: "All necessary production constraints are in the prompt.",
-    conceptRequired: "The changed constraint must drive the decision.",
-    shortcutsClosed: "A copied procedure cannot satisfy the task.",
-    difficulty: "Two plausible alternatives compete at the assigned depth.",
-    spark: "The production tradeoff resembles a real operating decision.",
-  },
-};
-
-const cognitiveDiagnosis = {
-  optimizedFor: "Preserving the procedure that worked in the original case.",
-  hiddenAssumption:
-    "The changed production constraint does not alter which signal should control the decision.",
-  rootCause: "constraint_blindness" as const,
-  jitIntervention:
-    "Re-derive the move from the constraint that can invalidate the original procedure.",
+  scratchpad:
+    "Solution: re-derive from the changed constraint. Traps: repeat the old procedure; optimize the visible symptom. Both ignore the controlling cause. Audit: self-contained and answer hidden.",
 };
 
 const baseRun = (): PersistedUnitRun => ({
@@ -155,9 +133,8 @@ const deps = (
         assistantMessage:
           "Your defense preserves the procedure that worked before, which is sensible if the controlling constraint stayed fixed. The hidden assumption is that the changed production limit does not alter which signal should drive the decision.\n\nRe-derive the move from the constraint that can invalidate the original procedure. Which step of your original defense changes first once that constraint becomes controlling?",
         errorCodes: [],
-        gradeReasoning:
-          "The learner repeated the procedure without deriving it.",
-        cognitiveDiagnosis,
+        scratchpad:
+          "Optimized for the proven procedure. Assumed the changed constraint did not alter the controlling signal. Cause: constraint blindness. JIT: re-derive from the invalidating constraint.",
         dimensionResults: [
           {
             dimensionId: "derive-under-pressure",
@@ -332,9 +309,8 @@ describe("runUnitTurn", () => {
                 assistantMessage:
                   "You re-derived and defended the decision under the new pressure.",
                 errorCodes: [],
-                gradeReasoning:
-                  "The learner used the mechanism and remained stable under pressure.",
-                cognitiveDiagnosis: null,
+                scratchpad:
+                  "No material divergence: the learner used the mechanism and remained stable under pressure.",
                 dimensionResults: [
                   {
                     dimensionId: "derive-under-pressure",
@@ -394,9 +370,8 @@ describe("runUnitTurn", () => {
                 assistantMessage:
                   "The judgment transferred cleanly to the new system.",
                 errorCodes: [],
-                gradeReasoning:
-                  "The learner independently transferred the causal mechanism.",
-                cognitiveDiagnosis: null,
+                scratchpad:
+                  "No material divergence: the learner independently transferred the causal mechanism.",
                 dimensionResults: [
                   {
                     dimensionId: "derive-under-pressure",

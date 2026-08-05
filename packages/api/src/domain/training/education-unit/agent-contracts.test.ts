@@ -32,19 +32,8 @@ const verifier = {
   type: "fixed_answer" as const,
   answer: "B",
   checkerSpec: null,
-  intendedSolution: "Option B is the only choice that preserves both constraints.",
-  shortcutFailures: [
-    "Choose A | It optimizes the most visible metric | It violates the consistency requirement.",
-  ],
-  rubricAudit: {
-    answerIntegrity: "The stem does not reveal B.",
-    wellPosed: "Exactly one option satisfies both constraints.",
-    selfContained: "The passage contains every necessary fact.",
-    conceptRequired: "The learner must reconcile the two constraints.",
-    shortcutsClosed: "Surface keyword matching selects A, not B.",
-    difficulty: "The distractor protects one legitimate goal.",
-    spark: "The decision resembles an authentic incident response.",
-  },
+  scratchpad:
+    "Solution: B preserves both constraints. Trap A protects the visible metric but breaks consistency. Audit: one answer; self-contained.",
 };
 
 describe("reviewPresentationSchema", () => {
@@ -58,13 +47,13 @@ describe("reviewPresentationSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("rejects a wrong path that is not tied to a seductive misconception", () => {
+  it("caps private scenario planning so it cannot become an internal essay", () => {
     const result = reviewPresentationSchema.safeParse({
       assistantMessage:
         "A signed-in learner sees stale progress after reconnecting. Which recovery policy should the team ship, and why?",
       verifier: {
         ...verifier,
-        shortcutFailures: ["Choose A because it is incorrect."],
+        scratchpad: "x".repeat(601),
       },
     });
 
@@ -74,7 +63,7 @@ describe("reviewPresentationSchema", () => {
   it("rejects private authoring fields leaked into the scenario", () => {
     const result = reviewPresentationSchema.safeParse({
       assistantMessage:
-        "The intendedSolution is option B. Explain why it preserves both constraints.",
+        "The checkerSpec selects option B. Explain why it preserves both constraints.",
       verifier,
     });
 
@@ -96,38 +85,26 @@ const weakDimensionResult = {
   missing: "A re-derivation from the changed constraint.",
 };
 
-const diagnosis = {
-  optimizedFor: "Simplicity and a previously proven procedure.",
-  hiddenAssumption:
-    "The new constraint does not change which failure mode controls the decision.",
-  rootCause: "constraint_blindness" as const,
-  jitIntervention:
-    "A heuristic must be re-derived when the constraint that made it safe changes.",
-};
-
-describe("reviewGradeSchema cognitive diagnosis", () => {
-  it("accepts one private diagnosis and a natural targeted question for a gap", () => {
+describe("reviewGradeSchema cognitive scratchpad", () => {
+  it("accepts one concise private scratchpad and a natural targeted question", () => {
     const result = reviewGradeSchema(gradeShape).safeParse({
       assistantMessage:
         "Keeping the proven procedure protects simplicity, which is a sound instinct while its safety conditions still hold. You assumed the new constraint does not change the controlling failure mode.\n\nA heuristic must be re-derived when the constraint that made it safe changes. Which step of your procedure becomes unsafe first under the new limit?",
       errorCodes: ["missed-controlling-constraint"],
-      gradeReasoning:
-        "The answer preserved the old procedure without testing its safety condition.",
-      cognitiveDiagnosis: diagnosis,
+      scratchpad:
+        "Optimized for simplicity. Assumed the old safety condition still holds. Cause: constraint blindness. JIT: re-derive when its controlling constraint changes.",
       dimensionResults: [weakDimensionResult],
     });
 
     expect(result.success).toBe(true);
   });
 
-  it("rejects a gap with no cognitive diagnosis", () => {
+  it("rejects an oversized cognitive scratchpad", () => {
     const result = reviewGradeSchema(gradeShape).safeParse({
       assistantMessage:
         "The old procedure protects simplicity, but the new constraint changes its safety condition. Which step becomes unsafe first?",
       errorCodes: ["missed-controlling-constraint"],
-      gradeReasoning:
-        "The answer preserved the old procedure without testing its safety condition.",
-      cognitiveDiagnosis: null,
+      scratchpad: "x".repeat(601),
       dimensionResults: [weakDimensionResult],
     });
 
@@ -139,9 +116,8 @@ describe("reviewGradeSchema cognitive diagnosis", () => {
       assistantMessage:
         "The Mirror: you chose simplicity. The Pivot: reconsider the constraint. The Crucible: which step changes?",
       errorCodes: ["missed-controlling-constraint"],
-      gradeReasoning:
-        "The answer preserved the old procedure without testing its safety condition.",
-      cognitiveDiagnosis: diagnosis,
+      scratchpad:
+        "Optimized for simplicity. Hidden assumption: the old safety condition still holds. JIT: re-derive the heuristic.",
       dimensionResults: [weakDimensionResult],
     });
 
