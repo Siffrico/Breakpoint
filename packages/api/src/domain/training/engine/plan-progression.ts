@@ -242,7 +242,6 @@ export const planSkillMapAdvancement = (
       (node) =>
         node.kind === "outcome" &&
         node.parentNodeId === mastered.parentNodeId &&
-        node.orderIndex > mastered.orderIndex &&
         statusOf(node) !== "completed",
     );
     if (!nextOutcome) return { kind: "plan_complete", changes, stageChanges };

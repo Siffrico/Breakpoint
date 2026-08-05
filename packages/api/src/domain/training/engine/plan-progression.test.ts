@@ -349,6 +349,25 @@ describe("planSkillMapAdvancement for outcome nodes", () => {
     expect(advancement).toMatchObject({ outcomeNodeId: "outcome-3" });
   });
 
+  it("continues an interleaved plan when the last outcome finishes first", () => {
+    const advancement = planSkillMapAdvancement(
+      outcomeTree({
+        "outcome-1": "ready",
+        "outcome-2": "ready",
+        "outcome-3": "ready",
+      }),
+      "outcome-3",
+    );
+
+    expect(advancement).toMatchObject({
+      kind: "outcome_unit",
+      outcomeNodeId: "outcome-1",
+    });
+    expect(advancement.changes).toEqual([
+      { nodeId: "outcome-3", status: "completed" },
+    ]);
+  });
+
   it("completes the plan when the last outcome masters", () => {
     const advancement = planSkillMapAdvancement(
       outcomeTree({
