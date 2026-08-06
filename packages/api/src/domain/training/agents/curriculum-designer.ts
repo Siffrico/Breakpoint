@@ -86,6 +86,7 @@ export const designCurriculum = async ({
     errorMessage: "Failed to generate the curriculum architecture.",
     onPartial: options?.onPartial,
     seedPartial: options?.seedPartial,
+    abortSignal: options?.abortSignal,
     prompt: `Design the learner's identity report and independent skill map for the project chosen in consultation.
 ${
   abilities && abilities.length > 0

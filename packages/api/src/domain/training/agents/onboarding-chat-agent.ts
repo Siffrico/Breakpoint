@@ -134,6 +134,11 @@ export type CreateProjectResult =
       title: string;
       moduleCount: number;
       firstUnitId: string | null;
+      /**
+       * The build ran out of request budget and checkpointed itself; the client
+       * resumes it. `ok` still means nothing failed — it does not mean finished.
+       */
+      resuming?: boolean;
     }
   | { ok: false; reason: string };
 

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
   CurriculumDesignerOutput,
@@ -296,6 +296,7 @@ const run = (
   onProgress = vi.fn(),
   scheduleBackgroundTask?: (task: () => Promise<void>) => void,
   inputOverride?: typeof input,
+  resumeRound?: number,
 ) =>
   buildProjectFromOnboarding({
     sessionId: "session-id",
@@ -305,7 +306,18 @@ const run = (
     deps,
     onProgress,
     scheduleBackgroundTask,
+    resumeRound,
   });
+
+/**
+ * Move the clock forward without waiting. The budget is measured with
+ * `Date.now()`, so a test spends it by having an agent "take" time rather than
+ * by sleeping.
+ */
+const spendBudget = (ms: number) => {
+  const now = Date.now();
+  vi.setSystemTime(new Date(now + ms));
+};
 
 describe("buildProjectFromOnboarding", () => {
   it("does not complete until the first unit content is prepared", async () => {
@@ -340,10 +352,12 @@ describe("buildProjectFromOnboarding", () => {
     const result = await run(deps);
 
     expect(result.success).toBe(true);
-    expect(deps.ensureSkillKnowledge).toHaveBeenCalledWith({
-      skillNodeId: "skill-1",
-      targetIdentity: frontierPlan.targetIdentity,
-    });
+    expect(deps.ensureSkillKnowledge).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skillNodeId: "skill-1",
+        targetIdentity: frontierPlan.targetIdentity,
+      }),
+    );
     expect(deps.createSkillUnit).toHaveBeenCalledWith({
       skillNodeId: "skill-1",
       sessionId: "session-id",
@@ -360,7 +374,7 @@ describe("buildProjectFromOnboarding", () => {
     if (result.success) expect(result.data.firstUnitId).toBe("unit-1");
   });
 
-  it("prewarms only the unlocked skill's knowledge map and unit", async () => {
+  it("prepares only the first frontier and never fans out to other nodes", async () => {
     mockCurriculum.mockResolvedValue(curriculum);
     mockOverview.mockResolvedValue(overview);
     const { deps } = makeDeps();
@@ -382,9 +396,10 @@ describe("buildProjectFromOnboarding", () => {
       status: index === 0 ? ("ready" as const) : ("planned" as const),
       difficultyBands: null,
     }));
-    deps.finalize = vi.fn(() =>
-      Promise.resolve({ ...plan, nodes: skills, nextUnitId: null }),
-    );
+    const skillsPlan = { ...plan, nodes: skills, nextUnitId: null };
+    vi.mocked(deps.getActivePlan).mockResolvedValue(skillsPlan);
+    vi.mocked(deps.hasUnitContent).mockResolvedValue(false);
+    deps.finalize = vi.fn(() => Promise.resolve(skillsPlan));
     const tasks: Promise<void>[] = [];
 
     const result = await run(deps, vi.fn(), (task) => {
@@ -398,8 +413,10 @@ describe("buildProjectFromOnboarding", () => {
       content:
         "Interest: Vercel: making difficult deployment work feel immediate and simple.",
     });
-    // Locked skills are not prewarmed; their knowledge map is generated at
-    // unlock time by the lazy loadSkill path.
+    // Exactly one node is prepared: the first frontier. Every other node —
+    // locked or merely later — is built lazily when the learner reaches it,
+    // so the build never fans model calls out of a request that is already
+    // spending its budget on the critical path.
     expect(deps.ensureSkillKnowledge).toHaveBeenCalledTimes(1);
     expect(deps.ensureSkillKnowledge).toHaveBeenCalledWith(
       expect.objectContaining({ skillNodeId: "skill-1" }),
@@ -409,6 +426,67 @@ describe("buildProjectFromOnboarding", () => {
       skillNodeId: "skill-1",
       sessionId: "session-id",
       userId: "user-id",
+    });
+  });
+
+  describe("request budget", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    // Restored here rather than globally: a leaked fake clock stalls the
+    // partial-flush test, which waits on real timers.
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("yields before the unit step instead of dying mid-generation", async () => {
+      // The curriculum lands, but eats almost the whole budget doing it.
+      mockCurriculum.mockImplementation(() => {
+        spendBudget(200_000);
+        return Promise.resolve(curriculum);
+      });
+      const { deps, updateRunCalls } = makeDeps();
+      const unitFixture = plan.nodes[0];
+      if (!unitFixture) throw new Error("Expected a unit fixture.");
+      vi.mocked(deps.hasUnitContent).mockResolvedValue(false);
+      vi.mocked(deps.getActivePlan).mockResolvedValue({
+        ...plan,
+        nextUnitId: null,
+        nodes: [
+          { ...unitFixture, id: "skill-1", kind: "skill", status: "ready" },
+        ],
+      });
+      const onProgress = vi.fn();
+
+      const result = await run(deps, onProgress);
+
+      // The curriculum is persisted and checkpointed; the unit step never starts.
+      expect(deps.persistCurriculum).toHaveBeenCalledTimes(1);
+      expect(deps.ensureSkillKnowledge).not.toHaveBeenCalled();
+      expect(deps.createSkillUnit).not.toHaveBeenCalled();
+      expect(deps.finalize).not.toHaveBeenCalled();
+
+      // A yield is not an error: the run stays "building" so the resume picks
+      // it up, and the round counter advances so the cap can eventually stop it.
+      expect(result.success).toBe(true);
+      if (result.success) expect(result.data.status).toBe("building");
+      expect(updateRunCalls.at(-1)?.status).toBe("building");
+      const lastState = onProgress.mock.calls.at(-1)?.[0] as ProjectBuildState;
+      expect(lastState.phase).toBe("needs_resume");
+      expect(lastState.resumeRounds).toBe(1);
+    });
+
+    it("fails rather than yielding forever once the round cap is reached", async () => {
+      const { deps } = makeDeps();
+      const onProgress = vi.fn();
+
+      const result = await run(deps, onProgress, undefined, undefined, 4);
+
+      expect(result.success).toBe(false);
+      expect(mockCurriculum).not.toHaveBeenCalled();
+      const lastState = onProgress.mock.calls.at(-1)?.[0] as ProjectBuildState;
+      expect(lastState.phase).toBe("error");
     });
   });
 

@@ -87,6 +87,7 @@ export const designOutcomeCurriculum = async ({
     errorMessage: "Failed to generate the outcome curriculum.",
     onPartial: options?.onPartial,
     seedPartial: options?.seedPartial,
+    abortSignal: options?.abortSignal,
     prompt: `Design the identity report and the outcome set for this learner.
 
 Topic: ${topic}

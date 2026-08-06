@@ -17,6 +17,7 @@ import { buildProjectCheckpointRepository } from "./build-project-checkpoint-rep
 import { buildProjectCurriculumRepository } from "./build-project-curriculum-repository";
 import { buildProjectProfileRepository } from "./build-project-profile-repository";
 import { memoryRepository } from "./memory-repository";
+import { withNodeBuildLifecycle } from "./node-build-lifecycle";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
 import { trainingOnboardingRepository } from "./training-onboarding-repository";
 import {
@@ -26,6 +27,15 @@ import {
 
 type Database = typeof databaseClient;
 
+/**
+ * Create (or return) the skill's open unit, exactly once per skill node.
+ *
+ * `createNextUnit` returns an existing open unit when it finds one, but that
+ * read and the append that follows are not atomic: two callers arriving
+ * together — a resumed build and the learner opening the workspace — both see
+ * "no open unit" and both append. The lock is taken on the *skill* node because
+ * the unit whose id would otherwise key it does not exist yet.
+ */
 export const ensureSkillUnit = async ({
   db,
   skillNodeId,
@@ -37,12 +47,22 @@ export const ensureSkillUnit = async ({
   sessionId: string;
   userId: string;
 }) =>
-  Effect.runPromise(
-    createNextUnit({
-      skillNodeId,
-      deps: createUnitCreationRepositoryDeps({ db, sessionId, userId }),
-    }),
-  );
+  withNodeBuildLifecycle({
+    db,
+    kind: "unit_creation",
+    nodeId: skillNodeId,
+    run: (lockDb) =>
+      Effect.runPromise(
+        createNextUnit({
+          skillNodeId,
+          deps: createUnitCreationRepositoryDeps({
+            db: lockDb,
+            sessionId,
+            userId,
+          }),
+        }),
+      ),
+  });
 
 /**
  * Edge adapter that wires {@link BuildProjectDeps} to the repositories for a

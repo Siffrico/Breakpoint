@@ -242,6 +242,14 @@ export function ProjectBuildScreen({
             {state.error}
           </p>
         ) : null}
+
+        {/* A yield is not a stall and not a failure — the next invocation is
+            already picking it up, so this reads as continuation, not recovery. */}
+        {state.phase === "needs_resume" ? (
+          <p className="mt-6 text-[13px] leading-5 text-white/40">
+            Picking up where it left off…
+          </p>
+        ) : null}
       </div>
     </div>
   );

@@ -19,7 +19,6 @@ import type {
 } from "../types/training.types";
 import type { ArtifactFailureKind } from "./agent-runtime";
 import type { ProjectBuildArtifactPreviewInput } from "./project-build-preview";
-import { createTaskLimiter } from "../../../lib/concurrency";
 import { err, ok } from "../../../lib/result";
 import {
   CurriculumDesignerOutputSchema,
@@ -67,13 +66,35 @@ export interface ProjectBuildStepDetail {
   generated?: boolean;
 }
 
-export type ProjectBuildPhase = "building" | "complete" | "error";
+/**
+ * `needs_resume` is not a failure: the invocation ran out of request budget
+ * before a step that would not have fit, checkpointed everything it had, and
+ * released its lease. The client resumes it immediately and the learner sees an
+ * uninterrupted build.
+ */
+export type ProjectBuildPhase =
+  | "building"
+  | "needs_resume"
+  | "complete"
+  | "error";
 
 /** A required-but-missing artifact the learner can regenerate after the build. */
 export type ProjectBuildGap = "overview";
 
-/** The AI-generated artifacts that get their own registry lifecycle row. */
-export type ProjectBuildArtifactStep = "curriculum" | "overview";
+/**
+ * The AI-generated artifacts that get their own registry lifecycle row.
+ *
+ * `curriculum` and `overview` additionally checkpoint their *payload*, so a
+ * resume can re-save an already-generated output for zero tokens. `blueprint`
+ * and `unitSeed` record status only: both already dedupe on their own durable
+ * rows (a blueprinted outcome has syllabus rows; a prepared unit has content),
+ * so a payload copy would buy nothing a re-read does not already give.
+ */
+export type ProjectBuildArtifactStep =
+  | "curriculum"
+  | "blueprint"
+  | "unitSeed"
+  | "overview";
 
 /**
  * The full snapshot streamed to the client on every transition. It is emitted
@@ -96,6 +117,12 @@ export interface ProjectBuildState {
   targetIdentity?: string;
   /** Optional artifacts that failed; build is complete but with these gaps. */
   gaps?: ProjectBuildGap[];
+  /**
+   * How many times this build has yielded and been resumed. Carried in the
+   * streamed state (rather than a separate payload field) so the client's
+   * auto-resume and the round cap read the same number the row already holds.
+   */
+  resumeRounds?: number;
   // Populated only when `phase === "error"`.
   error?: string;
 }
@@ -328,6 +355,7 @@ export interface BuildProjectDeps {
   ensureSkillKnowledge: (input: {
     skillNodeId: string;
     targetIdentity: string;
+    abortSignal?: AbortSignal;
   }) => Promise<unknown>;
   createSkillUnit: (input: {
     skillNodeId: string;
@@ -367,11 +395,32 @@ const isPrewarmNode = (node: { kind: string; status: string }): boolean =>
   (node.kind === "skill" || node.kind === "outcome") && node.status === "ready";
 
 /**
- * Ceiling on concurrent knowledge-map AI calls. The
- * fan-out previously fired every node at once, which melts the host and
- * invites provider rate limits.
+ * Wall-clock the build may spend inside one request. The route allows 300s, and
+ * the onboarding agent has already spent part of it generating the tool call by
+ * the time the build starts — this leaves that headroom.
  */
-const PREWARM_CONCURRENCY = 3;
+const BUILD_BUDGET_MS = 240_000;
+
+/**
+ * What each step is assumed to need. Derived from the run profiles the step's
+ * agents use (see `engine/run-profiles.ts`): a step is not *started* unless its
+ * reserve still fits in the remaining budget, so the invocation yields on a
+ * clean boundary instead of dying mid-generation.
+ *
+ * These are estimates. Over-reserving costs one extra resume round;
+ * under-reserving costs the whole invocation, so they lean high.
+ */
+const STEP_RESERVE_MS: Record<"curriculum" | "unit", number> = {
+  curriculum: 150_000,
+  unit: 160_000,
+};
+
+/**
+ * Ceiling on yield/resume rounds for one build. Without it, a step that
+ * reliably exceeds its own reserve would resume forever, paying tokens each
+ * round; past the cap the build fails with a real, retryable error.
+ */
+const MAX_RESUME_ROUNDS = 4;
 
 const countModules = (plan: CurriculumPlan): number =>
   plan.nodes.filter(isModuleNode).length;
@@ -500,6 +549,7 @@ export const buildProjectFromOnboarding = async ({
   deps,
   onProgress,
   scheduleBackgroundTask,
+  resumeRound = 0,
 }: {
   sessionId: string;
   userId: string | null;
@@ -508,10 +558,12 @@ export const buildProjectFromOnboarding = async ({
   deps: BuildProjectDeps;
   onProgress: (state: ProjectBuildState) => void;
   /**
-   * Keeps the first-unit prewarm alive past the response on serverless hosts
+   * Keeps the best-effort overview alive past the response on serverless hosts
    * (Next.js `after`). Falls back to a detached promise.
    */
   scheduleBackgroundTask?: (task: () => Promise<void>) => void;
+  /** Yield/resume rounds already spent, read from the checkpoint by the caller. */
+  resumeRound?: number;
 }): Promise<
   Result<{
     sessionId: string;
@@ -521,8 +573,12 @@ export const buildProjectFromOnboarding = async ({
     firstUnitId: string | null;
     targetIdentity: string;
     gaps?: ProjectBuildGap[];
+    /** `building` means the build yielded and the client should resume it. */
+    status: "building" | "complete";
   }>
 > => {
+  const startedAt = Date.now();
+  const remainingMs = () => BUILD_BUDGET_MS - (Date.now() - startedAt);
   const projectName = normalizeLearningTrackName(input.projectName);
   const brief = resolveLearnerBrief(input);
   const [persistedStartingPoint, curriculumMode] = await Promise.all([
@@ -540,6 +596,7 @@ export const buildProjectFromOnboarding = async ({
     modules: [],
     moduleCount: 0,
     sessionId,
+    resumeRounds: resumeRound,
   };
 
   const snapshotSteps = () =>
@@ -590,6 +647,57 @@ export const buildProjectFromOnboarding = async ({
     emit();
     await updateRun("error", message);
     return err(message);
+  };
+
+  /**
+   * True when `step` should not be started in this invocation. Checked only on
+   * step boundaries — everything already generated is checkpointed, so yielding
+   * here costs a round-trip and never costs tokens.
+   */
+  const outOfBudgetFor = (step: keyof typeof STEP_RESERVE_MS): boolean =>
+    remainingMs() < STEP_RESERVE_MS[step];
+
+  /**
+   * Hard ceiling on a step's model calls. Bounded by whichever runs out first —
+   * the step's own reserve or the request budget — so a provider that stalls
+   * surfaces as a retryable abort inside the build instead of running the
+   * invocation into the route's 300s wall, where nothing gets checkpointed.
+   */
+  const stepAbortSignal = (step: keyof typeof STEP_RESERVE_MS): AbortSignal =>
+    AbortSignal.timeout(
+      Math.max(Math.min(STEP_RESERVE_MS[step], remainingMs()), 1_000),
+    );
+
+  /**
+   * Stop cleanly and hand the rest to the next invocation. `updateRun` writes
+   * the checkpoint AND nulls `leaseExpiresAt`, so the resume's `claimRun` finds
+   * a reclaimable row instead of bouncing off a live 120s lease.
+   */
+  const yieldForResume = async (): Promise<
+    Result<{
+      sessionId: string;
+      planId: string;
+      title: string;
+      moduleCount: number;
+      firstUnitId: string | null;
+      targetIdentity: string;
+      status: "building";
+    }>
+  > => {
+    stopHeartbeat();
+    state.phase = "needs_resume";
+    state.resumeRounds = resumeRound + 1;
+    emit();
+    await updateRun("building");
+    return ok({
+      sessionId,
+      planId: state.planId ?? "",
+      title: state.projectName,
+      moduleCount: state.moduleCount,
+      firstUnitId: state.firstUnitId ?? null,
+      targetIdentity: state.targetIdentity ?? input.targetIdentity.trim(),
+      status: "building" as const,
+    });
   };
 
   // The most recent in-flight "generating" partial write per step. A terminal
@@ -660,6 +768,8 @@ export const buildProjectFromOnboarding = async ({
   const artifacts = await deps.getArtifacts({ sessionId, sourceKey });
   const artifactMap = new Map(artifacts.map((record) => [record.step, record]));
   const curriculumRecord = artifactMap.get("curriculum");
+  const blueprintRecord = artifactMap.get("blueprint");
+  const unitSeedRecord = artifactMap.get("unitSeed");
   const overviewRecord = artifactMap.get("overview");
 
   // Idempotency: a fully-built plan (status "active") with no unfinished artifact
@@ -695,6 +805,7 @@ export const buildProjectFromOnboarding = async ({
         moduleCount: state.moduleCount,
         firstUnitId: existingPlan.nextUnitId,
         targetIdentity: existingPlan.targetIdentity,
+        status: "complete",
       });
     }
   }
@@ -713,6 +824,15 @@ export const buildProjectFromOnboarding = async ({
     void deps.heartbeatRun({ sessionId, ownershipToken: claim.ownershipToken });
   }, 15_000);
   stopHeartbeat = () => clearInterval(heartbeat);
+
+  // Claimed first so the failure is durable: a build that keeps yielding without
+  // progressing has to stop as a real error the learner can retry, not as
+  // another resume the client would fire again.
+  if (resumeRound >= MAX_RESUME_ROUNDS) {
+    return fail(
+      "The build kept running out of time. Retry to pick it up from where it stopped.",
+    );
+  }
 
   // Resolve the learner's starting point: the persisted value (mid-chat tap or a
   // [change] override) wins over whatever the createProject tool proposed. A
@@ -812,7 +932,7 @@ export const buildProjectFromOnboarding = async ({
   };
 
   // 3 — curriculum (REQUIRED): design + persist profile/nodes into the shell.
-  const runCurriculum = async (): Promise<Result<true>> => {
+  const runCurriculum = async (): Promise<Result<"done" | "yielded">> => {
     setStep("curriculum", "active");
     emit();
     const action = decide(curriculumRecord);
@@ -821,7 +941,7 @@ export const buildProjectFromOnboarding = async ({
     if (action === "skip") {
       setStep("curriculum", "done");
       emit();
-      return ok(true);
+      return ok("done");
     }
 
     if (action === "save_only") {
@@ -842,7 +962,7 @@ export const buildProjectFromOnboarding = async ({
           );
           setStep("curriculum", "done");
           emit();
-          return ok(true);
+          return ok("done");
         } catch (error) {
           await recordArtifact(
             "curriculum",
@@ -862,6 +982,9 @@ export const buildProjectFromOnboarding = async ({
       // Cached payload is unusable — fall through to a fresh generation.
     }
 
+    // Nothing generated yet, so yielding here is free.
+    if (outOfBudgetFor("curriculum")) return ok("yielded");
+
     const attempts = attemptsBase + 1;
     let design: CurriculumDesign;
     try {
@@ -878,6 +1001,7 @@ export const buildProjectFromOnboarding = async ({
                   seedPartial: seedFor(curriculumRecord) as
                     | Partial<OutcomeCurriculumOutput>
                     | undefined,
+                  abortSignal: stepAbortSignal("curriculum"),
                 },
               })),
             }
@@ -892,6 +1016,7 @@ export const buildProjectFromOnboarding = async ({
                   seedPartial: seedFor(curriculumRecord) as
                     | Partial<CurriculumDesignerOutput>
                     | undefined,
+                  abortSignal: stepAbortSignal("curriculum"),
                 },
               })),
             };
@@ -917,7 +1042,7 @@ export const buildProjectFromOnboarding = async ({
       await recordArtifact("curriculum", "complete", design, null, attempts);
       setStep("curriculum", "done");
       emit();
-      return ok(true);
+      return ok("done");
     } catch (error) {
       // AI succeeded but the write failed — keep the output for a zero-token re-save.
       await recordArtifact(
@@ -940,6 +1065,9 @@ export const buildProjectFromOnboarding = async ({
 
   if (!curriculumResult.success) {
     return fail(curriculumResult.error);
+  }
+  if (curriculumResult.data === "yielded") {
+    return yieldForResume();
   }
 
   // A project is launch-ready only when its first unit content has committed.
@@ -974,18 +1102,91 @@ export const buildProjectFromOnboarding = async ({
       if (!launchPlan || !firstFrontier) {
         return fail("The curriculum has no ready starting point.");
       }
-      await deps.ensureSkillKnowledge({
-        skillNodeId: firstFrontier.id,
-        targetIdentity: launchPlan.targetIdentity,
-      });
-      const firstUnit = await deps.createSkillUnit({
-        skillNodeId: firstFrontier.id,
-        sessionId,
-        userId,
-      });
+
+      // The curriculum is persisted and the plan shell is durable, so stopping
+      // between the two steps loses nothing. Both calls below are AI-backed.
+      if (outOfBudgetFor("unit")) return yieldForResume();
+
+      // Blueprint (topic mode) / knowledge map (ability mode). Status-only
+      // checkpoint: the call already short-circuits on its own persisted rows,
+      // so the registry row exists to record failures and skip a redundant
+      // round-trip, not to re-save a payload.
+      if (decide(blueprintRecord) === "generate") {
+        const blueprintAttempts = (blueprintRecord?.attempts ?? 0) + 1;
+        await recordArtifact(
+          "blueprint",
+          "generating",
+          null,
+          null,
+          blueprintAttempts,
+        );
+        try {
+          await deps.ensureSkillKnowledge({
+            skillNodeId: firstFrontier.id,
+            targetIdentity: launchPlan.targetIdentity,
+            abortSignal: stepAbortSignal("unit"),
+          });
+        } catch (error) {
+          await recordArtifact(
+            "blueprint",
+            "failed",
+            null,
+            failureKindOf(error),
+            blueprintAttempts,
+          );
+          throw error;
+        }
+        await recordArtifact(
+          "blueprint",
+          "complete",
+          null,
+          null,
+          blueprintAttempts,
+        );
+      }
+
+      const unitSeedAttempts = (unitSeedRecord?.attempts ?? 0) + 1;
+      await recordArtifact(
+        "unitSeed",
+        "generating",
+        null,
+        null,
+        unitSeedAttempts,
+      );
+      let firstUnit: { id: string } | null;
+      try {
+        firstUnit = await deps.createSkillUnit({
+          skillNodeId: firstFrontier.id,
+          sessionId,
+          userId,
+        });
+      } catch (error) {
+        await recordArtifact(
+          "unitSeed",
+          "failed",
+          null,
+          failureKindOf(error),
+          unitSeedAttempts,
+        );
+        throw error;
+      }
       if (!firstUnit) {
+        await recordArtifact(
+          "unitSeed",
+          "failed",
+          null,
+          "provider",
+          unitSeedAttempts,
+        );
         return fail("I couldn't prepare your first unit. Want to try again?");
       }
+      await recordArtifact(
+        "unitSeed",
+        "complete",
+        null,
+        null,
+        unitSeedAttempts,
+      );
       state.firstUnitId = firstUnit.id;
     }
   } catch (error) {
@@ -1137,42 +1338,10 @@ export const buildProjectFromOnboarding = async ({
     else void generateOverview();
   }
 
-  const prewarmNodes = plan.nodes.filter(isPrewarmNode);
-  const prewarmLimiter = createTaskLimiter(PREWARM_CONCURRENCY);
-  for (const node of prewarmNodes) {
-    if (
-      node.id ===
-      plan.nodes.find((candidate) => candidate.id === state.firstUnitId)
-        ?.parentNodeId
-    ) {
-      continue;
-    }
-    const prewarm = async () => {
-      try {
-        await prewarmLimiter(async () => {
-          await deps.ensureSkillKnowledge({
-            skillNodeId: node.id,
-            targetIdentity: plan.targetIdentity,
-          });
-          if (userId) {
-            await deps.createSkillUnit({
-              skillNodeId: node.id,
-              sessionId,
-              userId,
-            });
-          }
-        });
-      } catch (error) {
-        console.error("Curriculum node prewarm failed", {
-          nodeId: node.id,
-          kind: node.kind,
-          error,
-        });
-      }
-    };
-    if (scheduleBackgroundTask) scheduleBackgroundTask(prewarm);
-    else void prewarm();
-  }
+  // Nodes past the first are NOT prewarmed here. Fanning every remaining node's
+  // blueprint + unit out of a request that is already at its budget produced
+  // leases that outlived the invocation that held them; they are built lazily
+  // instead, on the same node-build lock, when the learner reaches them.
 
   return ok({
     sessionId,
@@ -1182,5 +1351,6 @@ export const buildProjectFromOnboarding = async ({
     firstUnitId: plan.nextUnitId,
     targetIdentity: plan.targetIdentity,
     gaps: undefined,
+    status: "complete",
   });
 };

@@ -266,6 +266,8 @@ export const streamProjectBuildResume = async ({
             input: run.input,
             deps: createBuildProjectDeps(db),
             scheduleBackgroundTask,
+            // Carried forward so a build that keeps yielding eventually stops.
+            resumeRound: run.state.resumeRounds ?? 0,
             onProgress: (build) => {
               writer.write({
                 type: "data-project-build",
@@ -443,6 +445,10 @@ const runOnboardingChat = async ({
               title: result.data.title,
               moduleCount: result.data.moduleCount,
               firstUnitId: result.data.firstUnitId,
+              // A yielded build is still in progress, not finished. Said plainly
+              // so a later turn reading this tool result does not tell the
+              // learner their project is ready when it is still being built.
+              resuming: result.data.status === "building",
             }
           : { ok: false, reason: result.error };
       };

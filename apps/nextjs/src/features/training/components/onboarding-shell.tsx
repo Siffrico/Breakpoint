@@ -13,7 +13,7 @@ import {
 import { useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import { ArrowClockwise, ArrowUp, Plus } from "@phosphor-icons/react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   DefaultChatTransport,
   lastAssistantMessageIsCompleteWithApprovalResponses,
@@ -337,8 +337,38 @@ export function OnboardingShell({
     () => selectProjectBuildPart(messages),
     [messages],
   );
-  const projectBuild = latestProjectBuildPart?.state ?? null;
+  const streamedBuild = latestProjectBuildPart?.state ?? null;
+
+  // The SSE stream is a live view of the build; the checkpoint row is the
+  // record of it. While the stream is connected it is authoritative and we do
+  // not poll at all — the poll only takes over once the stream is gone (tab
+  // reopened, invocation killed, or the build yielded). Because the two are
+  // never live at the same time, there is nothing to order and no revision
+  // number to carry.
+  const buildUnfinished =
+    Boolean(streamedBuild) &&
+    streamedBuild?.phase !== "complete" &&
+    streamedBuild?.phase !== "error";
+  const buildRun = useQuery({
+    ...trpc.training.getBuildRun.queryOptions({ sessionId: sessionId ?? "" }),
+    enabled: !preview && Boolean(sessionId) && buildUnfinished && !isStreaming,
+    refetchInterval: 2_000,
+  });
+  const projectBuild = (!isStreaming ? buildRun.data : null) ?? streamedBuild;
   const projectReady = projectBuild?.phase === "complete";
+
+  // A yielded build checkpointed itself and released its lease; picking it up is
+  // the same deterministic resume the retry button fires. The ref keys on the
+  // round so each yield resumes exactly once, however often this re-renders.
+  const resumedRoundRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (preview || !sessionId || isStreaming) return;
+    if (projectBuild?.phase !== "needs_resume") return;
+    const round = projectBuild.resumeRounds ?? 0;
+    if (resumedRoundRef.current === round) return;
+    resumedRoundRef.current = round;
+    void regenerate({ body: { resumeBuild: true } });
+  }, [preview, sessionId, isStreaming, projectBuild, regenerate]);
 
   useEffect(() => {
     onRunningChange?.(isStreaming || startOnboarding.isPending);
@@ -705,7 +735,11 @@ export function OnboardingShell({
                         ) {
                           return null;
                         }
-                        const build = part.data as ProjectBuildState;
+                        // Prefer the durable row when the stream is down, so a
+                        // reopened tab renders live progress instead of the
+                        // snapshot frozen at disconnect.
+                        const build =
+                          projectBuild ?? (part.data as ProjectBuildState);
                         return (
                           <ProjectBuildScreen
                             key={`${message.id}-build-${partIndex}`}

@@ -103,6 +103,7 @@ export const designOutcomeBlueprint = async (
     errorMessage: "Failed to generate the outcome blueprint.",
     onPartial: input.options?.onPartial,
     seedPartial: input.options?.seedPartial,
+    abortSignal: input.options?.abortSignal,
     prompt: `Compile the teaching blueprint for this outcome.
 
 Target identity: ${input.targetIdentity}

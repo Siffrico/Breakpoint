@@ -5,7 +5,13 @@ import { and, eq, sql } from "@acme/db";
 import { TrainingNodeBuild } from "@acme/db/schema";
 
 type Database = typeof databaseClient;
-type BuildKind = "skill_knowledge" | "unit_content";
+/**
+ * `unit_creation` is keyed by the *skill/outcome* node and guards appending a
+ * unit to it; `unit_content` is keyed by the resulting unit node and guards
+ * filling it in. Both are needed: without the former, two concurrent callers
+ * each append their own unit before either has a unit id to lock on.
+ */
+type BuildKind = "skill_knowledge" | "unit_content" | "unit_creation";
 
 const LEASE_MS = 60_000;
 const HEARTBEAT_MS = 20_000;
@@ -85,6 +91,16 @@ const claim = async ({
     return { status: "claimed" as const, leaseId };
   });
 
+/**
+ * Outcome of waiting on another invocation's build.
+ *
+ * `ready` — the owner finished; read its rows.
+ * `takeover` — the owner died (expired lease, or never finished within the
+ *   wait window). The work is abandoned and reclaimable, so the waiter becomes
+ *   the new owner rather than reporting a failure for work nobody is doing.
+ */
+type WaitOutcome = "ready" | "takeover";
+
 const waitForOwner = async ({
   db,
   kind,
@@ -93,7 +109,7 @@ const waitForOwner = async ({
   db: Database;
   kind: BuildKind;
   nodeId: string;
-}) => {
+}): Promise<WaitOutcome> => {
   const deadline = Date.now() + WAIT_MS;
   while (Date.now() < deadline) {
     const build = await db.query.TrainingNodeBuild.findFirst({
@@ -102,7 +118,7 @@ const waitForOwner = async ({
         eq(TrainingNodeBuild.nodeId, nodeId),
       ),
     });
-    if (build?.status === "ready") return;
+    if (build?.status === "ready") return "ready";
     if (build?.status === "failed") {
       throw new Error(build.failureMessage ?? "Artifact generation failed.");
     }
@@ -111,11 +127,11 @@ const waitForOwner = async ({
       build.leaseExpiresAt &&
       build.leaseExpiresAt <= new Date()
     ) {
-      throw new Error("Artifact generation lease expired.");
+      return "takeover";
     }
     await new Promise((resolve) => setTimeout(resolve, POLL_MS));
   }
-  throw new Error("Artifact generation is still running.");
+  return "takeover";
 };
 
 export const withNodeBuildLifecycle = async <T>({
@@ -129,12 +145,21 @@ export const withNodeBuildLifecycle = async <T>({
   nodeId: string;
   run: (db: Database) => Promise<T>;
 }): Promise<T> => {
-  const ownership = await claim({ db, kind, nodeId });
-  if (ownership.status === "ready") return run(db);
+  let ownership = await claim({ db, kind, nodeId });
   if (ownership.status === "running") {
-    await waitForOwner({ db, kind, nodeId });
-    return run(db);
+    const outcome = await waitForOwner({ db, kind, nodeId });
+    // The owner finished: its rows are committed, so just read them.
+    if (outcome === "ready") return run(db);
+    // The owner died. Reclaim the abandoned build rather than failing a caller
+    // for work nobody is doing. If another waiter reclaimed it first we land on
+    // `running` again and wait that one out — one takeover attempt, no loop.
+    ownership = await claim({ db, kind, nodeId });
+    if (ownership.status === "running") {
+      await waitForOwner({ db, kind, nodeId });
+      return run(db);
+    }
   }
+  if (ownership.status === "ready") return run(db);
 
   const heartbeat = setInterval(() => {
     void db

@@ -106,10 +106,13 @@ export const ensureSkillKnowledge = async ({
   db,
   skillNodeId,
   targetIdentity,
+  abortSignal,
 }: {
   db: Database;
   skillNodeId: string;
   targetIdentity?: string;
+  /** Caller's deadline for the model call; omitted outside the project build. */
+  abortSignal?: AbortSignal;
 }) =>
   withSkillKnowledgeBuildLock({
     db,
@@ -155,6 +158,7 @@ export const ensureSkillKnowledge = async ({
                 sessionId: plan.onboardingSessionId,
               })
             : [],
+          options: { abortSignal },
         });
         return skillKnowledgeRepository.ensureOutcomeBlueprint({
           db: lockDb,

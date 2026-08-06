@@ -338,6 +338,27 @@ export const trainingRouter = {
     }),
   ),
 
+  /**
+   * The durable build state for one session. This is what makes the build
+   * survive a dropped connection: the SSE stream is a live view, this row is
+   * the record. Ownership is checked here because the checkpoint is keyed by
+   * session, not by user.
+   */
+  getBuildRun: protectedProcedure
+    .input(z.object({ sessionId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const session = await trainingOnboardingRepository.getSession({
+        db: ctx.db,
+        sessionId: input.sessionId,
+      });
+      if (!session || session.userId !== ctx.session.user.id) return null;
+      const run = await buildProjectCheckpointRepository.getRun({
+        db: ctx.db,
+        sessionId: input.sessionId,
+      });
+      return run ? run.state : null;
+    }),
+
   listLearningProjects: protectedProcedure.query(({ ctx }) =>
     trainingWorkspaceReadRepository.listLearningProjectsForUser({
       db: ctx.db,
