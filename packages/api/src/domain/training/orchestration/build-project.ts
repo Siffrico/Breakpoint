@@ -361,6 +361,7 @@ export interface BuildProjectDeps {
     skillNodeId: string;
     sessionId: string;
     userId: string;
+    abortSignal?: AbortSignal;
   }) => Promise<{ id: string } | null>;
 }
 
@@ -986,6 +987,7 @@ export const buildProjectFromOnboarding = async ({
     if (outOfBudgetFor("curriculum")) return ok("yielded");
 
     const attempts = attemptsBase + 1;
+    const curriculumAbortSignal = stepAbortSignal("curriculum");
     let design: CurriculumDesign;
     try {
       design =
@@ -1001,7 +1003,7 @@ export const buildProjectFromOnboarding = async ({
                   seedPartial: seedFor(curriculumRecord) as
                     | Partial<OutcomeCurriculumOutput>
                     | undefined,
-                  abortSignal: stepAbortSignal("curriculum"),
+                  abortSignal: curriculumAbortSignal,
                 },
               })),
             }
@@ -1016,7 +1018,7 @@ export const buildProjectFromOnboarding = async ({
                   seedPartial: seedFor(curriculumRecord) as
                     | Partial<CurriculumDesignerOutput>
                     | undefined,
-                  abortSignal: stepAbortSignal("curriculum"),
+                  abortSignal: curriculumAbortSignal,
                 },
               })),
             };
@@ -1029,6 +1031,7 @@ export const buildProjectFromOnboarding = async ({
         failureKindOf(error),
         attempts,
       );
+      if (curriculumAbortSignal.aborted) return ok("yielded");
       return err(
         messageFrom(
           error,
@@ -1111,6 +1114,10 @@ export const buildProjectFromOnboarding = async ({
       // checkpoint: the call already short-circuits on its own persisted rows,
       // so the registry row exists to record failures and skip a redundant
       // round-trip, not to re-save a payload.
+      // Both knowledge and unit-content generation belong to one critical-path
+      // budget. Sharing this signal prevents a slow blueprint from leaving a
+      // fresh full timeout for the unit seed.
+      const unitAbortSignal = stepAbortSignal("unit");
       if (decide(blueprintRecord) === "generate") {
         const blueprintAttempts = (blueprintRecord?.attempts ?? 0) + 1;
         await recordArtifact(
@@ -1124,7 +1131,7 @@ export const buildProjectFromOnboarding = async ({
           await deps.ensureSkillKnowledge({
             skillNodeId: firstFrontier.id,
             targetIdentity: launchPlan.targetIdentity,
-            abortSignal: stepAbortSignal("unit"),
+            abortSignal: unitAbortSignal,
           });
         } catch (error) {
           await recordArtifact(
@@ -1134,6 +1141,7 @@ export const buildProjectFromOnboarding = async ({
             failureKindOf(error),
             blueprintAttempts,
           );
+          if (unitAbortSignal.aborted) return yieldForResume();
           throw error;
         }
         await recordArtifact(
@@ -1159,6 +1167,7 @@ export const buildProjectFromOnboarding = async ({
           skillNodeId: firstFrontier.id,
           sessionId,
           userId,
+          abortSignal: unitAbortSignal,
         });
       } catch (error) {
         await recordArtifact(
@@ -1168,6 +1177,7 @@ export const buildProjectFromOnboarding = async ({
           failureKindOf(error),
           unitSeedAttempts,
         );
+        if (unitAbortSignal.aborted) return yieldForResume();
         throw error;
       }
       if (!firstUnit) {

@@ -146,18 +146,14 @@ export const withNodeBuildLifecycle = async <T>({
   run: (db: Database) => Promise<T>;
 }): Promise<T> => {
   let ownership = await claim({ db, kind, nodeId });
-  if (ownership.status === "running") {
+  while (ownership.status === "running") {
     const outcome = await waitForOwner({ db, kind, nodeId });
     // The owner finished: its rows are committed, so just read them.
     if (outcome === "ready") return run(db);
-    // The owner died. Reclaim the abandoned build rather than failing a caller
-    // for work nobody is doing. If another waiter reclaimed it first we land on
-    // `running` again and wait that one out — one takeover attempt, no loop.
+    // Reclaim only after the prior owner is gone. A concurrent waiter may win
+    // this claim, in which case the loop waits for that owner instead of
+    // running unowned work.
     ownership = await claim({ db, kind, nodeId });
-    if (ownership.status === "running") {
-      await waitForOwner({ db, kind, nodeId });
-      return run(db);
-    }
   }
   if (ownership.status === "ready") return run(db);
 

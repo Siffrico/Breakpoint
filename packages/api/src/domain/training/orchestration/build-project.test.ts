@@ -358,11 +358,13 @@ describe("buildProjectFromOnboarding", () => {
         targetIdentity: frontierPlan.targetIdentity,
       }),
     );
-    expect(deps.createSkillUnit).toHaveBeenCalledWith({
-      skillNodeId: "skill-1",
-      sessionId: "session-id",
-      userId: "user-id",
-    });
+    expect(deps.createSkillUnit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skillNodeId: "skill-1",
+        sessionId: "session-id",
+        userId: "user-id",
+      }),
+    );
     const createOrder = vi.mocked(deps.createSkillUnit).mock
       .invocationCallOrder[0];
     const finalizeOrder = vi.mocked(deps.finalize).mock.invocationCallOrder[0];
@@ -422,11 +424,13 @@ describe("buildProjectFromOnboarding", () => {
       expect.objectContaining({ skillNodeId: "skill-1" }),
     );
     expect(deps.createSkillUnit).toHaveBeenCalledTimes(1);
-    expect(deps.createSkillUnit).toHaveBeenCalledWith({
-      skillNodeId: "skill-1",
-      sessionId: "session-id",
-      userId: "user-id",
-    });
+    expect(deps.createSkillUnit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skillNodeId: "skill-1",
+        sessionId: "session-id",
+        userId: "user-id",
+      }),
+    );
   });
 
   describe("request budget", () => {

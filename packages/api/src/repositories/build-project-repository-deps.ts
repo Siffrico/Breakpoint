@@ -41,11 +41,13 @@ export const ensureSkillUnit = async ({
   skillNodeId,
   sessionId,
   userId,
+  abortSignal,
 }: {
   db: Database;
   skillNodeId: string;
   sessionId: string;
   userId: string;
+  abortSignal?: AbortSignal;
 }) =>
   withNodeBuildLifecycle({
     db,
@@ -59,6 +61,7 @@ export const ensureSkillUnit = async ({
             db: lockDb,
             sessionId,
             userId,
+            abortSignal,
           }),
         }),
       ),
@@ -270,6 +273,6 @@ export const createBuildProjectDeps = (db: Database): BuildProjectDeps => ({
     }),
 
   ensureSkillKnowledge: (input) => ensureSkillKnowledge({ db, ...input }),
-  createSkillUnit: ({ skillNodeId, sessionId, userId }) =>
-    ensureSkillUnit({ db, skillNodeId, sessionId, userId }),
+  createSkillUnit: ({ skillNodeId, sessionId, userId, abortSignal }) =>
+    ensureSkillUnit({ db, skillNodeId, sessionId, userId, abortSignal }),
 });

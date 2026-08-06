@@ -5,6 +5,7 @@ import { buildSeedStageRequest } from "./seed-prompt-policy";
 
 export const runSeedStage = async (
   context: UnitBuilderContext,
+  options?: { abortSignal?: AbortSignal },
 ): Promise<SeedStageOutput> => {
   UnitBuilderContextSchema.parse(context);
   const request = buildSeedStageRequest(context);
@@ -15,5 +16,6 @@ export const runSeedStage = async (
     schema: SeedStageOutputSchema,
     errorMessage: "Failed to generate the seed stage.",
     prompt: request.prompt,
+    abortSignal: options?.abortSignal,
   });
 };

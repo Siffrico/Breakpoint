@@ -191,10 +191,12 @@ export const createUnitCreationRepositoryDeps = ({
   db,
   sessionId,
   userId,
+  abortSignal,
 }: {
   db: Database;
   sessionId: string;
   userId: string;
+  abortSignal?: AbortSignal;
 }): CreateNextUnitDependencies<NodeRow> => {
   // One seed lookup per node, cached for the life of this deps factory, so a
   // multi-touch unit creation pays for at most one extra query. Fail-closed: a null seed
@@ -364,6 +366,7 @@ export const createUnitCreationRepositoryDeps = ({
       prepareUnitContent({
         node,
         sessionId,
+        abortSignal,
         deps: createUnitPreparationRepositoryDeps(db),
       }).pipe(Effect.asVoid),
     selectTargets: createRegimeTargetSelector({

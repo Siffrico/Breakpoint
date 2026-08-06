@@ -103,6 +103,8 @@ export interface PrepareUnitContentInput {
   readonly sessionId: string;
   readonly deps: UnitPreparationDependencies;
   readonly forceRefresh?: boolean;
+  /** Request-level deadline when preparation is on a synchronous critical path. */
+  readonly abortSignal?: AbortSignal;
   /** Optional non-critical briefing work that must share the node build lock. */
   readonly prepareClusterBriefing?: () => Promise<{
     nodeId: string;
@@ -225,6 +227,7 @@ const prepareUnitContentUnlocked = ({
   deps,
   forceRefresh = false,
   prepareClusterBriefing,
+  abortSignal,
 }: PrepareUnitContentInput): Effect.Effect<UnitContent, UnitPreparationError> =>
   Effect.gen(function* () {
     const existing = yield* Effect.tryPromise({
@@ -273,7 +276,7 @@ const prepareUnitContentUnlocked = ({
     });
 
     const setup = yield* Effect.tryPromise({
-      try: () => runSeedStage(context),
+      try: () => runSeedStage(context, { abortSignal }),
       catch: classifyUnitScaffoldFailure,
     }).pipe(
       Effect.timeout(Duration.seconds(45)),

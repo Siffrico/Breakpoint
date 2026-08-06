@@ -21,12 +21,14 @@ export const runAgent = async <TSchema extends z.ZodTypeAny>({
   prompt,
   schema,
   errorMessage,
+  abortSignal,
 }: {
   agent: ArtifactAgentId;
   system: string;
   prompt: string;
   schema: TSchema;
   errorMessage: string;
+  abortSignal?: AbortSignal;
 }): Promise<z.infer<TSchema>> => {
   const purpose = getAgentConfig(agent).purpose;
   const profile = getRunProfile(purpose);
@@ -45,6 +47,7 @@ export const runAgent = async <TSchema extends z.ZodTypeAny>({
       tools: getSearchToolsForStructuredOutput(purpose),
       maxSteps: profile.maxSteps,
       profile,
+      abortSignal,
     });
     const object = await result.output;
 
