@@ -56,9 +56,7 @@ export const reviewPresentationSchema = z
   .strict()
   .superRefine((output, ctx) => {
     if (
-      /<\/?scratchpad>|verifier\.|checkerSpec/i.test(
-        output.assistantMessage,
-      )
+      /<\/?scratchpad>|verifier\.|checkerSpec/i.test(output.assistantMessage)
     ) {
       ctx.addIssue({
         code: "custom",
@@ -199,7 +197,11 @@ export const reviewGradeSchema = ({
             "feedback for a learner gap must end with one targeted application question",
         });
       }
-      if (/\b(?:the mirror|the pivot|the crucible)\b/i.test(output.assistantMessage)) {
+      if (
+        /\b(?:the mirror|the pivot|the crucible)\b/i.test(
+          output.assistantMessage,
+        )
+      ) {
         ctx.addIssue({
           code: "custom",
           path: ["assistantMessage"],
@@ -209,7 +211,5 @@ export const reviewGradeSchema = ({
     });
 
 export type MentorOutput = z.infer<ReturnType<typeof mentorOutputSchema>>;
-export type ReviewPresentationOutput = z.infer<
-  typeof reviewPresentationSchema
->;
+export type ReviewPresentationOutput = z.infer<typeof reviewPresentationSchema>;
 export type ReviewGradeOutput = z.infer<ReturnType<typeof reviewGradeSchema>>;

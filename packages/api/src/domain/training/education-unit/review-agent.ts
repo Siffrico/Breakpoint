@@ -13,8 +13,8 @@ import type { EducationExperienceDefinition } from "./experience";
 import {
   PASSING_COMPOSITE,
   PASSING_DIMENSION,
-  reviewPresentationSchema,
   reviewGradeSchema,
+  reviewPresentationSchema,
 } from "./agent-contracts";
 import { runUnitAgent } from "./run-unit-agent";
 

@@ -70,10 +70,16 @@ export function OnboardingUtilityActions({
                   }
                 }}
               >
-                <MenuRadioItem value="ability" disabled={curriculumChangeDisabled}>
+                <MenuRadioItem
+                  value="ability"
+                  disabled={curriculumChangeDisabled}
+                >
                   Abilities
                 </MenuRadioItem>
-                <MenuRadioItem value="topic" disabled={curriculumChangeDisabled}>
+                <MenuRadioItem
+                  value="topic"
+                  disabled={curriculumChangeDisabled}
+                >
                   Topic
                 </MenuRadioItem>
               </MenuRadioGroup>

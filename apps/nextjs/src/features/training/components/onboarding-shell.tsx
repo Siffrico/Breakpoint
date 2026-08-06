@@ -49,10 +49,10 @@ import { previewOnboardingStates } from "~/features/training/lib/training-previe
 import { useTRPC } from "~/trpc/react";
 import { AssistantRichText } from "./assistant-rich-text";
 import { CreateProjectConfirm } from "./onboarding/create-project-confirm";
-import { ProjectBuildCard } from "./onboarding/project-build-card";
+import { OnboardingUtilityActions } from "./onboarding/onboarding-utility-actions";
+import { ProjectBuildScreen } from "./onboarding/project-build-screen";
 import { selectProjectBuildPart } from "./onboarding/select-project-build-part";
 import { StartingPointCheck } from "./onboarding/starting-point-check";
-import { OnboardingUtilityActions } from "./onboarding/onboarding-utility-actions";
 
 type OnboardingState = RouterOutputs["training"]["startOnboarding"];
 
@@ -707,7 +707,7 @@ export function OnboardingShell({
                         }
                         const build = part.data as ProjectBuildState;
                         return (
-                          <ProjectBuildCard
+                          <ProjectBuildScreen
                             key={`${message.id}-build-${partIndex}`}
                             state={build}
                             preview={preview}

@@ -5,25 +5,71 @@ import { buildSeedStageRequest } from "./seed-prompt-policy";
 
 const blueprint = {
   declarativeKnowledge: [
-    { label: "Contrast", statement: "Contrast markers reverse the expected meaning.", applicability: "When clauses are contrasted." },
-    { label: "Context", statement: "Local context constrains the answer.", applicability: "For every passage item." },
+    {
+      label: "Contrast",
+      statement: "Contrast markers reverse the expected meaning.",
+      applicability: "When clauses are contrasted.",
+    },
+    {
+      label: "Context",
+      statement: "Local context constrains the answer.",
+      applicability: "For every passage item.",
+    },
   ],
   cognitiveHeuristics: {
-    expertMentality: ["Predict before comparing options.", "Test options against the passage constraint."],
+    expertMentality: [
+      "Predict before comparing options.",
+      "Test options against the passage constraint.",
+    ],
     commonTraps: [
-      { trap: "Dictionary meaning", whyItIsTempting: "It is familiar.", detectionCue: "It fails the local constraint." },
-      { trap: "Broad synonym", whyItIsTempting: "It sounds plausible.", detectionCue: "It lacks required precision." },
+      {
+        trap: "Dictionary meaning",
+        whyItIsTempting: "It is familiar.",
+        detectionCue: "It fails the local constraint.",
+      },
+      {
+        trap: "Broad synonym",
+        whyItIsTempting: "It sounds plausible.",
+        detectionCue: "It lacks required precision.",
+      },
     ],
   },
   progression: {
     complexityAxes: ["Constraint distance", "Option similarity"],
     bandBriefs: [
-      { band: 0 as const, caseShape: "Explicit contrast beside the blank.", reasoningPath: "Read the contrast, predict, match.", withheldGivens: "Nothing is withheld.", embeddedAlternatives: "One clearly wrong option.", liveTraps: [] },
-      { band: 1 as const, caseShape: "Constraint sits one sentence away.", reasoningPath: "Locate the constraint, predict, eliminate.", withheldGivens: "Where the constraint lives.", embeddedAlternatives: "One broad synonym.", liveTraps: ["Broad synonym"] },
-      { band: 2 as const, caseShape: "Indirect constraint and near-miss options.", reasoningPath: "Infer the constraint, predict, separate two survivors.", withheldGivens: "The constraint and its polarity.", embeddedAlternatives: "Two options that both fit loosely.", liveTraps: ["Dictionary meaning", "Broad synonym"] },
+      {
+        band: 0 as const,
+        caseShape: "Explicit contrast beside the blank.",
+        reasoningPath: "Read the contrast, predict, match.",
+        withheldGivens: "Nothing is withheld.",
+        embeddedAlternatives: "One clearly wrong option.",
+        liveTraps: [],
+      },
+      {
+        band: 1 as const,
+        caseShape: "Constraint sits one sentence away.",
+        reasoningPath: "Locate the constraint, predict, eliminate.",
+        withheldGivens: "Where the constraint lives.",
+        embeddedAlternatives: "One broad synonym.",
+        liveTraps: ["Broad synonym"],
+      },
+      {
+        band: 2 as const,
+        caseShape: "Indirect constraint and near-miss options.",
+        reasoningPath: "Infer the constraint, predict, separate two survivors.",
+        withheldGivens: "The constraint and its polarity.",
+        embeddedAlternatives: "Two options that both fit loosely.",
+        liveTraps: ["Dictionary meaning", "Broad synonym"],
+      },
     ],
   },
-  taskVariations: [{ context: "argumentative" as const, applicability: "Claim-based passages.", addedPressure: "Author stance can mislead." }],
+  taskVariations: [
+    {
+      context: "argumentative" as const,
+      applicability: "Claim-based passages.",
+      addedPressure: "Author stance can mislead.",
+    },
+  ],
 };
 
 const context = {

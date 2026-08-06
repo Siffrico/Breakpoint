@@ -49,12 +49,12 @@ import type {
   UnitContent,
   UnitMasteryContract,
 } from "@acme/validators";
-import type { SubtypeBlueprint } from "../outcome-curriculum/contracts";
 
 import type {
   CreateProjectInput,
   ProjectBuildState,
 } from "../orchestration/build-project";
+import type { SubtypeBlueprint } from "../outcome-curriculum/contracts";
 
 export type {
   CurriculumNode,

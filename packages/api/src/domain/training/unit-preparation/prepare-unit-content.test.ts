@@ -193,25 +193,71 @@ describe("prepareUnitContent", () => {
     };
     const blueprint = {
       declarativeKnowledge: [
-        { label: "Contrast", statement: "Contrast reverses expected meaning.", applicability: "When clauses are contrasted." },
-        { label: "Context", statement: "Context constrains the answer.", applicability: "For every item." },
+        {
+          label: "Contrast",
+          statement: "Contrast reverses expected meaning.",
+          applicability: "When clauses are contrasted.",
+        },
+        {
+          label: "Context",
+          statement: "Context constrains the answer.",
+          applicability: "For every item.",
+        },
       ],
       cognitiveHeuristics: {
-        expertMentality: ["Predict before comparing options.", "Test options against the constraint."],
+        expertMentality: [
+          "Predict before comparing options.",
+          "Test options against the constraint.",
+        ],
         commonTraps: [
-          { trap: "Dictionary meaning", whyItIsTempting: "It is familiar.", detectionCue: "It fails context." },
-          { trap: "Broad synonym", whyItIsTempting: "It sounds plausible.", detectionCue: "It lacks precision." },
+          {
+            trap: "Dictionary meaning",
+            whyItIsTempting: "It is familiar.",
+            detectionCue: "It fails context.",
+          },
+          {
+            trap: "Broad synonym",
+            whyItIsTempting: "It sounds plausible.",
+            detectionCue: "It lacks precision.",
+          },
         ],
       },
       progression: {
         complexityAxes: ["Constraint distance", "Option similarity"],
         bandBriefs: [
-          { band: 0, caseShape: "Explicit contrast.", reasoningPath: "Read, predict, match.", withheldGivens: "Nothing.", embeddedAlternatives: "One wrong option.", liveTraps: [] },
-          { band: 1, caseShape: "Constraint one sentence away.", reasoningPath: "Locate, predict, eliminate.", withheldGivens: "Constraint location.", embeddedAlternatives: "One broad synonym.", liveTraps: ["Broad synonym"] },
-          { band: 2, caseShape: "Indirect constraint.", reasoningPath: "Infer, predict, separate survivors.", withheldGivens: "Constraint and polarity.", embeddedAlternatives: "Two loose fits.", liveTraps: ["Dictionary meaning"] },
+          {
+            band: 0,
+            caseShape: "Explicit contrast.",
+            reasoningPath: "Read, predict, match.",
+            withheldGivens: "Nothing.",
+            embeddedAlternatives: "One wrong option.",
+            liveTraps: [],
+          },
+          {
+            band: 1,
+            caseShape: "Constraint one sentence away.",
+            reasoningPath: "Locate, predict, eliminate.",
+            withheldGivens: "Constraint location.",
+            embeddedAlternatives: "One broad synonym.",
+            liveTraps: ["Broad synonym"],
+          },
+          {
+            band: 2,
+            caseShape: "Indirect constraint.",
+            reasoningPath: "Infer, predict, separate survivors.",
+            withheldGivens: "Constraint and polarity.",
+            embeddedAlternatives: "Two loose fits.",
+            liveTraps: ["Dictionary meaning"],
+          },
         ],
       },
-      taskVariations: [{ context: "argumentative" as const, applicability: "Claims.", addedPressure: "Stance can mislead." }],
+      taskVariations: [
+        {
+          context: "argumentative" as const,
+          applicability: "Claims.",
+          addedPressure: "Stance can mislead.",
+        },
+      ],
     };
     const outcomeNodes = [
       {
