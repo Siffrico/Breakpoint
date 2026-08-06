@@ -49,6 +49,7 @@ import type {
   UnitContent,
   UnitMasteryContract,
 } from "@acme/validators";
+import type { SubtypeBlueprint } from "../outcome-curriculum/contracts";
 
 import type {
   CreateProjectInput,
@@ -130,6 +131,8 @@ export interface CurriculumNodeBlueprint {
     /** Outcome nodes only — see @acme/validators ScenarioBriefSchema. */
     mainOutcome?: string;
     scenarioBrief?: ScenarioBrief;
+    /** Outcome nodes only: the durable knowledge-and-cognition blueprint. */
+    blueprint?: SubtypeBlueprint;
   } | null;
 }
 

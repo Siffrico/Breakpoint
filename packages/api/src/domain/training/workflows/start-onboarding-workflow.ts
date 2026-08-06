@@ -25,7 +25,7 @@ interface StartOnboardingDependencies {
 
 export const startOnboardingWorkflow = async ({
   userId,
-  curriculumMode = "ability",
+  curriculumMode = "topic",
   deps,
 }: {
   userId?: string | null;

@@ -48,6 +48,90 @@ const OutcomeMasteryContractSchema = z.object({
   maxRatingDeviation: z.number().int().min(30).max(200).optional(),
 });
 
+/** The source material for a task subtype. Facts and expert judgment stay
+ * separate so a scenario can teach the former without mistaking it for the
+ * latter. */
+export const DeclarativeKnowledgeSchema = z.object({
+  label: z.string().min(1),
+  statement: z.string().min(1),
+  applicability: z.string().min(1),
+});
+
+export const CognitiveTrapSchema = z.object({
+  trap: z.string().min(1),
+  whyItIsTempting: z.string().min(1),
+  detectionCue: z.string().min(1),
+});
+
+export const TaskVariationSchema = z.object({
+  context: z.enum([
+    "argumentative",
+    "scientific",
+    "historical",
+    "literary",
+    "narrative",
+  ]),
+  applicability: z.string().min(1),
+  addedPressure: z.string().min(1),
+});
+
+/**
+ * What a task at ONE difficulty band looks like for this outcome.
+ *
+ * The engine already picks a band per rep (see engine/rating). What it cannot
+ * know is what band 2 MEANS in this domain — "adversarial" is a label until
+ * someone says which givens get withheld and which near-misses get embedded.
+ * That is this brief's job, and it is why "easy" and "hard" as free prose were
+ * not enough: the three fields below map one-to-one onto the dials the
+ * difficulty model actually measures (BAND_DIAL_PRESETS in
+ * engine/rating/difficulty-priors.ts), so a generated task can be checked
+ * against them rather than taken on trust.
+ */
+export const BandBriefSchema = z.object({
+  band: z.union([z.literal(0), z.literal(1), z.literal(2)]),
+  caseShape: z
+    .string()
+    .min(1)
+    .describe("What a task at this band looks like, concretely."),
+  reasoningPath: z
+    .string()
+    .min(1)
+    .describe(
+      "The chain of judgments a competent performer runs at this band, and where it can branch.",
+    ),
+  withheldGivens: z
+    .string()
+    .min(1)
+    .describe(
+      "What this band legitimately leaves unstated, forcing the performer to establish it. Band 0 withholds nothing or nearly nothing.",
+    ),
+  embeddedAlternatives: z
+    .string()
+    .min(1)
+    .describe(
+      "The near-misses present at this band and what makes each one tempting.",
+    ),
+  liveTraps: z
+    .array(z.string().min(1))
+    .describe(
+      "Which of this subtype's common traps are in play at this band, by trap name. Empty at band 0 is legitimate.",
+    ),
+});
+
+export const SubtypeBlueprintSchema = z.object({
+  declarativeKnowledge: z.array(DeclarativeKnowledgeSchema).min(2).max(10),
+  cognitiveHeuristics: z.object({
+    expertMentality: z.array(z.string().min(1)).min(2).max(6),
+    commonTraps: z.array(CognitiveTrapSchema).min(2).max(5),
+  }),
+  progression: z.object({
+    complexityAxes: z.array(z.string().min(1)).min(2).max(8),
+    /** Exactly one brief per canonical band, ordered 0 → 2. */
+    bandBriefs: z.array(BandBriefSchema).length(3),
+  }),
+  taskVariations: z.array(TaskVariationSchema).min(1).max(5),
+});
+
 export const OutcomeDraftSchema = z.object({
   title: z
     .string()
@@ -76,6 +160,9 @@ export const OutcomeDraftSchema = z.object({
   scenarioArchetypeWhy: z.string().min(1).max(300),
   scenarioBrief: ScenarioBriefSchema,
   masteryContract: OutcomeMasteryContractSchema,
+  blueprint: SubtypeBlueprintSchema.describe(
+    "The subtype's durable 4C/ID blueprint. Keep objective knowledge separate from the expert heuristics and traps used to apply it.",
+  ),
 });
 
 export const OutcomePlanDraftSchema = z.object({
@@ -143,4 +230,5 @@ export type OutcomePlanDraft = z.infer<typeof OutcomePlanDraftSchema>;
 export type OutcomeCurriculumOutput = z.infer<
   typeof OutcomeCurriculumOutputSchema
 >;
+export type SubtypeBlueprint = z.infer<typeof SubtypeBlueprintSchema>;
 export type SyllabusOutput = z.infer<typeof SyllabusOutputSchema>;

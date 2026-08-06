@@ -27,7 +27,7 @@ export default async function OnboardingPage({
   }
 
   const params = await searchParams;
-  const curriculumMode = params.curriculum === "topic" ? "topic" : "ability";
+  const curriculumMode = params.curriculum === "ability" ? "ability" : "topic";
   const initialState = params.session
     ? await getQueryClient().fetchQuery(
         trpc.training.onboardingState.queryOptions({

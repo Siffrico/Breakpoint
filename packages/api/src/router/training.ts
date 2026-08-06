@@ -56,21 +56,10 @@ const StartOnboardingSchema = z.object({
   curriculumMode: CurriculumModeSchema.optional(),
 });
 
-/**
- * The curriculum mode a client asked for, gated to non-production.
- *
- * Topic mode is still being built out, so the toggle that requests it is a
- * local development affordance. Enforcing that here rather than only hiding the
- * control means a hand-crafted request cannot create a topic-mode session in
- * production — a session's mode is permanent, so this is not somewhere to
- * trust the client.
- */
+/** Topic-mode blueprints are the production curriculum path. */
 const resolveRequestedCurriculumMode = (
   requested: CurriculumMode | undefined,
-): CurriculumMode =>
-  requested === "topic" && process.env.NODE_ENV !== "production"
-    ? "topic"
-    : "ability";
+): CurriculumMode => requested ?? "topic";
 
 const SetStartingPointSchema = z.object({
   sessionId: z.string().uuid(),

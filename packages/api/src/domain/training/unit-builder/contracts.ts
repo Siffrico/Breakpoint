@@ -6,6 +6,7 @@ import {
   UnitMasteryContractSchema,
 } from "@acme/validators";
 
+import { SubtypeBlueprintSchema } from "../outcome-curriculum/contracts";
 import { FOUNDATION_UNIT_KNOWLEDGE_CAP } from "../unit-creation/target-selection";
 
 export const PriorLearningRecordSchema = z.object({
@@ -22,6 +23,7 @@ export const PriorLearningRecordSchema = z.object({
 export const TopicTaskContractSchema = z.object({
   mainOutcome: z.string().min(1),
   scenarioBrief: ScenarioBriefSchema,
+  blueprint: SubtypeBlueprintSchema,
 });
 
 export const UnitBuilderContextSchema = z.object({
@@ -52,6 +54,19 @@ export const UnitBuilderContextSchema = z.object({
     targetIdentity: z.string().min(1),
     priorLearning: z.array(PriorLearningRecordSchema),
   }),
+  /**
+   * The goldilocks call for this rep, resolved from the parent cluster's rating
+   * at build time. `promptBlock` is the rendered directive the generator must
+   * follow; `bandOrder` selects which of the outcome's band briefs applies.
+   * Null when the rating scope could not be resolved — the generator then falls
+   * back to the slot position alone.
+   */
+  difficulty: z
+    .object({
+      promptBlock: z.string().min(1),
+      bandOrder: z.number().int().min(0),
+    })
+    .nullable(),
   knowledge: z
     .object({
       workflow: z.object({
@@ -90,5 +105,6 @@ export const SeedStageOutputSchema = PreSeedUnitContentDraftSchema.extend({
 });
 
 export type PriorLearningRecord = z.infer<typeof PriorLearningRecordSchema>;
+export type TopicTaskContract = z.infer<typeof TopicTaskContractSchema>;
 export type UnitBuilderContext = z.infer<typeof UnitBuilderContextSchema>;
 export type SeedStageOutput = z.infer<typeof SeedStageOutputSchema>;

@@ -9,7 +9,7 @@
 // least-covered axis) and when the learner has actually been tested across the
 // whole thing rather than the handful of axes the generator happened to like.
 
-import type { SyllabusOutput } from "./contracts";
+import type { SubtypeBlueprint, SyllabusOutput } from "./contracts";
 import { runResilientAgent } from "../orchestration/agent-runtime";
 import { SyllabusOutputSchema } from "./contracts";
 
@@ -21,6 +21,7 @@ export interface SyllabusInput {
   /** The solve procedure for one task under this outcome. */
   workflow: { name: string; steps: string[] };
   exitCriteria: string[];
+  blueprint?: SubtypeBlueprint;
 }
 
 const SYLLABUS_MAPPER_SYSTEM = `You enumerate what VARIES between tasks that all demand the same main outcome.
@@ -80,5 +81,24 @@ Solve procedure for one task — ${input.workflow.name}:
 ${input.workflow.steps.map((step, index) => `${index + 1}. ${step}`).join("\n")}
 
 Mastery exit criteria:
-${input.exitCriteria.map((criterion) => `- ${criterion}`).join("\n")}`,
+${input.exitCriteria.map((criterion) => `- ${criterion}`).join("\n")}
+
+${formatBlueprint(input.blueprint)}`,
   });
+
+const formatBlueprint = (blueprint?: SubtypeBlueprint): string =>
+  !blueprint
+    ? "No pre-authored subtype blueprint is available. Derive the syllabus from the outcome."
+    : `Authoritative subtype blueprint. Preserve its knowledge/cognition separation; turn its content into syllabus items and axes rather than inventing a topic outline.
+Declarative knowledge:
+${blueprint.declarativeKnowledge.map((item) => `- ${item.label}: ${item.statement} (${item.applicability})`).join("\n")}
+Expert heuristics:
+${blueprint.cognitiveHeuristics.expertMentality.map((item) => `- ${item}`).join("\n")}
+Common traps:
+${blueprint.cognitiveHeuristics.commonTraps.map((item) => `- ${item.trap}: ${item.whyItIsTempting}; cue: ${item.detectionCue}`).join("\n")}
+Progression axes:
+${blueprint.progression.complexityAxes.map((item) => `- ${item}`).join("\n")}
+Difficulty bands:
+${blueprint.progression.bandBriefs.map((item) => `- band ${item.band}: ${item.caseShape} Withheld: ${item.withheldGivens} Near-misses: ${item.embeddedAlternatives}`).join("\n")}
+Task contexts:
+${blueprint.taskVariations.map((item) => `- ${item.context}: ${item.applicability}; pressure: ${item.addedPressure}`).join("\n")}`;

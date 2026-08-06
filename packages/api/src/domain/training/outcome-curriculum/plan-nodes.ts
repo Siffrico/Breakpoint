@@ -98,6 +98,7 @@ export const buildOutcomeNodes = (
         scenarioArchetype: outcome.scenarioArchetype,
         mainOutcome: outcome.mainOutcome,
         scenarioBrief: outcome.scenarioBrief,
+        blueprint: outcome.blueprint,
       },
     });
   }

@@ -144,7 +144,7 @@ export function OnboardingShell({
   embedded = false,
   sessionId: sessionIdProp,
   initialState = null,
-  curriculumMode = "ability",
+  curriculumMode = "topic",
   showCurriculumControl = false,
   onRunningChange,
   onTurnCountChange,
@@ -155,8 +155,7 @@ export function OnboardingShell({
   initialState?: OnboardingState | null;
   /**
    * Which curriculum shape a newly started session builds toward. Only read
-   * when this mount actually starts a session; the server ignores "topic"
-   * outside development.
+   * when this mount actually starts a session.
    */
   curriculumMode?: "ability" | "topic";
   showCurriculumControl?: boolean;
@@ -190,7 +189,7 @@ export function OnboardingShell({
     trpc.training.startOnboarding.mutationOptions({
       onSuccess: (data, variables) => {
         setSessionId(data.sessionId);
-        setSelectedCurriculumMode(variables?.curriculumMode ?? "ability");
+        setSelectedCurriculumMode(variables?.curriculumMode ?? "topic");
         const modeParam =
           variables?.curriculumMode === "topic" ? "&curriculum=topic" : "";
         router.replace(

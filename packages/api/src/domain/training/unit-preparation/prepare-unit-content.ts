@@ -38,6 +38,16 @@ export interface UnitPreparationDependencies {
   readonly listAttemptHistory: (
     sessionId: string,
   ) => Promise<PriorLearningRecord[]>;
+  /**
+   * The goldilocks directive for this unit's parent cluster. Resolved here
+   * rather than passed down from unit creation because a unit can reach
+   * preparation by three paths (creation, pre-generation, on-demand open) and
+   * only two of them ever held a directive.
+   */
+  readonly getUnitDifficulty: (unitNodeId: string) => Promise<{
+    promptBlock: string;
+    bandOrder: number;
+  } | null>;
   readonly getUnitKnowledgeContext: (unitNodeId: string) => Promise<{
     workflow: { name: string; steps: string[] };
     framing: { question: string; part: number } | null;
@@ -113,10 +123,12 @@ const topicTaskContractOf = (skillMap: unknown) => {
   const candidate = skillMap as {
     mainOutcome?: unknown;
     scenarioBrief?: unknown;
+    blueprint?: unknown;
   };
   const parsed = TopicTaskContractSchema.safeParse({
     mainOutcome: candidate.mainOutcome,
     scenarioBrief: candidate.scenarioBrief,
+    blueprint: candidate.blueprint,
   });
   return parsed.success ? parsed.data : null;
 };
@@ -127,6 +139,7 @@ const assembleSeedContext = ({
   targetIdentity,
   priorLearning,
   knowledge,
+  difficulty,
 }: {
   nodeId: string;
   planNodes: PlanNodeContext[] | null;
@@ -134,6 +147,9 @@ const assembleSeedContext = ({
   priorLearning: PriorLearningRecord[];
   knowledge: Awaited<
     ReturnType<UnitPreparationDependencies["getUnitKnowledgeContext"]>
+  >;
+  difficulty: Awaited<
+    ReturnType<UnitPreparationDependencies["getUnitDifficulty"]>
   >;
 }): Effect.Effect<UnitBuilderContext, UnitContextMissingError> => {
   if (!planNodes) {
@@ -194,6 +210,7 @@ const assembleSeedContext = ({
     },
     learner: { targetIdentity: targetIdentity.trim(), priorLearning },
     knowledge,
+    difficulty,
   });
 };
 
@@ -227,7 +244,7 @@ const prepareUnitContentUnlocked = ({
       ? prepareClusterBriefing().catch(() => null)
       : Promise.resolve(null);
 
-    const [planNodes, targetIdentity, priorLearning, knowledge] =
+    const [planNodes, targetIdentity, priorLearning, knowledge, difficulty] =
       yield* Effect.tryPromise({
         try: () =>
           Promise.all([
@@ -235,6 +252,10 @@ const prepareUnitContentUnlocked = ({
             deps.getTargetIdentity(sessionId),
             deps.listAttemptHistory(sessionId),
             deps.getUnitKnowledgeContext(node.id),
+            // Fail-open: a unit still builds without a directive, on slot
+            // position alone. Losing the whole unit over a rating read would
+            // be the worse trade.
+            deps.getUnitDifficulty(node.id).catch(() => null),
           ]),
         catch: (cause) =>
           contextMissing(
@@ -248,6 +269,7 @@ const prepareUnitContentUnlocked = ({
       targetIdentity,
       priorLearning,
       knowledge,
+      difficulty,
     });
 
     const setup = yield* Effect.tryPromise({

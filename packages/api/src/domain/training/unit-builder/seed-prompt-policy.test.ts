@@ -3,6 +3,29 @@ import { describe, expect, it } from "vitest";
 import type { UnitBuilderContext } from "./contracts";
 import { buildSeedStageRequest } from "./seed-prompt-policy";
 
+const blueprint = {
+  declarativeKnowledge: [
+    { label: "Contrast", statement: "Contrast markers reverse the expected meaning.", applicability: "When clauses are contrasted." },
+    { label: "Context", statement: "Local context constrains the answer.", applicability: "For every passage item." },
+  ],
+  cognitiveHeuristics: {
+    expertMentality: ["Predict before comparing options.", "Test options against the passage constraint."],
+    commonTraps: [
+      { trap: "Dictionary meaning", whyItIsTempting: "It is familiar.", detectionCue: "It fails the local constraint." },
+      { trap: "Broad synonym", whyItIsTempting: "It sounds plausible.", detectionCue: "It lacks required precision." },
+    ],
+  },
+  progression: {
+    complexityAxes: ["Constraint distance", "Option similarity"],
+    bandBriefs: [
+      { band: 0 as const, caseShape: "Explicit contrast beside the blank.", reasoningPath: "Read the contrast, predict, match.", withheldGivens: "Nothing is withheld.", embeddedAlternatives: "One clearly wrong option.", liveTraps: [] },
+      { band: 1 as const, caseShape: "Constraint sits one sentence away.", reasoningPath: "Locate the constraint, predict, eliminate.", withheldGivens: "Where the constraint lives.", embeddedAlternatives: "One broad synonym.", liveTraps: ["Broad synonym"] },
+      { band: 2 as const, caseShape: "Indirect constraint and near-miss options.", reasoningPath: "Infer the constraint, predict, separate two survivors.", withheldGivens: "The constraint and its polarity.", embeddedAlternatives: "Two options that both fit loosely.", liveTraps: ["Dictionary meaning", "Broad synonym"] },
+    ],
+  },
+  taskVariations: [{ context: "argumentative" as const, applicability: "Claim-based passages.", addedPressure: "Author stance can mislead." }],
+};
+
 const context = {
   node: {
     id: "unit-1",
@@ -31,12 +54,17 @@ const context = {
           variationAxes: ["A contrast word carries the constraint."],
           neverDo: ["Require knowledge outside the passage."],
         },
+        blueprint,
       },
     },
   },
   learner: {
     targetIdentity: "SAT test-taker",
     priorLearning: [],
+  },
+  difficulty: {
+    promptBlock: "## Difficulty directive (set by the training engine)",
+    bandOrder: 2,
   },
   knowledge: {
     workflow: {
@@ -77,6 +105,27 @@ describe("buildSeedStageRequest", () => {
     expect(request.prompt).toContain("A contrast word carries the constraint.");
     expect(request.prompt).toContain("Require knowledge outside the passage.");
     expect(request.prompt).toContain("Contrast constraint");
+    expect(request.prompt).toContain("Authoritative subtype blueprint");
+    expect(request.prompt).toContain("argumentative");
+  });
+
+  it("hands the generator the engine's directive and only the chosen band's brief", () => {
+    const request = buildSeedStageRequest(context);
+
+    expect(request.prompt).toContain(
+      "## Difficulty directive (set by the training engine)",
+    );
+    expect(request.prompt).toContain("Band 2: Indirect constraint");
+    expect(request.prompt).not.toContain("Band 0:");
+    expect(request.prompt).not.toContain("Band 1:");
+  });
+
+  it("falls back to the whole ladder when no directive resolved", () => {
+    const request = buildSeedStageRequest({ ...context, difficulty: null });
+
+    expect(request.prompt).toContain("No band was resolved for this task");
+    expect(request.prompt).toContain("Band 0:");
+    expect(request.prompt).toContain("Band 2:");
   });
 
   it("does not inherit foundation diagnostic requirements", () => {

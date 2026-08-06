@@ -40,6 +40,28 @@ const outcome = (title: string) => ({
     neverDo: ["No vocabulary the constraint cannot disambiguate."],
   },
   masteryContract: { exitCriteria: ["Answers at the top band."] },
+  blueprint: {
+    declarativeKnowledge: [
+      { label: "contrast", statement: "Contrast words reverse the needed meaning.", applicability: "When a contrast marker joins clauses." },
+      { label: "context", statement: "The local sentence constrains a defensible answer.", applicability: "For every passage item." },
+    ],
+    cognitiveHeuristics: {
+      expertMentality: ["Predict before comparing options.", "Test each option against the passage constraint."],
+      commonTraps: [
+        { trap: "Dictionary meaning", whyItIsTempting: "It is familiar.", detectionCue: "It fails the local constraint." },
+        { trap: "Broad synonym", whyItIsTempting: "It sounds positive.", detectionCue: "It lacks the required precision." },
+      ],
+    },
+    progression: {
+      complexityAxes: ["Constraint distance", "Option similarity"],
+      bandBriefs: [
+        { band: 0, caseShape: "An explicit contrast and one viable option.", reasoningPath: "Read the contrast, predict, match.", withheldGivens: "Nothing is withheld.", embeddedAlternatives: "One clearly wrong option.", liveTraps: [] },
+        { band: 1, caseShape: "The constraint sits one sentence away.", reasoningPath: "Locate the constraint, predict, eliminate.", withheldGivens: "Where the constraint lives.", embeddedAlternatives: "One broad synonym.", liveTraps: ["Broad synonym"] },
+        { band: 2, caseShape: "An indirect constraint and two plausible options.", reasoningPath: "Infer the constraint, predict, separate two survivors.", withheldGivens: "The constraint and its polarity.", embeddedAlternatives: "Two options that both fit loosely.", liveTraps: ["Dictionary meaning", "Broad synonym"] },
+      ],
+    },
+    taskVariations: [{ context: "argumentative", applicability: "Passages that make a claim.", addedPressure: "The author's stance can mislead." }],
+  },
 });
 
 const planDraft = (outcomeCount: number) => ({
@@ -113,6 +135,42 @@ describe("OutcomeCurriculumOutputSchema", () => {
     const draft = planDraft(1);
     const [first] = draft.outcomes;
     if (first) first.scenarioBrief.neverDo = [];
+
+    expect(
+      OutcomeCurriculumOutputSchema.safeParse({
+        identityReport,
+        planDraft: draft,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("requires a structured knowledge-and-cognition blueprint on every subtype", () => {
+    const draft = planDraft(1);
+    const [first] = draft.outcomes;
+    const invalidDraft = first
+      ? {
+          ...draft,
+          outcomes: draft.outcomes.map((entry, index) => {
+            if (index !== 0) return entry;
+            const { blueprint: _blueprint, ...withoutBlueprint } = entry;
+            return withoutBlueprint;
+          }),
+        }
+      : draft;
+
+    expect(
+      OutcomeCurriculumOutputSchema.safeParse({
+        identityReport,
+        planDraft: invalidDraft,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("allows only the five supported task-context variations", () => {
+    const draft = planDraft(1);
+    const [first] = draft.outcomes;
+    const firstVariation = first?.blueprint.taskVariations[0];
+    if (firstVariation) firstVariation.context = "memoir";
 
     expect(
       OutcomeCurriculumOutputSchema.safeParse({

@@ -121,6 +121,45 @@ export const TrainingCurriculumNode = pgTable(
       // Absent on ability/skill nodes.
       mainOutcome?: string;
       scenarioBrief?: ScenarioBrief;
+      blueprint?: {
+        declarativeKnowledge: {
+          label: string;
+          statement: string;
+          applicability: string;
+        }[];
+        cognitiveHeuristics: {
+          expertMentality: string[];
+          commonTraps: {
+            trap: string;
+            whyItIsTempting: string;
+            detectionCue: string;
+          }[];
+        };
+        progression: {
+          complexityAxes: string[];
+          // One per canonical difficulty band, ordered 0 → 2. Says what each
+          // band MEANS for this outcome in the terms the difficulty model
+          // measures — see outcome-curriculum/contracts.ts BandBriefSchema.
+          bandBriefs: {
+            band: 0 | 1 | 2;
+            caseShape: string;
+            reasoningPath: string;
+            withheldGivens: string;
+            embeddedAlternatives: string;
+            liveTraps: string[];
+          }[];
+        };
+        taskVariations: {
+          context:
+            | "argumentative"
+            | "scientific"
+            | "historical"
+            | "literary"
+            | "narrative";
+          applicability: string;
+          addedPressure: string;
+        }[];
+      };
     }>(),
     orderIndex: t.integer().notNull(),
     depth: t.integer().notNull(),

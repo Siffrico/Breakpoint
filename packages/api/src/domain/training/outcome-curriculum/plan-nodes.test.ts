@@ -29,6 +29,28 @@ const outcome = (title: string): OutcomeDraft => ({
   masteryContract: {
     exitCriteria: [`Answers ${title} items correctly at the top band.`],
   },
+  blueprint: {
+    declarativeKnowledge: [
+      { label: "contrast", statement: "Contrast words reverse the required meaning.", applicability: "When clauses are contrasted." },
+      { label: "context", statement: "Context constrains the answer.", applicability: "For every item." },
+    ],
+    cognitiveHeuristics: {
+      expertMentality: ["Predict before comparing options.", "Test options against the constraint."],
+      commonTraps: [
+        { trap: "Dictionary meaning", whyItIsTempting: "It is familiar.", detectionCue: "It fails context." },
+        { trap: "Broad synonym", whyItIsTempting: "It sounds plausible.", detectionCue: "It lacks precision." },
+      ],
+    },
+    progression: {
+      complexityAxes: ["Constraint distance", "Option similarity"],
+      bandBriefs: [
+        { band: 0, caseShape: "Explicit contrast.", reasoningPath: "Read the contrast, predict, match.", withheldGivens: "Nothing.", embeddedAlternatives: "One obviously wrong option.", liveTraps: [] },
+        { band: 1, caseShape: "Constraint one sentence away.", reasoningPath: "Locate the constraint, predict, eliminate.", withheldGivens: "The constraint's location.", embeddedAlternatives: "One broad synonym.", liveTraps: ["Broad synonym"] },
+        { band: 2, caseShape: "Indirect constraint and near-miss options.", reasoningPath: "Infer the constraint, predict, separate two survivors.", withheldGivens: "The constraint and its polarity.", embeddedAlternatives: "Two options that both fit loosely.", liveTraps: ["Dictionary meaning", "Broad synonym"] },
+      ],
+    },
+    taskVariations: [{ context: "argumentative", applicability: "Claims in passages.", addedPressure: "Stance can mislead." }],
+  },
 });
 
 const draft = (
@@ -105,6 +127,9 @@ describe("buildOutcomeNodes", () => {
       "four lettered",
     );
     expect(first?.skillMap?.scenarioArchetype).toBe("select");
+    expect(first?.skillMap?.blueprint?.taskVariations[0]?.context).toBe(
+      "argumentative",
+    );
   });
 
   it("ramps across the full band ladder, with no foundation calibration span", () => {

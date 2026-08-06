@@ -20,16 +20,10 @@ import {
   SYLLABUS_COVERAGE_TARGET,
 } from "../domain/training/engine/concept-coverage";
 import {
-  difficultyRampOf,
   regimeForNodeKind,
   resolveProgressionModel,
-  resolveScenarioFormat,
 } from "../domain/training/engine/progression-model";
-import {
-  createInitialRatingState,
-  expandSkillBands,
-} from "../domain/training/engine/rating";
-import { resolveScenarioDirective } from "../domain/training/orchestration/goldilocks";
+import { createInitialRatingState } from "../domain/training/engine/rating";
 import { designOutcomeSyllabus } from "../domain/training/outcome-curriculum/syllabus-mapper";
 import { advanceSkillMapNodeWorkflow } from "../domain/training/unit-creation/advance-skill-map-node";
 import { createNextUnit } from "../domain/training/unit-creation/create-next-unit";
@@ -40,11 +34,11 @@ import {
 import { prepareUnitContent } from "../domain/training/unit-preparation/prepare-unit-content";
 import { queryWithClient } from "../effect/db";
 import { resolvePlanSeedRating } from "./plan-seed-rating";
+import { resolveClusterDirective } from "./resolve-cluster-directive";
 import { withSkillKnowledgeBuildLock } from "./skill-knowledge-build-lock";
 import { skillKnowledgeRepository } from "./skill-knowledge-repository";
 import { appendDynamicUnitNode } from "./training-curriculum-node-writer";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
-import { createTrainingRatingGoldilocksDeps } from "./training-rating-goldilocks-deps";
 import { trainingRatingRepository } from "./training-rating-repository";
 import { createUnitPreparationRepositoryDeps } from "./unit-preparation-repository-deps";
 
@@ -98,6 +92,7 @@ export const ensureSkillKnowledge = async ({
                 summary: cluster.summary,
                 workflow: skillMap.workflow,
                 exitCriteria: skillMap.masteryContract.exitCriteria,
+                blueprint: skillMap.blueprint,
               })
             ).axes.map((entry) => ({
               question: entry.axis,
@@ -275,25 +270,14 @@ export const createUnitCreationRepositoryDeps = ({
         return null;
       }),
     resolveDirective: (skillNodeId) =>
-      queryWithClient(db, "resolveUnitCreationDirective", async () => {
-        const cluster = await db.query.TrainingCurriculumNode.findFirst({
-          where: eq(TrainingCurriculumNode.id, skillNodeId),
-        });
-        if (!cluster?.skillMap) throw new Error("Skill map is missing.");
-        const model = resolveProgressionModel(cluster);
-        if (!model) throw new Error("Skill map node is invalid.");
-        return resolveScenarioDirective({
+      queryWithClient(db, "resolveUnitCreationDirective", async () =>
+        resolveClusterDirective({
+          db,
           userId,
-          nodeId: skillNodeId,
-          now: new Date(),
-          bands:
-            cluster.difficultyBands ??
-            expandSkillBands(difficultyRampOf(model)),
-          initialRatingState: (await getSeed(skillNodeId)) ?? undefined,
-          scenarioFormat: resolveScenarioFormat(cluster.skillMap),
-          deps: createTrainingRatingGoldilocksDeps(db),
-        });
-      }),
+          clusterNodeId: skillNodeId,
+          seed: await getSeed(skillNodeId),
+        }),
+      ),
     appendUnit: (input) =>
       queryWithClient(db, "appendDynamicUnit", () =>
         appendDynamicUnitNode({ db, ...input }),

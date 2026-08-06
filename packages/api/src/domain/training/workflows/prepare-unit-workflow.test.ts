@@ -102,6 +102,7 @@ describe("explicit unit preparation recovery", () => {
       getPhaseResponses: () => Promise.resolve([]),
       getTargetIdentity: () => Promise.resolve("Incident commander"),
       listAttemptHistory: () => Promise.resolve([]),
+      getUnitDifficulty: () => Promise.resolve(null),
       getUnitKnowledgeContext: () =>
         Promise.resolve({
           workflow: { name: "Diagnose an incident", steps: ["Choose a probe"] },

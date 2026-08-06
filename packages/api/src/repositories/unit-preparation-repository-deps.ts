@@ -1,6 +1,9 @@
 import type { db as databaseClient } from "@acme/db/client";
+import { eq } from "@acme/db";
+import { TrainingCurriculumPlan } from "@acme/db/schema";
 
 import type { UnitPreparationDependencies } from "../domain/training/unit-preparation/prepare-unit-content";
+import { resolveClusterDirective } from "./resolve-cluster-directive";
 import { skillKnowledgeRepository } from "./skill-knowledge-repository";
 import { trainingAttemptRepository } from "./training-attempt-repository";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
@@ -25,6 +28,29 @@ export const createUnitPreparationRepositoryDeps = (
   },
   listAttemptHistory: (sessionId) =>
     trainingAttemptRepository.listAttemptHistory({ db, sessionId }),
+  getUnitDifficulty: async (unitNodeId) => {
+    const unit = await trainingCurriculumRepository.getNodeById({
+      db,
+      nodeId: unitNodeId,
+    });
+    if (!unit?.parentNodeId) return null;
+    const plan = await db.query.TrainingCurriculumPlan.findFirst({
+      where: eq(TrainingCurriculumPlan.id, unit.planId),
+    });
+    const session = plan
+      ? await trainingOnboardingRepository.getSession({
+          db,
+          sessionId: plan.onboardingSessionId,
+        })
+      : null;
+    if (!session?.userId) return null;
+    const { promptBlock, directive } = await resolveClusterDirective({
+      db,
+      userId: session.userId,
+      clusterNodeId: unit.parentNodeId,
+    });
+    return { promptBlock, bandOrder: directive.bandOrder };
+  },
   getUnitKnowledgeContext: (unitNodeId) =>
     skillKnowledgeRepository.getUnitContext({ db, unitNodeId }),
   createUnitContentIfAbsent: (payload) =>

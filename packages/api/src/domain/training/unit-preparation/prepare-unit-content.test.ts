@@ -127,6 +127,9 @@ const makeDeps = (
     getPlanNodesBySession: vi.fn(() => Promise.resolve(planNodes)),
     getTargetIdentity: vi.fn(() => Promise.resolve("Incident commander")),
     listAttemptHistory: vi.fn(() => Promise.resolve([])),
+    getUnitDifficulty: vi.fn(() =>
+      Promise.resolve({ promptBlock: "## Difficulty directive", bandOrder: 1 }),
+    ),
     getUnitKnowledgeContext: vi.fn(() =>
       Promise.resolve({
         workflow: { name: "Diagnose an incident", steps: ["Choose a probe"] },
@@ -188,6 +191,28 @@ describe("prepareUnitContent", () => {
       variationAxes: ["The constraint is carried by a contrast word."],
       neverDo: ["Require knowledge outside the passage."],
     };
+    const blueprint = {
+      declarativeKnowledge: [
+        { label: "Contrast", statement: "Contrast reverses expected meaning.", applicability: "When clauses are contrasted." },
+        { label: "Context", statement: "Context constrains the answer.", applicability: "For every item." },
+      ],
+      cognitiveHeuristics: {
+        expertMentality: ["Predict before comparing options.", "Test options against the constraint."],
+        commonTraps: [
+          { trap: "Dictionary meaning", whyItIsTempting: "It is familiar.", detectionCue: "It fails context." },
+          { trap: "Broad synonym", whyItIsTempting: "It sounds plausible.", detectionCue: "It lacks precision." },
+        ],
+      },
+      progression: {
+        complexityAxes: ["Constraint distance", "Option similarity"],
+        bandBriefs: [
+          { band: 0, caseShape: "Explicit contrast.", reasoningPath: "Read, predict, match.", withheldGivens: "Nothing.", embeddedAlternatives: "One wrong option.", liveTraps: [] },
+          { band: 1, caseShape: "Constraint one sentence away.", reasoningPath: "Locate, predict, eliminate.", withheldGivens: "Constraint location.", embeddedAlternatives: "One broad synonym.", liveTraps: ["Broad synonym"] },
+          { band: 2, caseShape: "Indirect constraint.", reasoningPath: "Infer, predict, separate survivors.", withheldGivens: "Constraint and polarity.", embeddedAlternatives: "Two loose fits.", liveTraps: ["Dictionary meaning"] },
+        ],
+      },
+      taskVariations: [{ context: "argumentative" as const, applicability: "Claims.", addedPressure: "Stance can mislead." }],
+    };
     const outcomeNodes = [
       {
         ...parentPlanNode,
@@ -195,6 +220,7 @@ describe("prepareUnitContent", () => {
         skillMap: {
           mainOutcome: "Select the single defensible answer.",
           scenarioBrief,
+          blueprint,
         },
       },
       planNode,
@@ -215,6 +241,7 @@ describe("prepareUnitContent", () => {
     expect(seedContext?.planContext.clusterContext?.taskContract).toEqual({
       mainOutcome: "Select the single defensible answer.",
       scenarioBrief,
+      blueprint,
     });
   });
 

@@ -1,4 +1,4 @@
-import type { UnitBuilderContext } from "./contracts";
+import type { TopicTaskContract, UnitBuilderContext } from "./contracts";
 
 const FOUNDATION_SYSTEM = `You are Breakpoint's seed-stage agent inside the education-unit-builder.
 
@@ -93,6 +93,7 @@ const mainOutcomePrompt = (context: UnitBuilderContext): string => {
     throw new Error("Main-outcome seed policy requires a topic task contract.");
   }
   const { scenarioBrief } = contract;
+  const { blueprint } = contract;
 
   return `Design one whole task for this outcome.
 
@@ -110,12 +111,27 @@ ${formatList(scenarioBrief.variationAxes)}
 - Never do:
 ${formatList(scenarioBrief.neverDo)}
 
+Authoritative subtype blueprint:
+- Declarative knowledge (facts to use, not learner-facing labels):
+${formatList(blueprint.declarativeKnowledge.map((item) => `${item.label}: ${item.statement} When it applies: ${item.applicability}`))}
+- Expert heuristics (judgments the task must demand):
+${formatList(blueprint.cognitiveHeuristics.expertMentality)}
+- Cognitive traps (engineer at least one relevant near-miss into this task):
+${formatList(blueprint.cognitiveHeuristics.commonTraps.map((item) => `${item.trap}. Why tempting: ${item.whyItIsTempting}. Detection cue: ${item.detectionCue}`))}
+- Complexity axes:
+${formatList(blueprint.progression.complexityAxes)}
+${formatBandBrief(blueprint, context.difficulty?.bandOrder)}
+- Task-context variations (use an applicable one and rotate across units):
+${formatList(blueprint.taskVariations.map((item) => `${item.context}: ${item.applicability}; added pressure: ${item.addedPressure}`))}
+
 Rules:
 - title is a task-worded directive naming the concrete task, never a question
 - seedPrompt must be the complete learner-ready task in the required task shape, including all stimuli, options, inputs, or constraints needed to attempt it
 - the learner is judged only against the fixed demand; do not add a second deliverable
 - selected-response task shapes must include the complete response options and satisfy the quality bar
 - use the current syllabus targets to choose this repetition's content and variation, but never name those targets or prescribe the solve procedure
+- make the learner apply an expert heuristic; do not reward recall of a fact alone
+- build the task at the band the difficulty directive names, to the band brief's stated reasoning path, withheld givens, and embedded alternatives — those counts are the difficulty, not a suggestion
 - treat checked syllabus items as assumed-known
 - every quality-bar item and every never-do constraint is mandatory
 - do not create a pre-teach diagnostic, reduce the task to one mechanism or one failure, or append "Reconstruct the system" questions
@@ -157,6 +173,31 @@ export const buildSeedStageRequest = (context: UnitBuilderContext) => {
 const formatList = (values: readonly string[]): string =>
   values.map((value) => `  - ${value}`).join("\n");
 
+/**
+ * The band the engine chose, spelled out in this outcome's own terms.
+ *
+ * Falls back to the whole ladder when no directive resolved, so the generator
+ * still sees the escalation it is working inside rather than guessing at
+ * "harder" from the slot number alone.
+ */
+const formatBandBrief = (
+  blueprint: TopicTaskContract["blueprint"],
+  bandOrder: number | undefined,
+): string => {
+  const { bandBriefs } = blueprint.progression;
+  const chosen = bandBriefs.find((brief) => brief.band === bandOrder);
+  const render = (brief: (typeof bandBriefs)[number]) =>
+    `  - Band ${brief.band}: ${brief.caseShape}
+    Reasoning path: ${brief.reasoningPath}
+    Withhold: ${brief.withheldGivens}
+    Embed as near-misses: ${brief.embeddedAlternatives}
+    Traps live at this band: ${brief.liveTraps.join("; ") || "None"}`;
+
+  return chosen
+    ? `- Band brief for THIS task — build to it exactly:\n${render(chosen)}`
+    : `- No band was resolved for this task. Build at band 1 and treat the ladder as context:\n${bandBriefs.map(render).join("\n")}`;
+};
+
 const formatUnitBuilderContext = (context: UnitBuilderContext): string => {
   const clusterContext = context.planContext.clusterContext
     ? `${context.planContext.clusterContext.title}: ${context.planContext.clusterContext.summary} | Why it matters: ${context.planContext.clusterContext.whyItMatters}`
@@ -181,6 +222,7 @@ Cluster context: ${clusterContext}
 Target identity: ${context.learner.targetIdentity}
 Prior learning:
 ${priorLearning}
+${context.difficulty?.promptBlock ?? "No difficulty directive resolved for this unit; build at the middle band."}
 ${
   context.knowledge
     ? `Workflow: ${context.knowledge.workflow.name}
