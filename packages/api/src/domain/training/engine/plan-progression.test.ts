@@ -4,6 +4,7 @@ import type { ProgressionNode } from "./plan-progression";
 import {
   decideMasteryProgression,
   planSkillMapAdvancement,
+  shouldWarmNextOutcome,
   usesDynamicMasteryLoop,
 } from "./plan-progression";
 
@@ -242,6 +243,7 @@ describe("main_outcome mastery gate", () => {
   const settled = {
     regime: "main_outcome" as const,
     syllabusItemsBelowCoverage: 0,
+    syllabusItemsTotal: 10,
     learnerRating: 1400,
     ratingDeviation: 60,
     masteryRating: 1350,
@@ -283,6 +285,59 @@ describe("main_outcome mastery gate", () => {
         maxRatingDeviation: 40,
       }),
     ).toEqual({ intent: "create_unit" });
+  });
+});
+
+describe("shouldWarmNextOutcome", () => {
+  const outcome = {
+    regime: "main_outcome" as const,
+    syllabusItemsBelowCoverage: 10,
+    syllabusItemsTotal: 10,
+    learnerRating: 1200,
+    ratingDeviation: 150,
+    masteryRating: 1350,
+  };
+
+  it("holds off while the outcome is only part covered", () => {
+    expect(
+      shouldWarmNextOutcome({ ...outcome, syllabusItemsBelowCoverage: 3 }),
+    ).toBe(false);
+  });
+
+  it("warms once coverage reaches the threshold", () => {
+    expect(
+      shouldWarmNextOutcome({ ...outcome, syllabusItemsBelowCoverage: 2 }),
+    ).toBe(true);
+  });
+
+  it("warms on a settled rating even when coverage lags", () => {
+    expect(
+      shouldWarmNextOutcome({
+        ...outcome,
+        learnerRating: 1400,
+        ratingDeviation: 60,
+      }),
+    ).toBe(true);
+  });
+
+  it("never warms before this outcome's own syllabus exists", () => {
+    expect(
+      shouldWarmNextOutcome({
+        ...outcome,
+        syllabusItemsBelowCoverage: 0,
+        syllabusItemsTotal: 0,
+      }),
+    ).toBe(false);
+  });
+
+  it("ignores the ability-mode regimes", () => {
+    expect(
+      shouldWarmNextOutcome({
+        regime: "foundation",
+        entries: [{ coverageCount: 9 }],
+        coverageTarget: 3,
+      }),
+    ).toBe(false);
   });
 });
 

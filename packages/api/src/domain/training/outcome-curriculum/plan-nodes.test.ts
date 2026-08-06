@@ -20,36 +20,8 @@ const outcome = (title: string): OutcomeDraft => ({
   },
   scenarioArchetype: "select",
   scenarioArchetypeWhy: "The SAT is a selected-response instrument.",
-  scenarioBrief: {
-    taskShape: "One short passage, one blank, four lettered options.",
-    qualityBar: ["Exactly one option survives the stated constraint."],
-    variationAxes: ["Constraint carried by a contrast word."],
-    neverDo: ["No vocabulary the constraint cannot disambiguate."],
-  },
   masteryContract: {
     exitCriteria: [`Answers ${title} items correctly at the top band.`],
-  },
-  blueprint: {
-    declarativeKnowledge: [
-      { label: "contrast", statement: "Contrast words reverse the required meaning.", applicability: "When clauses are contrasted." },
-      { label: "context", statement: "Context constrains the answer.", applicability: "For every item." },
-    ],
-    cognitiveHeuristics: {
-      expertMentality: ["Predict before comparing options.", "Test options against the constraint."],
-      commonTraps: [
-        { trap: "Dictionary meaning", whyItIsTempting: "It is familiar.", detectionCue: "It fails context." },
-        { trap: "Broad synonym", whyItIsTempting: "It sounds plausible.", detectionCue: "It lacks precision." },
-      ],
-    },
-    progression: {
-      complexityAxes: ["Constraint distance", "Option similarity"],
-      bandBriefs: [
-        { band: 0, caseShape: "Explicit contrast.", reasoningPath: "Read the contrast, predict, match.", withheldGivens: "Nothing.", embeddedAlternatives: "One obviously wrong option.", liveTraps: [] },
-        { band: 1, caseShape: "Constraint one sentence away.", reasoningPath: "Locate the constraint, predict, eliminate.", withheldGivens: "The constraint's location.", embeddedAlternatives: "One broad synonym.", liveTraps: ["Broad synonym"] },
-        { band: 2, caseShape: "Indirect constraint and near-miss options.", reasoningPath: "Infer the constraint, predict, separate two survivors.", withheldGivens: "The constraint and its polarity.", embeddedAlternatives: "Two options that both fit loosely.", liveTraps: ["Dictionary meaning", "Broad synonym"] },
-      ],
-    },
-    taskVariations: [{ context: "argumentative", applicability: "Claims in passages.", addedPressure: "Stance can mislead." }],
   },
 });
 
@@ -119,17 +91,19 @@ describe("buildOutcomeNodes", () => {
     expect(statuses).toEqual(["ready", "ready", "ready"]);
   });
 
-  it("carries the main outcome and brief onto the node's skill map", () => {
+  it("carries the outcome's spine onto the node's skill map", () => {
     const [, first] = build(["Craft and Structure"]);
 
     expect(first?.skillMap?.mainOutcome).toContain("Craft and Structure");
-    expect(first?.skillMap?.scenarioBrief?.taskShape).toContain(
-      "four lettered",
-    );
     expect(first?.skillMap?.scenarioArchetype).toBe("select");
-    expect(first?.skillMap?.blueprint?.taskVariations[0]?.context).toBe(
-      "argumentative",
-    );
+    expect(first?.skillMap?.workflow.steps).toHaveLength(3);
+  });
+
+  it("leaves the teaching half unwritten for pass B", () => {
+    const [, first] = build(["Craft and Structure"]);
+
+    expect(first?.skillMap?.scenarioBrief).toBeUndefined();
+    expect(first?.skillMap?.blueprint).toBeUndefined();
   });
 
   it("ramps across the full band ladder, with no foundation calibration span", () => {

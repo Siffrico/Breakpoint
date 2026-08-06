@@ -27,6 +27,7 @@ import { trainingUnitRunRepository } from "./repositories/training-unit-run-repo
 import {
   createUnitCreationRepositoryDeps,
   ensureSkillKnowledge,
+  findNextPlannedOutcome,
   loadProgressionState,
 } from "./repositories/unit-creation-repository-deps";
 import {
@@ -238,6 +239,10 @@ const streamWorkspaceChatWithModelPreference = ({
                       skillNodeId,
                       targetIdentity: plan.targetIdentity,
                     }),
+                  ),
+                findNextPlannedCluster: (skillNodeId) =>
+                  queryWithClient(db, "findNextPlannedOutcome", () =>
+                    findNextPlannedOutcome({ db, outcomeNodeId: skillNodeId }),
                   ),
                 withLock: ({ sessionId: lockedSessionId, key, run }) =>
                   queryWithClient(db, "pregenerateNextUnit", () =>

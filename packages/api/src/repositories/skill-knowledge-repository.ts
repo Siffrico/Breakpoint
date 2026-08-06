@@ -14,6 +14,9 @@ import {
 } from "../domain/training/policies/recall-decay";
 
 type Database = typeof databaseClient;
+type StoredSkillMap = NonNullable<
+  (typeof TrainingCurriculumNode.$inferSelect)["skillMap"]
+>;
 
 export const clampKnowledgeIds = ({
   requestedKnowledgeIds,
@@ -161,6 +164,81 @@ export const skillKnowledgeRepository = {
       }
 
       return listKnowledge({ db: transactionDb, skillNodeId });
+    }),
+
+  /**
+   * Commits pass B for one outcome: the teaching half of its skill map and its
+   * syllabus rows, in ONE transaction under the node's advisory lock.
+   *
+   * Atomic on purpose. A blueprint without a syllabus would generate tasks
+   * nothing tracks coverage against; a syllabus without a blueprint would fail
+   * every unit build with a missing task contract. Neither half-state can
+   * exist if they land together, so no repair path has to.
+   *
+   * Idempotent: the in-transaction re-read means a second writer that lost the
+   * race returns the winner's rows rather than duplicating them.
+   */
+  ensureOutcomeBlueprint: async ({
+    db,
+    outcomeNodeId,
+    scenarioBrief,
+    blueprint,
+    questions,
+  }: {
+    db: Database;
+    outcomeNodeId: string;
+    scenarioBrief: NonNullable<StoredSkillMap["scenarioBrief"]>;
+    blueprint: NonNullable<StoredSkillMap["blueprint"]>;
+    questions: KnowledgeMapOutput["questions"];
+  }) =>
+    db.transaction(async (tx) => {
+      const transactionDb = tx as unknown as Database;
+      await transactionDb.execute(
+        sql`select pg_advisory_xact_lock(hashtext(${outcomeNodeId}))`,
+      );
+      const node = await transactionDb.query.TrainingCurriculumNode.findFirst({
+        where: eq(TrainingCurriculumNode.id, outcomeNodeId),
+      });
+      if (!node?.skillMap) return null;
+      // Syllabus rows are the last thing written, so their presence — not the
+      // blueprint's — is what proves a pass B completed. Keying the skip on
+      // them means a half-written node repairs itself on the next attempt
+      // instead of returning an empty syllabus forever.
+      const existing = await listKnowledge({
+        db: transactionDb,
+        skillNodeId: outcomeNodeId,
+      });
+      if (existing.length > 0) return existing;
+
+      await transactionDb
+        .update(TrainingCurriculumNode)
+        .set({ skillMap: { ...node.skillMap, scenarioBrief, blueprint } })
+        .where(eq(TrainingCurriculumNode.id, outcomeNodeId));
+
+      for (const [questionOrderIndex, question] of questions.entries()) {
+        const [insertedQuestion] = await transactionDb
+          .insert(TrainingKnowledgeQuestion)
+          .values({
+            skillNodeId: outcomeNodeId,
+            orderIndex: questionOrderIndex,
+            question: question.question,
+          })
+          .returning({ id: TrainingKnowledgeQuestion.id });
+        if (!insertedQuestion) {
+          throw new Error("Syllabus axis insert did not return an id.");
+        }
+        await transactionDb.insert(TrainingKnowledgeItem).values(
+          question.items.map((item, orderIndex) => ({
+            questionId: insertedQuestion.id,
+            orderIndex,
+            kind: item.kind,
+            label: item.label,
+            content: item.content,
+          })),
+        );
+      }
+
+      return listKnowledge({ db: transactionDb, skillNodeId: outcomeNodeId });
     }),
 
   listKnowledge,

@@ -4,6 +4,10 @@
 // outcome by the progression engine as the learner earns them, never authored
 // here — the same contract curriculum-flow.ts holds for ability mode.
 //
+// Built from pass A only. Every node written here is a complete, valid,
+// rateable node; what it lacks is the teaching blueprint, which pass B adds in
+// place when the outcome comes up. See outcome-curriculum/contracts.ts.
+//
 // Pure: draft in, node blueprints out. No database, no clock, no randomness.
 
 import type { OutcomeOrdering } from "@acme/validators";
@@ -97,8 +101,10 @@ export const buildOutcomeNodes = (
         masteryContract: outcome.masteryContract,
         scenarioArchetype: outcome.scenarioArchetype,
         mainOutcome: outcome.mainOutcome,
-        scenarioBrief: outcome.scenarioBrief,
-        blueprint: outcome.blueprint,
+        // scenarioBrief and blueprint are deliberately absent: pass B writes
+        // them onto this skill map the first time the outcome is taught. Their
+        // absence IS the "not yet blueprinted" signal the warm path reads —
+        // there is no second flag to fall out of sync with.
       },
     });
   }

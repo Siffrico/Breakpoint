@@ -82,6 +82,8 @@ export type MasteryProgressionState =
       regime: "main_outcome";
       /** Syllabus items still short of the coverage target — the breadth gate. */
       syllabusItemsBelowCoverage: number;
+      /** Denominator for the same gate; 0 means the syllabus has not landed. */
+      syllabusItemsTotal: number;
       learnerRating: number;
       ratingDeviation: number;
       masteryRating: number;
@@ -98,6 +100,34 @@ const ratingGatePasses = (state: {
   state.learnerRating >= state.masteryRating &&
   state.ratingDeviation <=
     (state.maxRatingDeviation ?? DEFAULT_MAX_RATING_DEVIATION);
+
+/**
+ * How much of an outcome's syllabus must be covered before the NEXT outcome's
+ * blueprint is worth generating in the background.
+ *
+ * Deliberately short of mastery. Generating at 1.0 means the learner waits on a
+ * model call at the exact moment they finish; generating much earlier wastes
+ * the whole point of deferring, since a blueprint written before the learner
+ * has attempted this outcome cannot be informed by how they did.
+ */
+export const WARM_NEXT_OUTCOME_COVERAGE = 0.8;
+
+/**
+ * Whether the outcome the learner is on is close enough to done that its
+ * successor should be prepared now. Pure and monotonic: once true it stays
+ * true, so a missed tick is caught by the next one rather than lost.
+ */
+export const shouldWarmNextOutcome = (
+  state: MasteryProgressionState,
+): boolean => {
+  if (state.regime !== "main_outcome") return false;
+  // No syllabus means this outcome's own pass B has not landed yet — warming
+  // its successor before itself would be building the wrong floor.
+  if (state.syllabusItemsTotal === 0) return false;
+  const covered =
+    1 - state.syllabusItemsBelowCoverage / state.syllabusItemsTotal;
+  return covered >= WARM_NEXT_OUTCOME_COVERAGE || ratingGatePasses(state);
+};
 
 /**
  * Whether a completed node's progression is owned by the dynamic mastery loop

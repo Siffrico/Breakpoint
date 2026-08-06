@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 
 import type { db as databaseClient } from "@acme/db/client";
-import { and, desc, eq, isNotNull, or } from "@acme/db";
+import { and, asc, desc, eq, gt, isNotNull, or } from "@acme/db";
 import {
   TrainingCurriculumNode,
   TrainingCurriculumPlan,
@@ -24,7 +24,7 @@ import {
   resolveProgressionModel,
 } from "../domain/training/engine/progression-model";
 import { createInitialRatingState } from "../domain/training/engine/rating";
-import { designOutcomeSyllabus } from "../domain/training/outcome-curriculum/syllabus-mapper";
+import { designOutcomeBlueprint } from "../domain/training/outcome-curriculum/outcome-blueprint";
 import { advanceSkillMapNodeWorkflow } from "../domain/training/unit-creation/advance-skill-map-node";
 import { createNextUnit } from "../domain/training/unit-creation/create-next-unit";
 import {
@@ -37,6 +37,7 @@ import { resolvePlanSeedRating } from "./plan-seed-rating";
 import { resolveClusterDirective } from "./resolve-cluster-directive";
 import { withSkillKnowledgeBuildLock } from "./skill-knowledge-build-lock";
 import { skillKnowledgeRepository } from "./skill-knowledge-repository";
+import { trainingAttemptRepository } from "./training-attempt-repository";
 import { appendDynamicUnitNode } from "./training-curriculum-node-writer";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
 import { trainingRatingRepository } from "./training-rating-repository";
@@ -44,6 +45,62 @@ import { createUnitPreparationRepositoryDeps } from "./unit-preparation-reposito
 
 type Database = typeof databaseClient;
 type NodeRow = typeof TrainingCurriculumNode.$inferSelect;
+
+/**
+ * The outcome the learner reaches after this one, or null when there is none.
+ *
+ * Ordered by orderIndex rather than by status so an interleaved plan (where
+ * every outcome is unlocked at build time) warms them in the order they were
+ * authored. Already-blueprinted successors are skipped here rather than inside
+ * ensureSkillKnowledge, so the common steady-state case costs one indexed read
+ * and no lock at all.
+ */
+export const findNextPlannedOutcome = async ({
+  db,
+  outcomeNodeId,
+}: {
+  db: Database;
+  outcomeNodeId: string;
+}): Promise<string | null> => {
+  const current = await db.query.TrainingCurriculumNode.findFirst({
+    where: eq(TrainingCurriculumNode.id, outcomeNodeId),
+  });
+  if (current?.kind !== "outcome") return null;
+  const next = await db.query.TrainingCurriculumNode.findFirst({
+    where: and(
+      eq(TrainingCurriculumNode.planId, current.planId),
+      eq(TrainingCurriculumNode.kind, "outcome"),
+      gt(TrainingCurriculumNode.orderIndex, current.orderIndex),
+    ),
+    orderBy: asc(TrainingCurriculumNode.orderIndex),
+  });
+  if (!next || next.skillMap?.blueprint) return null;
+  return next.id;
+};
+
+/**
+ * What this learner has actually done so far, for pass B to aim at.
+ *
+ * Capped because it rides a prompt: the newest attempts carry the failure
+ * pattern worth designing against, and an unbounded history would grow the
+ * blueprint call without improving it.
+ */
+const PRIOR_PERFORMANCE_LIMIT = 12;
+
+const listRecentPriorPerformance = async ({
+  db,
+  sessionId,
+}: {
+  db: Database;
+  sessionId: string;
+}) =>
+  (await trainingAttemptRepository.listAttemptHistory({ db, sessionId }))
+    .slice(-PRIOR_PERFORMANCE_LIMIT)
+    .map((attempt) => ({
+      title: attempt.title,
+      score: attempt.score,
+      failureTags: attempt.failureTags,
+    }));
 
 export const ensureSkillKnowledge = async ({
   db,
@@ -67,46 +124,57 @@ export const ensureSkillKnowledge = async ({
       const ownsKnowledge =
         cluster.kind === "skill" || cluster.kind === "outcome";
       if (!ownsKnowledge) return null;
+      // Pass B writes the blueprint and the syllabus in one transaction, so
+      // syllabus rows prove both landed. This is also the warm path's dedupe:
+      // an already-blueprinted outcome costs one indexed read and returns.
       const existing = await skillKnowledgeRepository.listKnowledge({
         db: lockDb,
         skillNodeId,
       });
       if (existing.length > 0) return existing;
-      const plan = targetIdentity
-        ? null
-        : await lockDb.query.TrainingCurriculumPlan.findFirst({
-            where: eq(TrainingCurriculumPlan.id, cluster.planId),
-          });
+      const plan = await lockDb.query.TrainingCurriculumPlan.findFirst({
+        where: eq(TrainingCurriculumPlan.id, cluster.planId),
+      });
       const identity = targetIdentity ?? plan?.targetIdentity;
       if (!identity) return null;
-      // Both modes persist into the same question/items tables; only the agent
-      // that authors them differs. In topic mode a "question" is a variation
-      // axis of the outcome's syllabus — see outcome-curriculum/contracts.ts.
-      const questions =
-        cluster.kind === "outcome"
-          ? (
-              await designOutcomeSyllabus({
-                targetIdentity: identity,
-                outcomeTitle: cluster.title,
-                mainOutcome: skillMap.mainOutcome ?? cluster.summary,
-                summary: cluster.summary,
-                workflow: skillMap.workflow,
-                exitCriteria: skillMap.masteryContract.exitCriteria,
-                blueprint: skillMap.blueprint,
+
+      if (cluster.kind === "outcome") {
+        const design = await designOutcomeBlueprint({
+          targetIdentity: identity,
+          planTitle: plan?.title ?? identity,
+          outcomeTitle: cluster.title,
+          mainOutcome: skillMap.mainOutcome ?? cluster.summary,
+          summary: cluster.summary,
+          whyItMatters: cluster.whyItMatters,
+          scenarioArchetype: skillMap.scenarioArchetype,
+          workflow: skillMap.workflow,
+          exitCriteria: skillMap.masteryContract.exitCriteria,
+          priorPerformance: plan
+            ? await listRecentPriorPerformance({
+                db: lockDb,
+                sessionId: plan.onboardingSessionId,
               })
-            ).axes.map((entry) => ({
-              question: entry.axis,
-              items: entry.items,
-            }))
-          : (
-              await designSkillKnowledge({
-                title: cluster.title,
-                summary: cluster.summary,
-                targetIdentity: identity,
-                workflow: skillMap.workflow,
-                masteryContract: skillMap.masteryContract,
-              })
-            ).questions;
+            : [],
+        });
+        return skillKnowledgeRepository.ensureOutcomeBlueprint({
+          db: lockDb,
+          outcomeNodeId: skillNodeId,
+          scenarioBrief: design.scenarioBrief,
+          blueprint: design.blueprint,
+          questions: design.syllabus.axes.map((entry) => ({
+            question: entry.axis,
+            items: entry.items,
+          })),
+        });
+      }
+
+      const { questions } = await designSkillKnowledge({
+        title: cluster.title,
+        summary: cluster.summary,
+        targetIdentity: identity,
+        workflow: skillMap.workflow,
+        masteryContract: skillMap.masteryContract,
+      });
       return skillKnowledgeRepository.ensureKnowledge({
         db: lockDb,
         skillNodeId,
@@ -458,6 +526,7 @@ export const loadProgressionState = async ({
             : syllabus.filter(
                 (entry) => entry.coverageCount < SYLLABUS_COVERAGE_TARGET,
               ).length,
+        syllabusItemsTotal: syllabus.length,
         learnerRating: progress.ratingState.rating,
         ratingDeviation: progress.ratingState.ratingDeviation,
         masteryRating: model.mastery.masteryRating,

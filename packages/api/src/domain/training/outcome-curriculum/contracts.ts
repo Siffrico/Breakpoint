@@ -1,14 +1,24 @@
 // outcome-curriculum/contracts.ts
 //
-// The shape of a topic-mode curriculum. One topic becomes one-to-ten OUTCOME
-// nodes, each naming a single main outcome that every task beneath it is
-// judged against, and each carrying the three things a scenario generator
-// needs to produce good tasks forever:
+// The shape of a topic-mode curriculum, in TWO passes of the same curriculum
+// agent. One topic becomes one-to-ten OUTCOME nodes, each naming a single main
+// outcome that every task beneath it is judged against.
 //
-//   workflow      — how a good ANSWER is produced (the grading side)
+// PASS A (outcome-designer.ts) — runs once, at the end of onboarding. Names the
+// outcomes and, for each, the cheap spine: the main outcome, the solve
+// procedure a grader checks reasoning against, the mastery contract, and the
+// response archetype. Everything a plan node needs to exist and be rated.
+//
+// PASS B (outcome-blueprint.ts) — runs once PER OUTCOME, the first time that
+// outcome is about to be taught. Writes the expensive half:
+//
 //   scenarioBrief — how a good TASK is built (the generation side)
-//   syllabus      — what legitimately varies between tasks (generated
-//                   separately, per outcome; see syllabus-mapper.ts)
+//   blueprint     — the 4C/ID source of truth: knowledge, cognition, bands
+//   syllabus      — what legitimately varies between tasks
+//
+// The split is not just cost. Pass B for outcome N runs after the learner has
+// attempted outcomes 1..N-1, so it can be written against how this learner
+// actually performs rather than against the onboarding transcript alone.
 //
 // Deliberately a separate contract from agents/contracts.ts: the two modes
 // share no draft shape, and folding them together would mean a union that
@@ -158,11 +168,7 @@ export const OutcomeDraftSchema = z.object({
   ),
   scenarioArchetype: ScenarioArchetypeSchema,
   scenarioArchetypeWhy: z.string().min(1).max(300),
-  scenarioBrief: ScenarioBriefSchema,
   masteryContract: OutcomeMasteryContractSchema,
-  blueprint: SubtypeBlueprintSchema.describe(
-    "The subtype's durable 4C/ID blueprint. Keep objective knowledge separate from the expert heuristics and traps used to apply it.",
-  ),
 });
 
 export const OutcomePlanDraftSchema = z.object({
@@ -225,6 +231,23 @@ export const SyllabusOutputSchema = z.object({
     .max(10),
 });
 
+/**
+ * PASS B's output: everything needed to teach ONE outcome, in one model call.
+ *
+ * The scenario brief, the blueprint, and the syllabus are one call rather than
+ * three because they must agree with each other — the syllabus axes ARE the
+ * brief's variation axes seen from the learner's side, and both are bounded by
+ * the blueprint's band briefs. Generating them separately means three chances
+ * to disagree and three round-trips to pay for.
+ */
+export const OutcomeBlueprintOutputSchema = z.object({
+  scenarioBrief: ScenarioBriefSchema,
+  blueprint: SubtypeBlueprintSchema.describe(
+    "The subtype's durable 4C/ID blueprint. Keep objective knowledge separate from the expert heuristics and traps used to apply it.",
+  ),
+  syllabus: SyllabusOutputSchema,
+});
+
 export type OutcomeDraft = z.infer<typeof OutcomeDraftSchema>;
 export type OutcomePlanDraft = z.infer<typeof OutcomePlanDraftSchema>;
 export type OutcomeCurriculumOutput = z.infer<
@@ -232,3 +255,6 @@ export type OutcomeCurriculumOutput = z.infer<
 >;
 export type SubtypeBlueprint = z.infer<typeof SubtypeBlueprintSchema>;
 export type SyllabusOutput = z.infer<typeof SyllabusOutputSchema>;
+export type OutcomeBlueprintOutput = z.infer<
+  typeof OutcomeBlueprintOutputSchema
+>;

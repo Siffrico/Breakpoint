@@ -1,16 +1,27 @@
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
+import type { MasteryProgressionState } from "../engine/plan-progression";
 import type { PregenerateNextUnitDependencies } from "./pregenerate-next-unit";
 import {
   ADVANCE_COMPLETED_UNIT_LOCK_KEY,
   pregenerateNextUnit,
 } from "./pregenerate-next-unit";
 
-const foundationNeedsUnit = {
-  regime: "foundation" as const,
+const foundationNeedsUnit: MasteryProgressionState = {
+  regime: "foundation",
   entries: [{ coverageCount: 1 }],
   coverageTarget: 3,
+};
+
+/** Topic mode, one axis short of the warm threshold's far side. */
+const outcomeNearlyCovered: MasteryProgressionState = {
+  regime: "main_outcome",
+  syllabusItemsBelowCoverage: 1,
+  syllabusItemsTotal: 10,
+  learnerRating: 1200,
+  ratingDeviation: 150,
+  masteryRating: 1350,
 };
 
 interface TestNode {
@@ -22,11 +33,13 @@ const makeDeps = ({
   needsContent,
   progressionState = foundationNeedsUnit,
   isAwaitingAdvance = true,
+  nextClusterId = null,
 }: {
   events: string[];
   needsContent: () => boolean;
-  progressionState?: typeof foundationNeedsUnit | null;
+  progressionState?: MasteryProgressionState | null;
   isAwaitingAdvance?: boolean;
+  nextClusterId?: string | null;
 }): {
   deps: PregenerateNextUnitDependencies<TestNode>;
   createUnitNode: ReturnType<typeof vi.fn>;
@@ -46,10 +59,11 @@ const makeDeps = ({
     }),
   );
   const deps: PregenerateNextUnitDependencies<TestNode> = {
-    ensureSkillKnowledge: () =>
+    ensureSkillKnowledge: (skillNodeId) =>
       Effect.sync(() => {
-        events.push("ensureSkillKnowledge");
+        events.push(`ensureSkillKnowledge:${skillNodeId}`);
       }),
+    findNextPlannedCluster: () => Effect.succeed(nextClusterId),
     withLock: ({ sessionId, key, run }) => {
       lockInputs.push({ sessionId, key });
       return Effect.gen(function* () {
@@ -93,7 +107,7 @@ describe("pregenerateNextUnit", () => {
 
     // The LLM call must never run while the advance lock is held.
     expect(events).toEqual([
-      "ensureSkillKnowledge",
+      "ensureSkillKnowledge:cluster-1",
       "lock:acquired",
       "createUnitNode",
       "lock:released",
@@ -145,6 +159,60 @@ describe("pregenerateNextUnit", () => {
 
     expect(createUnitNode).not.toHaveBeenCalled();
     expect(prepareUnit).not.toHaveBeenCalled();
+  });
+
+  it("warms the next outcome's blueprint once this one is nearly covered, after the lock", async () => {
+    const events: string[] = [];
+    const { deps } = makeDeps({
+      events,
+      needsContent: () => true,
+      progressionState: outcomeNearlyCovered,
+      nextClusterId: "outcome-2",
+    });
+
+    await Effect.runPromise(
+      pregenerateNextUnit({
+        sessionId: "session-1",
+        userId: "user-1",
+        skillNodeId: "outcome-1",
+        deps,
+      }),
+    );
+
+    // The learner's own unit is generated before the speculative warm, and
+    // neither model call happens while the advance lock is held.
+    expect(events).toEqual([
+      "ensureSkillKnowledge:outcome-1",
+      "lock:acquired",
+      "createUnitNode",
+      "lock:released",
+      "prepareUnit",
+      "ensureSkillKnowledge:outcome-2",
+    ]);
+  });
+
+  it("does not warm while the outcome is still mid-coverage", async () => {
+    const events: string[] = [];
+    const { deps } = makeDeps({
+      events,
+      needsContent: () => true,
+      progressionState: {
+        ...outcomeNearlyCovered,
+        syllabusItemsBelowCoverage: 6,
+      },
+      nextClusterId: "outcome-2",
+    });
+
+    await Effect.runPromise(
+      pregenerateNextUnit({
+        sessionId: "session-1",
+        userId: "user-1",
+        skillNodeId: "outcome-1",
+        deps,
+      }),
+    );
+
+    expect(events).not.toContain("ensureSkillKnowledge:outcome-2");
   });
 
   it("does nothing when the real advance wins the lock", async () => {
