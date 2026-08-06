@@ -753,12 +753,6 @@ export function OnboardingShell({
                                 sessionId: build.sessionId,
                               });
                             }}
-                            onSeeOverview={() => {
-                              if (preview || !build.sessionId) return;
-                              router.push(
-                                `/overview?session=${encodeURIComponent(build.sessionId)}`,
-                              );
-                            }}
                             onRetry={() => {
                               // Any persisted build resumes deterministically;
                               // only a pre-build card needs another model turn.
@@ -769,12 +763,6 @@ export function OnboardingShell({
                                 return;
                               }
                               void regenerate();
-                            }}
-                            onRegenerateOverview={() => {
-                              if (!build.sessionId) return;
-                              // Stream the overview regen into the existing card
-                              // — stay on the page, no redirect.
-                              void regenerate({ body: { resumeBuild: true } });
                             }}
                           />
                         );
