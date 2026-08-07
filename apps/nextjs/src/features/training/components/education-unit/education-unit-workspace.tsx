@@ -9,7 +9,6 @@ import { DefaultChatTransport, isTextUIPart } from "ai";
 
 import type { RouterOutputs, WorkspaceStreamStatus } from "@acme/api";
 import { ChatComposerDock, WorkspaceStatusLine } from "@acme/ui/chat";
-import { Separator } from "@acme/ui/separator";
 import { toast } from "@acme/ui/toast";
 
 import type { ExchangeMessage } from "./exchange-grouping";
@@ -189,6 +188,18 @@ function PromptTurn({
         ) : null}
       </div>
     </section>
+  );
+}
+
+function PassDivider() {
+  return (
+    <div className="flex items-center gap-3 py-5">
+      <span className="bg-border h-px flex-1" />
+      <span className="text-muted-foreground text-xs whitespace-nowrap">
+        Next section
+      </span>
+      <span className="bg-border h-px flex-1" />
+    </div>
   );
 }
 
@@ -1024,9 +1035,7 @@ function EducationUnitWorkspaceComponent({
             }
           >
             {startsPass && passNumber !== undefined && passNumber > 1 ? (
-              <div className="py-5">
-                <Separator />
-              </div>
+              <PassDivider />
             ) : null}
             {exchange.prompt ? (
               <PromptTurn prompt={exchange.prompt.text} />
@@ -1052,9 +1061,7 @@ function EducationUnitWorkspaceComponent({
       {activePrompt ? (
         <>
           {activePromptStartsPass ? (
-            <div className="py-5">
-              <Separator />
-            </div>
+            <PassDivider />
           ) : null}
           <PromptTurn
             prompt={activePrompt.text}
