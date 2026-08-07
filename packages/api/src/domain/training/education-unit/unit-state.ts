@@ -78,6 +78,14 @@ export const passTodos = (
   },
 ];
 
+/**
+ * The single teaching step an education run opens with. One worked example, not
+ * one lecture per dimension: the mastery dimensions say what the reviewer will
+ * grade, and were never a lesson sequence. Kept in the `capability` todo's id
+ * slot so runs created under the per-dimension shape still load and finish.
+ */
+export const TEACH_TODO_ID = "teach";
+
 export const currentTodo = (
   run: Pick<PersistedUnitRun, "todos">,
 ): UnitTodo | null =>
@@ -176,14 +184,12 @@ export const createUnitRun = ({
     experience: snapshotEducationExperience(experience),
     masteryContract: contract,
     todos: [
-      ...contract.dimensions.map(
-        (dimension): UnitTodo => ({
-          kind: "capability",
-          // A recall run re-tests a capability that was already taught.
-          status: kind === "recall" ? "completed" : "pending",
-          dimensionId: dimension.id,
-        }),
-      ),
+      {
+        kind: "capability",
+        // A recall run re-tests a capability that was already taught.
+        status: kind === "recall" ? "completed" : "pending",
+        dimensionId: TEACH_TODO_ID,
+      },
       ...passTodos(kind, 1),
     ],
     reviewerFeedback: null,

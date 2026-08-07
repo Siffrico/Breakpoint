@@ -7,7 +7,7 @@ import type { UnitTurnDependencies } from "./run-unit-turn";
 import type { PersistedUnitRun } from "./unit-state";
 import { DEFAULT_EDUCATION_EXPERIENCE } from "./experience";
 import { runPassAdvanceTurn, runUnitTurn } from "./run-unit-turn";
-import { attachChallenge, createUnitRun } from "./unit-state";
+import { attachChallenge, createUnitRun, TEACH_TODO_ID } from "./unit-state";
 
 const masteryContract = {
   version: 1,
@@ -166,7 +166,7 @@ describe("runUnitTurn", () => {
             Effect.succeed({
               object: {
                 assistantMessage: "Move on.",
-                completedCapabilityId: "derive-under-pressure",
+                completedCapabilityId: TEACH_TODO_ID,
               },
             }),
         }),
@@ -189,7 +189,7 @@ describe("runUnitTurn", () => {
             Effect.succeed({
               object: {
                 assistantMessage: mentorMessage,
-                completedCapabilityId: "derive-under-pressure",
+                completedCapabilityId: TEACH_TODO_ID,
               },
             }),
         }),
@@ -198,7 +198,7 @@ describe("runUnitTurn", () => {
 
     expect(result.actor).toBe("reviewer");
     expect(result.nextRun.mode).toBe("review");
-    expect(result.completedCapabilityId).toBe("derive-under-pressure");
+    expect(result.completedCapabilityId).toBe(TEACH_TODO_ID);
     expect(result.presentedReviewChallenge).toBe(true);
     // The persisted challenge stays the challenge alone; the learner-facing
     // reply carries the mentor's handoff in front of it.
@@ -227,7 +227,7 @@ describe("runUnitTurn", () => {
             return Effect.succeed({
               object: {
                 assistantMessage: mentorMessage,
-                completedCapabilityId: "derive-under-pressure",
+                completedCapabilityId: TEACH_TODO_ID,
               },
             });
           },
@@ -262,7 +262,7 @@ describe("runUnitTurn", () => {
             Effect.succeed({
               object: {
                 assistantMessage: "Now test it independently.",
-                completedCapabilityId: "derive-under-pressure",
+                completedCapabilityId: TEACH_TODO_ID,
               },
             }),
         }),
@@ -293,7 +293,7 @@ describe("runUnitTurn", () => {
               object: {
                 assistantMessage:
                   "You derived the mechanism, so now test it under pressure.",
-                completedCapabilityId: "derive-under-pressure",
+                completedCapabilityId: TEACH_TODO_ID,
               },
             }),
         }),
@@ -405,7 +405,7 @@ describe("runUnitTurn", () => {
             Effect.succeed({
               object: {
                 assistantMessage: "Now test it independently.",
-                completedCapabilityId: "derive-under-pressure",
+                completedCapabilityId: TEACH_TODO_ID,
               },
             }),
         }),

@@ -49,11 +49,16 @@ const renderCapability = (capability: Capability) =>
    Failure signals: ${capability.failSignals.join("; ")}
    Surrogate traps: ${capability.surrogateTraps.join("; ")}`;
 
-/** Reviewer view: the contract itself, with no trace of how the mentor got here. */
+/** The capabilities this unit is graded against, with no trace of how we got here. */
 const renderMasteryContract = (run: PersistedUnitRun) =>
   numberedList(run.masteryContract.dimensions.map(renderCapability));
 
-/** Mentor view: the same capabilities as a live checklist. */
+/**
+ * Mentor view: the teaching steps still open. A current run has exactly one —
+ * the worked example — and reads its target from the mastery contract instead.
+ * Runs created under the older per-dimension shape resolve their capability and
+ * still render as the checklist they were created as.
+ */
 const renderCapabilityProgress = (run: PersistedUnitRun) => {
   const capabilityById = new Map(
     run.masteryContract.dimensions.map((capability) => [
@@ -64,14 +69,13 @@ const renderCapabilityProgress = (run: PersistedUnitRun) => {
   return numberedList(
     run.todos.flatMap((todo) => {
       if (todo.kind !== "capability") return [];
-      const capability = capabilityById.get(todo.dimensionId);
-      if (!capability) {
-        throw new Error(
-          `Unknown persisted capability todo: ${todo.dimensionId}.`,
-        );
-      }
       const checkbox = todo.status === "completed" ? "[x]" : "[ ]";
-      return [`${checkbox} ${renderCapability(capability)}`];
+      const capability = capabilityById.get(todo.dimensionId);
+      return [
+        capability
+          ? `${checkbox} ${renderCapability(capability)}`
+          : `${checkbox} Teach one worked example that makes every capability below reachable.`,
+      ];
     }),
   );
 };
@@ -110,6 +114,7 @@ export const buildMentorContext = (input: UnitContextInput): string =>
     destinationSection(input.targetIdentity),
     unitSection(input.unit, true),
     `## Capability progress\n${renderCapabilityProgress(input.run)}`,
+    `## Capabilities this unit must build\n${renderMasteryContract(input.run)}`,
     input.knowledge ? knowledgeSection(input.knowledge) : null,
     input.difficultyDirection
       ? goldilocksSection(input.difficultyDirection)

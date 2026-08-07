@@ -16,6 +16,7 @@ import {
   isDecisivePass,
   markComplete,
   presentSolve,
+  TEACH_TODO_ID,
 } from "./unit-state";
 
 const masteryContract = {
@@ -83,14 +84,8 @@ const makeRun = () =>
     experience: DEFAULT_EDUCATION_EXPERIENCE,
   });
 
-const completeLearning = async () => {
-  const first = await Effect.runPromise(
-    completeCurrentCapabilityTodo(makeRun(), "explain-mechanism"),
-  );
-  return Effect.runPromise(
-    completeCurrentCapabilityTodo(first, "transfer-decision"),
-  );
-};
+const completeLearning = () =>
+  Effect.runPromise(completeCurrentCapabilityTodo(makeRun(), TEACH_TODO_ID));
 
 /** Answers the run's open challenge and takes the reviewer's mark. */
 const answerAndMark = async (
@@ -109,14 +104,17 @@ const answerAndMark = async (
 };
 
 describe("unit state", () => {
-  it("starts education on the first pending teaching move", () => {
+  it("starts education on its single teaching move", () => {
     const run = makeRun();
 
     expect(run.mode).toBe("learning");
     expect(currentTodo(run)).toMatchObject({
       kind: "capability",
-      dimensionId: "explain-mechanism",
+      dimensionId: TEACH_TODO_ID,
     });
+    expect(run.todos.filter((todo) => todo.kind === "capability")).toHaveLength(
+      1,
+    );
   });
 
   it("snapshots capability and experience definitions for the active run", () => {
@@ -156,7 +154,7 @@ describe("unit state", () => {
     }
   });
 
-  it("hands over to the solve once every teaching move completes", async () => {
+  it("hands over to the solve once the teaching move completes", async () => {
     const run = await completeLearning();
 
     expect(currentTodo(run)).toMatchObject({ kind: "solve", pass: 1 });
