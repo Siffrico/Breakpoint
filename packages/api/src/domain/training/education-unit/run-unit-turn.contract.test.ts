@@ -246,11 +246,58 @@ describe("runUnitTurn", () => {
     );
 
     // Every snapshot extends the previous one, so the stream never has to
-    // retract text the learner has already read.
+    // retract text the learner has already read. The scenario was authored
+    // alongside the mentor, so it lands as one snapshot rather than its own
+    // partials.
     expect(streamed).toEqual([
       mentorMessage,
-      `${mentorMessage}\n\nThe production constraint changed.`,
+      `${mentorMessage}\n\nThe production constraint changed. Choose the next move and defend it.`,
     ]);
+  });
+
+  it("authors the pass-1 scenario alongside the mentor, not after it", async () => {
+    const order: string[] = [];
+    let releaseMentor: (() => void) | undefined;
+    const mentorGate = new Promise<void>((resolve) => {
+      releaseMentor = resolve;
+    });
+
+    const result = await Effect.runPromise(
+      runUnitTurn(
+        input(),
+        deps({
+          runMentor: () =>
+            Effect.gen(function* () {
+              order.push("mentor:start");
+              yield* Effect.promise(() => mentorGate);
+              order.push("mentor:end");
+              return {
+                object: {
+                  assistantMessage: "Here is the move, worked end to end.",
+                  completedCapabilityId: TEACH_TODO_ID,
+                },
+              };
+            }),
+          runReviewPresentation: () =>
+            Effect.sync(() => {
+              // Only reachable before the mentor resolves if the two ran
+              // together; a serial teach turn would deadlock on the gate.
+              order.push("scenario");
+              releaseMentor?.();
+              return {
+                object: {
+                  assistantMessage:
+                    "A supplier raised prices mid-cycle. Choose the next move.",
+                  verifier: scenarioVerifier,
+                },
+              };
+            }),
+        }),
+      ),
+    );
+
+    expect(order).toEqual(["mentor:start", "scenario", "mentor:end"]);
+    expect(result.presentedReviewChallenge).toBe(true);
   });
 
   it("opens the next pass when a Pass 1 grade finds a gap", async () => {

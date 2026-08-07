@@ -25,8 +25,8 @@ import type {
 } from "./workspace-turn-persistence";
 import type { WorkspaceTurnRepo } from "./workspace-turn-repo";
 import { resolveEducationExperience } from "../education-unit/experience";
+import { prefillScenario } from "../education-unit/prefill";
 import {
-  authorChallenge,
   runPassAdvanceTurn,
   runUnitTurn,
 } from "../education-unit/run-unit-turn";
@@ -715,7 +715,7 @@ export const runEducationUnitTurn = ({
     ) {
       const runPassPregeneration = () =>
         Effect.runPromise(
-          authorChallenge({
+          prefillScenario({
             run: turnResult.nextRun,
             transcript: toModelMessages(loadedTranscript.transcript),
             experience,

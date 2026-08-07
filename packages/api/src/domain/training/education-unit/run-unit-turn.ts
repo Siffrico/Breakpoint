@@ -1,17 +1,14 @@
 import type { ModelMessage } from "ai";
-import { Data, Effect } from "effect";
+import { Effect } from "effect";
 
 import type {
-  DifficultyVector,
   EvaluationDimensionResult,
-  ScenarioEvaluationContract,
-  UnitReviewChallenge,
   UnitReviewPass,
 } from "@acme/validators";
 
-import type { ReviewPresentationOutput } from "./agent-contracts";
 import type { UnitAgentError } from "./agent-errors";
 import type { EducationExperienceDefinition } from "./experience";
+import type { UnitContextBuilders } from "./prefill";
 import type { PersistedUnitRun } from "./unit-state";
 import {
   compositeScore,
@@ -20,10 +17,17 @@ import {
 } from "./agent-contracts";
 import { runMentorAgent } from "./mentor-agent";
 import {
+  parkedChallenge,
+  prefillScenario,
+  readContext,
+  UnitTurnContractError,
+} from "./prefill";
+import {
   runReviewGradeAgent,
   runReviewPresentationAgent,
 } from "./review-agent";
 import {
+  attachChallenge,
   closeSolve,
   completeCurrentCapabilityTodo,
   currentTodo,
@@ -32,20 +36,8 @@ import {
   presentSolve,
 } from "./unit-state";
 
-export class UnitTurnContractError extends Data.TaggedError(
-  "UnitTurnContractError",
-)<{ readonly message: string }> {}
-
-/**
- * Three disjoint views of the same run, built by separate functions. There is
- * no audience flag to get wrong, so the mentor's view cannot reach the critic
- * and the critic never sees the difficulty it was graded against.
- */
-export interface UnitContextBuilders {
-  readonly forMentor: (run: PersistedUnitRun) => string;
-  readonly forPresenter: (run: PersistedUnitRun) => string;
-  readonly forCritic: (run: PersistedUnitRun) => string;
-}
+export type { UnitContextBuilders } from "./prefill";
+export { UnitTurnContractError } from "./prefill";
 
 export interface UnitTurnResult {
   readonly assistantMessage: string;
@@ -88,21 +80,6 @@ const asTurnError = Effect.mapError(
     new UnitTurnContractError({ message: error.message }),
 );
 
-const readContext = (
-  build: (run: PersistedUnitRun) => string,
-  run: PersistedUnitRun,
-): Effect.Effect<string, UnitTurnContractError> =>
-  Effect.try({
-    try: () => build(run),
-    catch: (cause) =>
-      new UnitTurnContractError({
-        message:
-          cause instanceof Error
-            ? cause.message
-            : "Unit context could not be constructed.",
-      }),
-  });
-
 const latestUserText = (transcript: readonly ModelMessage[]): string | null => {
   const message = [...transcript]
     .reverse()
@@ -111,118 +88,6 @@ const latestUserText = (transcript: readonly ModelMessage[]): string | null => {
     ? message.content
     : null;
 };
-
-const midpoint = ([minimum, maximum]: readonly [number, number]): number =>
-  Math.round((minimum + maximum) / 2);
-
-const difficultyVectorFor = (
-  run: PersistedUnitRun,
-): Effect.Effect<DifficultyVector, UnitTurnContractError> => {
-  const format = run.difficultySnapshot?.format;
-  const dialPreset = run.difficultySnapshot?.dialPreset;
-  if (!format || !dialPreset) {
-    return contractFailure(
-      "The unit has no calibrated format and difficulty preset.",
-    );
-  }
-  return Effect.succeed({
-    formatId: format.id,
-    reasoningPathSteps: midpoint(dialPreset.steps),
-    withheldGivens: midpoint(dialPreset.withheldGivens),
-    embeddedAlternatives: midpoint(dialPreset.alternatives),
-  });
-};
-
-const evaluationContractFor = (
-  run: PersistedUnitRun,
-  prompt: string,
-  verifier: ReviewPresentationOutput["verifier"],
-): ScenarioEvaluationContract => ({
-  version: 1,
-  runKind: run.kind,
-  scenarioPromptSummary:
-    prompt
-      .split(/\n\s*\n/)
-      .find((part) => part.trim().length > 0)
-      ?.trim() ?? prompt,
-  testedDimensions: run.masteryContract.dimensions.map((dimension) => ({
-    dimensionId: dimension.id,
-    promptRole: dimension.description,
-    expectedStrongMoves: dimension.passSignals,
-    acceptableVariants: [],
-    commonWrongMoves: [
-      ...dimension.failSignals,
-      ...dimension.surrogateTraps,
-    ].slice(0, 6),
-    scoreBands: {
-      strong: `Demonstrates ${dimension.passSignals.join("; ")}.`,
-      partial: `Shows part of ${dimension.description}, but leaves a material gap in the reasoning.`,
-      weak: `Shows ${dimension.failSignals.join("; ")}.`,
-    },
-  })),
-  learnerVisibleCriteria: run.masteryContract.dimensions.map(
-    (dimension) => dimension.description,
-  ),
-  evaluatorNotes: run.masteryContract.dimensions
-    .flatMap((dimension) => dimension.surrogateTraps)
-    .slice(0, 6),
-  verifier,
-});
-
-const challengeFromPresentation = (
-  run: PersistedUnitRun,
-  output: ReviewPresentationOutput,
-  difficultyVector: DifficultyVector,
-): UnitReviewChallenge => ({
-  prompt: output.assistantMessage,
-  difficultyVector,
-  contract: evaluationContractFor(
-    run,
-    output.assistantMessage,
-    output.verifier,
-  ),
-});
-
-const presentationContext = (
-  context: string,
-  difficultyVector: DifficultyVector,
-): string => `${context}
-
-## Exact structural target
-Author the scenario to this server-owned target: ${JSON.stringify(difficultyVector)}. Return only the learner-facing scenario in assistantMessage.`;
-
-/**
- * Writes one scenario for the run's pending solve. Used live and by
- * pre-generation, so both paths produce the same shape.
- */
-export const authorChallenge = (
-  {
-    run,
-    transcript,
-    experience,
-    buildContext,
-    onPartialAssistantMessage,
-  }: {
-    run: PersistedUnitRun;
-    transcript: readonly ModelMessage[];
-    experience: EducationExperienceDefinition;
-    buildContext: Pick<UnitContextBuilders, "forPresenter">;
-    onPartialAssistantMessage?: (content: string) => void;
-  },
-  deps: UnitTurnDependencies = LIVE_DEPENDENCIES,
-): Effect.Effect<UnitReviewChallenge, UnitAgentError | UnitTurnContractError> =>
-  Effect.gen(function* () {
-    const context = yield* readContext(buildContext.forPresenter, run);
-    const difficultyVector = yield* difficultyVectorFor(run);
-    const result = yield* deps.runReviewPresentation({
-      messages: transcript,
-      context: presentationContext(context, difficultyVector),
-      experience,
-      pass: run.reviewPass,
-      onPartialAssistantMessage,
-    });
-    return challengeFromPresentation(run, result.object, difficultyVector);
-  });
 
 /**
  * Opens the pending solve. A pre-generated challenge is replayed as-is; only an
@@ -250,7 +115,7 @@ const openSolve = ({
     }
     const challenge =
       pending.challenge ??
-      (yield* authorChallenge(
+      (yield* prefillScenario(
         {
           run,
           transcript,
@@ -460,19 +325,42 @@ export const runUnitTurn = (
     }
 
     const context = yield* readContext(buildContext.forMentor, run);
-    const mentor = yield* deps.runMentor({
-      messages: transcript,
-      context,
-      experience,
-      currentCapabilityId: head.dimensionId,
-      onPartialAssistantMessage,
-    });
+    // The teach step normally completes on its first message and hands straight
+    // to the scenario, so authoring that scenario alongside the mentor rather
+    // than after it takes a whole model call off the learner's wait. A miss is
+    // not wasted: it is parked on the solve for whichever turn opens it. A
+    // failure is swallowed, because a teach turn must not die for a scenario
+    // that openSolve can still write live.
+    const [mentor, speculative] = yield* Effect.all(
+      [
+        deps.runMentor({
+          messages: transcript,
+          context,
+          experience,
+          currentCapabilityId: head.dimensionId,
+          onPartialAssistantMessage,
+        }),
+        parkedChallenge(run)
+          ? Effect.succeed(null)
+          : prefillScenario(
+              { run, transcript, experience, buildContext },
+              deps,
+            ).pipe(Effect.catch(() => Effect.succeed(null))),
+      ],
+      { concurrency: 2 },
+    );
     const mentorMessage = mentor.object.assistantMessage;
     const completedCapabilityId = mentor.object.completedCapabilityId;
+    const park = (target: PersistedUnitRun) =>
+      speculative
+        ? attachChallenge({ run: target, challenge: speculative }).pipe(
+            asTurnError,
+          )
+        : Effect.succeed(target);
     if (!completedCapabilityId) {
       return {
         assistantMessage: mentorMessage,
-        nextRun: run,
+        nextRun: yield* park(run),
         actor: "mentor" as const,
         completedCapabilityId: null,
         reviewGrade: null,
@@ -481,10 +369,11 @@ export const runUnitTurn = (
         settledPass: null,
       };
     }
-    const advanced = yield* completeCurrentCapabilityTodo(
-      run,
-      completedCapabilityId,
-    ).pipe(asTurnError);
+    const advanced = yield* park(
+      yield* completeCurrentCapabilityTodo(run, completedCapabilityId).pipe(
+        asTurnError,
+      ),
+    );
     if (currentTodo(advanced)?.kind === "capability") {
       return {
         assistantMessage: mentorMessage,

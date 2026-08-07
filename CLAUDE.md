@@ -80,6 +80,8 @@ Copy `.env.example` to `.env` and populate:
 
 **Don't overengineer.** Simplest thing that satisfies the request. No registry/factory/config layer for a hypothetical second caller, no new file when an existing one is the right home, no generic solution when the concrete one was asked for. Fewer moving parts wins.
 
+**Prefer ambitious ideas with simple systems.** Don't preserve complexity that already exists, don't add machinery that "looks architecturally impressive," and fight for the smallest model that makes correct behavior unsurprising.
+
 ## Plan Format
 
 **ASCII mockups first** — UI change? Lead with ASCII art of the layout. Nothing before it.

@@ -100,6 +100,7 @@ The profile slice is the reference implementation of the modernized path — mir
 
 ### Over-engineering bans
 
+- Prefer ambitious ideas with simple systems. Don't preserve complexity that already exists, don't add machinery that "looks architecturally impressive," and fight for the smallest model that makes correct behavior unsurprising.
 - No abstraction until the third concrete usage. Two similar blocks may stay similar.
 - No interface/registry/factory with a single implementation. No config options, parameters, or feature flags nobody asked for.
 - No backwards-compat shims or deprecated re-exports — this is pre-launch; delete the legacy path in the same change.

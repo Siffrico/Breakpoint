@@ -96,6 +96,18 @@ const currentSolve = (todos: readonly UnitTodo[]): UnitSolveTodo | null => {
   return todo?.kind === "solve" ? todo : null;
 };
 
+/**
+ * The next unanswered solve, whether or not it heads the list. Only the prefill
+ * slot looks past the head — presenting and answering stay head-bound.
+ */
+const nextSolve = (todos: readonly UnitTodo[]): UnitSolveTodo | null => {
+  const todo = todos.find(
+    (candidate) =>
+      candidate.kind === "solve" && candidate.status !== "completed",
+  );
+  return todo?.kind === "solve" ? todo : null;
+};
+
 const currentComplete = (
   todos: readonly UnitTodo[],
 ): UnitCompleteTodo | null => {
@@ -228,9 +240,10 @@ export const completeCurrentCapabilityTodo = (
 };
 
 /**
- * Parks a challenge on the pending solve. Pre-generation and live presentation
- * write through the same slot, so a background task that lands late is a no-op
- * rather than a challenge swap.
+ * Parks a challenge on the next unanswered solve, which is usually still behind
+ * the head — that is the whole point of a prefill. Pre-generation and live
+ * presentation write through the same slot, so a background task that lands
+ * after the solve opened is a no-op rather than a challenge swap.
  */
 export const attachChallenge = ({
   run,
@@ -239,7 +252,7 @@ export const attachChallenge = ({
   run: PersistedUnitRun;
   challenge: UnitReviewChallenge;
 }): Effect.Effect<PersistedUnitRun, UnitStateContractError> => {
-  const solve = currentSolve(run.todos);
+  const solve = nextSolve(run.todos);
   if (solve?.status !== "pending") {
     return contractFailure("There is no unopened challenge to fill.");
   }
