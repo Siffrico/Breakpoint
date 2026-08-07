@@ -1,15 +1,14 @@
 "use client";
 
 import type { CSSProperties, MouseEvent, ReactNode } from "react";
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  CaretRight,
-  DotsThree,
+  FolderOpen,
+  FolderSimple,
   Gear,
   MagnifyingGlass,
-  NotePencil,
   Plus,
   SidebarSimple,
   Storefront,
@@ -188,22 +187,6 @@ function SettingsQuickMenu({
   );
 }
 
-function StatusDot({ state }: { state: "planned" | "ready" | "completed" }) {
-  return (
-    <span
-      aria-hidden="true"
-      className={[
-        "block h-[8px] w-[8px] shrink-0 rounded-full transition-colors",
-        state === "ready"
-          ? "bg-foreground/68"
-          : state === "completed"
-            ? "bg-foreground/24"
-            : "border-foreground/22 border bg-transparent",
-      ].join(" ")}
-    />
-  );
-}
-
 function ChatRow({
   title,
   status,
@@ -223,11 +206,6 @@ function ChatRow({
 }) {
   const isReady = status === "ready";
   const isCompleted = status === "completed";
-  const dotState: "planned" | "ready" | "completed" = isReady
-    ? "ready"
-    : isCompleted
-      ? "completed"
-      : "planned";
 
   return (
     <Link
@@ -237,7 +215,7 @@ function ChatRow({
       onFocus={onPrefetch}
       aria-current={isActive ? "true" : undefined}
       className={[
-        "group hover:bg-foreground/[0.035] flex w-full items-center gap-2.5 rounded-[6px] px-2 py-[6px] text-left text-[13px] transition-colors outline-none focus:outline-none focus-visible:outline-none",
+        "group hover:bg-foreground/[0.035] flex w-full items-center gap-2 rounded-[6px] px-2 py-[6px] text-left text-[13px] transition-colors outline-none focus:outline-none focus-visible:outline-none",
         isActive
           ? "bg-foreground/[0.045] text-foreground/92"
           : isReady
@@ -247,19 +225,12 @@ function ChatRow({
               : "text-foreground/56",
       ].join(" ")}
     >
-      <span
-        className={[
-          "flex h-[14px] w-[14px] shrink-0 items-center justify-center",
-          isRunning ? "text-foreground/72" : "",
-        ].join(" ")}
-      >
-        {isRunning ? (
-          <DotmCircular17 size={13} dotSize={1.5} />
-        ) : (
-          <StatusDot state={dotState} />
-        )}
-      </span>
       <FadeLabel className="min-w-0 flex-1 leading-[18px]">{title}</FadeLabel>
+      {isRunning ? (
+        <span className="text-foreground/72 flex shrink-0 items-center">
+          <DotmCircular17 size={13} dotSize={1.5} />
+        </span>
+      ) : null}
     </Link>
   );
 }
@@ -303,19 +274,31 @@ function ProjectRow({
   // Server sends newest-first, capped at 10. Default to a 3-row window; the
   // learner can widen it per project when more chats actually exist.
   const [showAllChats, setShowAllChats] = useState(false);
+  // Transitions stay off until the row has settled at its initial state — the
+  // stored expansion map hydrates in an effect, and that first flip must not
+  // animate. Dropping the attribute imperatively keeps it to zero re-renders.
+  const rowRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() =>
+      rowRef.current?.removeAttribute("data-static"),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, []);
   const lessons = showAllChats
     ? project.lessonPreview
     : project.lessonPreview.slice(0, 3);
   const hasMoreChats = project.lessonPreview.length > 3;
 
   return (
-    <div>
+    <div ref={rowRef} data-static="" className="group/row">
       <div
         className={[
-          "group/project hover:bg-foreground/[0.035] flex w-full items-center rounded-[6px] transition-colors",
+          "group/project hover:bg-foreground/[0.035] flex w-full items-center gap-2 rounded-[6px] px-1.5 transition-colors",
           isCurrent ? "text-foreground/92" : "text-foreground/72",
         ].join(" ")}
       >
+        {/* Both folders stay mounted and stacked; toggling only crosses opacity
+            and scale, so the swap is compositor-only — no layout, no reflow. */}
         <button
           type="button"
           onClick={(event) => {
@@ -324,14 +307,24 @@ function ProjectRow({
           }}
           aria-expanded={isExpanded}
           aria-label={`${isExpanded ? "Collapse" : "Expand"} ${project.title}`}
-          className="text-foreground/36 hover:text-foreground/72 flex size-6 shrink-0 items-center justify-center pl-1 transition-colors outline-none focus:outline-none focus-visible:outline-none"
+          className="text-foreground/45 group-hover/project:text-foreground/70 relative flex size-[18px] shrink-0 items-center justify-center transition-colors outline-none focus:outline-none focus-visible:outline-none"
         >
-          <CaretRight
-            size={10}
+          <FolderSimple
+            size={16}
             weight="regular"
+            aria-hidden="true"
             className={[
-              "shrink-0 transition-transform duration-150",
-              isExpanded ? "rotate-90" : "",
+              "absolute transition-[opacity,transform] duration-150 ease-out group-data-[static]/row:transition-none motion-reduce:transition-none",
+              isExpanded ? "scale-90 opacity-0" : "scale-100 opacity-100",
+            ].join(" ")}
+          />
+          <FolderOpen
+            size={16}
+            weight="regular"
+            aria-hidden="true"
+            className={[
+              "absolute transition-[opacity,transform] duration-150 ease-out group-data-[static]/row:transition-none motion-reduce:transition-none",
+              isExpanded ? "scale-100 opacity-100" : "scale-90 opacity-0",
             ].join(" ")}
           />
         </button>
@@ -341,12 +334,14 @@ function ProjectRow({
           onClick={onNavigate}
           onMouseEnter={onPrefetch}
           onFocus={onPrefetch}
-          className="hover:text-foreground/92 flex min-w-0 flex-1 py-[6px] pr-1 text-left text-[13px] font-normal transition-colors outline-none focus:outline-none focus-visible:outline-none"
+          className="hover:text-foreground/92 flex min-w-0 flex-1 py-[7px] text-left text-[13px] font-normal transition-colors outline-none focus:outline-none focus-visible:outline-none"
         >
           <FadeLabel className="min-w-0 flex-1 leading-[18px]">
             {project.title}
           </FadeLabel>
         </Link>
+
+        <ProjectActionsMenu overviewHref={overviewHref} />
 
         <button
           type="button"
@@ -358,51 +353,70 @@ function ProjectRow({
               ? `Continue ${project.title}`
               : "Curriculum is still being prepared"
           }
-          className="text-foreground/32 hover:text-foreground/80 hover:bg-foreground/[0.05] pointer-events-none flex size-6 shrink-0 items-center justify-center rounded-[5px] opacity-0 transition-[color,background-color,opacity] outline-none group-hover/project:pointer-events-auto group-hover/project:opacity-100 focus:outline-none focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-0 group-hover/project:disabled:opacity-25"
+          className="text-foreground/40 hover:text-foreground/85 hover:bg-foreground/[0.05] flex size-6 shrink-0 items-center justify-center rounded-[5px] transition-[color,background-color,opacity] outline-none focus:outline-none focus-visible:outline-none disabled:pointer-events-none disabled:opacity-25"
         >
           {isContinuing ? (
             <DotmCircular17 size={13} dotSize={1.5} />
           ) : (
-            <NotePencil size={15} weight="regular" />
+            <Plus size={15} weight="regular" />
           )}
         </button>
-
-        <ProjectActionsMenu overviewHref={overviewHref} />
       </div>
 
-      {isExpanded && lessons.length > 0 ? (
-        <div className="border-foreground/[0.06] mt-px ml-[10px] border-l pl-[6px]">
-          {lessons.map((lesson) => (
-            <ChatRow
-              key={lesson.id}
-              title={lesson.title}
-              status={lesson.status}
-              // The workspace resolves the live chat back to the plain URL, so
-              // deep-linking every row is safe: past chats open read-only
-              // history, the live one opens the normal workspace.
-              href={
-                preview ? href : `${href}&chat=${encodeURIComponent(lesson.id)}`
-              }
-              isActive={isCurrent && lesson.id === activeLessonId}
-              isRunning={
-                Boolean(isSessionRunning && isCurrent) &&
-                lesson.id === activeLessonId
-              }
-              onNavigate={(event) => onNavigateChat(event, lesson.id)}
-              onPrefetch={() => onPrefetchChat(lesson.id)}
-            />
-          ))}
-          {hasMoreChats ? (
-            <button
-              type="button"
-              onClick={() => setShowAllChats((prev) => !prev)}
-              className="text-foreground/36 hover:text-foreground/64 flex w-full items-center rounded-[6px] px-2 py-[5px] text-left text-[12px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
+      {lessons.length > 0 ? (
+        // 0fr → 1fr animates to the content's natural height without measuring
+        // it in JS, so there is no read-back layout thrash on toggle.
+        <div
+          className={[
+            "grid transition-[grid-template-rows] duration-[220ms] ease-[cubic-bezier(0.32,0.72,0,1)] group-data-[static]/row:transition-none motion-reduce:transition-none",
+            isExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+          ].join(" ")}
+        >
+          <div className="overflow-hidden">
+            <div
+              inert={isExpanded ? undefined : true}
+              className={[
+                "border-foreground/[0.06] mt-px ml-[15px] border-l pl-[10px] transition-[opacity,transform] duration-[220ms] ease-out group-data-[static]/row:transition-none motion-reduce:transition-none",
+                isExpanded
+                  ? "translate-y-0 opacity-100"
+                  : "-translate-y-1 opacity-0",
+              ].join(" ")}
             >
-              <FadeLabel className="min-w-0 flex-1 leading-[16px]">
-                {showAllChats ? "Show less" : "Show more"}
-              </FadeLabel>
-            </button>
-          ) : null}
+              {lessons.map((lesson) => (
+                <ChatRow
+                  key={lesson.id}
+                  title={lesson.title}
+                  status={lesson.status}
+                  // The workspace resolves the live chat back to the plain URL,
+                  // so deep-linking every row is safe: past chats open read-only
+                  // history, the live one opens the normal workspace.
+                  href={
+                    preview
+                      ? href
+                      : `${href}&chat=${encodeURIComponent(lesson.id)}`
+                  }
+                  isActive={isCurrent && lesson.id === activeLessonId}
+                  isRunning={
+                    Boolean(isSessionRunning && isCurrent) &&
+                    lesson.id === activeLessonId
+                  }
+                  onNavigate={(event) => onNavigateChat(event, lesson.id)}
+                  onPrefetch={() => onPrefetchChat(lesson.id)}
+                />
+              ))}
+              {hasMoreChats ? (
+                <button
+                  type="button"
+                  onClick={() => setShowAllChats((prev) => !prev)}
+                  className="text-foreground/36 hover:text-foreground/64 flex w-full items-center rounded-[6px] px-2 py-[5px] text-left text-[12px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
+                >
+                  <FadeLabel className="min-w-0 flex-1 leading-[16px]">
+                    {showAllChats ? "Show less" : "Show more"}
+                  </FadeLabel>
+                </button>
+              ) : null}
+            </div>
+          </div>
         </div>
       ) : null}
     </div>
@@ -420,11 +434,11 @@ function ProjectActionsMenu({ overviewHref }: { overviewHref: string }) {
           <button
             type="button"
             aria-label="Project actions"
-            className="text-foreground/28 hover:text-foreground/76 hover:bg-foreground/[0.05] flex size-6 shrink-0 items-center justify-center rounded-[5px] opacity-80 transition-colors outline-none group-hover/project:opacity-100 focus:outline-none focus-visible:outline-none"
+            className="text-foreground/40 hover:text-foreground/85 hover:bg-foreground/[0.05] pointer-events-none flex size-6 shrink-0 items-center justify-center rounded-[5px] opacity-0 transition-[color,background-color,opacity] outline-none group-hover/project:pointer-events-auto group-hover/project:opacity-100 focus:outline-none focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none"
           />
         }
       >
-        <DotsThree size={16} weight="bold" />
+        <Gear size={14} weight="regular" />
       </MenuTrigger>
       <MenuPopup
         side="right"
@@ -645,7 +659,7 @@ function CurriculumSidebarComponent({
       {/* Scrollable projects list (each project = a header with its chats under it) */}
       <div className="flex-1 overflow-y-auto px-2 pt-4 pb-2">
         {projects.length > 0 ? (
-          <div className="text-foreground/36 px-2 pb-1.5 text-[12px] font-normal">
+          <div className="text-foreground/36 px-1.5 pb-1.5 text-[11px] font-normal tracking-[0.08em] uppercase">
             Projects
           </div>
         ) : null}
