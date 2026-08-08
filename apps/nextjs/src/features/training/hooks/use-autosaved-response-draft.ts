@@ -44,6 +44,14 @@ export const shouldClearSubmittedDraft = ({
   isError,
 }: ChatFinishState) => !isAbort && !isDisconnect && !isError;
 
+export const resolveActiveResponseDraftKey = ({
+  currentKey,
+  submittedKey,
+}: {
+  currentKey: string | null;
+  submittedKey: string | null;
+}) => submittedKey ?? currentKey;
+
 const readDraft = (key: string) => {
   try {
     return window.localStorage.getItem(key) ?? "";

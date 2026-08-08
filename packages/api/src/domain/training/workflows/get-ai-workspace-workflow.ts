@@ -5,7 +5,10 @@ import type { DbError } from "../../../effect/errors";
 import type { Result } from "../../../lib/result";
 import type { ScenarioBrief } from "../education-unit/scenario-brief";
 import type { PersistedUnitRun } from "../education-unit/unit-state";
-import type { CurriculumPlan } from "../types/training.types";
+import type {
+  CurriculumPlan,
+  EducationUnitState,
+} from "../types/training.types";
 import type {
   WorkspaceAiMessage,
   WorkspaceAiState,
@@ -16,6 +19,7 @@ import type {
 } from "../workspace-ai/workspace-reader";
 import { err, ok } from "../../../lib/result";
 import { projectScenarioBrief } from "../education-unit/scenario-brief";
+import { getEducationUnitState } from "../policies/education-unit-state-policy";
 import { planWorkspaceTurn } from "../workspace-ai/orchestrator";
 import { CurriculumNotReadyError } from "../workspace-ai/workspace-errors";
 import {
@@ -38,6 +42,7 @@ interface GetAiWorkspaceDependencies
 export interface AiWorkspaceView {
   plan: CurriculumPlan;
   projectComplete: boolean;
+  unit: EducationUnitState | null;
   state: WorkspaceAiState | null;
   messages: WorkspaceAiMessage[];
   introMessage: {
@@ -147,6 +152,8 @@ export const getAiWorkspaceWorkflowEffect = ({
     // The run whose scenario is live: a recall interlude runs its own source
     // unit's cursor, so the active unit's run is not the one on screen.
     let resolvedRun: PersistedUnitRun | null = active.run;
+    let resolvedUnit = active.unit;
+    let resolvedResponses = active.responses;
     if (state?.recallUnitId) {
       const recallNode = plan.nodes.find(
         (node) => node.id === state.recallUnitId,
@@ -157,15 +164,24 @@ export const getAiWorkspaceWorkflowEffect = ({
       if (!recallUnit) {
         return { kind: "preparing", nodeId: recallNode?.id ?? null } as const;
       }
+      const [recallResponses, experience] = yield* Effect.all(
+        [
+          projectionReader.getPhaseResponses(recallUnit.id, sessionId),
+          plannedRecall?.run
+            ? Effect.succeed(undefined)
+            : projectionReader.getEducationExperience(),
+        ],
+        { concurrency: 2 },
+      );
       const recallRun = resolveRecallRunProjection({
         sessionId,
         unit: recallUnit,
         existing: plannedRecall?.run ?? null,
-        experience: plannedRecall?.run
-          ? undefined
-          : yield* projectionReader.getEducationExperience(),
+        experience,
       });
       resolvedRun = recallRun;
+      resolvedUnit = recallUnit;
+      resolvedResponses = recallResponses;
       resolvedState = {
         ...state,
         educationStage: recallRun.mode,
@@ -209,6 +225,13 @@ export const getAiWorkspaceWorkflowEffect = ({
       workspace: {
         plan,
         projectComplete,
+        unit:
+          resolvedState && resolvedUnit
+            ? getEducationUnitState({
+                unit: resolvedUnit,
+                responses: resolvedResponses,
+              })
+            : null,
         state: resolvedState,
         messages,
         unitAdvanceGate:

@@ -151,20 +151,6 @@ export function useWorkspaceSession({
   const resolvedChatHistory = isHistorySelected
     ? (chatHistoryQuery.data ?? null)
     : null;
-  const unitQuery = useQuery(
-    trpc.training.unit.queryOptions(
-      { sessionId: selectedSessionId, nodeId: activeNode?.id ?? "" },
-      {
-        enabled:
-          !preview &&
-          !isHistorySelected &&
-          workspaceResult?.kind === "ready" &&
-          !unitPreparing &&
-          Boolean(activeNode),
-        retry: false,
-      },
-    ),
-  );
   const awaitUnitQuery = useQuery(
     trpc.training.awaitUnit.queryOptions(
       { sessionId: selectedSessionId, nodeId: preparingNodeId ?? "" },
@@ -239,7 +225,7 @@ export function useWorkspaceSession({
     sessionId,
     unit: null as EducationUnit | null,
   });
-  const fetchedUnit = unitQuery.data ?? null;
+  const fetchedUnit = aiWorkspace?.unit ?? null;
   const liveUnit =
     liveUnitState.sessionId === selectedSessionId &&
     liveUnitState.unit?.nodeId === fetchedUnit?.nodeId
@@ -256,22 +242,16 @@ export function useWorkspaceSession({
     ? workspaceShellQuery.error.message
     : aiWorkspaceQuery.isError
       ? aiWorkspaceQuery.error.message
-      : workspaceResult?.kind === "ready" && unitQuery.isError
-        ? unitQuery.error.message
-        : null;
+      : null;
   const retryWorkspaceShell = workspaceShellQuery.refetch;
   const retryAiWorkspace = aiWorkspaceQuery.refetch;
-  const retryUnit = unitQuery.refetch;
   const retryWorkspaceLoad = useCallback(() => {
     if (workspaceShellQuery.isError) void retryWorkspaceShell();
     if (aiWorkspaceQuery.isError) void retryAiWorkspace();
-    if (unitQuery.isError) void retryUnit();
   }, [
     aiWorkspaceQuery.isError,
     retryAiWorkspace,
-    retryUnit,
     retryWorkspaceShell,
-    unitQuery.isError,
     workspaceShellQuery.isError,
   ]);
 

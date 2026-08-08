@@ -464,40 +464,7 @@ export const runEducationUnitTurn = ({
         message: "There is no next challenge to open yet.",
       });
     }
-    const loadedTranscript = yield* claimTurnAndLoadTranscript({
-      sessionId,
-      unitId: unit.nodeId,
-      unitContentId: unit.id,
-      turnId,
-      turnLeaseId,
-      unitRun,
-      action,
-      message,
-      deps,
-    });
-    if (loadedTranscript.kind === "cached") {
-      onAssistantMessage?.(loadedTranscript.assistantMessage.content);
-      return {
-        passNumber: unitRun.reviewPass,
-        state,
-        scenario: projectScenarioBrief(unitRun),
-        messages: loadedTranscript.messages,
-        assistantMessage: loadedTranscript.assistantMessage,
-      };
-    }
-
-    const experience = yield* resolveEducationExperience(
-      unitRun.experience,
-    ).pipe(
-      Effect.mapError(
-        () =>
-          new WorkspaceInputError({
-            message: "This unit's learning experience is no longer available.",
-          }),
-      ),
-    );
     const ratingScope = resolveRatingScope({ unit, planNodes: plan.nodes });
-    const recallFocus = turn.recallFocus;
     const getUnitKnowledgeContext = deps.getUnitKnowledgeContext;
     // Recall turns need the expert workflow too — it is what the reviewer
     // grades a retrieval attempt against. Loading it costs nothing here
@@ -507,7 +474,7 @@ export const runEducationUnitTurn = ({
           getUnitKnowledgeContext(unit.nodeId),
         )
       : Effect.succeed(null);
-    const [memories, resolvedDifficulty, knowledge] = yield* Effect.all(
+    const loadTurnContext = Effect.all(
       [
         persistPromise("listMemories", () => deps.listMemories(userId)),
         unitRun.difficultySnapshot
@@ -524,6 +491,49 @@ export const runEducationUnitTurn = ({
       ],
       { concurrency: 3 },
     );
+    const [loadedTranscript, turnContextExit] = yield* Effect.all(
+      [
+        claimTurnAndLoadTranscript({
+          sessionId,
+          unitId: unit.nodeId,
+          unitContentId: unit.id,
+          turnId,
+          turnLeaseId,
+          unitRun,
+          action,
+          message,
+          deps,
+        }),
+        Effect.exit(loadTurnContext),
+      ],
+      { concurrency: 2 },
+    );
+    if (loadedTranscript.kind === "cached") {
+      onAssistantMessage?.(loadedTranscript.assistantMessage.content);
+      return {
+        passNumber: unitRun.reviewPass,
+        state,
+        scenario: projectScenarioBrief(unitRun),
+        messages: loadedTranscript.messages,
+        assistantMessage: loadedTranscript.assistantMessage,
+      };
+    }
+    if (!Exit.isSuccess(turnContextExit)) {
+      return yield* Effect.failCause(turnContextExit.cause);
+    }
+    const [memories, resolvedDifficulty, knowledge] = turnContextExit.value;
+
+    const experience = yield* resolveEducationExperience(
+      unitRun.experience,
+    ).pipe(
+      Effect.mapError(
+        () =>
+          new WorkspaceInputError({
+            message: "This unit's learning experience is no longer available.",
+          }),
+      ),
+    );
+    const recallFocus = turn.recallFocus;
     const difficultySnapshot: UnitDifficultySnapshot =
       unitRun.difficultySnapshot ??
       (resolvedDifficulty

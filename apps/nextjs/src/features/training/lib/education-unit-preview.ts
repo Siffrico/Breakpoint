@@ -142,6 +142,7 @@ export const previewAiWorkspace: ReadyAiWorkspace = {
   workspace: {
     plan: previewPlanState,
     projectComplete: false,
+    unit: previewEducationUnit,
     state: {
       mode: "education_unit",
       promptKind: "education_unit",

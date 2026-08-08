@@ -186,9 +186,6 @@ export function useAdvanceController({
           queryKey: workspaceKey,
         });
         void queryClient.invalidateQueries({
-          queryKey: trpc.training.unit.queryKey(sessionInput),
-        });
-        void queryClient.invalidateQueries({
           queryKey: trpc.training.workspaceShell.queryKey(sessionInput),
         });
       },
