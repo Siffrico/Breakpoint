@@ -19,7 +19,7 @@ import { createNextUnitNode } from "./domain/training/unit-creation/create-next-
 import { pregenerateNextUnit } from "./domain/training/unit-creation/pregenerate-next-unit";
 import { createAssistantTextStreamer } from "./domain/training/workspace-ai/assistant-text-streamer";
 import { resolveWorkspaceTurn } from "./domain/training/workspace-ai/workspace-turn";
-import { runWorkspaceTurn } from "./domain/training/workspace-ai/workspace-turn-edge";
+import { translateWorkspaceTurnErrors } from "./domain/training/workspace-ai/workspace-turn-edge";
 import { runEducationUnitTurn } from "./domain/training/workspace-ai/workspace-turn-orchestration";
 import { queryWithClient } from "./effect/db";
 import { trainingCurriculumRepository } from "./repositories/training-curriculum-repository";
@@ -34,6 +34,7 @@ import {
   createWorkspaceTurnRepositoryDeps,
   workspaceTurnRepoLayer,
 } from "./repositories/workspace-turn-repository-deps";
+import { runEffect } from "./router/run-effect";
 
 type Database = typeof databaseClient;
 
@@ -350,30 +351,32 @@ const streamWorkspaceChatWithModelPreference = ({
       // produced by either unit agent, so this transition is truthful: the
       // model is done reading and is now writing.
       let startedWriting = false;
-      const result = await runWorkspaceTurn(
-        runEducationUnitTurn({
-          sessionId,
-          userId,
-          turnId,
-          turnLeaseId: effectiveLeaseId,
-          action,
-          message: trimmedMessage,
-          turn,
-          deps: turnDeps,
-          onAssistantMessage: (content) => {
-            assistantText.finalize(content);
-          },
-          onPartialAssistantMessage: (content) => {
-            if (!startedWriting) {
-              startedWriting = true;
-              writeStatus(
-                "thinking",
-                getEducationWritingLabel(educationStage, isRecallTurn),
-              );
-            }
-            assistantText.pushPartial(content);
-          },
-        }).pipe(Effect.provide(workspaceTurnRepoLayer(db))),
+      const result = await runEffect(
+        translateWorkspaceTurnErrors(
+          runEducationUnitTurn({
+            sessionId,
+            userId,
+            turnId,
+            turnLeaseId: effectiveLeaseId,
+            action,
+            message: trimmedMessage,
+            turn,
+            deps: turnDeps,
+            onAssistantMessage: (content) => {
+              assistantText.finalize(content);
+            },
+            onPartialAssistantMessage: (content) => {
+              if (!startedWriting) {
+                startedWriting = true;
+                writeStatus(
+                  "thinking",
+                  getEducationWritingLabel(educationStage, isRecallTurn),
+                );
+              }
+              assistantText.pushPartial(content);
+            },
+          }).pipe(Effect.provide(workspaceTurnRepoLayer(db))),
+        ),
         { signal },
       );
       assistantText.close();

@@ -1,14 +1,12 @@
 import type { TRPCRouterRecord } from "@trpc/server";
-import { Effect } from "effect";
 import { z } from "zod/v4";
 
 import { getMissionEligibilityWorkflow } from "../domain/training/missions/workflows/get-mission-eligibility";
 import { getMissionForUnitRunWorkflow } from "../domain/training/missions/workflows/get-mission-for-unit-run";
 import { listResumableMissionsWorkflow } from "../domain/training/missions/workflows/list-resumable-missions";
 import { startMissionWorkflow } from "../domain/training/missions/workflows/start-mission";
-import { runMission } from "../effect/mission-edge";
-import { missionLayer } from "../effect/runtime";
 import { protectedProcedure } from "../trpc";
+import { runMission } from "./run-effect";
 
 const UnitRunInputSchema = z.object({ unitRunId: z.string().uuid() });
 const SessionInputSchema = z.object({ sessionId: z.string().uuid() });
@@ -24,10 +22,11 @@ export const missionsRouter = {
     .input(EligibilityInputSchema)
     .query(({ ctx, input }) =>
       runMission(
+        ctx.db,
         getMissionEligibilityWorkflow({
           userId: ctx.session.user.id,
           input,
-        }).pipe(Effect.provide(missionLayer(ctx.db))),
+        }),
       ),
     ),
 
@@ -35,10 +34,11 @@ export const missionsRouter = {
     .input(UnitRunInputSchema)
     .query(({ ctx, input }) =>
       runMission(
+        ctx.db,
         getMissionForUnitRunWorkflow({
           userId: ctx.session.user.id,
           unitRunId: input.unitRunId,
-        }).pipe(Effect.provide(missionLayer(ctx.db))),
+        }),
       ),
     ),
 
@@ -46,10 +46,11 @@ export const missionsRouter = {
     .input(UnitRunInputSchema)
     .mutation(({ ctx, input }) =>
       runMission(
+        ctx.db,
         startMissionWorkflow({
           userId: ctx.session.user.id,
           unitRunId: input.unitRunId,
-        }).pipe(Effect.provide(missionLayer(ctx.db))),
+        }),
       ),
     ),
 
@@ -57,10 +58,11 @@ export const missionsRouter = {
     .input(SessionInputSchema)
     .query(({ ctx, input }) =>
       runMission(
+        ctx.db,
         listResumableMissionsWorkflow({
           userId: ctx.session.user.id,
           sessionId: input.sessionId,
-        }).pipe(Effect.provide(missionLayer(ctx.db))),
+        }),
       ),
     ),
 } satisfies TRPCRouterRecord;

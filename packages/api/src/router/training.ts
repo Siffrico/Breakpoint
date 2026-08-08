@@ -1,6 +1,5 @@
 import type { TRPCRouterRecord } from "@trpc/server";
 import { TRPCError } from "@trpc/server";
-import { Effect } from "effect";
 import { z } from "zod/v4";
 
 import type { CurriculumMode, StartingPointTier } from "@acme/validators";
@@ -30,8 +29,6 @@ import { listUnfinishedOnboardingSessionsWorkflow } from "../domain/training/wor
 import { prepareUnitWorkflow } from "../domain/training/workflows/prepare-unit-workflow";
 import { startOnboardingWorkflow } from "../domain/training/workflows/start-onboarding-workflow";
 import { queryWithClient } from "../effect/db";
-import { runMission } from "../effect/mission-edge";
-import { missionLayer } from "../effect/runtime";
 import { buildProjectCheckpointRepository } from "../repositories/build-project-checkpoint-repository";
 import { trainingCurriculumRepository } from "../repositories/training-curriculum-repository";
 import { trainingOnboardingRepository } from "../repositories/training-onboarding-repository";
@@ -47,6 +44,7 @@ import {
 import { createUnitPreparationRepositoryDeps } from "../repositories/unit-preparation-repository-deps";
 import { createWorkspaceTurnRepositoryDeps } from "../repositories/workspace-turn-repository-deps";
 import { protectedProcedure } from "../trpc";
+import { runMission } from "./run-effect";
 
 const SessionIdSchema = z.object({
   sessionId: z.string().uuid(),
@@ -698,11 +696,12 @@ export const trainingRouter = {
               ),
             getMissionStatus: ({ sessionId, unitContentId, userId }) =>
               runMission(
+                ctx.db,
                 getMissionStatusWorkflow({
                   userId,
                   unitContentId,
                   sessionId,
-                }).pipe(Effect.provide(missionLayer(ctx.db))),
+                }),
               ),
             advanceSkillMapNode: ({ skillNodeId, sessionId, userId }) =>
               queryWithClient(ctx.db, "advanceSkillMapNode", () =>

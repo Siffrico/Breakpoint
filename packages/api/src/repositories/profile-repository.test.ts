@@ -8,7 +8,7 @@ import {
 
 import type { DatabaseClient } from "../effect/db";
 import { updateProfileGeneralWorkflow } from "../domain/profile/workflows/update-general";
-import { runProfile } from "../effect/profile-edge";
+import { runProfile } from "../router/run-effect";
 
 describe("profile update transaction", () => {
   it("rolls back the first two writes when the third write fails", async () => {
