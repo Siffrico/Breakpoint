@@ -787,8 +787,13 @@ function EducationUnitWorkspaceComponent({
       pendingSubmissionRef.current = null;
       pendingDraftKeyRef.current = null;
       pendingTurnIdRef.current = null;
+      // The pin deliberately survives recovery. Releasing it here would hand
+      // the draft key back to the live prompt count, and the restored answer
+      // would only stay in the composer for as long as that count happens to
+      // match what it was at submit time. The next submit re-pins it and
+      // `onFinish` clears it, so holding it is also what the learner wants:
+      // they are editing an answer to the prompt they already answered.
       restoreSubmittedDraft(pendingDraftKey, pendingSubmission);
-      setSubmittedDraftKey(null);
       setMessages((current) => {
         const failedMessageIndex = current.findIndex(
           (message) =>
