@@ -19,6 +19,11 @@ interface CreateProjectToolPart {
     targetIdentity?: string;
     summary?: string;
     abilities?: string[];
+    understanding?: {
+      build?: string;
+      goodMeans?: string[];
+      currentGap?: string;
+    };
     startingPoint?: {
       tier?: StartingPointTier;
       reason?: string;
@@ -109,6 +114,8 @@ export function CreateProjectConfirm({
   const name = toolPart.input?.projectName ?? "your project";
   const summary = toolPart.input?.summary;
   const abilities = toolPart.input?.abilities ?? [];
+  const understanding = toolPart.input?.understanding;
+  const goodMeans = understanding?.goodMeans ?? [];
 
   const cycleTier = () => {
     if (!effectiveTier) return;
@@ -131,6 +138,35 @@ export function CreateProjectConfirm({
       {summary ? (
         <div className="text-muted-foreground mt-1 text-[13px] leading-6">
           {summary}
+        </div>
+      ) : null}
+
+      {/* The consultant's reading of the learner. Approving this card is them
+          agreeing it is right, so it sits above everything derived from it. */}
+      {understanding?.build ? (
+        <div className="mt-4">
+          <div className="text-muted-foreground text-[11px] tracking-wide uppercase">
+            What I think you want
+          </div>
+          <div className="text-foreground/90 mt-1.5 text-[13px] leading-6">
+            {understanding.build}
+          </div>
+
+          {goodMeans.length > 0 ? (
+            <div className="text-muted-foreground mt-2 text-[13px] leading-6">
+              Good means:{" "}
+              <span className="text-foreground/90">{goodMeans.join(", ")}</span>
+            </div>
+          ) : null}
+
+          {understanding.currentGap ? (
+            <div className="text-muted-foreground mt-1 text-[13px] leading-6">
+              Where you're stuck:{" "}
+              <span className="text-foreground/90">
+                {understanding.currentGap}
+              </span>
+            </div>
+          ) : null}
         </div>
       ) : null}
 

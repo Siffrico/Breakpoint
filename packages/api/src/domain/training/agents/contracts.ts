@@ -38,11 +38,14 @@ export const LearnerBriefSchema = z.object({
 });
 
 /**
- * The consultant's interpretation of the learner, played back for confirmation
- * before anything is built. This is deliberately the consultant's synthesis and
- * not a quote: "you overcomplicate things" becomes a quality bar of "simple",
- * which is the interpretive work worth checking. The learner agreeing to this
- * — not the model transcribing accurately — is what licenses a build.
+ * The consultant's reading of the learner, shown on the confirm card as the
+ * last thing they see before a curriculum is built. Deliberately the
+ * consultant's synthesis rather than quotes: "I keep overcomplicating things"
+ * becoming a quality bar of "simple" is the interpretation working, and that
+ * inference is exactly what is worth checking with them.
+ *
+ * Approving the card is the learner agreeing to this. Nothing else gates the
+ * build, because nothing else means agreement.
  */
 export const LearnerUnderstandingSchema = z.object({
   build: z
@@ -56,13 +59,13 @@ export const LearnerUnderstandingSchema = z.object({
     .min(1)
     .max(5)
     .describe(
-      "What separates a good one from a bad one here — the qualities their work has to have. Two to four short items, not sentences.",
+      "What separates a good one from a bad one here. Two to four short qualities, not sentences.",
     ),
   currentGap: z
     .string()
     .min(1)
     .describe(
-      "Where their current attempts fall short, stated as a specific tendency or failure rather than 'lack of knowledge'.",
+      "Where their current attempts fall short, as a specific tendency or failure rather than 'lacks knowledge'.",
     ),
 });
 

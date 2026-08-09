@@ -179,11 +179,12 @@ export interface CreateProjectInput {
     tier: StartingPointTier;
     reason: string;
   };
+  /** The consultant's reading of the learner, shown on the confirm card. The
+   *  learner approving that card is what licenses the build, so this is the
+   *  thing they are actually agreeing to. Optional for the same
+   *  resume-compatibility reason as the fields above. */
+  understanding?: LearnerUnderstanding;
 }
-
-export type ProjectBuildReadiness =
-  | { ready: true }
-  | { ready: false; reason: string };
 
 type ProjectBuildRunStatus = "building" | "complete" | "error";
 
@@ -206,31 +207,6 @@ export interface ProjectBuildArtifactRecord {
   failureKind: ArtifactFailureKind | null;
   payload: unknown;
 }
-
-/**
- * Backstop for premature tool calls. A project may only be built once the
- * learner has agreed, in a `confirmUnderstanding` tool result, that the
- * consultant's reading of them is correct.
- *
- * Earlier versions of this gate measured the consultation instead of its
- * conclusion — first message and character counts, then verbatim quotes from
- * the transcript. Both were proxies, and both were wrong in the same direction:
- * they judged how the model gathered signal rather than whether the learner
- * recognized themselves in the result. Quotes were the worse of the two, since
- * a learner saying "I keep overcomplicating things" and a consultant correctly
- * naming "simple" as the quality bar is the interpretation working, not
- * failing. Confirmation is the only signal that actually means agreement.
- */
-export const getProjectBuildReadiness = (
-  confirmedUnderstanding: LearnerUnderstanding | null,
-): ProjectBuildReadiness =>
-  confirmedUnderstanding
-    ? { ready: true }
-    : {
-        ready: false,
-        reason:
-          "Call confirmUnderstanding first and let the learner accept it. A project can only be built from a reading of them they have agreed to.",
-      };
 
 /** Injected so persistence stays per-artifact + transactional and the orchestrator stays testable. */
 export interface BuildProjectDeps {

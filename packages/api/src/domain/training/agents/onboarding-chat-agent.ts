@@ -26,7 +26,7 @@ const ONBOARDING_RUNTIME_NOTES = `Runtime notes for this session:
   - summary: one line describing what they will build.
   - abilities: 2–6 verb-first whole-performance titles the curriculum will teach, 3–6 words each ("Architect Distributed Systems Under Constraints"). These are broad, load-bearing practitioner abilities, not component skills, topics, tools, or chapters.
   - startingPoint: { tier, reason } — the tier the learner settled on, and a reason that paraphrases something they actually said or tapped ("you said you've deployed models to production").
-  - evidence: { whatToMake, qualityBar, currentGap } — three quotes copied character-for-character from the learner's own messages. The server checks each against the transcript and rejects the call if it does not appear, so copy, never paraphrase, and never quote your own mirror. If one of the three has no quote to copy, that is the question you still owe them.
+  - understanding: { build, goodMeans, currentGap } — your reading of them, shown on the confirm card as the last thing they see before the build. Say what you concluded, not what they typed: "I keep overcomplicating things" becomes a goodMeans of "simple". Only claim what the consultation supports; if one of the three would be a guess, ask about it before calling this.
 - createProject pauses for the learner to confirm with a button — do not announce it, do not ask permission in text, just call it. After it returns ok:true, write one short closing line. Do not repeat or restate the plan.
 - If it returns ok:false because more learner signal is needed, continue the consultation with one short question. For other failures, apologize briefly and ask if they want to retry.
 - Never call createProject before a project has been explicitly chosen.
@@ -83,6 +83,9 @@ export const CreateProjectInputSchema = LearnerBriefSchema.extend({
     .describe(
       "Where the learner is starting from, settled during the consultation (usually via askStartingPoint).",
     ),
+  understanding: LearnerUnderstandingSchema.describe(
+    "Your reading of this learner, shown on the confirm card as the last thing they see before the build. Approving it is them agreeing you understood them, so state what you actually concluded — synthesis is expected, but never assert anything the consultation did not support.",
+  ),
 }) satisfies z.ZodType<CreateProjectInput>;
 
 /**
@@ -127,26 +130,6 @@ export const askStartingPointTool = tool({
   outputSchema: AskStartingPointOutputSchema,
 });
 
-/**
- * The readback, as a client-side elicitation rather than prose. Same mechanics
- * as `askStartingPoint`: no `execute`, so the run pauses on the part until the
- * learner accepts or rejects the interpretation and the answer rides back into
- * the transcript as a tool result.
- *
- * Prose would have worked for the learner but not for the gate — "yes" in free
- * text cannot be told from "yes, but" without guessing. A tool result can.
- */
-export const ConfirmUnderstandingOutputSchema = z.object({
-  confirmed: z.boolean(),
-});
-
-export const confirmUnderstandingTool = tool({
-  description:
-    "Play back your understanding of the learner — what they want to build, what good means here, and where they are stuck — and let them accept or correct it. Required before createProject. Do not announce it in text; just call it.",
-  inputSchema: LearnerUnderstandingSchema,
-  outputSchema: ConfirmUnderstandingOutputSchema,
-});
-
 export type CreateProjectResult =
   | {
       ok: true;
@@ -163,10 +146,6 @@ export type CreateProjectResult =
     }
   | { ok: false; reason: string };
 
-type ProjectCreationReadiness =
-  | { ready: true }
-  | { ready: false; reason: string };
-
 export const normalizeLearningTrackName = (input: string): string => {
   const normalized = input
     .trim()
@@ -182,28 +161,23 @@ export const normalizeLearningTrackName = (input: string): string => {
 
 /**
  * Built per-request inside the chat stream so its `execute` closes over the
- * live progress writer and the session's persistence deps. `needsApproval`
- * makes the SDK surface an `approval-requested` part (the "Create project"
- * button) and only run `execute` after the learner confirms.
+ * live progress writer and the session's persistence deps.
+ *
+ * `needsApproval` is unconditional, and that approval is the only gate on a
+ * build: the card shows the consultant's reading of the learner back to them,
+ * so tapping it is them saying that reading is right. Nothing infers readiness
+ * from the shape of the conversation, because a premature call now surfaces as
+ * a card the learner can simply reject.
  */
 export const createCreateProjectTool = ({
   buildProject,
-  getReadiness,
 }: {
   buildProject: (input: CreateProjectInput) => Promise<CreateProjectResult>;
-  getReadiness?: () => ProjectCreationReadiness;
 }) =>
   tool({
     description:
-      "Provision the learner's project once they have explicitly chosen one of the options you proposed. Pauses for their confirmation, then builds and saves the full curriculum and overview server-side.",
+      "Provision the learner's project once they have explicitly chosen one of the options you proposed. Shows them your reading of what they want and pauses for their approval, then builds and saves the full curriculum and overview server-side.",
     inputSchema: CreateProjectInputSchema,
-    needsApproval: () => getReadiness?.().ready ?? true,
-    execute: async (input): Promise<CreateProjectResult> => {
-      const readiness = getReadiness?.();
-      if (readiness && !readiness.ready) {
-        return { ok: false, reason: readiness.reason };
-      }
-
-      return buildProject(input);
-    },
+    needsApproval: true,
+    execute: async (input): Promise<CreateProjectResult> => buildProject(input),
   });

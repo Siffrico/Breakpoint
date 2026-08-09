@@ -5,10 +5,7 @@ import type {
   LearnerBrief,
   ProjectOverviewOutput,
 } from "../agents/contracts";
-import type {
-  CurriculumPlan,
-  OnboardingTranscriptMessage,
-} from "../types/training.types";
+import type { CurriculumPlan } from "../types/training.types";
 import type {
   BuildProjectDeps,
   ProjectBuildArtifactRecord,
@@ -17,10 +14,7 @@ import type {
 import { designCurriculum } from "../agents/curriculum-designer";
 import { designProjectOverview } from "../agents/project-overview";
 import { ArtifactBuildError } from "./agent-runtime";
-import {
-  buildProjectFromOnboarding,
-  getProjectBuildReadiness,
-} from "./build-project";
+import { buildProjectFromOnboarding } from "./build-project";
 
 // The build artifacts' agents are imported directly (not injected), so we mock
 // the two entry points and drive each test's behaviour through them.
@@ -40,96 +34,6 @@ beforeEach(() => {
   // Default: any agent call is a test failure unless explicitly allowed.
   mockCurriculum.mockImplementation(UNEXPECTED("curriculum"));
   mockOverview.mockImplementation(UNEXPECTED("overview"));
-});
-
-const consultationTranscript = (
-  answers: string[],
-): OnboardingTranscriptMessage[] => [
-  {
-    role: "assistant",
-    content: "What do you want to master?",
-    sequence: 0,
-    slot: null,
-  },
-  ...answers.flatMap<OnboardingTranscriptMessage>((content, index) => [
-    {
-      role: "user",
-      content,
-      sequence: index * 2 + 1,
-      slot: null,
-    },
-    {
-      role: "assistant",
-      content: `Follow-up ${index + 1}?`,
-      sequence: index * 2 + 2,
-      slot: null,
-    },
-  ]),
-];
-
-// A terse but complete consultation: everything the gate asks for is in these
-// two answers, so length is never what decides readiness.
-const terseButComplete = consultationTranscript([
-  "1500 on the SAT, for T20 admissions",
-  "I run out of time on the last reading passages, so I guess",
-]);
-
-const evidence = {
-  whatToMake: "1500 on the SAT",
-  qualityBar: "for T20 admissions",
-  currentGap: "I run out of time on the last reading passages",
-};
-
-describe("getProjectBuildReadiness", () => {
-  it("accepts quotes the learner actually typed, however terse", () => {
-    expect(getProjectBuildReadiness(terseButComplete, evidence)).toEqual({
-      ready: true,
-    });
-  });
-
-  it("ignores case and whitespace differences in a quote", () => {
-    const result = getProjectBuildReadiness(terseButComplete, {
-      ...evidence,
-      currentGap: "I  Run Out Of Time\non the last reading passages",
-    });
-
-    expect(result).toEqual({ ready: true });
-  });
-
-  it("rejects a quality bar the learner never gave", () => {
-    const result = getProjectBuildReadiness(terseButComplete, {
-      ...evidence,
-      qualityBar: "I want to be competitive for Ivy League schools",
-    });
-
-    expect(result.ready).toBe(false);
-  });
-
-  it("rejects a quote lifted from the assistant's own mirror", () => {
-    const result = getProjectBuildReadiness(
-      [
-        ...terseButComplete,
-        {
-          role: "assistant",
-          content: "So it's accuracy under time pressure, not content gaps.",
-          sequence: 99,
-          slot: null,
-        },
-      ],
-      { ...evidence, currentGap: "accuracy under time pressure" },
-    );
-
-    expect(result.ready).toBe(false);
-  });
-
-  it("rejects a long consultation that carries no evidence", () => {
-    const result = getProjectBuildReadiness(
-      consultationTranscript(Array.from({ length: 8 }, () => "x".repeat(200))),
-      undefined,
-    );
-
-    expect(result.ready).toBe(false);
-  });
 });
 
 // The consultant now emits the brief inside its createProject call, so the

@@ -18,6 +18,7 @@ import {
   MIN_OUTCOMES_PER_PLAN,
 } from "../outcome-curriculum/contracts";
 import { TOPIC_SCOPE_CONSULTANT_SYSTEM } from "../prompts/personas/topic-scope-consultant";
+import { LearnerUnderstandingSchema } from "./contracts";
 
 const TOPIC_ONBOARDING_RUNTIME_NOTES = `Runtime notes for this session:
 - The learner has already been shown the opener "What do you want to get good at, and what would you be able to do once you were?" — their first message is the answer. Continue from there; do not re-ask it and do not paraphrase their answer back as a question.
@@ -33,7 +34,7 @@ const TOPIC_ONBOARDING_RUNTIME_NOTES = `Runtime notes for this session:
   - summary: one line describing what mastering this means for them, in their words.
   - outcomes: the exact titles from the learner-confirmed bullet list, ${MIN_OUTCOMES_PER_PLAN}–${MAX_OUTCOMES_PER_PLAN} of them. Order them so the one they can start with nothing else in hand comes first. Never an activity ("timed practice"), never a chapter ("data structures"). Do not rename, merge, expand, or silently improve titles after confirmation.
   - startingPoint: { tier, reason } — the tier they settled on, and a reason paraphrasing something they actually said or tapped.
-  - evidence: { whatToMake, qualityBar, currentGap } — three quotes copied character-for-character from the learner's own messages. The server checks each against the transcript and rejects the call if it does not appear, so copy, never paraphrase, and never quote your own mirror. If one of the three has no quote to copy, that is the question you still owe them.
+  - understanding: { build, goodMeans, currentGap } — your reading of them, shown on the confirm card as the last thing they see before the build. Say what you concluded, not what they typed: "I keep overcomplicating things" becomes a goodMeans of "simple". Only claim what the interview supports; if one of the three would be a guess, ask about it before calling this.
 - createProject pauses for the learner to confirm with a button — do not announce it, do not ask permission in text, just call it. After it returns ok:true, write one short closing line.
 - If it returns ok:false because more signal is needed, continue with one short question. For other failures, apologize briefly and ask if they want to retry.
 - Never call createProject before the learner has confirmed the outcomes. If they edit the list, show the revised bullets and get confirmation of that exact list first.
@@ -89,11 +90,10 @@ export const CreateTopicProjectInputSchema = z.object({
     .describe(
       "Where the learner is starting from, settled during the interview.",
     ),
+  understanding: LearnerUnderstandingSchema.describe(
+    "Your reading of this learner, shown on the confirm card as the last thing they see before the build. Approving it is them agreeing you understood them, so state what you actually concluded — synthesis is expected, but never assert anything the interview did not support.",
+  ),
 }) satisfies z.ZodType<CreateProjectInput>;
-
-type ProjectCreationReadiness =
-  | { ready: true }
-  | { ready: false; reason: string };
 
 /**
  * Built per-request inside the chat stream so its `execute` closes over the
@@ -102,21 +102,13 @@ type ProjectCreationReadiness =
  */
 export const createCreateTopicProjectTool = ({
   buildProject,
-  getReadiness,
 }: {
   buildProject: (input: CreateProjectInput) => Promise<CreateProjectResult>;
-  getReadiness?: () => ProjectCreationReadiness;
 }) =>
   tool({
     description:
-      "Provision the learner's project once they have explicitly confirmed the outcome split you proposed. Pauses for their confirmation, then builds and saves the full curriculum server-side.",
+      "Provision the learner's project once they have explicitly confirmed the outcome split you proposed. Shows them your reading of what they want and pauses for their approval, then builds and saves the full curriculum server-side.",
     inputSchema: CreateTopicProjectInputSchema,
-    needsApproval: () => getReadiness?.().ready ?? true,
-    execute: async (input): Promise<CreateProjectResult> => {
-      const readiness = getReadiness?.();
-      if (readiness && !readiness.ready) {
-        return { ok: false, reason: readiness.reason };
-      }
-      return buildProject(input);
-    },
+    needsApproval: true,
+    execute: async (input): Promise<CreateProjectResult> => buildProject(input),
   });
