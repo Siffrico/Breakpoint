@@ -16,14 +16,18 @@ import type { db as databaseClient } from "@acme/db/client";
 import type { StartingPointTier } from "@acme/validators";
 import { CurriculumModeSchema } from "@acme/validators";
 
+import type { LearnerUnderstanding } from "./domain/training/agents/contracts";
 import type { CreateProjectResult } from "./domain/training/agents/onboarding-chat-agent";
 import type {
   CreateProjectInput,
   ProjectBuildState,
 } from "./domain/training/orchestration/build-project";
+import { LearnerUnderstandingSchema } from "./domain/training/agents/contracts";
 import {
   AskStartingPointOutputSchema,
   askStartingPointTool,
+  ConfirmUnderstandingOutputSchema,
+  confirmUnderstandingTool,
   createCreateProjectTool,
   ONBOARDING_CHAT_SYSTEM,
 } from "./domain/training/agents/onboarding-chat-agent";
@@ -64,6 +68,7 @@ export type { CreateProjectResult } from "./domain/training/agents/onboarding-ch
 export const PROJECT_BUILD_DATA_ID = "project-build";
 const PROJECT_PROPOSAL_TURN_ID = "onboarding-project-proposal";
 const PROJECT_BUILD_STATUS_TURN_ID = "onboarding-project-build-status";
+const UNDERSTANDING_TURN_ID = "onboarding-confirmed-understanding";
 
 interface ProjectBuildData extends Record<string, unknown> {
   "project-build": ProjectBuildState;
@@ -153,6 +158,37 @@ export const validateOnboardingMessages = async (messages: unknown) => {
  * reload, so the model would otherwise forget the tap — we read it back here to
  * persist and re-inject it. Scans newest-first so the latest answer wins.
  */
+/**
+ * The newest `confirmUnderstanding` part the learner accepted, with the reading
+ * they accepted. A rejected part returns null so the model keeps consulting —
+ * "not quite" must never read as agreement.
+ */
+const findLatestConfirmedUnderstanding = (
+  messages: UIMessage[],
+): LearnerUnderstanding | null => {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const parts = messages[i]?.parts ?? [];
+    for (let j = parts.length - 1; j >= 0; j -= 1) {
+      const part = parts[j];
+      if (
+        part &&
+        part.type === "tool-confirmUnderstanding" &&
+        "output" in part &&
+        part.output !== undefined
+      ) {
+        const output = ConfirmUnderstandingOutputSchema.safeParse(part.output);
+        if (!output.success) continue;
+        if (!output.data.confirmed) return null;
+        const understanding = LearnerUnderstandingSchema.safeParse(
+          "input" in part ? part.input : undefined,
+        );
+        if (understanding.success) return understanding.data;
+      }
+    }
+  }
+  return null;
+};
+
 const findLatestStartingPointAnswer = (
   messages: UIMessage[],
 ): { tier: StartingPointTier; label: string } | null => {
@@ -364,7 +400,6 @@ const runOnboardingChat = async ({
       });
     }
   }
-  const projectBuildReadiness = getProjectBuildReadiness(transcript);
   const [persistedModelMessages, toolInteractionMessages] = await Promise.all([
     transcriptToModelMessages(transcript),
     convertToModelMessages(getToolInteractionMessages(messages), {
@@ -385,6 +420,30 @@ const runOnboardingChat = async ({
       label: startingPointAnswer.label,
     });
   }
+  // Same mechanism for the confirmed reading of the learner, but persisted into
+  // the transcript: it is the gate's only input, so it has to outlive a reload.
+  // A fresh confirmation always wins over the stored one, since re-confirming
+  // after a correction is exactly how the learner fixes a wrong reading.
+  const freshUnderstanding = findLatestConfirmedUnderstanding(messages);
+  if (freshUnderstanding) {
+    await trainingOnboardingRepository.upsertMessageByTurnRole({
+      db,
+      sessionId,
+      role: "assistant",
+      content: `The learner confirmed this reading — build: ${freshUnderstanding.build}; good means: ${freshUnderstanding.goodMeans.join(", ")}; current gap: ${freshUnderstanding.currentGap}.`,
+      slot: "understanding",
+      turnId: UNDERSTANDING_TURN_ID,
+      metadata: { confirmedUnderstanding: freshUnderstanding },
+    });
+  }
+  const confirmedUnderstanding =
+    freshUnderstanding ??
+    (await trainingOnboardingRepository.getConfirmedUnderstanding({
+      db,
+      sessionId,
+      turnId: UNDERSTANDING_TURN_ID,
+    }));
+
   const storedTier = session.startingPointTier ?? startingPointAnswer?.tier;
   const storedLabel = session.startingPointLabel ?? startingPointAnswer?.label;
   const startingPointNote =
@@ -461,32 +520,38 @@ const runOnboardingChat = async ({
       const consultantSystem = isTopicMode
         ? TOPIC_ONBOARDING_CHAT_SYSTEM
         : ONBOARDING_CHAT_SYSTEM;
-      const readyNote = isTopicMode
-        ? "The server has enough learner signal to request project confirmation, but only call createProject if the learner has explicitly confirmed the outcome split you proposed."
-        : "The server has enough learner signal to request project confirmation, but only call createProject if the learner has explicitly chosen one of your suggested projects.";
+      // Says where the consultation actually stands, so the model either earns
+      // the confirmation or moves on past it instead of re-litigating a reading
+      // the learner already accepted.
+      const understandingNote = confirmedUnderstanding
+        ? `The learner has confirmed this reading of them — build: ${confirmedUnderstanding.build}; good means: ${confirmedUnderstanding.goodMeans.join(", ")}; current gap: ${confirmedUnderstanding.currentGap}. Do not re-confirm it unless what they say next contradicts it. ${
+            isTopicMode
+              ? "createProject still requires that they have confirmed the outcome split you proposed."
+              : "createProject still requires that they have chosen one of your suggested projects."
+          }`
+        : "The learner has not confirmed your reading of them yet, so createProject will be rejected. Once you can state what they want to build, what good means here, and where they are stuck, call confirmUnderstanding and let them accept or correct it.";
 
       const result = streamText({
         model,
         system: `${consultantSystem}
 
-Runtime state: ${
-          projectBuildReadiness.ready
-            ? readyNote
-            : "Do not call createProject yet. Keep consulting with one short question; the server does not have enough concrete learner signal to create a project."
-        }
+Runtime state: ${understandingNote}
 ${startingPointNote}`,
         messages: modelMessages,
         tools: {
           ...getSearchToolsForSelectedProvider("onboarding"),
           askStartingPoint: askStartingPointTool,
+          confirmUnderstanding: confirmUnderstandingTool,
           createProject: isTopicMode
             ? createCreateTopicProjectTool({
                 buildProject,
-                getReadiness: () => projectBuildReadiness,
+                getReadiness: () =>
+                  getProjectBuildReadiness(confirmedUnderstanding),
               })
             : createCreateProjectTool({
                 buildProject,
-                getReadiness: () => projectBuildReadiness,
+                getReadiness: () =>
+                  getProjectBuildReadiness(confirmedUnderstanding),
               }),
         },
         // SDK-native server-side smoothing: release whole words on a short

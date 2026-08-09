@@ -5,7 +5,7 @@ import { StartingPointTierSchema } from "@acme/validators";
 
 import type { CreateProjectInput } from "../orchestration/build-project";
 import { PROJECT_FIT_CONSULTANT_SYSTEM } from "../prompts/personas/project-fit-consultant";
-import { LearnerBriefSchema } from "./contracts";
+import { LearnerBriefSchema, LearnerUnderstandingSchema } from "./contracts";
 
 const ONBOARDING_RUNTIME_NOTES = `Runtime notes for this session:
 - The learner has already been shown the opener "What's something you've seen someone build or do that made you think: I want to be able to do that?" — their first message is the answer. Continue from there; do not re-ask the opener and do not paraphrase their answer back at them as a question.
@@ -26,6 +26,7 @@ const ONBOARDING_RUNTIME_NOTES = `Runtime notes for this session:
   - summary: one line describing what they will build.
   - abilities: 2–6 verb-first whole-performance titles the curriculum will teach, 3–6 words each ("Architect Distributed Systems Under Constraints"). These are broad, load-bearing practitioner abilities, not component skills, topics, tools, or chapters.
   - startingPoint: { tier, reason } — the tier the learner settled on, and a reason that paraphrases something they actually said or tapped ("you said you've deployed models to production").
+  - evidence: { whatToMake, qualityBar, currentGap } — three quotes copied character-for-character from the learner's own messages. The server checks each against the transcript and rejects the call if it does not appear, so copy, never paraphrase, and never quote your own mirror. If one of the three has no quote to copy, that is the question you still owe them.
 - createProject pauses for the learner to confirm with a button — do not announce it, do not ask permission in text, just call it. After it returns ok:true, write one short closing line. Do not repeat or restate the plan.
 - If it returns ok:false because more learner signal is needed, continue the consultation with one short question. For other failures, apologize briefly and ask if they want to retry.
 - Never call createProject before a project has been explicitly chosen.
@@ -124,6 +125,26 @@ export const askStartingPointTool = tool({
     "Ask the learner where they are starting from in their chosen field, once, before suggesting projects. The learner taps one concrete option; the chosen tier rides the result back. Do not announce it in text — just call it.",
   inputSchema: AskStartingPointInputSchema,
   outputSchema: AskStartingPointOutputSchema,
+});
+
+/**
+ * The readback, as a client-side elicitation rather than prose. Same mechanics
+ * as `askStartingPoint`: no `execute`, so the run pauses on the part until the
+ * learner accepts or rejects the interpretation and the answer rides back into
+ * the transcript as a tool result.
+ *
+ * Prose would have worked for the learner but not for the gate — "yes" in free
+ * text cannot be told from "yes, but" without guessing. A tool result can.
+ */
+export const ConfirmUnderstandingOutputSchema = z.object({
+  confirmed: z.boolean(),
+});
+
+export const confirmUnderstandingTool = tool({
+  description:
+    "Play back your understanding of the learner — what they want to build, what good means here, and where they are stuck — and let them accept or correct it. Required before createProject. Do not announce it in text; just call it.",
+  inputSchema: LearnerUnderstandingSchema,
+  outputSchema: ConfirmUnderstandingOutputSchema,
 });
 
 export type CreateProjectResult =

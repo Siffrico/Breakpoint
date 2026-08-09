@@ -67,29 +67,68 @@ const consultationTranscript = (
   ]),
 ];
 
+// A terse but complete consultation: everything the gate asks for is in these
+// two answers, so length is never what decides readiness.
+const terseButComplete = consultationTranscript([
+  "1500 on the SAT, for T20 admissions",
+  "I run out of time on the last reading passages, so I guess",
+]);
+
+const evidence = {
+  whatToMake: "1500 on the SAT",
+  qualityBar: "for T20 admissions",
+  currentGap: "I run out of time on the last reading passages",
+};
+
 describe("getProjectBuildReadiness", () => {
-  it("rejects a shallow four-answer consultation", () => {
+  it("accepts quotes the learner actually typed, however terse", () => {
+    expect(getProjectBuildReadiness(terseButComplete, evidence)).toEqual({
+      ready: true,
+    });
+  });
+
+  it("ignores case and whitespace differences in a quote", () => {
+    const result = getProjectBuildReadiness(terseButComplete, {
+      ...evidence,
+      currentGap: "I  Run Out Of Time\non the last reading passages",
+    });
+
+    expect(result).toEqual({ ready: true });
+  });
+
+  it("rejects a quality bar the learner never gave", () => {
+    const result = getProjectBuildReadiness(terseButComplete, {
+      ...evidence,
+      qualityBar: "I want to be competitive for Ivy League schools",
+    });
+
+    expect(result.ready).toBe(false);
+  });
+
+  it("rejects a quote lifted from the assistant's own mirror", () => {
     const result = getProjectBuildReadiness(
-      consultationTranscript(["SAT", "A high score", "School", "Not sure"]),
+      [
+        ...terseButComplete,
+        {
+          role: "assistant",
+          content: "So it's accuracy under time pressure, not content gaps.",
+          sequence: 99,
+          slot: null,
+        },
+      ],
+      { ...evidence, currentGap: "accuracy under time pressure" },
     );
 
     expect(result.ready).toBe(false);
   });
 
-  it("accepts an opening answer plus four concrete follow-ups", () => {
+  it("rejects a long consultation that carries no evidence", () => {
     const result = getProjectBuildReadiness(
-      consultationTranscript(Array.from({ length: 5 }, () => "x".repeat(48))),
+      consultationTranscript(Array.from({ length: 8 }, () => "x".repeat(200))),
+      undefined,
     );
 
-    expect(result).toEqual({ ready: true });
-  });
-
-  it("accepts four unusually detailed answers", () => {
-    const result = getProjectBuildReadiness(
-      consultationTranscript(Array.from({ length: 4 }, () => "x".repeat(225))),
-    );
-
-    expect(result).toEqual({ ready: true });
+    expect(result.ready).toBe(false);
   });
 });
 

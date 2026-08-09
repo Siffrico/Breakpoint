@@ -37,6 +37,35 @@ export const LearnerBriefSchema = z.object({
     ),
 });
 
+/**
+ * The consultant's interpretation of the learner, played back for confirmation
+ * before anything is built. This is deliberately the consultant's synthesis and
+ * not a quote: "you overcomplicate things" becomes a quality bar of "simple",
+ * which is the interpretive work worth checking. The learner agreeing to this
+ * — not the model transcribing accurately — is what licenses a build.
+ */
+export const LearnerUnderstandingSchema = z.object({
+  build: z
+    .string()
+    .min(1)
+    .describe(
+      "The work or result the learner wants to be able to produce, in one plain line.",
+    ),
+  goodMeans: z
+    .array(z.string().min(1))
+    .min(1)
+    .max(5)
+    .describe(
+      "What separates a good one from a bad one here — the qualities their work has to have. Two to four short items, not sentences.",
+    ),
+  currentGap: z
+    .string()
+    .min(1)
+    .describe(
+      "Where their current attempts fall short, stated as a specific tendency or failure rather than 'lack of knowledge'.",
+    ),
+});
+
 const WorkflowSchema = z.object({
   name: z.string().min(1),
   steps: z.array(z.string().min(1)).min(3).max(7),
@@ -136,6 +165,7 @@ export const ProjectOverviewOutputSchema = ProjectOverviewSchema.omit({
 });
 
 export type LearnerBrief = z.infer<typeof LearnerBriefSchema>;
+export type LearnerUnderstanding = z.infer<typeof LearnerUnderstandingSchema>;
 export type CurriculumDesignerOutput = z.infer<
   typeof CurriculumDesignerOutputSchema
 >;

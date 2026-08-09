@@ -72,6 +72,14 @@ export const TrainingOnboardingMessage = pgTable(
           reason: string;
         };
       };
+      // The reading of the learner they explicitly agreed to, which is what
+      // licenses a build. Persisted here rather than read off the live tool
+      // part because rebuilt transcripts drop tool parts on reload.
+      confirmedUnderstanding?: {
+        build: string;
+        goodMeans: string[];
+        currentGap: string;
+      };
     } | null>(),
     sequence: t.integer().notNull(),
     createdAt: t

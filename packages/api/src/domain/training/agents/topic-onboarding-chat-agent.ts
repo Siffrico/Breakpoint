@@ -33,6 +33,7 @@ const TOPIC_ONBOARDING_RUNTIME_NOTES = `Runtime notes for this session:
   - summary: one line describing what mastering this means for them, in their words.
   - outcomes: the exact titles from the learner-confirmed bullet list, ${MIN_OUTCOMES_PER_PLAN}–${MAX_OUTCOMES_PER_PLAN} of them. Order them so the one they can start with nothing else in hand comes first. Never an activity ("timed practice"), never a chapter ("data structures"). Do not rename, merge, expand, or silently improve titles after confirmation.
   - startingPoint: { tier, reason } — the tier they settled on, and a reason paraphrasing something they actually said or tapped.
+  - evidence: { whatToMake, qualityBar, currentGap } — three quotes copied character-for-character from the learner's own messages. The server checks each against the transcript and rejects the call if it does not appear, so copy, never paraphrase, and never quote your own mirror. If one of the three has no quote to copy, that is the question you still owe them.
 - createProject pauses for the learner to confirm with a button — do not announce it, do not ask permission in text, just call it. After it returns ok:true, write one short closing line.
 - If it returns ok:false because more signal is needed, continue with one short question. For other failures, apologize briefly and ask if they want to retry.
 - Never call createProject before the learner has confirmed the outcomes. If they edit the list, show the revised bullets and get confirmation of that exact list first.

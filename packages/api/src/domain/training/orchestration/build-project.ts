@@ -8,6 +8,7 @@ import type { Result } from "../../../lib/result";
 import type {
   CurriculumDesignerOutput,
   LearnerBrief,
+  LearnerUnderstanding,
   ProjectOverviewOutput,
 } from "../agents/contracts";
 import type { OutcomeCurriculumOutput } from "../outcome-curriculum/contracts";
@@ -207,43 +208,29 @@ export interface ProjectBuildArtifactRecord {
 }
 
 /**
- * Backstop for premature tool calls. This intentionally avoids a rigid turn
- * count: a compressed but high-signal consultation can proceed, while short
- * low-information exchanges cannot create a project just because the model
- * called the tool early.
+ * Backstop for premature tool calls. A project may only be built once the
+ * learner has agreed, in a `confirmUnderstanding` tool result, that the
+ * consultant's reading of them is correct.
+ *
+ * Earlier versions of this gate measured the consultation instead of its
+ * conclusion — first message and character counts, then verbatim quotes from
+ * the transcript. Both were proxies, and both were wrong in the same direction:
+ * they judged how the model gathered signal rather than whether the learner
+ * recognized themselves in the result. Quotes were the worse of the two, since
+ * a learner saying "I keep overcomplicating things" and a consultant correctly
+ * naming "simple" as the quality bar is the interpretation working, not
+ * failing. Confirmation is the only signal that actually means agreement.
  */
 export const getProjectBuildReadiness = (
-  transcript: OnboardingTranscriptMessage[],
-): ProjectBuildReadiness => {
-  const userMessages = transcript
-    .filter((message) => message.role === "user")
-    .map((message) => message.content.trim())
-    .filter(Boolean);
-  const assistantMessages = transcript.filter(
-    (message) => message.role === "assistant",
-  );
-
-  const learnerSignalChars = userMessages.reduce(
-    (total, message) => total + message.length,
-    0,
-  );
-
-  const enoughConsultationShape =
-    (userMessages.length >= 5 && learnerSignalChars >= 240) ||
-    (userMessages.length >= 4 && learnerSignalChars >= 900);
-
-  const hasBackAndForth = assistantMessages.length >= 2;
-
-  if (enoughConsultationShape && hasBackAndForth) {
-    return { ready: true };
-  }
-
-  return {
-    ready: false,
-    reason:
-      "Keep consulting before creating the project. The learner has not given enough concrete signal yet.",
-  };
-};
+  confirmedUnderstanding: LearnerUnderstanding | null,
+): ProjectBuildReadiness =>
+  confirmedUnderstanding
+    ? { ready: true }
+    : {
+        ready: false,
+        reason:
+          "Call confirmUnderstanding first and let the learner accept it. A project can only be built from a reading of them they have agreed to.",
+      };
 
 /** Injected so persistence stays per-artifact + transactional and the orchestrator stays testable. */
 export interface BuildProjectDeps {

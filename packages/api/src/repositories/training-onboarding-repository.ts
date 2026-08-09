@@ -9,6 +9,7 @@ import {
   TrainingWorkspaceTurn,
 } from "@acme/db/schema";
 
+import type { LearnerUnderstanding } from "../domain/training/agents/contracts";
 import type { CreateProjectInput } from "../domain/training/orchestration/build-project";
 import type {
   IdentityReport,
@@ -32,6 +33,7 @@ interface OnboardingMessageInsert {
     difficultyDirectiveReason?: string;
     hiddenFromTranscript?: boolean;
     projectProposal?: CreateProjectInput;
+    confirmedUnderstanding?: LearnerUnderstanding;
   } | null;
 }
 
@@ -216,6 +218,32 @@ export const trainingOnboardingRepository = {
     });
 
     return message ?? null;
+  },
+
+  /**
+   * The reading of the learner they last agreed to, or null if they have not
+   * agreed to one. Read from the persisted transcript rather than the live tool
+   * part so a reload cannot silently un-confirm the learner.
+   */
+  getConfirmedUnderstanding: async ({
+    db,
+    sessionId,
+    turnId,
+  }: {
+    db: Database;
+    sessionId: string;
+    turnId: string;
+  }): Promise<LearnerUnderstanding | null> => {
+    const message = await getMessageByTurnRole({
+      db,
+      sessionId,
+      turnId,
+      role: "assistant",
+    });
+    return (
+      (message?.metadata as OnboardingMessageInsert["metadata"])
+        ?.confirmedUnderstanding ?? null
+    );
   },
 
   upsertMessageByTurnRole: async ({
