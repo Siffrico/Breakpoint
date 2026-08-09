@@ -5,7 +5,10 @@ import type {
   LearnerBrief,
   ProjectOverviewOutput,
 } from "../agents/contracts";
-import type { CurriculumPlan } from "../types/training.types";
+import type {
+  CurriculumPlan,
+  OnboardingTranscriptMessage,
+} from "../types/training.types";
 import type {
   BuildProjectDeps,
   ProjectBuildArtifactRecord,
@@ -14,7 +17,10 @@ import type {
 import { designCurriculum } from "../agents/curriculum-designer";
 import { designProjectOverview } from "../agents/project-overview";
 import { ArtifactBuildError } from "./agent-runtime";
-import { buildProjectFromOnboarding } from "./build-project";
+import {
+  buildProjectFromOnboarding,
+  getProjectBuildReadiness,
+} from "./build-project";
 
 // The build artifacts' agents are imported directly (not injected), so we mock
 // the two entry points and drive each test's behaviour through them.
@@ -34,6 +40,57 @@ beforeEach(() => {
   // Default: any agent call is a test failure unless explicitly allowed.
   mockCurriculum.mockImplementation(UNEXPECTED("curriculum"));
   mockOverview.mockImplementation(UNEXPECTED("overview"));
+});
+
+const consultationTranscript = (
+  answers: string[],
+): OnboardingTranscriptMessage[] => [
+  {
+    role: "assistant",
+    content: "What do you want to master?",
+    sequence: 0,
+    slot: null,
+  },
+  ...answers.flatMap<OnboardingTranscriptMessage>((content, index) => [
+    {
+      role: "user",
+      content,
+      sequence: index * 2 + 1,
+      slot: null,
+    },
+    {
+      role: "assistant",
+      content: `Follow-up ${index + 1}?`,
+      sequence: index * 2 + 2,
+      slot: null,
+    },
+  ]),
+];
+
+describe("getProjectBuildReadiness", () => {
+  it("rejects a shallow four-answer consultation", () => {
+    const result = getProjectBuildReadiness(
+      consultationTranscript(["SAT", "A high score", "School", "Not sure"]),
+    );
+
+    expect(result.ready).toBe(false);
+  });
+
+  it("accepts an opening answer plus four concrete follow-ups", () => {
+    const result = getProjectBuildReadiness(
+      consultationTranscript(Array.from({ length: 5 }, () => "x".repeat(48))),
+    );
+
+    expect(result).toEqual({ ready: true });
+  });
+
+  it("accepts four unusually detailed answers", () => {
+    const result = getProjectBuildReadiness(
+      consultationTranscript(Array.from({ length: 4 }, () => "x".repeat(225))),
+    );
+
+    expect(result).toEqual({ ready: true });
+  });
 });
 
 // The consultant now emits the brief inside its createProject call, so the

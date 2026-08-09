@@ -229,9 +229,8 @@ export const getProjectBuildReadiness = (
   );
 
   const enoughConsultationShape =
-    userMessages.length >= 4 ||
-    (userMessages.length >= 3 && learnerSignalChars >= 600) ||
-    (userMessages.length >= 2 && learnerSignalChars >= 1200);
+    (userMessages.length >= 5 && learnerSignalChars >= 240) ||
+    (userMessages.length >= 4 && learnerSignalChars >= 900);
 
   const hasBackAndForth = assistantMessages.length >= 2;
 
