@@ -51,12 +51,13 @@ export { expandSkillBands, expandUnitBands } from "./expand-band-ladder";
 export { seedFromStartingPoint } from "./seed";
 export type { DifficultyDialPreset } from "./difficulty-priors";
 export {
-  BAND_DIAL_PRESETS,
+  BAND_DIAL_GUIDES,
   BASE_PER_FORMAT_KIND,
   DIFFICULTY_COUNT_WEIGHTS,
 } from "./difficulty-priors";
 export {
   auditDialCompliance,
+  chooseDifficultyDials,
   deriveCanonicalDifficultyBands,
   predictItemRating,
 } from "./difficulty-bridge";

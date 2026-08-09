@@ -45,6 +45,11 @@ void test("resolving difficulty is read-only", async () => {
   assert.equal(result.learnerRating, createInitialRatingState().rating);
   assert.match(result.promptBlock, /Difficulty directive/);
   assert.equal(result.format.id, "judge");
+  assert.deepEqual(result.dialPreset, {
+    steps: [1, 1],
+    withheldGivens: [0, 0],
+    alternatives: [0, 0],
+  });
   assert.doesNotMatch(result.promptBlock, /Target item rating/);
 });
 

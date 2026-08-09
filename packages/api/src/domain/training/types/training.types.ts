@@ -32,16 +32,15 @@ import type {
   OnboardingQuestion,
   OnboardingSlot,
   OnboardingTranscriptMessage,
-  OutcomeOrdering,
   PostSeedUnitContentDraft,
+  PracticeContract,
   PracticeEvaluation,
   PracticePrompt,
   PracticeSubmission,
   PreSeedUnitContentDraft,
   ProjectOverview,
-  ScenarioArchetype,
-  ScenarioBrief,
   ScenarioEvaluationContract,
+  SkillMap,
   SubmitEducationUnitStep,
   TeachbackMessage,
   TeachbackRoundResult,
@@ -54,7 +53,6 @@ import type {
   CreateProjectInput,
   ProjectBuildState,
 } from "../orchestration/build-project";
-import type { SubtypeBlueprint } from "../outcome-curriculum/contracts";
 
 export type {
   CurriculumNode,
@@ -118,22 +116,9 @@ export interface CurriculumNodeBlueprint {
   positionColumn: number;
   positionRow: number;
   difficultyBands: DifficultyBand[] | null;
-  /** Null outside ability nodes; ability nodes always carry a valid stage. */
-  abilityStage: "foundations" | "skillset" | "mastered" | null;
-  skillMap: {
-    workflow: { name: string; steps: string[] };
-    bandRamp: { startRating: number; peakRating: number };
-    masteryContract: {
-      exitCriteria: string[];
-      maxRatingDeviation?: number;
-    };
-    scenarioArchetype: ScenarioArchetype;
-    /** Outcome nodes only — see @acme/validators ScenarioBriefSchema. */
-    mainOutcome?: string;
-    scenarioBrief?: ScenarioBrief;
-    /** Outcome nodes only: the durable knowledge-and-cognition blueprint. */
-    blueprint?: SubtypeBlueprint;
-  } | null;
+  outcomeResult: string | null;
+  skillMap: SkillMap | null;
+  practiceContract: PracticeContract | null;
 }
 
 export interface PostSeedGenerationResult {
@@ -156,8 +141,6 @@ export interface CurriculumBlueprint {
   targetIdentity: string;
   overview: ProjectOverview | null;
   nodes: CurriculumNodeBlueprint[];
-  /** Topic mode only: how the outcome nodes are sequenced. Null in ability mode. */
-  outcomeOrdering: OutcomeOrdering | null;
 }
 
 export interface OnboardingSessionState {

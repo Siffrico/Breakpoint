@@ -1,17 +1,14 @@
 import type {
-  CurriculumMode,
+  OutcomeDefinition,
   SeedRating,
   StartingPointTier,
 } from "@acme/validators";
 
 import type { Result } from "../../../lib/result";
 import type {
-  CurriculumDesignerOutput,
-  LearnerBrief,
   LearnerUnderstanding,
   ProjectOverviewOutput,
 } from "../agents/contracts";
-import type { OutcomeCurriculumOutput } from "../outcome-curriculum/contracts";
 import type {
   CurriculumBlueprint,
   CurriculumPlan,
@@ -21,19 +18,12 @@ import type {
 import type { ArtifactFailureKind } from "./agent-runtime";
 import type { ProjectBuildArtifactPreviewInput } from "./project-build-preview";
 import { err, ok } from "../../../lib/result";
-import {
-  CurriculumDesignerOutputSchema,
-  ProjectOverviewOutputSchema,
-} from "../agents/contracts";
-import { designCurriculum } from "../agents/curriculum-designer";
+import { ProjectOverviewOutputSchema } from "../agents/contracts";
 import { normalizeLearningTrackName } from "../agents/onboarding-chat-agent";
 import { designProjectOverview } from "../agents/project-overview";
 import { seedFromStartingPoint } from "../engine/rating";
-import { OutcomeCurriculumOutputSchema } from "../outcome-curriculum/contracts";
-import { designOutcomeCurriculum } from "../outcome-curriculum/outcome-designer";
 import { buildOutcomeNodes } from "../outcome-curriculum/plan-nodes";
 import { ArtifactBuildError, isArtifactBuildError } from "./agent-runtime";
-import { buildCurriculumNodes } from "./curriculum-flow";
 import {
   getProjectBuildStepDetail,
   previewProjectBuildArtifact,
@@ -93,7 +83,7 @@ export type ProjectBuildGap = "overview";
  */
 export type ProjectBuildArtifactStep =
   | "curriculum"
-  | "blueprint"
+  | "outcomeCurriculum"
   | "unitSeed"
   | "overview";
 
@@ -152,38 +142,16 @@ const initialSteps = (): ProjectBuildStepState[] =>
     detail: getProjectBuildStepDetail(id),
   }));
 
-/** Small input the consultant proposes; everything else is derived server-side. */
 export interface CreateProjectInput {
-  /** The learner brief the consultant distilled from its own interview. These
-   *  three are optional here (never in the tool schema) so builds resumed from
-   *  checkpoints written before the brief moved into the tool still typecheck
-   *  and complete — see `resolveLearnerBrief`. */
-  whatToLearn?: string;
-  whatToMake?: string;
-  interests?: string[];
-  /** Core study topic, lowercase — becomes the sidebar/project name. */
   projectName: string;
-  /** Who the learner is becoming, used only for the confirmation preview. */
   targetIdentity: string;
-  /** One line describing what they'll build, shown on the confirm card. */
   summary: string;
-  /** Verb-first whole-performance titles shown on the confirm card and used as
-   *  ability-title hints for the curriculum designer. Optional so resumed builds
-   *  from older checkpoints (which lack it) still typecheck. Ability mode only. */
-  abilities?: string[];
-  /** Topic mode's equivalent: the outcome titles the learner approved. */
-  outcomes?: string[];
-  /** Where the learner is starting from, and why. Seeds the plan's rating.
-   *  Optional for the same resume-compatibility reason. */
-  startingPoint?: {
+  outcomes: OutcomeDefinition[];
+  startingPoint: {
     tier: StartingPointTier;
     reason: string;
   };
-  /** The consultant's reading of the learner, shown on the confirm card. The
-   *  learner approving that card is what licenses the build, so this is the
-   *  thing they are actually agreeing to. Optional for the same
-   *  resume-compatibility reason as the fields above. */
-  understanding?: LearnerUnderstanding;
+  understanding: LearnerUnderstanding;
 }
 
 type ProjectBuildRunStatus = "building" | "complete" | "error";
@@ -267,18 +235,6 @@ export interface BuildProjectDeps {
   getStartingPoint: (
     sessionId: string,
   ) => Promise<{ tier: StartingPointTier; label: string } | null>;
-  /**
-   * Which curriculum shape this session builds. Chosen before the interview
-   * (the two modes run different consultants) and read here rather than passed
-   * in the tool input, so a resumed build can never disagree with the session
-   * about which designer already ran.
-   */
-  getCurriculumMode: (sessionId: string) => Promise<CurriculumMode>;
-  /** Persist onboarding-derived scenario inspiration into learner memory. */
-  persistScenarioInspiration: (input: {
-    userId: string;
-    content: string;
-  }) => Promise<void>;
   /** Create (or return) the durable "generating" plan shell. Returns its id. */
   ensureShell: (input: {
     sessionId: string;
@@ -287,7 +243,6 @@ export interface BuildProjectDeps {
     title: string;
     summary: string;
     targetIdentity: string;
-    curriculumMode: CurriculumMode;
     seedRating: SeedRating | null;
   }) => Promise<{ id: string }>;
   /**
@@ -314,55 +269,31 @@ export interface BuildProjectDeps {
     ownershipToken: string;
     planId: string;
   }) => Promise<CurriculumPlan | null>;
-  ensureSkillKnowledge: (input: {
-    skillNodeId: string;
+  ensureOutcomeCurriculum: (input: {
+    outcomeNodeId: string;
     targetIdentity: string;
     abortSignal?: AbortSignal;
   }) => Promise<unknown>;
-  createSkillUnit: (input: {
-    skillNodeId: string;
+  createOutcomeUnit: (input: {
+    outcomeNodeId: string;
     sessionId: string;
     userId: string;
     abortSignal?: AbortSignal;
   }) => Promise<{ id: string } | null>;
 }
 
-/**
- * A finished curriculum from either mode, tagged so the blueprint builder and
- * the artifact re-parse never have to guess which designer produced it.
- * `mode` is derived from the plan, never from inspecting the payload's shape.
- */
-type CurriculumDesign =
-  | {
-      mode: "ability";
-      identityReport: IdentityReport;
-      planDraft: CurriculumDesignerOutput["planDraft"];
-    }
-  | {
-      mode: "topic";
-      identityReport: IdentityReport;
-      planDraft: OutcomeCurriculumOutput["planDraft"];
-    };
-
-/** The nodes shown as the project's modules: abilities, or topic-mode outcomes. */
 const isModuleNode = (node: { kind: string }): boolean =>
-  node.kind === "ability" || node.kind === "outcome";
+  node.kind === "outcome";
 
-/**
- * Nodes whose knowledge map (ability mode) or syllabus (topic mode) is
- * generated at build time. Both are gated node-by-node: only unlocked (ready)
- * ones are needed now, and the rest are generated lazily at unlock time. In a
- * sequential topic plan that is exactly one node.
- */
 const isPrewarmNode = (node: { kind: string; status: string }): boolean =>
-  (node.kind === "skill" || node.kind === "outcome") && node.status === "ready";
+  node.kind === "outcome" && node.status === "ready";
 
 /**
  * Wall-clock the build may spend inside one request. The route allows 300s, and
  * the onboarding agent has already spent part of it generating the tool call by
  * the time the build starts — this leaves that headroom.
  */
-const BUILD_BUDGET_MS = 240_000;
+const BUILD_BUDGET_MS = 180_000;
 
 /**
  * What each step is assumed to need. Derived from the run profiles the step's
@@ -373,9 +304,8 @@ const BUILD_BUDGET_MS = 240_000;
  * These are estimates. Over-reserving costs one extra resume round;
  * under-reserving costs the whole invocation, so they lean high.
  */
-const STEP_RESERVE_MS: Record<"curriculum" | "unit", number> = {
-  curriculum: 150_000,
-  unit: 160_000,
+const STEP_RESERVE_MS: Record<"unit", number> = {
+  unit: 120_000,
 };
 
 /**
@@ -383,7 +313,7 @@ const STEP_RESERVE_MS: Record<"curriculum" | "unit", number> = {
  * reliably exceeds its own reserve would resume forever, paying tokens each
  * round; past the cap the build fails with a real, retryable error.
  */
-const MAX_RESUME_ROUNDS = 4;
+const MAX_RESUME_ROUNDS = 2;
 
 const countModules = (plan: CurriculumPlan): number =>
   plan.nodes.filter(isModuleNode).length;
@@ -399,37 +329,42 @@ const getProjectBuildSourceKey = (
     projectName: normalizeLearningTrackName(input.projectName),
     targetIdentity: input.targetIdentity.trim(),
     summary: input.summary.trim(),
-    whatToLearn: input.whatToLearn?.trim() ?? "",
-    whatToMake: input.whatToMake?.trim() ?? "",
-    interests: (input.interests ?? []).map((interest) => interest.trim()),
-    abilities: (input.abilities ?? []).map((ability) => ability.trim()),
+    outcomes: input.outcomes.map((outcome) => ({
+      title: outcome.title.trim(),
+      result: outcome.result.trim(),
+    })),
     startingPoint: persistedStartingPoint
       ? {
           tier: persistedStartingPoint.tier,
           reason: persistedStartingPoint.label.trim(),
         }
-      : input.startingPoint
-        ? {
-            tier: input.startingPoint.tier,
-            reason: input.startingPoint.reason.trim(),
-          }
-        : null,
+      : {
+          tier: input.startingPoint.tier,
+          reason: input.startingPoint.reason.trim(),
+        },
   });
 
-/**
- * The brief the consultant emitted, or a degraded one reconstructed from the
- * confirmation fields when resuming a checkpoint written before the brief moved
- * into `createProject`. Reconstruction keeps old builds finishable: the
- * downstream agents also read the full transcript, so a thin brief costs
- * steering precision, never correctness.
- */
-const resolveLearnerBrief = (input: CreateProjectInput): LearnerBrief => ({
-  whatToLearn: input.whatToLearn?.trim() ?? input.projectName.trim(),
-  whatToMake: input.whatToMake?.trim() ?? input.summary.trim(),
-  interests: (input.interests ?? [])
-    .map((interest) => interest.trim())
-    .filter(Boolean),
-});
+const buildIdentityReport = (input: CreateProjectInput): IdentityReport => {
+  const qualitySignals = input.understanding.goodMeans.map(
+    (quality) => `Produces work that is ${quality}.`,
+  );
+  const behaviorSignals = [
+    ...qualitySignals,
+    `Works toward ${input.understanding.build}.`,
+    `Corrects ${input.understanding.currentGap}.`,
+  ].slice(0, 5);
+  return {
+    targetIdentity: input.targetIdentity.trim(),
+    headline: input.summary.trim(),
+    motivation: input.understanding.build.trim(),
+    currentBaseline: `${input.startingPoint.reason.trim()} ${input.understanding.currentGap.trim()}`,
+    hardMoments: [input.understanding.currentGap.trim()],
+    constraints: [],
+    proofOfProgress: input.outcomes.map((outcome) => outcome.result).join(" "),
+    behaviorSignals,
+    confidenceFlags: [],
+  };
+};
 
 const messageFrom = (error: unknown, fallback: string): string =>
   error instanceof Error && error.message ? error.message : fallback;
@@ -455,39 +390,6 @@ const decide = (record?: ProjectBuildArtifactRecord): ArtifactAction => {
   return "generate"; // generating (crashed) or failed
 };
 
-/**
- * Re-read a checkpointed curriculum artifact for a zero-token re-save.
- *
- * Validated against the schema of the plan's OWN mode, never sniffed from the
- * payload: a resumed build must refuse a payload written by the other
- * designer rather than persist a tree of the wrong shape. A refusal is safe —
- * the caller falls through to a fresh generation.
- */
-const parseCachedDesign = (
-  mode: CurriculumMode,
-  payload: unknown,
-):
-  | { success: true; data: CurriculumDesign }
-  | { success: false; data?: undefined } => {
-  const parsed =
-    mode === "topic"
-      ? OutcomeCurriculumOutputSchema.safeParse(payload)
-      : CurriculumDesignerOutputSchema.safeParse(payload);
-  if (!parsed.success) return { success: false };
-  return mode === "topic"
-    ? {
-        success: true,
-        data: {
-          mode,
-          ...(parsed.data as OutcomeCurriculumOutput),
-        },
-      }
-    : {
-        success: true,
-        data: { mode, ...(parsed.data as CurriculumDesignerOutput) },
-      };
-};
-
 /** Seed a continuation from a mid-stream crash or a truncated failure. */
 const seedFor = (record?: ProjectBuildArtifactRecord): unknown =>
   record && (record.status === "generating" || record.failureKind === "partial")
@@ -507,7 +409,7 @@ const seedFor = (record?: ProjectBuildArtifactRecord): unknown =>
 export const buildProjectFromOnboarding = async ({
   sessionId,
   userId,
-  transcript,
+  transcript: _transcript,
   input,
   deps,
   onProgress,
@@ -543,13 +445,9 @@ export const buildProjectFromOnboarding = async ({
   const startedAt = Date.now();
   const remainingMs = () => BUILD_BUDGET_MS - (Date.now() - startedAt);
   const projectName = normalizeLearningTrackName(input.projectName);
-  const brief = resolveLearnerBrief(input);
-  const [persistedStartingPoint, curriculumMode] = await Promise.all([
-    deps.getStartingPoint(sessionId).catch(() => null),
-    // Fail closed to the original mode: a read failure must not silently
-    // rebuild a topic plan as an ability plan.
-    deps.getCurriculumMode(sessionId).catch(() => "ability" as const),
-  ]);
+  const persistedStartingPoint = await deps
+    .getStartingPoint(sessionId)
+    .catch(() => null);
   const sourceKey = getProjectBuildSourceKey(input, persistedStartingPoint);
   const steps = initialSteps();
   const state: ProjectBuildState = {
@@ -663,27 +561,14 @@ export const buildProjectFromOnboarding = async ({
     });
   };
 
-  // The most recent in-flight "generating" partial write per step. A terminal
-  // write (complete / failed / generated_pending_save) awaits this first, so a
-  // late mid-stream flush can never commit *after* it and reset the row to
-  // "generating" — which a resume would read as unfinished and regenerate from
-  // scratch, the exact wasted work the checkpoint exists to prevent.
-  const partialTail = new Map<ProjectBuildArtifactStep, Promise<unknown>>();
-
-  // Persist an artifact's registry row (status + last-good/partial payload).
-  const recordArtifact = async (
+  const recordArtifact = (
     step: ProjectBuildArtifactStep,
     status: ProjectBuildArtifactStatus,
     payload: unknown,
     failureKind: ArtifactFailureKind | null,
     attempts?: number,
-  ) => {
-    if (status !== "generating") {
-      // Order barrier: let the last partial commit before stamping a terminal
-      // status. The chain below never rejects, so this can't break never-throws.
-      await (partialTail.get(step) ?? Promise.resolve());
-    }
-    return deps.saveArtifact({
+  ) =>
+    deps.saveArtifact({
       sessionId,
       ownershipToken: requireOwnershipToken(),
       step,
@@ -693,45 +578,13 @@ export const buildProjectFromOnboarding = async ({
       failureKind,
       attempts,
     });
-  };
-  // Throttled, fire-and-forget mid-stream partial sink so a crash mid-generation
-  // is resumable (the runner already throttles its callback to ~4s). Writes are
-  // chained per step so they commit in dispatch order and stay behind the
-  // terminal barrier above.
-  const persistPartial =
-    (step: ProjectBuildArtifactStep) => (partial: unknown) => {
-      const next = (partialTail.get(step) ?? Promise.resolve())
-        .then(() =>
-          deps.saveArtifact({
-            sessionId,
-            ownershipToken: requireOwnershipToken(),
-            step,
-            sourceKey,
-            payload: partial,
-            status: "generating",
-            failureKind: null,
-          }),
-        )
-        .catch(() => undefined);
-      partialTail.set(step, next);
-    };
-  // Accepts either designer's partial: the preview and the checkpoint sink both
-  // read defensively, so neither needs to know which mode produced it.
-  const curriculumPartialSink = (
-    partial:
-      | Partial<CurriculumDesignerOutput>
-      | Partial<OutcomeCurriculumOutput>,
-  ) => {
-    setArtifactDetail({ step: "curriculum", payload: partial });
-    persistPartial("curriculum")(partial);
-  };
 
   emit();
 
   const artifacts = await deps.getArtifacts({ sessionId, sourceKey });
   const artifactMap = new Map(artifacts.map((record) => [record.step, record]));
   const curriculumRecord = artifactMap.get("curriculum");
-  const blueprintRecord = artifactMap.get("blueprint");
+  const outcomeCurriculumRecord = artifactMap.get("outcomeCurriculum");
   const unitSeedRecord = artifactMap.get("unitSeed");
   const overviewRecord = artifactMap.get("overview");
 
@@ -799,13 +652,10 @@ export const buildProjectFromOnboarding = async ({
 
   // Resolve the learner's starting point: the persisted value (mid-chat tap or a
   // [change] override) wins over whatever the createProject tool proposed. A
-  // non-null tier stamps a Glicko seed onto the plan shell; null leaves the
-  // workspace on its defaults.
+  // starting point stamps a Glicko seed onto the plan shell.
   const startingPointTier =
-    persistedStartingPoint?.tier ?? input.startingPoint?.tier ?? null;
-  const seedRating = startingPointTier
-    ? seedFromStartingPoint(startingPointTier)
-    : null;
+    persistedStartingPoint?.tier ?? input.startingPoint.tier;
+  const seedRating = seedFromStartingPoint(startingPointTier);
 
   // 1 — name + shell: create the durable project home before any AI runs.
   setStep("name", "active");
@@ -819,7 +669,6 @@ export const buildProjectFromOnboarding = async ({
       title: projectName,
       summary: input.summary.trim(),
       targetIdentity: input.targetIdentity.trim(),
-      curriculumMode,
       seedRating,
     });
     planId = shell.id;
@@ -832,208 +681,62 @@ export const buildProjectFromOnboarding = async ({
   setStep("name", "done");
   emit();
 
-  if (userId) {
-    // One memory row per interest so each stays individually recallable when
-    // scenario and unit context is assembled later.
-    for (const interest of brief.interests) {
-      try {
-        await deps.persistScenarioInspiration({
-          userId,
-          content: `Interest: ${interest}`,
-        });
-      } catch (error) {
-        console.error(
-          "Scenario inspiration persistence failed; continuing project build",
-          { sessionId, error },
-        );
-      }
-    }
-  }
-
-  const buildBlueprint = (design: CurriculumDesign): CurriculumBlueprint => {
-    const { identityReport } = design;
-    const shared = {
-      title: projectName,
-      summary: design.planDraft.summary,
-      targetIdentity: identityReport.targetIdentity,
-      overview: null, // persisted separately via persistOverview
-    };
-    return design.mode === "topic"
-      ? {
-          ...shared,
-          outcomeOrdering: design.planDraft.ordering,
-          nodes: buildOutcomeNodes(
-            design.planDraft,
-            identityReport.targetIdentity,
-            identityReport.headline,
-          ),
-        }
-      : {
-          ...shared,
-          outcomeOrdering: null,
-          nodes: buildCurriculumNodes(
-            design.planDraft,
-            identityReport.targetIdentity,
-            identityReport.headline,
-          ),
-        };
+  const report = buildIdentityReport(input);
+  const blueprint: CurriculumBlueprint = {
+    title: projectName,
+    summary: input.summary.trim(),
+    targetIdentity: report.targetIdentity,
+    overview: null,
+    nodes: buildOutcomeNodes({
+      outcomes: input.outcomes,
+      targetIdentity: report.targetIdentity,
+      summary: input.summary.trim(),
+    }),
   };
 
-  const persistDesign = async (design: CurriculumDesign) => {
-    const blueprint = buildBlueprint(design);
-    state.modules = moduleTitles(blueprint);
-    state.moduleCount = state.modules.length;
-    emit();
-    await deps.persistCurriculum({
-      sessionId,
-      ownershipToken: requireOwnershipToken(),
-      userId,
-      planId,
-      report: design.identityReport,
-      blueprint,
-    });
-  };
-
-  // 3 — curriculum (REQUIRED): design + persist profile/nodes into the shell.
-  const runCurriculum = async (): Promise<Result<"done" | "yielded">> => {
-    setStep("curriculum", "active");
-    emit();
-    const action = decide(curriculumRecord);
-    const attemptsBase = curriculumRecord?.attempts ?? 0;
-
-    if (action === "skip") {
-      setStep("curriculum", "done");
-      emit();
-      return ok("done");
-    }
-
-    if (action === "save_only") {
-      const cached = parseCachedDesign(
-        curriculumMode,
-        curriculumRecord?.payload,
-      );
-      if (cached.success) {
-        try {
-          setArtifactDetail({ step: "curriculum", payload: cached.data });
-          await persistDesign(cached.data);
-          await recordArtifact(
-            "curriculum",
-            "complete",
-            cached.data,
-            null,
-            attemptsBase,
-          );
-          setStep("curriculum", "done");
-          emit();
-          return ok("done");
-        } catch (error) {
-          await recordArtifact(
-            "curriculum",
-            "generated_pending_save",
-            cached.data,
-            "save",
-            attemptsBase,
-          );
-          return err(
-            messageFrom(
-              error,
-              "I built the curriculum but couldn't save it. Want to try again?",
-            ),
-          );
-        }
-      }
-      // Cached payload is unusable — fall through to a fresh generation.
-    }
-
-    // Nothing generated yet, so yielding here is free.
-    if (outOfBudgetFor("curriculum")) return ok("yielded");
-
-    const attempts = attemptsBase + 1;
-    const curriculumAbortSignal = stepAbortSignal("curriculum");
-    let design: CurriculumDesign;
+  setStep("curriculum", "active");
+  state.modules = moduleTitles(blueprint);
+  state.moduleCount = state.modules.length;
+  setArtifactDetail({
+    step: "curriculum",
+    payload: { identityReport: report, outcomes: input.outcomes },
+  });
+  if (decide(curriculumRecord) !== "skip") {
+    const attempts = (curriculumRecord?.attempts ?? 0) + 1;
     try {
-      design =
-        curriculumMode === "topic"
-          ? {
-              mode: "topic",
-              ...(await designOutcomeCurriculum({
-                topic: projectName,
-                transcript,
-                proposedOutcomes: input.outcomes,
-                options: {
-                  onPartial: curriculumPartialSink,
-                  seedPartial: seedFor(curriculumRecord) as
-                    | Partial<OutcomeCurriculumOutput>
-                    | undefined,
-                  abortSignal: curriculumAbortSignal,
-                },
-              })),
-            }
-          : {
-              mode: "ability",
-              ...(await designCurriculum({
-                brief,
-                transcript,
-                abilities: input.abilities,
-                options: {
-                  onPartial: curriculumPartialSink,
-                  seedPartial: seedFor(curriculumRecord) as
-                    | Partial<CurriculumDesignerOutput>
-                    | undefined,
-                  abortSignal: curriculumAbortSignal,
-                },
-              })),
-            };
-      setArtifactDetail({ step: "curriculum", payload: design });
+      await deps.persistCurriculum({
+        sessionId,
+        ownershipToken: requireOwnershipToken(),
+        userId,
+        planId,
+        report,
+        blueprint,
+      });
+      await recordArtifact(
+        "curriculum",
+        "complete",
+        { identityReport: report, outcomes: input.outcomes },
+        null,
+        attempts,
+      );
     } catch (error) {
       await recordArtifact(
         "curriculum",
         "failed",
-        partialOf(error) ?? curriculumRecord?.payload ?? null,
-        failureKindOf(error),
-        attempts,
-      );
-      if (curriculumAbortSignal.aborted) return ok("yielded");
-      return err(
-        messageFrom(
-          error,
-          "I couldn't design the curriculum. Want to try again?",
-        ),
-      );
-    }
-
-    try {
-      await persistDesign(design);
-      await recordArtifact("curriculum", "complete", design, null, attempts);
-      setStep("curriculum", "done");
-      emit();
-      return ok("done");
-    } catch (error) {
-      // AI succeeded but the write failed — keep the output for a zero-token re-save.
-      await recordArtifact(
-        "curriculum",
-        "generated_pending_save",
-        design,
+        { identityReport: report, outcomes: input.outcomes },
         "save",
         attempts,
       );
-      return err(
+      return fail(
         messageFrom(
           error,
           "I built the curriculum but couldn't save it. Want to try again?",
         ),
       );
     }
-  };
-
-  const curriculumResult = await runCurriculum();
-
-  if (!curriculumResult.success) {
-    return fail(curriculumResult.error);
   }
-  if (curriculumResult.data === "yielded") {
-    return yieldForResume();
-  }
+  setStep("curriculum", "done");
+  emit();
 
   // A project is launch-ready only when its first unit content has committed.
   // Keeping this inside the resumable build makes Start learning a read-only
@@ -1072,7 +775,7 @@ export const buildProjectFromOnboarding = async ({
       // between the two steps loses nothing. Both calls below are AI-backed.
       if (outOfBudgetFor("unit")) return yieldForResume();
 
-      // Blueprint (topic mode) / knowledge map (ability mode). Status-only
+      // Compile the first outcome's Skill Map and Practice Contract. Status-only
       // checkpoint: the call already short-circuits on its own persisted rows,
       // so the registry row exists to record failures and skip a redundant
       // round-trip, not to re-save a payload.
@@ -1080,38 +783,39 @@ export const buildProjectFromOnboarding = async ({
       // budget. Sharing this signal prevents a slow blueprint from leaving a
       // fresh full timeout for the unit seed.
       const unitAbortSignal = stepAbortSignal("unit");
-      if (decide(blueprintRecord) === "generate") {
-        const blueprintAttempts = (blueprintRecord?.attempts ?? 0) + 1;
+      if (decide(outcomeCurriculumRecord) === "generate") {
+        const outcomeCurriculumAttempts =
+          (outcomeCurriculumRecord?.attempts ?? 0) + 1;
         await recordArtifact(
-          "blueprint",
+          "outcomeCurriculum",
           "generating",
           null,
           null,
-          blueprintAttempts,
+          outcomeCurriculumAttempts,
         );
         try {
-          await deps.ensureSkillKnowledge({
-            skillNodeId: firstFrontier.id,
+          await deps.ensureOutcomeCurriculum({
+            outcomeNodeId: firstFrontier.id,
             targetIdentity: launchPlan.targetIdentity,
             abortSignal: unitAbortSignal,
           });
         } catch (error) {
           await recordArtifact(
-            "blueprint",
+            "outcomeCurriculum",
             "failed",
             null,
             failureKindOf(error),
-            blueprintAttempts,
+            outcomeCurriculumAttempts,
           );
           if (unitAbortSignal.aborted) return yieldForResume();
           throw error;
         }
         await recordArtifact(
-          "blueprint",
+          "outcomeCurriculum",
           "complete",
           null,
           null,
-          blueprintAttempts,
+          outcomeCurriculumAttempts,
         );
       }
 
@@ -1125,8 +829,8 @@ export const buildProjectFromOnboarding = async ({
       );
       let firstUnit: { id: string } | null;
       try {
-        firstUnit = await deps.createSkillUnit({
-          skillNodeId: firstFrontier.id,
+        firstUnit = await deps.createOutcomeUnit({
+          outcomeNodeId: firstFrontier.id,
           sessionId,
           userId,
           abortSignal: unitAbortSignal,

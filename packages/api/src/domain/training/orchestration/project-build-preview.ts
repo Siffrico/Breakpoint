@@ -1,18 +1,13 @@
-import type {
-  CurriculumDesignerOutput,
-  ProjectOverviewOutput,
-} from "../agents/contracts";
-import type { OutcomeCurriculumOutput } from "../outcome-curriculum/contracts";
+import type { IdentityReport, OutcomeDefinition } from "@acme/validators";
+
+import type { ProjectOverviewOutput } from "../agents/contracts";
 import type { ProjectBuildStep, ProjectBuildStepDetail } from "./build-project";
 
 export interface ProjectBuildArtifactPayload {
-  /**
-   * Either mode's designer output. Both carry an identity report and a plan
-   * draft whose top-level list is the thing worth streaming — `abilities` in
-   * ability mode, `outcomes` in topic mode — so the preview reads whichever is
-   * present rather than branching on the mode it was never told.
-   */
-  curriculum: DeepPartial<CurriculumDesignerOutput | OutcomeCurriculumOutput>;
+  curriculum: DeepPartial<{
+    identityReport: IdentityReport;
+    outcomes: OutcomeDefinition[];
+  }>;
   overview: DeepPartial<ProjectOverviewOutput>;
 }
 
@@ -35,7 +30,7 @@ const DEFAULT_STEP_DETAILS: Record<ProjectBuildStep, ProjectBuildStepDetail> = {
   },
   curriculum: {
     title: "Curriculum draft",
-    body: "Drafting the identity profile and independent skill map.",
+    body: "Saving the confirmed outcomes and preparing the first one.",
   },
   unit: {
     title: "Launch unit",
@@ -98,22 +93,13 @@ const detailFrom = (
 const previewCurriculum = (
   payload: ProjectBuildArtifactPayload["curriculum"],
 ): ProjectBuildStepDetail => {
-  const plan = payload.planDraft;
-  const abilities = titledItems(
-    plan && "abilities" in plan ? plan.abilities : undefined,
-  );
-  const outcomes = titledItems(
-    plan && "outcomes" in plan ? plan.outcomes : undefined,
-  );
+  const outcomes = titledItems(payload.outcomes);
 
   return detailFrom(
     "Curriculum draft",
     compact([
       line("Target", payload.identityReport?.targetIdentity),
       line("Headline", payload.identityReport?.headline),
-      line("Plan", plan?.title),
-      line("Summary", plan?.summary),
-      abilities.length > 0 ? listLine("Abilities", abilities) : null,
       outcomes.length > 0 ? listLine("Outcomes", outcomes) : null,
     ]),
   );

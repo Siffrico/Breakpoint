@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { getSession } from "~/auth/server";
-import { env } from "~/env";
 import { OnboardingShell } from "~/features/training/components/onboarding-shell";
 import { TRPCReactProvider } from "~/trpc/react";
 import { getQueryClient, trpc } from "~/trpc/server";
@@ -17,7 +16,6 @@ export default async function OnboardingPage({
 }: {
   searchParams: Promise<{
     session?: string;
-    curriculum?: string;
   }>;
 }) {
   const session = await getSession();
@@ -27,7 +25,6 @@ export default async function OnboardingPage({
   }
 
   const params = await searchParams;
-  const curriculumMode = params.curriculum === "ability" ? "ability" : "topic";
   const initialState = params.session
     ? await getQueryClient().fetchQuery(
         trpc.training.onboardingState.queryOptions({
@@ -52,8 +49,6 @@ export default async function OnboardingPage({
       <OnboardingShell
         key={initialState?.sessionId ?? "new"}
         initialState={initialState}
-        curriculumMode={curriculumMode}
-        showCurriculumControl={env.NODE_ENV !== "production"}
       />
     </TRPCReactProvider>
   );

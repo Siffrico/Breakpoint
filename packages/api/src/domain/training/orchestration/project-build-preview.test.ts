@@ -3,37 +3,25 @@ import { describe, expect, it } from "vitest";
 import { previewProjectBuildArtifact } from "./project-build-preview";
 
 describe("previewProjectBuildArtifact", () => {
-  it("renders a curriculum draft before nested arrays have streamed", () => {
-    expect(
-      previewProjectBuildArtifact({
-        step: "curriculum",
-        payload: {
-          planDraft: {
-            title: "Distributed systems judgment",
-            summary: "Practice operational tradeoffs.",
-          },
+  it("renders the confirmed outcomes", () => {
+    const detail = previewProjectBuildArtifact({
+      step: "curriculum",
+      payload: {
+        identityReport: {
+          targetIdentity: "SAT Math test-taker",
+          headline: "Reach the target SAT Math score.",
         },
-      }),
-    ).toEqual({
-      title: "Curriculum draft",
-      body: [
-        "Plan: Distributed systems judgment",
-        "Summary: Practice operational tradeoffs.",
-      ].join("\n"),
-      generated: true,
+        outcomes: [
+          {
+            title: "Algebra",
+            result: "Solve SAT Algebra questions accurately.",
+          },
+          undefined,
+        ],
+      },
     });
-  });
 
-  it("ignores malformed nested collection entries in partial output", () => {
-    expect(
-      previewProjectBuildArtifact({
-        step: "curriculum",
-        payload: {
-          planDraft: {
-            abilities: [undefined, { title: "Failure diagnosis" }],
-          },
-        },
-      }).body,
-    ).toBe("Abilities: Failure diagnosis");
+    expect(detail.body).toContain("Target: SAT Math test-taker");
+    expect(detail.body).toContain("Outcomes: Algebra");
   });
 });

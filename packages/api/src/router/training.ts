@@ -2,10 +2,9 @@ import type { TRPCRouterRecord } from "@trpc/server";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod/v4";
 
-import type { CurriculumMode, StartingPointTier } from "@acme/validators";
+import type { StartingPointTier } from "@acme/validators";
 import { sql } from "@acme/db";
 import {
-  CurriculumModeSchema,
   StartingPointTierSchema,
   WorkspaceShellInputSchema,
 } from "@acme/validators";
@@ -49,15 +48,6 @@ import { runMission } from "./run-effect";
 const SessionIdSchema = z.object({
   sessionId: z.string().uuid(),
 });
-
-const StartOnboardingSchema = z.object({
-  curriculumMode: CurriculumModeSchema.optional(),
-});
-
-/** Topic-mode blueprints are the production curriculum path. */
-const resolveRequestedCurriculumMode = (
-  requested: CurriculumMode | undefined,
-): CurriculumMode => requested ?? "topic";
 
 const SetStartingPointSchema = z.object({
   sessionId: z.string().uuid(),
@@ -235,29 +225,26 @@ export const trainingRouter = {
       }),
     ),
 
-  startOnboarding: protectedProcedure
-    .input(StartOnboardingSchema.optional())
-    .mutation(async ({ ctx, input }) =>
-      throwOnFailure(
-        await startOnboardingWorkflow({
-          userId: ctx.session.user.id,
-          curriculumMode: resolveRequestedCurriculumMode(input?.curriculumMode),
-          deps: {
-            createSession: ({ userId, curriculumMode }) =>
-              trainingOnboardingRepository.createSession({
-                db: ctx.db,
-                userId,
-                curriculumMode,
-              }),
-            appendMessage: (message) =>
-              trainingOnboardingRepository.appendMessage({
-                db: ctx.db,
-                ...message,
-              }),
-          },
-        }),
-      ),
+  startOnboarding: protectedProcedure.mutation(async ({ ctx }) =>
+    throwOnFailure(
+      await startOnboardingWorkflow({
+        userId: ctx.session.user.id,
+        deps: {
+          createSession: ({ userId }) =>
+            trainingOnboardingRepository.createSession({
+              db: ctx.db,
+              userId,
+            }),
+          appendMessage: (message) =>
+            trainingOnboardingRepository.appendMessage({
+              db: ctx.db,
+              ...message,
+              slot: null,
+            }),
+        },
+      }),
     ),
+  ),
 
   onboardingState: protectedProcedure
     .input(SessionIdSchema)

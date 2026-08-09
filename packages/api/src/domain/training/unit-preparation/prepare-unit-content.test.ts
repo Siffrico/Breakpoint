@@ -28,15 +28,81 @@ const planNode = {
   orderIndex: 1,
   status: "ready",
 };
+const baseSkillMap = {
+  skills: ["Frame", "Solve", "Verify"].map((name) => ({
+    name,
+    description: `${name} the task.`,
+    items: [
+      {
+        kind: "concept" as const,
+        name: `${name} item`,
+        description: `${name} knowledge.`,
+      },
+    ],
+  })),
+  expertJudgment: [
+    { rule: "Frame before acting.", when: "The task is ambiguous." },
+    { rule: "Verify before finishing.", when: "A result seems plausible." },
+  ],
+  commonMistakes: [
+    {
+      mistake: "Act before framing.",
+      whyItHappens: "The first route feels obvious.",
+      detectionCue: "No governing constraint is named.",
+    },
+    {
+      mistake: "Skip verification.",
+      whyItHappens: "The result looks plausible.",
+      detectionCue: "No independent check appears.",
+    },
+  ],
+};
+const basePracticeContract = {
+  workflow: { name: "Solve one task", steps: ["Frame.", "Solve.", "Verify."] },
+  responseMode: "judge" as const,
+  taskTypes: [
+    {
+      name: "Diagnosis",
+      situation: "A realistic failure needs diagnosis.",
+      learnerDoes: "Diagnose and justify.",
+      output: "A defensible diagnosis.",
+      taskShape: "Evidence and one decision.",
+      skills: ["Frame", "Solve", "Verify"],
+    },
+  ],
+  qualityBar: ["The diagnosis fits the evidence."],
+  variationAxes: [
+    { name: "Evidence", description: "The evidence changes." },
+    { name: "Trap", description: "The tempting wrong cause changes." },
+  ],
+  evaluationCriteria: [
+    {
+      criterion: "The conclusion follows from the evidence.",
+      skills: ["Frame", "Solve", "Verify"],
+    },
+  ],
+  difficultyBands: [0, 1, 2].map((band) => ({
+    band: band as 0 | 1 | 2,
+    task: `Band ${band} task`,
+    reasoning: `${band + 1} reasoning steps`,
+    support: band === 0 ? "Full" : band === 1 ? "Partial" : "None",
+    traps: band === 0 ? [] : ["near miss"],
+  })),
+  neverDo: ["Require missing evidence."],
+};
+
 const parentPlanNode = {
   id: "cluster-1",
   parentNodeId: null,
-  kind: "ability",
+  kind: "outcome",
   title: "Diagnosis",
   summary: "Find causes before fixes.",
   whyItMatters: "Bad diagnosis compounds errors.",
   orderIndex: 0,
   status: "ready",
+  outcomeResult: "Diagnose the cause from available evidence.",
+  skillMap: baseSkillMap,
+  practiceContract: basePracticeContract,
 };
 const planNodes = [parentPlanNode, planNode];
 
@@ -183,91 +249,131 @@ describe("prepareUnitContent", () => {
     expect(result).toBe(unit);
   });
 
-  it("passes an outcome's task-generation contract to the seed stage", async () => {
+  it("passes an outcome's Skill Map and Practice Contract to the seed stage", async () => {
     runSeedStageMock.mockResolvedValue(setup);
-    const scenarioBrief = {
-      taskShape: "One passage, one blank, and four lettered options.",
-      qualityBar: ["Exactly one option satisfies the passage constraint."],
-      variationAxes: ["The constraint is carried by a contrast word."],
-      neverDo: ["Require knowledge outside the passage."],
-    };
-    const blueprint = {
-      declarativeKnowledge: [
+    const skillMap = {
+      skills: [
         {
-          label: "Contrast",
-          statement: "Contrast reverses expected meaning.",
-          applicability: "When clauses are contrasted.",
+          name: "Read constraints",
+          description: "Find the governing constraint.",
+          items: [
+            {
+              kind: "concept" as const,
+              name: "Constraint",
+              description: "The text limits the defensible answer.",
+            },
+          ],
         },
         {
-          label: "Context",
-          statement: "Context constrains the answer.",
-          applicability: "For every item.",
+          name: "Test options",
+          description: "Compare each option with the constraint.",
+          items: [
+            {
+              kind: "mechanism" as const,
+              name: "Option test",
+              description: "Reject any option that violates the constraint.",
+            },
+          ],
+        },
+        {
+          name: "Verify",
+          description: "Confirm the surviving answer.",
+          items: [
+            {
+              kind: "mechanism" as const,
+              name: "Evidence check",
+              description: "Locate the evidence that supports the survivor.",
+            },
+          ],
         },
       ],
-      cognitiveHeuristics: {
-        expertMentality: [
-          "Predict before comparing options.",
-          "Test options against the constraint.",
-        ],
-        commonTraps: [
-          {
-            trap: "Dictionary meaning",
-            whyItIsTempting: "It is familiar.",
-            detectionCue: "It fails context.",
-          },
-          {
-            trap: "Broad synonym",
-            whyItIsTempting: "It sounds plausible.",
-            detectionCue: "It lacks precision.",
-          },
-        ],
-      },
-      progression: {
-        complexityAxes: ["Constraint distance", "Option similarity"],
-        bandBriefs: [
-          {
-            band: 0,
-            caseShape: "Explicit contrast.",
-            reasoningPath: "Read, predict, match.",
-            withheldGivens: "Nothing.",
-            embeddedAlternatives: "One wrong option.",
-            liveTraps: [],
-          },
-          {
-            band: 1,
-            caseShape: "Constraint one sentence away.",
-            reasoningPath: "Locate, predict, eliminate.",
-            withheldGivens: "Constraint location.",
-            embeddedAlternatives: "One broad synonym.",
-            liveTraps: ["Broad synonym"],
-          },
-          {
-            band: 2,
-            caseShape: "Indirect constraint.",
-            reasoningPath: "Infer, predict, separate survivors.",
-            withheldGivens: "Constraint and polarity.",
-            embeddedAlternatives: "Two loose fits.",
-            liveTraps: ["Dictionary meaning"],
-          },
-        ],
-      },
-      taskVariations: [
+      expertJudgment: [
         {
-          context: "argumentative" as const,
-          applicability: "Claims.",
-          addedPressure: "Stance can mislead.",
+          rule: "Predict before comparing.",
+          when: "Options can anchor judgment.",
+        },
+        {
+          rule: "Require textual support.",
+          when: "An option is plausible but unstated.",
+        },
+      ],
+      commonMistakes: [
+        {
+          mistake: "Choose a true but unsupported answer.",
+          whyItHappens: "Outside knowledge feels relevant.",
+          detectionCue: "No text supports the claim.",
+        },
+        {
+          mistake: "Choose a broad synonym.",
+          whyItHappens: "It sounds fluent.",
+          detectionCue: "It misses the precise constraint.",
         },
       ],
     };
+    const practiceContract = {
+      workflow: {
+        name: "Solve one item",
+        steps: [
+          "Read the constraint.",
+          "Test the options.",
+          "Verify the survivor.",
+        ],
+      },
+      responseMode: "select" as const,
+      taskTypes: [
+        {
+          name: "SAT selected response",
+          situation: "A passage and question.",
+          learnerDoes: "Select the defensible answer.",
+          output: "One selected answer.",
+          taskShape: "One passage and four options.",
+          skills: ["Read constraints", "Test options", "Verify"],
+        },
+      ],
+      qualityBar: ["Exactly one option satisfies the text."],
+      variationAxes: [
+        { name: "Constraint location", description: "The evidence moves." },
+        { name: "Distractor", description: "The near miss changes." },
+      ],
+      evaluationCriteria: [
+        {
+          criterion: "The selected answer is supported by the text.",
+          skills: ["Read constraints", "Test options", "Verify"],
+        },
+      ],
+      difficultyBands: [
+        {
+          band: 0 as const,
+          task: "Direct",
+          reasoning: "One step",
+          support: "Full",
+          traps: [],
+        },
+        {
+          band: 1 as const,
+          task: "Messy",
+          reasoning: "Two steps",
+          support: "Partial",
+          traps: ["broad synonym"],
+        },
+        {
+          band: 2 as const,
+          task: "Adversarial",
+          reasoning: "Three steps",
+          support: "None",
+          traps: ["broad synonym", "outside knowledge"],
+        },
+      ],
+      neverDo: ["Require outside knowledge."],
+    };
+    const outcomeResult = "Select the single defensible answer.";
     const outcomeNodes = [
       {
         ...parentPlanNode,
         kind: "outcome",
-        skillMap: {
-          mainOutcome: "Select the single defensible answer.",
-          scenarioBrief,
-          blueprint,
-        },
+        outcomeResult,
+        skillMap,
+        practiceContract,
       },
       planNode,
     ];
@@ -285,9 +391,9 @@ describe("prepareUnitContent", () => {
     const seedContext = runSeedStageMock.mock.calls[0]?.[0];
     expect(seedContext?.planContext.regime).toBe("main_outcome");
     expect(seedContext?.planContext.clusterContext?.taskContract).toEqual({
-      mainOutcome: "Select the single defensible answer.",
-      scenarioBrief,
-      blueprint,
+      outcomeResult,
+      skillMap,
+      practiceContract,
     });
   });
 

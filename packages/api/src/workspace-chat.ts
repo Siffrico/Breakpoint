@@ -26,7 +26,7 @@ import { trainingCurriculumRepository } from "./repositories/training-curriculum
 import { trainingUnitRunRepository } from "./repositories/training-unit-run-repository";
 import {
   createUnitCreationRepositoryDeps,
-  ensureSkillKnowledge,
+  ensureOutcomeCurriculum,
   findNextPlannedOutcome,
   loadProgressionState,
 } from "./repositories/unit-creation-repository-deps";
@@ -235,9 +235,9 @@ const streamWorkspaceChatWithModelPreference = ({
               deps: {
                 ensureSkillKnowledge: (skillNodeId) =>
                   queryWithClient(db, "ensurePregeneratedSkillKnowledge", () =>
-                    ensureSkillKnowledge({
+                    ensureOutcomeCurriculum({
                       db,
-                      skillNodeId,
+                      outcomeNodeId: skillNodeId,
                       targetIdentity: plan.targetIdentity,
                     }),
                   ),

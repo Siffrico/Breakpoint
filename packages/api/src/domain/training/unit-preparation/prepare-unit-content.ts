@@ -7,7 +7,7 @@ import type {
 } from "../unit-builder/contracts";
 import type { UnitPreparationError } from "./errors";
 import { regimeForNodeKind } from "../engine/progression-model";
-import { TopicTaskContractSchema } from "../unit-builder/contracts";
+import { OutcomeTaskContractSchema } from "../unit-builder/contracts";
 import { runSeedStage } from "../unit-builder/seed-stage";
 import {
   classifyUnitScaffoldFailure,
@@ -26,7 +26,9 @@ interface PlanNodeContext {
   readonly whyItMatters: string;
   readonly orderIndex: number;
   readonly status: string;
+  readonly outcomeResult?: unknown;
   readonly skillMap?: unknown;
+  readonly practiceContract?: unknown;
 }
 
 export interface UnitPreparationDependencies {
@@ -120,17 +122,11 @@ const RESTART_SCHEDULE = Schedule.exponential(Duration.millis(300), 2).pipe(
 const contextMissing = (message: string, cause?: unknown) =>
   new UnitContextMissingError({ message, cause });
 
-const topicTaskContractOf = (skillMap: unknown) => {
-  if (typeof skillMap !== "object" || skillMap === null) return null;
-  const candidate = skillMap as {
-    mainOutcome?: unknown;
-    scenarioBrief?: unknown;
-    blueprint?: unknown;
-  };
-  const parsed = TopicTaskContractSchema.safeParse({
-    mainOutcome: candidate.mainOutcome,
-    scenarioBrief: candidate.scenarioBrief,
-    blueprint: candidate.blueprint,
+const outcomeTaskContractOf = (node: PlanNodeContext | null | undefined) => {
+  const parsed = OutcomeTaskContractSchema.safeParse({
+    outcomeResult: node?.outcomeResult,
+    skillMap: node?.skillMap,
+    practiceContract: node?.practiceContract,
   });
   return parsed.success ? parsed.data : null;
 };
@@ -181,7 +177,7 @@ const assembleSeedContext = ({
     1,
   );
   const regime = parentNode ? regimeForNodeKind(parentNode.kind) : null;
-  const taskContract = topicTaskContractOf(parentNode?.skillMap);
+  const taskContract = outcomeTaskContractOf(parentNode);
   if (regime === "main_outcome" && !taskContract) {
     return Effect.fail(
       contextMissing("Outcome task-generation contract is missing or invalid."),

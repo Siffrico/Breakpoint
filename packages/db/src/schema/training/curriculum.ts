@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { check, index, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
 
-import type { ScenarioArchetype, ScenarioBrief } from "@acme/validators";
+import type { PracticeContract, SkillMap } from "@acme/validators";
 
 import { user } from "../../auth-schema";
 import { TrainingOnboardingSession } from "./onboarding";
@@ -28,15 +28,6 @@ export const TrainingCurriculumPlan = pgTable(
     // "generating" while the build fills the shell, "active" once the curriculum
     // (the required artifact) has landed. Free-form varchar — no enum migration.
     status: t.varchar({ length: 32 }).notNull().default("active"),
-    // Copied from the onboarding session at shell creation and never changed:
-    // the node tree beneath this plan has the shape this mode produced, so a
-    // plan built in one mode can never be reinterpreted as the other.
-    // See @acme/validators CurriculumModeSchema.
-    curriculumMode: t.varchar({ length: 24 }).notNull().default("ability"),
-    // Topic mode only: how the outcome nodes are sequenced, decided by the
-    // curriculum designer. Null on ability-mode plans.
-    // See @acme/validators OutcomeOrderingSchema.
-    outcomeOrdering: t.varchar({ length: 16 }),
     title: t.varchar({ length: 240 }).notNull(),
     summary: t.text().notNull(),
     targetIdentity: t.varchar({ length: 240 }).notNull(),
@@ -81,15 +72,6 @@ export const TrainingCurriculumNode = pgTable(
     parentNodeId: t.uuid(),
     kind: t.varchar({ length: 32 }).notNull(),
     status: t.varchar({ length: 32 }).notNull().default("planned"),
-    // `ability` nodes always have a stage; structural and skill/unit nodes never do.
-    abilityStage: t.varchar({ length: 16 }),
-    // Which child skill this unit is a rep OF. Set only on skillset units (whose
-    // parent is an ability); null on every other kind, and on foundation units,
-    // whose owning skill is already their parent. The interleaving round-robin
-    // counts reps per skill off this column — it cannot be derived from the
-    // knowledge items' evidenceNodeId, because a later unit re-targeting the
-    // same item overwrites the earlier unit's stamp and loses the rep.
-    practicedSkillNodeId: t.uuid(),
     title: t.varchar({ length: 240 }).notNull(),
     summary: t.text().notNull(),
     whyItMatters: t.text().notNull(),
@@ -108,59 +90,11 @@ export const TrainingCurriculumNode = pgTable(
         label?: string;
       }[]
     >(),
-    skillMap: t.jsonb().$type<{
-      workflow: { name: string; steps: string[] };
-      bandRamp: { startRating: number; peakRating: number };
-      masteryContract: {
-        exitCriteria: string[];
-        maxRatingDeviation?: number;
-      };
-      scenarioArchetype: ScenarioArchetype;
-      // Outcome nodes only: the main outcome every task beneath this node is
-      // judged against, plus the contract for building a well-formed task.
-      // Absent on ability/skill nodes.
-      mainOutcome?: string;
-      scenarioBrief?: ScenarioBrief;
-      blueprint?: {
-        declarativeKnowledge: {
-          label: string;
-          statement: string;
-          applicability: string;
-        }[];
-        cognitiveHeuristics: {
-          expertMentality: string[];
-          commonTraps: {
-            trap: string;
-            whyItIsTempting: string;
-            detectionCue: string;
-          }[];
-        };
-        progression: {
-          complexityAxes: string[];
-          // One per canonical difficulty band, ordered 0 → 2. Says what each
-          // band MEANS for this outcome in the terms the difficulty model
-          // measures — see outcome-curriculum/contracts.ts BandBriefSchema.
-          bandBriefs: {
-            band: 0 | 1 | 2;
-            caseShape: string;
-            reasoningPath: string;
-            withheldGivens: string;
-            embeddedAlternatives: string;
-            liveTraps: string[];
-          }[];
-        };
-        taskVariations: {
-          context:
-            | "argumentative"
-            | "scientific"
-            | "historical"
-            | "literary"
-            | "narrative";
-          applicability: string;
-          addedPressure: string;
-        }[];
-      };
-    }>(),
+    // Fixed by the learner-approved onboarding handoff. Compilation may fill
+    // the two contracts later, but it never changes this result.
+    outcomeResult: t.text(),
+    skillMap: t.jsonb().$type<SkillMap | null>(),
+    practiceContract: t.jsonb().$type<PracticeContract | null>(),
     orderIndex: t.integer().notNull(),
     depth: t.integer().notNull(),
     positionColumn: t.integer().notNull(),
@@ -179,37 +113,23 @@ export const TrainingCurriculumNode = pgTable(
       table.parentNodeId,
       table.orderIndex,
     ),
-    // The rep-count read is "completed units under this ability, by skill".
-    index("becoming_curriculum_node_practiced_skill_idx").on(
-      table.parentNodeId,
-      table.practicedSkillNodeId,
-    ),
-    // Shape invariant for both curriculum modes. `outcome` nodes (topic mode)
-    // behave like abilities in that they carry a skill map and own a rating,
-    // but they have no foundations→skillset progression, so their stage stays
-    // null. Keeping this strict is deliberate: a writer that produces a
-    // malformed node fails here rather than running as a degraded legacy node.
     check(
       "becoming_curriculum_node_v4_shape",
-      sql`(
-        (
-          kind = 'ability'
-          and ability_stage is not null
-          and ability_stage in ('foundations', 'skillset', 'mastered')
-        )
-        or (kind <> 'ability' and ability_stage is null)
-      )
-      and kind in ('root', 'ability', 'skill', 'unit', 'outcome')
+      sql`kind in ('root', 'outcome', 'unit')
       and (
         (
-          kind in ('ability', 'skill', 'outcome')
-          and skill_map is not null
-          and coalesce(skill_map ->> 'scenarioArchetype', '') in ('select', 'transform', 'judge')
-          and not (skill_map ? 'scenarioFormats')
+          kind = 'outcome'
+          and outcome_result is not null
+          and ((skill_map is null and practice_contract is null)
+            or (skill_map is not null and practice_contract is not null))
         )
-        or (kind in ('root', 'unit') and skill_map is null)
-      )
-      and (kind = 'outcome' or not (skill_map ? 'mainOutcome'))`,
+        or (
+          kind in ('root', 'unit')
+          and outcome_result is null
+          and skill_map is null
+          and practice_contract is null
+        )
+      )`,
     ),
   ],
 );

@@ -32,12 +32,6 @@ export const AGENT_CONFIG = {
     purpose: "curriculum",
     limits: "purpose-profile",
   },
-  knowledgeMapper: {
-    description:
-      "Maps one skill into authored practitioner questions and their required concepts or executable mechanisms.",
-    purpose: "knowledge",
-    limits: "purpose-profile",
-  },
   buildContent: {
     description:
       "Builds unit seed content and cross-unit briefing artifacts used by later teaching agents.",

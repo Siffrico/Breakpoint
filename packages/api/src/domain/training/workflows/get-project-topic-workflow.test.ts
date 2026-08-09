@@ -6,7 +6,7 @@ import { getProjectTopicWorkflow } from "./get-project-topic-workflow";
 const makeNode = (overrides: Partial<CurriculumNode>): CurriculumNode => ({
   id: "node",
   parentNodeId: null,
-  kind: "ability",
+  kind: "outcome",
   title: "Cluster",
   summary: "Cluster summary",
   whyItMatters: "Because",
@@ -32,15 +32,15 @@ const makePlan = (nodes: CurriculumNode[]): CurriculumPlan =>
   }) as unknown as CurriculumPlan;
 
 describe("getProjectTopicWorkflow", () => {
-  it("returns only abilities, joined to ratings, with unrated abilities null", async () => {
+  it("returns only outcomes, joined to ratings, with unrated outcomes null", async () => {
     const plan = makePlan([
-      makeNode({ id: "ability-a", kind: "ability", title: "A" }),
-      makeNode({ id: "ability-b", kind: "ability", title: "B" }),
+      makeNode({ id: "outcome-a", kind: "outcome", title: "A" }),
+      makeNode({ id: "outcome-b", kind: "outcome", title: "B" }),
       makeNode({ id: "unit-1", kind: "unit", title: "Unit" }),
     ]);
     const getJobProgress = vi.fn().mockResolvedValue([
       {
-        nodeId: "ability-a",
+        nodeId: "outcome-a",
         rating: 1240,
         ratingDeviation: 85,
         lastRatedAt: new Date("2026-06-01T00:00:00Z"),
@@ -59,19 +59,19 @@ describe("getProjectTopicWorkflow", () => {
     expect(result.success).toBe(true);
     if (!result.success) return;
 
-    // Only abilities are rated; units are excluded.
-    expect(result.data.abilities.map((ability) => ability.nodeId)).toEqual([
-      "ability-a",
-      "ability-b",
+    // Only outcomes are rated; units are excluded.
+    expect(result.data.outcomes.map((ability) => ability.nodeId)).toEqual([
+      "outcome-a",
+      "outcome-b",
     ]);
-    // Progress read is scoped to the ability nodes only.
-    expect(getJobProgress).toHaveBeenCalledWith(["ability-a", "ability-b"]);
-    // Rated ability carries its Glicko state; an unrated ability is null.
-    expect(result.data.abilities[0]).toMatchObject({
+    // Progress read is scoped to the outcome nodes only.
+    expect(getJobProgress).toHaveBeenCalledWith(["outcome-a", "outcome-b"]);
+    // Rated outcome carries its Glicko state; an unrated outcome is null.
+    expect(result.data.outcomes[0]).toMatchObject({
       rating: 1240,
       ratingDeviation: 85,
     });
-    expect(result.data.abilities[1]).toMatchObject({
+    expect(result.data.outcomes[1]).toMatchObject({
       rating: null,
       ratingDeviation: null,
       lastRatedAt: null,

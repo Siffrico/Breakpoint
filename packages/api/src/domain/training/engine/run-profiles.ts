@@ -23,19 +23,18 @@ const STANDARD_PROFILE = {
  * its callers in a second table kept aligned by hand.
  */
 export const RUN_PROFILES = {
-  onboarding: { ...STANDARD_PROFILE, tier: "critical", maxOutputTokens: 6_144 },
+  onboarding: {
+    ...STANDARD_PROFILE,
+    tier: "critical",
+    maxOutputTokens: 6_144,
+    maxSteps: 6,
+    search: true,
+  },
   curriculum: {
     tier: "critical",
     reasoningBudgetTokens: 24_576,
     maxOutputTokens: 8_192,
     maxSteps: 10,
-    search: true,
-  },
-  knowledge: {
-    tier: "critical",
-    reasoningBudgetTokens: 16_384,
-    maxOutputTokens: 8_192,
-    maxSteps: 8,
     search: true,
   },
   buildContent: {

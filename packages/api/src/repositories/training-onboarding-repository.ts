@@ -1,5 +1,5 @@
 import type { db as databaseClient } from "@acme/db/client";
-import type { CurriculumMode, StartingPointTier } from "@acme/validators";
+import type { StartingPointTier } from "@acme/validators";
 import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from "@acme/db";
 import {
   TrainingIdentityProfile,
@@ -157,19 +157,15 @@ export const trainingOnboardingRepository = {
   createSession: async ({
     db,
     userId,
-    curriculumMode = "ability",
   }: {
     db: Database;
     userId?: string | null;
-    /** Which consultant runs, and which curriculum shape the build produces. */
-    curriculumMode?: CurriculumMode;
   }) => {
     const [session] = await db
       .insert(TrainingOnboardingSession)
       .values({
         userId: userId ?? null,
         status: "intro",
-        curriculumMode,
       })
       .returning();
 

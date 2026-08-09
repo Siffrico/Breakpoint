@@ -9,9 +9,7 @@ import {
 import { createRegimeTargetSelector } from "./target-selection";
 
 /** The production wiring, with the one database read stubbed out. */
-const selectTargets = createRegimeTargetSelector({
-  skillPracticeHistory: () => Effect.succeed([]),
-});
+const selectTargets = createRegimeTargetSelector();
 
 let nextOrderIndex = 0;
 const entry = (id: string, status = "unchecked") => ({
@@ -44,7 +42,7 @@ const openUnit = { id: "unit-1" };
 const openSkill = {
   title: "Distributed systems",
   whyItMatters: "Reliability requires sound failure handling.",
-  regime: "foundation" as const,
+  regime: "main_outcome" as const,
   entries: [],
   openUnit,
 };
@@ -189,11 +187,8 @@ describe("createNextUnit", () => {
     expect(appendUnit.mock.calls[0]?.[0]?.targetKnowledgeIds).toEqual([
       "a",
       "b",
-      "c",
     ]);
-    expect(appendUnit.mock.calls[0]?.[0]?.title).toBe(
-      "How do you handle this situation?",
-    );
+    expect(appendUnit.mock.calls[0]?.[0]?.title).toBe("Practice a and b");
   });
 
   it("delegates target selection instead of deciding it inline", async () => {
@@ -204,7 +199,7 @@ describe("createNextUnit", () => {
 
     await Effect.runPromise(
       createNextUnit({
-        skillNodeId: "ability",
+        skillNodeId: "outcome",
         complexityBudget: 2,
         deps: {
           ensureSkillKnowledge: () => Effect.void,
@@ -212,7 +207,7 @@ describe("createNextUnit", () => {
           loadSkill: () =>
             Effect.succeed({
               ...openSkill,
-              regime: "skillset" as const,
+              regime: "main_outcome" as const,
               openUnit: null,
               entries: [entry("a"), entry("b")],
             }),
@@ -231,8 +226,8 @@ describe("createNextUnit", () => {
 
     expect(custom).toHaveBeenCalledWith(
       expect.objectContaining({
-        skillNodeId: "ability",
-        regime: "skillset",
+        skillNodeId: "outcome",
+        regime: "main_outcome",
         complexityBudget: 2,
       }),
     );

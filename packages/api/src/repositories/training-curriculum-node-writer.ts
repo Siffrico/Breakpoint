@@ -22,7 +22,6 @@ export const insertBlueprintNodes = async ({
         planId,
         kind: node.kind,
         status: node.status,
-        abilityStage: node.abilityStage,
         title: node.title,
         summary: node.summary,
         whyItMatters: node.whyItMatters,
@@ -31,7 +30,9 @@ export const insertBlueprintNodes = async ({
         positionColumn: node.positionColumn,
         positionRow: node.positionRow,
         difficultyBands: node.difficultyBands ?? null,
+        outcomeResult: node.outcomeResult,
         skillMap: node.skillMap,
+        practiceContract: node.practiceContract,
         parentNodeId: null,
       })),
     )
@@ -69,7 +70,6 @@ export const appendDynamicUnitNode = async ({
   whyItMatters,
   difficultyBands,
   targetKnowledgeIds,
-  practicedSkillNodeId = null,
   status = "ready",
 }: {
   db: Database;
@@ -84,8 +84,6 @@ export const appendDynamicUnitNode = async ({
     label?: string;
   }[];
   targetKnowledgeIds: string[];
-  /** Skillset units only: the child skill this unit is a rep of. */
-  practicedSkillNodeId?: string | null;
   status?: "planned" | "ready";
 }) =>
   db.transaction(async (tx) => {
@@ -96,7 +94,7 @@ export const appendDynamicUnitNode = async ({
     const cluster = await transactionDb.query.TrainingCurriculumNode.findFirst({
       where: eq(TrainingCurriculumNode.id, skillNodeId),
     });
-    if (!cluster) throw new Error("Skill cluster was not found.");
+    if (!cluster) throw new Error("Outcome was not found.");
     await transactionDb.execute(
       sql`select pg_advisory_xact_lock(hashtext(${cluster.planId}), hashtext('create-unit-order'))`,
     );
@@ -131,7 +129,6 @@ export const appendDynamicUnitNode = async ({
         summary,
         whyItMatters,
         difficultyBands,
-        practicedSkillNodeId,
         orderIndex: (latest?.orderIndex ?? 0) + 1,
         depth: 2,
         positionColumn: cluster.positionColumn,
@@ -140,10 +137,6 @@ export const appendDynamicUnitNode = async ({
       .returning();
     if (!node) throw new Error("Dynamic unit could not be persisted.");
 
-    // Scoped by entry id only: a skillset unit (parent = ability) targets
-    // entries owned by the ability's CHILD skills, so scoping by the unit's
-    // own parent id would match nothing. Entry ids are primary keys and were
-    // loaded from this unit's frontier, so id scoping is exact.
     if (targetKnowledgeIds.length > 0) {
       await transactionDb
         .update(TrainingKnowledgeItem)

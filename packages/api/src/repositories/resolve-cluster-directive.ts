@@ -39,9 +39,11 @@ export const resolveClusterDirective = async ({
   const cluster = await db.query.TrainingCurriculumNode.findFirst({
     where: eq(TrainingCurriculumNode.id, clusterNodeId),
   });
-  if (!cluster?.skillMap) throw new Error("Skill map is missing.");
+  if (!cluster?.practiceContract) {
+    throw new Error("Practice Contract is missing.");
+  }
   const model = resolveProgressionModel(cluster);
-  if (!model) throw new Error("Skill map node is invalid.");
+  if (!model) throw new Error("Outcome progression is invalid.");
   const initialRatingState =
     seed === undefined
       ? await resolvePlanSeedRating({ db, nodeId: clusterNodeId })
@@ -52,7 +54,7 @@ export const resolveClusterDirective = async ({
     now: new Date(),
     bands: cluster.difficultyBands ?? expandSkillBands(difficultyRampOf(model)),
     initialRatingState: initialRatingState ?? undefined,
-    scenarioFormat: resolveScenarioFormat(cluster.skillMap),
+    scenarioFormat: resolveScenarioFormat(cluster.practiceContract),
     deps: createTrainingRatingGoldilocksDeps(db),
   });
 };

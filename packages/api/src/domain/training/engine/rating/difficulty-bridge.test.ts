@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import type { DifficultyVector, ScenarioFormat } from "@acme/validators";
 
 import {
+  chooseDifficultyDials,
   deriveCanonicalDifficultyBands,
   predictItemRating,
 } from "./difficulty-bridge";
+import { BAND_DIAL_GUIDES } from "./difficulty-priors";
 import { DEFAULT_RATING_POLICY } from "./policy";
 
 const frqFormat: ScenarioFormat = {
@@ -71,6 +73,66 @@ describe("difficulty bridge", () => {
       );
     },
   );
+
+  it("turns different ratings inside one band into different dial counts", () => {
+    const guide = BAND_DIAL_GUIDES[1];
+    if (!guide) throw new Error("Missing band 1 difficulty guide.");
+    const low = chooseDifficultyDials({
+      targetItemRating: 1_140,
+      format: frqFormat,
+      guide,
+    });
+    const middle = chooseDifficultyDials({
+      targetItemRating: 1_210,
+      format: frqFormat,
+      guide,
+    });
+    const high = chooseDifficultyDials({
+      targetItemRating: 1_280,
+      format: frqFormat,
+      guide,
+    });
+
+    expect(low).toEqual({
+      steps: [2, 2],
+      withheldGivens: [1, 1],
+      alternatives: [1, 1],
+    });
+    expect(middle).toEqual({
+      steps: [2, 2],
+      withheldGivens: [2, 2],
+      alternatives: [2, 2],
+    });
+    expect(high).toEqual({
+      steps: [3, 3],
+      withheldGivens: [2, 2],
+      alternatives: [2, 2],
+    });
+  });
+
+  it("never lowers one dial while raising the target inside a band", () => {
+    const guide = BAND_DIAL_GUIDES[1];
+    if (!guide) throw new Error("Missing band 1 difficulty guide.");
+    const choices = Array.from({ length: 29 }, (_unused, index) =>
+      chooseDifficultyDials({
+        targetItemRating: 1_140 + index * 5,
+        format: frqFormat,
+        guide,
+      }),
+    );
+
+    choices.slice(1).forEach((choice, index) => {
+      const previous = choices[index];
+      if (!previous) throw new Error("Missing previous dial choice.");
+      expect(choice.steps[0]).toBeGreaterThanOrEqual(previous.steps[0]);
+      expect(choice.withheldGivens[0]).toBeGreaterThanOrEqual(
+        previous.withheldGivens[0],
+      );
+      expect(choice.alternatives[0]).toBeGreaterThanOrEqual(
+        previous.alternatives[0],
+      );
+    });
+  });
 
   it("throws for an unknown format", () => {
     expect(() =>

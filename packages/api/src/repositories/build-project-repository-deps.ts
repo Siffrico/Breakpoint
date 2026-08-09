@@ -1,28 +1,20 @@
 import { Effect } from "effect";
 
 import type { db as databaseClient } from "@acme/db/client";
-import {
-  CurriculumModeSchema,
-  StartingPointTierSchema,
-} from "@acme/validators";
+import { StartingPointTierSchema } from "@acme/validators";
 
 import type { BuildProjectDeps } from "../domain/training/orchestration/build-project";
-import {
-  getMemoryContentHash,
-  normalizeMemoryContent,
-} from "../domain/memory/policies/memory-caps";
 import { ArtifactBuildError } from "../domain/training/orchestration/agent-runtime";
 import { createNextUnit } from "../domain/training/unit-creation/create-next-unit";
 import { buildProjectCheckpointRepository } from "./build-project-checkpoint-repository";
 import { buildProjectCurriculumRepository } from "./build-project-curriculum-repository";
 import { buildProjectProfileRepository } from "./build-project-profile-repository";
-import { memoryRepository } from "./memory-repository";
 import { withNodeBuildLifecycle } from "./node-build-lifecycle";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
 import { trainingOnboardingRepository } from "./training-onboarding-repository";
 import {
   createUnitCreationRepositoryDeps,
-  ensureSkillKnowledge,
+  ensureOutcomeCurriculum,
 } from "./unit-creation-repository-deps";
 
 type Database = typeof databaseClient;
@@ -36,15 +28,15 @@ type Database = typeof databaseClient;
  * "no open unit" and both append. The lock is taken on the *skill* node because
  * the unit whose id would otherwise key it does not exist yet.
  */
-export const ensureSkillUnit = async ({
+export const ensureOutcomeUnit = async ({
   db,
-  skillNodeId,
+  outcomeNodeId,
   sessionId,
   userId,
   abortSignal,
 }: {
   db: Database;
-  skillNodeId: string;
+  outcomeNodeId: string;
   sessionId: string;
   userId: string;
   abortSignal?: AbortSignal;
@@ -52,11 +44,11 @@ export const ensureSkillUnit = async ({
   withNodeBuildLifecycle({
     db,
     kind: "unit_creation",
-    nodeId: skillNodeId,
+    nodeId: outcomeNodeId,
     run: (lockDb) =>
       Effect.runPromise(
         createNextUnit({
-          skillNodeId,
+          skillNodeId: outcomeNodeId,
           deps: createUnitCreationRepositoryDeps({
             db: lockDb,
             sessionId,
@@ -134,35 +126,6 @@ export const createBuildProjectDeps = (db: Database): BuildProjectDeps => ({
     return { tier: parsed.data, label: session.startingPointLabel };
   },
 
-  getCurriculumMode: async (sessionId) => {
-    const session = await trainingOnboardingRepository.getSession({
-      db,
-      sessionId,
-    });
-    // An unreadable or unrecognised value means the session predates the
-    // column, so it is an ability-mode session by construction.
-    return (
-      CurriculumModeSchema.safeParse(session?.curriculumMode).data ?? "ability"
-    );
-  },
-
-  persistScenarioInspiration: async ({ userId, content }) => {
-    const normalized = normalizeMemoryContent(content);
-    const result = await memoryRepository.create({
-      db,
-      userId,
-      content: normalized,
-      contentHash: getMemoryContentHash(normalized),
-      source: "profile_update",
-    });
-    if (!result.success && result.error.code !== "CONFLICT") {
-      throw new ArtifactBuildError(
-        "Failed to save the learner's scenario interests.",
-        "save",
-      );
-    }
-  },
-
   ensureShell: async ({
     sessionId,
     ownershipToken,
@@ -170,7 +133,6 @@ export const createBuildProjectDeps = (db: Database): BuildProjectDeps => ({
     title,
     summary,
     targetIdentity,
-    curriculumMode,
     seedRating,
   }) => {
     const plan = await buildProjectCheckpointRepository.withRunOwnership({
@@ -185,7 +147,6 @@ export const createBuildProjectDeps = (db: Database): BuildProjectDeps => ({
           title,
           summary,
           targetIdentity,
-          curriculumMode,
           seedRating,
         }),
     });
@@ -272,7 +233,13 @@ export const createBuildProjectDeps = (db: Database): BuildProjectDeps => ({
       },
     }),
 
-  ensureSkillKnowledge: (input) => ensureSkillKnowledge({ db, ...input }),
-  createSkillUnit: ({ skillNodeId, sessionId, userId, abortSignal }) =>
-    ensureSkillUnit({ db, skillNodeId, sessionId, userId, abortSignal }),
+  ensureOutcomeCurriculum: (input) => ensureOutcomeCurriculum({ db, ...input }),
+  createOutcomeUnit: ({ outcomeNodeId, sessionId, userId, abortSignal }) =>
+    ensureOutcomeUnit({
+      db,
+      outcomeNodeId,
+      sessionId,
+      userId,
+      abortSignal,
+    }),
 });

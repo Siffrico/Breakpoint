@@ -3,203 +3,207 @@ import { describe, expect, it } from "vitest";
 import type { UnitBuilderContext } from "./contracts";
 import { buildSeedStageRequest } from "./seed-prompt-policy";
 
-const blueprint = {
-  declarativeKnowledge: [
-    {
-      label: "Contrast",
-      statement: "Contrast markers reverse the expected meaning.",
-      applicability: "When clauses are contrasted.",
-    },
-    {
-      label: "Context",
-      statement: "Local context constrains the answer.",
-      applicability: "For every passage item.",
-    },
-  ],
-  cognitiveHeuristics: {
-    expertMentality: [
-      "Predict before comparing options.",
-      "Test options against the passage constraint.",
-    ],
-    commonTraps: [
-      {
-        trap: "Dictionary meaning",
-        whyItIsTempting: "It is familiar.",
-        detectionCue: "It fails the local constraint.",
-      },
-      {
-        trap: "Broad synonym",
-        whyItIsTempting: "It sounds plausible.",
-        detectionCue: "It lacks required precision.",
-      },
-    ],
-  },
-  progression: {
-    complexityAxes: ["Constraint distance", "Option similarity"],
-    bandBriefs: [
-      {
-        band: 0 as const,
-        caseShape: "Explicit contrast beside the blank.",
-        reasoningPath: "Read the contrast, predict, match.",
-        withheldGivens: "Nothing is withheld.",
-        embeddedAlternatives: "One clearly wrong option.",
-        liveTraps: [],
-      },
-      {
-        band: 1 as const,
-        caseShape: "Constraint sits one sentence away.",
-        reasoningPath: "Locate the constraint, predict, eliminate.",
-        withheldGivens: "Where the constraint lives.",
-        embeddedAlternatives: "One broad synonym.",
-        liveTraps: ["Broad synonym"],
-      },
-      {
-        band: 2 as const,
-        caseShape: "Indirect constraint and near-miss options.",
-        reasoningPath: "Infer the constraint, predict, separate two survivors.",
-        withheldGivens: "The constraint and its polarity.",
-        embeddedAlternatives: "Two options that both fit loosely.",
-        liveTraps: ["Dictionary meaning", "Broad synonym"],
-      },
-    ],
-  },
-  taskVariations: [
-    {
-      context: "argumentative" as const,
-      applicability: "Claim-based passages.",
-      addedPressure: "Author stance can mislead.",
-    },
-  ],
-};
-
-const context = {
+const context: UnitBuilderContext = {
   node: {
     id: "unit-1",
     kind: "unit",
-    title: "Practice contextual vocabulary",
-    summary: "Use contrast to constrain meaning.",
-    whyItMatters: "This is scored on the SAT.",
-    orderIndex: 1,
+    title: "Practice equivalence",
+    summary: "Solve one SAT Algebra task.",
+    whyItMatters: "Equivalent equations are load-bearing.",
+    orderIndex: 2,
   },
   planContext: {
     regime: "main_outcome",
     slotIndex: 1,
     totalSlots: 3,
     clusterContext: {
-      title: "Craft and Structure",
-      summary: "Selected-response reading tasks.",
-      whyItMatters: "It is a scored SAT domain.",
+      title: "Algebra",
+      summary: "Solve SAT Algebra questions.",
+      whyItMatters: "It contributes to SAT Math performance.",
       taskContract: {
-        mainOutcome:
-          "Select the single defensible answer from passage evidence.",
-        scenarioBrief: {
-          taskShape: "One passage, one blank, and four lettered options.",
-          qualityBar: [
-            "Exactly one option satisfies the contextual constraint.",
+        outcomeResult:
+          "Solve SAT Algebra questions accurately across official forms.",
+        skillMap: {
+          skills: [
+            {
+              name: "Preserve equivalence",
+              description: "Transform equations without changing solutions.",
+              items: [
+                {
+                  kind: "concept",
+                  name: "Equivalent equations",
+                  description:
+                    "The same valid operation on both sides preserves solutions.",
+                },
+              ],
+            },
+            {
+              name: "Isolate the variable",
+              description: "Choose useful inverse operations.",
+              items: [
+                {
+                  kind: "mechanism",
+                  name: "Inverse operations",
+                  description: "Apply inverse operations to expose the value.",
+                },
+              ],
+            },
+            {
+              name: "Verify",
+              description: "Check the candidate in the original equation.",
+              items: [
+                {
+                  kind: "mechanism",
+                  name: "Substitution",
+                  description: "Substitute and compare both sides.",
+                },
+              ],
+            },
           ],
-          variationAxes: ["A contrast word carries the constraint."],
-          neverDo: ["Require knowledge outside the passage."],
+          expertJudgment: [
+            {
+              rule: "Choose the shortest valid route.",
+              when: "Several transformations are available.",
+            },
+            {
+              rule: "Check the original equation.",
+              when: "Signs or denominators changed.",
+            },
+          ],
+          commonMistakes: [
+            {
+              mistake: "Change one side.",
+              whyItHappens: "Terms are treated as moving.",
+              detectionCue: "The solution changes.",
+            },
+            {
+              mistake: "Lose a sign.",
+              whyItHappens: "Distribution is incomplete.",
+              detectionCue: "Substitution fails.",
+            },
+          ],
         },
-        blueprint,
+        practiceContract: {
+          workflow: {
+            name: "Solve a linear equation",
+            steps: [
+              "Read the question.",
+              "Transform the equation.",
+              "Verify the value.",
+            ],
+          },
+          responseMode: "select",
+          taskTypes: [
+            {
+              name: "SAT multiple choice",
+              situation: "A linear equation appears in SAT format.",
+              learnerDoes: "Solve and select the correct value.",
+              output: "One selected answer.",
+              taskShape: "One equation and four options.",
+              skills: [
+                "Preserve equivalence",
+                "Isolate the variable",
+                "Verify",
+              ],
+            },
+          ],
+          qualityBar: ["Exactly one option satisfies the equation."],
+          variationAxes: [
+            { name: "Representation", description: "Symbolic or contextual." },
+            { name: "Unknown position", description: "One or both sides." },
+          ],
+          evaluationCriteria: [
+            {
+              criterion: "The value satisfies the original equation.",
+              skills: [
+                "Preserve equivalence",
+                "Isolate the variable",
+                "Verify",
+              ],
+            },
+          ],
+          difficultyBands: [
+            {
+              band: 0,
+              task: "Direct equation",
+              reasoning: "One step",
+              support: "Full",
+              traps: [],
+            },
+            {
+              band: 1,
+              task: "Variables on both sides",
+              reasoning: "Two steps",
+              support: "Partial",
+              traps: ["sign"],
+            },
+            {
+              band: 2,
+              task: "Contextual near misses",
+              reasoning: "Three steps",
+              support: "None",
+              traps: ["sign", "wrong quantity"],
+            },
+          ],
+          neverDo: ["Use non-SAT terminology."],
+        },
       },
     },
   },
   learner: {
-    targetIdentity: "SAT test-taker",
+    targetIdentity: "SAT Math test-taker",
     priorLearning: [],
   },
   difficulty: {
-    promptBlock: "## Difficulty directive (set by the training engine)",
-    bandOrder: 2,
+    promptBlock: "Build at band 1.",
+    bandOrder: 1,
   },
   knowledge: {
     workflow: {
-      name: "Solve vocabulary in context",
-      steps: ["Find the constraint", "Predict", "Eliminate near-misses"],
+      name: "Solve a linear equation",
+      steps: ["Read.", "Transform.", "Verify."],
     },
     framing: null,
-    checked: [
-      {
-        label: "Context boundary",
-        content: "Use only evidence available in the passage.",
-      },
-    ],
+    checked: [],
     targets: [
       {
-        id: "target-1",
-        kind: "mechanism",
-        label: "Contrast constraint",
-        content: "A contrast cue reverses the expected semantic direction.",
+        id: "item-1",
+        kind: "concept",
+        label: "Equivalent equations",
+        content: "Apply the same valid operation to both sides.",
       },
     ],
   },
-} satisfies UnitBuilderContext;
+};
 
 describe("buildSeedStageRequest", () => {
-  it("builds main-outcome tasks from the fixed demand, scenario brief, and syllabus targets", () => {
+  it("uses the fixed result, Skill Map, and Practice Contract", () => {
     const request = buildSeedStageRequest(context);
 
-    expect(request.prompt).toContain(
-      "Select the single defensible answer from passage evidence.",
-    );
-    expect(request.prompt).toContain(
-      "One passage, one blank, and four lettered options.",
-    );
-    expect(request.prompt).toContain(
-      "Exactly one option satisfies the contextual constraint.",
-    );
-    expect(request.prompt).toContain("A contrast word carries the constraint.");
-    expect(request.prompt).toContain("Require knowledge outside the passage.");
-    expect(request.prompt).toContain("Contrast constraint");
-    expect(request.prompt).toContain("Authoritative subtype blueprint");
-    expect(request.prompt).toContain("argumentative");
+    expect(request.prompt).toContain("Fixed result:");
+    expect(request.prompt).toContain("Practice Contract:");
+    expect(request.prompt).toContain("Skill Map:");
+    expect(request.prompt).toContain("SAT multiple choice");
+    expect(request.prompt).toContain("Preserve equivalence");
   });
 
-  it("hands the generator the engine's directive and only the chosen band's brief", () => {
-    const request = buildSeedStageRequest(context);
-
-    expect(request.prompt).toContain(
-      "## Difficulty directive (set by the training engine)",
-    );
-    expect(request.prompt).toContain("Band 2: Indirect constraint");
-    expect(request.prompt).not.toContain("Band 0:");
-    expect(request.prompt).not.toContain("Band 1:");
-  });
-
-  it("falls back to the whole ladder when no directive resolved", () => {
-    const request = buildSeedStageRequest({ ...context, difficulty: null });
-
-    expect(request.prompt).toContain("No band was resolved for this task");
-    expect(request.prompt).toContain("Band 0:");
-    expect(request.prompt).toContain("Band 2:");
-  });
-
-  it("does not inherit foundation diagnostic requirements", () => {
-    const request = buildSeedStageRequest(context);
-    const instructions = `${request.system}\n${request.prompt}`;
-
-    expect(instructions).not.toContain("exactly one new mechanism");
-    expect(instructions).not.toContain("exactly three numbered questions");
-    expect(instructions).not.toContain('End with "### Reconstruct the system"');
-    expect(instructions).toContain(
-      'do not create a pre-teach diagnostic, reduce the task to one mechanism or one failure, or append "Reconstruct the system" questions',
+  it("selects the current difficulty band", () => {
+    expect(buildSeedStageRequest(context).prompt).toContain(
+      "Band 1: Variables on both sides",
     );
   });
 
-  it("keeps the reconstruction diagnostic inside the foundation policy", () => {
-    const request = buildSeedStageRequest({
-      ...context,
-      planContext: {
-        ...context.planContext,
-        regime: "foundation",
-        clusterContext: {
-          ...context.planContext.clusterContext,
-          taskContract: null,
+  it("requires a compiled outcome contract", () => {
+    const clusterContext = context.planContext.clusterContext;
+    if (!clusterContext) throw new Error("Missing test cluster context.");
+    expect(() =>
+      buildSeedStageRequest({
+        ...context,
+        planContext: {
+          ...context.planContext,
+          clusterContext: { ...clusterContext, taskContract: null },
         },
-      },
-    });
-
-    expect(request.prompt).toContain('End with "### Reconstruct the system"');
-    expect(request.prompt).toContain("exactly three numbered questions");
+      }),
+    ).toThrow("requires an outcome contract");
   });
 });

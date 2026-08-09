@@ -10,12 +10,6 @@ export const TrainingOnboardingSession = pgTable(
     userId: t.text().references(() => user.id, { onDelete: "set null" }),
     status: t.varchar({ length: 32 }).notNull().default("intro"),
     questionCount: t.integer().notNull().default(0),
-    // Which curriculum shape this session builds toward: "ability" (the
-    // identity → abilities → skills decomposition) or "topic" (the outcome
-    // curriculum). The two modes run DIFFERENT consultants, so this is chosen
-    // before the first message rather than derived later. Free-form varchar to
-    // avoid an enum migration; see @acme/validators CurriculumModeSchema.
-    curriculumMode: t.varchar({ length: 24 }).notNull().default("ability"),
     // Where the learner is starting from in their target field, elicited once
     // mid-consultation via the askStartingPoint tool. Tier maps to a Glicko seed
     // (see engine/rating/seed.ts); label is the exact option text they tapped,

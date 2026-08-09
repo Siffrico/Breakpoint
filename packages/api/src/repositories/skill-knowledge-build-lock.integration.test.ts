@@ -53,17 +53,14 @@ const withSkillNode = async <T>(
       .insert(TrainingCurriculumNode)
       .values({
         planId: plan.id,
-        kind: "skill",
+        kind: "outcome",
         status: "ready",
         title: "Knowledge lock skill",
         summary: "Exercise knowledge build ownership.",
         whyItMatters: "Knowledge generation must be single-flight.",
-        skillMap: {
-          workflow: { name: "Test", steps: ["Read", "Run", "Verify"] },
-          bandRamp: { startRating: 850, peakRating: 1450 },
-          masteryContract: { exitCriteria: ["Verifies ownership"] },
-          scenarioArchetype: "judge",
-        },
+        outcomeResult: "Verify build ownership.",
+        skillMap: null,
+        practiceContract: null,
         orderIndex: 0,
         depth: 1,
         positionColumn: 0,

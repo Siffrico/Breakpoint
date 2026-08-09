@@ -100,24 +100,136 @@ const seedUnitRun = async ({
     positionColumn: 0,
     positionRow: 0,
   };
-  // The v4 shape constraint requires an ability to carry a stage and a skill
-  // map; only 'root' | 'ability' | 'skill' | 'unit' are valid kinds.
   const [parentNode] = await db
     .insert(TrainingCurriculumNode)
     .values({
       ...nodeDefaults,
       kind: parentKind,
-      abilityStage: parentKind === "ability" ? "skillset" : null,
+      outcomeResult:
+        parentKind === "outcome"
+          ? "Publish a defensible incident review."
+          : null,
       skillMap:
-        parentKind === "ability" || parentKind === "skill"
+        parentKind === "outcome"
+          ? {
+              skills: [
+                {
+                  name: "Gather evidence",
+                  description: "Collect relevant incident evidence.",
+                  items: [
+                    {
+                      kind: "mechanism" as const,
+                      name: "Timeline",
+                      description: "Order events by time.",
+                    },
+                  ],
+                },
+                {
+                  name: "Find causes",
+                  description: "Separate causes from symptoms.",
+                  items: [
+                    {
+                      kind: "concept" as const,
+                      name: "Causal chain",
+                      description: "A cause explains the observed failure.",
+                    },
+                  ],
+                },
+                {
+                  name: "Choose actions",
+                  description: "Select corrections tied to causes.",
+                  items: [
+                    {
+                      kind: "mechanism" as const,
+                      name: "Corrective action",
+                      description: "Connect each action to a cause.",
+                    },
+                  ],
+                },
+              ],
+              expertJudgment: [
+                {
+                  rule: "Separate evidence from inference.",
+                  when: "The cause is uncertain.",
+                },
+                {
+                  rule: "Prioritize system fixes.",
+                  when: "Several actions are available.",
+                },
+              ],
+              commonMistakes: [
+                {
+                  mistake: "Blame the operator.",
+                  whyItHappens: "The final action is visible.",
+                  detectionCue: "System conditions are omitted.",
+                },
+                {
+                  mistake: "List symptoms as causes.",
+                  whyItHappens: "Symptoms are concrete.",
+                  detectionCue: "The explanation does not predict the failure.",
+                },
+              ],
+            }
+          : null,
+      practiceContract:
+        parentKind === "outcome"
           ? {
               workflow: {
                 name: "Review an incident",
-                steps: ["Gather", "Write"],
+                steps: ["Gather evidence.", "Trace causes.", "Choose actions."],
               },
-              bandRamp: { startRating: 1000, peakRating: 1400 },
-              masteryContract: { exitCriteria: ["Publishes one review"] },
-              scenarioArchetype: "judge" as const,
+              responseMode: "judge" as const,
+              taskTypes: [
+                {
+                  name: "Incident review",
+                  situation: "A completed incident needs review.",
+                  learnerDoes: "Diagnose and recommend.",
+                  output: "A defensible review.",
+                  taskShape: "Timeline, evidence, and incident artifacts.",
+                  skills: ["Gather evidence", "Find causes", "Choose actions"],
+                },
+              ],
+              qualityBar: ["Claims are supported by evidence."],
+              variationAxes: [
+                {
+                  name: "Failure",
+                  description: "The failure mechanism changes.",
+                },
+                {
+                  name: "Evidence",
+                  description: "Evidence completeness changes.",
+                },
+              ],
+              evaluationCriteria: [
+                {
+                  criterion: "The causal explanation fits the evidence.",
+                  skills: ["Gather evidence", "Find causes", "Choose actions"],
+                },
+              ],
+              difficultyBands: [
+                {
+                  band: 0 as const,
+                  task: "Direct",
+                  reasoning: "One cause",
+                  support: "Full",
+                  traps: [],
+                },
+                {
+                  band: 1 as const,
+                  task: "Messy",
+                  reasoning: "Several causes",
+                  support: "Partial",
+                  traps: ["symptom"],
+                },
+                {
+                  band: 2 as const,
+                  task: "Adversarial",
+                  reasoning: "Competing causes",
+                  support: "None",
+                  traps: ["symptom", "blame"],
+                },
+              ],
+              neverDo: ["Require unavailable evidence."],
             }
           : null,
       title: "Incident response",
@@ -240,7 +352,7 @@ describe("MissionRepoLive", () => {
     "resolves the whole access projection, including the parent kind and a null mission, in one read",
     async () => {
       const seed = await seedUnitRun({
-        parentKind: "ability",
+        parentKind: "outcome",
         mode: "complete",
       });
 
@@ -258,7 +370,7 @@ describe("MissionRepoLive", () => {
 
       expect(access).not.toBeNull();
       expect(access?.run.mode).toBe("complete");
-      expect(access?.parentNode?.kind).toBe("ability");
+      expect(access?.parentNode?.kind).toBe("outcome");
       expect(access?.plan.targetIdentity).toBe("Incident commander");
       expect(access?.unit.scenarioFocusAreas).toEqual([
         "evidence first",
@@ -273,7 +385,7 @@ describe("MissionRepoLive", () => {
     "refuses to start a mission that has no plan, and classifies why",
     async () => {
       const seed = await seedUnitRun({
-        parentKind: "ability",
+        parentKind: "outcome",
         mode: "complete",
       });
       const { db } = await import("@acme/db/client");
@@ -306,7 +418,7 @@ describe("MissionRepoLive", () => {
     "rejects a plan rewrite on a completed mission inside the write itself",
     async () => {
       const seed = await seedUnitRun({
-        parentKind: "ability",
+        parentKind: "outcome",
         mode: "complete",
       });
       const { db } = await import("@acme/db/client");
@@ -345,7 +457,7 @@ describe("MissionRepoLive", () => {
     "gives exactly one of two concurrent evaluations the reservation",
     async () => {
       const seed = await seedUnitRun({
-        parentKind: "ability",
+        parentKind: "outcome",
         mode: "complete",
       });
       const { db } = await import("@acme/db/client");

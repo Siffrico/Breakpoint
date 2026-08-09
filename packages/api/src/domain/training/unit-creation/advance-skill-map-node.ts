@@ -4,7 +4,6 @@ import type { DbError } from "../../../effect/errors";
 import type {
   ProgressionNode,
   SkillMapAdvancement,
-  StageChange,
   StatusChange,
 } from "../engine/plan-progression";
 import type { CreateNextUnitError } from "./create-next-unit";
@@ -16,14 +15,13 @@ export interface AdvanceSkillMapNodeDependencies {
     nodeId: string,
   ) => Effect.Effect<ProgressionNode[] | null, DbError>;
   /**
-   * Persist the advancement's status AND stage sets in ONE transaction.
+   * Persist the advancement's status changes in one transaction.
    * Atomicity is the contract: a partial write could complete the mastered
    * node while its successor stays locked, leaving the plan with no
    * recoverable ready frontier.
    */
   applyAdvancement: (advancement: {
     changes: readonly StatusChange[];
-    stageChanges: readonly StageChange[];
   }) => Effect.Effect<void, DbError>;
   /** Idempotently ensure the named parent's next unit (open or created). */
   createNextUnit: (
@@ -37,10 +35,6 @@ export interface AdvanceSkillMapNodeDependencies {
  */
 const nextUnitParentOf = (advancement: SkillMapAdvancement): string | null => {
   switch (advancement.kind) {
-    case "foundation_unit":
-      return advancement.skillNodeId;
-    case "skillset_unit":
-      return advancement.abilityNodeId;
     case "outcome_unit":
       return advancement.outcomeNodeId;
     case "plan_complete":
@@ -50,7 +44,7 @@ const nextUnitParentOf = (advancement: SkillMapAdvancement): string | null => {
 };
 
 /**
- * A skillMap node (skill, ability, or outcome) is mastered: apply the pure advancement
+ * An outcome is mastered: apply the pure advancement
  * plan (complete it, unlock what follows) atomically, then ensure the next
  * unit it names. Idempotent per node — re-running on an already-completed
  * node re-applies the same statuses and re-ensures the same next unit, so a

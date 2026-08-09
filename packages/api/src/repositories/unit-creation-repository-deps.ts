@@ -1,10 +1,11 @@
 import { Effect } from "effect";
 
 import type { db as databaseClient } from "@acme/db/client";
-import { and, asc, desc, eq, gt, isNotNull, or } from "@acme/db";
+import { and, asc, desc, eq, gt } from "@acme/db";
 import {
   TrainingCurriculumNode,
   TrainingCurriculumPlan,
+  TrainingIdentityProfileVersion,
 } from "@acme/db/schema";
 
 import type {
@@ -13,24 +14,20 @@ import type {
 } from "../domain/training/engine/plan-progression";
 import type { JobRatingState } from "../domain/training/engine/rating";
 import type { CreateNextUnitDependencies } from "../domain/training/unit-creation/create-next-unit";
-import type { SkillPractice } from "../domain/training/unit-creation/target-selection";
-import { designSkillKnowledge } from "../domain/training/agents/knowledge-mapper";
-import {
-  CONCEPT_COVERAGE_TARGET,
-  SYLLABUS_COVERAGE_TARGET,
-} from "../domain/training/engine/concept-coverage";
+import { SKILL_MAP_COVERAGE_TARGET } from "../domain/training/engine/concept-coverage";
 import {
   regimeForNodeKind,
   resolveProgressionModel,
 } from "../domain/training/engine/progression-model";
-import { createInitialRatingState } from "../domain/training/engine/rating";
-import { designOutcomeBlueprint } from "../domain/training/outcome-curriculum/outcome-blueprint";
+import {
+  createInitialRatingState,
+  deriveCanonicalDifficultyBands,
+} from "../domain/training/engine/rating";
+import { ARCHETYPE_FORMATS } from "../domain/training/engine/scenario-archetypes";
+import { compileOutcome } from "../domain/training/outcome-curriculum/outcome-compiler";
 import { advanceSkillMapNodeWorkflow } from "../domain/training/unit-creation/advance-skill-map-node";
 import { createNextUnit } from "../domain/training/unit-creation/create-next-unit";
-import {
-  countSkillsBelowRepTarget,
-  createRegimeTargetSelector,
-} from "../domain/training/unit-creation/target-selection";
+import { createRegimeTargetSelector } from "../domain/training/unit-creation/target-selection";
 import { prepareUnitContent } from "../domain/training/unit-preparation/prepare-unit-content";
 import { queryWithClient } from "../effect/db";
 import { resolvePlanSeedRating } from "./plan-seed-rating";
@@ -52,7 +49,7 @@ type NodeRow = typeof TrainingCurriculumNode.$inferSelect;
  * Ordered by orderIndex rather than by status so an interleaved plan (where
  * every outcome is unlocked at build time) warms them in the order they were
  * authored. Already-blueprinted successors are skipped here rather than inside
- * ensureSkillKnowledge, so the common steady-state case costs one indexed read
+ * ensureOutcomeCurriculum, so the common steady-state case costs one indexed read
  * and no lock at all.
  */
 export const findNextPlannedOutcome = async ({
@@ -74,7 +71,7 @@ export const findNextPlannedOutcome = async ({
     ),
     orderBy: asc(TrainingCurriculumNode.orderIndex),
   });
-  if (!next || next.skillMap?.blueprint) return null;
+  if (!next || next.practiceContract) return null;
   return next.id;
 };
 
@@ -102,87 +99,76 @@ const listRecentPriorPerformance = async ({
       failureTags: attempt.failureTags,
     }));
 
-export const ensureSkillKnowledge = async ({
+export const ensureOutcomeCurriculum = async ({
   db,
-  skillNodeId,
+  outcomeNodeId,
   targetIdentity,
   abortSignal,
 }: {
   db: Database;
-  skillNodeId: string;
+  outcomeNodeId: string;
   targetIdentity?: string;
-  /** Caller's deadline for the model call; omitted outside the project build. */
   abortSignal?: AbortSignal;
 }) =>
   withSkillKnowledgeBuildLock({
     db,
-    skillNodeId,
+    skillNodeId: outcomeNodeId,
     run: async (lockDb) => {
-      const cluster = await trainingCurriculumRepository.getNodeById({
+      const outcome = await trainingCurriculumRepository.getNodeById({
         db: lockDb,
-        nodeId: skillNodeId,
+        nodeId: outcomeNodeId,
       });
-      const skillMap = cluster?.skillMap;
-      if (!skillMap) return null;
-      const ownsKnowledge =
-        cluster.kind === "skill" || cluster.kind === "outcome";
-      if (!ownsKnowledge) return null;
-      // Pass B writes the blueprint and the syllabus in one transaction, so
-      // syllabus rows prove both landed. This is also the warm path's dedupe:
-      // an already-blueprinted outcome costs one indexed read and returns.
+      if (outcome?.kind !== "outcome" || !outcome.outcomeResult) return null;
       const existing = await skillKnowledgeRepository.listKnowledge({
         db: lockDb,
-        skillNodeId,
+        skillNodeId: outcomeNodeId,
       });
-      if (existing.length > 0) return existing;
+      if (outcome.skillMap && outcome.practiceContract && existing.length > 0) {
+        return existing;
+      }
       const plan = await lockDb.query.TrainingCurriculumPlan.findFirst({
-        where: eq(TrainingCurriculumPlan.id, cluster.planId),
+        where: eq(TrainingCurriculumPlan.id, outcome.planId),
       });
       const identity = targetIdentity ?? plan?.targetIdentity;
-      if (!identity) return null;
-
-      if (cluster.kind === "outcome") {
-        const design = await designOutcomeBlueprint({
-          targetIdentity: identity,
-          planTitle: plan?.title ?? identity,
-          outcomeTitle: cluster.title,
-          mainOutcome: skillMap.mainOutcome ?? cluster.summary,
-          summary: cluster.summary,
-          whyItMatters: cluster.whyItMatters,
-          scenarioArchetype: skillMap.scenarioArchetype,
-          workflow: skillMap.workflow,
-          exitCriteria: skillMap.masteryContract.exitCriteria,
-          priorPerformance: plan
-            ? await listRecentPriorPerformance({
-                db: lockDb,
-                sessionId: plan.onboardingSessionId,
-              })
-            : [],
-          options: { abortSignal },
-        });
-        return skillKnowledgeRepository.ensureOutcomeBlueprint({
-          db: lockDb,
-          outcomeNodeId: skillNodeId,
-          scenarioBrief: design.scenarioBrief,
-          blueprint: design.blueprint,
-          questions: design.syllabus.axes.map((entry) => ({
-            question: entry.axis,
-            items: entry.items,
-          })),
-        });
-      }
-
-      const { questions } = await designSkillKnowledge({
-        title: cluster.title,
-        summary: cluster.summary,
+      if (!plan || !identity) return null;
+      const profile = plan.profileVersionId
+        ? await lockDb.query.TrainingIdentityProfileVersion.findFirst({
+            where: eq(TrainingIdentityProfileVersion.id, plan.profileVersionId),
+          })
+        : null;
+      const compilation = await compileOutcome({
         targetIdentity: identity,
-        workflow: skillMap.workflow,
-        masteryContract: skillMap.masteryContract,
+        projectTitle: plan.title,
+        projectSummary: plan.summary,
+        outcomeTitle: outcome.title,
+        outcomeResult: outcome.outcomeResult,
+        learnerContext: {
+          currentGap:
+            profile?.hardMoments[0] ??
+            profile?.currentBaseline ??
+            "No specific current gap was recorded.",
+          goodMeans:
+            profile?.behaviorSignals && profile.behaviorSignals.length > 0
+              ? profile.behaviorSignals
+              : ["Accurate, domain-authentic performance."],
+        },
+        priorPerformance: await listRecentPriorPerformance({
+          db: lockDb,
+          sessionId: plan.onboardingSessionId,
+        }),
+        options: { abortSignal },
       });
-      return skillKnowledgeRepository.ensureKnowledge({
+      const difficultyBands = [
+        ...deriveCanonicalDifficultyBands(
+          ARCHETYPE_FORMATS[compilation.practiceContract.responseMode],
+        ),
+      ];
+      return skillKnowledgeRepository.ensureOutcomeCurriculum({
         db: lockDb,
-        skillNodeId,
-        questions,
+        outcomeNodeId,
+        skillMap: compilation.skillMap,
+        practiceContract: compilation.practiceContract,
+        difficultyBands,
       });
     },
   });
@@ -212,8 +198,8 @@ export const createUnitCreationRepositoryDeps = ({
 
   return {
     ensureSkillKnowledge: (skillNodeId) =>
-      queryWithClient(db, "ensureSkillKnowledge", () =>
-        ensureSkillKnowledge({ db, skillNodeId }),
+      queryWithClient(db, "ensureOutcomeCurriculum", () =>
+        ensureOutcomeCurriculum({ db, outcomeNodeId: skillNodeId }),
       ),
     loadOpenUnit: (skillNodeId, unitStatus) =>
       queryWithClient(
@@ -268,80 +254,21 @@ export const createUnitCreationRepositoryDeps = ({
           orderBy: [desc(TrainingCurriculumNode.orderIndex)],
         });
 
-        // Topic mode: an outcome node owns its syllabus directly, so the
-        // frontier is simply its own entries, weakest-covered first. Unlike the
-        // ability branch below, the stored status is left alone — these items
-        // check off against this very node, so it is already correct.
-        if (node.kind === "outcome") {
-          const entries = await skillKnowledgeRepository.listKnowledge({
-            db,
-            skillNodeId,
-          });
-          return {
-            title: node.title,
-            whyItMatters: node.whyItMatters,
-            regime,
-            entries: entries.map((entry) => ({
-              ...toFrontierItem(entry),
-              coverageCount: entry.coverageCount,
-            })),
-            openUnit: openUnit ?? null,
-          };
-        }
-
-        // Skillset units (parent = ability): the "frontier" is the ability's
-        // weakest concepts across ALL its skills — the least-covered ones are
-        // the integration targets. They are surfaced with status "unchecked" so
-        // the selector picks them; their real check-off state lives on the
-        // skill's own foundation history. Each entry carries its owning skill
-        // so the interleaving selector can rotate between skills across units.
-        if (node.kind === "ability" || node.kind === "skill") {
-          if (node.kind === "ability") {
-            const skills = await db.query.TrainingCurriculumNode.findMany({
-              where: and(
-                eq(TrainingCurriculumNode.parentNodeId, skillNodeId),
-                eq(TrainingCurriculumNode.kind, "skill"),
-              ),
-            });
-            const perSkillEntries = await Promise.all(
-              skills.map(async (skill) =>
-                (
-                  await skillKnowledgeRepository.listKnowledge({
-                    db,
-                    skillNodeId: skill.id,
-                  })
-                ).map((entry) => ({ ...entry, ownerSkillId: skill.id })),
-              ),
-            );
-            const entries = perSkillEntries
-              .flat()
-              .sort((a, b) => a.coverageCount - b.coverageCount)
-              .map((entry) => ({
-                ...toFrontierItem(entry),
-                ownerSkillId: entry.ownerSkillId,
-                status: "unchecked",
-              }));
-            return {
-              title: node.title,
-              whyItMatters: node.whyItMatters,
-              regime,
-              entries,
-              openUnit: openUnit ?? null,
-            };
-          }
-          const entries = await skillKnowledgeRepository.listKnowledge({
-            db,
-            skillNodeId,
-          });
-          return {
-            title: node.title,
-            whyItMatters: node.whyItMatters,
-            regime,
-            entries: entries.map(toFrontierItem),
-            openUnit: openUnit ?? null,
-          };
-        }
-        return null;
+        if (node.kind !== "outcome") return null;
+        const entries = await skillKnowledgeRepository.listKnowledge({
+          db,
+          skillNodeId,
+        });
+        return {
+          title: node.title,
+          whyItMatters: node.whyItMatters,
+          regime,
+          entries: entries.map((entry) => ({
+            ...toFrontierItem(entry),
+            coverageCount: entry.coverageCount,
+          })),
+          openUnit: openUnit ?? null,
+        };
       }),
     resolveDirective: (skillNodeId) =>
       queryWithClient(db, "resolveUnitCreationDirective", async () =>
@@ -369,98 +296,19 @@ export const createUnitCreationRepositoryDeps = ({
         abortSignal,
         deps: createUnitPreparationRepositoryDeps(db),
       }).pipe(Effect.asVoid),
-    selectTargets: createRegimeTargetSelector({
-      skillPracticeHistory: ({ abilityNodeId }) =>
-        queryWithClient(db, "loadSkillPracticeHistory", () =>
-          loadSkillPracticeHistory({ db, abilityNodeId }),
-        ),
-    }),
+    selectTargets: createRegimeTargetSelector(),
   };
-};
-
-/**
- * Every child skill of an ability with the number of completed skillset units
- * that were a rep of it, and when the latest one landed.
- *
- * Reads both halves of Fix 2 from the same place: the round-robin picks the
- * minimum rep count, and the mastery gate counts how many skills are still
- * short of the target. Unpracticed skills are present at zero reps — the
- * round-robin's no-starvation guarantee depends on seeing the full roster, so
- * an inner join over practiced skills alone would break it.
- *
- * Grouped in memory rather than in SQL: an ability holds at most a few dozen
- * units, both predicates ride the parent index, and it keeps the timestamp
- * typed as a Date instead of whatever an aggregate hands back.
- */
-export const loadSkillPracticeHistory = async ({
-  db,
-  abilityNodeId,
-  includeUnitNodeId,
-}: {
-  db: Database;
-  abilityNodeId: string;
-  /** A mastered unit whose status has not yet been committed to completed. */
-  includeUnitNodeId?: string;
-}): Promise<SkillPractice[]> => {
-  const completedOrIncluded = includeUnitNodeId
-    ? or(
-        eq(TrainingCurriculumNode.status, "completed"),
-        eq(TrainingCurriculumNode.id, includeUnitNodeId),
-      )
-    : eq(TrainingCurriculumNode.status, "completed");
-  const [skills, completedUnits] = await Promise.all([
-    db.query.TrainingCurriculumNode.findMany({
-      where: and(
-        eq(TrainingCurriculumNode.parentNodeId, abilityNodeId),
-        eq(TrainingCurriculumNode.kind, "skill"),
-      ),
-      orderBy: [TrainingCurriculumNode.orderIndex],
-      columns: { id: true },
-    }),
-    db.query.TrainingCurriculumNode.findMany({
-      where: and(
-        eq(TrainingCurriculumNode.parentNodeId, abilityNodeId),
-        eq(TrainingCurriculumNode.kind, "unit"),
-        completedOrIncluded,
-        isNotNull(TrainingCurriculumNode.practicedSkillNodeId),
-      ),
-      columns: { practicedSkillNodeId: true, createdAt: true },
-    }),
-  ]);
-
-  const practiceBySkillId = new Map<string, SkillPractice>(
-    skills.map((skill) => [
-      skill.id,
-      { skillId: skill.id, reps: 0, lastPracticedAt: null },
-    ]),
-  );
-  for (const unit of completedUnits) {
-    const practice = practiceBySkillId.get(unit.practicedSkillNodeId ?? "");
-    // A unit whose skill has since been removed from the plan counts for
-    // nothing rather than resurrecting a skill the roster no longer has.
-    if (!practice) continue;
-    practice.reps += 1;
-    if (
-      !practice.lastPracticedAt ||
-      unit.createdAt > practice.lastPracticedAt
-    ) {
-      practice.lastPracticedAt = unit.createdAt;
-    }
-  }
-  return [...practiceBySkillId.values()];
 };
 
 /**
  * Load the progression state for a unit's skillMap-bearing parent. The regime
  * is decided once by {@link resolveProgressionModel}; this only gathers the
- * evidence that regime needs. Returns null when the node runs no mastery loop
- * (legacy/imported plans) — callers treat null as "nothing to decide".
+ * evidence that regime needs. Returns null when the outcome is not compiled.
  */
 export const loadProgressionState = async ({
   db,
   skillNodeId,
   userId,
-  includeUnitNodeId,
 }: {
   db: Database;
   skillNodeId: string;
@@ -473,74 +321,30 @@ export const loadProgressionState = async ({
   const model = node ? resolveProgressionModel(node) : null;
   if (!model) return null;
 
-  switch (model.regime) {
-    case "foundation": {
-      const entries = await skillKnowledgeRepository.listKnowledge({
-        db,
-        skillNodeId,
-      });
-      return {
-        regime: "foundation",
-        entries: entries.map((entry) => ({
-          coverageCount: entry.coverageCount,
-        })),
-        coverageTarget: CONCEPT_COVERAGE_TARGET,
-      };
-    }
-    case "skillset": {
-      const [seed, practice] = await Promise.all([
-        resolvePlanSeedRating({ db, nodeId: skillNodeId }),
-        loadSkillPracticeHistory({
-          db,
-          abilityNodeId: skillNodeId,
-          includeUnitNodeId,
-        }),
-      ]);
-      const progress = await trainingRatingRepository.loadJobProgress({
-        db,
-        userId,
-        nodeId: skillNodeId,
-        initialRatingState: seed ?? createInitialRatingState(),
-      });
-      return {
-        regime: "skillset",
-        skillsBelowRepTarget: countSkillsBelowRepTarget(practice),
-        learnerRating: progress.ratingState.rating,
-        ratingDeviation: progress.ratingState.ratingDeviation,
-        masteryRating: model.mastery.masteryRating,
-        maxRatingDeviation: model.mastery.maxRatingDeviation,
-      };
-    }
-    case "main_outcome": {
-      const [seed, syllabus] = await Promise.all([
-        resolvePlanSeedRating({ db, nodeId: skillNodeId }),
-        skillKnowledgeRepository.listKnowledge({ db, skillNodeId }),
-      ]);
-      const progress = await trainingRatingRepository.loadJobProgress({
-        db,
-        userId,
-        nodeId: skillNodeId,
-        initialRatingState: seed ?? createInitialRatingState(),
-      });
-      return {
-        regime: "main_outcome",
-        // An empty syllabus is never mastered: it means the mapper has not run
-        // (or failed), not that the learner has covered everything. Reporting
-        // zero here would complete the outcome on rating alone.
-        syllabusItemsBelowCoverage:
-          syllabus.length === 0
-            ? 1
-            : syllabus.filter(
-                (entry) => entry.coverageCount < SYLLABUS_COVERAGE_TARGET,
-              ).length,
-        syllabusItemsTotal: syllabus.length,
-        learnerRating: progress.ratingState.rating,
-        ratingDeviation: progress.ratingState.ratingDeviation,
-        masteryRating: model.mastery.masteryRating,
-        maxRatingDeviation: model.mastery.maxRatingDeviation,
-      };
-    }
-  }
+  const [seed, skillItems] = await Promise.all([
+    resolvePlanSeedRating({ db, nodeId: skillNodeId }),
+    skillKnowledgeRepository.listKnowledge({ db, skillNodeId }),
+  ]);
+  const progress = await trainingRatingRepository.loadJobProgress({
+    db,
+    userId,
+    nodeId: skillNodeId,
+    initialRatingState: seed ?? createInitialRatingState(),
+  });
+  return {
+    regime: "main_outcome",
+    skillItemsBelowCoverage:
+      skillItems.length === 0
+        ? 1
+        : skillItems.filter(
+            (entry) => entry.coverageCount < SKILL_MAP_COVERAGE_TARGET,
+          ).length,
+    skillItemsTotal: skillItems.length,
+    learnerRating: progress.ratingState.rating,
+    ratingDeviation: progress.ratingState.ratingDeviation,
+    masteryRating: model.mastery.masteryRating,
+    maxRatingDeviation: model.mastery.maxRatingDeviation,
+  };
 };
 
 /**
@@ -582,7 +386,7 @@ export const advanceSkillMapNode = async ({
               orderIndex: row.orderIndex,
             }));
           }),
-        applyAdvancement: ({ changes, stageChanges }) =>
+        applyAdvancement: ({ changes }) =>
           queryWithClient(db, "applyAdvancementChanges", () =>
             db.transaction(async (tx) => {
               const transactionDb = tx as unknown as Database;
@@ -590,12 +394,6 @@ export const advanceSkillMapNode = async ({
                 await transactionDb
                   .update(TrainingCurriculumNode)
                   .set({ status: change.status })
-                  .where(eq(TrainingCurriculumNode.id, change.nodeId));
-              }
-              for (const change of stageChanges) {
-                await transactionDb
-                  .update(TrainingCurriculumNode)
-                  .set({ abilityStage: change.stage })
                   .where(eq(TrainingCurriculumNode.id, change.nodeId));
               }
             }),

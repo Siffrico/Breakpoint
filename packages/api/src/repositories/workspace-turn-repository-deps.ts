@@ -664,8 +664,8 @@ export const createWorkspaceTurnRepositoryDeps = (
           where: eq(TrainingCurriculumNode.id, nodeId),
         }),
       ]).then(([seed, ratingNode]) => {
-        if (!ratingNode?.skillMap) {
-          throw new Error("Rating ability is missing its scenario contract.");
+        if (!ratingNode?.practiceContract) {
+          throw new Error("Outcome is missing its Practice Contract.");
         }
         return resolveScenarioDirective({
           userId,
@@ -673,7 +673,7 @@ export const createWorkspaceTurnRepositoryDeps = (
           now,
           bands,
           initialRatingState: seed ?? undefined,
-          scenarioFormat: resolveScenarioFormat(ratingNode.skillMap),
+          scenarioFormat: resolveScenarioFormat(ratingNode.practiceContract),
           deps: createTrainingRatingGoldilocksDeps(db),
         });
       }),

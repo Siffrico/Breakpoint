@@ -14,7 +14,6 @@ import {
 
 import type { db as databaseClient } from "@acme/db/client";
 import type { StartingPointTier } from "@acme/validators";
-import { CurriculumModeSchema } from "@acme/validators";
 
 import type { CreateProjectResult } from "./domain/training/agents/onboarding-chat-agent";
 import type {
@@ -24,8 +23,6 @@ import type {
 import {
   AskStartingPointOutputSchema,
   askStartingPointTool,
-  createCreateProjectTool,
-  ONBOARDING_CHAT_SYSTEM,
 } from "./domain/training/agents/onboarding-chat-agent";
 import {
   createCreateTopicProjectTool,
@@ -449,21 +446,12 @@ const runOnboardingChat = async ({
           : { ok: false, reason: result.error };
       };
 
-      // The two curriculum modes run different consultants against the same
-      // transcript, tools, and build path. The mode was chosen before the first
-      // message, so it never changes mid-session.
-      const isTopicMode =
-        CurriculumModeSchema.safeParse(session.curriculumMode).data === "topic";
-      const consultantSystem = isTopicMode
-        ? TOPIC_ONBOARDING_CHAT_SYSTEM
-        : ONBOARDING_CHAT_SYSTEM;
-      const readyNote = isTopicMode
-        ? "createProject shows the learner your reading of them and waits for their approval, so only call it once they have confirmed the outcome split you proposed."
-        : "createProject shows the learner your reading of them and waits for their approval, so only call it once they have explicitly chosen one of your suggested projects.";
+      const readyNote =
+        "createProject shows the learner your reading of them and waits for their approval, so only call it once they have confirmed every outcome title and result.";
 
       const result = streamText({
         model,
-        system: `${consultantSystem}
+        system: `${TOPIC_ONBOARDING_CHAT_SYSTEM}
 
 Runtime state: ${readyNote}
 ${startingPointNote}`,
@@ -471,9 +459,7 @@ ${startingPointNote}`,
         tools: {
           ...getSearchToolsForSelectedProvider("onboarding"),
           askStartingPoint: askStartingPointTool,
-          createProject: isTopicMode
-            ? createCreateTopicProjectTool({ buildProject })
-            : createCreateProjectTool({ buildProject }),
+          createProject: createCreateTopicProjectTool({ buildProject }),
         },
         // SDK-native server-side smoothing: release whole words on a short
         // cadence so the client renders a steady stream.

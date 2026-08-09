@@ -3,22 +3,20 @@ import { describe, expect, it } from "vitest";
 import { isEligibleForMission } from "./mission-lifecycle";
 
 describe("isEligibleForMission", () => {
-  it("allows a mastered unit under an ability or a skill cluster", () => {
-    for (const kind of ["ability", "skill_cluster"]) {
-      expect(
-        isEligibleForMission({
-          run: { mode: "complete" },
-          parentNode: { kind },
-        }),
-      ).toBe(true);
-    }
+  it("allows a mastered unit under an outcome", () => {
+    expect(
+      isEligibleForMission({
+        run: { mode: "complete" },
+        parentNode: { kind: "outcome" },
+      }),
+    ).toBe(true);
   });
 
   it("rejects a run that has not reached mastery", () => {
     expect(
       isEligibleForMission({
         run: { mode: "review" },
-        parentNode: { kind: "ability" },
+        parentNode: { kind: "outcome" },
       }),
     ).toBe(false);
   });

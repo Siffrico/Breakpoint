@@ -1,125 +1,113 @@
 import { describe, expect, it } from "vitest";
 
+import type { PracticeContract } from "@acme/validators";
+
 import {
   DEFAULT_MAX_RATING_DEVIATION,
   difficultyRampOf,
-  FOUNDATION_RAMP_SPAN,
-  foundationCalibrationRamp,
-  masteryRatingOf,
   regimeForNodeKind,
-  requireAbilityStage,
   resolveProgressionModel,
+  resolveScenarioFormat,
 } from "./progression-model";
 
-const skillMap = {
-  workflow: { name: "Debug", steps: ["observe", "isolate", "fix"] },
-  bandRamp: { startRating: 1000, peakRating: 1400 },
-  masteryContract: { exitCriteria: ["ships a fix"] },
-  scenarioArchetype: "judge" as const,
+const practiceContract: PracticeContract = {
+  workflow: {
+    name: "Solve one task",
+    steps: ["Read the task.", "Choose a valid method.", "Verify the result."],
+  },
+  responseMode: "select",
+  taskTypes: [
+    {
+      name: "Selected response",
+      situation: "A domain-authentic prompt.",
+      learnerDoes: "Select and justify an answer.",
+      output: "One answer with reasoning.",
+      taskShape: "One prompt and four options.",
+      skills: ["Frame", "Solve", "Verify"],
+    },
+  ],
+  qualityBar: ["Exactly one answer is defensible."],
+  variationAxes: [
+    { name: "Context", description: "The surface situation changes." },
+    { name: "Trap", description: "The plausible wrong route changes." },
+  ],
+  evaluationCriteria: [
+    {
+      criterion: "The answer follows from the supplied evidence.",
+      skills: ["Frame", "Solve", "Verify"],
+    },
+  ],
+  difficultyBands: [
+    {
+      band: 0,
+      task: "Direct",
+      reasoning: "One step",
+      support: "Full",
+      traps: [],
+    },
+    {
+      band: 1,
+      task: "Realistic",
+      reasoning: "Two steps",
+      support: "Partial",
+      traps: ["near miss"],
+    },
+    {
+      band: 2,
+      task: "Adversarial",
+      reasoning: "Three steps",
+      support: "None",
+      traps: ["near miss", "wrong frame"],
+    },
+  ],
+  neverDo: ["Test unrelated knowledge."],
 };
 
-describe("regimeForNodeKind", () => {
-  it("maps each kind to exactly one regime", () => {
-    expect(regimeForNodeKind("skill")).toBe("foundation");
-    expect(regimeForNodeKind("ability")).toBe("skillset");
+const bands = [
+  { order: 0, minRating: 800, maxRating: 1000 },
+  { order: 1, minRating: 1000, maxRating: 1200 },
+  { order: 2, minRating: 1200, maxRating: 1400 },
+];
+
+describe("outcome progression", () => {
+  it("maps only outcome nodes into the active regime", () => {
+    expect(regimeForNodeKind("outcome")).toBe("main_outcome");
     expect(regimeForNodeKind("unit")).toBeNull();
-    expect(regimeForNodeKind("root")).toBeNull();
-  });
-});
-
-describe("resolveProgressionModel", () => {
-  it("returns null for nodes outside the mastery loop", () => {
-    expect(resolveProgressionModel({ kind: "unit", skillMap })).toBeNull();
-    expect(
-      resolveProgressionModel({ kind: "skill", skillMap: null }),
-    ).toBeNull();
   });
 
-  it("foundation: carries no rating gate, only a calibration ramp", () => {
-    const model = resolveProgressionModel({ kind: "skill", skillMap });
-    expect(model).toMatchObject({
-      regime: "foundation",
-      calibrationRamp: {
-        startRating: 1000,
-        peakRating: 1000 + FOUNDATION_RAMP_SPAN,
-      },
+  it("derives workflow and rating gates from the Practice Contract", () => {
+    const model = resolveProgressionModel({
+      kind: "outcome",
+      practiceContract,
+      difficultyBands: bands,
     });
-    // The type makes a mastery rating gate unrepresentable for foundation.
-    expect(model && "mastery" in model).toBe(false);
-  });
 
-  it("skillset ability: gates on the top band's midpoint, never its ceiling", () => {
-    const model = resolveProgressionModel({ kind: "ability", skillMap });
     expect(model).toEqual({
-      regime: "skillset",
-      workflow: skillMap.workflow,
-      bandRamp: skillMap.bandRamp,
+      regime: "main_outcome",
+      workflow: practiceContract.workflow,
+      bandRamp: { startRating: 1000, peakRating: 1400 },
       mastery: {
-        masteryRating: masteryRatingOf(null, skillMap.bandRamp),
+        masteryRating: 1300,
         maxRatingDeviation: DEFAULT_MAX_RATING_DEVIATION,
       },
     });
-    // The ceiling is the hardest scenario the archetype can express; a learner
-    // sitting inside the top band never converges to it, which is what used to
-    // leave abilities unmasterable.
-    expect(
-      model?.regime === "skillset" && model.mastery.masteryRating,
-    ).toBeLessThan(skillMap.bandRamp.peakRating);
-  });
-
-  it("prefers the node's own bands over the ramp's expansion", () => {
-    const difficultyBands = [
-      { order: 0, minRating: 900, maxRating: 1100 },
-      { order: 1, minRating: 1100, maxRating: 1300 },
-      { order: 2, minRating: 1300, maxRating: 1500 },
-    ];
-    const model = resolveProgressionModel({
-      kind: "ability",
-      skillMap,
-      difficultyBands,
+    expect(model && difficultyRampOf(model)).toEqual({
+      startRating: 1000,
+      peakRating: 1400,
     });
-    expect(model?.regime === "skillset" && model.mastery.masteryRating).toBe(
-      1400,
-    );
   });
-});
 
-describe("masteryRatingOf", () => {
-  it("takes the highest-order band, whatever order they arrive in", () => {
+  it("requires a compiled Practice Contract and difficulty bands", () => {
     expect(
-      masteryRatingOf(
-        [
-          { order: 2, minRating: 1300, maxRating: 1500 },
-          { order: 0, minRating: 900, maxRating: 1100 },
-          { order: 1, minRating: 1100, maxRating: 1300 },
-        ],
-        skillMap.bandRamp,
-      ),
-    ).toBe(1400);
+      resolveProgressionModel({
+        kind: "outcome",
+        practiceContract: null,
+        difficultyBands: bands,
+      }),
+    ).toBeNull();
   });
 
-  it("falls back to the ramp when a node carries no bands", () => {
-    expect(masteryRatingOf([], skillMap.bandRamp)).toBe(
-      masteryRatingOf(null, skillMap.bandRamp),
-    );
-  });
-});
-
-describe("difficultyRampOf", () => {
-  it("reads the calibration ramp for foundation and the real ramp for skillset", () => {
-    const foundation = resolveProgressionModel({ kind: "skill", skillMap });
-    const skillset = resolveProgressionModel({ kind: "ability", skillMap });
-    expect(foundation && difficultyRampOf(foundation)).toEqual(
-      foundationCalibrationRamp(skillMap.bandRamp),
-    );
-    expect(skillset && difficultyRampOf(skillset)).toEqual(skillMap.bandRamp);
-  });
-});
-
-describe("requireAbilityStage", () => {
-  it("rejects a missing or invalid stage", () => {
-    expect(requireAbilityStage("foundations")).toBe("foundations");
-    expect(() => requireAbilityStage("ready")).toThrow();
-    expect(() => requireAbilityStage(null)).toThrow();
+  it("resolves the task format from the Practice Contract", () => {
+    expect(resolveScenarioFormat(practiceContract).kind).toBe("mcq");
   });
 });

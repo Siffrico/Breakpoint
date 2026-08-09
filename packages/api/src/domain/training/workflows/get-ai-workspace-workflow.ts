@@ -135,11 +135,7 @@ export const getAiWorkspaceWorkflowEffect = ({
           }
         : null,
     });
-    const abilityNodes = plan.nodes.filter((node) => node.kind === "ability");
-    const terminalNodes =
-      abilityNodes.length > 0
-        ? abilityNodes
-        : plan.nodes.filter((node) => node.kind === "unit");
+    const terminalNodes = plan.nodes.filter((node) => node.kind === "outcome");
     const projectComplete =
       state === null &&
       terminalNodes.length > 0 &&

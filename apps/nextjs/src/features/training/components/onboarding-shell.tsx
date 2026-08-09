@@ -144,8 +144,6 @@ export function OnboardingShell({
   embedded = false,
   sessionId: sessionIdProp,
   initialState = null,
-  curriculumMode = "topic",
-  showCurriculumControl = false,
   onRunningChange,
   onTurnCountChange,
 }: {
@@ -153,12 +151,6 @@ export function OnboardingShell({
   embedded?: boolean;
   sessionId?: string;
   initialState?: OnboardingState | null;
-  /**
-   * Which curriculum shape a newly started session builds toward. Only read
-   * when this mount actually starts a session.
-   */
-  curriculumMode?: "ability" | "topic";
-  showCurriculumControl?: boolean;
   variant?: "default" | "landscape";
   onRunningChange?: (isRunning: boolean) => void;
   onTurnCountChange?: (count: number) => void;
@@ -179,21 +171,16 @@ export function OnboardingShell({
   const [sessionId, setSessionId] = useState<string | null>(
     sessionIdProp ?? initialState?.sessionId ?? null,
   );
-  const [selectedCurriculumMode, setSelectedCurriculumMode] =
-    useState(curriculumMode);
   const [seedMessages] = useState<OnboardingChatUIMessage[]>(() =>
     transcriptToMessages(initialState),
   );
 
   const startOnboarding = useMutation(
     trpc.training.startOnboarding.mutationOptions({
-      onSuccess: (data, variables) => {
+      onSuccess: (data) => {
         setSessionId(data.sessionId);
-        setSelectedCurriculumMode(variables?.curriculumMode ?? "topic");
-        const modeParam =
-          variables?.curriculumMode === "topic" ? "&curriculum=topic" : "";
         router.replace(
-          `/onboarding?session=${encodeURIComponent(data.sessionId)}${modeParam}`,
+          `/onboarding?session=${encodeURIComponent(data.sessionId)}`,
         );
       },
       onError: (error) => toast.error(error.message),
@@ -215,8 +202,8 @@ export function OnboardingShell({
   useEffect(() => {
     if (preview || sessionId || startedRef.current) return;
     startedRef.current = true;
-    startOnboarding.mutate({ curriculumMode: selectedCurriculumMode });
-  }, [preview, selectedCurriculumMode, sessionId, startOnboarding]);
+    startOnboarding.mutate();
+  }, [preview, sessionId, startOnboarding]);
 
   useEffect(() => {
     return () => {
@@ -520,14 +507,6 @@ export function OnboardingShell({
     <OnboardingUtilityActions
       activeSessionId={sessionId}
       manualSetupHref={manualSetupHref}
-      curriculumMode={selectedCurriculumMode}
-      showCurriculumControl={showCurriculumControl}
-      curriculumChangeDisabled={isStreaming || startOnboarding.isPending}
-      onCurriculumModeChange={(mode) => {
-        if (mode === selectedCurriculumMode) return;
-        setSelectedCurriculumMode(mode);
-        startOnboarding.mutate({ curriculumMode: mode });
-      }}
     />
   ) : null;
 

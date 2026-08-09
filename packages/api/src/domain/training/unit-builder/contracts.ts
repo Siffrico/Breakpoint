@@ -1,13 +1,11 @@
 import { z } from "zod/v4";
 
 import {
+  PracticeContractSchema,
   PreSeedUnitContentDraftSchema,
-  ScenarioBriefSchema,
+  SkillMapSchema,
   UnitMasteryContractSchema,
 } from "@acme/validators";
-
-import { SubtypeBlueprintSchema } from "../outcome-curriculum/contracts";
-import { FOUNDATION_UNIT_KNOWLEDGE_CAP } from "../unit-creation/target-selection";
 
 export const PriorLearningRecordSchema = z.object({
   title: z.string().min(1),
@@ -20,10 +18,10 @@ export const PriorLearningRecordSchema = z.object({
   nextStep: z.string().min(1),
 });
 
-export const TopicTaskContractSchema = z.object({
-  mainOutcome: z.string().min(1),
-  scenarioBrief: ScenarioBriefSchema,
-  blueprint: SubtypeBlueprintSchema,
+export const OutcomeTaskContractSchema = z.object({
+  outcomeResult: z.string().min(1),
+  skillMap: SkillMapSchema,
+  practiceContract: PracticeContractSchema,
 });
 
 export const UnitBuilderContextSchema = z.object({
@@ -36,8 +34,7 @@ export const UnitBuilderContextSchema = z.object({
     orderIndex: z.number().int().min(0),
   }),
   planContext: z.object({
-    /** Parent regime: skill → foundation, ability → skillset, outcome → main_outcome. */
-    regime: z.enum(["foundation", "skillset", "main_outcome"]).nullable(),
+    regime: z.literal("main_outcome").nullable(),
     slotIndex: z.number().int().min(1),
     totalSlots: z.number().int().min(1),
     clusterContext: z
@@ -45,8 +42,8 @@ export const UnitBuilderContextSchema = z.object({
         title: z.string().min(1),
         summary: z.string().min(1),
         whyItMatters: z.string().min(1),
-        /** Topic mode only: the fixed demand and task-generation constraints. */
-        taskContract: TopicTaskContractSchema.nullable(),
+        /** The fixed outcome demand and task-generation constraints. */
+        taskContract: OutcomeTaskContractSchema.nullable(),
       })
       .nullable(),
   }),
@@ -92,7 +89,7 @@ export const UnitBuilderContextSchema = z.object({
           }),
         )
         .min(1)
-        .max(FOUNDATION_UNIT_KNOWLEDGE_CAP),
+        .max(4),
     })
     .nullable(),
 });
@@ -105,6 +102,6 @@ export const SeedStageOutputSchema = PreSeedUnitContentDraftSchema.extend({
 });
 
 export type PriorLearningRecord = z.infer<typeof PriorLearningRecordSchema>;
-export type TopicTaskContract = z.infer<typeof TopicTaskContractSchema>;
+export type OutcomeTaskContract = z.infer<typeof OutcomeTaskContractSchema>;
 export type UnitBuilderContext = z.infer<typeof UnitBuilderContextSchema>;
 export type SeedStageOutput = z.infer<typeof SeedStageOutputSchema>;

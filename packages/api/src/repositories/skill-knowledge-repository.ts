@@ -1,4 +1,9 @@
 import type { db as databaseClient } from "@acme/db/client";
+import type {
+  DifficultyBand,
+  PracticeContract,
+  SkillMap,
+} from "@acme/validators";
 import { and, asc, desc, eq, gte, inArray, isNotNull, ne, sql } from "@acme/db";
 import {
   TrainingCurriculumNode,
@@ -6,7 +11,6 @@ import {
   TrainingKnowledgeQuestion,
 } from "@acme/db/schema";
 
-import type { KnowledgeMapOutput } from "../domain/training/agents/contracts";
 import type { RecallCandidate } from "../domain/training/policies/recall-decay";
 import {
   RECALL_COMPANION_MIN_STRENGTH,
@@ -14,9 +18,6 @@ import {
 } from "../domain/training/policies/recall-decay";
 
 type Database = typeof databaseClient;
-type StoredSkillMap = NonNullable<
-  (typeof TrainingCurriculumNode.$inferSelect)["skillMap"]
->;
 
 export const clampKnowledgeIds = ({
   requestedKnowledgeIds,
@@ -123,73 +124,18 @@ const recallOverdueRatio = (now: Date) =>
   sql<number>`extract(epoch from (${now.toISOString()}::timestamptz - ${recallAnchor})) / ${recallIntervalSeconds}`;
 
 export const skillKnowledgeRepository = {
-  ensureKnowledge: async ({
-    db,
-    skillNodeId,
-    questions,
-  }: {
-    db: Database;
-    skillNodeId: string;
-    questions: KnowledgeMapOutput["questions"];
-  }) =>
-    db.transaction(async (tx) => {
-      const transactionDb = tx as unknown as Database;
-      await transactionDb.execute(
-        sql`select pg_advisory_xact_lock(hashtext(${skillNodeId}))`,
-      );
-      const existing = await listKnowledge({ db: transactionDb, skillNodeId });
-      if (existing.length > 0) return existing;
-
-      for (const [questionOrderIndex, question] of questions.entries()) {
-        const [insertedQuestion] = await transactionDb
-          .insert(TrainingKnowledgeQuestion)
-          .values({
-            skillNodeId,
-            orderIndex: questionOrderIndex,
-            question: question.question,
-          })
-          .returning({ id: TrainingKnowledgeQuestion.id });
-        if (!insertedQuestion) {
-          throw new Error("Knowledge question insert did not return an id.");
-        }
-        await transactionDb.insert(TrainingKnowledgeItem).values(
-          question.items.map((item, orderIndex) => ({
-            questionId: insertedQuestion.id,
-            orderIndex,
-            kind: item.kind,
-            label: item.label,
-            content: item.content,
-          })),
-        );
-      }
-
-      return listKnowledge({ db: transactionDb, skillNodeId });
-    }),
-
-  /**
-   * Commits pass B for one outcome: the teaching half of its skill map and its
-   * syllabus rows, in ONE transaction under the node's advisory lock.
-   *
-   * Atomic on purpose. A blueprint without a syllabus would generate tasks
-   * nothing tracks coverage against; a syllabus without a blueprint would fail
-   * every unit build with a missing task contract. Neither half-state can
-   * exist if they land together, so no repair path has to.
-   *
-   * Idempotent: the in-transaction re-read means a second writer that lost the
-   * race returns the winner's rows rather than duplicating them.
-   */
-  ensureOutcomeBlueprint: async ({
+  ensureOutcomeCurriculum: async ({
     db,
     outcomeNodeId,
-    scenarioBrief,
-    blueprint,
-    questions,
+    skillMap,
+    practiceContract,
+    difficultyBands,
   }: {
     db: Database;
     outcomeNodeId: string;
-    scenarioBrief: NonNullable<StoredSkillMap["scenarioBrief"]>;
-    blueprint: NonNullable<StoredSkillMap["blueprint"]>;
-    questions: KnowledgeMapOutput["questions"];
+    skillMap: SkillMap;
+    practiceContract: PracticeContract;
+    difficultyBands: DifficultyBand[];
   }) =>
     db.transaction(async (tx) => {
       const transactionDb = tx as unknown as Database;
@@ -199,41 +145,39 @@ export const skillKnowledgeRepository = {
       const node = await transactionDb.query.TrainingCurriculumNode.findFirst({
         where: eq(TrainingCurriculumNode.id, outcomeNodeId),
       });
-      if (!node?.skillMap) return null;
-      // Syllabus rows are the last thing written, so their presence — not the
-      // blueprint's — is what proves a pass B completed. Keying the skip on
-      // them means a half-written node repairs itself on the next attempt
-      // instead of returning an empty syllabus forever.
+      if (node?.kind !== "outcome") return null;
       const existing = await listKnowledge({
         db: transactionDb,
         skillNodeId: outcomeNodeId,
       });
-      if (existing.length > 0) return existing;
+      if (node.skillMap && node.practiceContract && existing.length > 0) {
+        return existing;
+      }
 
       await transactionDb
         .update(TrainingCurriculumNode)
-        .set({ skillMap: { ...node.skillMap, scenarioBrief, blueprint } })
+        .set({ skillMap, practiceContract, difficultyBands })
         .where(eq(TrainingCurriculumNode.id, outcomeNodeId));
 
-      for (const [questionOrderIndex, question] of questions.entries()) {
+      for (const [skillIndex, skill] of skillMap.skills.entries()) {
         const [insertedQuestion] = await transactionDb
           .insert(TrainingKnowledgeQuestion)
           .values({
             skillNodeId: outcomeNodeId,
-            orderIndex: questionOrderIndex,
-            question: question.question,
+            orderIndex: skillIndex,
+            question: skill.name,
           })
           .returning({ id: TrainingKnowledgeQuestion.id });
         if (!insertedQuestion) {
-          throw new Error("Syllabus axis insert did not return an id.");
+          throw new Error("Skill Map entry insert did not return an id.");
         }
         await transactionDb.insert(TrainingKnowledgeItem).values(
-          question.items.map((item, orderIndex) => ({
+          skill.items.map((item, orderIndex) => ({
             questionId: insertedQuestion.id,
             orderIndex,
             kind: item.kind,
-            label: item.label,
-            content: item.content,
+            label: item.name,
+            content: item.description,
           })),
         );
       }
@@ -257,50 +201,13 @@ export const skillKnowledgeRepository = {
     const cluster = await db.query.TrainingCurriculumNode.findFirst({
       where: eq(TrainingCurriculumNode.id, unit.parentNodeId),
     });
-    if (!cluster?.skillMap) return null;
-    // Skillset units (parent = ability) own no knowledge rows of their own;
-    // their checked and targeted items live on the ability's child skills.
-    const ownerIds =
-      cluster.kind === "ability"
-        ? (
-            await db.query.TrainingCurriculumNode.findMany({
-              where: and(
-                eq(TrainingCurriculumNode.parentNodeId, cluster.id),
-                eq(TrainingCurriculumNode.kind, "skill"),
-              ),
-            })
-          ).map((skill) => skill.id)
-        : [cluster.id];
-    const entries = (
-      await Promise.all(
-        ownerIds.map((skillNodeId) => listKnowledge({ db, skillNodeId })),
-      )
-    ).flat();
+    if (!cluster?.skillMap || !cluster.practiceContract) return null;
+    const entries = await listKnowledge({ db, skillNodeId: cluster.id });
     const targeted = entries.filter((entry) => entry.status === "targeted");
-    const framingQuestionId =
-      cluster.kind === "skill" ? (targeted[0]?.questionId ?? null) : null;
-    const priorPartCount = framingQuestionId
-      ? new Set(
-          entries
-            .filter(
-              (entry) =>
-                entry.questionId === framingQuestionId &&
-                entry.status === "checked" &&
-                entry.evidenceNodeId,
-            )
-            .map((entry) => entry.evidenceNodeId),
-        ).size
-      : 0;
     return {
       skillNodeId: cluster.id,
-      workflow: cluster.skillMap.workflow,
-      framing:
-        cluster.kind === "skill" && targeted[0]
-          ? {
-              question: targeted[0].question,
-              part: priorPartCount + 1,
-            }
-          : null,
+      workflow: cluster.practiceContract.workflow,
+      framing: null,
       checked: entries
         .filter((entry) => entry.status === "checked")
         .map(({ label, content }) => ({ label, content })),
@@ -313,8 +220,6 @@ export const skillKnowledgeRepository = {
     };
   },
 
-  // Scoped by entry id throughout: the targeted set may span multiple owning
-  // skill nodes (skillset units), so a single skillNodeId cannot scope it.
   checkOffKnowledge: async ({
     db,
     requestedKnowledgeIds,
@@ -483,12 +388,7 @@ export const skillKnowledgeRepository = {
     return row ? mapRecallCandidate(row) : null;
   },
 
-  /**
-   * Applies one scored solve to the knowledge it was load-bearing for: a pass
-   * earns a coverage rep. Skill mastery reads coverageCount against the target
-   * (engine/concept-coverage.ts) — this counter, not a rating, is the
-   * foundation-regime progress state.
-   */
+  /** A scored solve increments the outcome's Skill Map breadth evidence. */
   incrementCoverage: async ({
     db,
     knowledgeIds,

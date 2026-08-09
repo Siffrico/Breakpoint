@@ -8,17 +8,20 @@ import {
   pregenerateNextUnit,
 } from "./pregenerate-next-unit";
 
-const foundationNeedsUnit: MasteryProgressionState = {
-  regime: "foundation",
-  entries: [{ coverageCount: 1 }],
-  coverageTarget: 3,
+const outcomeNeedsUnit: MasteryProgressionState = {
+  regime: "main_outcome",
+  skillItemsBelowCoverage: 1,
+  skillItemsTotal: 1,
+  learnerRating: 1_000,
+  ratingDeviation: 100,
+  masteryRating: 1_800,
 };
 
-/** Topic mode, one axis short of the warm threshold's far side. */
+/** One Skill Map item short of the warm threshold's far side. */
 const outcomeNearlyCovered: MasteryProgressionState = {
   regime: "main_outcome",
-  syllabusItemsBelowCoverage: 1,
-  syllabusItemsTotal: 10,
+  skillItemsBelowCoverage: 1,
+  skillItemsTotal: 10,
   learnerRating: 1200,
   ratingDeviation: 150,
   masteryRating: 1350,
@@ -31,7 +34,7 @@ interface TestNode {
 const makeDeps = ({
   events,
   needsContent,
-  progressionState = foundationNeedsUnit,
+  progressionState = outcomeNeedsUnit,
   isAwaitingAdvance = true,
   nextClusterId = null,
 }: {
@@ -142,9 +145,12 @@ describe("pregenerateNextUnit", () => {
       events,
       needsContent: () => true,
       progressionState: {
-        regime: "foundation" as const,
-        entries: [{ coverageCount: 3 }],
-        coverageTarget: 3,
+        regime: "main_outcome" as const,
+        skillItemsBelowCoverage: 0,
+        skillItemsTotal: 1,
+        learnerRating: 1_800,
+        ratingDeviation: 50,
+        masteryRating: 1_800,
       },
     });
 
@@ -161,7 +167,7 @@ describe("pregenerateNextUnit", () => {
     expect(prepareUnit).not.toHaveBeenCalled();
   });
 
-  it("warms the next outcome's blueprint once this one is nearly covered, after the lock", async () => {
+  it("warms the next outcome's curriculum once this one is nearly covered, after the lock", async () => {
     const events: string[] = [];
     const { deps } = makeDeps({
       events,
@@ -198,7 +204,7 @@ describe("pregenerateNextUnit", () => {
       needsContent: () => true,
       progressionState: {
         ...outcomeNearlyCovered,
-        syllabusItemsBelowCoverage: 6,
+        skillItemsBelowCoverage: 6,
       },
       nextClusterId: "outcome-2",
     });

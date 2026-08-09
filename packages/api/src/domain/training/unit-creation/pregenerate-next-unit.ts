@@ -37,7 +37,7 @@ export interface PregenerateNextUnitDependencies<TNode> {
     skillNodeId: string,
   ) => Effect.Effect<unknown, DbError>;
   /**
-   * Topic mode: the next planned outcome after this one, or null when there is
+   * The next planned outcome after this one, or null when there is
    * none or the plan is not topic-shaped.
    */
   findNextPlannedCluster: (

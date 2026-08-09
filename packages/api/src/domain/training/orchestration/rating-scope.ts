@@ -7,17 +7,17 @@ import type {
 /**
  * Which node a Goldilocks rating belongs to.
  *
- * A learner's ability owns the rating, not the individual education-unit
+ * A learner's outcome owns the rating, not the individual education-unit
  * leaves beneath it. Every rating read and write resolves a unit up to that
- * ability, so one cumulative rating accrues across integrated practice.
+ * outcome, so one cumulative rating accrues across integrated practice.
  *
- * The bands travel with the rating: they are read from the same ability so
+ * The bands travel with the rating: they are read from the same outcome so
  * the difficulty ladder stays stable across the cluster's units. If the cluster
  * has no bands the unit's own bands are used, and the rating engine falls back
  * to defaults when both are absent.
  */
 export interface RatingScope {
-  /** Node the rating state is keyed on (the ability). */
+  /** Node the rating state is keyed on (the outcome). */
   nodeId: string;
   /** Difficulty ladder for that node, or null to let the engine default it. */
   bands: readonly DifficultyBand[] | null;
@@ -32,22 +32,11 @@ export class CurriculumInvariantError extends Error {
   }
 }
 
-/**
- * The node kinds that own a rating: an `ability` in ability mode, an `outcome`
- * in topic mode. Both sit one level above their units and accumulate one
- * cumulative ELO across everything practised beneath them.
- */
-const RATING_SCOPE_KINDS = new Set<CurriculumNode["kind"]>([
-  "ability",
-  "outcome",
-]);
+const RATING_SCOPE_KINDS = new Set<CurriculumNode["kind"]>(["outcome"]);
 
 /**
- * Walk a unit up to its nearest `ability` ancestor
- * and return that node as the rating scope. Foundation units (under `skill`
- * nodes) walk one level further — they READ the ability's difficulty but never
- * write it (see GoldilocksWiring.writesRating); skillset units sit directly
- * under the ability. One cumulative ELO accrues per ability, never per skill.
+ * Walk a unit up to its outcome ancestor and return that node as the rating
+ * scope. One cumulative rating accrues per outcome.
  * The active curriculum graph is a required invariant: rating against a
  * guessed fallback node would silently split one ability's history into
  * multiple buckets.
@@ -76,7 +65,7 @@ export const resolveRatingScope = ({
   while (!RATING_SCOPE_KINDS.has(cursor.kind)) {
     if (!cursor.parentNodeId) {
       throw new CurriculumInvariantError(
-        `Node ${cursor.id} has no ability ancestor.`,
+        `Node ${cursor.id} has no outcome ancestor.`,
       );
     }
 

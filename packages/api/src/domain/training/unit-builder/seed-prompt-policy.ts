@@ -1,25 +1,8 @@
-import type { TopicTaskContract, UnitBuilderContext } from "./contracts";
-
-const FOUNDATION_SYSTEM = `You are Breakpoint's seed-stage agent inside the education-unit-builder.
-
-You decide what this exact unit should teach before the learner sees any instructional content.
-
-Your job:
-- choose the next necessary concept for this unit slot
-- name the misconception or collapse pattern the learner is likely bringing in
-- create a pre-teach scenario prompt that exposes the learner's current model through action or judgment
-- define what proof of understanding will matter later
-- frame the scenario so later evaluation can detect real transfer
-
-Quality standard:
-- this should feel like a precise coaching diagnosis, not a generic course lesson
-- choose a failure-sized high-leverage concept: focused enough to explain the likely failure, complete enough to transfer
-- use the learner's target identity and prior failures to decide what matters now
-- avoid filler, vague abstractions, and fake difficulty`;
+import type { OutcomeTaskContract, UnitBuilderContext } from "./contracts";
 
 const WHOLE_TASK_SYSTEM = `You are Breakpoint's task-design agent inside the education-unit-builder.
 
-You create one authentic whole task that makes the learner perform, decide, diagnose, or produce work. The task must exercise the assigned syllabus targets without naming them or prescribing a solution route.
+Create one authentic whole task that makes the learner perform, decide, diagnose, or produce work. Exercise the assigned Skill Map targets without naming them or prescribing a solution route.
 
 Quality standard:
 - preserve the task form practitioners or test-takers actually encounter
@@ -27,113 +10,61 @@ Quality standard:
 - use ambiguity and interacting constraints for difficulty, never missing information the learner would normally have
 - avoid pre-teaching, concept labels, generic reflection, and artificial reconstruction exercises`;
 
-const DERIVED_QUESTION_RULES = `- Title the unit as the single practitioner question this unit answers. It must be second-person, end in "?", and concern doing the work rather than defining a term.
-- Default to "How do you ...?". Use "When ...?" or "Which ...?" for discriminations and "Why ...?" for mechanisms.
-- Never use a tutorial heading or definitional question.`;
-
 const OUTPUT_RULES = `Output rules:
 - scenario.title titles the situation itself, not the lesson
 - scenario.focusAreas contains 2 or 3 precise evaluation targets
 - seedHint guides the kind of response to give without giving away the answer
 - clusterArcFrame positions this slot in the larger sequence without teaching the answer
 - complexityBudget is 1, 2, or 3 based on the real reasoning load
-- unitMasteryContract contains 2 to 4 autonomous, observable capability dimensions covering every target syllabus item and the unit's workflow judgment
+- unitMasteryContract contains 2 to 4 autonomous, observable capability dimensions covering every target Skill Map item and the unit's workflow judgment
 - passSignals describe observable reasoning or action, failSignals describe concrete breakdowns, and surrogateTraps catch fluent imitation without understanding
 - conceptTarget identifies the concrete capability being exercised, misconceptionTarget identifies the likely failure, and workedExampleBrief tells the later Build stage what contrasting example would unlock improvement`;
-
-const foundationPrompt = (context: UnitBuilderContext): string => {
-  const framing = context.knowledge?.framing ?? null;
-  const titleRule = framing
-    ? `${framing.question}${framing.part > 1 ? ` — Part ${framing.part}` : ""}`
-    : `derive one practitioner question from the targets. ${DERIVED_QUESTION_RULES}`;
-
-  return `Design the Seed stage for this foundation education unit.
-
-Regime: FOUNDATION — framed reasoning.
-This unit answers exactly one authored practitioner question. The learner may see the question but must not be handed its answer.
-
-Rules:
-- title: ${titleRule}
-- Build seedPrompt as one concrete situation that makes exactly that question urgent.
-- seedPrompt must expose the learner's current model using only prior knowledge; it must not teach or name the target concept.
-- Show one mentally simulatable mechanism, one dominant failure, and no irrelevant detail.
-- The situation must be one invention away: exactly one new mechanism should resolve its pressure.
-- End with "### Reconstruct the system" and exactly three numbered questions covering the goal, current mechanism, and why it fails under the pressure.
-- Force every target knowledge item through the scenario. Treat checked items as assumed-known.
-- Foundation units should usually use complexityBudget 1 or 2.
-
-${OUTPUT_RULES}
-
-Context:
-${formatUnitBuilderContext(context)}`;
-};
-
-const skillsetPrompt = (
-  context: UnitBuilderContext,
-): string => `Design one whole-task Skillset unit.
-
-Regime: SKILLSET — unframed whole-task.
-The learner has local competence and must decide which knowledge and methods matter inside one realistic task.
-
-Rules:
-- title is a task-worded directive naming the realistic whole task, never a question
-- seedPrompt gives one concrete initial state, one desired end state, and no prescribed route
-- name no concepts, skills, or framing questions in learner-visible text
-- force every target knowledge item through the task while treating checked items as assumed-known
-- do not turn the task into a pre-teach diagnostic or append generic reconstruction questions
-
-${OUTPUT_RULES}
-
-Context:
-${formatUnitBuilderContext(context)}`;
 
 const mainOutcomePrompt = (context: UnitBuilderContext): string => {
   const contract = context.planContext.clusterContext?.taskContract;
   if (!contract) {
-    throw new Error("Main-outcome seed policy requires a topic task contract.");
+    throw new Error("Main-outcome seed policy requires an outcome contract.");
   }
-  const { scenarioBrief } = contract;
-  const { blueprint } = contract;
+  const { skillMap, practiceContract } = contract;
 
   return `Design one whole task for this outcome.
 
-Regime: MAIN OUTCOME — repeated performance against a fixed demand.
+Regime: MAIN OUTCOME — repeated performance against a fixed result.
 
-Fixed demand:
-${contract.mainOutcome}
+Fixed result:
+${contract.outcomeResult}
 
-Task-generation contract:
-- Task shape: ${scenarioBrief.taskShape}
+Practice Contract:
+- Task types:
+${formatList(practiceContract.taskTypes.map((task) => `${task.name}: ${task.situation} Learner does: ${task.learnerDoes}. Output: ${task.output}. Shape: ${task.taskShape}. Exercises: ${task.skills.join(", ")}`))}
 - Quality bar:
-${formatList(scenarioBrief.qualityBar)}
-- Legitimate variation axes:
-${formatList(scenarioBrief.variationAxes)}
+${formatList(practiceContract.qualityBar)}
+- Variation axes:
+${formatList(practiceContract.variationAxes.map((axis) => `${axis.name}: ${axis.description}`))}
+- Evaluation criteria:
+${formatList(practiceContract.evaluationCriteria.map((criterion) => `${criterion.criterion} Measures: ${criterion.skills.join(", ")}`))}
 - Never do:
-${formatList(scenarioBrief.neverDo)}
+${formatList(practiceContract.neverDo)}
 
-Authoritative subtype blueprint:
-- Declarative knowledge (facts to use, not learner-facing labels):
-${formatList(blueprint.declarativeKnowledge.map((item) => `${item.label}: ${item.statement} When it applies: ${item.applicability}`))}
-- Expert heuristics (judgments the task must demand):
-${formatList(blueprint.cognitiveHeuristics.expertMentality)}
-- Cognitive traps (engineer at least one relevant near-miss into this task):
-${formatList(blueprint.cognitiveHeuristics.commonTraps.map((item) => `${item.trap}. Why tempting: ${item.whyItIsTempting}. Detection cue: ${item.detectionCue}`))}
-- Complexity axes:
-${formatList(blueprint.progression.complexityAxes)}
-${formatBandBrief(blueprint, context.difficulty?.bandOrder)}
-- Task-context variations (use an applicable one and rotate across units):
-${formatList(blueprint.taskVariations.map((item) => `${item.context}: ${item.applicability}; added pressure: ${item.addedPressure}`))}
+Skill Map:
+- Skills and knowledge:
+${formatList(skillMap.skills.map((skill) => `${skill.name}: ${skill.description}. ${skill.items.map((item) => `${item.name}: ${item.description}`).join(" ")}`))}
+- Expert judgment:
+${formatList(skillMap.expertJudgment.map((item) => `${item.rule} When: ${item.when}`))}
+- Common mistakes:
+${formatList(skillMap.commonMistakes.map((item) => `${item.mistake}. Why: ${item.whyItHappens}. Detection cue: ${item.detectionCue}`))}
+${formatBandBrief(practiceContract, context.difficulty?.bandOrder)}
 
 Rules:
 - title is a task-worded directive naming the concrete task, never a question
 - seedPrompt must be the complete learner-ready task in the required task shape, including all stimuli, options, inputs, or constraints needed to attempt it
-- the learner is judged only against the fixed demand; do not add a second deliverable
+- the learner is judged only against the fixed result; do not add a second deliverable
 - selected-response task shapes must include the complete response options and satisfy the quality bar
-- use the current syllabus targets to choose this repetition's content and variation, but never name those targets or prescribe the solve procedure
+- use the current Skill Map targets to choose this repetition's content and variation, but never name those targets or prescribe the solve procedure
 - make the learner apply an expert heuristic; do not reward recall of a fact alone
 - build the task at the band the difficulty directive names, to the band brief's stated reasoning path, withheld givens, and embedded alternatives — those counts are the difficulty, not a suggestion
-- treat checked syllabus items as assumed-known
-- every quality-bar item and every never-do constraint is mandatory
+- treat checked Skill Map items as assumed-known
+- every quality-bar item, evaluation criterion, and never-do constraint is mandatory
 - do not create a pre-teach diagnostic, reduce the task to one mechanism or one failure, or append "Reconstruct the system" questions
 
 ${OUTPUT_RULES}
@@ -142,32 +73,11 @@ Context:
 ${formatUnitBuilderContext(context)}`;
 };
 
-const legacyPrompt = (
-  context: UnitBuilderContext,
-): string => `Design the Seed stage for this education unit.
-
-Regime: LEGACY.
-- title names the real lesson this unit teaches
-- seedPrompt is a concrete situation that probes prior understanding without teaching the answer
-- stay within the current slot's scope
-
-${OUTPUT_RULES}
-
-Context:
-${formatUnitBuilderContext(context)}`;
-
 export const buildSeedStageRequest = (context: UnitBuilderContext) => {
-  const regime = context.planContext.regime;
-  switch (regime) {
-    case "foundation":
-      return { system: FOUNDATION_SYSTEM, prompt: foundationPrompt(context) };
-    case "skillset":
-      return { system: WHOLE_TASK_SYSTEM, prompt: skillsetPrompt(context) };
-    case "main_outcome":
-      return { system: WHOLE_TASK_SYSTEM, prompt: mainOutcomePrompt(context) };
-    case null:
-      return { system: FOUNDATION_SYSTEM, prompt: legacyPrompt(context) };
+  if (context.planContext.regime !== "main_outcome") {
+    throw new Error("Unit generation requires an outcome curriculum.");
   }
+  return { system: WHOLE_TASK_SYSTEM, prompt: mainOutcomePrompt(context) };
 };
 
 const formatList = (values: readonly string[]): string =>
@@ -181,17 +91,16 @@ const formatList = (values: readonly string[]): string =>
  * "harder" from the slot number alone.
  */
 const formatBandBrief = (
-  blueprint: TopicTaskContract["blueprint"],
+  practiceContract: OutcomeTaskContract["practiceContract"],
   bandOrder: number | undefined,
 ): string => {
-  const { bandBriefs } = blueprint.progression;
+  const bandBriefs = practiceContract.difficultyBands;
   const chosen = bandBriefs.find((brief) => brief.band === bandOrder);
   const render = (brief: (typeof bandBriefs)[number]) =>
-    `  - Band ${brief.band}: ${brief.caseShape}
-    Reasoning path: ${brief.reasoningPath}
-    Withhold: ${brief.withheldGivens}
-    Embed as near-misses: ${brief.embeddedAlternatives}
-    Traps live at this band: ${brief.liveTraps.join("; ") || "None"}`;
+    `  - Band ${brief.band}: ${brief.task}
+    Reasoning: ${brief.reasoning}
+    Support: ${brief.support}
+    Traps: ${brief.traps.join("; ") || "None"}`;
 
   return chosen
     ? `- Band brief for THIS task — build to it exactly:\n${render(chosen)}`
@@ -213,7 +122,7 @@ const formatUnitBuilderContext = (context: UnitBuilderContext): string => {
       : "No prior learning recorded.";
 
   return `Node kind: ${context.node.kind}
-Unit regime: ${context.planContext.regime ?? "foundation"}
+Unit regime: ${context.planContext.regime ?? "missing"}
 Node title: ${context.node.title}
 Node summary: ${context.node.summary}
 Why it matters: ${context.node.whyItMatters}

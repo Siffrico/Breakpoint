@@ -1,6 +1,6 @@
 // agents/topic-onboarding-chat-agent.ts
 //
-// The topic-mode consultant's runtime wiring. It mirrors
+// The onboarding consultant's runtime wiring. It mirrors
 // onboarding-chat-agent.ts and deliberately reuses that module's shared parts
 // (the starting-point tool, the name normalizer, the readiness backstop)
 // rather than restating them — only the persona and the createProject shape
@@ -9,7 +9,10 @@
 import { tool } from "ai";
 import { z } from "zod/v4";
 
-import { StartingPointTierSchema } from "@acme/validators";
+import {
+  OutcomeDefinitionSchema,
+  StartingPointTierSchema,
+} from "@acme/validators";
 
 import type { CreateProjectInput } from "../orchestration/build-project";
 import type { CreateProjectResult } from "./onboarding-chat-agent";
@@ -32,27 +35,22 @@ const TOPIC_ONBOARDING_RUNTIME_NOTES = `Runtime notes for this session:
   - projectName: the core topic only, lowercase — e.g. "sat", "backend engineering". Not a sentence, not an identity phrase.
   - targetIdentity: one short phrase for who they are becoming.
   - summary: one line describing what mastering this means for them, in their words.
-  - outcomes: the exact titles from the learner-confirmed bullet list, ${MIN_OUTCOMES_PER_PLAN}–${MAX_OUTCOMES_PER_PLAN} of them. Order them so the one they can start with nothing else in hand comes first. Never an activity ("timed practice"), never a chapter ("data structures"). Do not rename, merge, expand, or silently improve titles after confirmation.
+  - outcomes: the exact ${MIN_OUTCOMES_PER_PLAN}–${MAX_OUTCOMES_PER_PLAN} title-and-result pairs the learner confirmed. The title uses the domain's real language. The result states the observable performance this outcome produces. Preserve both exactly and keep their confirmed order.
   - startingPoint: { tier, reason } — the tier they settled on, and a reason paraphrasing something they actually said or tapped.
   - understanding: { build, goodMeans, currentGap } — your reading of them, shown on the confirm card as the last thing they see before the build. Say what you concluded, not what they typed: "I keep overcomplicating things" becomes a goodMeans of "simple". Only claim what the interview supports; if one of the three would be a guess, ask about it before calling this.
 - createProject pauses for the learner to confirm with a button — do not announce it, do not ask permission in text, just call it. After it returns ok:true, write one short closing line.
 - If it returns ok:false because more signal is needed, continue with one short question. For other failures, apologize briefly and ask if they want to retry.
-- Never call createProject before the learner has confirmed the outcomes. If they edit the list, show the revised bullets and get confirmation of that exact list first.
+- Never call createProject before the learner has confirmed every outcome title and result. Show each as “Title — observable result.” If they edit the list, show the revised pairs and get confirmation of that exact list first.
 
 Search policy:
-- Search before proposing outcomes for any exam, credential, certification, or standard: its real published structure decides the split, and guessing it produces a curriculum that does not match the thing they are studying for.
-- Do not guess when a quick search removes uncertainty.`;
+- Before proposing outcomes, decide which sources would provide the strongest evidence for this learner's exact goal. Search those sources thoroughly, cross-check important claims, and avoid relying on convenient but weak or biased sources.
+- Use the terminology and task boundaries the strongest evidence supports. Do not guess when search can resolve uncertainty.`;
 
 export const TOPIC_ONBOARDING_CHAT_SYSTEM = `${TOPIC_SCOPE_CONSULTANT_SYSTEM}
 
 ${TOPIC_ONBOARDING_RUNTIME_NOTES}`;
 
-/**
- * The topic consultant's handoff. It carries no learner brief: the ability
- * mode's brief steers a decomposition of who the learner is becoming, while
- * here the topic plus the confirmed outcome titles are the steering signal,
- * and the designer reads the transcript for everything else.
- */
+/** The exact learner-confirmed outcomes handed to curriculum generation. */
 export const CreateTopicProjectInputSchema = z.object({
   projectName: z
     .string()
@@ -71,11 +69,11 @@ export const CreateTopicProjectInputSchema = z.object({
       "One line describing what mastering this topic means for this learner, in their words.",
     ),
   outcomes: z
-    .array(z.string().min(1))
+    .array(OutcomeDefinitionSchema)
     .min(MIN_OUTCOMES_PER_PLAN)
     .max(MAX_OUTCOMES_PER_PLAN)
     .describe(
-      "The confirmed pieces the learner's definition of mastery splits into, earliest-startable first. Each names something a task can DEMAND, never a study activity and never a chapter heading.",
+      "The exact domain-native title and observable result pairs the learner confirmed, in learning order.",
     ),
   startingPoint: z
     .object({
@@ -98,7 +96,7 @@ export const CreateTopicProjectInputSchema = z.object({
 /**
  * Built per-request inside the chat stream so its `execute` closes over the
  * live progress writer and the session's persistence deps. Identical lifecycle
- * to the ability-mode tool — only the input shape differs.
+ * to the project creation tool.
  */
 export const createCreateTopicProjectTool = ({
   buildProject,

@@ -20,7 +20,7 @@ import { WorkspaceTurnRepo } from "./workspace-turn-repo";
 
 const readyNode = {
   id: "node-1",
-  parentNodeId: "cluster-1",
+  parentNodeId: "outcome-1",
   kind: "unit",
   title: "Unit",
   summary: "Summary",
@@ -43,23 +43,16 @@ const completedNode = {
   orderIndex: 0,
   status: "completed",
 } satisfies CurriculumNode;
-const abilityNode = {
+const outcomeNode = {
   ...completedNode,
-  id: "ability-1",
+  id: "outcome-1",
   parentNodeId: null,
-  kind: "ability",
-  title: "Ability",
-} satisfies CurriculumNode;
-const skillNode = {
-  ...completedNode,
-  id: "cluster-1",
-  parentNodeId: abilityNode.id,
-  kind: "skill",
-  title: "Skill",
+  kind: "outcome",
+  title: "Outcome",
 } satisfies CurriculumNode;
 const recallPlan = {
   id: "plan-1",
-  nodes: [abilityNode, skillNode, completedNode, readyNode],
+  nodes: [outcomeNode, completedNode, readyNode],
 } as CurriculumPlan;
 const masteryContract = {
   version: 1 as const,
@@ -825,7 +818,7 @@ describe("workspace view reads", () => {
   it("does not hydrate a transcript when no turn is runnable", async () => {
     const completedOnlyPlan = {
       id: "plan-1",
-      nodes: [completedNode],
+      nodes: [outcomeNode, completedNode],
     } as CurriculumPlan;
     const listUnitMessages = vi.fn().mockResolvedValue([]);
 

@@ -9,7 +9,7 @@ import { ProjectOverviewOutputSchema } from "./contracts";
 
 const PROJECT_OVERVIEW_SYSTEM = `You are Breakpoint's project-overview architect.
 
-You turn a completed curriculum into a concise, learner-facing map of the project. This is not a syllabus. It is the orientation a learner needs to understand where the curriculum is taking them and why its abilities fit together.
+You turn a completed curriculum into a concise, learner-facing map of the project. This is not a syllabus. It is the orientation a learner needs to understand where the curriculum is taking them and why its outcomes fit together.
 
 Your design principle: build the learner's first compressed schema. Explain the field as a coherent system: why it exists, what problem it solves, what the major concepts are, why those concepts were invented, how they depend on each other, where beginners get confused, and how the learner's project will force the ideas to become real.
 
@@ -79,7 +79,7 @@ Required body structure:
 2. Explain why the field exists and what problem it is trying to solve.
 3. Introduce one central analogy that can carry the whole topic.
 4. Walk through the major concepts as parts of that analogy.
-5. Explain how the curriculum's abilities connect into a dependency network, not a linear list.
+5. Explain how the curriculum's outcomes connect into a coherent progression.
 6. Name the highest-value beginner traps implied by the curriculum.
 7. Tie the map back to the target identity and end with a compact mental model for the first unit.
 
@@ -135,9 +135,9 @@ const formatCurriculum = (curriculum: CurriculumPlan): string =>
 Summary: ${curriculum.summary}
 Target identity: ${curriculum.targetIdentity}
 
-Abilities:
+Outcomes:
 ${curriculum.nodes
-  .filter((node) => node.kind === "ability")
+  .filter((node) => node.kind === "outcome")
   .map(
     (node) =>
       `- ${node.title}: ${node.summary}\n  Why it matters: ${node.whyItMatters}\n  Learning goal: ${node.learningGoal}`,

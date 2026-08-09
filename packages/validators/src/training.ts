@@ -174,41 +174,7 @@ export const IdentityReportSchema = z.object({
   confidenceFlags: z.array(z.string().min(1)),
 });
 
-export const CurriculumNodeKindSchema = z.enum([
-  "root",
-  "ability",
-  "skill",
-  "unit",
-  // Outcome-curriculum (topic mode) only: one node = one main outcome, with
-  // units directly beneath it and no skill layer. See CurriculumModeSchema.
-  "outcome",
-]);
-
-/**
- * Which curriculum shape a plan was built with. Decided once, before the
- * onboarding interview starts (the two modes use different consultants), and
- * stamped onto the plan at build time.
- *
- *   ability — root → ability → skill → unit. Decomposes a target IDENTITY into
- *     the recurring jobs a practitioner does, teaching each skill's concepts in
- *     foundation units before integrating them.
- *   topic   — root → outcome → unit. Narrows what "mastering this topic" MEANS
- *     until each piece has one main outcome, then practises whole tasks
- *     against that outcome. No skill layer, no foundation units.
- */
-export const CurriculumModeSchema = z.enum(["ability", "topic"]);
-
-/**
- * How a topic-mode plan sequences its outcome nodes.
- *
- *   sequential — master one outcome, then the next. Correct whenever a learner
- *     can tell from a task alone which outcome it belongs to, which is the
- *     common case (an SAT grid-in is never mistaken for a reading item).
- *   interleaved — outcomes run concurrently. Correct only when telling them
- *     apart is itself part of the performance, e.g. "is this a data problem or
- *     a model problem?" in diagnosis-shaped topics.
- */
-export const OutcomeOrderingSchema = z.enum(["sequential", "interleaved"]);
+export const CurriculumNodeKindSchema = z.enum(["root", "outcome", "unit"]);
 
 export const CurriculumNodeStatusSchema = z.enum([
   "planned",
@@ -237,7 +203,7 @@ export const DifficultyBandSchema = z.object({
 export const ScenarioArchetypeSchema = z.enum(["select", "transform", "judge"]);
 
 /**
- * The task-generation contract for one outcome node (topic mode only).
+ * The task-generation contract for one outcome.
  *
  * It answers "what does a well-formed task for this outcome look like?" and is
  * authored once by the curriculum designer, so the scenario generator never
@@ -249,35 +215,180 @@ export const ScenarioArchetypeSchema = z.enum(["select", "transform", "judge"]);
  * restate any of this: the workflow is how a good ANSWER is produced (what the
  * grader checks reasoning against); the brief is how a good TASK is built.
  */
-export const ScenarioBriefSchema = z.object({
-  taskShape: z
-    .string()
-    .min(1)
-    .describe(
-      "The physical form every task under this outcome takes, concretely enough to build from — e.g. 'one 25-60 word passage, one blank, four lettered options'.",
-    ),
-  qualityBar: z
-    .array(z.string().min(1))
-    .min(1)
-    .max(6)
-    .describe(
-      "What makes a generated task good, each checkable against the finished task — e.g. 'exactly one option survives the stated constraint'.",
-    ),
-  variationAxes: z
-    .array(z.string().min(1))
-    .min(1)
-    .max(8)
-    .describe(
-      "The dimensions along which tasks legitimately differ while still demanding the same main outcome.",
-    ),
-  neverDo: z
-    .array(z.string().min(1))
-    .min(1)
-    .max(6)
-    .describe(
-      "Failure modes the generator must avoid — the ways a task can look right but stop measuring the main outcome.",
-    ),
+export const OutcomeDefinitionSchema = z.object({
+  title: z.string().min(1).max(80),
+  result: z.string().min(1),
 });
+
+export const SkillMapItemSchema = z.object({
+  kind: z.enum(["concept", "mechanism"]),
+  name: z.string().min(1),
+  description: z.string().min(1),
+});
+
+export const SkillMapSchema = z.object({
+  skills: z
+    .array(
+      z.object({
+        name: z.string().min(1),
+        description: z.string().min(1),
+        items: z.array(SkillMapItemSchema).min(1).max(6),
+      }),
+    )
+    .min(3)
+    .max(12),
+  expertJudgment: z
+    .array(
+      z.object({
+        rule: z.string().min(1),
+        when: z.string().min(1),
+      }),
+    )
+    .min(2)
+    .max(8),
+  commonMistakes: z
+    .array(
+      z.object({
+        mistake: z.string().min(1),
+        whyItHappens: z.string().min(1),
+        detectionCue: z.string().min(1),
+      }),
+    )
+    .min(2)
+    .max(8),
+});
+
+export const PracticeDifficultyBandSchema = z.object({
+  band: z.union([z.literal(0), z.literal(1), z.literal(2)]),
+  task: z.string().min(1),
+  reasoning: z.string().min(1),
+  support: z.string().min(1),
+  traps: z.array(z.string().min(1)),
+});
+
+export const PracticeContractSchema = z.object({
+  workflow: z.object({
+    name: z.string().min(1),
+    steps: z.array(z.string().min(1)).min(3).max(7),
+  }),
+  responseMode: ScenarioArchetypeSchema,
+  taskTypes: z
+    .array(
+      z.object({
+        name: z.string().min(1),
+        situation: z.string().min(1),
+        learnerDoes: z.string().min(1),
+        output: z.string().min(1),
+        taskShape: z.string().min(1),
+        skills: z.array(z.string().min(1)).min(1),
+      }),
+    )
+    .min(1)
+    .max(4),
+  qualityBar: z.array(z.string().min(1)).min(1).max(6),
+  variationAxes: z
+    .array(
+      z.object({
+        name: z.string().min(1),
+        description: z.string().min(1),
+      }),
+    )
+    .min(2)
+    .max(8),
+  evaluationCriteria: z
+    .array(
+      z.object({
+        criterion: z.string().min(1),
+        skills: z.array(z.string().min(1)).min(1),
+      }),
+    )
+    .min(1)
+    .max(5),
+  difficultyBands: z.array(PracticeDifficultyBandSchema).length(3),
+  neverDo: z.array(z.string().min(1)).min(1).max(6),
+  maxRatingDeviation: z.number().int().min(30).max(200).optional(),
+});
+
+export const OutcomeCompilationOutputSchema = z
+  .object({
+    skillMap: SkillMapSchema,
+    practiceContract: PracticeContractSchema,
+  })
+  .superRefine((output, ctx) => {
+    const skillNames = output.skillMap.skills.map((skill) => skill.name);
+    const knownSkills = new Set(skillNames);
+    if (knownSkills.size !== skillNames.length) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["skillMap", "skills"],
+        message: "Skill Map names must be unique",
+      });
+    }
+
+    const taskCoverage = new Set<string>();
+    output.practiceContract.taskTypes.forEach((task, taskIndex) => {
+      task.skills.forEach((skill) => {
+        if (knownSkills.has(skill)) taskCoverage.add(skill);
+        else {
+          ctx.addIssue({
+            code: "custom",
+            path: ["practiceContract", "taskTypes", taskIndex, "skills"],
+            message: `unknown Skill Map entry: ${skill}`,
+          });
+        }
+      });
+    });
+
+    const evaluationCoverage = new Set<string>();
+    output.practiceContract.evaluationCriteria.forEach(
+      (criterion, criterionIndex) => {
+        criterion.skills.forEach((skill) => {
+          if (knownSkills.has(skill)) evaluationCoverage.add(skill);
+          else {
+            ctx.addIssue({
+              code: "custom",
+              path: [
+                "practiceContract",
+                "evaluationCriteria",
+                criterionIndex,
+                "skills",
+              ],
+              message: `unknown Skill Map entry: ${skill}`,
+            });
+          }
+        });
+      },
+    );
+
+    skillNames.forEach((skill, skillIndex) => {
+      if (!taskCoverage.has(skill)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["skillMap", "skills", skillIndex],
+          message: "every skill must be exercised by a task type",
+        });
+      }
+      if (!evaluationCoverage.has(skill)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["skillMap", "skills", skillIndex],
+          message: "every skill must affect an evaluation criterion",
+        });
+      }
+    });
+
+    if (
+      output.practiceContract.difficultyBands
+        .map((band) => band.band)
+        .join(",") !== "0,1,2"
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["practiceContract", "difficultyBands"],
+        message: "difficulty bands must be ordered 0, 1, 2",
+      });
+    }
+  });
 
 export const ScenarioFormatSchema = z
   .object({
@@ -986,9 +1097,12 @@ export type OnboardingTranscriptMessage = z.infer<
 >;
 export type IdentityReport = z.infer<typeof IdentityReportSchema>;
 export type CurriculumNodeKind = z.infer<typeof CurriculumNodeKindSchema>;
-export type CurriculumMode = z.infer<typeof CurriculumModeSchema>;
-export type OutcomeOrdering = z.infer<typeof OutcomeOrderingSchema>;
-export type ScenarioBrief = z.infer<typeof ScenarioBriefSchema>;
+export type OutcomeDefinition = z.infer<typeof OutcomeDefinitionSchema>;
+export type SkillMap = z.infer<typeof SkillMapSchema>;
+export type PracticeContract = z.infer<typeof PracticeContractSchema>;
+export type OutcomeCompilationOutput = z.infer<
+  typeof OutcomeCompilationOutputSchema
+>;
 export type CurriculumNodeStatus = z.infer<typeof CurriculumNodeStatusSchema>;
 export type DifficultyBand = z.infer<typeof DifficultyBandSchema>;
 export type SupportLevel = z.infer<typeof SupportLevelSchema>;

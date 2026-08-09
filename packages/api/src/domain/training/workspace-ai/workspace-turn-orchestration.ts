@@ -37,7 +37,6 @@ import {
   buildPresenterContext,
 } from "../education-unit/unit-context";
 import { boundTranscript } from "../engine/compaction";
-import { regimeForNodeKind } from "../engine/progression-model";
 import { resolveRatingScope } from "../orchestration/rating-scope";
 import { companionRelation } from "../policies/recall-decay";
 import { deriveServerAttemptTiming } from "./attempt-timing";
@@ -550,15 +549,6 @@ export const runEducationUnitTurn = ({
             message: "Goldilocks did not resolve a unit difficulty snapshot.",
           }));
 
-    const unitNode = plan.nodes.find((planNode) => planNode.id === unit.nodeId);
-    const unitParentKind = plan.nodes.find(
-      (planNode) => planNode.id === unitNode?.parentNodeId,
-    )?.kind;
-    const isFoundationUnit =
-      unitParentKind != null &&
-      regimeForNodeKind(unitParentKind) === "foundation" &&
-      recallFocus === null;
-    const tracksRating = !isFoundationUnit;
     const recallContext = recallFocus
       ? `\n\n## Recall focus\nIndependently stress-test retrieval and use of: ${recallFocus.primary.label} — ${recallFocus.primary.content}${
           recallFocus.companion
@@ -601,7 +591,7 @@ export const runEducationUnitTurn = ({
         response.metadata?.scenarioAttemptId !== undefined,
     )?.metadata?.scenarioAttemptId;
     let ratingEvaluation: WorkspaceRatingEvaluationCommit | null = null;
-    if (tracksRating && turnResult.ratingWrite) {
+    if (turnResult.ratingWrite) {
       if (!scenarioAttemptId) {
         return yield* new RatingEvidenceError({
           message: "Adversarial grading requires its persisted review attempt.",
@@ -697,7 +687,7 @@ export const runEducationUnitTurn = ({
       knowledgeCheckOff,
       knowledgeReinforcement,
       conceptCoverage,
-      tracksRating,
+      tracksRating: true,
       recallEntryIds:
         recallFocus &&
         unitRun.activeReviewChallenge === null &&
