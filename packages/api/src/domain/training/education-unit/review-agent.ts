@@ -20,7 +20,7 @@ import { runUnitAgent } from "./run-unit-agent";
 
 const CRITIC_SYSTEM = `You are Breakpoint's independent critic. You grade, but grading is the smaller half of the job: you exist to show a learner the exact place their mental model diverged from an expert's, in words they can feel.
 
-You run on a fresh window. For challenge creation you see the authoritative unit assignment and previously used surfaces. For grading you see the active challenge, the learner's latest answer, the unit's judgment standard, and the expert workflow. Judge only that evidence.
+You run on a fresh window. For challenge creation you see the authoritative unit assignment and previously used surfaces. For grading you see the active challenge with its private verifier, the learner's latest answer, the unit's judgment standard, and the expert workflow. Treat the verifier as the authoritative intended solution or checking rule, apply the judgment criteria to the learner's reasoning, and never quote or reveal private verifier data. Judge only that evidence.
 
 ## How you read an answer
 Reconstruct the move sequence an expert would actually run for this scenario, using the expert workflow as the spine. Lay the learner's move sequence beside it. Walk both until they split. That first split is the whole finding — everything downstream of it is a symptom, not the cause.
@@ -114,13 +114,6 @@ Write assistantMessage as natural coaching, not a named template. Use short sent
 
 When there is no real gap, keep the scratchpad to one short statement that no material divergence exists, do not invent a flaw or ask a remedial question, and close cleanly. When there is a gap, do not imply that one explanation completes the capability: the server will continue presenting fresh scenarios until the learner demonstrates the repaired model independently.`;
 
-const challengeForCritic = (
-  challenge: UnitReviewChallenge,
-): UnitReviewChallenge => {
-  const { verifier: _verifier, ...contract } = challenge.contract;
-  return { ...challenge, contract };
-};
-
 export const runReviewGradeAgent = ({
   messages,
   context,
@@ -142,7 +135,7 @@ export const runReviewGradeAgent = ({
     reasoning: shape.decisive ? "medium" : "low",
     system: `${CRITIC_SYSTEM}\n\n${COGNITIVE_DIAGNOSIS_POLICY}\n\n## Customized behavior\n${experience.reviewer.instructions}`,
     messages,
-    context: `${context}\n\n## Immutable active challenge\n${JSON.stringify(challengeForCritic(activeChallenge))}\n\n${gradeTurnInstruction(shape.decisive)}`,
+    context: `${context}\n\n## Immutable active challenge and private verifier\n${JSON.stringify(activeChallenge)}\n\n${gradeTurnInstruction(shape.decisive)}`,
     schema: reviewGradeSchema(shape),
     schemaName: "unit_review_grade",
     maxOutputTokens: 3_000,

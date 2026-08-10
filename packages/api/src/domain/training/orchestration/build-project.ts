@@ -794,11 +794,17 @@ export const buildProjectFromOnboarding = async ({
           outcomeCurriculumAttempts,
         );
         try {
-          await deps.ensureOutcomeCurriculum({
+          const outcomeCurriculum = await deps.ensureOutcomeCurriculum({
             outcomeNodeId: firstFrontier.id,
             targetIdentity: launchPlan.targetIdentity,
             abortSignal: unitAbortSignal,
           });
+          if (outcomeCurriculum === null) {
+            throw new ArtifactBuildError(
+              "The first outcome is missing required curriculum data.",
+              "schema",
+            );
+          }
         } catch (error) {
           await recordArtifact(
             "outcomeCurriculum",

@@ -146,7 +146,7 @@ const makeDeps = () => {
       if (plan) plan = { ...plan, nextUnitId: firstUnitId };
       return Promise.resolve(plan);
     }),
-    ensureOutcomeCurriculum: vi.fn(() => Promise.resolve(null)),
+    ensureOutcomeCurriculum: vi.fn(() => Promise.resolve([{}])),
     createOutcomeUnit: vi.fn(() => {
       firstUnitId = "unit-1";
       return Promise.resolve({ id: firstUnitId });
@@ -198,16 +198,27 @@ describe("buildProjectFromOnboarding", () => {
 
   it("fails clearly when the first outcome cannot be compiled", async () => {
     const { deps } = makeDeps();
-    vi.mocked(deps.ensureOutcomeCurriculum).mockRejectedValue(
-      new Error("Outcome compilation failed."),
-    );
+    vi.mocked(deps.ensureOutcomeCurriculum).mockResolvedValue(null);
 
     const result = await run(deps);
 
     expect(result).toEqual({
       success: false,
-      error: "Outcome compilation failed.",
+      error: "The first outcome is missing required curriculum data.",
     });
+    expect(deps.saveArtifact).toHaveBeenCalledWith(
+      expect.objectContaining({
+        step: "outcomeCurriculum",
+        status: "failed",
+        failureKind: "schema",
+      }),
+    );
+    expect(deps.saveArtifact).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        step: "outcomeCurriculum",
+        status: "complete",
+      }),
+    );
     expect(deps.createOutcomeUnit).not.toHaveBeenCalled();
   });
 });
