@@ -9,10 +9,11 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import type { db as databaseClient } from "@acme/db/client";
-import { eq, sql } from "@acme/db";
+import { and, eq, sql } from "@acme/db";
 import {
   TrainingCurriculumNode,
   TrainingCurriculumPlan,
+  TrainingNodeBuild,
   TrainingOnboardingSession,
 } from "@acme/db/schema";
 
@@ -81,6 +82,55 @@ const withUnitNode = async <T>(
 };
 
 describe("unit build lock concurrency", () => {
+  it.skipIf(!process.env.POSTGRES_URL)(
+    "rejects a stale owner without changing the newer lease",
+    async () => {
+      const { db } = await import("@acme/db/client");
+      for (const outcome of ["success", "failure"] as const) {
+        await withUnitNode(db, async (nodeId) => {
+          const newerLeaseId = "00000000-0000-0000-0000-000000000099";
+          await expect(
+            withUnitBuildLock({
+              db,
+              nodeId,
+              build: async (lockDb) => {
+                await lockDb
+                  .update(TrainingNodeBuild)
+                  .set({
+                    leaseId: newerLeaseId,
+                    leaseExpiresAt: new Date(Date.now() + 60_000),
+                  })
+                  .where(
+                    and(
+                      eq(TrainingNodeBuild.kind, "unit_content"),
+                      eq(TrainingNodeBuild.nodeId, nodeId),
+                    ),
+                  );
+                if (outcome === "failure") throw new Error("build failed");
+                return "stale result";
+              },
+              loadReady: () => Promise.resolve("ready"),
+            }),
+          ).rejects.toMatchObject({ _tag: "NodeBuildLeaseLostError" });
+
+          const build = await db.query.TrainingNodeBuild.findFirst({
+            where: and(
+              eq(TrainingNodeBuild.kind, "unit_content"),
+              eq(TrainingNodeBuild.nodeId, nodeId),
+            ),
+          });
+          expect(build).toMatchObject({
+            status: "running",
+            leaseId: newerLeaseId,
+            failureCode: null,
+            failureMessage: null,
+          });
+        });
+      }
+    },
+    20_000,
+  );
+
   it.skipIf(!process.env.POSTGRES_URL)(
     "builds once and makes concurrent callers load the ready result",
     async () => {

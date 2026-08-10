@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { Data } from "effect";
 
 import type { db as databaseClient } from "@acme/db/client";
 import { and, eq, sql } from "@acme/db";
@@ -17,6 +18,14 @@ const LEASE_MS = 60_000;
 const HEARTBEAT_MS = 20_000;
 const WAIT_MS = 180_000;
 const POLL_MS = 750;
+
+export class NodeBuildLeaseLostError extends Data.TaggedError(
+  "NodeBuildLeaseLostError",
+)<{
+  readonly kind: BuildKind;
+  readonly nodeId: string;
+  readonly cause?: unknown;
+}> {}
 
 const failureCodeOf = (error: unknown): string => {
   if (typeof error === "object" && error !== null && "_tag" in error) {
@@ -182,7 +191,7 @@ export const withNodeBuildLifecycle = async <T>({
 
   try {
     const result = await build(db);
-    await db
+    const [completed] = await db
       .update(TrainingNodeBuild)
       .set({
         status: "ready",
@@ -197,10 +206,15 @@ export const withNodeBuildLifecycle = async <T>({
           eq(TrainingNodeBuild.nodeId, nodeId),
           eq(TrainingNodeBuild.leaseId, ownership.leaseId),
         ),
-      );
+      )
+      .returning({ id: TrainingNodeBuild.id });
+    if (!completed) {
+      throw new NodeBuildLeaseLostError({ kind, nodeId });
+    }
     return result;
   } catch (error) {
-    await db
+    if (error instanceof NodeBuildLeaseLostError) throw error;
+    const [failed] = await db
       .update(TrainingNodeBuild)
       .set({
         status: "failed",
@@ -216,7 +230,15 @@ export const withNodeBuildLifecycle = async <T>({
           eq(TrainingNodeBuild.nodeId, nodeId),
           eq(TrainingNodeBuild.leaseId, ownership.leaseId),
         ),
-      );
+      )
+      .returning({ id: TrainingNodeBuild.id });
+    if (!failed) {
+      throw new NodeBuildLeaseLostError({
+        kind,
+        nodeId,
+        cause: error,
+      });
+    }
     throw error;
   } finally {
     clearInterval(heartbeat);
