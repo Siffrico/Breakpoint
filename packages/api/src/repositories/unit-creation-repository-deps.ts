@@ -19,12 +19,14 @@ import {
   regimeForNodeKind,
   resolveProgressionModel,
 } from "../domain/training/engine/progression-model";
-import {
-  createInitialRatingState,
-  deriveCanonicalDifficultyBands,
-} from "../domain/training/engine/rating";
-import { ARCHETYPE_FORMATS } from "../domain/training/engine/scenario-archetypes";
+import { createInitialRatingState } from "../domain/training/engine/rating";
+import { isArtifactBuildError } from "../domain/training/orchestration/agent-runtime";
 import { compileOutcome } from "../domain/training/outcome-curriculum/outcome-compiler";
+import {
+  ensureOutcomeCurriculumWorkflow,
+  OutcomeCompilationError,
+  OutcomePersistenceError,
+} from "../domain/training/outcome-curriculum/workflows/ensure-outcome-curriculum";
 import { advanceSkillMapNodeWorkflow } from "../domain/training/unit-creation/advance-skill-map-node";
 import { createNextUnit } from "../domain/training/unit-creation/create-next-unit";
 import { createRegimeTargetSelector } from "../domain/training/unit-creation/target-selection";
@@ -117,68 +119,112 @@ export const ensureOutcomeCurriculum = async ({
   withSkillKnowledgeBuildLock({
     db,
     skillNodeId: outcomeNodeId,
-    loadReady: (readyDb) =>
-      skillKnowledgeRepository.listKnowledge({
-        db: readyDb,
-        skillNodeId: outcomeNodeId,
-      }),
-    build: async (lockDb) => {
-      const outcome = await trainingCurriculumRepository.getNodeById({
-        db: lockDb,
-        nodeId: outcomeNodeId,
-      });
-      if (outcome?.kind !== "outcome" || !outcome.outcomeResult) return null;
-      const existing = await skillKnowledgeRepository.listKnowledge({
-        db: lockDb,
-        skillNodeId: outcomeNodeId,
-      });
-      if (outcome.skillMap && outcome.practiceContract && existing.length > 0) {
-        return existing;
+    loadReady: async (readyDb) => {
+      try {
+        const knowledge = await skillKnowledgeRepository.listKnowledge({
+          db: readyDb,
+          skillNodeId: outcomeNodeId,
+        });
+        if (knowledge.length > 0) return knowledge;
+        throw new OutcomePersistenceError({
+          operation: "loadReadyCurriculum",
+          message: "The saved outcome curriculum is incomplete.",
+        });
+      } catch (cause) {
+        if (cause instanceof OutcomePersistenceError) throw cause;
+        throw new OutcomePersistenceError({
+          operation: "loadReadyCurriculum",
+          message: "The outcome curriculum database request failed.",
+          cause,
+        });
       }
-      const plan = await lockDb.query.TrainingCurriculumPlan.findFirst({
-        where: eq(TrainingCurriculumPlan.id, outcome.planId),
-      });
-      const identity = targetIdentity ?? plan?.targetIdentity;
-      if (!plan || !identity) return null;
-      const profile = plan.profileVersionId
-        ? await lockDb.query.TrainingIdentityProfileVersion.findFirst({
-            where: eq(TrainingIdentityProfileVersion.id, plan.profileVersionId),
-          })
-        : null;
-      const compilation = await compileOutcome({
-        targetIdentity: identity,
-        projectTitle: plan.title,
-        projectSummary: plan.summary,
-        outcomeTitle: outcome.title,
-        outcomeResult: outcome.outcomeResult,
-        learnerContext: {
-          currentGap:
-            profile?.hardMoments[0] ??
-            profile?.currentBaseline ??
-            "No specific current gap was recorded.",
-          goodMeans:
-            profile?.behaviorSignals && profile.behaviorSignals.length > 0
-              ? profile.behaviorSignals
-              : ["Accurate, domain-authentic performance."],
-        },
-        priorPerformance: await listRecentPriorPerformance({
-          db: lockDb,
-          sessionId: plan.onboardingSessionId,
+    },
+    build: (lockDb) => {
+      const persistence = <A>(operation: string, run: () => Promise<A>) =>
+        Effect.tryPromise({
+          try: run,
+          catch: (cause) =>
+            new OutcomePersistenceError({
+              operation,
+              message: "The outcome curriculum database request failed.",
+              cause,
+            }),
+        });
+
+      // The node lease is the execution boundary for this Effect workflow.
+      // eslint-disable-next-line no-restricted-syntax
+      return Effect.runPromise(
+        ensureOutcomeCurriculumWorkflow({
+          outcomeNodeId,
+          targetIdentity,
+          abortSignal,
+          deps: {
+            loadOutcome: (nodeId) =>
+              persistence("loadOutcome", () =>
+                trainingCurriculumRepository.getNodeById({
+                  db: lockDb,
+                  nodeId,
+                }),
+              ),
+            listKnowledge: (nodeId) =>
+              persistence("listOutcomeKnowledge", () =>
+                skillKnowledgeRepository.listKnowledge({
+                  db: lockDb,
+                  skillNodeId: nodeId,
+                }),
+              ),
+            loadPlan: (planId) =>
+              persistence("loadOutcomePlan", () =>
+                lockDb.query.TrainingCurriculumPlan.findFirst({
+                  where: eq(TrainingCurriculumPlan.id, planId),
+                }),
+              ).pipe(Effect.map((plan) => plan ?? null)),
+            loadProfile: (profileVersionId) =>
+              persistence("loadOutcomeProfile", () =>
+                lockDb.query.TrainingIdentityProfileVersion.findFirst({
+                  where: eq(
+                    TrainingIdentityProfileVersion.id,
+                    profileVersionId,
+                  ),
+                }),
+              ).pipe(Effect.map((profile) => profile ?? null)),
+            listPriorPerformance: (sessionId) =>
+              persistence("listRecentPriorPerformance", () =>
+                listRecentPriorPerformance({ db: lockDb, sessionId }),
+              ),
+            compile: (input) =>
+              Effect.tryPromise({
+                try: () => compileOutcome(input),
+                catch: (cause) =>
+                  new OutcomeCompilationError({
+                    kind: isArtifactBuildError(cause)
+                      ? cause.failureKind
+                      : "provider",
+                    message: "The outcome curriculum could not be compiled.",
+                    cause,
+                  }),
+              }),
+            persist: (input) =>
+              persistence("persistOutcomeCurriculum", () =>
+                skillKnowledgeRepository.ensureOutcomeCurriculum({
+                  db: lockDb,
+                  ...input,
+                }),
+              ).pipe(
+                Effect.flatMap((knowledge) =>
+                  knowledge
+                    ? Effect.succeed(knowledge)
+                    : Effect.fail(
+                        new OutcomePersistenceError({
+                          operation: "persistOutcomeCurriculum",
+                          message: "The outcome curriculum could not be saved.",
+                        }),
+                      ),
+                ),
+              ),
+          },
         }),
-        options: { abortSignal },
-      });
-      const difficultyBands = [
-        ...deriveCanonicalDifficultyBands(
-          ARCHETYPE_FORMATS[compilation.practiceContract.responseMode],
-        ),
-      ];
-      return skillKnowledgeRepository.ensureOutcomeCurriculum({
-        db: lockDb,
-        outcomeNodeId,
-        skillMap: compilation.skillMap,
-        practiceContract: compilation.practiceContract,
-        difficultyBands,
-      });
+      );
     },
   });
 
@@ -195,7 +241,6 @@ export const createUnitCreationRepositoryDeps = ({
 }): CreateNextUnitDependencies<NodeRow> => {
   // One seed lookup per node, cached for the life of this deps factory, so a
   // multi-touch unit creation pays for at most one extra query. Fail-closed: a null seed
-  // means the goldilocks engine uses its policy default.
   const seedCache = new Map<string, Promise<JobRatingState | null>>();
   const getSeed = (nodeId: string) => {
     const cached = seedCache.get(nodeId);

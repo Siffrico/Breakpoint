@@ -23,6 +23,12 @@ import { normalizeLearningTrackName } from "../agents/onboarding-chat-agent";
 import { designProjectOverview } from "../agents/project-overview";
 import { seedFromStartingPoint } from "../engine/rating";
 import { buildOutcomeNodes } from "../outcome-curriculum/plan-nodes";
+import {
+  OutcomeCompilationError,
+  OutcomeContextMissingError,
+  OutcomeNotFoundError,
+  OutcomePersistenceError,
+} from "../outcome-curriculum/workflows/ensure-outcome-curriculum";
 import { ArtifactBuildError, isArtifactBuildError } from "./agent-runtime";
 import {
   getProjectBuildStepDetail,
@@ -369,12 +375,27 @@ const buildIdentityReport = (input: CreateProjectInput): IdentityReport => {
 const messageFrom = (error: unknown, fallback: string): string =>
   error instanceof Error && error.message ? error.message : fallback;
 
-const failureKindOf = (error: unknown): ArtifactFailureKind =>
-  isArtifactBuildError(error) ? error.failureKind : "provider";
+const failureKindOf = (error: unknown): ArtifactFailureKind => {
+  if (isArtifactBuildError(error)) return error.failureKind;
+  if (error instanceof OutcomeCompilationError) return error.kind;
+  if (error instanceof OutcomePersistenceError) return "save";
+  if (
+    error instanceof OutcomeNotFoundError ||
+    error instanceof OutcomeContextMissingError
+  ) {
+    return "schema";
+  }
+  return "provider";
+};
 
 /** The last captured partial from an ArtifactBuildError, if any. */
 const partialOf = (error: unknown): unknown =>
-  isArtifactBuildError(error) ? error.partial : undefined;
+  isArtifactBuildError(error)
+    ? error.partial
+    : error instanceof OutcomeCompilationError &&
+        isArtifactBuildError(error.cause)
+      ? error.cause.partial
+      : undefined;
 
 /**
  * The cross-attempt action for an artifact, derived from its registry row.
