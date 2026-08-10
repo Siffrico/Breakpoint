@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { cn } from "@acme/ui";
 
-import { DotmCircular17 } from "../dotm-circular-17";
+import { DotmTriangle1 } from "../dotm-triangle-1";
 
 const TEXT_RENDER_PACE_MS = 24;
 const TEXT_RENDER_SNAP = /[\s.,!?;:)\]]/;
@@ -288,7 +288,7 @@ export function StatusSpinner() {
       aria-hidden="true"
       className="inline-flex size-3.5 shrink-0 -translate-y-px items-center justify-center"
     >
-      <DotmCircular17 size={14} dotSize={2} />
+      <DotmTriangle1 size={14} dotSize={1} />
     </span>
   );
 }

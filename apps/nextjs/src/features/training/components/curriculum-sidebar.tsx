@@ -16,7 +16,7 @@ import {
 import { useMutation } from "@tanstack/react-query";
 
 import type { RouterOutputs } from "@acme/api";
-import { DotmCircular17 } from "@acme/ui/dotm-circular-17";
+import { DotmTriangle1 } from "@acme/ui/dotm-triangle-1";
 import {
   Menu,
   MenuGroup,
@@ -228,7 +228,7 @@ function ChatRow({
       <FadeLabel className="min-w-0 flex-1 leading-[18px]">{title}</FadeLabel>
       {isRunning ? (
         <span className="text-foreground/72 flex shrink-0 items-center">
-          <DotmCircular17 size={13} dotSize={1.5} />
+          <DotmTriangle1 size={13} dotSize={1} />
         </span>
       ) : null}
     </Link>
@@ -356,7 +356,7 @@ function ProjectRow({
           className="text-foreground/40 hover:text-foreground/85 hover:bg-foreground/[0.05] flex size-6 shrink-0 items-center justify-center rounded-[5px] transition-[color,background-color,opacity] outline-none focus:outline-none focus-visible:outline-none disabled:pointer-events-none disabled:opacity-25"
         >
           {isContinuing ? (
-            <DotmCircular17 size={13} dotSize={1.5} />
+            <DotmTriangle1 size={13} dotSize={1} />
           ) : (
             <Plus size={15} weight="regular" />
           )}
