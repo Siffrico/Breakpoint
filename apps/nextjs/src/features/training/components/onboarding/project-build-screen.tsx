@@ -29,10 +29,7 @@ export function ProjectBuildScreen({
   const isComplete = state.phase === "complete";
   const isError = state.phase === "error";
 
-  // The first unit is saved before the overview and finalize steps run, so the
-  // learner can leave for it the moment there is something to open — they do
-  // not wait on the tail of the build.
-  const canStart = Boolean(state.sessionId && state.firstUnitId);
+  const canStart = isComplete && Boolean(state.sessionId && state.firstUnitId);
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center bg-[#111111] px-6 py-16 text-white">

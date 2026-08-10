@@ -727,7 +727,14 @@ export function OnboardingShell({
                             startPending={continueLearning.isPending}
                             retryDisabled={effectiveIsStreaming}
                             onStartLearning={() => {
-                              if (preview || !build.sessionId) return;
+                              if (
+                                preview ||
+                                build.phase !== "complete" ||
+                                !build.sessionId ||
+                                !build.firstUnitId
+                              ) {
+                                return;
+                              }
                               continueLearning.mutate({
                                 sessionId: build.sessionId,
                               });
