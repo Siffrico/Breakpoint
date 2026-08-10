@@ -156,18 +156,55 @@ const makeDeps = () => {
   return { deps, getPlan: () => plan };
 };
 
-const run = (deps: BuildProjectDeps) =>
+const run = (
+  deps: BuildProjectDeps,
+  projectInput: CreateProjectInput = input,
+) =>
   buildProjectFromOnboarding({
     sessionId: "session-1",
     userId: "user-1",
     transcript: [],
-    input,
+    input: projectInput,
     deps,
     onProgress: vi.fn(),
     scheduleBackgroundTask: vi.fn(),
   });
 
 describe("buildProjectFromOnboarding", () => {
+  it("reserves behavior signal capacity for the learner's goal and gap", async () => {
+    const { deps } = makeDeps();
+
+    await run(deps, {
+      ...input,
+      understanding: {
+        ...input.understanding,
+        build: "reach the target SAT Math score",
+        goodMeans: [
+          "accurate",
+          "efficient",
+          "consistent",
+          "clear",
+          "well-supported",
+        ],
+        currentGap: "loses points on unfamiliar algebra forms",
+      },
+    });
+
+    expect(deps.persistCurriculum).toHaveBeenCalledWith(
+      expect.objectContaining({
+        report: expect.objectContaining({
+          behaviorSignals: [
+            "Produces work that is accurate.",
+            "Produces work that is efficient.",
+            "Produces work that is consistent.",
+            "Works toward reach the target SAT Math score.",
+            "Corrects loses points on unfamiliar algebra forms.",
+          ],
+        }),
+      }),
+    );
+  });
+
   it("saves the confirmed outcomes without a second curriculum model call", async () => {
     const { deps, getPlan } = makeDeps();
 

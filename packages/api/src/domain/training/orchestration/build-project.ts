@@ -345,14 +345,14 @@ const getProjectBuildSourceKey = (
   });
 
 const buildIdentityReport = (input: CreateProjectInput): IdentityReport => {
-  const qualitySignals = input.understanding.goodMeans.map(
-    (quality) => `Produces work that is ${quality}.`,
-  );
+  const qualitySignals = input.understanding.goodMeans
+    .slice(0, 3)
+    .map((quality) => `Produces work that is ${quality}.`);
   const behaviorSignals = [
     ...qualitySignals,
     `Works toward ${input.understanding.build}.`,
     `Corrects ${input.understanding.currentGap}.`,
-  ].slice(0, 5);
+  ];
   return {
     targetIdentity: input.targetIdentity.trim(),
     headline: input.summary.trim(),
