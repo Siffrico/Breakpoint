@@ -48,6 +48,7 @@ export const TrainingIdentityProfileVersion = pgTable(
     proofOfProgress: t.text().notNull(),
     hardMoments: t.jsonb().$type<string[]>().notNull(),
     constraints: t.jsonb().$type<string[]>().notNull(),
+    qualityStandards: t.jsonb().$type<string[]>().notNull().default([]),
     behaviorSignals: t.jsonb().$type<string[]>().notNull(),
     confidenceFlags: t.jsonb().$type<string[]>().notNull(),
     createdAt: t

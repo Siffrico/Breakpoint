@@ -37,6 +37,7 @@ const buildProjectProfile = ({
     ],
     constraints: [],
     proofOfProgress: `Visible progress on ${projectTitle}.`,
+    qualityStandards: [],
     behaviorSignals: [
       "Explains concepts from memory before receiving help.",
       "Applies each unit to a concrete project decision.",

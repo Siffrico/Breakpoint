@@ -349,7 +349,10 @@ const getProjectBuildSourceKey = (
   });
 
 const buildIdentityReport = (input: CreateProjectInput): IdentityReport => {
-  const qualitySignals = input.understanding.goodMeans
+  const qualityStandards = input.understanding.goodMeans.map((quality) =>
+    quality.trim(),
+  );
+  const qualitySignals = qualityStandards
     .slice(0, 3)
     .map((quality) => `Produces work that is ${quality}.`);
   const behaviorSignals = [
@@ -365,6 +368,7 @@ const buildIdentityReport = (input: CreateProjectInput): IdentityReport => {
     hardMoments: [input.understanding.currentGap.trim()],
     constraints: [],
     proofOfProgress: input.outcomes.map((outcome) => outcome.result).join(" "),
+    qualityStandards,
     behaviorSignals,
     confidenceFlags: [],
   };

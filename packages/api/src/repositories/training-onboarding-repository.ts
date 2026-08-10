@@ -841,6 +841,7 @@ export const trainingOnboardingRepository = {
         proofOfProgress: report.proofOfProgress,
         hardMoments: report.hardMoments,
         constraints: report.constraints,
+        qualityStandards: report.qualityStandards,
         behaviorSignals: report.behaviorSignals,
         confidenceFlags: report.confidenceFlags,
       })

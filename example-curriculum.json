@@ -16,6 +16,11 @@
       "No formal accounting background."
     ],
     "proofOfProgress": "A running payments service that survives an injected fault drill — duplicate webhooks, a timed-out capture, and a crash mid-charge — and still produces a balanced, reconciled ledger that matches the processor's settlement file to the cent.",
+    "qualityStandards": [
+      "accurate",
+      "reliable under partial failure",
+      "reconcilable to the cent"
+    ],
     "behaviorSignals": [
       "Reaches for the SDK happy-path example and stops thinking once it returns 200.",
       "Describes failures as 'it broke' rather than naming the state the system was left in.",

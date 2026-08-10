@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
 import type { OutcomeCompilationOutput } from "../contracts";
+import type { CompileOutcomeInput } from "../outcome-compiler";
 import type { EnsureOutcomeCurriculumDependencies } from "./ensure-outcome-curriculum";
 import {
   ensureOutcomeCurriculumWorkflow,
@@ -118,6 +119,77 @@ describe("ensureOutcomeCurriculumWorkflow", () => {
       _tag: "OutcomeCompilationError",
       kind: "schema",
     });
+  });
+
+  it("compiles with canonical quality standards instead of behavior prose", async () => {
+    const compile = vi.fn(() => Effect.succeed(compilation));
+
+    await Effect.runPromise(
+      ensureOutcomeCurriculumWorkflow({
+        outcomeNodeId: "outcome-1",
+        deps: makeDeps({
+          loadPlan: () =>
+            Effect.succeed({
+              title: "Incident response",
+              summary: "Find and explain production failures.",
+              targetIdentity: "Staff engineer",
+              profileVersionId: "profile-1",
+              onboardingSessionId: "session-1",
+            }),
+          loadProfile: () =>
+            Effect.succeed({
+              hardMoments: ["Jumps to remediation before finding the cause."],
+              currentBaseline: "Can diagnose routine failures.",
+              qualityStandards: ["accurate", "concise", "defensible"],
+              behaviorSignals: [
+                "Produces work that is polished presentation prose.",
+              ],
+            }),
+          compile,
+        }),
+      }),
+    );
+
+    expect(compile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        learnerContext: {
+          currentGap: "Jumps to remediation before finding the cause.",
+          goodMeans: ["accurate", "concise", "defensible"],
+        },
+      }),
+    );
+  });
+
+  it("uses the generic standard when an older profile has none", async () => {
+    const compile = vi.fn((_input: CompileOutcomeInput) =>
+      Effect.succeed(compilation),
+    );
+
+    await Effect.runPromise(
+      ensureOutcomeCurriculumWorkflow({
+        outcomeNodeId: "outcome-1",
+        deps: makeDeps({
+          loadPlan: () =>
+            Effect.succeed({
+              title: "Incident response",
+              summary: "Find and explain production failures.",
+              targetIdentity: "Staff engineer",
+              profileVersionId: "profile-1",
+              onboardingSessionId: "session-1",
+            }),
+          loadProfile: () =>
+            Effect.succeed({
+              hardMoments: [],
+              currentBaseline: "Can diagnose routine failures.",
+            }),
+          compile,
+        }),
+      }),
+    );
+
+    expect(compile.mock.calls[0]?.[0]?.learnerContext.goodMeans).toEqual([
+      "Accurate, domain-authentic performance.",
+    ]);
   });
 
   it("rejects an empty persistence result", async () => {

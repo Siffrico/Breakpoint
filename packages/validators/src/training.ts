@@ -170,6 +170,7 @@ export const IdentityReportSchema = z.object({
   hardMoments: z.array(z.string().min(1)).min(1),
   constraints: z.array(z.string().min(1)),
   proofOfProgress: z.string().min(1),
+  qualityStandards: z.array(z.string().min(1)),
   behaviorSignals: z.array(z.string().min(1)).min(3),
   confidenceFlags: z.array(z.string().min(1)),
 });

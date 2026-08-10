@@ -190,19 +190,22 @@ describe("buildProjectFromOnboarding", () => {
       },
     });
 
-    expect(deps.persistCurriculum).toHaveBeenCalledWith(
-      expect.objectContaining({
-        report: expect.objectContaining({
-          behaviorSignals: [
-            "Produces work that is accurate.",
-            "Produces work that is efficient.",
-            "Produces work that is consistent.",
-            "Works toward reach the target SAT Math score.",
-            "Corrects loses points on unfamiliar algebra forms.",
-          ],
-        }),
-      }),
-    );
+    const persistedReport = vi.mocked(deps.persistCurriculum).mock.calls[0]?.[0]
+      .report;
+    expect(persistedReport?.qualityStandards).toEqual([
+      "accurate",
+      "efficient",
+      "consistent",
+      "clear",
+      "well-supported",
+    ]);
+    expect(persistedReport?.behaviorSignals).toEqual([
+      "Produces work that is accurate.",
+      "Produces work that is efficient.",
+      "Produces work that is consistent.",
+      "Works toward reach the target SAT Math score.",
+      "Corrects loses points on unfamiliar algebra forms.",
+    ]);
   });
 
   it("saves the confirmed outcomes without a second curriculum model call", async () => {

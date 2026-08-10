@@ -61,7 +61,7 @@ interface PlanRecord {
 interface ProfileRecord {
   readonly hardMoments: string[];
   readonly currentBaseline: string;
-  readonly behaviorSignals: string[];
+  readonly qualityStandards?: string[];
 }
 
 interface PriorPerformanceRecord {
@@ -173,8 +173,8 @@ export const ensureOutcomeCurriculumWorkflow = <TKnowledge>({
           profile?.currentBaseline ??
           "No specific current gap was recorded.",
         goodMeans:
-          profile?.behaviorSignals && profile.behaviorSignals.length > 0
-            ? profile.behaviorSignals
+          profile?.qualityStandards && profile.qualityStandards.length > 0
+            ? profile.qualityStandards
             : ["Accurate, domain-authentic performance."],
       },
       priorPerformance,
