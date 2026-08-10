@@ -131,39 +131,43 @@ const setup = {
     title: "The slow deployment",
     focusAreas: ["causal isolation", "diagnostic sequencing"],
   },
-  conceptTarget: "discriminating evidence",
-  misconceptionTarget: "temporal proximity proves causality",
-  workedExampleBrief: "Compare two low-risk probes.",
-  unitMasteryContract: {
-    version: 1,
-    dimensions: [
+} satisfies SeedStageOutput;
+
+const unitContext = {
+  version: 1 as const,
+  performance: parentPlanNode.outcomeResult,
+  targets: [
+    {
+      id: "entry-1",
+      skill: "Frame",
+      kind: "concept" as const,
+      label: "Causal probe",
+      content:
+        "A probe that both hypotheses predict identically cannot separate them.",
+    },
+  ],
+  workflow: basePracticeContract.workflow,
+  expertise: {
+    expertJudgment: baseSkillMap.expertJudgment,
+    commonMistakes: baseSkillMap.commonMistakes,
+  },
+  testing: {
+    responseMode: basePracticeContract.responseMode,
+    taskTypes: basePracticeContract.taskTypes,
+    variationAxes: basePracticeContract.variationAxes,
+    neverDo: basePracticeContract.neverDo,
+  },
+  judgment: {
+    criteria: [
       {
-        id: "choose-discriminating-probe",
-        name: "Choose a discriminating probe",
-        description:
-          "Select a low-risk probe whose result separates the live causal hypotheses.",
-        passSignals: ["Predicts how each hypothesis responds to the probe"],
-        failSignals: ["Chooses a probe both hypotheses predict identically"],
-        surrogateTraps: [
-          "Names a familiar diagnostic without comparing predictions",
-        ],
-      },
-      {
-        id: "update-from-evidence",
-        name: "Update from evidence",
-        description:
-          "Use the observed result to narrow causes and choose the next diagnostic move.",
-        passSignals: [
-          "Eliminates or weakens a hypothesis from the observed result",
-        ],
-        failSignals: ["Keeps the original diagnosis regardless of the result"],
-        surrogateTraps: [
-          "Restates the evidence without changing the causal model",
-        ],
+        id: "criterion-1",
+        criterion: "The conclusion follows from the evidence.",
+        skills: ["Frame", "Solve", "Verify"],
       },
     ],
+    qualityBar: basePracticeContract.qualityBar,
   },
-} satisfies SeedStageOutput;
+};
 
 const unit = {
   id: "content-1",
@@ -181,7 +185,7 @@ const unit = {
   practicePrompts: null,
   teachbackSetup: setup.teachbackSetup,
   scenario: setup.scenario,
-  unitMasteryContract: setup.unitMasteryContract,
+  unitContext,
   difficultyBands: null,
 } satisfies UnitContent;
 
@@ -204,6 +208,7 @@ const makeDeps = (
         targets: [
           {
             id: "entry-1",
+            skill: "Frame",
             kind: "concept" as const,
             label: "Causal probe",
             content:
@@ -227,7 +232,7 @@ afterEach(() => {
 });
 
 describe("prepareUnitContent", () => {
-  it("prepares a legacy unit without knowledge targets", async () => {
+  it("rejects a unit without an outcome contract and selected targets", async () => {
     runSeedStageMock.mockResolvedValue(setup);
     const legacyParent = planNodes[0];
     if (!legacyParent) throw new Error("Expected a legacy parent node.");
@@ -235,7 +240,7 @@ describe("prepareUnitContent", () => {
       { ...legacyParent, kind: "root", skillMap: undefined },
       { ...planNode, parentNodeId: "cluster-1" },
     ];
-    const result = await Effect.runPromise(
+    const exit = await Effect.runPromiseExit(
       prepareUnitContent({
         node,
         sessionId: "session-1",
@@ -246,7 +251,8 @@ describe("prepareUnitContent", () => {
       }),
     );
 
-    expect(result).toBe(unit);
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(runSeedStageMock).not.toHaveBeenCalled();
   });
 
   it("passes an outcome's Skill Map and Practice Contract to the seed stage", async () => {
@@ -384,6 +390,22 @@ describe("prepareUnitContent", () => {
         sessionId: "session-1",
         deps: makeDeps({
           getPlanNodesBySession: vi.fn(() => Promise.resolve(outcomeNodes)),
+          getUnitKnowledgeContext: vi.fn(() =>
+            Promise.resolve({
+              workflow: practiceContract.workflow,
+              framing: null,
+              checked: [],
+              targets: [
+                {
+                  id: "entry-1",
+                  skill: "Read constraints",
+                  kind: "concept" as const,
+                  label: "Constraint",
+                  content: "The text limits the defensible answer.",
+                },
+              ],
+            }),
+          ),
         }),
       }),
     );
@@ -540,7 +562,7 @@ describe("prepareUnitContent", () => {
     expect(runSeedStageMock).toHaveBeenCalledTimes(2);
     expect(deps.createUnitContentIfAbsent).toHaveBeenCalledWith(
       expect.objectContaining({
-        unitMasteryContract: setup.unitMasteryContract,
+        unitContext,
       }),
     );
     expect(deps.replaceUnitContent).not.toHaveBeenCalled();
@@ -570,7 +592,7 @@ describe("prepareUnitContent", () => {
     runSeedStageMock.mockResolvedValue(setup);
     const deps = makeDeps({
       getUnitByNodeId: vi.fn(() =>
-        Promise.resolve({ ...unit, unitMasteryContract: null }),
+        Promise.resolve({ ...unit, unitContext: null }),
       ),
     });
 
@@ -580,7 +602,7 @@ describe("prepareUnitContent", () => {
 
     expect(deps.replaceUnitContent).toHaveBeenCalledWith(
       expect.objectContaining({
-        unitMasteryContract: setup.unitMasteryContract,
+        unitContext,
       }),
     );
     expect(deps.createUnitContentIfAbsent).not.toHaveBeenCalled();

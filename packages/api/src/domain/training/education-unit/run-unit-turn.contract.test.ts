@@ -1,49 +1,20 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
-import type { UnitMasteryContract } from "@acme/validators";
-
 import type { UnitTurnDependencies } from "./run-unit-turn";
 import type { PersistedUnitRun } from "./unit-state";
 import { DEFAULT_EDUCATION_EXPERIENCE } from "./experience";
 import { runPassAdvanceTurn, runUnitTurn } from "./run-unit-turn";
+import { makeUnitContext } from "./unit-context.fixture";
 import { attachChallenge, createUnitRun, TEACH_TODO_ID } from "./unit-state";
 
-const masteryContract = {
-  version: 1,
-  dimensions: [
-    {
-      id: "derive-under-pressure",
-      name: "Derive under pressure",
-      description:
-        "Re-derive the decision when a realistic constraint changes.",
-      passSignals: ["Explains why the changed constraint changes the move"],
-      failSignals: ["Repeats the original procedure"],
-      surrogateTraps: ["Uses the right vocabulary without a causal chain"],
-    },
-  ],
-} satisfies UnitMasteryContract;
+const unitContext = makeUnitContext();
 
 const challengeContract = {
   version: 1 as const,
   runKind: "education" as const,
   scenarioPromptSummary: "Choose under a changed production constraint.",
-  testedDimensions: [
-    {
-      dimensionId: "derive-under-pressure",
-      promptRole: "Test mechanism-based transfer.",
-      expectedStrongMoves: ["Re-derives from the changed constraint"],
-      acceptableVariants: [],
-      commonWrongMoves: ["Copies the original procedure"],
-      scoreBands: {
-        strong: "Correct and causal.",
-        partial: "Plausible with a gap.",
-        weak: "Copied or unsupported.",
-      },
-    },
-  ],
-  learnerVisibleCriteria: ["Choose one move and defend it."],
-  evaluatorNotes: ["Do not reward copied wording."],
+  testedCriterionIds: ["derive-under-pressure"],
 };
 
 const difficultyVector = {
@@ -67,7 +38,7 @@ const baseRun = (): PersistedUnitRun => ({
     sessionId: "session-1",
     userId: "user-1",
     kind: "education",
-    masteryContract,
+    unitContext,
     experience: DEFAULT_EDUCATION_EXPERIENCE,
   }),
   difficultySnapshot: {
@@ -102,10 +73,12 @@ const input = (run = baseRun()) => ({
   run,
   transcript: [{ role: "user" as const, content: "I would derive it again." }],
   experience: DEFAULT_EDUCATION_EXPERIENCE,
-  buildContext: {
-    forMentor: () => "Unit context with the capability checklist.",
-    forPresenter: () => "Unit context for authoring the challenge.",
-    forCritic: () => "Unit context with the mastery contract.",
+  contexts: {
+    mentor: "Unit context for teaching.",
+    critique: {
+      createChallenge: "Unit context for authoring the challenge.",
+      judgeAnswer: "Unit context with the judgment standard.",
+    },
   },
 });
 
@@ -402,7 +375,7 @@ describe("runUnitTurn", () => {
         difficultyVector,
         contract: {
           runKind: "education",
-          testedDimensions: [{ dimensionId: "derive-under-pressure" }],
+          testedCriterionIds: ["derive-under-pressure"],
         },
       },
     });

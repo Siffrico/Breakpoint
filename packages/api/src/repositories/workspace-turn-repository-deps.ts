@@ -67,9 +67,8 @@ const claimWorkspaceUnitLease = async ({
       experienceId: run.experience.id,
       experienceVersion: run.experience.version,
       experienceJson: run.experience,
-      masteryContractJson: run.masteryContract,
+      unitContextJson: run.unitContext,
       todosJson: [...run.todos],
-      reviewerFeedback: run.reviewerFeedback,
       difficultySnapshotJson: run.difficultySnapshot,
       turnLeaseId: leaseId,
       turnLeaseExpiresAt: workspaceLeaseExpiry(now),
@@ -645,8 +644,6 @@ export const createWorkspaceTurnRepositoryDeps = (
 
       return result.success ? result.data : [];
     },
-    getUnitKnowledgeContext: (unitNodeId: string) =>
-      skillKnowledgeRepository.getUnitContext({ db, unitNodeId }),
     resolveDifficultyDirective: ({
       userId,
       nodeId,

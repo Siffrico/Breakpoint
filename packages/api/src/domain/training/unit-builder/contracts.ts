@@ -4,7 +4,6 @@ import {
   PracticeContractSchema,
   PreSeedUnitContentDraftSchema,
   SkillMapSchema,
-  UnitMasteryContractSchema,
 } from "@acme/validators";
 
 export const PriorLearningRecordSchema = z.object({
@@ -83,6 +82,7 @@ export const UnitBuilderContextSchema = z.object({
         .array(
           z.object({
             id: z.string().min(1),
+            skill: z.string().min(1),
             kind: z.enum(["concept", "mechanism"]),
             label: z.string().min(1),
             content: z.string().min(1),
@@ -94,12 +94,7 @@ export const UnitBuilderContextSchema = z.object({
     .nullable(),
 });
 
-export const SeedStageOutputSchema = PreSeedUnitContentDraftSchema.extend({
-  conceptTarget: z.string().min(1),
-  misconceptionTarget: z.string().min(1),
-  workedExampleBrief: z.string().min(1),
-  unitMasteryContract: UnitMasteryContractSchema,
-});
+export const SeedStageOutputSchema = PreSeedUnitContentDraftSchema;
 
 export type PriorLearningRecord = z.infer<typeof PriorLearningRecordSchema>;
 export type OutcomeTaskContract = z.infer<typeof OutcomeTaskContractSchema>;

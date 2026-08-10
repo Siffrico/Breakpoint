@@ -1,155 +1,125 @@
+import type { UnitContext, UnitDifficultySnapshot } from "@acme/validators";
+
 import type { Memory } from "../../memory/types";
-import type { UnitContent } from "../types/training.types";
-import type { PersistedUnitRun } from "./unit-state";
 
-export interface UnitKnowledgeContext {
-  readonly workflow: {
-    readonly name: string;
-    readonly steps: readonly string[];
-  };
-  readonly framing: { readonly question: string; readonly part: number } | null;
-  readonly checked: readonly {
-    readonly label: string;
-    readonly content: string;
-  }[];
-  readonly targets: readonly {
-    readonly id: string;
-    readonly kind: "concept" | "mechanism";
-    readonly label: string;
-    readonly content: string;
-  }[];
-}
-
-export interface UnitContextInput {
-  readonly unit: UnitContent;
-  readonly run: PersistedUnitRun;
-  readonly targetIdentity: string;
-  readonly memories: readonly Memory[];
-  readonly knowledge: UnitKnowledgeContext | null;
-  readonly difficultyDirection: string | null;
-}
-
-type Capability = PersistedUnitRun["masteryContract"]["dimensions"][number];
+export type UnitAgentFocus =
+  | { readonly kind: "education" }
+  | {
+      readonly kind: "recall";
+      readonly primary: { readonly label: string; readonly content: string };
+      readonly companion: {
+        readonly label: string;
+        readonly content: string;
+        readonly relation: string;
+      } | null;
+    };
 
 const bulletList = (values: readonly string[]) =>
   values.map((value) => `- ${value}`).join("\n");
 
-const numberedList = (entries: readonly string[]) =>
-  entries.map((entry, index) => `${index + 1}. ${entry}`).join("\n");
+const targetSection = (context: UnitContext) =>
+  `## Unit assignment\nPerformance: ${context.performance}\nTeach and test:\n${bulletList(
+    context.targets.map(
+      (target) =>
+        `${target.skill} — ${target.kind} — ${target.label}: ${target.content}`,
+    ),
+  )}`;
+
+const workflowSection = (context: UnitContext) =>
+  `## Expert workflow\n${context.workflow.name}: ${context.workflow.steps.join(" → ")}`;
+
+const expertiseSection = (context: UnitContext) =>
+  `## Expert judgment\n${bulletList(
+    context.expertise.expertJudgment.map(
+      (entry) => `${entry.rule} When: ${entry.when}`,
+    ),
+  )}\n\n## Realistic mistakes\n${bulletList(
+    context.expertise.commonMistakes.map(
+      (entry) =>
+        `${entry.mistake} Why it happens: ${entry.whyItHappens} Detection cue: ${entry.detectionCue}`,
+    ),
+  )}`;
+
+const judgmentSection = (context: UnitContext) =>
+  `## Judgment standard\nCriteria:\n${bulletList(
+    context.judgment.criteria.map(
+      (entry) => `${entry.id} — ${entry.criterion}`,
+    ),
+  )}\nQuality bar:\n${bulletList(context.judgment.qualityBar)}`;
+
+const testingSection = (context: UnitContext) =>
+  `## Test contract\nResponse mode: ${context.testing.responseMode}\nTask types:\n${bulletList(
+    context.testing.taskTypes.map(
+      (task) =>
+        `${task.name}: ${task.situation} Learner does: ${task.learnerDoes}. Output: ${task.output}. Shape: ${task.taskShape}`,
+    ),
+  )}\nVariation axes:\n${bulletList(
+    context.testing.variationAxes.map(
+      (axis) => `${axis.name}: ${axis.description}`,
+    ),
+  )}\nNever do:\n${bulletList(context.testing.neverDo)}`;
+
+const goldilocksSection = (difficulty: UnitDifficultySnapshot) =>
+  `## Goldilocks\n${difficulty.promptBlock}`;
+
+const focusSection = (focus: UnitAgentFocus): string | null =>
+  focus.kind === "education"
+    ? null
+    : `## Recall assignment\nIndependently stress-test retrieval and use of: ${focus.primary.label} — ${focus.primary.content}${
+        focus.companion
+          ? `\nCompose it with ${focus.companion.label} — ${focus.companion.content} (${focus.companion.relation} relation).`
+          : ""
+      }\nThis is spaced review, not a fresh lesson.`;
 
 const joinSections = (sections: readonly (string | null)[]) =>
   sections
     .filter((section): section is string => section !== null)
     .join("\n\n");
 
-const renderCapability = (capability: Capability) =>
-  `${capability.name} (${capability.id})
-   Goal: ${capability.description}
-   Pass evidence: ${capability.passSignals.join("; ")}
-   Failure signals: ${capability.failSignals.join("; ")}
-   Surrogate traps: ${capability.surrogateTraps.join("; ")}`;
-
-/** The capabilities this unit is graded against, with no trace of how we got here. */
-const renderMasteryContract = (run: PersistedUnitRun) =>
-  numberedList(run.masteryContract.dimensions.map(renderCapability));
-
-/**
- * Mentor view: the teaching steps still open. A current run has exactly one —
- * the worked example — and reads its target from the mastery contract instead.
- * Runs created under the older per-dimension shape resolve their capability and
- * still render as the checklist they were created as.
- */
-const renderCapabilityProgress = (run: PersistedUnitRun) => {
-  const capabilityById = new Map(
-    run.masteryContract.dimensions.map((capability) => [
-      capability.id,
-      capability,
-    ]),
-  );
-  return numberedList(
-    run.todos.flatMap((todo) => {
-      if (todo.kind !== "capability") return [];
-      const checkbox = todo.status === "completed" ? "[x]" : "[ ]";
-      const capability = capabilityById.get(todo.dimensionId);
-      return [
-        capability
-          ? `${checkbox} ${renderCapability(capability)}`
-          : `${checkbox} Teach one worked example that makes every capability below reachable.`,
-      ];
-    }),
-  );
-};
-
-const destinationSection = (targetIdentity: string) =>
-  `## Learner destination\n${targetIdentity}`;
-
-const unitSection = (unit: UnitContent, includeSeedHint: boolean) =>
-  `## Unit\nTitle: ${unit.title}\nLearning goal: ${unit.learningGoal}\nWhy it matters: ${unit.whyItMatters}\nSeed situation: ${unit.seedPrompt}${
-    includeSeedHint ? `\nPrivate seed hint: ${unit.seedHint}` : ""
-  }`;
-
-const expertWorkflowSection = (knowledge: UnitKnowledgeContext) =>
-  `## Expert workflow\n${knowledge.workflow.name}: ${knowledge.workflow.steps.join(" → ")}`;
-
-const knowledgeSection = (knowledge: UnitKnowledgeContext) =>
-  `${expertWorkflowSection(knowledge)}\nAuthored question: ${knowledge.framing?.question ?? "None"}\nAlready demonstrated: ${knowledge.checked.map((entry) => `${entry.label}: ${entry.content}`).join("; ") || "None"}\nThis unit must land:\n${bulletList(knowledge.targets.map((entry) => `${entry.id} — ${entry.kind} — ${entry.label}: ${entry.content}`))}`;
-
-const goldilocksSection = (difficultyDirection: string) =>
-  `## Goldilocks direction\n${difficultyDirection}`;
-
-const memoriesSection = (memories: readonly Memory[]) =>
-  `## Learner context\n${bulletList(memories.map((memory) => memory.content))}`;
-
-const priorFindingSection = (run: PersistedUnitRun) =>
-  run.reviewPass > 1 && run.reviewerFeedback
-    ? `## Earlier repair\n${run.reviewerFeedback}`
-    : null;
-
-/**
- * The mentor never sees adversarial findings: reviewer feedback is only ever
- * written in review mode, which the run never leaves back into learning.
- */
-export const buildMentorContext = (input: UnitContextInput): string =>
+export const createMentorContext = ({
+  unitContext,
+  difficulty,
+  memories,
+  focus,
+}: {
+  unitContext: UnitContext;
+  difficulty: UnitDifficultySnapshot;
+  memories: readonly Memory[];
+  focus: UnitAgentFocus;
+}): string =>
   joinSections([
-    destinationSection(input.targetIdentity),
-    unitSection(input.unit, true),
-    `## Capability progress\n${renderCapabilityProgress(input.run)}`,
-    `## Capabilities this unit must build\n${renderMasteryContract(input.run)}`,
-    input.knowledge ? knowledgeSection(input.knowledge) : null,
-    input.difficultyDirection
-      ? goldilocksSection(input.difficultyDirection)
+    targetSection(unitContext),
+    workflowSection(unitContext),
+    expertiseSection(unitContext),
+    goldilocksSection(difficulty),
+    memories.length > 0
+      ? `## Learner memory\n${bulletList(memories.map((memory) => memory.content))}`
       : null,
-    input.memories.length > 0 ? memoriesSection(input.memories) : null,
+    focusSection(focus),
   ]);
 
-/**
- * Authoring a challenge needs the unit, the contract it must test, and the
- * calibrated difficulty. It does not need the mentor's private seed hint (that
- * is an answer key) or the learner's memories (a scenario tuned to what the
- * learner already told us is a scenario they have already half-solved).
- */
-export const buildPresenterContext = (input: UnitContextInput): string =>
+export const createCritiqueContext = ({
+  unitContext,
+  difficulty,
+  focus,
+  mode,
+  previousChallengePrompts = [],
+}: {
+  unitContext: UnitContext;
+  difficulty: UnitDifficultySnapshot;
+  focus: UnitAgentFocus;
+  mode: "create_challenge" | "judge_answer";
+  previousChallengePrompts?: readonly string[];
+}): string =>
   joinSections([
-    destinationSection(input.targetIdentity),
-    unitSection(input.unit, false),
-    `## Mastery contract\n${renderMasteryContract(input.run)}`,
-    input.knowledge ? knowledgeSection(input.knowledge) : null,
-    input.difficultyDirection
-      ? goldilocksSection(input.difficultyDirection)
+    targetSection(unitContext),
+    workflowSection(unitContext),
+    expertiseSection(unitContext),
+    mode === "create_challenge" ? testingSection(unitContext) : null,
+    judgmentSection(unitContext),
+    mode === "create_challenge" ? goldilocksSection(difficulty) : null,
+    mode === "create_challenge" && previousChallengePrompts.length > 0
+      ? `## Previously used challenge surfaces\nCreate a genuinely fresh surface; do not repeat these prompts:\n${bulletList(previousChallengePrompts)}`
       : null,
-    priorFindingSection(input.run),
-  ]);
-
-/**
- * The critic's window, deliberately narrow: the rubric it grades against and
- * the expert path it compares the learner to, and nothing else. No seed hint,
- * no memories, no Goldilocks direction — a grader that knows the intended
- * answer, the learner's history, or the difficulty it was aiming for is
- * grading something other than the answer in front of it.
- */
-export const buildCritiqueContext = (input: UnitContextInput): string =>
-  joinSections([
-    `## Mastery contract\n${renderMasteryContract(input.run)}`,
-    input.knowledge ? expertWorkflowSection(input.knowledge) : null,
-    priorFindingSection(input.run),
+    focusSection(focus),
   ]);

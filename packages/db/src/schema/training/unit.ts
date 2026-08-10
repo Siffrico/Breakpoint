@@ -2,8 +2,8 @@ import { index, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
 
 import type {
   EducationExperienceSnapshot,
+  UnitContext,
   UnitDifficultySnapshot,
-  UnitMasteryContract,
   UnitTodo,
 } from "@acme/validators";
 
@@ -17,8 +17,6 @@ import { TrainingOnboardingSession } from "./onboarding";
  * cannot drift from the API engine's rating model.
  */
 export type TrainingUnitDifficultySnapshotJson = UnitDifficultySnapshot;
-
-export type TrainingUnitMasteryContractJson = UnitMasteryContract;
 
 export const TrainingUnitContent = pgTable(
   "becoming_unit_content",
@@ -50,9 +48,7 @@ export const TrainingUnitContent = pgTable(
       .notNull(),
     scenarioTitle: t.varchar({ length: 240 }).notNull(),
     scenarioFocusAreas: t.jsonb().$type<string[]>().notNull(),
-    unitMasteryContractJson: t
-      .jsonb()
-      .$type<TrainingUnitMasteryContractJson | null>(),
+    unitContextJson: t.jsonb().$type<UnitContext | null>(),
     createdAt: t
       .timestamp({ mode: "date", withTimezone: true })
       .defaultNow()
@@ -225,9 +221,8 @@ export const TrainingUnitRun = pgTable(
       .default("breakpoint-mentor"),
     experienceVersion: t.integer().notNull().default(1),
     experienceJson: t.jsonb().$type<EducationExperienceSnapshot>().notNull(),
-    masteryContractJson: t.jsonb().$type<UnitMasteryContract>().notNull(),
+    unitContextJson: t.jsonb().$type<UnitContext>().notNull(),
     todosJson: t.jsonb().$type<UnitTodo[]>().notNull(),
-    reviewerFeedback: t.text(),
     difficultySnapshotJson: t
       .jsonb()
       .$type<TrainingUnitDifficultySnapshotJson | null>(),

@@ -11,6 +11,7 @@ import type {
 } from "../types/training.types";
 import type { WorkspaceTurnOrchestrationDependencies } from "./workspace-turn-orchestration";
 import { DEFAULT_EDUCATION_EXPERIENCE } from "../education-unit/experience";
+import { makeUnitContext } from "../education-unit/unit-context.fixture";
 import { createUnitRun } from "../education-unit/unit-state";
 import { UnitNotReadyError } from "../unit-preparation/errors";
 import { getAiWorkspaceWorkflow } from "../workflows/get-ai-workspace-workflow";
@@ -54,19 +55,7 @@ const recallPlan = {
   id: "plan-1",
   nodes: [outcomeNode, completedNode, readyNode],
 } as CurriculumPlan;
-const masteryContract = {
-  version: 1 as const,
-  dimensions: [
-    {
-      id: "stable-boundaries",
-      name: "Use stable boundaries",
-      description: "Keep responsibility at the canonical boundary.",
-      passSignals: ["Chooses the canonical boundary"],
-      failSignals: ["Duplicates responsibility"],
-      surrogateTraps: ["Names the boundary without using it"],
-    },
-  ],
-};
+const unitContext = makeUnitContext();
 const unitStateFields = {
   title: "Stable boundaries",
   summary: "Keep one canonical boundary.",
@@ -85,20 +74,20 @@ const recallUnit = {
   ...unitStateFields,
   id: "unit-content-recall",
   nodeId: completedNode.id,
-  unitMasteryContract: masteryContract,
+  unitContext,
 } as UnitContent;
 const activeUnit = {
   ...unitStateFields,
   id: "unit-content-active",
   nodeId: readyNode.id,
-  unitMasteryContract: masteryContract,
+  unitContext,
 } as UnitContent;
 const recallRun = createUnitRun({
   unitId: recallUnit.id,
   sessionId: "session-1",
   userId: "user-1",
   kind: "recall",
-  masteryContract,
+  unitContext,
   experience: DEFAULT_EDUCATION_EXPERIENCE,
 });
 const recallCandidate = {
@@ -229,11 +218,37 @@ describe("workspace read preparation boundary", () => {
     expect(upsertUnitRun).not.toHaveBeenCalled();
   });
 
+  it("treats a pre-refactor unit contract as unprepared", async () => {
+    const staleUnit = {
+      id: "unit-content-1",
+      nodeId: readyNode.id,
+      unitContext: {
+        version: 1,
+        dimensions: [{ id: "legacy-dimension" }],
+      },
+    } as unknown as UnitContent;
+
+    await expect(
+      resolveWorkspaceTurn({
+        sessionId: "session-1",
+        deps: {
+          getActivePlan: () => Promise.resolve(plan),
+          getPhaseResponses: () => Promise.resolve([]),
+          getUnitRun: () => Promise.resolve(null),
+          getInFlightRecallRun: () => Promise.resolve(null),
+          retireInFlightRecallRun: () => Promise.resolve(),
+          getUnitByNodeId: () => Promise.resolve(staleUnit),
+          ...noRecallProjectionDeps,
+        },
+      }),
+    ).rejects.toBeInstanceOf(UnitNotReadyError);
+  });
+
   it("derives an initial run in memory when the run row is missing", async () => {
     const unit = {
       id: "unit-content-1",
       nodeId: readyNode.id,
-      unitMasteryContract: masteryContract,
+      unitContext,
     } as UnitContent;
     const upsertUnitRun = vi.fn();
 
@@ -256,7 +271,7 @@ describe("workspace read preparation boundary", () => {
         unitId: unit.id,
         sessionId: "session-1",
         kind: "education",
-        masteryContract,
+        unitContext,
         experience: DEFAULT_EDUCATION_EXPERIENCE,
       }),
     );
@@ -272,7 +287,7 @@ describe("workspace read preparation boundary", () => {
     const unit = {
       id: "unit-content-1",
       nodeId: readyNode.id,
-      unitMasteryContract: masteryContract,
+      unitContext,
     } as UnitContent;
     const customizedExperience = {
       ...DEFAULT_EDUCATION_EXPERIENCE,
@@ -307,7 +322,7 @@ describe("workspace read preparation boundary", () => {
     const unit = {
       id: "unit-content-1",
       nodeId: readyNode.id,
-      unitMasteryContract: masteryContract,
+      unitContext,
     } as UnitContent;
 
     await resolveWorkspaceTurn({
@@ -416,7 +431,7 @@ describe("durable recall projection", () => {
         sessionId: "session-1",
         userId: "user-1",
         kind: "education",
-        masteryContract,
+        unitContext,
         experience: DEFAULT_EDUCATION_EXPERIENCE,
       }),
       mode: "complete" as const,
@@ -486,22 +501,7 @@ describe("durable recall projection", () => {
                 version: 1 as const,
                 runKind: "recall",
                 scenarioPromptSummary: "Choose and defend the next move.",
-                testedDimensions: [
-                  {
-                    dimensionId: "stable-boundaries",
-                    promptRole: "Test transfer.",
-                    expectedStrongMoves: ["Defends the canonical boundary"],
-                    acceptableVariants: [],
-                    commonWrongMoves: ["Duplicates responsibility"],
-                    scoreBands: {
-                      strong: "Defends the boundary causally.",
-                      partial: "Names the boundary without a causal defense.",
-                      weak: "Duplicates responsibility.",
-                    },
-                  },
-                ],
-                learnerVisibleCriteria: ["Choose and defend one move."],
-                evaluatorNotes: [],
+                testedCriterionIds: ["criterion-1"],
               },
             },
           },
@@ -752,7 +752,7 @@ describe("workspace view reads", () => {
         sessionId: "session-1",
         userId: "user-1",
         kind: "education",
-        masteryContract,
+        unitContext,
         experience: DEFAULT_EDUCATION_EXPERIENCE,
       }),
       mode: "complete" as const,

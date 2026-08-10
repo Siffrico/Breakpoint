@@ -584,33 +584,46 @@ export const ContractDimensionIdSchema = z
   .max(80)
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
 
-export const UnitMasteryDimensionSchema = z.object({
-  id: ContractDimensionIdSchema,
-  name: z.string().min(1),
-  description: z.string().min(1),
-  passSignals: z.array(z.string().min(1)).min(1).max(6),
-  failSignals: z.array(z.string().min(1)).min(1).max(6),
-  surrogateTraps: z.array(z.string().min(1)).min(1).max(6),
+export const UnitContextSchema = z.object({
+  version: z.literal(1),
+  performance: z.string().min(1),
+  targets: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        skill: z.string().min(1),
+        kind: z.enum(["concept", "mechanism"]),
+        label: z.string().min(1),
+        content: z.string().min(1),
+      }),
+    )
+    .min(1)
+    .max(4),
+  workflow: PracticeContractSchema.shape.workflow,
+  expertise: z.object({
+    expertJudgment: SkillMapSchema.shape.expertJudgment,
+    commonMistakes: SkillMapSchema.shape.commonMistakes,
+  }),
+  testing: z.object({
+    responseMode: ScenarioArchetypeSchema,
+    taskTypes: PracticeContractSchema.shape.taskTypes,
+    variationAxes: PracticeContractSchema.shape.variationAxes,
+    neverDo: PracticeContractSchema.shape.neverDo,
+  }),
+  judgment: z.object({
+    criteria: z
+      .array(
+        z.object({
+          id: ContractDimensionIdSchema,
+          criterion: z.string().min(1),
+          skills: z.array(z.string().min(1)).min(1),
+        }),
+      )
+      .min(1)
+      .max(5),
+    qualityBar: PracticeContractSchema.shape.qualityBar,
+  }),
 });
-
-export const UnitMasteryContractSchema = z
-  .object({
-    version: z.literal(1),
-    dimensions: z.array(UnitMasteryDimensionSchema).min(1).max(4),
-  })
-  .superRefine((contract, ctx) => {
-    const ids = new Set<string>();
-    contract.dimensions.forEach((dimension, index) => {
-      if (ids.has(dimension.id)) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["dimensions", index, "id"],
-          message: `Duplicate mastery dimension id: ${dimension.id}.`,
-        });
-      }
-      ids.add(dimension.id);
-    });
-  });
 
 const EducationExperienceInstructionsSchema = z
   .string()
@@ -628,12 +641,6 @@ export const EducationExperienceSnapshotSchema = z.object({
   version: z.number().int().positive(),
   main: z.object({ instructions: EducationExperienceInstructionsSchema }),
   reviewer: z.object({ instructions: EducationExperienceInstructionsSchema }),
-});
-
-/** Legacy row shape, read-only. Hydrated into a UnitTodo on load. */
-export const UnitCapabilityTodoSchema = z.object({
-  dimensionId: ContractDimensionIdSchema,
-  status: z.enum(["pending", "completed"]),
 });
 
 /** A settled pass waits for Enter before its next independent scenario. */
@@ -660,19 +667,6 @@ export const WorkspaceEducationStageSchema = z.enum(
 );
 
 const WorkspaceScenarioRunKindSchema = UnitRunKindSchema;
-
-export const ScenarioEvaluationDimensionSchema = z.object({
-  dimensionId: ContractDimensionIdSchema,
-  promptRole: z.string().min(1),
-  expectedStrongMoves: z.array(z.string().min(1)).min(1).max(6),
-  acceptableVariants: z.array(z.string().min(1)).max(6),
-  commonWrongMoves: z.array(z.string().min(1)).min(1).max(6),
-  scoreBands: z.object({
-    strong: z.string().min(1),
-    partial: z.string().min(1),
-    weak: z.string().min(1),
-  }),
-});
 
 export const ScenarioVerifierSchema = z
   .object({
@@ -703,9 +697,7 @@ export const ScenarioEvaluationContractSchema = z.object({
   version: z.literal(1),
   runKind: WorkspaceScenarioRunKindSchema,
   scenarioPromptSummary: z.string().min(1),
-  testedDimensions: z.array(ScenarioEvaluationDimensionSchema).min(1).max(4),
-  learnerVisibleCriteria: z.array(z.string().min(1)).min(1).max(5),
-  evaluatorNotes: z.array(z.string().min(1)).max(6),
+  testedCriterionIds: z.array(ContractDimensionIdSchema).min(1).max(5),
   verifier: ScenarioVerifierSchema.optional(),
 });
 
@@ -716,8 +708,8 @@ export const UnitReviewChallengeSchema = z.object({
 });
 
 /**
- * A unit run teaches one capability. A pass is one route through it: the
- * teaching moves, then the solve the learner answers, then the complete the
+ * A unit run opens with one teaching move. A pass is one route through it: the
+ * teaching move, then the solve the learner answers, then the complete the
  * reviewer marks. The list is the whole state — a pass is over when its list
  * is done, and the complete's mark decides whether the unit ends or another
  * pass is appended.
@@ -780,7 +772,7 @@ export const ForgeUnitContentSchema = z.object({
   practicePrompts: z.array(PracticePromptSchema).length(3).nullable(),
   teachbackSetup: TeachbackSetupSchema,
   scenario: ForgeUnitScenarioSchema,
-  unitMasteryContract: UnitMasteryContractSchema.nullable(),
+  unitContext: UnitContextSchema.nullable(),
   difficultyBands: z.array(DifficultyBandSchema).nullable(),
 });
 
@@ -1122,7 +1114,6 @@ export type EducationExperienceSnapshot = z.infer<
 export type EducationExperienceCustomization = z.infer<
   typeof EducationExperienceCustomizationSchema
 >;
-export type UnitCapabilityTodo = z.infer<typeof UnitCapabilityTodoSchema>;
 export type UnitTodo = z.infer<typeof UnitTodoSchema>;
 export type UnitTodoResult = z.infer<typeof UnitTodoResultSchema>;
 export type UnitSolveTodo = Extract<UnitTodo, { kind: "solve" }>;
@@ -1208,7 +1199,7 @@ export type SubmitEducationUnitStep = z.infer<
   typeof SubmitEducationUnitStepSchema
 >;
 export type UnitContent = z.infer<typeof UnitContentSchema>;
-export type UnitMasteryContract = z.infer<typeof UnitMasteryContractSchema>;
+export type UnitContext = z.infer<typeof UnitContextSchema>;
 export type ScenarioEvaluationContract = z.infer<
   typeof ScenarioEvaluationContractSchema
 >;

@@ -1,3 +1,5 @@
+import { UnitContextSchema } from "@acme/validators";
+
 import type { Result } from "../../../lib/result";
 import type {
   EducationUnitState,
@@ -50,7 +52,7 @@ export const getUnitWorkflow = async ({
   }
 
   const unit = await deps.getUnitByNodeId(nodeId);
-  if (!unit) {
+  if (!unit || !UnitContextSchema.safeParse(unit.unitContext).success) {
     return err(
       node.status === "ready"
         ? "UNIT_PREPARING"

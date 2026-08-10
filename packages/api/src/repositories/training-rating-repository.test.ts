@@ -42,22 +42,7 @@ describe("education scenario attempt identity", () => {
         version: 1,
         runKind: "education",
         scenarioPromptSummary: "Solve this scenario.",
-        testedDimensions: [
-          {
-            dimensionId: "derive-under-pressure",
-            promptRole: "Require a fresh derivation.",
-            expectedStrongMoves: ["Derives from the changed constraint"],
-            acceptableVariants: ["Uses a valid equivalent derivation"],
-            commonWrongMoves: ["Repeats the old procedure"],
-            scoreBands: {
-              strong: "Derives and defends the move",
-              partial: "Finds the move with a weak derivation",
-              weak: "Replays the old procedure",
-            },
-          },
-        ],
-        learnerVisibleCriteria: ["Derive your move"],
-        evaluatorNotes: ["Grade only the submitted reasoning"],
+        testedCriterionIds: ["derive-under-pressure"],
       },
       presentedAt: new Date("2026-07-05T00:00:00Z"),
     });

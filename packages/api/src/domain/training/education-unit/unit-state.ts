@@ -3,8 +3,8 @@ import { Data, Effect } from "effect";
 import type {
   EducationExperienceSnapshot,
   UnitCompleteTodo,
+  UnitContext,
   UnitDifficultySnapshot,
-  UnitMasteryContract,
   UnitReviewChallenge,
   UnitReviewPass,
   UnitRunKind,
@@ -13,15 +13,15 @@ import type {
   UnitTodo,
   UnitTodoResult,
 } from "@acme/validators";
-import { UnitMasteryContractSchema } from "@acme/validators";
+import { UnitContextSchema } from "@acme/validators";
 
 import type { EducationExperienceDefinition } from "./experience";
 import { snapshotEducationExperience } from "./experience";
 
 /**
- * One run teaches one capability. `todos` is the whole state: the teaching
- * moves, then the solve the learner answers, then the complete the reviewer
- * marks. `mode`, `reviewPass` and `activeReviewChallenge` are projections of
+ * One run has one teaching move. `todos` is the whole state: teach, present a
+ * solve, then record the review result. `mode`, `reviewPass` and
+ * `activeReviewChallenge` are projections of
  * that list, recomputed on every read — never branched on to decide what
  * happens next.
  */
@@ -31,9 +31,8 @@ export interface PersistedUnitRun {
   readonly userId: string | null;
   readonly kind: UnitRunKind;
   readonly experience: EducationExperienceSnapshot;
-  readonly masteryContract: UnitMasteryContract;
+  readonly unitContext: UnitContext;
   readonly todos: readonly UnitTodo[];
-  readonly reviewerFeedback: string | null;
   readonly difficultySnapshot: UnitDifficultySnapshot | null;
   /** Projection of `todos`. */
   readonly mode: UnitRunMode;
@@ -79,10 +78,8 @@ export const passTodos = (
 ];
 
 /**
- * The single teaching step an education run opens with. One worked example, not
- * one lecture per dimension: the mastery dimensions say what the reviewer will
- * grade, and were never a lesson sequence. Kept in the `capability` todo's id
- * slot so runs created under the per-dimension shape still load and finish.
+ * The single teaching step an education run opens with. The `capability` todo
+ * is the existing state-machine name; its one authoritative id is `teach`.
  */
 export const TEACH_TODO_ID = "teach";
 
@@ -177,24 +174,24 @@ export const createUnitRun = ({
   sessionId,
   userId,
   kind,
-  masteryContract,
+  unitContext,
   experience,
 }: {
   unitId: string;
   sessionId: string;
   userId?: string | null;
   kind: UnitRunKind;
-  masteryContract: UnitMasteryContract;
+  unitContext: UnitContext;
   experience: EducationExperienceDefinition;
 }): PersistedUnitRun => {
-  const contract = UnitMasteryContractSchema.parse(masteryContract);
+  const context = UnitContextSchema.parse(unitContext);
   return project({
     unitId,
     sessionId,
     userId: userId ?? null,
     kind,
     experience: snapshotEducationExperience(experience),
-    masteryContract: contract,
+    unitContext: context,
     todos: [
       {
         kind: "capability",
@@ -204,7 +201,6 @@ export const createUnitRun = ({
       },
       ...passTodos(kind, 1),
     ],
-    reviewerFeedback: null,
     difficultySnapshot: null,
   });
 };
@@ -338,7 +334,6 @@ export const markComplete = ({
   return Effect.succeed(
     project({
       ...run,
-      reviewerFeedback: feedback.trim(),
       todos: unitEnds
         ? marked
         : [...marked, ...passTodos(run.kind, complete.pass + 1)],

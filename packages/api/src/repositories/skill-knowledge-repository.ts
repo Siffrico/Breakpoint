@@ -211,8 +211,9 @@ export const skillKnowledgeRepository = {
       checked: entries
         .filter((entry) => entry.status === "checked")
         .map(({ label, content }) => ({ label, content })),
-      targets: targeted.map(({ id, kind, label, content }) => ({
+      targets: targeted.map(({ id, question, kind, label, content }) => ({
         id,
+        skill: question,
         kind: kind as "concept" | "mechanism",
         label,
         content,

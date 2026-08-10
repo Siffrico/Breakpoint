@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { UnitContent } from "../types/training.types";
+import { makeUnitContext } from "../education-unit/unit-context.fixture";
 import { getUnitWorkflow } from "./get-unit-workflow";
 
 const runPrepareUnitMock = vi.fn<(input: unknown) => Promise<UnitContent>>();
@@ -72,7 +73,7 @@ const unit = {
     title: "The slow deployment",
     focusAreas: ["causal isolation"],
   },
-  unitMasteryContract: null,
+  unitContext: makeUnitContext(),
   difficultyBands: null,
 } satisfies UnitContent;
 
@@ -111,6 +112,7 @@ describe("explicit unit preparation recovery", () => {
           targets: [
             {
               id: "entry-1",
+              skill: "Diagnose incidents",
               kind: "concept",
               label: "Causal probe",
               content:

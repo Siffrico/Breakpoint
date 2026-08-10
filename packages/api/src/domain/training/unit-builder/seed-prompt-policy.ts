@@ -15,10 +15,7 @@ const OUTPUT_RULES = `Output rules:
 - scenario.focusAreas contains 2 or 3 precise evaluation targets
 - seedHint guides the kind of response to give without giving away the answer
 - clusterArcFrame positions this slot in the larger sequence without teaching the answer
-- complexityBudget is 1, 2, or 3 based on the real reasoning load
-- unitMasteryContract contains 2 to 4 autonomous, observable capability dimensions covering every target Skill Map item and the unit's workflow judgment
-- passSignals describe observable reasoning or action, failSignals describe concrete breakdowns, and surrogateTraps catch fluent imitation without understanding
-- conceptTarget identifies the concrete capability being exercised, misconceptionTarget identifies the likely failure, and workedExampleBrief tells the later Build stage what contrasting example would unlock improvement`;
+- complexityBudget is 1, 2, or 3 based on the real reasoning load`;
 
 const mainOutcomePrompt = (context: UnitBuilderContext): string => {
   const contract = context.planContext.clusterContext?.taskContract;
@@ -138,7 +135,7 @@ ${
 Workflow spine: ${context.knowledge.workflow.steps.join(" -> ")}
 Authored question: ${context.knowledge.framing?.question ?? "None"}
 Already checked (assume known): ${context.knowledge.checked.map((entry) => `${entry.label}: ${entry.content}`).join("; ") || "None"}
-This unit must exercise: ${context.knowledge.targets.map((entry) => `${entry.kind} — ${entry.label}: ${entry.content}`).join("; ")}`
+This unit must exercise: ${context.knowledge.targets.map((entry) => `${entry.skill} — ${entry.kind} — ${entry.label}: ${entry.content}`).join("; ")}`
     : "No knowledge targets are attached."
 }`;
 };

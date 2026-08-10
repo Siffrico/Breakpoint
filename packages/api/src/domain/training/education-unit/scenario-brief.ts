@@ -28,10 +28,14 @@ export const projectScenarioBrief = (
 ): ScenarioBrief | null => {
   const challenge = run?.activeReviewChallenge;
   if (!challenge) return null;
+  const tested = new Set(challenge.contract.testedCriterionIds);
 
   return {
     stateA: challenge.prompt,
-    stateB: challenge.contract.learnerVisibleCriteria.join("\n"),
+    stateB: run.unitContext.judgment.criteria
+      .filter((criterion) => tested.has(criterion.id))
+      .map((criterion) => criterion.criterion)
+      .join("\n"),
     frictionNoise: null,
   };
 };

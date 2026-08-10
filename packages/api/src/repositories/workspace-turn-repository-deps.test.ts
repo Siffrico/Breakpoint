@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { WorkspaceEducationTurnCommit } from "../domain/training/workspace-ai/workspace-turn-persistence";
 import { DEFAULT_EDUCATION_EXPERIENCE } from "../domain/training/education-unit/experience";
+import { makeUnitContext } from "../domain/training/education-unit/unit-context.fixture";
 import { createUnitRun } from "../domain/training/education-unit/unit-state";
 import { WorkspaceTurnRepo } from "../domain/training/workspace-ai/workspace-turn-repo";
 import {
@@ -16,19 +17,10 @@ const freshRun = createUnitRun({
   userId: "user-1",
   kind: "education",
   experience: DEFAULT_EDUCATION_EXPERIENCE,
-  masteryContract: {
-    version: 1,
-    dimensions: [
-      {
-        id: "make-decision",
-        name: "Make the decision",
-        description: "Make and defend the target decision.",
-        passSignals: ["Defends the decision"],
-        failSignals: ["Guesses without evidence"],
-        surrogateTraps: ["Uses vocabulary without reasoning"],
-      },
-    ],
-  },
+  unitContext: makeUnitContext({
+    criterionId: "make-decision",
+    criterion: "Make and defend the target decision.",
+  }),
 });
 
 describe("workspace unit lease acquisition", () => {
@@ -68,7 +60,7 @@ describe("workspace unit lease acquisition", () => {
       experienceId: freshRun.experience.id,
       experienceVersion: freshRun.experience.version,
       experienceJson: freshRun.experience,
-      masteryContractJson: freshRun.masteryContract,
+      unitContextJson: freshRun.unitContext,
       todosJson: freshRun.todos,
       turnLeaseId: "00000000-0000-0000-0000-000000000099",
     });

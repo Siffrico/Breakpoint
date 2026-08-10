@@ -8,7 +8,6 @@ import type {
 
 import type { UnitAgentError } from "./agent-errors";
 import type { EducationExperienceDefinition } from "./experience";
-import type { UnitContextBuilders } from "./prefill";
 import type { PersistedUnitRun } from "./unit-state";
 import {
   compositeScore,
@@ -19,7 +18,6 @@ import { runMentorAgent } from "./mentor-agent";
 import {
   parkedChallenge,
   prefillScenario,
-  readContext,
   UnitTurnContractError,
 } from "./prefill";
 import {
@@ -36,7 +34,13 @@ import {
   presentSolve,
 } from "./unit-state";
 
-export type { UnitContextBuilders } from "./prefill";
+export interface UnitAgentContexts {
+  readonly mentor: string;
+  readonly critique: {
+    readonly createChallenge: string;
+    readonly judgeAnswer: string;
+  };
+}
 export { UnitTurnContractError } from "./prefill";
 
 export interface UnitTurnResult {
@@ -95,16 +99,14 @@ const latestUserText = (transcript: readonly ModelMessage[]): string | null => {
  */
 const openSolve = ({
   run,
-  transcript,
   experience,
-  buildContext,
+  contexts,
   onPartialAssistantMessage,
   deps,
 }: {
   run: PersistedUnitRun;
-  transcript: readonly ModelMessage[];
   experience: EducationExperienceDefinition;
-  buildContext: UnitContextBuilders;
+  contexts: UnitAgentContexts;
   onPartialAssistantMessage?: (content: string) => void;
   deps: UnitTurnDependencies;
 }): Effect.Effect<UnitTurnResult, UnitAgentError | UnitTurnContractError> =>
@@ -118,9 +120,8 @@ const openSolve = ({
       (yield* prefillScenario(
         {
           run,
-          transcript,
           experience,
-          buildContext,
+          context: contexts.critique.createChallenge,
           onPartialAssistantMessage,
         },
         deps,
@@ -149,14 +150,14 @@ const gradeSolve = ({
   run,
   transcript,
   experience,
-  buildContext,
+  contexts,
   onPartialAssistantMessage,
   deps,
 }: {
   run: PersistedUnitRun;
   transcript: readonly ModelMessage[];
   experience: EducationExperienceDefinition;
-  buildContext: UnitContextBuilders;
+  contexts: UnitAgentContexts;
   onPartialAssistantMessage?: (content: string) => void;
   deps: UnitTurnDependencies;
 }): Effect.Effect<UnitTurnResult, UnitAgentError | UnitTurnContractError> =>
@@ -176,16 +177,13 @@ const gradeSolve = ({
     const decisive = isDecisivePass(run);
     const answered = yield* closeSolve(run).pipe(asTurnError);
 
-    const context = yield* readContext(buildContext.forCritic, run);
     const result = yield* deps.runReviewGrade({
-      messages: transcript,
-      context,
+      messages: [{ role: "user", content: learnerAnswer }],
+      context: contexts.critique.judgeAnswer,
       activeChallenge,
       experience,
       shape: {
-        testedDimensionIds: activeChallenge.contract.testedDimensions.map(
-          (dimension) => dimension.dimensionId,
-        ),
+        testedDimensionIds: activeChallenge.contract.testedCriterionIds,
         learnerAnswer,
         decisive,
       },
@@ -236,15 +234,13 @@ const gradeSolve = ({
 export const runPassAdvanceTurn = (
   {
     run,
-    transcript,
     experience,
-    buildContext,
+    contexts,
     onPartialAssistantMessage,
   }: {
     run: PersistedUnitRun;
-    transcript: readonly ModelMessage[];
     experience: EducationExperienceDefinition;
-    buildContext: UnitContextBuilders;
+    contexts: UnitAgentContexts;
     onPartialAssistantMessage?: (content: string) => void;
   },
   deps: UnitTurnDependencies = LIVE_DEPENDENCIES,
@@ -255,9 +251,8 @@ export const runPassAdvanceTurn = (
     }
     return yield* openSolve({
       run,
-      transcript,
       experience,
-      buildContext,
+      contexts,
       onPartialAssistantMessage,
       deps,
     });
@@ -272,13 +267,13 @@ export const runUnitTurn = (
     run,
     transcript,
     experience,
-    buildContext,
+    contexts,
     onPartialAssistantMessage,
   }: {
     run: PersistedUnitRun;
     transcript: readonly ModelMessage[];
     experience: EducationExperienceDefinition;
-    buildContext: UnitContextBuilders;
+    contexts: UnitAgentContexts;
     onPartialAssistantMessage?: (content: string) => void;
   },
   deps: UnitTurnDependencies = LIVE_DEPENDENCIES,
@@ -295,7 +290,7 @@ export const runUnitTurn = (
           run,
           transcript,
           experience,
-          buildContext,
+          contexts,
           onPartialAssistantMessage,
           deps,
         });
@@ -306,9 +301,8 @@ export const runUnitTurn = (
       return head.pass === 1
         ? yield* openSolve({
             run,
-            transcript,
             experience,
-            buildContext,
+            contexts,
             onPartialAssistantMessage,
             deps,
           })
@@ -324,7 +318,6 @@ export const runUnitTurn = (
       );
     }
 
-    const context = yield* readContext(buildContext.forMentor, run);
     // The teach step normally completes on its first message and hands straight
     // to the scenario, so authoring that scenario alongside the mentor rather
     // than after it takes a whole model call off the learner's wait. A miss is
@@ -335,7 +328,7 @@ export const runUnitTurn = (
       [
         deps.runMentor({
           messages: transcript,
-          context,
+          context: contexts.mentor,
           experience,
           currentCapabilityId: head.dimensionId,
           onPartialAssistantMessage,
@@ -343,7 +336,11 @@ export const runUnitTurn = (
         parkedChallenge(run)
           ? Effect.succeed(null)
           : prefillScenario(
-              { run, transcript, experience, buildContext },
+              {
+                run,
+                experience,
+                context: contexts.critique.createChallenge,
+              },
               deps,
             ).pipe(Effect.catch(() => Effect.succeed(null))),
       ],
@@ -393,9 +390,8 @@ export const runUnitTurn = (
     const handoff = `${mentorMessage}\n\n`;
     const opened = yield* openSolve({
       run: advanced,
-      transcript,
       experience,
-      buildContext,
+      contexts,
       onPartialAssistantMessage: onPartialAssistantMessage
         ? (challenge) => onPartialAssistantMessage(`${handoff}${challenge}`)
         : undefined,

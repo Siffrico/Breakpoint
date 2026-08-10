@@ -1,6 +1,8 @@
 import type { Effect as EffectType } from "effect";
 import { Cause, Effect, Exit } from "effect";
 
+import { UnitContextSchema } from "@acme/validators";
+
 import type { DbError } from "../../../effect/errors";
 import type { EducationExperienceDefinition } from "../education-unit/experience";
 import type { PersistedUnitRun } from "../education-unit/unit-state";
@@ -166,8 +168,9 @@ export const resolveRecallRunProjection = ({
   if (existing?.kind === "recall" && existing.mode !== "complete") {
     return existing;
   }
-  if (!unit.unitMasteryContract) {
-    throw new Error("The recall unit has no capability contract.");
+  const unitContext = UnitContextSchema.safeParse(unit.unitContext);
+  if (!unitContext.success) {
+    throw new Error("The recall unit has no authoritative context.");
   }
 
   return createUnitRun({
@@ -175,7 +178,7 @@ export const resolveRecallRunProjection = ({
     sessionId,
     userId,
     kind: "recall",
-    masteryContract: unit.unitMasteryContract,
+    unitContext: unitContext.data,
     experience,
   });
 };
@@ -338,8 +341,9 @@ export const resolveUnitRunProjection = ({
   if (existing?.kind === "education") {
     return existing;
   }
-  if (!unit.unitMasteryContract) {
-    throw new Error("The education unit has no capability contract.");
+  const unitContext = UnitContextSchema.safeParse(unit.unitContext);
+  if (!unitContext.success) {
+    throw new Error("The education unit has no authoritative context.");
   }
 
   return createUnitRun({
@@ -347,7 +351,7 @@ export const resolveUnitRunProjection = ({
     sessionId,
     userId,
     kind: "education",
-    masteryContract: unit.unitMasteryContract,
+    unitContext: unitContext.data,
     experience,
   });
 };
@@ -379,7 +383,7 @@ export const loadNextReadyUnitProjection = ({
     const reader = yield* WorkspaceProjectionReader;
     const node = getNextReadyLearningNode(nodes);
     const unit = node ? yield* reader.getUnitByNodeId(node.id) : null;
-    if (!unit) {
+    if (!unit || !UnitContextSchema.safeParse(unit.unitContext).success) {
       return { node, unit: null, responses: [], run: null };
     }
     const [responses, existingRun] = yield* Effect.all(
@@ -484,7 +488,11 @@ export const resolveWorkspaceTurnEffect = ({
           ? yield* reader.getUnitByNodeId(node.id)
           : null;
 
-    if (!unit || !node) {
+    if (
+      !unit ||
+      !node ||
+      !UnitContextSchema.safeParse(unit.unitContext).success
+    ) {
       return yield* new UnitNotReadyError({
         message: "UNIT_PREPARING",
         nodeId: node?.id,

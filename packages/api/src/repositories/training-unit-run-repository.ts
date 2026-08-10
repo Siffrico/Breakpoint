@@ -4,7 +4,7 @@ import { and, desc, eq, isNull, ne, sql } from "@acme/db";
 import { TrainingUnitRun } from "@acme/db/schema";
 import {
   EducationExperienceSnapshotSchema,
-  UnitMasteryContractSchema,
+  UnitContextSchema,
   UnitRunKindSchema,
   UnitTodoSchema,
 } from "@acme/validators";
@@ -43,24 +43,16 @@ const mapUnitRun = (
       "Unit run experience identity does not match its immutable snapshot.",
     );
   }
-  const masteryContract = UnitMasteryContractSchema.parse(
-    row.masteryContractJson,
-  );
+  const unitContext = UnitContextSchema.parse(row.unitContextJson);
   const kind = UnitRunKindSchema.parse(row.kind);
   const todos = UnitTodoSchema.array().parse(row.todosJson);
 
-  const expectedIds = masteryContract.dimensions.map(
-    (dimension) => dimension.id,
-  );
   const persistedIds = todos
     .filter((todo) => todo.kind === "capability")
     .map((todo) => todo.dimensionId);
-  if (
-    expectedIds.length !== persistedIds.length ||
-    expectedIds.some((id, index) => persistedIds[index] !== id)
-  ) {
+  if (persistedIds.length !== 1 || persistedIds[0] !== "teach") {
     throw new Error(
-      "Unit run capability todos do not match its snapshotted mastery contract.",
+      "Unit run must contain exactly one authoritative teaching todo.",
     );
   }
 
@@ -70,12 +62,18 @@ const mapUnitRun = (
     userId: row.userId,
     kind,
     experience,
-    masteryContract,
+    unitContext,
     todos,
-    reviewerFeedback: row.reviewerFeedback,
     difficultySnapshot: row.difficultySnapshotJson,
   });
 };
+
+const tryMapUnitRun = (
+  row: typeof TrainingUnitRun.$inferSelect,
+): PersistedUnitRun | null =>
+  UnitContextSchema.safeParse(row.unitContextJson).success
+    ? mapUnitRun(row)
+    : null;
 
 export const trainingUnitRunRepository = {
   getUnitRun: async ({
@@ -95,7 +93,7 @@ export const trainingUnitRunRepository = {
       ),
     });
 
-    return row ? mapUnitRun(row) : null;
+    return row ? tryMapUnitRun(row) : null;
   },
 
   getInFlightRecallRun: async ({
@@ -114,7 +112,7 @@ export const trainingUnitRunRepository = {
       orderBy: [desc(TrainingUnitRun.updatedAt)],
     });
 
-    return row ? mapUnitRun(row) : null;
+    return row ? tryMapUnitRun(row) : null;
   },
 
   retireInFlightRecallRun: async ({
@@ -136,7 +134,14 @@ export const trainingUnitRunRepository = {
     });
     if (!row) return;
 
-    const run = mapUnitRun(row);
+    const run = tryMapUnitRun(row);
+    if (!run) {
+      await db
+        .update(TrainingUnitRun)
+        .set({ mode: "complete" })
+        .where(eq(TrainingUnitRun.id, row.id));
+      return;
+    }
     await db
       .update(TrainingUnitRun)
       .set({
@@ -175,7 +180,8 @@ export const trainingUnitRunRepository = {
       ),
     });
     if (!row) return;
-    const run = mapUnitRun(row);
+    const run = tryMapUnitRun(row);
+    if (!run) return;
     const pending = run.todos.find((todo) => todo.status !== "completed");
     if (
       pending?.kind !== "solve" ||
@@ -219,9 +225,8 @@ export const trainingUnitRunRepository = {
       experienceId: run.experience.id,
       experienceVersion: run.experience.version,
       experienceJson: run.experience,
-      masteryContractJson: run.masteryContract,
+      unitContextJson: run.unitContext,
       todosJson: [...run.todos],
-      reviewerFeedback: run.reviewerFeedback,
       difficultySnapshotJson: run.difficultySnapshot,
     };
 
@@ -241,9 +246,8 @@ export const trainingUnitRunRepository = {
           experienceId: values.experienceId,
           experienceVersion: values.experienceVersion,
           experienceJson: values.experienceJson,
-          masteryContractJson: values.masteryContractJson,
+          unitContextJson: values.unitContextJson,
           todosJson: values.todosJson,
-          reviewerFeedback: values.reviewerFeedback,
           difficultySnapshotJson: sql`case when ${TrainingUnitRun.kind} = excluded.kind and ${TrainingUnitRun.experienceId} = excluded.experience_id and ${TrainingUnitRun.experienceVersion} = excluded.experience_version and ${TrainingUnitRun.mode} != 'complete' then coalesce(${TrainingUnitRun.difficultySnapshotJson}, excluded.difficulty_snapshot_json) else excluded.difficulty_snapshot_json end`,
         },
       })

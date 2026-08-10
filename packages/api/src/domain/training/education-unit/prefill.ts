@@ -1,4 +1,3 @@
-import type { ModelMessage } from "ai";
 import { Data, Effect } from "effect";
 
 import type {
@@ -19,32 +18,6 @@ export class UnitTurnContractError extends Data.TaggedError(
 
 const contractFailure = (message: string) =>
   Effect.fail(new UnitTurnContractError({ message }));
-
-/**
- * Three disjoint views of the same run, built by separate functions. There is
- * no audience flag to get wrong, so the mentor's view cannot reach the critic
- * and the critic never sees the difficulty it was graded against.
- */
-export interface UnitContextBuilders {
-  readonly forMentor: (run: PersistedUnitRun) => string;
-  readonly forPresenter: (run: PersistedUnitRun) => string;
-  readonly forCritic: (run: PersistedUnitRun) => string;
-}
-
-export const readContext = (
-  build: (run: PersistedUnitRun) => string,
-  run: PersistedUnitRun,
-): Effect.Effect<string, UnitTurnContractError> =>
-  Effect.try({
-    try: () => build(run),
-    catch: (cause) =>
-      new UnitTurnContractError({
-        message:
-          cause instanceof Error
-            ? cause.message
-            : "Unit context could not be constructed.",
-      }),
-  });
 
 const midpoint = ([minimum, maximum]: readonly [number, number]): number =>
   Math.round((minimum + maximum) / 2);
@@ -79,27 +52,9 @@ const evaluationContractFor = (
       .split(/\n\s*\n/)
       .find((part) => part.trim().length > 0)
       ?.trim() ?? prompt,
-  testedDimensions: run.masteryContract.dimensions.map((dimension) => ({
-    dimensionId: dimension.id,
-    promptRole: dimension.description,
-    expectedStrongMoves: dimension.passSignals,
-    acceptableVariants: [],
-    commonWrongMoves: [
-      ...dimension.failSignals,
-      ...dimension.surrogateTraps,
-    ].slice(0, 6),
-    scoreBands: {
-      strong: `Demonstrates ${dimension.passSignals.join("; ")}.`,
-      partial: `Shows part of ${dimension.description}, but leaves a material gap in the reasoning.`,
-      weak: `Shows ${dimension.failSignals.join("; ")}.`,
-    },
-  })),
-  learnerVisibleCriteria: run.masteryContract.dimensions.map(
-    (dimension) => dimension.description,
+  testedCriterionIds: run.unitContext.judgment.criteria.map(
+    (criterion) => criterion.id,
   ),
-  evaluatorNotes: run.masteryContract.dimensions
-    .flatMap((dimension) => dimension.surrogateTraps)
-    .slice(0, 6),
   verifier,
 });
 
@@ -123,15 +78,13 @@ export interface PrefillDependencies {
 export const prefillScenario = (
   {
     run,
-    transcript,
     experience,
-    buildContext,
+    context,
     onPartialAssistantMessage,
   }: {
     run: PersistedUnitRun;
-    transcript: readonly ModelMessage[];
     experience: EducationExperienceDefinition;
-    buildContext: Pick<UnitContextBuilders, "forPresenter">;
+    context: string;
     onPartialAssistantMessage?: (content: string) => void;
   },
   deps: PrefillDependencies = {
@@ -139,10 +92,9 @@ export const prefillScenario = (
   },
 ): Effect.Effect<UnitReviewChallenge, UnitAgentError | UnitTurnContractError> =>
   Effect.gen(function* () {
-    const context = yield* readContext(buildContext.forPresenter, run);
     const difficultyVector = yield* difficultyVectorFor(run);
     const result = yield* deps.runReviewPresentation({
-      messages: transcript,
+      messages: [],
       context: presentationContext(context, difficultyVector),
       experience,
       pass: run.reviewPass,

@@ -168,6 +168,7 @@ const context: UnitBuilderContext = {
     targets: [
       {
         id: "item-1",
+        skill: "Equation reasoning",
         kind: "concept",
         label: "Equivalent equations",
         content: "Apply the same valid operation to both sides.",

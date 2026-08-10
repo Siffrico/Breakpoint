@@ -24,6 +24,7 @@ import {
   user,
 } from "@acme/db/schema";
 
+import { makeUnitContext } from "../domain/training/education-unit/unit-context.fixture";
 import { MissionRepo } from "../domain/training/missions/mission-repo";
 import { Db } from "../effect/db";
 import { MissionRepoLive } from "./mission-repository";
@@ -283,19 +284,10 @@ const seedUnitRun = async ({
           instructions: "Pressure-test the learned capabilities.",
         },
       },
-      masteryContractJson: {
-        version: 1,
-        dimensions: [
-          {
-            id: "perform-workflow",
-            name: "Perform the workflow",
-            description: "Perform and defend the workflow.",
-            passSignals: ["Performs it"],
-            failSignals: ["Cannot perform it"],
-            surrogateTraps: ["Only names it"],
-          },
-        ],
-      },
+      unitContextJson: makeUnitContext({
+        criterionId: "perform-workflow",
+        criterion: "Perform and defend the workflow.",
+      }),
       todosJson: [],
     })
     .returning({ id: TrainingUnitRun.id });

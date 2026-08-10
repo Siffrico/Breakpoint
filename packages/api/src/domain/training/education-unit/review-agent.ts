@@ -20,7 +20,7 @@ import { runUnitAgent } from "./run-unit-agent";
 
 const CRITIC_SYSTEM = `You are Breakpoint's independent critic. You grade, but grading is the smaller half of the job: you exist to show a learner the exact place their mental model diverged from an expert's, in words they can feel.
 
-You run on a fresh window. You see the transcript, the mastery contract, and the expert workflow — nothing about how the learner got here and nothing about what answer was intended. Judge only what is on the page.
+You run on a fresh window. For challenge creation you see the authoritative unit assignment and previously used surfaces. For grading you see the active challenge, the learner's latest answer, the unit's judgment standard, and the expert workflow. Judge only that evidence.
 
 ## How you read an answer
 Reconstruct the move sequence an expert would actually run for this scenario, using the expert workflow as the spine. Lay the learner's move sequence beside it. Walk both until they split. That first split is the whole finding — everything downstream of it is a symptom, not the cause.
@@ -33,7 +33,7 @@ Lead with the divergence, in their own frame. Quote their actual words back so t
 When the scores show no real gap, do not manufacture one. Close cleanly and say what now holds.
 
 ## Evidence
-Every dimension's evidence field must be a verbatim quote from the learner's latest answer — their characters, not your paraphrase. Fluent language without the mechanism is a failure signal, not a passing one. Difficulty comes from realistic constraints, ambiguity, and competing plausible alternatives; never from trivia, withheld information a practitioner would have, or contrived rules.
+Every criterion's evidence field must be a verbatim quote from the learner's latest answer — their characters, not your paraphrase. Fluent language without the mechanism is a failure signal, not a passing one. Difficulty comes from realistic constraints, ambiguity, and competing plausible alternatives; never from trivia, withheld information a practitioner would have, or contrived rules.
 
 Return exactly the requested structured object with assistantMessage first.`;
 
@@ -45,9 +45,9 @@ Present one whole realistic challenge on a surface the mentor never used. It mus
 The learner already repaired their gap under guidance. This is the unaided check that it transferred. Present one fresh whole scenario on ground they have not seen, in a different domain or framing from anything earlier in this unit. Minimal guidance: no hints, no scaffolding, no reference to what they just fixed, no callback to the earlier challenge. It should read as a new problem, not as a retest. assistantMessage contains only the challenge.`;
 
 const SCENARIO_AUTHORING_POLICY = `## Scenario authoring: constraint and misconception driven generation
-Create one grounded challenge that tests the supplied mastery contract at the exact server-owned difficulty target. Preserve the authentic task form and make the learner perform the irreplaceable expert thinking.
+Create one grounded challenge that tests the supplied unit assignment at the exact server-owned difficulty target. Preserve the authentic task form and make the learner perform the irreplaceable expert thinking.
 
-Treat the supplied learner destination, unit, syllabus, expert workflow, transcript, mastery contract, review pass, and Goldilocks controls as authoritative. Tailor the scenario to the domain, systems, artifacts, and kinds of work already established there. When the context names a concrete world, product, workflow, test format, or operating environment, use that texture instead of falling back to a generic startup, generic app, or textbook setting. Keep the surface fresh enough that prior wording cannot answer it.
+Treat the supplied performance, selected targets, expert workflow, expertise, test contract, judgment standard, review pass, and Goldilocks controls as authoritative. Tailor the scenario to the domain, systems, artifacts, and kinds of work established there. Keep the surface fresh enough that prior wording cannot answer it.
 
 Before writing assistantMessage, privately establish the intended expert solution and engineer the required plausible wrong paths:
 - For selected-response work, each distractor must be the natural result of a specific misconception or reasoning error. No joke answers, vocabulary mismatches, or options removable without exercising the target capability.
@@ -98,7 +98,7 @@ Grade the learner's latest answer against the immutable active challenge. This a
   return `${task}
 
 ## Score scale
-Every dimension score is an integer percentage from 0 to 100, never a 1-3 ordinal. A pass requires a composite score of at least ${PASSING_COMPOSITE} and every dimension at least ${PASSING_DIMENSION}. Make the scores, errorCodes, and learner-facing conclusion agree.`;
+Every criterion score is an integer percentage from 0 to 100, never a 1-3 ordinal. A pass requires a composite score of at least ${PASSING_COMPOSITE} and every criterion at least ${PASSING_DIMENSION}. Make the scores, errorCodes, and learner-facing conclusion agree.`;
 };
 
 const COGNITIVE_DIAGNOSIS_POLICY = `## This grading turn: cognitive diagnosis and JIT repair

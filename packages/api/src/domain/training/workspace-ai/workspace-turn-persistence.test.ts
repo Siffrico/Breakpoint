@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 
 import type {
   UnitDifficultySnapshot,
-  UnitMasteryContract,
   UnitReviewChallenge,
 } from "@acme/validators";
 
@@ -16,23 +15,15 @@ import type {
 import type { WorkspaceAiMessage } from "./types";
 import type { WorkspaceEducationTurnCommit } from "./workspace-turn-persistence";
 import { DEFAULT_EDUCATION_EXPERIENCE } from "../education-unit/experience";
+import { makeUnitContext } from "../education-unit/unit-context.fixture";
 import { createUnitRun } from "../education-unit/unit-state";
 import { saveUnitTurnResult } from "./workspace-turn-persistence";
 import { WorkspaceTurnRepo } from "./workspace-turn-repo";
 
-const masteryContract = {
-  version: 1,
-  dimensions: [
-    {
-      id: "stable-boundaries",
-      name: "Use stable boundaries",
-      description: "Keep responsibility at the canonical boundary.",
-      passSignals: ["Chooses the canonical boundary"],
-      failSignals: ["Duplicates responsibility"],
-      surrogateTraps: ["Names the boundary without using it"],
-    },
-  ],
-} satisfies UnitMasteryContract;
+const unitContext = makeUnitContext({
+  criterionId: "stable-boundaries",
+  criterion: "Keep responsibility at the canonical boundary.",
+});
 
 const difficultySnapshot = {
   nodeId: "node-recall",
@@ -68,22 +59,7 @@ const challenge = {
     version: 1,
     runKind: "recall",
     scenarioPromptSummary: "Choose under the changed constraint.",
-    testedDimensions: [
-      {
-        dimensionId: "stable-boundaries",
-        promptRole: "Test transfer.",
-        expectedStrongMoves: ["Defends the canonical boundary"],
-        acceptableVariants: [],
-        commonWrongMoves: ["Duplicates responsibility"],
-        scoreBands: {
-          strong: "Defends the boundary causally.",
-          partial: "Names the boundary without a causal defense.",
-          weak: "Duplicates responsibility.",
-        },
-      },
-    ],
-    learnerVisibleCriteria: ["Choose and defend one move."],
-    evaluatorNotes: [],
+    testedCriterionIds: ["stable-boundaries"],
   },
 } satisfies UnitReviewChallenge;
 
@@ -114,13 +90,13 @@ const activeNode = {
 const recallUnit = {
   id: "unit-recall",
   nodeId: recallNode.id,
-  unitMasteryContract: masteryContract,
+  unitContext,
 } as UnitContent;
 
 const activeUnit = {
   id: "unit-active",
   nodeId: activeNode.id,
-  unitMasteryContract: masteryContract,
+  unitContext,
 } as UnitContent;
 
 const recallCandidate = {
@@ -145,7 +121,7 @@ describe("saveUnitTurnResult", () => {
         sessionId: "session-1",
         userId: "user-1",
         kind: "recall",
-        masteryContract,
+        unitContext,
         experience: DEFAULT_EDUCATION_EXPERIENCE,
       }),
       difficultySnapshot,
@@ -157,7 +133,7 @@ describe("saveUnitTurnResult", () => {
         sessionId: "session-1",
         userId: "user-1",
         kind: "education",
-        masteryContract,
+        unitContext,
         experience: DEFAULT_EDUCATION_EXPERIENCE,
       }),
       mode: "complete" as const,

@@ -7,6 +7,7 @@ import type {
   UnitContent,
 } from "../types/training.types";
 import { DEFAULT_EDUCATION_EXPERIENCE } from "../education-unit/experience";
+import { makeUnitContext } from "../education-unit/unit-context.fixture";
 import { createUnitRun } from "../education-unit/unit-state";
 import { advanceCompletedUnitWorkflow } from "./advance-completed-unit-workflow";
 
@@ -53,19 +54,10 @@ const masteredRun = {
     userId: "user-1",
     kind: "education",
     experience: DEFAULT_EDUCATION_EXPERIENCE,
-    masteryContract: {
-      version: 1,
-      dimensions: [
-        {
-          id: "perform-workflow",
-          name: "Perform the workflow",
-          description: "Perform and defend the target workflow.",
-          passSignals: ["Performs the workflow"],
-          failSignals: ["Cannot perform the workflow"],
-          surrogateTraps: ["Describes terminology without performing"],
-        },
-      ],
-    },
+    unitContext: makeUnitContext({
+      criterionId: "perform-workflow",
+      criterion: "Perform and defend the target workflow.",
+    }),
   }),
   mode: "complete" as const,
 };

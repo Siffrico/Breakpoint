@@ -3,6 +3,7 @@ import { test } from "vitest";
 
 import type { CurriculumNode } from "../types/training.types";
 import { DEFAULT_EDUCATION_EXPERIENCE } from "../education-unit/experience";
+import { makeUnitContext } from "../education-unit/unit-context.fixture";
 import { createUnitRun } from "../education-unit/unit-state";
 import { planWorkspaceTurn } from "./orchestrator";
 import {
@@ -18,19 +19,10 @@ const baseRun = createUnitRun({
   userId: "user-1",
   kind: "education",
   experience: DEFAULT_EDUCATION_EXPERIENCE,
-  masteryContract: {
-    version: 1,
-    dimensions: [
-      {
-        id: "make-decision",
-        name: "Make the decision",
-        description: "Make and defend the target decision.",
-        passSignals: ["Defends the decision"],
-        failSignals: ["Guesses without evidence"],
-        surrogateTraps: ["Uses vocabulary without reasoning"],
-      },
-    ],
-  },
+  unitContext: makeUnitContext({
+    criterionId: "make-decision",
+    criterion: "Make and defend the target decision.",
+  }),
 });
 
 const readyNode = {

@@ -1,5 +1,7 @@
 import { Duration, Effect, Schedule } from "effect";
 
+import { UnitContextSchema } from "@acme/validators";
+
 import type { CurriculumNode, UnitContent } from "../types/training.types";
 import type {
   PriorLearningRecord,
@@ -8,6 +10,7 @@ import type {
 import type { UnitPreparationError } from "./errors";
 import { regimeForNodeKind } from "../engine/progression-model";
 import { OutcomeTaskContractSchema } from "../unit-builder/contracts";
+import { createUnitContext } from "../unit-builder/create-unit-context";
 import { runSeedStage } from "../unit-builder/seed-stage";
 import {
   classifyUnitScaffoldFailure,
@@ -56,6 +59,7 @@ export interface UnitPreparationDependencies {
     checked: { label: string; content: string }[];
     targets: {
       id: string;
+      skill: string;
       kind: "concept" | "mechanism";
       label: string;
       content: string;
@@ -70,7 +74,7 @@ export interface UnitPreparationDependencies {
     complexityBudget: UnitContent["complexityBudget"];
     teachbackSetup: UnitContent["teachbackSetup"];
     scenario: UnitContent["scenario"];
-    unitMasteryContract: NonNullable<UnitContent["unitMasteryContract"]>;
+    unitContext: NonNullable<UnitContent["unitContext"]>;
   }) => Promise<UnitContent | null>;
   readonly replaceUnitContent: (input: {
     nodeId: string;
@@ -81,7 +85,7 @@ export interface UnitPreparationDependencies {
     complexityBudget: UnitContent["complexityBudget"];
     teachbackSetup: UnitContent["teachbackSetup"];
     scenario: UnitContent["scenario"];
-    unitMasteryContract: NonNullable<UnitContent["unitMasteryContract"]>;
+    unitContext: NonNullable<UnitContent["unitContext"]>;
   }) => Promise<UnitContent | null>;
   readonly saveNodeBriefing: (input: {
     nodeId: string;
@@ -236,7 +240,13 @@ const prepareUnitContentUnlocked = ({
           cause,
         }),
     });
-    if (existing?.unitMasteryContract && !forceRefresh) return existing;
+    if (
+      existing &&
+      UnitContextSchema.safeParse(existing.unitContext).success &&
+      !forceRefresh
+    ) {
+      return existing;
+    }
     const replacesExistingContent = existing !== null;
 
     const briefingPromise = prepareClusterBriefing
@@ -269,6 +279,14 @@ const prepareUnitContentUnlocked = ({
       priorLearning,
       knowledge,
       difficulty,
+    });
+    const unitContext = yield* Effect.try({
+      try: () => createUnitContext(context),
+      catch: (cause) =>
+        contextMissing(
+          "Authoritative unit context could not be created.",
+          cause,
+        ),
     });
 
     const setup = yield* Effect.tryPromise({
@@ -304,7 +322,7 @@ const prepareUnitContentUnlocked = ({
           complexityBudget: setup.complexityBudget,
           teachbackSetup: setup.teachbackSetup,
           scenario: setup.scenario,
-          unitMasteryContract: setup.unitMasteryContract,
+          unitContext,
         });
         if (!persisted) throw new Error("Unit content write returned no row.");
         return persisted;

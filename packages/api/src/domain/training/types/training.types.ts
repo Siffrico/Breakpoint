@@ -46,7 +46,7 @@ import type {
   TeachbackRoundResult,
   TeachbackSetup,
   UnitContent,
-  UnitMasteryContract,
+  UnitContext,
 } from "@acme/validators";
 
 import type {
@@ -100,7 +100,7 @@ export type {
   TeachbackRoundResult,
   TeachbackSetup,
   UnitContent,
-  UnitMasteryContract,
+  UnitContext,
 };
 
 export interface CurriculumNodeBlueprint {
