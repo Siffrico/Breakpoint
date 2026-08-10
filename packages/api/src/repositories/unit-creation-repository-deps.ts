@@ -113,7 +113,12 @@ export const ensureOutcomeCurriculum = async ({
   withSkillKnowledgeBuildLock({
     db,
     skillNodeId: outcomeNodeId,
-    run: async (lockDb) => {
+    loadReady: (readyDb) =>
+      skillKnowledgeRepository.listKnowledge({
+        db: readyDb,
+        skillNodeId: outcomeNodeId,
+      }),
+    build: async (lockDb) => {
       const outcome = await trainingCurriculumRepository.getNodeById({
         db: lockDb,
         nodeId: outcomeNodeId,

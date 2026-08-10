@@ -11,15 +11,18 @@ type Database = typeof databaseClient;
 export const withSkillKnowledgeBuildLock = async <T>({
   db,
   skillNodeId,
-  run,
+  build,
+  loadReady,
 }: {
   db: Database;
   skillNodeId: string;
-  run: (lockDb: Database) => Promise<T>;
+  build: (lockDb: Database) => Promise<T>;
+  loadReady: (db: Database) => Promise<T>;
 }): Promise<T> =>
   withNodeBuildLifecycle({
     db,
     kind: "skill_knowledge",
     nodeId: skillNodeId,
-    run,
+    build,
+    loadReady,
   });

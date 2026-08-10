@@ -71,10 +71,13 @@ export const createUnitPreparationRepositoryDeps = (
   // Rebinds the deps to the lock's own connection so the whole build rides
   // one pooled connection instead of holding the lock on one and querying
   // through others (which can deadlock an exhausted pool).
-  withUnitBuildLock: (nodeId, run) =>
+  withUnitBuildLock: (nodeId, build, loadReady, options) =>
     withUnitBuildLock({
       db,
       nodeId,
-      run: (lockDb) => run(createUnitPreparationRepositoryDeps(lockDb)),
+      build: (lockDb) => build(createUnitPreparationRepositoryDeps(lockDb)),
+      loadReady: (readyDb) =>
+        loadReady(createUnitPreparationRepositoryDeps(readyDb)),
+      rebuildReady: options?.rebuildReady,
     }),
 });

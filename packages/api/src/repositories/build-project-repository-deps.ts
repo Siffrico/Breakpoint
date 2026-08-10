@@ -45,7 +45,17 @@ export const ensureOutcomeUnit = async ({
     db,
     kind: "unit_creation",
     nodeId: outcomeNodeId,
-    run: (lockDb) =>
+    rebuildReady: true,
+    loadReady: (readyDb) =>
+      Effect.runPromise(
+        createUnitCreationRepositoryDeps({
+          db: readyDb,
+          sessionId,
+          userId,
+          abortSignal,
+        }).loadOpenUnit(outcomeNodeId, "ready"),
+      ),
+    build: (lockDb) =>
       Effect.runPromise(
         createNextUnit({
           skillNodeId: outcomeNodeId,

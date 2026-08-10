@@ -34,10 +34,12 @@ const claim = async ({
   db,
   kind,
   nodeId,
+  rebuildReady = false,
 }: {
   db: Database;
   kind: BuildKind;
   nodeId: string;
+  rebuildReady?: boolean;
 }) =>
   db.transaction(async (tx) => {
     const transactionDb = tx as unknown as Database;
@@ -51,7 +53,9 @@ const claim = async ({
       ),
     });
     const now = new Date();
-    if (existing?.status === "ready") return { status: "ready" as const };
+    if (existing?.status === "ready" && !rebuildReady) {
+      return { status: "ready" as const };
+    }
     if (
       existing?.status === "running" &&
       existing.leaseExpiresAt &&
@@ -138,24 +142,27 @@ export const withNodeBuildLifecycle = async <T>({
   db,
   kind,
   nodeId,
-  run,
+  build,
+  loadReady,
+  rebuildReady = false,
 }: {
   db: Database;
   kind: BuildKind;
   nodeId: string;
-  run: (db: Database) => Promise<T>;
+  build: (db: Database) => Promise<T>;
+  loadReady: (db: Database) => Promise<T>;
+  rebuildReady?: boolean;
 }): Promise<T> => {
-  let ownership = await claim({ db, kind, nodeId });
+  let ownership = await claim({ db, kind, nodeId, rebuildReady });
   while (ownership.status === "running") {
     const outcome = await waitForOwner({ db, kind, nodeId });
-    // The owner finished: its rows are committed, so just read them.
-    if (outcome === "ready") return run(db);
+    if (outcome === "ready") return loadReady(db);
     // Reclaim only after the prior owner is gone. A concurrent waiter may win
     // this claim, in which case the loop waits for that owner instead of
     // running unowned work.
     ownership = await claim({ db, kind, nodeId });
   }
-  if (ownership.status === "ready") return run(db);
+  if (ownership.status === "ready") return loadReady(db);
 
   const heartbeat = setInterval(() => {
     void db
@@ -174,7 +181,7 @@ export const withNodeBuildLifecycle = async <T>({
   }, HEARTBEAT_MS);
 
   try {
-    const result = await run(db);
+    const result = await build(db);
     await db
       .update(TrainingNodeBuild)
       .set({

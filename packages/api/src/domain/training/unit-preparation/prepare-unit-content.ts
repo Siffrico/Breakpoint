@@ -91,16 +91,13 @@ export interface UnitPreparationDependencies {
     nodeId: string;
     briefing: NonNullable<UnitContent["clusterBriefing"]>;
   }) => Promise<UnitContent["clusterBriefing"]>;
-  /**
-   * Holds this node's build lock while `run` executes. Concurrent prepares
-   * for the same node must serialize here (the loser re-checks and skips),
-   * and readiness waiters observe the same lock until the holder commits.
-   * `run` receives deps bound to the lock's own connection; the build must
-   * use those so it never waits on a second connection from the pool.
-   */
+  /** Runs `build` only for the lease owner and `loadReady` after another owner
+   * has committed. An explicit rebuild must reacquire the lease first. */
   readonly withUnitBuildLock: <T>(
     nodeId: string,
-    run: (lockedDeps: UnitPreparationDependencies) => Promise<T>,
+    build: (lockedDeps: UnitPreparationDependencies) => Promise<T>,
+    loadReady: (deps: UnitPreparationDependencies) => Promise<T>,
+    options?: { readonly rebuildReady?: boolean },
   ) => Promise<T>;
 }
 
@@ -356,6 +353,19 @@ const lockFailure = (cause: unknown): UnitPreparationError => {
   });
 };
 
+const loadReadyUnitContent = async (
+  deps: UnitPreparationDependencies,
+  nodeId: string,
+): Promise<UnitContent> => {
+  const unit = await deps.getUnitByNodeId(nodeId);
+  if (!unit) {
+    throw new UnitPersistError({
+      message: "Prepared unit content could not be loaded.",
+    });
+  }
+  return unit;
+};
+
 /**
  * Takes a unit node, session id, and persistence/provider dependencies;
  * serializes the complete check → generate → persist path for that node; and
@@ -366,10 +376,14 @@ export const prepareUnitContent = (
 ): Effect.Effect<UnitContent, UnitPreparationError> =>
   Effect.tryPromise({
     try: () =>
-      input.deps.withUnitBuildLock(input.node.id, (lockedDeps) =>
-        Effect.runPromise(
-          prepareUnitContentUnlocked({ ...input, deps: lockedDeps }),
-        ),
+      input.deps.withUnitBuildLock(
+        input.node.id,
+        (lockedDeps) =>
+          Effect.runPromise(
+            prepareUnitContentUnlocked({ ...input, deps: lockedDeps }),
+          ),
+        (readyDeps) => loadReadyUnitContent(readyDeps, input.node.id),
+        { rebuildReady: input.forceRefresh },
       ),
     catch: lockFailure,
   });

@@ -82,7 +82,7 @@ const withUnitNode = async <T>(
 
 describe("unit build lock concurrency", () => {
   it.skipIf(!process.env.POSTGRES_URL)(
-    "serializes concurrent builds for the same node",
+    "builds once and makes concurrent callers load the ready result",
     async () => {
       const { db } = await import("@acme/db/client");
       await withUnitNode(db, async (nodeId) => {
@@ -92,25 +92,32 @@ describe("unit build lock concurrency", () => {
           withUnitBuildLock({
             db,
             nodeId,
-            run: async (lockDb) => {
+            build: async (lockDb) => {
               events.push(`${label}:start`);
               await wait(holdMs);
               await lockDb.execute(sql`select 1`);
               events.push(`${label}:end`);
+              return "built" as const;
+            },
+            loadReady: async (readyDb) => {
+              await readyDb.execute(sql`select 1`);
+              events.push(`${label}:load`);
+              return "ready" as const;
             },
           });
 
         const first = build("first", 400);
         await wait(100);
         const second = build("second", 0);
-        await Promise.all([first, second]);
-
-        expect(events).toEqual([
-          "first:start",
-          "first:end",
-          "second:start",
-          "second:end",
+        await expect(Promise.all([first, second])).resolves.toEqual([
+          "built",
+          "ready",
         ]);
+
+        expect(events).toEqual(["first:start", "first:end", "second:load"]);
+
+        await expect(build("third", 0)).resolves.toBe("ready");
+        expect(events.at(-1)).toBe("third:load");
       });
     },
     20_000,
@@ -127,7 +134,7 @@ describe("unit build lock concurrency", () => {
         const build = withUnitBuildLock({
           db,
           nodeId,
-          run: async (lockDb) => {
+          build: async (lockDb) => {
             await gate;
             // The post-lock queries must succeed even though every other pool
             // connection is being contended by waiters — the old protocol
@@ -135,6 +142,7 @@ describe("unit build lock concurrency", () => {
             await lockDb.execute(sql`select 1`);
             return "built" as const;
           },
+          loadReady: () => Promise.resolve("ready" as const),
         });
         // Let the builder reach the gate before waiters pile on.
         await wait(200);
@@ -175,10 +183,11 @@ describe("unit build lock concurrency", () => {
         const build = withUnitBuildLock({
           db,
           nodeId,
-          run: () => {
+          build: () => {
             markEntered();
             return gate.then(() => "built" as const);
           },
+          loadReady: () => Promise.resolve("ready" as const),
         });
         await entered;
 

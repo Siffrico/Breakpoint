@@ -6,19 +6,29 @@ import { withNodeBuildLifecycle } from "./node-build-lifecycle";
 
 type Database = typeof databaseClient;
 
-/** The compatibility boundary used by unit preparation; ownership is a
- * renewable database lease, and `run` receives the ordinary client only after
- * the short claim transaction has committed. */
+/** The compatibility boundary used by unit preparation. `build` runs only for
+ * the renewable lease owner; ready callers use the read-only loader. */
 export const withUnitBuildLock = async <T>({
   db,
   nodeId,
-  run,
+  build,
+  loadReady,
+  rebuildReady,
 }: {
   db: Database;
   nodeId: string;
-  run: (lockDb: Database) => Promise<T>;
+  build: (lockDb: Database) => Promise<T>;
+  loadReady: (db: Database) => Promise<T>;
+  rebuildReady?: boolean;
 }): Promise<T> =>
-  withNodeBuildLifecycle({ db, kind: "unit_content", nodeId, run });
+  withNodeBuildLifecycle({
+    db,
+    kind: "unit_content",
+    nodeId,
+    build,
+    loadReady,
+    rebuildReady,
+  });
 
 const READINESS_POLL_INTERVAL_MS = 750;
 

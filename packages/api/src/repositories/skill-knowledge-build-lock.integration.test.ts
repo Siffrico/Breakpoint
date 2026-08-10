@@ -78,7 +78,7 @@ const withSkillNode = async <T>(
 
 describe("skill knowledge build lock concurrency", () => {
   it.skipIf(!process.env.POSTGRES_URL)(
-    "serializes the complete build for one skill",
+    "builds once and makes concurrent callers load ready knowledge",
     async () => {
       const { db } = await import("@acme/db/client");
       await withSkillNode(db, async (skillNodeId) => {
@@ -87,32 +87,28 @@ describe("skill knowledge build lock concurrency", () => {
           withSkillKnowledgeBuildLock({
             db,
             skillNodeId,
-            run: async (lockDb) => {
+            build: async (lockDb) => {
               events.push(`${label}:start`);
               await wait(holdMs);
               await lockDb.execute(sql`select 1`);
               events.push(`${label}:end`);
+              return "built" as const;
+            },
+            loadReady: async (readyDb) => {
+              await readyDb.execute(sql`select 1`);
+              events.push(`${label}:load`);
+              return "ready" as const;
             },
           });
 
         const first = build("first", 300);
         await wait(75);
         const second = build("second", 0);
-        await Promise.all([first, second]);
-
-        const firstStart = events.indexOf("first:start");
-        const secondStart = events.indexOf("second:start");
-
-        expect(events).toEqual(
-          expect.arrayContaining([
-            "first:start",
-            "first:end",
-            "second:start",
-            "second:end",
-          ]),
-        );
-        expect(events[firstStart + 1]).toBe("first:end");
-        expect(events[secondStart + 1]).toBe("second:end");
+        await expect(Promise.all([first, second])).resolves.toEqual([
+          "built",
+          "ready",
+        ]);
+        expect(events).toEqual(["first:start", "first:end", "second:load"]);
       });
     },
     20_000,

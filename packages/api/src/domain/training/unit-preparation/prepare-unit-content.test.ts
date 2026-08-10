@@ -220,7 +220,7 @@ const makeDeps = (
     createUnitContentIfAbsent: vi.fn(() => Promise.resolve(unit)),
     replaceUnitContent: vi.fn(() => Promise.resolve(unit)),
     saveNodeBriefing: vi.fn(() => Promise.resolve(null)),
-    withUnitBuildLock: (_nodeId, run) => run(deps),
+    withUnitBuildLock: (_nodeId, build) => build(deps),
     ...overrides,
   };
   return deps;
@@ -449,9 +449,9 @@ describe("prepareUnitContent", () => {
     });
     const lockedNodeIds: string[] = [];
     const withUnitBuildLock: UnitPreparationDependencies["withUnitBuildLock"] =
-      (nodeId, run) => {
+      (nodeId, build) => {
         lockedNodeIds.push(nodeId);
-        return run(lockedDeps);
+        return build(lockedDeps);
       };
     const deps = { ...lockedDeps, withUnitBuildLock };
 
@@ -478,7 +478,7 @@ describe("prepareUnitContent", () => {
     const lockedDeps = makeDeps({
       getUnitByNodeId: vi.fn(() => Promise.resolve(storedUnit)),
       createUnitContentIfAbsent,
-      withUnitBuildLock: async (_nodeId, run) => {
+      withUnitBuildLock: async (_nodeId, build) => {
         const previous = lockTail;
         let release!: () => void;
         lockTail = new Promise<void>((resolveLock) => {
@@ -486,7 +486,7 @@ describe("prepareUnitContent", () => {
         });
         await previous;
         try {
-          return await run(lockedDeps);
+          return await build(lockedDeps);
         } finally {
           release();
         }

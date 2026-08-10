@@ -123,7 +123,7 @@ describe("explicit unit preparation recovery", () => {
       createUnitContentIfAbsent: () => Promise.resolve(unit),
       replaceUnitContent: () => Promise.resolve(unit),
       saveNodeBriefing,
-      withUnitBuildLock: (_nodeId, run) => run(deps),
+      withUnitBuildLock: (_nodeId, build) => build(deps),
     };
 
     const failedPrewarm = await prepareUnitWorkflow({
