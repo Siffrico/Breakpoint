@@ -37,8 +37,8 @@ export type MasteryProgressionDecision =
 /** Skill Map breadth and rating depth for one outcome. */
 export interface MasteryProgressionState {
   regime: "main_outcome";
-  skillItemsBelowCoverage: number;
-  skillItemsTotal: number;
+  unpracticedSkillCount: number;
+  skillCount: number;
   learnerRating: number;
   ratingDeviation: number;
   masteryRating: number;
@@ -55,8 +55,8 @@ export const WARM_NEXT_OUTCOME_COVERAGE = 0.8;
 export const shouldWarmNextOutcome = (
   state: MasteryProgressionState,
 ): boolean => {
-  if (state.skillItemsTotal === 0) return false;
-  const covered = 1 - state.skillItemsBelowCoverage / state.skillItemsTotal;
+  if (state.skillCount === 0) return false;
+  const covered = 1 - state.unpracticedSkillCount / state.skillCount;
   return covered >= WARM_NEXT_OUTCOME_COVERAGE || ratingGatePasses(state);
 };
 
@@ -71,7 +71,7 @@ export const usesDynamicMasteryLoop = ({
 export const decideMasteryProgression = (
   state: MasteryProgressionState,
 ): MasteryProgressionDecision =>
-  state.skillItemsBelowCoverage === 0 && ratingGatePasses(state)
+  state.unpracticedSkillCount === 0 && ratingGatePasses(state)
     ? { intent: "node_complete" }
     : { intent: "create_unit" };
 

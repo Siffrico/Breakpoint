@@ -133,7 +133,7 @@ export interface WorkspaceEducationTurnCommit {
   ratingEvaluation: WorkspaceRatingEvaluationCommit | null;
   knowledgeCheckOff: WorkspaceKnowledgeCheckOffCommit | null;
   knowledgeReinforcement?: { knowledgeIds: string[]; passed: boolean } | null;
-  conceptCoverage?: { knowledgeIds: string[] } | null;
+  skillPractice?: { knowledgeIds: string[] } | null;
   scenarioPresentation: {
     userId: string;
     nodeId: string;
@@ -203,7 +203,7 @@ export const saveUnitTurnResult = ({
   ratingEvaluation,
   knowledgeCheckOff = null,
   knowledgeReinforcement = null,
-  conceptCoverage = null,
+  skillPractice = null,
   tracksRating,
   recallEntryIds = null,
   difficultySnapshot,
@@ -223,7 +223,7 @@ export const saveUnitTurnResult = ({
   ratingEvaluation: WorkspaceRatingEvaluationCommit | null;
   knowledgeCheckOff?: WorkspaceKnowledgeCheckOffCommit | null;
   knowledgeReinforcement?: { knowledgeIds: string[]; passed: boolean } | null;
-  conceptCoverage?: { knowledgeIds: string[] } | null;
+  skillPractice?: { knowledgeIds: string[] } | null;
   tracksRating: boolean;
   recallEntryIds?: string[] | null;
   difficultySnapshot: UnitDifficultySnapshot;
@@ -345,7 +345,7 @@ export const saveUnitTurnResult = ({
       ratingEvaluation,
       knowledgeCheckOff,
       knowledgeReinforcement,
-      conceptCoverage,
+      skillPractice,
       scenarioPresentation,
       solvePresentation,
       nextRun,

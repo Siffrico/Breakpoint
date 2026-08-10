@@ -3,17 +3,10 @@ import { Data, Effect } from "effect";
 import type { DbError } from "../../../effect/errors";
 import type { ScenarioDirective } from "../engine/rating";
 import type { UnitPreparationError } from "../unit-preparation/errors";
-import type {
-  FrontierItem,
-  UnitCreationRegime,
-  UnitTargetSelector,
-} from "./target-selection";
+import type { FrontierItem } from "./target-selection";
+import { selectNextPracticeSkill } from "./target-selection";
 
-export type {
-  FrontierItem,
-  UnitCreationRegime,
-  UnitTargetSelector,
-} from "./target-selection";
+export type { FrontierItem } from "./target-selection";
 
 /**
  * Fallback-only. Rating reads resolve bands from the parent skill cluster
@@ -63,7 +56,6 @@ export interface CreateNextUnitDependencies<TNode> {
     {
       title: string;
       whyItMatters: string;
-      regime: UnitCreationRegime;
       entries: FrontierItem[];
       openUnit: TNode | null;
     } | null,
@@ -89,8 +81,6 @@ export interface CreateNextUnitDependencies<TNode> {
   prepareUnitEffect: (
     node: TNode,
   ) => Effect.Effect<unknown, UnitPreparationError>;
-  /** Which Skill Map entries the new unit must exercise. */
-  selectTargets: UnitTargetSelector;
 }
 
 export class SkillClusterNotFoundError extends Data.TaggedError(
@@ -137,19 +127,15 @@ export const createNextUnitNode = <TNode extends { id: string }>({
       return { node: skill.openUnit, needsContent: !hasContent };
     }
 
-    const targets = yield* deps.selectTargets({
-      skillNodeId,
-      regime: skill.regime,
-      entries: skill.entries,
-      complexityBudget,
-    });
-    if (targets.length === 0) {
+    const selection = selectNextPracticeSkill(skill.entries, complexityBudget);
+    if (!selection || selection.targets.length === 0) {
       return yield* new KnowledgeTargetsMissingError({ skillNodeId });
     }
+    const targets = selection.targets;
     const calibrated = yield* deps.resolveDirective(skillNodeId);
     const persisted = yield* deps.appendUnit({
       skillNodeId,
-      title: `Practice ${targets.map((entry) => entry.label).join(" and ")}`,
+      title: `Practice ${selection.skillName}`,
       summary: targets.map((entry) => entry.content).join(" "),
       whyItMatters: skill.whyItMatters,
       difficultyBands: buildDynamicUnitDifficultyBands(calibrated.directive),

@@ -14,11 +14,7 @@ import type {
 } from "../domain/training/engine/plan-progression";
 import type { JobRatingState } from "../domain/training/engine/rating";
 import type { CreateNextUnitDependencies } from "../domain/training/unit-creation/create-next-unit";
-import { SKILL_MAP_COVERAGE_TARGET } from "../domain/training/engine/concept-coverage";
-import {
-  regimeForNodeKind,
-  resolveProgressionModel,
-} from "../domain/training/engine/progression-model";
+import { resolveProgressionModel } from "../domain/training/engine/progression-model";
 import { createInitialRatingState } from "../domain/training/engine/rating";
 import { isArtifactBuildError } from "../domain/training/orchestration/agent-runtime";
 import { compileOutcome } from "../domain/training/outcome-curriculum/outcome-compiler";
@@ -29,7 +25,6 @@ import {
 } from "../domain/training/outcome-curriculum/workflows/ensure-outcome-curriculum";
 import { advanceSkillMapNodeWorkflow } from "../domain/training/unit-creation/advance-skill-map-node";
 import { createNextUnit } from "../domain/training/unit-creation/create-next-unit";
-import { createRegimeTargetSelector } from "../domain/training/unit-creation/target-selection";
 import { prepareUnitContent } from "../domain/training/unit-preparation/prepare-unit-content";
 import { queryWithClient } from "../effect/db";
 import { resolvePlanSeedRating } from "./plan-seed-rating";
@@ -275,13 +270,13 @@ export const createUnitCreationRepositoryDeps = ({
           where: eq(TrainingCurriculumNode.id, skillNodeId),
         });
         if (!node?.skillMap) return null;
-        const regime = regimeForNodeKind(node.kind);
-        if (!regime) return null;
+        if (node.kind !== "outcome") return null;
         const toFrontierItem = (item: {
           id: string;
           questionId: string;
           question: string;
           questionOrderIndex: number;
+          practiceCount: number;
           kind: string;
           label: string;
           content: string;
@@ -292,6 +287,7 @@ export const createUnitCreationRepositoryDeps = ({
           questionId: item.questionId,
           question: item.question,
           questionOrderIndex: item.questionOrderIndex,
+          practiceCount: item.practiceCount,
           kind: item.kind as "concept" | "mechanism",
           label: item.label,
           content: item.content,
@@ -308,7 +304,6 @@ export const createUnitCreationRepositoryDeps = ({
           orderBy: [desc(TrainingCurriculumNode.orderIndex)],
         });
 
-        if (node.kind !== "outcome") return null;
         const entries = await skillKnowledgeRepository.listKnowledge({
           db,
           skillNodeId,
@@ -316,11 +311,7 @@ export const createUnitCreationRepositoryDeps = ({
         return {
           title: node.title,
           whyItMatters: node.whyItMatters,
-          regime,
-          entries: entries.map((entry) => ({
-            ...toFrontierItem(entry),
-            coverageCount: entry.coverageCount,
-          })),
+          entries: entries.map(toFrontierItem),
           openUnit: openUnit ?? null,
         };
       }),
@@ -350,7 +341,6 @@ export const createUnitCreationRepositoryDeps = ({
         abortSignal,
         deps: createUnitPreparationRepositoryDeps(db),
       }).pipe(Effect.asVoid),
-    selectTargets: createRegimeTargetSelector(),
   };
 };
 
@@ -385,15 +375,16 @@ export const loadProgressionState = async ({
     nodeId: skillNodeId,
     initialRatingState: seed ?? createInitialRatingState(),
   });
+  const skills = [
+    ...new Map(skillItems.map((item) => [item.questionId, item])).values(),
+  ];
   return {
     regime: "main_outcome",
-    skillItemsBelowCoverage:
-      skillItems.length === 0
+    unpracticedSkillCount:
+      skills.length === 0
         ? 1
-        : skillItems.filter(
-            (entry) => entry.coverageCount < SKILL_MAP_COVERAGE_TARGET,
-          ).length,
-    skillItemsTotal: skillItems.length,
+        : skills.filter((skill) => skill.practiceCount === 0).length,
+    skillCount: skills.length,
     learnerRating: progress.ratingState.rating,
     ratingDeviation: progress.ratingState.ratingDeviation,
     masteryRating: model.mastery.masteryRating,

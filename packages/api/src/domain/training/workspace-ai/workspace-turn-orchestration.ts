@@ -670,7 +670,7 @@ export const runEducationUnitTurn = ({
             passed: turnResult.reviewGrade.passed,
           }
         : null;
-    const conceptCoverage =
+    const skillPractice =
       completed && !recallFocus
         ? {
             knowledgeIds: unitRun.unitContext.targets.map((entry) => entry.id),
@@ -687,7 +687,7 @@ export const runEducationUnitTurn = ({
       ratingEvaluation,
       knowledgeCheckOff,
       knowledgeReinforcement,
-      conceptCoverage,
+      skillPractice,
       tracksRating: true,
       recallEntryIds:
         recallFocus &&

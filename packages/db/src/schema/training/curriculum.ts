@@ -144,6 +144,7 @@ export const TrainingKnowledgeQuestion = pgTable(
       .references(() => TrainingCurriculumNode.id, { onDelete: "cascade" }),
     orderIndex: t.integer().notNull(),
     question: t.text().notNull(),
+    practiceCount: t.integer().notNull().default(0),
     createdAt: t
       .timestamp({ mode: "date", withTimezone: true })
       .defaultNow()
@@ -169,10 +170,6 @@ export const TrainingKnowledgeItem = pgTable(
     kind: t.varchar({ length: 32 }).notNull(),
     label: t.text().notNull(),
     content: t.text().notNull(),
-    // How many scored solves this item was load-bearing in. Skill mastery
-    // requires every item to reach the coverage target (see
-    // engine/concept-coverage.ts) — never a drifting rating.
-    coverageCount: t.integer().notNull().default(0),
     status: t.varchar({ length: 32 }).notNull().default("unchecked"),
     checkedAt: t.timestamp({ mode: "date", withTimezone: true }),
     // Spaced-reinforcement state: how many consecutive scored recalls this

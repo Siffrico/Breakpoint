@@ -69,8 +69,8 @@ describe("advanceCompletedUnitWorkflow", () => {
     const getProgressionState = vi.fn(() =>
       Effect.succeed({
         regime: "main_outcome" as const,
-        skillItemsBelowCoverage: 0,
-        skillItemsTotal: 1,
+        unpracticedSkillCount: 0,
+        skillCount: 1,
         learnerRating: 1_800,
         ratingDeviation: 50,
         masteryRating: 1_800,
@@ -150,8 +150,8 @@ describe("advanceCompletedUnitWorkflow", () => {
         getProgressionState: () =>
           Effect.succeed({
             regime: "main_outcome" as const,
-            skillItemsBelowCoverage: 1,
-            skillItemsTotal: 2,
+            unpracticedSkillCount: 1,
+            skillCount: 2,
             learnerRating: 1_000,
             ratingDeviation: 100,
             masteryRating: 1_800,
@@ -253,8 +253,8 @@ describe("advanceCompletedUnitWorkflow", () => {
         getProgressionState: () =>
           Effect.succeed({
             regime: "main_outcome" as const,
-            skillItemsBelowCoverage: 1,
-            skillItemsTotal: 1,
+            unpracticedSkillCount: 1,
+            skillCount: 1,
             learnerRating: 1_000,
             ratingDeviation: 100,
             masteryRating: 1_800,
@@ -304,8 +304,8 @@ describe("advanceCompletedUnitWorkflow", () => {
         getProgressionState: () =>
           Effect.succeed({
             regime: "main_outcome" as const,
-            skillItemsBelowCoverage: 1,
-            skillItemsTotal: 1,
+            unpracticedSkillCount: 1,
+            skillCount: 1,
             learnerRating: 1_000,
             ratingDeviation: 100,
             masteryRating: 1_800,

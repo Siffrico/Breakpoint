@@ -459,10 +459,10 @@ const commitEducationTurn = async ({
       });
     }
 
-    if (input.conceptCoverage) {
-      await skillKnowledgeRepository.incrementCoverage({
+    if (input.skillPractice) {
+      await skillKnowledgeRepository.incrementSkillPractice({
         db: txDb,
-        knowledgeIds: input.conceptCoverage.knowledgeIds,
+        knowledgeIds: input.skillPractice.knowledgeIds,
       });
     }
 

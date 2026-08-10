@@ -20,8 +20,8 @@ const node = (
 
 const progress = {
   regime: "main_outcome" as const,
-  skillItemsBelowCoverage: 0,
-  skillItemsTotal: 10,
+  unpracticedSkillCount: 0,
+  skillCount: 10,
   learnerRating: 1400,
   ratingDeviation: 60,
   masteryRating: 1350,
@@ -42,7 +42,7 @@ describe("outcome mastery", () => {
       intent: "node_complete",
     });
     expect(
-      decideMasteryProgression({ ...progress, skillItemsBelowCoverage: 1 }),
+      decideMasteryProgression({ ...progress, unpracticedSkillCount: 1 }),
     ).toEqual({ intent: "create_unit" });
     expect(
       decideMasteryProgression({ ...progress, ratingDeviation: 150 }),
@@ -53,16 +53,14 @@ describe("outcome mastery", () => {
     expect(
       shouldWarmNextOutcome({
         ...progress,
-        skillItemsBelowCoverage: 3,
+        unpracticedSkillCount: 3,
         learnerRating: 1200,
       }),
     ).toBe(false);
     expect(
-      shouldWarmNextOutcome({ ...progress, skillItemsBelowCoverage: 2 }),
+      shouldWarmNextOutcome({ ...progress, unpracticedSkillCount: 2 }),
     ).toBe(true);
-    expect(shouldWarmNextOutcome({ ...progress, skillItemsTotal: 0 })).toBe(
-      false,
-    );
+    expect(shouldWarmNextOutcome({ ...progress, skillCount: 0 })).toBe(false);
   });
 });
 

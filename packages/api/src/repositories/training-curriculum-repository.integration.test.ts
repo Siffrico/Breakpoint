@@ -136,7 +136,7 @@ const practiceContract = {
 
 describe("outcome curriculum persistence", () => {
   it.skipIf(!process.env.POSTGRES_URL)(
-    "commits the Skill Map, Practice Contract, and coverage rows atomically and idempotently",
+    "commits the Skill Map, Practice Contract, and practice skills atomically and idempotently",
     async () => {
       const { db } = await import("@acme/db/client");
       const [session] = await db
@@ -200,6 +200,37 @@ describe("outcome curriculum persistence", () => {
       expect(second).toHaveLength(3);
       expect(stored?.skillMap).toEqual(skillMap);
       expect(stored?.practiceContract).toEqual(practiceContract);
+
+      const firstTarget = first?.[0];
+      const incompatibleTarget = first?.[1];
+      if (!firstTarget || !incompatibleTarget) {
+        throw new Error("Expected practice targets.");
+      }
+      await skillKnowledgeRepository.incrementSkillPractice({
+        db,
+        knowledgeIds: [firstTarget.id],
+      });
+      const afterPractice = await skillKnowledgeRepository.listKnowledge({
+        db,
+        skillNodeId: outcome.id,
+      });
+      expect(afterPractice[0]?.practiceCount).toBe(1);
+      expect(afterPractice[1]?.practiceCount).toBe(0);
+
+      await expect(
+        skillKnowledgeRepository.incrementSkillPractice({
+          db,
+          knowledgeIds: [firstTarget.id, incompatibleTarget.id],
+        }),
+      ).rejects.toThrow("exactly one skill");
+      const afterRejectedPractice =
+        await skillKnowledgeRepository.listKnowledge({
+          db,
+          skillNodeId: outcome.id,
+        });
+      expect(afterRejectedPractice.map((entry) => entry.practiceCount)).toEqual(
+        [1, 0, 0],
+      );
     },
   );
 });

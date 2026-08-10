@@ -10,8 +10,8 @@ import {
 
 const outcomeNeedsUnit: MasteryProgressionState = {
   regime: "main_outcome",
-  skillItemsBelowCoverage: 1,
-  skillItemsTotal: 1,
+  unpracticedSkillCount: 1,
+  skillCount: 1,
   learnerRating: 1_000,
   ratingDeviation: 100,
   masteryRating: 1_800,
@@ -20,8 +20,8 @@ const outcomeNeedsUnit: MasteryProgressionState = {
 /** One Skill Map item short of the warm threshold's far side. */
 const outcomeNearlyCovered: MasteryProgressionState = {
   regime: "main_outcome",
-  skillItemsBelowCoverage: 1,
-  skillItemsTotal: 10,
+  unpracticedSkillCount: 1,
+  skillCount: 10,
   learnerRating: 1200,
   ratingDeviation: 150,
   masteryRating: 1350,
@@ -146,8 +146,8 @@ describe("pregenerateNextUnit", () => {
       needsContent: () => true,
       progressionState: {
         regime: "main_outcome" as const,
-        skillItemsBelowCoverage: 0,
-        skillItemsTotal: 1,
+        unpracticedSkillCount: 0,
+        skillCount: 1,
         learnerRating: 1_800,
         ratingDeviation: 50,
         masteryRating: 1_800,
@@ -204,7 +204,7 @@ describe("pregenerateNextUnit", () => {
       needsContent: () => true,
       progressionState: {
         ...outcomeNearlyCovered,
-        skillItemsBelowCoverage: 6,
+        unpracticedSkillCount: 6,
       },
       nextClusterId: "outcome-2",
     });

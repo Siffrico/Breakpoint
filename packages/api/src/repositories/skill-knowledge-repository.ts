@@ -40,11 +40,11 @@ const knowledgeSelection = {
   skillNodeId: TrainingKnowledgeQuestion.skillNodeId,
   question: TrainingKnowledgeQuestion.question,
   questionOrderIndex: TrainingKnowledgeQuestion.orderIndex,
+  practiceCount: TrainingKnowledgeQuestion.practiceCount,
   orderIndex: TrainingKnowledgeItem.orderIndex,
   kind: TrainingKnowledgeItem.kind,
   label: TrainingKnowledgeItem.label,
   content: TrainingKnowledgeItem.content,
-  coverageCount: TrainingKnowledgeItem.coverageCount,
   status: TrainingKnowledgeItem.status,
   checkedAt: TrainingKnowledgeItem.checkedAt,
   strength: TrainingKnowledgeItem.strength,
@@ -389,8 +389,7 @@ export const skillKnowledgeRepository = {
     return row ? mapRecallCandidate(row) : null;
   },
 
-  /** A scored solve increments the outcome's Skill Map breadth evidence. */
-  incrementCoverage: async ({
+  incrementSkillPractice: async ({
     db,
     knowledgeIds,
   }: {
@@ -398,12 +397,21 @@ export const skillKnowledgeRepository = {
     knowledgeIds: string[];
   }) => {
     if (knowledgeIds.length === 0) return;
+    const targetedSkills = await db
+      .selectDistinct({ id: TrainingKnowledgeItem.questionId })
+      .from(TrainingKnowledgeItem)
+      .where(inArray(TrainingKnowledgeItem.id, knowledgeIds))
+      .limit(2);
+    const skill = targetedSkills[0];
+    if (targetedSkills.length !== 1 || !skill) {
+      throw new Error("A completed unit must target exactly one skill.");
+    }
     await db
-      .update(TrainingKnowledgeItem)
+      .update(TrainingKnowledgeQuestion)
       .set({
-        coverageCount: sql`${TrainingKnowledgeItem.coverageCount} + 1`,
+        practiceCount: sql`${TrainingKnowledgeQuestion.practiceCount} + 1`,
       })
-      .where(inArray(TrainingKnowledgeItem.id, knowledgeIds));
+      .where(eq(TrainingKnowledgeQuestion.id, skill.id));
   },
 
   /**

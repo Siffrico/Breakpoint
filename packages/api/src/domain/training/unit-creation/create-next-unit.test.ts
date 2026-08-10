@@ -6,17 +6,23 @@ import {
   createNextUnit,
   KnowledgeTargetsMissingError,
 } from "./create-next-unit";
-import { createRegimeTargetSelector } from "./target-selection";
-
-/** The production wiring, with the one database read stubbed out. */
-const selectTargets = createRegimeTargetSelector();
 
 let nextOrderIndex = 0;
-const entry = (id: string, status = "unchecked") => ({
+const entry = (
+  id: string,
+  status = "unchecked",
+  skill: { id: string; name: string; order: number; practiceCount: number } = {
+    id: "question-1",
+    name: "Handle the situation",
+    order: 0,
+    practiceCount: 0,
+  },
+) => ({
   id,
-  questionId: "question-1",
-  question: "How do you handle this situation?",
-  questionOrderIndex: 0,
+  questionId: skill.id,
+  question: skill.name,
+  questionOrderIndex: skill.order,
+  practiceCount: skill.practiceCount,
   label: id,
   content: `Content ${id}`,
   kind: "concept" as const,
@@ -42,7 +48,6 @@ const openUnit = { id: "unit-1" };
 const openSkill = {
   title: "Distributed systems",
   whyItMatters: "Reliability requires sound failure handling.",
-  regime: "main_outcome" as const,
   entries: [],
   openUnit,
 };
@@ -64,7 +69,6 @@ describe("createNextUnit", () => {
           appendUnit,
           hasUnitContent: () => Effect.succeed(false),
           prepareUnitEffect,
-          selectTargets,
         },
       }),
     );
@@ -90,7 +94,6 @@ describe("createNextUnit", () => {
           appendUnit: () => Effect.die("should not append"),
           hasUnitContent: () => Effect.succeed(true),
           prepareUnitEffect,
-          selectTargets,
         },
       }),
     );
@@ -112,7 +115,6 @@ describe("createNextUnit", () => {
             appendUnit: () => Effect.die("should not append"),
             hasUnitContent: () => Effect.die("should not read content"),
             prepareUnitEffect: () => Effect.die("should not prepare"),
-            selectTargets,
           },
         }),
       ),
@@ -143,7 +145,6 @@ describe("createNextUnit", () => {
           appendUnit: () => Effect.succeed({ node: adopted, created: false }),
           hasUnitContent: () => Effect.succeed(false),
           prepareUnitEffect,
-          selectTargets,
         },
       }),
     );
@@ -179,7 +180,6 @@ describe("createNextUnit", () => {
           appendUnit,
           hasUnitContent: () => Effect.succeed(true),
           prepareUnitEffect: () => Effect.void,
-          selectTargets,
         },
       }),
     );
@@ -188,14 +188,15 @@ describe("createNextUnit", () => {
       "a",
       "b",
     ]);
-    expect(appendUnit.mock.calls[0]?.[0]?.title).toBe("Practice a and b");
+    expect(appendUnit.mock.calls[0]?.[0]?.title).toBe(
+      "Practice Handle the situation",
+    );
   });
 
-  it("delegates target selection instead of deciding it inline", async () => {
+  it("never combines knowledge from different skills", async () => {
     const appendUnit = vi.fn((_input: { targetKnowledgeIds: string[] }) =>
       Effect.succeed({ node: { id: "unit" }, created: false }),
     );
-    const custom = vi.fn(() => Effect.succeed([entry("chosen")]));
 
     await Effect.runPromise(
       createNextUnit({
@@ -207,9 +208,27 @@ describe("createNextUnit", () => {
           loadSkill: () =>
             Effect.succeed({
               ...openSkill,
-              regime: "main_outcome" as const,
               openUnit: null,
-              entries: [entry("a"), entry("b")],
+              entries: [
+                entry("db-1", "unchecked", {
+                  id: "db",
+                  name: "Diagnose database queries",
+                  order: 0,
+                  practiceCount: 0,
+                }),
+                entry("db-2", "unchecked", {
+                  id: "db",
+                  name: "Diagnose database queries",
+                  order: 0,
+                  practiceCount: 0,
+                }),
+                entry("ui-1", "unchecked", {
+                  id: "ui",
+                  name: "Design interfaces",
+                  order: 1,
+                  practiceCount: 0,
+                }),
+              ],
             }),
           resolveDirective: () =>
             Effect.succeed({
@@ -219,20 +238,13 @@ describe("createNextUnit", () => {
           appendUnit,
           hasUnitContent: () => Effect.succeed(true),
           prepareUnitEffect: () => Effect.void,
-          selectTargets: custom,
         },
       }),
     );
 
-    expect(custom).toHaveBeenCalledWith(
-      expect.objectContaining({
-        skillNodeId: "outcome",
-        regime: "main_outcome",
-        complexityBudget: 2,
-      }),
-    );
     expect(appendUnit.mock.calls[0]?.[0]?.targetKnowledgeIds).toEqual([
-      "chosen",
+      "db-1",
+      "db-2",
     ]);
   });
 });

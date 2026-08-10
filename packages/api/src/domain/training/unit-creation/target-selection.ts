@@ -1,7 +1,3 @@
-import { Effect } from "effect";
-
-import type { DbError } from "../../../effect/errors";
-
 export interface FrontierItem {
   id: string;
   questionId: string;
@@ -12,39 +8,51 @@ export interface FrontierItem {
   content: string;
   status: string;
   orderIndex: number;
-  coverageCount?: number;
+  practiceCount: number;
 }
 
-export type UnitCreationRegime = "main_outcome" | null;
+export interface PracticeSkillSelection {
+  skillId: string;
+  skillName: string;
+  practiceCount: number;
+  targets: FrontierItem[];
+}
 
-export const selectLeastCoveredTargets = (
+export const selectNextPracticeSkill = (
   entries: readonly FrontierItem[],
   complexityBudget: 1 | 2 | 3,
-): FrontierItem[] => {
-  const unchecked = entries.filter((entry) => entry.status === "unchecked");
-  const pool = unchecked.length > 0 ? unchecked : entries;
-  return [...pool]
-    .sort(
-      (left, right) =>
-        (left.coverageCount ?? 0) - (right.coverageCount ?? 0) ||
-        left.questionOrderIndex - right.questionOrderIndex ||
-        left.orderIndex - right.orderIndex,
-    )
+): PracticeSkillSelection | null => {
+  const entriesBySkill = new Map<string, FrontierItem[]>();
+  for (const entry of entries) {
+    const skillEntries = entriesBySkill.get(entry.questionId) ?? [];
+    skillEntries.push(entry);
+    entriesBySkill.set(entry.questionId, skillEntries);
+  }
+
+  const selectedSkill = [...entriesBySkill.values()].sort((left, right) => {
+    const leftSkill = left[0];
+    const rightSkill = right[0];
+    if (!leftSkill || !rightSkill) return 0;
+    return (
+      leftSkill.practiceCount - rightSkill.practiceCount ||
+      leftSkill.questionOrderIndex - rightSkill.questionOrderIndex
+    );
+  })[0];
+  const skill = selectedSkill?.[0];
+  if (!selectedSkill || !skill) return null;
+
+  const unchecked = selectedSkill.filter(
+    (entry) => entry.status === "unchecked",
+  );
+  const targetPool = unchecked.length > 0 ? unchecked : selectedSkill;
+  const targets = [...targetPool]
+    .sort((left, right) => left.orderIndex - right.orderIndex)
     .slice(0, complexityBudget);
+
+  return {
+    skillId: skill.questionId,
+    skillName: skill.question,
+    practiceCount: skill.practiceCount,
+    targets,
+  };
 };
-
-export interface UnitTargetSelectorInput {
-  skillNodeId: string;
-  regime: UnitCreationRegime;
-  entries: readonly FrontierItem[];
-  complexityBudget: 1 | 2 | 3;
-}
-
-export type UnitTargetSelector = (
-  input: UnitTargetSelectorInput,
-) => Effect.Effect<readonly FrontierItem[], DbError>;
-
-export const createRegimeTargetSelector =
-  (): UnitTargetSelector =>
-  ({ entries, complexityBudget }) =>
-    Effect.succeed(selectLeastCoveredTargets(entries, complexityBudget));
