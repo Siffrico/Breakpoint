@@ -102,7 +102,6 @@ describe("explicit unit preparation recovery", () => {
       getUnitByNodeId: () => Promise.resolve(storedUnit),
       getPhaseResponses: () => Promise.resolve([]),
       getTargetIdentity: () => Promise.resolve("Incident commander"),
-      listAttemptHistory: () => Promise.resolve([]),
       getUnitDifficulty: () => Promise.resolve(null),
       getUnitKnowledgeContext: () =>
         Promise.resolve({

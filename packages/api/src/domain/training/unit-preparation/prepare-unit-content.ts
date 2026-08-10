@@ -3,10 +3,7 @@ import { Duration, Effect, Schedule } from "effect";
 import { UnitContextSchema } from "@acme/validators";
 
 import type { CurriculumNode, UnitContent } from "../types/training.types";
-import type {
-  PriorLearningRecord,
-  UnitBuilderContext,
-} from "../unit-builder/contracts";
+import type { UnitBuilderContext } from "../unit-builder/contracts";
 import type { UnitPreparationError } from "./errors";
 import { regimeForNodeKind } from "../engine/progression-model";
 import { OutcomeTaskContractSchema } from "../unit-builder/contracts";
@@ -40,9 +37,6 @@ export interface UnitPreparationDependencies {
     sessionId: string,
   ) => Promise<PlanNodeContext[] | null>;
   readonly getTargetIdentity: (sessionId: string) => Promise<string | null>;
-  readonly listAttemptHistory: (
-    sessionId: string,
-  ) => Promise<PriorLearningRecord[]>;
   /**
    * The goldilocks directive for this unit's parent cluster. Resolved here
    * rather than passed down from unit creation because a unit can reach
@@ -136,14 +130,12 @@ const assembleSeedContext = ({
   nodeId,
   planNodes,
   targetIdentity,
-  priorLearning,
   knowledge,
   difficulty,
 }: {
   nodeId: string;
   planNodes: PlanNodeContext[] | null;
   targetIdentity: string | null;
-  priorLearning: PriorLearningRecord[];
   knowledge: Awaited<
     ReturnType<UnitPreparationDependencies["getUnitKnowledgeContext"]>
   >;
@@ -207,7 +199,7 @@ const assembleSeedContext = ({
           }
         : null,
     },
-    learner: { targetIdentity: targetIdentity.trim(), priorLearning },
+    learner: { targetIdentity: targetIdentity.trim() },
     knowledge,
     difficulty,
   });
@@ -250,13 +242,12 @@ const prepareUnitContentUnlocked = ({
       ? prepareClusterBriefing().catch(() => null)
       : Promise.resolve(null);
 
-    const [planNodes, targetIdentity, priorLearning, knowledge, difficulty] =
+    const [planNodes, targetIdentity, knowledge, difficulty] =
       yield* Effect.tryPromise({
         try: () =>
           Promise.all([
             deps.getPlanNodesBySession(sessionId),
             deps.getTargetIdentity(sessionId),
-            deps.listAttemptHistory(sessionId),
             deps.getUnitKnowledgeContext(node.id),
             // Fail-open: a unit still builds without a directive, on slot
             // position alone. Losing the whole unit over a rating read would
@@ -273,7 +264,6 @@ const prepareUnitContentUnlocked = ({
       nodeId: node.id,
       planNodes,
       targetIdentity,
-      priorLearning,
       knowledge,
       difficulty,
     });

@@ -196,7 +196,6 @@ const makeDeps = (
     getUnitByNodeId: vi.fn(() => Promise.resolve(null)),
     getPlanNodesBySession: vi.fn(() => Promise.resolve(planNodes)),
     getTargetIdentity: vi.fn(() => Promise.resolve("Incident commander")),
-    listAttemptHistory: vi.fn(() => Promise.resolve([])),
     getUnitDifficulty: vi.fn(() =>
       Promise.resolve({ promptBlock: "## Difficulty directive", bandOrder: 1 }),
     ),

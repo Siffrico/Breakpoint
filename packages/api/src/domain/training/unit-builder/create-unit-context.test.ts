@@ -102,7 +102,7 @@ const makeContext = (): UnitBuilderContext => ({
       },
     },
   },
-  learner: { targetIdentity: "Incident commander", priorLearning: [] },
+  learner: { targetIdentity: "Incident commander" },
   difficulty: null,
   knowledge: {
     workflow: { name: "Causal diagnosis", steps: ["Choose a probe"] },

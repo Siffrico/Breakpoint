@@ -152,7 +152,6 @@ const context: UnitBuilderContext = {
   },
   learner: {
     targetIdentity: "SAT Math test-taker",
-    priorLearning: [],
   },
   difficulty: {
     promptBlock: "Build at band 1.",

@@ -5,7 +5,6 @@ import { TrainingCurriculumPlan } from "@acme/db/schema";
 import type { UnitPreparationDependencies } from "../domain/training/unit-preparation/prepare-unit-content";
 import { resolveClusterDirective } from "./resolve-cluster-directive";
 import { skillKnowledgeRepository } from "./skill-knowledge-repository";
-import { trainingAttemptRepository } from "./training-attempt-repository";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
 import { trainingOnboardingRepository } from "./training-onboarding-repository";
 import { withUnitBuildLock } from "./unit-build-lock";
@@ -26,8 +25,6 @@ export const createUnitPreparationRepositoryDeps = (
     });
     return profile?.version.targetIdentity ?? null;
   },
-  listAttemptHistory: (sessionId) =>
-    trainingAttemptRepository.listAttemptHistory({ db, sessionId }),
   getUnitDifficulty: async (unitNodeId) => {
     const unit = await trainingCurriculumRepository.getNodeById({
       db,

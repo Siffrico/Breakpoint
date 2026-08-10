@@ -6,17 +6,6 @@ import {
   SkillMapSchema,
 } from "@acme/validators";
 
-export const PriorLearningRecordSchema = z.object({
-  title: z.string().min(1),
-  score: z.number().int().min(0).max(100),
-  readiness: z.string().min(1),
-  finalArticulation: z.string().nullable(),
-  growthDimensions: z.array(z.string().min(1)).nullable(),
-  improvements: z.array(z.string().min(1)),
-  failureTags: z.array(z.string().min(1)),
-  nextStep: z.string().min(1),
-});
-
 export const OutcomeTaskContractSchema = z.object({
   outcomeResult: z.string().min(1),
   skillMap: SkillMapSchema,
@@ -46,9 +35,15 @@ export const UnitBuilderContextSchema = z.object({
       })
       .nullable(),
   }),
+  /**
+   * Deliberately just the identity. Attempt history is not passed here: the
+   * transferable part of it already reaches the generator as state — the band
+   * brief carries how well this learner performs, and the knowledge context
+   * carries which items are proven. Raw history added noise from unrelated
+   * skills on top of that, and grew without bound.
+   */
   learner: z.object({
     targetIdentity: z.string().min(1),
-    priorLearning: z.array(PriorLearningRecordSchema),
   }),
   /**
    * The goldilocks call for this rep, resolved from the parent cluster's rating
@@ -96,7 +91,6 @@ export const UnitBuilderContextSchema = z.object({
 
 export const SeedStageOutputSchema = PreSeedUnitContentDraftSchema;
 
-export type PriorLearningRecord = z.infer<typeof PriorLearningRecordSchema>;
 export type OutcomeTaskContract = z.infer<typeof OutcomeTaskContractSchema>;
 export type UnitBuilderContext = z.infer<typeof UnitBuilderContextSchema>;
 export type SeedStageOutput = z.infer<typeof SeedStageOutputSchema>;

@@ -108,16 +108,6 @@ const formatUnitBuilderContext = (context: UnitBuilderContext): string => {
   const clusterContext = context.planContext.clusterContext
     ? `${context.planContext.clusterContext.title}: ${context.planContext.clusterContext.summary} | Why it matters: ${context.planContext.clusterContext.whyItMatters}`
     : "None";
-  const priorLearning =
-    context.learner.priorLearning.length > 0
-      ? context.learner.priorLearning
-          .map(
-            (attempt, index) =>
-              `${index + 1}. ${attempt.title} | score=${attempt.score} | readiness=${attempt.readiness} | improvements=${attempt.improvements.join("; ") || "None"} | failures=${attempt.failureTags.join("; ") || "None"} | next=${attempt.nextStep}`,
-          )
-          .join("\n")
-      : "No prior learning recorded.";
-
   return `Node kind: ${context.node.kind}
 Unit regime: ${context.planContext.regime ?? "missing"}
 Node title: ${context.node.title}
@@ -126,8 +116,6 @@ Why it matters: ${context.node.whyItMatters}
 Slot position: ${context.planContext.slotIndex} of ${context.planContext.totalSlots}
 Cluster context: ${clusterContext}
 Target identity: ${context.learner.targetIdentity}
-Prior learning:
-${priorLearning}
 ${context.difficulty?.promptBlock ?? "No difficulty directive resolved for this unit; build at the middle band."}
 ${
   context.knowledge
