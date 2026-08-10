@@ -1,11 +1,13 @@
-import type {
-  CurriculumDesignerOutput,
-  ProjectOverviewOutput,
-} from "../agents/contracts";
+import type { IdentityReport, OutcomeDefinition } from "@acme/validators";
+
+import type { ProjectOverviewOutput } from "../agents/contracts";
 import type { ProjectBuildStep, ProjectBuildStepDetail } from "./build-project";
 
 export interface ProjectBuildArtifactPayload {
-  curriculum: DeepPartial<CurriculumDesignerOutput>;
+  curriculum: DeepPartial<{
+    identityReport: IdentityReport;
+    outcomes: OutcomeDefinition[];
+  }>;
   overview: DeepPartial<ProjectOverviewOutput>;
 }
 
@@ -28,7 +30,11 @@ const DEFAULT_STEP_DETAILS: Record<ProjectBuildStep, ProjectBuildStepDetail> = {
   },
   curriculum: {
     title: "Curriculum draft",
-    body: "Drafting the identity profile and independent skill map.",
+    body: "Saving the confirmed outcomes and preparing the first one.",
+  },
+  unit: {
+    title: "Launch unit",
+    body: "Preparing the first complete unit before opening the workspace.",
   },
   overview: {
     title: "Overview draft",
@@ -87,17 +93,14 @@ const detailFrom = (
 const previewCurriculum = (
   payload: ProjectBuildArtifactPayload["curriculum"],
 ): ProjectBuildStepDetail => {
-  const plan = payload.planDraft;
-  const abilities = titledItems(plan?.abilities);
+  const outcomes = titledItems(payload.outcomes);
 
   return detailFrom(
     "Curriculum draft",
     compact([
       line("Target", payload.identityReport?.targetIdentity),
       line("Headline", payload.identityReport?.headline),
-      line("Plan", plan?.title),
-      line("Summary", plan?.summary),
-      listLine("Abilities", abilities),
+      outcomes.length > 0 ? listLine("Outcomes", outcomes) : null,
     ]),
   );
 };

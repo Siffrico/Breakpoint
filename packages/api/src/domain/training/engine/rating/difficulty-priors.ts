@@ -23,7 +23,8 @@ export const DIFFICULTY_COUNT_WEIGHTS = {
   perAlternative: 40,
 } as const;
 
-export const BAND_DIAL_PRESETS: Readonly<Record<number, DifficultyDialPreset>> =
+/** Low and high structural guideposts for each curriculum band. */
+export const BAND_DIAL_GUIDES: Readonly<Record<number, DifficultyDialPreset>> =
   {
     0: { steps: [1, 2], withheldGivens: [0, 1], alternatives: [0, 1] },
     1: { steps: [2, 3], withheldGivens: [1, 2], alternatives: [1, 2] },

@@ -23,19 +23,18 @@ import type {
 import {
   AskStartingPointOutputSchema,
   askStartingPointTool,
-  createCreateProjectTool,
-  ONBOARDING_CHAT_SYSTEM,
 } from "./domain/training/agents/onboarding-chat-agent";
+import {
+  createCreateTopicProjectTool,
+  TOPIC_ONBOARDING_CHAT_SYSTEM,
+} from "./domain/training/agents/topic-onboarding-chat-agent";
 import {
   getAiModelForPurpose,
   getMissingAiKeyMessage,
   getSearchToolsForSelectedProvider,
   withAiModelPreference,
 } from "./domain/training/engine/model-router";
-import {
-  buildProjectFromOnboarding,
-  getProjectBuildReadiness,
-} from "./domain/training/orchestration/build-project";
+import { buildProjectFromOnboarding } from "./domain/training/orchestration/build-project";
 import { buildProjectCheckpointRepository } from "./repositories/build-project-checkpoint-repository";
 import { createBuildProjectDeps } from "./repositories/build-project-repository-deps";
 import { trainingOnboardingRepository } from "./repositories/training-onboarding-repository";
@@ -261,6 +260,8 @@ export const streamProjectBuildResume = async ({
             input: run.input,
             deps: createBuildProjectDeps(db),
             scheduleBackgroundTask,
+            // Carried forward so a build that keeps yielding eventually stops.
+            resumeRound: run.state.resumeRounds ?? 0,
             onProgress: (build) => {
               writer.write({
                 type: "data-project-build",
@@ -357,7 +358,6 @@ const runOnboardingChat = async ({
       });
     }
   }
-  const projectBuildReadiness = getProjectBuildReadiness(transcript);
   const [persistedModelMessages, toolInteractionMessages] = await Promise.all([
     transcriptToModelMessages(transcript),
     convertToModelMessages(getToolInteractionMessages(messages), {
@@ -438,28 +438,28 @@ const runOnboardingChat = async ({
               title: result.data.title,
               moduleCount: result.data.moduleCount,
               firstUnitId: result.data.firstUnitId,
+              // A yielded build is still in progress, not finished. Said plainly
+              // so a later turn reading this tool result does not tell the
+              // learner their project is ready when it is still being built.
+              resuming: result.data.status === "building",
             }
           : { ok: false, reason: result.error };
       };
 
+      const readyNote =
+        "createProject shows the learner your reading of them and waits for their approval, so only call it once they have confirmed every outcome title and result.";
+
       const result = streamText({
         model,
-        system: `${ONBOARDING_CHAT_SYSTEM}
+        system: `${TOPIC_ONBOARDING_CHAT_SYSTEM}
 
-Runtime state: ${
-          projectBuildReadiness.ready
-            ? "The server has enough learner signal to request project confirmation, but only call createProject if the learner has explicitly chosen one of your suggested projects."
-            : "Do not call createProject yet. Keep consulting with one short question; the server does not have enough concrete learner signal to create a project."
-        }
+Runtime state: ${readyNote}
 ${startingPointNote}`,
         messages: modelMessages,
         tools: {
           ...getSearchToolsForSelectedProvider("onboarding"),
           askStartingPoint: askStartingPointTool,
-          createProject: createCreateProjectTool({
-            buildProject,
-            getReadiness: () => projectBuildReadiness,
-          }),
+          createProject: createCreateTopicProjectTool({ buildProject }),
         },
         // SDK-native server-side smoothing: release whole words on a short
         // cadence so the client renders a steady stream.

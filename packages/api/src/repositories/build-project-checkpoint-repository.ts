@@ -48,6 +48,13 @@ const recoverAbandonedRun = async ({
   if (!isProjectBuildRunPayload(checkpoint.payload)) return null;
   if (checkpoint.payload.status !== "building") return checkpoint.payload;
 
+  // A yielded build releases its lease on purpose (`updateRun` nulls
+  // `leaseExpiresAt`), so "no live lease" alone does not mean abandoned. Only a
+  // run that stopped WITHOUT announcing a yield is recovered as failed.
+  if (checkpoint.payload.state.phase === "needs_resume") {
+    return checkpoint.payload;
+  }
+
   if (checkpoint.leaseExpiresAt && checkpoint.leaseExpiresAt > new Date()) {
     return checkpoint.payload;
   }

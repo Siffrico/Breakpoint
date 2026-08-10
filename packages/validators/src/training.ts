@@ -174,12 +174,7 @@ export const IdentityReportSchema = z.object({
   confidenceFlags: z.array(z.string().min(1)),
 });
 
-export const CurriculumNodeKindSchema = z.enum([
-  "root",
-  "ability",
-  "skill",
-  "unit",
-]);
+export const CurriculumNodeKindSchema = z.enum(["root", "outcome", "unit"]);
 
 export const CurriculumNodeStatusSchema = z.enum([
   "planned",
@@ -206,6 +201,194 @@ export const DifficultyBandSchema = z.object({
  *               justify from the mechanism. Absorbs critique/tradeoff/diagnose.
  */
 export const ScenarioArchetypeSchema = z.enum(["select", "transform", "judge"]);
+
+/**
+ * The task-generation contract for one outcome.
+ *
+ * It answers "what does a well-formed task for this outcome look like?" and is
+ * authored once by the curriculum designer, so the scenario generator never
+ * re-derives it per task. Deliberately structured rather than a prose blob: a
+ * malformed brief fails schema validation at the agent boundary instead of
+ * silently degrading every task built from it.
+ *
+ * Note the division of labour with `StoredSkillMap.workflow`, which must not
+ * restate any of this: the workflow is how a good ANSWER is produced (what the
+ * grader checks reasoning against); the brief is how a good TASK is built.
+ */
+export const OutcomeDefinitionSchema = z.object({
+  title: z.string().min(1).max(80),
+  result: z.string().min(1),
+});
+
+export const SkillMapItemSchema = z.object({
+  kind: z.enum(["concept", "mechanism"]),
+  name: z.string().min(1),
+  description: z.string().min(1),
+});
+
+export const SkillMapSchema = z.object({
+  skills: z
+    .array(
+      z.object({
+        name: z.string().min(1),
+        description: z.string().min(1),
+        items: z.array(SkillMapItemSchema).min(1).max(6),
+      }),
+    )
+    .min(3)
+    .max(12),
+  expertJudgment: z
+    .array(
+      z.object({
+        rule: z.string().min(1),
+        when: z.string().min(1),
+      }),
+    )
+    .min(2)
+    .max(8),
+  commonMistakes: z
+    .array(
+      z.object({
+        mistake: z.string().min(1),
+        whyItHappens: z.string().min(1),
+        detectionCue: z.string().min(1),
+      }),
+    )
+    .min(2)
+    .max(8),
+});
+
+export const PracticeDifficultyBandSchema = z.object({
+  band: z.union([z.literal(0), z.literal(1), z.literal(2)]),
+  task: z.string().min(1),
+  reasoning: z.string().min(1),
+  support: z.string().min(1),
+  traps: z.array(z.string().min(1)),
+});
+
+export const PracticeContractSchema = z.object({
+  workflow: z.object({
+    name: z.string().min(1),
+    steps: z.array(z.string().min(1)).min(3).max(7),
+  }),
+  responseMode: ScenarioArchetypeSchema,
+  taskTypes: z
+    .array(
+      z.object({
+        name: z.string().min(1),
+        situation: z.string().min(1),
+        learnerDoes: z.string().min(1),
+        output: z.string().min(1),
+        taskShape: z.string().min(1),
+        skills: z.array(z.string().min(1)).min(1),
+      }),
+    )
+    .min(1)
+    .max(4),
+  qualityBar: z.array(z.string().min(1)).min(1).max(6),
+  variationAxes: z
+    .array(
+      z.object({
+        name: z.string().min(1),
+        description: z.string().min(1),
+      }),
+    )
+    .min(2)
+    .max(8),
+  evaluationCriteria: z
+    .array(
+      z.object({
+        criterion: z.string().min(1),
+        skills: z.array(z.string().min(1)).min(1),
+      }),
+    )
+    .min(1)
+    .max(5),
+  difficultyBands: z.array(PracticeDifficultyBandSchema).length(3),
+  neverDo: z.array(z.string().min(1)).min(1).max(6),
+  maxRatingDeviation: z.number().int().min(30).max(200).optional(),
+});
+
+export const OutcomeCompilationOutputSchema = z
+  .object({
+    skillMap: SkillMapSchema,
+    practiceContract: PracticeContractSchema,
+  })
+  .superRefine((output, ctx) => {
+    const skillNames = output.skillMap.skills.map((skill) => skill.name);
+    const knownSkills = new Set(skillNames);
+    if (knownSkills.size !== skillNames.length) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["skillMap", "skills"],
+        message: "Skill Map names must be unique",
+      });
+    }
+
+    const taskCoverage = new Set<string>();
+    output.practiceContract.taskTypes.forEach((task, taskIndex) => {
+      task.skills.forEach((skill) => {
+        if (knownSkills.has(skill)) taskCoverage.add(skill);
+        else {
+          ctx.addIssue({
+            code: "custom",
+            path: ["practiceContract", "taskTypes", taskIndex, "skills"],
+            message: `unknown Skill Map entry: ${skill}`,
+          });
+        }
+      });
+    });
+
+    const evaluationCoverage = new Set<string>();
+    output.practiceContract.evaluationCriteria.forEach(
+      (criterion, criterionIndex) => {
+        criterion.skills.forEach((skill) => {
+          if (knownSkills.has(skill)) evaluationCoverage.add(skill);
+          else {
+            ctx.addIssue({
+              code: "custom",
+              path: [
+                "practiceContract",
+                "evaluationCriteria",
+                criterionIndex,
+                "skills",
+              ],
+              message: `unknown Skill Map entry: ${skill}`,
+            });
+          }
+        });
+      },
+    );
+
+    skillNames.forEach((skill, skillIndex) => {
+      if (!taskCoverage.has(skill)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["skillMap", "skills", skillIndex],
+          message: "every skill must be exercised by a task type",
+        });
+      }
+      if (!evaluationCoverage.has(skill)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["skillMap", "skills", skillIndex],
+          message: "every skill must affect an evaluation criterion",
+        });
+      }
+    });
+
+    if (
+      output.practiceContract.difficultyBands
+        .map((band) => band.band)
+        .join(",") !== "0,1,2"
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["practiceContract", "difficultyBands"],
+        message: "difficulty bands must be ordered 0, 1, 2",
+      });
+    }
+  });
 
 export const ScenarioFormatSchema = z
   .object({
@@ -401,33 +584,46 @@ export const ContractDimensionIdSchema = z
   .max(80)
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
 
-export const UnitMasteryDimensionSchema = z.object({
-  id: ContractDimensionIdSchema,
-  name: z.string().min(1),
-  description: z.string().min(1),
-  passSignals: z.array(z.string().min(1)).min(1).max(6),
-  failSignals: z.array(z.string().min(1)).min(1).max(6),
-  surrogateTraps: z.array(z.string().min(1)).min(1).max(6),
+export const UnitContextSchema = z.object({
+  version: z.literal(1),
+  performance: z.string().min(1),
+  targets: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        skill: z.string().min(1),
+        kind: z.enum(["concept", "mechanism"]),
+        label: z.string().min(1),
+        content: z.string().min(1),
+      }),
+    )
+    .min(1)
+    .max(4),
+  workflow: PracticeContractSchema.shape.workflow,
+  expertise: z.object({
+    expertJudgment: SkillMapSchema.shape.expertJudgment,
+    commonMistakes: SkillMapSchema.shape.commonMistakes,
+  }),
+  testing: z.object({
+    responseMode: ScenarioArchetypeSchema,
+    taskTypes: PracticeContractSchema.shape.taskTypes,
+    variationAxes: PracticeContractSchema.shape.variationAxes,
+    neverDo: PracticeContractSchema.shape.neverDo,
+  }),
+  judgment: z.object({
+    criteria: z
+      .array(
+        z.object({
+          id: ContractDimensionIdSchema,
+          criterion: z.string().min(1),
+          skills: z.array(z.string().min(1)).min(1),
+        }),
+      )
+      .min(1)
+      .max(5),
+    qualityBar: PracticeContractSchema.shape.qualityBar,
+  }),
 });
-
-export const UnitMasteryContractSchema = z
-  .object({
-    version: z.literal(1),
-    dimensions: z.array(UnitMasteryDimensionSchema).min(1).max(4),
-  })
-  .superRefine((contract, ctx) => {
-    const ids = new Set<string>();
-    contract.dimensions.forEach((dimension, index) => {
-      if (ids.has(dimension.id)) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["dimensions", index, "id"],
-          message: `Duplicate mastery dimension id: ${dimension.id}.`,
-        });
-      }
-      ids.add(dimension.id);
-    });
-  });
 
 const EducationExperienceInstructionsSchema = z
   .string()
@@ -445,12 +641,6 @@ export const EducationExperienceSnapshotSchema = z.object({
   version: z.number().int().positive(),
   main: z.object({ instructions: EducationExperienceInstructionsSchema }),
   reviewer: z.object({ instructions: EducationExperienceInstructionsSchema }),
-});
-
-/** Legacy row shape, read-only. Hydrated into a UnitTodo on load. */
-export const UnitCapabilityTodoSchema = z.object({
-  dimensionId: ContractDimensionIdSchema,
-  status: z.enum(["pending", "completed"]),
 });
 
 /** A settled pass waits for Enter before its next independent scenario. */
@@ -478,37 +668,12 @@ export const WorkspaceEducationStageSchema = z.enum(
 
 const WorkspaceScenarioRunKindSchema = UnitRunKindSchema;
 
-export const ScenarioEvaluationDimensionSchema = z.object({
-  dimensionId: ContractDimensionIdSchema,
-  promptRole: z.string().min(1),
-  expectedStrongMoves: z.array(z.string().min(1)).min(1).max(6),
-  acceptableVariants: z.array(z.string().min(1)).max(6),
-  commonWrongMoves: z.array(z.string().min(1)).min(1).max(6),
-  scoreBands: z.object({
-    strong: z.string().min(1),
-    partial: z.string().min(1),
-    weak: z.string().min(1),
-  }),
-});
-
-export const ScenarioVerifierAuditSchema = z.object({
-  answerIntegrity: z.string().min(1),
-  wellPosed: z.string().min(1),
-  selfContained: z.string().min(1),
-  conceptRequired: z.string().min(1),
-  shortcutsClosed: z.string().min(1),
-  difficulty: z.string().min(1),
-  spark: z.string().min(1),
-});
-
 export const ScenarioVerifierSchema = z
   .object({
     type: z.enum(["fixed_answer", "checker", "judge_rubric"]),
     answer: z.string().min(1).nullable(),
     checkerSpec: z.string().min(1).nullable(),
-    intendedSolution: z.string().min(1),
-    shortcutFailures: z.array(z.string().min(1)).min(1).max(8),
-    rubricAudit: ScenarioVerifierAuditSchema,
+    scratchpad: z.string().trim().min(24).max(600),
   })
   .superRefine((verifier, ctx) => {
     if (verifier.type === "fixed_answer" && !verifier.answer) {
@@ -532,9 +697,7 @@ export const ScenarioEvaluationContractSchema = z.object({
   version: z.literal(1),
   runKind: WorkspaceScenarioRunKindSchema,
   scenarioPromptSummary: z.string().min(1),
-  testedDimensions: z.array(ScenarioEvaluationDimensionSchema).min(1).max(4),
-  learnerVisibleCriteria: z.array(z.string().min(1)).min(1).max(5),
-  evaluatorNotes: z.array(z.string().min(1)).max(6),
+  testedCriterionIds: z.array(ContractDimensionIdSchema).min(1).max(5),
   verifier: ScenarioVerifierSchema.optional(),
 });
 
@@ -545,8 +708,8 @@ export const UnitReviewChallengeSchema = z.object({
 });
 
 /**
- * A unit run teaches one capability. A pass is one route through it: the
- * teaching moves, then the solve the learner answers, then the complete the
+ * A unit run opens with one teaching move. A pass is one route through it: the
+ * teaching move, then the solve the learner answers, then the complete the
  * reviewer marks. The list is the whole state — a pass is over when its list
  * is done, and the complete's mark decides whether the unit ends or another
  * pass is appended.
@@ -609,7 +772,7 @@ export const ForgeUnitContentSchema = z.object({
   practicePrompts: z.array(PracticePromptSchema).length(3).nullable(),
   teachbackSetup: TeachbackSetupSchema,
   scenario: ForgeUnitScenarioSchema,
-  unitMasteryContract: UnitMasteryContractSchema.nullable(),
+  unitContext: UnitContextSchema.nullable(),
   difficultyBands: z.array(DifficultyBandSchema).nullable(),
 });
 
@@ -926,6 +1089,12 @@ export type OnboardingTranscriptMessage = z.infer<
 >;
 export type IdentityReport = z.infer<typeof IdentityReportSchema>;
 export type CurriculumNodeKind = z.infer<typeof CurriculumNodeKindSchema>;
+export type OutcomeDefinition = z.infer<typeof OutcomeDefinitionSchema>;
+export type SkillMap = z.infer<typeof SkillMapSchema>;
+export type PracticeContract = z.infer<typeof PracticeContractSchema>;
+export type OutcomeCompilationOutput = z.infer<
+  typeof OutcomeCompilationOutputSchema
+>;
 export type CurriculumNodeStatus = z.infer<typeof CurriculumNodeStatusSchema>;
 export type DifficultyBand = z.infer<typeof DifficultyBandSchema>;
 export type SupportLevel = z.infer<typeof SupportLevelSchema>;
@@ -945,7 +1114,6 @@ export type EducationExperienceSnapshot = z.infer<
 export type EducationExperienceCustomization = z.infer<
   typeof EducationExperienceCustomizationSchema
 >;
-export type UnitCapabilityTodo = z.infer<typeof UnitCapabilityTodoSchema>;
 export type UnitTodo = z.infer<typeof UnitTodoSchema>;
 export type UnitTodoResult = z.infer<typeof UnitTodoResultSchema>;
 export type UnitSolveTodo = Extract<UnitTodo, { kind: "solve" }>;
@@ -1031,7 +1199,7 @@ export type SubmitEducationUnitStep = z.infer<
   typeof SubmitEducationUnitStepSchema
 >;
 export type UnitContent = z.infer<typeof UnitContentSchema>;
-export type UnitMasteryContract = z.infer<typeof UnitMasteryContractSchema>;
+export type UnitContext = z.infer<typeof UnitContextSchema>;
 export type ScenarioEvaluationContract = z.infer<
   typeof ScenarioEvaluationContractSchema
 >;

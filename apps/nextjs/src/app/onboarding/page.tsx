@@ -14,7 +14,9 @@ export const metadata: Metadata = {
 export default async function OnboardingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ new?: string; session?: string }>;
+  searchParams: Promise<{
+    session?: string;
+  }>;
 }) {
   const session = await getSession();
 
@@ -23,21 +25,13 @@ export default async function OnboardingPage({
   }
 
   const params = await searchParams;
-  const startNewProject = params.new === "1";
-  // A normal visit restores even a just-completed build, so reloading before
-  // pressing "Start learning" cannot silently create a replacement session.
-  // Only the explicit new-project action opts out of restoration.
-  const initialState = startNewProject
-    ? null
-    : params.session
-      ? await getQueryClient().fetchQuery(
-          trpc.training.onboardingState.queryOptions({
-            sessionId: params.session,
-          }),
-        )
-      : await getQueryClient().fetchQuery(
-          trpc.training.resumeOnboarding.queryOptions(),
-        );
+  const initialState = params.session
+    ? await getQueryClient().fetchQuery(
+        trpc.training.onboardingState.queryOptions({
+          sessionId: params.session,
+        }),
+      )
+    : null;
 
   // Manual/imported projects do not have a streamed build card to restore.
   // Their useful recovery destination is the workspace, not an empty chat.

@@ -2,8 +2,8 @@ import { index, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
 
 import type {
   EducationExperienceSnapshot,
+  UnitContext,
   UnitDifficultySnapshot,
-  UnitMasteryContract,
   UnitTodo,
 } from "@acme/validators";
 
@@ -17,8 +17,6 @@ import { TrainingOnboardingSession } from "./onboarding";
  * cannot drift from the API engine's rating model.
  */
 export type TrainingUnitDifficultySnapshotJson = UnitDifficultySnapshot;
-
-export type TrainingUnitMasteryContractJson = UnitMasteryContract;
 
 export const TrainingUnitContent = pgTable(
   "becoming_unit_content",
@@ -50,9 +48,7 @@ export const TrainingUnitContent = pgTable(
       .notNull(),
     scenarioTitle: t.varchar({ length: 240 }).notNull(),
     scenarioFocusAreas: t.jsonb().$type<string[]>().notNull(),
-    unitMasteryContractJson: t
-      .jsonb()
-      .$type<TrainingUnitMasteryContractJson | null>(),
+    unitContextJson: t.jsonb().$type<UnitContext | null>(),
     createdAt: t
       .timestamp({ mode: "date", withTimezone: true })
       .defaultNow()
@@ -62,6 +58,50 @@ export const TrainingUnitContent = pgTable(
       .$onUpdateFn(() => new Date()),
   }),
   (table) => [uniqueIndex("becoming_unit_content_node_idx").on(table.nodeId)],
+);
+
+/**
+ * Durable ownership for model-backed node artifacts. A lease is claimed and
+ * committed in short transactions; the model call itself never owns a database
+ * connection. Both knowledge maps and unit content use this lifecycle.
+ */
+export const TrainingNodeBuild = pgTable(
+  "becoming_node_build",
+  (t) => ({
+    id: t.uuid().notNull().primaryKey().defaultRandom(),
+    nodeId: t
+      .uuid()
+      .notNull()
+      .references(() => TrainingCurriculumNode.id, { onDelete: "cascade" }),
+    kind: t.varchar({ length: 32 }).notNull(),
+    status: t.varchar({ length: 16 }).notNull().default("pending"),
+    attempts: t.integer().notNull().default(0),
+    leaseId: t.uuid(),
+    leaseExpiresAt: t.timestamp({ mode: "date", withTimezone: true }),
+    failureCode: t.varchar({ length: 64 }),
+    failureMessage: t.text(),
+    startedAt: t.timestamp({ mode: "date", withTimezone: true }),
+    completedAt: t.timestamp({ mode: "date", withTimezone: true }),
+    createdAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull()
+      .$onUpdateFn(() => new Date()),
+  }),
+  (table) => [
+    uniqueIndex("becoming_node_build_kind_node_idx").on(
+      table.kind,
+      table.nodeId,
+    ),
+    index("becoming_node_build_status_lease_idx").on(
+      table.status,
+      table.leaseExpiresAt,
+    ),
+  ],
 );
 
 export const TrainingUnitPhaseResponse = pgTable(
@@ -181,9 +221,8 @@ export const TrainingUnitRun = pgTable(
       .default("breakpoint-mentor"),
     experienceVersion: t.integer().notNull().default(1),
     experienceJson: t.jsonb().$type<EducationExperienceSnapshot>().notNull(),
-    masteryContractJson: t.jsonb().$type<UnitMasteryContract>().notNull(),
+    unitContextJson: t.jsonb().$type<UnitContext>().notNull(),
     todosJson: t.jsonb().$type<UnitTodo[]>().notNull(),
-    reviewerFeedback: t.text(),
     difficultySnapshotJson: t
       .jsonb()
       .$type<TrainingUnitDifficultySnapshotJson | null>(),

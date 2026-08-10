@@ -1,12 +1,10 @@
 import { Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
 
-import type {
-  UnitMasteryContract,
-  UnitReviewChallenge,
-} from "@acme/validators";
+import type { UnitReviewChallenge } from "@acme/validators";
 
 import { DEFAULT_EDUCATION_EXPERIENCE } from "./experience";
+import { makeUnitContext } from "./unit-context.fixture";
 import {
   attachChallenge,
   closeSolve,
@@ -16,30 +14,13 @@ import {
   isDecisivePass,
   markComplete,
   presentSolve,
+  TEACH_TODO_ID,
 } from "./unit-state";
 
-const masteryContract = {
-  version: 1,
-  dimensions: [
-    {
-      id: "explain-mechanism",
-      name: "Explain the mechanism",
-      description:
-        "Explain what changes, what acts, and why the result follows.",
-      passSignals: ["Names the causal chain"],
-      failSignals: ["Only repeats the rule"],
-      surrogateTraps: ["Uses terminology without a causal explanation"],
-    },
-    {
-      id: "transfer-decision",
-      name: "Transfer the decision",
-      description: "Choose and defend the move in a novel realistic case.",
-      passSignals: ["Uses the mechanism on a new surface"],
-      failSignals: ["Copies the earlier procedure"],
-      surrogateTraps: ["Matches vocabulary instead of constraints"],
-    },
-  ],
-} satisfies UnitMasteryContract;
+const unitContext = makeUnitContext({
+  criterionId: "transfer-decision",
+  criterion: "Choose and defend the move in a novel realistic case.",
+});
 
 const challenge = {
   prompt:
@@ -54,22 +35,7 @@ const challenge = {
     version: 1,
     runKind: "education",
     scenarioPromptSummary: "Choose under a novel production constraint.",
-    testedDimensions: [
-      {
-        dimensionId: "transfer-decision",
-        promptRole: "Force mechanism-based transfer.",
-        expectedStrongMoves: ["Re-derives the move from the new constraint"],
-        acceptableVariants: [],
-        commonWrongMoves: ["Repeats the familiar procedure"],
-        scoreBands: {
-          strong: "Correctly derives and defends the move.",
-          partial: "Chooses a plausible move with an incomplete mechanism.",
-          weak: "Copies the prior move despite the changed constraint.",
-        },
-      },
-    ],
-    learnerVisibleCriteria: ["Choose one move and explain why it fits."],
-    evaluatorNotes: ["Do not reward copied wording."],
+    testedCriterionIds: ["transfer-decision"],
   },
 } satisfies UnitReviewChallenge;
 
@@ -79,18 +45,12 @@ const makeRun = () =>
     sessionId: "session-1",
     userId: "user-1",
     kind: "education",
-    masteryContract,
+    unitContext,
     experience: DEFAULT_EDUCATION_EXPERIENCE,
   });
 
-const completeLearning = async () => {
-  const first = await Effect.runPromise(
-    completeCurrentCapabilityTodo(makeRun(), "explain-mechanism"),
-  );
-  return Effect.runPromise(
-    completeCurrentCapabilityTodo(first, "transfer-decision"),
-  );
-};
+const completeLearning = () =>
+  Effect.runPromise(completeCurrentCapabilityTodo(makeRun(), TEACH_TODO_ID));
 
 /** Answers the run's open challenge and takes the reviewer's mark. */
 const answerAndMark = async (
@@ -109,36 +69,39 @@ const answerAndMark = async (
 };
 
 describe("unit state", () => {
-  it("starts education on the first pending teaching move", () => {
+  it("starts education on its single teaching move", () => {
     const run = makeRun();
 
     expect(run.mode).toBe("learning");
     expect(currentTodo(run)).toMatchObject({
       kind: "capability",
-      dimensionId: "explain-mechanism",
+      dimensionId: TEACH_TODO_ID,
     });
+    expect(run.todos.filter((todo) => todo.kind === "capability")).toHaveLength(
+      1,
+    );
   });
 
   it("snapshots capability and experience definitions for the active run", () => {
-    const sourceContract = structuredClone(masteryContract);
+    const sourceContext = structuredClone(unitContext);
     const sourceExperience = structuredClone(DEFAULT_EDUCATION_EXPERIENCE);
     const run = createUnitRun({
       unitId: "unit-1",
       sessionId: "session-1",
       userId: "user-1",
       kind: "education",
-      masteryContract: sourceContract,
+      unitContext: sourceContext,
       experience: sourceExperience,
     });
 
-    const sourceDimension = sourceContract.dimensions[0];
-    if (!sourceDimension) throw new Error("Expected a source dimension.");
-    sourceDimension.description = "Changed after run creation.";
+    const sourceTarget = sourceContext.targets[0];
+    if (!sourceTarget) throw new Error("Expected a source target.");
+    sourceTarget.content = "Changed after run creation.";
     (sourceExperience.main as { instructions: string }).instructions =
       "Changed after run creation.";
 
-    expect(run.masteryContract.dimensions[0]?.description).toBe(
-      masteryContract.dimensions[0]?.description,
+    expect(run.unitContext.targets[0]?.content).toBe(
+      unitContext.targets[0]?.content,
     );
     expect(run.experience.main.instructions).toBe(
       DEFAULT_EDUCATION_EXPERIENCE.main.instructions,
@@ -156,7 +119,7 @@ describe("unit state", () => {
     }
   });
 
-  it("hands over to the solve once every teaching move completes", async () => {
+  it("hands over to the solve once the teaching move completes", async () => {
     const run = await completeLearning();
 
     expect(currentTodo(run)).toMatchObject({ kind: "solve", pass: 1 });
@@ -215,7 +178,7 @@ describe("unit state", () => {
         sessionId: "session-1",
         userId: "user-1",
         kind: "recall",
-        masteryContract,
+        unitContext,
         experience: DEFAULT_EDUCATION_EXPERIENCE,
       });
 

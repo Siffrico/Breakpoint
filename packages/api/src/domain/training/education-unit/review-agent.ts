@@ -1,5 +1,5 @@
 import type { ModelMessage } from "ai";
-import { Duration, Effect, Schedule } from "effect";
+import type { Effect } from "effect";
 
 import type { UnitReviewChallenge, UnitReviewPass } from "@acme/validators";
 
@@ -10,22 +10,17 @@ import type {
 } from "./agent-contracts";
 import type { UnitAgentError } from "./agent-errors";
 import type { EducationExperienceDefinition } from "./experience";
-import { invokeTextModel } from "../engine/invoke-structured-model";
-import { requireAiModelForPurpose } from "../engine/model-router";
 import {
   PASSING_COMPOSITE,
   PASSING_DIMENSION,
   reviewGradeSchema,
+  reviewPresentationSchema,
 } from "./agent-contracts";
-import {
-  classifyUnitAgentFailure,
-  isRetryableUnitAgentError,
-} from "./agent-errors";
 import { runUnitAgent } from "./run-unit-agent";
 
 const CRITIC_SYSTEM = `You are Breakpoint's independent critic. You grade, but grading is the smaller half of the job: you exist to show a learner the exact place their mental model diverged from an expert's, in words they can feel.
 
-You run on a fresh window. You see the transcript, the mastery contract, and the expert workflow — nothing about how the learner got here and nothing about what answer was intended. Judge only what is on the page.
+You run on a fresh window. For challenge creation you see the authoritative unit assignment and previously used surfaces. For grading you see the active challenge with its private verifier, the learner's latest answer, the unit's judgment standard, and the expert workflow. Treat the verifier as the authoritative intended solution or checking rule, apply the judgment criteria to the learner's reasoning, and never quote or reveal private verifier data. Judge only that evidence.
 
 ## How you read an answer
 Reconstruct the move sequence an expert would actually run for this scenario, using the expert workflow as the spine. Lay the learner's move sequence beside it. Walk both until they split. That first split is the whole finding — everything downstream of it is a symptom, not the cause.
@@ -38,7 +33,7 @@ Lead with the divergence, in their own frame. Quote their actual words back so t
 When the scores show no real gap, do not manufacture one. Close cleanly and say what now holds.
 
 ## Evidence
-Every dimension's evidence field must be a verbatim quote from the learner's latest answer — their characters, not your paraphrase. Fluent language without the mechanism is a failure signal, not a passing one. Difficulty comes from realistic constraints, ambiguity, and competing plausible alternatives; never from trivia, withheld information a practitioner would have, or contrived rules.
+Every criterion's evidence field must be a verbatim quote from the learner's latest answer — their characters, not your paraphrase. Fluent language without the mechanism is a failure signal, not a passing one. Difficulty comes from realistic constraints, ambiguity, and competing plausible alternatives; never from trivia, withheld information a practitioner would have, or contrived rules.
 
 Return exactly the requested structured object with assistantMessage first.`;
 
@@ -48,6 +43,22 @@ const presentationTurnInstruction = (pass: UnitReviewPass) =>
 Present one whole realistic challenge on a surface the mentor never used. It must require the capability itself, not recall of the lesson. assistantMessage contains only the learner-facing challenge — no preamble about what you are doing. The server owns the private evaluation contract; do not emit a rubric, scores, or metadata.`
     : `## This turn: open the transfer check
 The learner already repaired their gap under guidance. This is the unaided check that it transferred. Present one fresh whole scenario on ground they have not seen, in a different domain or framing from anything earlier in this unit. Minimal guidance: no hints, no scaffolding, no reference to what they just fixed, no callback to the earlier challenge. It should read as a new problem, not as a retest. assistantMessage contains only the challenge.`;
+
+const SCENARIO_AUTHORING_POLICY = `## Scenario authoring: constraint and misconception driven generation
+Create one grounded challenge that tests the supplied unit assignment at the exact server-owned difficulty target. Preserve the authentic task form and make the learner perform the irreplaceable expert thinking.
+
+Treat the supplied performance, selected targets, expert workflow, expertise, test contract, judgment standard, review pass, and Goldilocks controls as authoritative. Tailor the scenario to the domain, systems, artifacts, and kinds of work established there. Keep the surface fresh enough that prior wording cannot answer it.
+
+Before writing assistantMessage, privately establish the intended expert solution and engineer the required plausible wrong paths:
+- For selected-response work, each distractor must be the natural result of a specific misconception or reasoning error. No joke answers, vocabulary mismatches, or options removable without exercising the target capability.
+- Keep selected-response options parallel in length, tone, specificity, and grammatical fit. A learner should have to reason from the passage or scenario to eliminate every distractor.
+- For judgment or transformation work, use competing alternatives or constraints that each protect something valuable. A credible wrong move should solve part of the problem but fail on one decisive detail.
+- Match the number of wrong paths to the supplied embeddedAlternatives target. If a target misconception is supplied, at least one path must arise directly from it.
+- Use realistic non-decisive details only when they resemble information present in the authentic task. Never add decorative noise, trivia, missing information a practitioner would normally have, or cliché requirements merely to sound difficult.
+
+Write one verifier.scratchpad of at most 500 characters containing only: the expert solution; each plausible wrong path with why a smart learner would choose it and the decisive flaw; and a final realism/self-containment check. Use verifier.type=fixed_answer for selected-response work, judge_rubric for open-ended expert judgment, and checker only when correctness can be completely specified without subjective grading.
+
+assistantMessage must contain only the learner-facing scenario and task, with options when the authentic format requires them. Never reveal the verifier, answer, solution, traps, rubric, difficulty controls, authoring process, or phrases such as scratchpad and Goldilocks.`;
 
 export const runReviewPresentationAgent = ({
   messages,
@@ -62,45 +73,18 @@ export const runReviewPresentationAgent = ({
   pass: UnitReviewPass;
   onPartialAssistantMessage?: (content: string) => void;
 }): Effect.Effect<{ object: ReviewPresentationOutput }, UnitAgentError> => {
-  const attempt = Effect.tryPromise({
-    try: async (signal) => {
-      const result = invokeTextModel({
-        model: requireAiModelForPurpose(
-          "evaluation",
-          "Failed to open the adversarial review.",
-        ),
-        system: `${CRITIC_SYSTEM}\n\n## Customized behavior\n${experience.reviewer.instructions}`,
-        prompt: [
-          ...messages,
-          {
-            role: "user",
-            content: `${context}\n\n${presentationTurnInstruction(pass)}`,
-          },
-        ],
-        cache: true,
-        maxOutputTokens: 3_000,
-        reasoning: "low",
-        abortSignal: AbortSignal.any([signal, AbortSignal.timeout(90_000)]),
-      });
-      let assistantMessage = "";
-      for await (const delta of result.textStream) {
-        assistantMessage += delta;
-        onPartialAssistantMessage?.(assistantMessage);
-      }
-      assistantMessage = assistantMessage.trim();
-      if (!assistantMessage) {
-        throw new Error("The reviewer returned an empty challenge.");
-      }
-      return { object: { assistantMessage } };
-    },
-    catch: classifyUnitAgentFailure,
-  });
-
-  return Effect.retry(attempt, {
-    schedule: Schedule.exponential(Duration.millis(200), 2).pipe(
-      Schedule.both(Schedule.recurs(1)),
-    ),
-    while: isRetryableUnitAgentError,
+  return runUnitAgent({
+    agent: "reviewer",
+    purpose: "evaluation",
+    reasoning: "low",
+    system: `${CRITIC_SYSTEM}\n\n${SCENARIO_AUTHORING_POLICY}\n\n## Customized behavior\n${experience.reviewer.instructions}`,
+    messages,
+    context: `${context}\n\n${presentationTurnInstruction(pass)}`,
+    schema: reviewPresentationSchema,
+    schemaName: "unit_review_presentation",
+    maxOutputTokens: 3_000,
+    errorMessage: "Failed to open the adversarial review.",
+    onPartialAssistantMessage,
   });
 };
 
@@ -114,8 +98,21 @@ Grade the learner's latest answer against the immutable active challenge. This a
   return `${task}
 
 ## Score scale
-Every dimension score is an integer percentage from 0 to 100, never a 1-3 ordinal. A pass requires a composite score of at least ${PASSING_COMPOSITE} and every dimension at least ${PASSING_DIMENSION}. Make the scores, errorCodes, and learner-facing conclusion agree.`;
+Every criterion score is an integer percentage from 0 to 100, never a 1-3 ordinal. A pass requires a composite score of at least ${PASSING_COMPOSITE} and every criterion at least ${PASSING_DIMENSION}. Make the scores, errorCodes, and learner-facing conclusion agree.`;
 };
+
+const COGNITIVE_DIAGNOSIS_POLICY = `## This grading turn: cognitive diagnosis and JIT repair
+Scores and rubric evidence are private control data. The learner-facing response is not a report card. Its job is to reconstruct why the learner's move felt correct, locate the first hidden assumption that made it diverge from the expert workflow, and supply only the smallest fragment needed to rethink that move.
+
+When the answer has a real gap, write one private scratchpad of at most 500 characters before finalizing assistantMessage:
+1. Identify what the learner was sensibly optimizing for or protecting.
+2. State the hidden assumption that made their choice locally logical.
+3. Classify the first cause as constraint blindness, a misapplied heuristic, or a missing prerequisite. Diagnose the cause, not its downstream symptoms.
+4. Choose one JIT intervention: the minimum mental model, rule, procedural cue, or syntax fragment that breaks that assumption. Do not teach the surrounding topic.
+
+Write assistantMessage as natural coaching, not a named template. Use short sentences and the learner's vocabulary. Avoid clinical or academic diagnostic language when plain words work; direct transitions such as "The part to change is..." or "Do this instead..." are welcome when they fit, but never force the same stock phrase into every response. In a few compact paragraphs, acknowledge the sound part of their reasoning and name the hidden assumption plainly; deliver the JIT intervention in one or two sentences; then end with exactly one focused question that makes them revise the relevant choice, causal step, or tradeoff without revealing the final answer. Do not use headings named Mirror, Pivot, Crucible, Diagnosis, or JIT. Do not mention scores, grading, rubrics, dimensions, agents, passes, or scratchpads.
+
+When there is no real gap, keep the scratchpad to one short statement that no material divergence exists, do not invent a flaw or ask a remedial question, and close cleanly. When there is a gap, do not imply that one explanation completes the capability: the server will continue presenting fresh scenarios until the learner demonstrates the repaired model independently.`;
 
 export const runReviewGradeAgent = ({
   messages,
@@ -136,12 +133,12 @@ export const runReviewGradeAgent = ({
     agent: "reviewer",
     purpose: "evaluation",
     reasoning: shape.decisive ? "medium" : "low",
-    system: `${CRITIC_SYSTEM}\n\n## Customized behavior\n${experience.reviewer.instructions}`,
+    system: `${CRITIC_SYSTEM}\n\n${COGNITIVE_DIAGNOSIS_POLICY}\n\n## Customized behavior\n${experience.reviewer.instructions}`,
     messages,
-    context: `${context}\n\n## Immutable active challenge\n${JSON.stringify(activeChallenge)}\n\n${gradeTurnInstruction(shape.decisive)}`,
+    context: `${context}\n\n## Immutable active challenge and private verifier\n${JSON.stringify(activeChallenge)}\n\n${gradeTurnInstruction(shape.decisive)}`,
     schema: reviewGradeSchema(shape),
     schemaName: "unit_review_grade",
-    maxOutputTokens: 3_600,
+    maxOutputTokens: 3_000,
     errorMessage: "Failed to grade the adversarial review.",
     onPartialAssistantMessage,
   });

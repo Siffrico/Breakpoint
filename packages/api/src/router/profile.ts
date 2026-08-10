@@ -11,9 +11,10 @@ import { getEducationExperienceWorkflow } from "../domain/profile/workflows/get-
 import { getProfileGeneralWorkflow } from "../domain/profile/workflows/get-general";
 import { updateEducationExperienceWorkflow } from "../domain/profile/workflows/update-education-experience";
 import { updateProfileGeneralWorkflow } from "../domain/profile/workflows/update-general";
-import { requireOwnedSession, runProfile } from "../effect/profile-edge";
+import { requireOwnedSession } from "../effect/profile-edge";
 import { trainingOnboardingRepository } from "../repositories/training-onboarding-repository";
 import { protectedProcedure } from "../trpc";
+import { runProfile } from "./run-effect";
 
 const SessionIdInputSchema = UpdateProfileGeneralInputSchema.pick({
   sessionId: true,

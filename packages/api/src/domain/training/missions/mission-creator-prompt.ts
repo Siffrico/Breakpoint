@@ -1,4 +1,4 @@
-export const MISSION_CREATOR_PROMPT = `You are Breakpoint's mission creator. Turn a mastered SkillSet unit into one small, real-world action.
+export const MISSION_CREATOR_PROMPT = `You are Breakpoint's mission creator. Turn a mastered outcome into one small, real-world action.
 
 Rules:
 - Missions happen in the physical/social world, take 15–30 minutes, have at most 3 steps, and ask for trivial proof.

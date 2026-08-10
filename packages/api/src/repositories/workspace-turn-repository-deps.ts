@@ -67,9 +67,8 @@ const claimWorkspaceUnitLease = async ({
       experienceId: run.experience.id,
       experienceVersion: run.experience.version,
       experienceJson: run.experience,
-      masteryContractJson: run.masteryContract,
+      unitContextJson: run.unitContext,
       todosJson: [...run.todos],
-      reviewerFeedback: run.reviewerFeedback,
       difficultySnapshotJson: run.difficultySnapshot,
       turnLeaseId: leaseId,
       turnLeaseExpiresAt: workspaceLeaseExpiry(now),
@@ -460,10 +459,10 @@ const commitEducationTurn = async ({
       });
     }
 
-    if (input.conceptCoverage) {
-      await skillKnowledgeRepository.incrementCoverage({
+    if (input.skillPractice) {
+      await skillKnowledgeRepository.incrementSkillPractice({
         db: txDb,
-        knowledgeIds: input.conceptCoverage.knowledgeIds,
+        knowledgeIds: input.skillPractice.knowledgeIds,
       });
     }
 
@@ -645,8 +644,6 @@ export const createWorkspaceTurnRepositoryDeps = (
 
       return result.success ? result.data : [];
     },
-    getUnitKnowledgeContext: (unitNodeId: string) =>
-      skillKnowledgeRepository.getUnitContext({ db, unitNodeId }),
     resolveDifficultyDirective: ({
       userId,
       nodeId,
@@ -664,8 +661,8 @@ export const createWorkspaceTurnRepositoryDeps = (
           where: eq(TrainingCurriculumNode.id, nodeId),
         }),
       ]).then(([seed, ratingNode]) => {
-        if (!ratingNode?.skillMap) {
-          throw new Error("Rating ability is missing its scenario contract.");
+        if (!ratingNode?.practiceContract) {
+          throw new Error("Outcome is missing its Practice Contract.");
         }
         return resolveScenarioDirective({
           userId,
@@ -673,7 +670,7 @@ export const createWorkspaceTurnRepositoryDeps = (
           now,
           bands,
           initialRatingState: seed ?? undefined,
-          scenarioFormat: resolveScenarioFormat(ratingNode.skillMap),
+          scenarioFormat: resolveScenarioFormat(ratingNode.practiceContract),
           deps: createTrainingRatingGoldilocksDeps(db),
         });
       }),

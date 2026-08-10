@@ -553,6 +553,54 @@
   --color-destructive-foreground: var(--destructive-foreground);
 }
 
+/* ─── AI loader — the full-bleed project-build screen ──────────────────────
+   Keyframes live here rather than in styled-jsx: this is a Tailwind v4 app and
+   the global `prefers-reduced-motion` block below neutralizes them for free. */
+/* Transform only. The shadow is static on the class below: `box-shadow` is a
+   paint property, so animating it re-rasterizes the circle (three blurred
+   layers) every frame *and* keeps the rotation from being composited. Inset
+   shadows are painted in local coordinates, so they rotate with the element —
+   the swirl is the rotation, not the color cycle the original keyframes had. */
+@keyframes bp-loader-circle {
+  from {
+    transform: rotate(90deg);
+  }
+  to {
+    transform: rotate(450deg);
+  }
+}
+
+@keyframes bp-loader-letter {
+  0%,
+  100% {
+    opacity: 0.4;
+    transform: translateY(0);
+  }
+  20% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+  40% {
+    opacity: 0.7;
+    transform: translateY(0);
+  }
+}
+
+.bp-loader-circle {
+  box-shadow:
+    0 6px 12px 0 #38bdf8 inset,
+    0 12px 18px 0 #005dff inset,
+    0 36px 36px 0 #1e40af inset,
+    0 0 3px 1.2px rgb(56 189 248 / 0.3),
+    0 0 6px 1.8px rgb(0 93 255 / 0.2);
+  will-change: transform;
+  animation: bp-loader-circle 5s linear infinite;
+}
+
+.bp-loader-letter {
+  animation: bp-loader-letter 3s infinite;
+}
+
 /* Accessibility: honor the user's OS-level "reduce motion" setting (WCAG 2.3.3).
    Neutralizes CSS transitions/animations and smooth scrolling for everyone who
    asks for it; JS-driven animation (Motion, GSAP) should additionally guard on

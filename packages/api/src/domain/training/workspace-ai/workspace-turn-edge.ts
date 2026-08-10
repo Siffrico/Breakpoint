@@ -1,6 +1,6 @@
-/* eslint-disable no-restricted-imports -- This is the explicit Effect-to-tRPC edge adapter. */
+/* eslint-disable no-restricted-imports -- The workspace failure table is where a domain error becomes transport copy. */
 import { TRPCError } from "@trpc/server";
-import { Cause, Effect, Exit } from "effect";
+import { Effect } from "effect";
 
 import type { WorkspaceEducationTurnError } from "./workspace-errors";
 
@@ -78,16 +78,3 @@ export const translateWorkspaceTurnErrors = <A, R>(
         trpcFailure(error, "INTERNAL_SERVER_ERROR", feedbackFailureMessage),
     }),
   );
-
-export const runWorkspaceTurn = async <A>(
-  effect: Effect.Effect<A, WorkspaceEducationTurnError>,
-  options?: { readonly signal?: AbortSignal },
-): Promise<A> => {
-  const exit = await Effect.runPromiseExit(
-    translateWorkspaceTurnErrors(effect),
-    options,
-  );
-
-  if (Exit.isSuccess(exit)) return exit.value;
-  throw Cause.squash(exit.cause);
-};

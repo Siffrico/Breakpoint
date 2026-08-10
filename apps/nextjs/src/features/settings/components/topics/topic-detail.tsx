@@ -2,7 +2,7 @@ import type { RouterOutputs } from "@acme/api";
 import { Badge } from "@acme/ui/badge";
 
 type ProjectTopic = RouterOutputs["training"]["projectTopic"];
-type TopicAbility = ProjectTopic["abilities"][number];
+type TopicOutcome = ProjectTopic["outcomes"][number];
 
 // Display window for the rating meter. Glicko ratings cluster well inside this
 // band; the bar is a relative read, not an absolute axis.
@@ -15,34 +15,34 @@ const ratingFraction = (rating: number) =>
     Math.max(0, (rating - RATING_FLOOR) / (RATING_CEIL - RATING_FLOOR)),
   );
 
-const STATUS_LABEL: Record<TopicAbility["status"], string> = {
+const STATUS_LABEL: Record<TopicOutcome["status"], string> = {
   planned: "Planned",
   ready: "In progress",
   completed: "Completed",
 };
 
-function AbilityCard({ ability }: { ability: TopicAbility }) {
-  const rated = ability.rating !== null;
+function OutcomeCard({ outcome }: { outcome: TopicOutcome }) {
+  const rated = outcome.rating !== null;
 
   return (
     <div className="border-border bg-card rounded-lg border px-5 py-4">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
           <div className="text-foreground text-[13.5px] font-medium">
-            {ability.title}
+            {outcome.title}
           </div>
           <div className="text-foreground/50 mt-0.5 line-clamp-2 text-[12px] leading-5">
-            {ability.summary}
+            {outcome.summary}
           </div>
         </div>
         <div className="shrink-0 text-right">
           {rated ? (
             <>
               <div className="text-foreground text-[15px] font-semibold tabular-nums">
-                {Math.round(ability.rating ?? 0)}
+                {Math.round(outcome.rating ?? 0)}
               </div>
               <div className="text-foreground/44 text-[11px] tabular-nums">
-                ± {Math.round(ability.ratingDeviation ?? 0)}
+                ± {Math.round(outcome.ratingDeviation ?? 0)}
               </div>
             </>
           ) : (
@@ -58,15 +58,15 @@ function AbilityCard({ ability }: { ability: TopicAbility }) {
           {rated ? (
             <div
               className="bg-primary/75 absolute inset-y-0 left-0 rounded-full"
-              style={{ width: `${ratingFraction(ability.rating ?? 0) * 100}%` }}
+              style={{ width: `${ratingFraction(outcome.rating ?? 0) * 100}%` }}
             />
           ) : null}
         </div>
         <Badge
-          variant={ability.status === "completed" ? "success" : "muted"}
+          variant={outcome.status === "completed" ? "success" : "muted"}
           size="sm"
         >
-          {STATUS_LABEL[ability.status]}
+          {STATUS_LABEL[outcome.status]}
         </Badge>
       </div>
     </div>
@@ -87,17 +87,17 @@ export function TopicDetail({ topic }: { topic: ProjectTopic }) {
 
       <section className="mt-10">
         <h2 className="text-foreground/84 mb-3 text-[13px] font-semibold">
-          Abilities
+          Outcomes
         </h2>
-        {topic.abilities.length > 0 ? (
+        {topic.outcomes.length > 0 ? (
           <div className="grid gap-3">
-            {topic.abilities.map((ability) => (
-              <AbilityCard key={ability.nodeId} ability={ability} />
+            {topic.outcomes.map((outcome) => (
+              <OutcomeCard key={outcome.nodeId} outcome={outcome} />
             ))}
           </div>
         ) : (
           <div className="border-border bg-card text-foreground/48 rounded-lg border px-5 py-4 text-[12px]">
-            No abilities yet — finish generating this project.
+            No outcomes yet — finish generating this project.
           </div>
         )}
       </section>

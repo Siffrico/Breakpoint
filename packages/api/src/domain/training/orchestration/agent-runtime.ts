@@ -21,12 +21,14 @@ export const runAgent = async <TSchema extends z.ZodTypeAny>({
   prompt,
   schema,
   errorMessage,
+  abortSignal,
 }: {
   agent: ArtifactAgentId;
   system: string;
   prompt: string;
   schema: TSchema;
   errorMessage: string;
+  abortSignal?: AbortSignal;
 }): Promise<z.infer<TSchema>> => {
   const purpose = getAgentConfig(agent).purpose;
   const profile = getRunProfile(purpose);
@@ -45,6 +47,7 @@ export const runAgent = async <TSchema extends z.ZodTypeAny>({
       tools: getSearchToolsForStructuredOutput(purpose),
       maxSteps: profile.maxSteps,
       profile,
+      abortSignal,
     });
     const object = await result.output;
 
@@ -175,6 +178,8 @@ export interface ArtifactResumeOptions<T> {
   onPartial?: (partial: Partial<T>) => void;
   /** Resume seed: a partial persisted from an earlier crashed attempt. */
   seedPartial?: Partial<T>;
+  /** Hard deadline for this agent's model calls, including its retries. */
+  abortSignal?: AbortSignal;
 }
 
 const hasContent = (value: unknown): boolean => {
@@ -228,6 +233,7 @@ export const runResilientAgent = async <TSchema extends z.ZodTypeAny>({
   continuation,
   onPartial,
   seedPartial,
+  abortSignal,
 }: {
   agent: ArtifactAgentId;
   system: string;
@@ -239,6 +245,11 @@ export const runResilientAgent = async <TSchema extends z.ZodTypeAny>({
   onPartial?: (partial: Partial<z.infer<TSchema>>) => void;
   /** Resume seed: a partial persisted from an earlier crashed attempt. */
   seedPartial?: Partial<z.infer<TSchema>>;
+  /**
+   * Caller's hard deadline. Every recovery branch below re-checks it: a spent
+   * budget must end the agent, not start another attempt it cannot finish.
+   */
+  abortSignal?: AbortSignal;
 }): Promise<z.infer<TSchema>> => {
   type T = z.infer<TSchema>;
   const purpose = getAgentConfig(agent).purpose;
@@ -271,11 +282,9 @@ export const runResilientAgent = async <TSchema extends z.ZodTypeAny>({
         system,
         prompt: activePrompt,
         tools: getSearchToolsForStructuredOutput(purpose),
-        // Pace the structured-output text deltas so onPartial flushes feel like
-        // a steady stream rather than chunky bursts.
-        smoothPartials: true,
         maxSteps: profile.maxSteps,
         profile,
+        abortSignal,
       });
 
       for await (const next of result.partialOutputStream) {
@@ -293,6 +302,14 @@ export const runResilientAgent = async <TSchema extends z.ZodTypeAny>({
       const partialPresent = hasContent(partial);
       const kind = classifyFailure(error, partialPresent);
       const message = errorText(errorMessage, error);
+
+      // Budget spent. Every branch below starts another model call, so none of
+      // them can run — surface the partial so the caller can checkpoint it.
+      if (abortSignal?.aborted) {
+        throw new ArtifactBuildError(message, "timeout", partial, {
+          cause: error,
+        });
+      }
 
       if (kind === "schema") {
         // Surface what the model actually emitted — without this, a parse

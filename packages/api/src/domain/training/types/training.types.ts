@@ -33,19 +33,20 @@ import type {
   OnboardingSlot,
   OnboardingTranscriptMessage,
   PostSeedUnitContentDraft,
+  PracticeContract,
   PracticeEvaluation,
   PracticePrompt,
   PracticeSubmission,
   PreSeedUnitContentDraft,
   ProjectOverview,
-  ScenarioArchetype,
   ScenarioEvaluationContract,
+  SkillMap,
   SubmitEducationUnitStep,
   TeachbackMessage,
   TeachbackRoundResult,
   TeachbackSetup,
   UnitContent,
-  UnitMasteryContract,
+  UnitContext,
 } from "@acme/validators";
 
 import type {
@@ -99,7 +100,7 @@ export type {
   TeachbackRoundResult,
   TeachbackSetup,
   UnitContent,
-  UnitMasteryContract,
+  UnitContext,
 };
 
 export interface CurriculumNodeBlueprint {
@@ -115,17 +116,9 @@ export interface CurriculumNodeBlueprint {
   positionColumn: number;
   positionRow: number;
   difficultyBands: DifficultyBand[] | null;
-  /** Null outside ability nodes; ability nodes always carry a valid stage. */
-  abilityStage: "foundations" | "skillset" | "mastered" | null;
-  skillMap: {
-    workflow: { name: string; steps: string[] };
-    bandRamp: { startRating: number; peakRating: number };
-    masteryContract: {
-      exitCriteria: string[];
-      maxRatingDeviation?: number;
-    };
-    scenarioArchetype: ScenarioArchetype;
-  } | null;
+  outcomeResult: string | null;
+  skillMap: SkillMap | null;
+  practiceContract: PracticeContract | null;
 }
 
 export interface PostSeedGenerationResult {

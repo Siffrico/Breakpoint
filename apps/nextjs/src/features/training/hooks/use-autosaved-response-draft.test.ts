@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   createResponseDraftStore,
+  resolveActiveResponseDraftKey,
   shouldClearSubmittedDraft,
 } from "./use-autosaved-response-draft";
 
@@ -71,5 +72,22 @@ describe("createResponseDraftStore", () => {
 
     store.clearSubmitted(submittedKey);
     expect(storage.has("draft-key")).toBe(false);
+  });
+});
+
+describe("resolveActiveResponseDraftKey", () => {
+  it("keeps the submitted prompt active while the reply changes the current prompt", () => {
+    expect(
+      resolveActiveResponseDraftKey({
+        currentKey: "assistant:4",
+        submittedKey: "assistant:3",
+      }),
+    ).toBe("assistant:3");
+    expect(
+      resolveActiveResponseDraftKey({
+        currentKey: "assistant:4",
+        submittedKey: null,
+      }),
+    ).toBe("assistant:4");
   });
 });

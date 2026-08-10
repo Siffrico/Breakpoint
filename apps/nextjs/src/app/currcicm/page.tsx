@@ -33,9 +33,8 @@ const statusLabel: Record<PlanNode["status"], string> = {
 };
 
 const kindLabel: Record<PlanNode["kind"], string> = {
-  ability: "Ability",
   root: "Path",
-  skill: "Skill",
+  outcome: "Outcome",
   unit: "Unit",
 };
 

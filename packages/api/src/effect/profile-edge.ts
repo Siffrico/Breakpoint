@@ -1,11 +1,8 @@
 import { TRPCError } from "@trpc/server";
-import { Cause, Effect, Exit } from "effect";
+import { Effect } from "effect";
 
 import type { ProfileNotFoundError } from "../domain/profile/errors";
-import type { ProfileRepo } from "../domain/profile/profile-repo";
-import type { DatabaseClient } from "./db";
 import type { DbError } from "./errors";
-import { profileLayer } from "./runtime";
 
 interface OwnedSession {
   readonly userId: string | null;
@@ -57,15 +54,3 @@ export const translateProfileErrors = <A, R>(
         ),
     }),
   );
-
-export const runProfile = async <A>(
-  client: DatabaseClient,
-  effect: Effect.Effect<A, DbError | ProfileNotFoundError, ProfileRepo>,
-): Promise<A> => {
-  const exit = await Effect.runPromiseExit(
-    translateProfileErrors(effect.pipe(Effect.provide(profileLayer(client)))),
-  );
-
-  if (Exit.isSuccess(exit)) return exit.value;
-  throw Cause.squash(exit.cause);
-};

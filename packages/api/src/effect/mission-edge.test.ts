@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Cause } from "effect";
 import { describe, expect, it } from "vitest";
 
 import type {
@@ -15,7 +15,7 @@ import {
   MissionNotReadyError,
 } from "../domain/training/missions/mission-errors";
 import { DbError } from "./errors";
-import { resolveMissionFailure, runMissionTool } from "./mission-edge";
+import { resolveMissionFailure, toolFailureMessage } from "./mission-edge";
 
 const CONFLICT_REASONS: MissionConflictReason[] = [
   "already_completed",
@@ -82,18 +82,18 @@ describe("mission failure table", () => {
   });
 });
 
-describe("runMissionTool", () => {
-  it("surfaces the predefined copy for a typed conflict", async () => {
-    await expect(
-      runMissionTool(
-        Effect.fail(
+describe("toolFailureMessage", () => {
+  it("surfaces the predefined copy for a typed conflict", () => {
+    expect(
+      toolFailureMessage(
+        Cause.fail(
           new MissionConflictError({ reason: "evaluation_in_flight" }),
         ),
       ),
-    ).rejects.toThrow("This proof is already being evaluated.");
+    ).toBe("This proof is already being evaluated.");
   });
 
-  it("never leaks infrastructure detail to the model", async () => {
+  it("never leaks infrastructure detail to the model", () => {
     const dbError = new DbError({
       message: "Database operation failed: reserveMissionEvaluation",
       operation: "reserveMissionEvaluation",
@@ -101,17 +101,14 @@ describe("runMissionTool", () => {
       kind: "serialization",
     });
 
-    await expect(runMissionTool(Effect.fail(dbError))).rejects.toThrow(
-      "The mission guide hit an error. Try again.",
-    );
-    await expect(runMissionTool(Effect.fail(dbError))).rejects.not.toThrow(
-      /reserveMissionEvaluation|40001/,
-    );
+    const message = toolFailureMessage(Cause.fail(dbError));
+    expect(message).toBe("The mission guide hit an error. Try again.");
+    expect(message).not.toMatch(/reserveMissionEvaluation|40001/);
   });
 
-  it("collapses a defect to the generic line", async () => {
-    await expect(
-      runMissionTool(Effect.die(new Error("secret internal detail"))),
-    ).rejects.toThrow("The mission guide hit an error. Try again.");
+  it("collapses a defect to the generic line", () => {
+    expect(
+      toolFailureMessage(Cause.die(new Error("secret internal detail"))),
+    ).toBe("The mission guide hit an error. Try again.");
   });
 });

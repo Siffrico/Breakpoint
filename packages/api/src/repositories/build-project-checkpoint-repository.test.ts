@@ -9,6 +9,21 @@ const run: ProjectBuildRunPayload = {
     projectName: "system design",
     targetIdentity: "systems architect",
     summary: "Build an AI research harness.",
+    outcomes: [
+      {
+        title: "Evaluate research systems",
+        result: "Produce a defensible evaluation of an AI research system.",
+      },
+    ],
+    startingPoint: {
+      tier: "skip_basics",
+      reason: "Has built small evaluation scripts.",
+    },
+    understanding: {
+      build: "Build an AI research harness.",
+      goodMeans: ["reliable"],
+      currentGap: "Evaluation results are hard to trust.",
+    },
   },
   state: {
     phase: "building",

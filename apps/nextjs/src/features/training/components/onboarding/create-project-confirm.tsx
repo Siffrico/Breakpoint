@@ -18,7 +18,12 @@ interface CreateProjectToolPart {
     projectName?: string;
     targetIdentity?: string;
     summary?: string;
-    abilities?: string[];
+    outcomes?: { title?: string; result?: string }[];
+    understanding?: {
+      build?: string;
+      goodMeans?: string[];
+      currentGap?: string;
+    };
     startingPoint?: {
       tier?: StartingPointTier;
       reason?: string;
@@ -45,7 +50,7 @@ const TIER_DESCRIPTION: Record<StartingPointTier, string> = {
 
 /**
  * The "Create project" card. Renders as soon as the tool input starts streaming
- * (abilities appear bullet by bullet); the approve/deny buttons only mount once the
+ * (outcomes appear one by one); the approve/deny buttons only mount once the
  * SDK holds the call for explicit human approval. Once approved, the build card
  * takes over; if declined, we acknowledge softly so the chat flows.
  */
@@ -108,7 +113,9 @@ export function CreateProjectConfirm({
 
   const name = toolPart.input?.projectName ?? "your project";
   const summary = toolPart.input?.summary;
-  const abilities = toolPart.input?.abilities ?? [];
+  const outcomes = toolPart.input?.outcomes ?? [];
+  const understanding = toolPart.input?.understanding;
+  const goodMeans = understanding?.goodMeans ?? [];
 
   const cycleTier = () => {
     if (!effectiveTier) return;
@@ -134,18 +141,48 @@ export function CreateProjectConfirm({
         </div>
       ) : null}
 
-      {abilities.length > 0 ? (
+      {/* The consultant's reading of the learner. Approving this card is them
+          agreeing it is right, so it sits above everything derived from it. */}
+      {understanding?.build ? (
         <div className="mt-4">
           <div className="text-muted-foreground text-[11px] tracking-wide uppercase">
-            Abilities you'll build
+            What I think you want
+          </div>
+          <div className="text-foreground/90 mt-1.5 text-[13px] leading-6">
+            {understanding.build}
+          </div>
+
+          {goodMeans.length > 0 ? (
+            <div className="text-muted-foreground mt-2 text-[13px] leading-6">
+              Good means:{" "}
+              <span className="text-foreground/90">{goodMeans.join(", ")}</span>
+            </div>
+          ) : null}
+
+          {understanding.currentGap ? (
+            <div className="text-muted-foreground mt-1 text-[13px] leading-6">
+              Where you're stuck:{" "}
+              <span className="text-foreground/90">
+                {understanding.currentGap}
+              </span>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {outcomes.length > 0 ? (
+        <div className="mt-4">
+          <div className="text-muted-foreground text-[11px] tracking-wide uppercase">
+            Outcomes you'll reach
           </div>
           <ul className="mt-1.5 flex flex-col gap-1">
-            {abilities.map((ability, index) => (
+            {outcomes.map((outcome, index) => (
               <li
-                key={`ability-${index}`}
+                key={`${outcome.title ?? "outcome"}-${index}`}
                 className="text-foreground/90 animate-in fade-in text-[13px] leading-6 duration-300"
               >
-                – {ability}
+                <span className="font-medium">{outcome.title}</span>
+                {outcome.result ? ` — ${outcome.result}` : null}
               </li>
             ))}
           </ul>

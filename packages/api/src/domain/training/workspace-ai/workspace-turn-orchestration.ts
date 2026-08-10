@@ -25,19 +25,17 @@ import type {
 } from "./workspace-turn-persistence";
 import type { WorkspaceTurnRepo } from "./workspace-turn-repo";
 import { resolveEducationExperience } from "../education-unit/experience";
+import { prefillScenario } from "../education-unit/prefill";
 import {
-  authorChallenge,
   runPassAdvanceTurn,
   runUnitTurn,
 } from "../education-unit/run-unit-turn";
 import { projectScenarioBrief } from "../education-unit/scenario-brief";
 import {
-  buildCritiqueContext,
-  buildMentorContext,
-  buildPresenterContext,
+  createCritiqueContext,
+  createMentorContext,
 } from "../education-unit/unit-context";
 import { boundTranscript } from "../engine/compaction";
-import { regimeForNodeKind } from "../engine/progression-model";
 import { resolveRatingScope } from "../orchestration/rating-scope";
 import { companionRelation } from "../policies/recall-decay";
 import { deriveServerAttemptTiming } from "./attempt-timing";
@@ -75,18 +73,6 @@ export interface WorkspaceTurnOrchestrationDependencies
   extends WorkspaceTurnDependencies,
     WorkspaceTurnPersistenceDependencies {
   listMemories: (userId: string) => Promise<Memory[]>;
-  getUnitKnowledgeContext?: (unitNodeId: string) => Promise<{
-    skillNodeId: string;
-    workflow: { name: string; steps: string[] };
-    framing: { question: string; part: number } | null;
-    checked: { label: string; content: string }[];
-    targets: {
-      id: string;
-      kind: "concept" | "mechanism";
-      label: string;
-      content: string;
-    }[];
-  } | null>;
   resolveDifficultyDirective: (input: {
     userId: string;
     nodeId: string;
@@ -464,50 +450,8 @@ export const runEducationUnitTurn = ({
         message: "There is no next challenge to open yet.",
       });
     }
-    const loadedTranscript = yield* claimTurnAndLoadTranscript({
-      sessionId,
-      unitId: unit.nodeId,
-      unitContentId: unit.id,
-      turnId,
-      turnLeaseId,
-      unitRun,
-      action,
-      message,
-      deps,
-    });
-    if (loadedTranscript.kind === "cached") {
-      onAssistantMessage?.(loadedTranscript.assistantMessage.content);
-      return {
-        passNumber: unitRun.reviewPass,
-        state,
-        scenario: projectScenarioBrief(unitRun),
-        messages: loadedTranscript.messages,
-        assistantMessage: loadedTranscript.assistantMessage,
-      };
-    }
-
-    const experience = yield* resolveEducationExperience(
-      unitRun.experience,
-    ).pipe(
-      Effect.mapError(
-        () =>
-          new WorkspaceInputError({
-            message: "This unit's learning experience is no longer available.",
-          }),
-      ),
-    );
     const ratingScope = resolveRatingScope({ unit, planNodes: plan.nodes });
-    const recallFocus = turn.recallFocus;
-    const getUnitKnowledgeContext = deps.getUnitKnowledgeContext;
-    // Recall turns need the expert workflow too — it is what the reviewer
-    // grades a retrieval attempt against. Loading it costs nothing here
-    // because it rides along with the other two reads.
-    const loadKnowledgeContext = getUnitKnowledgeContext
-      ? persistPromise("getUnitKnowledgeContext", () =>
-          getUnitKnowledgeContext(unit.nodeId),
-        )
-      : Effect.succeed(null);
-    const [memories, resolvedDifficulty, knowledge] = yield* Effect.all(
+    const loadTurnContext = Effect.all(
       [
         persistPromise("listMemories", () => deps.listMemories(userId)),
         unitRun.difficultySnapshot
@@ -520,10 +464,52 @@ export const runEducationUnitTurn = ({
                 bands: ratingScope.bands,
               }),
             ),
-        loadKnowledgeContext,
       ],
-      { concurrency: 3 },
+      { concurrency: 2 },
     );
+    const [loadedTranscript, turnContextExit] = yield* Effect.all(
+      [
+        claimTurnAndLoadTranscript({
+          sessionId,
+          unitId: unit.nodeId,
+          unitContentId: unit.id,
+          turnId,
+          turnLeaseId,
+          unitRun,
+          action,
+          message,
+          deps,
+        }),
+        Effect.exit(loadTurnContext),
+      ],
+      { concurrency: 2 },
+    );
+    if (loadedTranscript.kind === "cached") {
+      onAssistantMessage?.(loadedTranscript.assistantMessage.content);
+      return {
+        passNumber: unitRun.reviewPass,
+        state,
+        scenario: projectScenarioBrief(unitRun),
+        messages: loadedTranscript.messages,
+        assistantMessage: loadedTranscript.assistantMessage,
+      };
+    }
+    if (!Exit.isSuccess(turnContextExit)) {
+      return yield* Effect.failCause(turnContextExit.cause);
+    }
+    const [memories, resolvedDifficulty] = turnContextExit.value;
+
+    const experience = yield* resolveEducationExperience(
+      unitRun.experience,
+    ).pipe(
+      Effect.mapError(
+        () =>
+          new WorkspaceInputError({
+            message: "This unit's learning experience is no longer available.",
+          }),
+      ),
+    );
+    const recallFocus = turn.recallFocus;
     const difficultySnapshot: UnitDifficultySnapshot =
       unitRun.difficultySnapshot ??
       (resolvedDifficulty
@@ -540,44 +526,53 @@ export const runEducationUnitTurn = ({
             message: "Goldilocks did not resolve a unit difficulty snapshot.",
           }));
 
-    const unitNode = plan.nodes.find((planNode) => planNode.id === unit.nodeId);
-    const unitParentKind = plan.nodes.find(
-      (planNode) => planNode.id === unitNode?.parentNodeId,
-    )?.kind;
-    const isFoundationUnit =
-      unitParentKind != null &&
-      regimeForNodeKind(unitParentKind) === "foundation" &&
-      recallFocus === null;
-    const tracksRating = !isFoundationUnit;
-    const recallContext = recallFocus
-      ? `\n\n## Recall focus\nIndependently stress-test retrieval and use of: ${recallFocus.primary.label} — ${recallFocus.primary.content}${
-          recallFocus.companion
-            ? `\nCompose it with ${recallFocus.companion.label} — ${recallFocus.companion.content} (${companionRelation(recallFocus.primary, recallFocus.companion)} relation).`
-            : ""
-        }\nThis is a spaced review, not a fresh lesson.`
-      : "";
-    const contextInput = (run: typeof unitRun) => ({
-      unit,
-      run: { ...run, difficultySnapshot },
-      targetIdentity: plan.targetIdentity,
-      memories,
-      knowledge,
-      difficultyDirection: difficultySnapshot.promptBlock,
-    });
-    const buildContext = {
-      forMentor: (run: typeof unitRun) =>
-        `${buildMentorContext(contextInput(run))}${recallContext}`,
-      forPresenter: (run: typeof unitRun) =>
-        `${buildPresenterContext(contextInput(run))}${recallContext}`,
-      forCritic: (run: typeof unitRun) =>
-        `${buildCritiqueContext(contextInput(run))}${recallContext}`,
+    const focus = recallFocus
+      ? {
+          kind: "recall" as const,
+          primary: recallFocus.primary,
+          companion: recallFocus.companion
+            ? {
+                ...recallFocus.companion,
+                relation: companionRelation(
+                  recallFocus.primary,
+                  recallFocus.companion,
+                ),
+              }
+            : null,
+        }
+      : { kind: "education" as const };
+    const previousChallengePrompts = unitRun.todos.flatMap((todo) =>
+      todo.kind === "solve" && todo.challenge ? [todo.challenge.prompt] : [],
+    );
+    const contexts = {
+      mentor: createMentorContext({
+        unitContext: unitRun.unitContext,
+        difficulty: difficultySnapshot,
+        memories,
+        focus,
+      }),
+      critique: {
+        createChallenge: createCritiqueContext({
+          unitContext: unitRun.unitContext,
+          difficulty: difficultySnapshot,
+          focus,
+          mode: "create_challenge",
+          previousChallengePrompts,
+        }),
+        judgeAnswer: createCritiqueContext({
+          unitContext: unitRun.unitContext,
+          difficulty: difficultySnapshot,
+          focus,
+          mode: "judge_answer",
+        }),
+      },
     };
 
     const turnInput = {
       run: { ...unitRun, difficultySnapshot },
       transcript: toModelMessages(loadedTranscript.transcript),
       experience,
-      buildContext,
+      contexts,
       onPartialAssistantMessage,
     };
     const turnResult = advancesPass
@@ -591,7 +586,7 @@ export const runEducationUnitTurn = ({
         response.metadata?.scenarioAttemptId !== undefined,
     )?.metadata?.scenarioAttemptId;
     let ratingEvaluation: WorkspaceRatingEvaluationCommit | null = null;
-    if (tracksRating && turnResult.ratingWrite) {
+    if (turnResult.ratingWrite) {
       if (!scenarioAttemptId) {
         return yield* new RatingEvidenceError({
           message: "Adversarial grading requires its persisted review attempt.",
@@ -647,10 +642,14 @@ export const runEducationUnitTurn = ({
     const settlesPass1 =
       turnResult.settledPass === 1 && turnResult.nextRun.kind === "education";
     const knowledgeCheckOff =
-      completed && turnResult.nextRun.kind === "education" && knowledge
+      completed && turnResult.nextRun.kind === "education"
         ? {
-            requestedKnowledgeIds: knowledge.targets.map((entry) => entry.id),
-            targetedKnowledgeIds: knowledge.targets.map((entry) => entry.id),
+            requestedKnowledgeIds: unitRun.unitContext.targets.map(
+              (entry) => entry.id,
+            ),
+            targetedKnowledgeIds: unitRun.unitContext.targets.map(
+              (entry) => entry.id,
+            ),
             evidenceNodeId: unit.nodeId,
           }
         : null;
@@ -671,9 +670,11 @@ export const runEducationUnitTurn = ({
             passed: turnResult.reviewGrade.passed,
           }
         : null;
-    const conceptCoverage =
-      completed && !recallFocus && knowledge
-        ? { knowledgeIds: knowledge.targets.map((entry) => entry.id) }
+    const skillPractice =
+      completed && !recallFocus
+        ? {
+            knowledgeIds: unitRun.unitContext.targets.map((entry) => entry.id),
+          }
         : null;
 
     const result = yield* saveUnitTurnResult({
@@ -686,8 +687,8 @@ export const runEducationUnitTurn = ({
       ratingEvaluation,
       knowledgeCheckOff,
       knowledgeReinforcement,
-      conceptCoverage,
-      tracksRating,
+      skillPractice,
+      tracksRating: true,
       recallEntryIds:
         recallFocus &&
         unitRun.activeReviewChallenge === null &&
@@ -715,11 +716,10 @@ export const runEducationUnitTurn = ({
     ) {
       const runPassPregeneration = () =>
         Effect.runPromise(
-          authorChallenge({
+          prefillScenario({
             run: turnResult.nextRun,
-            transcript: toModelMessages(loadedTranscript.transcript),
             experience,
-            buildContext,
+            context: contexts.critique.createChallenge,
           }).pipe(
             Effect.flatMap((challenge) =>
               Effect.tryPromise(() =>

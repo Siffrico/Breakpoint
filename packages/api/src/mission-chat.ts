@@ -9,11 +9,12 @@ import {
   stepCountIs,
   streamText,
 } from "ai";
-import { Effect, Result } from "effect";
+import { Effect, Exit, Result } from "effect";
 
 import type { db as databaseClient } from "@acme/db/client";
 import type { MissionProof } from "@acme/validators";
 
+import type { MissionError } from "./domain/training/missions/mission-errors";
 import {
   getSearchToolsForSelectedProvider,
   withAiModelPreference,
@@ -25,10 +26,28 @@ import { confirmMissionPlanWorkflow } from "./domain/training/missions/workflows
 import { evaluateMissionAttemptWorkflow } from "./domain/training/missions/workflows/evaluate-mission-attempt";
 import { openMissionConsultationWorkflow } from "./domain/training/missions/workflows/open-mission-consultation";
 import { saveMissionTranscriptWorkflow } from "./domain/training/missions/workflows/save-mission-transcript";
-import { missionErrorResponse, runMissionTool } from "./effect/mission-edge";
+import {
+  logMissionFailure,
+  missionErrorResponse,
+  toolFailureMessage,
+} from "./effect/mission-edge";
 import { missionLayer } from "./effect/runtime";
 
 type Database = typeof databaseClient;
+
+/**
+ * Runs one mission workflow on behalf of an AI SDK tool callback. This is a
+ * transport boundary in its own right — the tool result is what the model
+ * reads next — so the runtime is entered here and the failure is reduced to
+ * the mission table's predefined copy before the model can see it.
+ */
+const runMissionTool = async <A>(
+  effect: Effect.Effect<A, MissionError>,
+): Promise<A> => {
+  const exit = await Effect.runPromiseExit(logMissionFailure(effect));
+  if (Exit.isSuccess(exit)) return exit.value;
+  throw new Error(toolFailureMessage(exit.cause));
+};
 export type MissionChatUIMessage = UIMessage;
 
 /**

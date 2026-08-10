@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { UnitContent } from "../types/training.types";
+import { makeUnitContext } from "../education-unit/unit-context.fixture";
 import { getUnitWorkflow } from "./get-unit-workflow";
 
 const runPrepareUnitMock = vi.fn<(input: unknown) => Promise<UnitContent>>();
@@ -72,7 +73,7 @@ const unit = {
     title: "The slow deployment",
     focusAreas: ["causal isolation"],
   },
-  unitMasteryContract: null,
+  unitContext: makeUnitContext(),
   difficultyBands: null,
 } satisfies UnitContent;
 
@@ -101,7 +102,7 @@ describe("explicit unit preparation recovery", () => {
       getUnitByNodeId: () => Promise.resolve(storedUnit),
       getPhaseResponses: () => Promise.resolve([]),
       getTargetIdentity: () => Promise.resolve("Incident commander"),
-      listAttemptHistory: () => Promise.resolve([]),
+      getUnitDifficulty: () => Promise.resolve(null),
       getUnitKnowledgeContext: () =>
         Promise.resolve({
           workflow: { name: "Diagnose an incident", steps: ["Choose a probe"] },
@@ -110,6 +111,7 @@ describe("explicit unit preparation recovery", () => {
           targets: [
             {
               id: "entry-1",
+              skill: "Diagnose incidents",
               kind: "concept",
               label: "Causal probe",
               content:
@@ -120,7 +122,7 @@ describe("explicit unit preparation recovery", () => {
       createUnitContentIfAbsent: () => Promise.resolve(unit),
       replaceUnitContent: () => Promise.resolve(unit),
       saveNodeBriefing,
-      withUnitBuildLock: (_nodeId, run) => run(deps),
+      withUnitBuildLock: (_nodeId, build) => build(deps),
     };
 
     const failedPrewarm = await prepareUnitWorkflow({

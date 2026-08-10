@@ -3,17 +3,10 @@ import { Data, Effect } from "effect";
 import type { DbError } from "../../../effect/errors";
 import type { ScenarioDirective } from "../engine/rating";
 import type { UnitPreparationError } from "../unit-preparation/errors";
-import type {
-  FrontierItem,
-  UnitCreationRegime,
-  UnitTargetSelector,
-} from "./target-selection";
+import type { FrontierItem } from "./target-selection";
+import { selectNextPracticeSkill } from "./target-selection";
 
-export type {
-  FrontierItem,
-  UnitCreationRegime,
-  UnitTargetSelector,
-} from "./target-selection";
+export type { FrontierItem } from "./target-selection";
 
 /**
  * Fallback-only. Rating reads resolve bands from the parent skill cluster
@@ -63,7 +56,6 @@ export interface CreateNextUnitDependencies<TNode> {
     {
       title: string;
       whyItMatters: string;
-      regime: UnitCreationRegime;
       entries: FrontierItem[];
       openUnit: TNode | null;
     } | null,
@@ -83,20 +75,12 @@ export interface CreateNextUnitDependencies<TNode> {
     whyItMatters: string;
     difficultyBands: ReturnType<typeof buildDynamicUnitDifficultyBands>;
     targetKnowledgeIds: string[];
-    /** The child skill this unit is a rep of; null for foundation units. */
-    practicedSkillNodeId: string | null;
     status: "planned" | "ready";
   }) => Effect.Effect<{ node: TNode; created: boolean }, DbError>;
   hasUnitContent: (nodeId: string) => Effect.Effect<boolean, DbError>;
   prepareUnitEffect: (
     node: TNode,
   ) => Effect.Effect<unknown, UnitPreparationError>;
-  /**
-   * Which entries the new unit is accountable for. Injected because it is the
-   * only step that differs between foundation and skillset units — see
-   * target-selection.ts for the two strategies and the default wiring.
-   */
-  selectTargets: UnitTargetSelector;
 }
 
 export class SkillClusterNotFoundError extends Data.TaggedError(
@@ -143,33 +127,19 @@ export const createNextUnitNode = <TNode extends { id: string }>({
       return { node: skill.openUnit, needsContent: !hasContent };
     }
 
-    const targets = yield* deps.selectTargets({
-      skillNodeId,
-      regime: skill.regime,
-      entries: skill.entries,
-      complexityBudget,
-    });
-    if (targets.length === 0) {
+    const selection = selectNextPracticeSkill(skill.entries, complexityBudget);
+    if (!selection || selection.targets.length === 0) {
       return yield* new KnowledgeTargetsMissingError({ skillNodeId });
     }
+    const targets = selection.targets;
     const calibrated = yield* deps.resolveDirective(skillNodeId);
-    const foundationQuestion =
-      skill.regime === "foundation" ? targets[0]?.question : null;
-    // The selector returns entries from exactly one owning skill, so the lead
-    // entry names the skill this unit is a rep of. Foundation units record
-    // nothing: their owning skill is already their parent node.
-    const practicedSkillNodeId =
-      skill.regime === "skillset" ? (targets[0]?.ownerSkillId ?? null) : null;
     const persisted = yield* deps.appendUnit({
       skillNodeId,
-      title:
-        foundationQuestion ??
-        `Practice ${targets.map((entry) => entry.label).join(" and ")}`,
+      title: `Practice ${selection.skillName}`,
       summary: targets.map((entry) => entry.content).join(" "),
       whyItMatters: skill.whyItMatters,
       difficultyBands: buildDynamicUnitDifficultyBands(calibrated.directive),
       targetKnowledgeIds: targets.map((entry) => entry.id),
-      practicedSkillNodeId,
       status,
     });
     if (persisted.created) return { node: persisted.node, needsContent: true };

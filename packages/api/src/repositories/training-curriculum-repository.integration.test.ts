@@ -1,286 +1,236 @@
-/*
- * Integration test: the canonical-winner guarantee belongs to Postgres conflict
- * handling, so a mocked persistence callback cannot prove it.
- */
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { eq } from "@acme/db";
 import {
   TrainingCurriculumNode,
   TrainingCurriculumPlan,
-  TrainingKnowledgeItem,
   TrainingOnboardingSession,
-  TrainingUnitContent,
 } from "@acme/db/schema";
 
 import { skillKnowledgeRepository } from "./skill-knowledge-repository";
-import { appendDynamicUnitNode } from "./training-curriculum-node-writer";
-import { trainingCurriculumRepository } from "./training-curriculum-repository";
 
-const loadPostgresUrlFromDotenv = () => {
-  if (process.env.POSTGRES_URL) return;
+const sessionIds: string[] = [];
 
-  const envPath = resolve(process.cwd(), "../../.env");
-  if (!existsSync(envPath)) return;
-
-  const match = /^POSTGRES_URL=(.+)$/m.exec(readFileSync(envPath, "utf8"));
-  if (match?.[1]) {
-    process.env.POSTGRES_URL = match[1].trim().replace(/^"|"$/g, "");
+afterEach(async () => {
+  if (!process.env.POSTGRES_URL) return;
+  const { db } = await import("@acme/db/client");
+  for (const id of sessionIds.splice(0)) {
+    await db
+      .delete(TrainingOnboardingSession)
+      .where(eq(TrainingOnboardingSession.id, id));
   }
+});
+
+const skillMap = {
+  skills: [
+    {
+      name: "Frame",
+      description: "Frame the task.",
+      items: [
+        {
+          kind: "concept" as const,
+          name: "Constraint",
+          description: "The result must satisfy the stated constraint.",
+        },
+      ],
+    },
+    {
+      name: "Solve",
+      description: "Choose and execute a method.",
+      items: [
+        {
+          kind: "mechanism" as const,
+          name: "Method",
+          description: "Apply the method that fits the constraint.",
+        },
+      ],
+    },
+    {
+      name: "Verify",
+      description: "Check the result.",
+      items: [
+        {
+          kind: "mechanism" as const,
+          name: "Check",
+          description: "Test the result against the original constraint.",
+        },
+      ],
+    },
+  ],
+  expertJudgment: [
+    {
+      rule: "Choose the smallest sufficient method.",
+      when: "Several methods fit.",
+    },
+    {
+      rule: "Verify against the original task.",
+      when: "A result is produced.",
+    },
+  ],
+  commonMistakes: [
+    {
+      mistake: "Solve the wrong problem.",
+      whyItHappens: "The surface cue dominates.",
+      detectionCue: "The output misses the requested result.",
+    },
+    {
+      mistake: "Skip verification.",
+      whyItHappens: "The result looks plausible.",
+      detectionCue: "The original constraint was never checked.",
+    },
+  ],
 };
 
-loadPostgresUrlFromDotenv();
+const practiceContract = {
+  workflow: {
+    name: "Perform one task",
+    steps: ["Frame.", "Solve.", "Verify."],
+  },
+  responseMode: "judge" as const,
+  taskTypes: [
+    {
+      name: "Whole task",
+      situation: "A realistic case.",
+      learnerDoes: "Decide and justify.",
+      output: "A defensible result.",
+      taskShape: "One complete case.",
+      skills: ["Frame", "Solve", "Verify"],
+    },
+  ],
+  qualityBar: ["The result satisfies the case."],
+  variationAxes: [
+    { name: "Context", description: "The case changes." },
+    { name: "Trap", description: "The plausible error changes." },
+  ],
+  evaluationCriteria: [
+    {
+      criterion: "Reasoning supports the result.",
+      skills: ["Frame", "Solve", "Verify"],
+    },
+  ],
+  difficultyBands: [
+    {
+      band: 0 as const,
+      task: "Direct",
+      reasoning: "One step",
+      support: "Full",
+      traps: [],
+    },
+    {
+      band: 1 as const,
+      task: "Messy",
+      reasoning: "Two steps",
+      support: "Partial",
+      traps: ["near miss"],
+    },
+    {
+      band: 2 as const,
+      task: "Adversarial",
+      reasoning: "Three steps",
+      support: "None",
+      traps: ["near miss", "wrong frame"],
+    },
+  ],
+  neverDo: ["Test unrelated recall."],
+};
 
-const createdSessionIds: string[] = [];
-
-describe("trainingCurriculumRepository conflict handling", () => {
-  afterEach(async () => {
-    if (!process.env.POSTGRES_URL || createdSessionIds.length === 0) return;
-
-    const { db } = await import("@acme/db/client");
-    for (const sessionId of createdSessionIds.splice(0)) {
-      await db
-        .delete(TrainingOnboardingSession)
-        .where(eq(TrainingOnboardingSession.id, sessionId));
-    }
-  });
-
+describe("outcome curriculum persistence", () => {
   it.skipIf(!process.env.POSTGRES_URL)(
-    "returns the same canonical row to concurrent create-if-absent callers",
+    "commits the Skill Map, Practice Contract, and practice skills atomically and idempotently",
     async () => {
       const { db } = await import("@acme/db/client");
       const [session] = await db
         .insert(TrainingOnboardingSession)
         .values({ status: "ready_for_generation" })
-        .returning({ id: TrainingOnboardingSession.id });
-      expect(session).toBeDefined();
-      if (!session) throw new Error("Expected an onboarding session.");
-      createdSessionIds.push(session.id);
-
+        .returning();
+      if (!session) throw new Error("Expected session.");
+      sessionIds.push(session.id);
       const [plan] = await db
         .insert(TrainingCurriculumPlan)
         .values({
           onboardingSessionId: session.id,
-          title: "Concurrent preparation test",
-          summary: "Exercises the real unit-content uniqueness boundary.",
-          targetIdentity: "Incident commander",
+          title: "Test",
+          summary: "Test",
+          targetIdentity: "Tester",
         })
-        .returning({ id: TrainingCurriculumPlan.id });
-      expect(plan).toBeDefined();
-      if (!plan) throw new Error("Expected a curriculum plan.");
-
-      const [node] = await db
+        .returning();
+      if (!plan) throw new Error("Expected plan.");
+      const [outcome] = await db
         .insert(TrainingCurriculumNode)
         .values({
           planId: plan.id,
-          kind: "unit",
+          kind: "outcome",
           status: "ready",
-          title: "Diagnose the failure",
-          summary: "Use evidence before choosing a fix.",
-          whyItMatters: "Unfounded fixes compound incidents.",
+          title: "Evaluate",
+          summary: "Produce a defensible evaluation.",
+          whyItMatters: "Evaluation matters.",
+          outcomeResult: "Produce a defensible evaluation.",
           orderIndex: 1,
-          depth: 0,
+          depth: 1,
           positionColumn: 0,
-          positionRow: 0,
+          positionRow: 1,
         })
-        .returning({ id: TrainingCurriculumNode.id });
-      expect(node).toBeDefined();
-      if (!node) throw new Error("Expected a curriculum node.");
+        .returning();
+      if (!outcome) throw new Error("Expected outcome.");
+      const difficultyBands = [
+        { order: 0, minRating: 800, maxRating: 1000 },
+        { order: 1, minRating: 1000, maxRating: 1200 },
+        { order: 2, minRating: 1200, maxRating: 1400 },
+      ];
 
-      const baseInput = {
+      const first = await skillKnowledgeRepository.ensureOutcomeCurriculum({
         db,
-        nodeId: node.id,
-        title: "Diagnose the failure",
-        seedHint: "Name the signal each hypothesis predicts.",
-        clusterArcFrame: "Move from symptoms to causal evidence.",
-        complexityBudget: 1 as const,
-        teachbackSetup: {
-          studentPersona: "A skeptical incident commander",
-          openingMisconception: "The newest change must be the cause.",
-          roundLadder: [
-            { round: 1, objection: "Why?", objective: "Test causality." },
-            {
-              round: 2,
-              objection: "What else?",
-              objective: "Test alternatives.",
-            },
-            {
-              round: 3,
-              objection: "What next?",
-              objective: "Sequence probes.",
-            },
-          ],
-          passSignals: ["Distinguishes hypotheses"],
-          failureModes: ["Guesses from timing"],
-        },
-        scenario: {
-          title: "The slow deployment",
-          focusAreas: ["causal isolation"],
-        },
-      };
+        outcomeNodeId: outcome.id,
+        skillMap,
+        practiceContract,
+        difficultyBands,
+      });
+      const second = await skillKnowledgeRepository.ensureOutcomeCurriculum({
+        db,
+        outcomeNodeId: outcome.id,
+        skillMap,
+        practiceContract,
+        difficultyBands,
+      });
+      const stored = await db.query.TrainingCurriculumNode.findFirst({
+        where: eq(TrainingCurriculumNode.id, outcome.id),
+      });
 
-      const seedPrompts = [
-        "Which probe distinguishes the leading hypotheses?",
-        "A competing generator produced a different prompt.",
-      ] as const;
-      const [first, second] = await Promise.all(
-        seedPrompts.map((seedPrompt) =>
-          trainingCurriculumRepository.createUnitContentIfAbsent({
-            ...baseInput,
-            seedPrompt,
-          }),
-        ),
+      expect(first).toHaveLength(3);
+      expect(second).toHaveLength(3);
+      expect(stored?.skillMap).toEqual(skillMap);
+      expect(stored?.practiceContract).toEqual(practiceContract);
+
+      const firstTarget = first?.[0];
+      const incompatibleTarget = first?.[1];
+      if (!firstTarget || !incompatibleTarget) {
+        throw new Error("Expected practice targets.");
+      }
+      await skillKnowledgeRepository.incrementSkillPractice({
+        db,
+        knowledgeIds: [firstTarget.id],
+      });
+      const afterPractice = await skillKnowledgeRepository.listKnowledge({
+        db,
+        skillNodeId: outcome.id,
+      });
+      expect(afterPractice[0]?.practiceCount).toBe(1);
+      expect(afterPractice[1]?.practiceCount).toBe(0);
+
+      await expect(
+        skillKnowledgeRepository.incrementSkillPractice({
+          db,
+          knowledgeIds: [firstTarget.id, incompatibleTarget.id],
+        }),
+      ).rejects.toThrow("exactly one skill");
+      const afterRejectedPractice =
+        await skillKnowledgeRepository.listKnowledge({
+          db,
+          skillNodeId: outcome.id,
+        });
+      expect(afterRejectedPractice.map((entry) => entry.practiceCount)).toEqual(
+        [1, 0, 0],
       );
-
-      expect(first).not.toBeNull();
-      expect(second).not.toBeNull();
-      expect(first?.id).toBe(second?.id);
-      expect(first?.seedPrompt).toBe(second?.seedPrompt);
-      expect(seedPrompts).toContain(first?.seedPrompt);
-
-      const persistedRows = await db.query.TrainingUnitContent.findMany({
-        where: eq(TrainingUnitContent.nodeId, node.id),
-      });
-      expect(persistedRows).toHaveLength(1);
-      expect(persistedRows[0]?.seedPrompt).toBe(first?.seedPrompt);
     },
-    20_000,
-  );
-});
-
-describe("skillKnowledgeRepository persistence", () => {
-  afterEach(async () => {
-    if (!process.env.POSTGRES_URL || createdSessionIds.length === 0) return;
-    const { db } = await import("@acme/db/client");
-    for (const sessionId of createdSessionIds.splice(0)) {
-      await db
-        .delete(TrainingOnboardingSession)
-        .where(eq(TrainingOnboardingSession.id, sessionId));
-    }
-  });
-
-  it.skipIf(!process.env.POSTGRES_URL)(
-    "creates once and transactionally clamps check-offs to assigned targets",
-    async () => {
-      const { db } = await import("@acme/db/client");
-      const [session] = await db
-        .insert(TrainingOnboardingSession)
-        .values({ status: "ready_for_generation" })
-        .returning({ id: TrainingOnboardingSession.id });
-      if (!session) throw new Error("Expected an onboarding session.");
-      createdSessionIds.push(session.id);
-
-      const [plan] = await db
-        .insert(TrainingCurriculumPlan)
-        .values({
-          onboardingSessionId: session.id,
-          title: "Syllabus persistence test",
-          summary: "Exercises normalized progression state.",
-          targetIdentity: "Incident commander",
-        })
-        .returning({ id: TrainingCurriculumPlan.id });
-      if (!plan) throw new Error("Expected a curriculum plan.");
-
-      const [cluster, evidence] = await db
-        .insert(TrainingCurriculumNode)
-        .values([
-          {
-            planId: plan.id,
-            kind: "skill",
-            status: "ready",
-            title: "Diagnose incidents",
-            summary: "Trace evidence to causes.",
-            whyItMatters: "Fast guesses compound failures.",
-            skillMap: {
-              workflow: {
-                name: "Diagnose an incident",
-                steps: ["Collect evidence", "Compare hypotheses", "Act"],
-              },
-              bandRamp: { startRating: 900, peakRating: 1400 },
-              masteryContract: { exitCriteria: ["Finds the causal fault."] },
-              scenarioArchetype: "judge",
-            },
-            orderIndex: 1,
-            depth: 1,
-            positionColumn: 0,
-            positionRow: 1,
-          },
-          {
-            planId: plan.id,
-            kind: "unit",
-            status: "completed",
-            title: "Separate symptoms from causes",
-            summary: "Choose a discriminating probe.",
-            whyItMatters: "Evidence must change the hypothesis set.",
-            orderIndex: 2,
-            depth: 2,
-            positionColumn: 0,
-            positionRow: 2,
-          },
-        ])
-        .returning({ id: TrainingCurriculumNode.id });
-      if (!cluster || !evidence) throw new Error("Expected curriculum nodes.");
-
-      const questions = Array.from({ length: 4 }, (_, questionIndex) => ({
-        question: `How do you diagnose situation ${questionIndex + 1}?`,
-        items: Array.from({ length: 5 }, (_, itemIndex) => ({
-          kind: "concept" as const,
-          label: `Discrimination ${questionIndex + 1}.${itemIndex + 1}`,
-          content: `Tell signal ${itemIndex + 1} from its plausible surrogate.`,
-        })),
-      }));
-      const first = await skillKnowledgeRepository.ensureKnowledge({
-        db,
-        skillNodeId: cluster.id,
-        questions,
-      });
-      const second = await skillKnowledgeRepository.ensureKnowledge({
-        db,
-        skillNodeId: cluster.id,
-        questions: [...questions].reverse(),
-      });
-      expect(second.map((entry) => entry.id)).toEqual(
-        first.map((entry) => entry.id),
-      );
-
-      const target = first[0];
-      if (!target) throw new Error("Expected a knowledge item.");
-      const created = await appendDynamicUnitNode({
-        db,
-        skillNodeId: cluster.id,
-        title: target.label,
-        summary: target.content,
-        whyItMatters: "The next frontier must persist atomically.",
-        difficultyBands: [
-          { order: 0, minRating: 900, maxRating: 1000 },
-          { order: 1, minRating: 1000, maxRating: 1100 },
-          { order: 2, minRating: 1100, maxRating: 1200 },
-        ],
-        targetKnowledgeIds: [target.id],
-      });
-      expect(created.created).toBe(true);
-      expect(created.node.parentNodeId).toBe(cluster.id);
-
-      const result = await skillKnowledgeRepository.checkOffKnowledge({
-        db,
-        requestedKnowledgeIds: [
-          target.id,
-          "00000000-0000-0000-0000-000000000000",
-        ],
-        targetedKnowledgeIds: [target.id],
-        evidenceNodeId: created.node.id,
-      });
-      expect(result.checked).toEqual([target.id]);
-      expect(result.deferred).toEqual(["00000000-0000-0000-0000-000000000000"]);
-
-      const persisted = await db.query.TrainingKnowledgeItem.findFirst({
-        where: eq(TrainingKnowledgeItem.id, target.id),
-      });
-      expect(persisted?.status).toBe("checked");
-      expect(persisted?.evidenceNodeId).toBe(created.node.id);
-    },
-    20_000,
   );
 });

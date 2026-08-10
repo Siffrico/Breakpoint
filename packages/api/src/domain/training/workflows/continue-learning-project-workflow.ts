@@ -4,13 +4,13 @@ import { err, ok } from "../../../lib/result";
 
 interface ContinueLearningProjectDependencies {
   getActivePlan: (sessionId: string) => Promise<CurriculumPlan | null>;
-  recoverSkillUnits: () => Promise<void>;
-  startUnitPreparation: (input: { nodeId: string; sessionId: string }) => void;
+  hasUnitContent: (nodeId: string) => Promise<boolean>;
 }
 
 /**
- * Takes an owned learning-project session id, starts preparation of the earliest
- * incomplete education unit, and immediately returns its workspace destination.
+ * Takes an owned launch-ready project and returns its workspace destination.
+ * Model-backed recovery belongs to the resumable project build, never this
+ * learner click.
  */
 export const continueLearningProjectWorkflow = async ({
   sessionId,
@@ -19,25 +19,15 @@ export const continueLearningProjectWorkflow = async ({
   sessionId: string;
   deps: ContinueLearningProjectDependencies;
 }): Promise<Result<{ sessionId: string; nodeId: string; href: string }>> => {
-  let plan = await deps.getActivePlan(sessionId);
+  const plan = await deps.getActivePlan(sessionId);
   if (!plan) {
     return err("This project's curriculum is not ready yet.");
   }
 
-  let learningNodes = plan.nodes
+  const learningNodes = plan.nodes
     .filter((node) => node.kind === "unit")
     .sort((left, right) => left.orderIndex - right.orderIndex);
-  let nextNode = learningNodes.find((node) => node.status === "ready");
-
-  if (!nextNode) {
-    await deps.recoverSkillUnits();
-    plan = await deps.getActivePlan(sessionId);
-    if (!plan) return err("This project's curriculum is not ready yet.");
-    learningNodes = plan.nodes
-      .filter((node) => node.kind === "unit")
-      .sort((left, right) => left.orderIndex - right.orderIndex);
-    nextNode = learningNodes.find((node) => node.status === "ready");
-  }
+  const nextNode = learningNodes.find((node) => node.status === "ready");
 
   if (!nextNode) {
     const isComplete =
@@ -46,11 +36,12 @@ export const continueLearningProjectWorkflow = async ({
     return err(
       isComplete
         ? "This learning project is complete."
-        : "The next education unit is not ready yet.",
+        : "This project is still preparing its first unit.",
     );
   }
-
-  deps.startUnitPreparation({ nodeId: nextNode.id, sessionId });
+  if (!(await deps.hasUnitContent(nextNode.id))) {
+    return err("This project is still preparing its first unit.");
+  }
 
   return ok({
     sessionId,

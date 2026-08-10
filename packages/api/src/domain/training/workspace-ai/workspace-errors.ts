@@ -2,7 +2,7 @@ import { Data } from "effect";
 
 import type { DbError } from "../../../effect/errors";
 import type { UnitAgentError } from "../education-unit/agent-errors";
-import type { UnitTurnContractError } from "../education-unit/run-unit-turn";
+import type { UnitTurnContractError } from "../education-unit/prefill";
 
 export class CurriculumNotReadyError extends Data.TaggedError(
   "CurriculumNotReadyError",

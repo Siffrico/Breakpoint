@@ -91,7 +91,7 @@ const mapUnitContent = ({
     title: unit.scenarioTitle,
     focusAreas: unit.scenarioFocusAreas,
   },
-  unitMasteryContract: unit.unitMasteryContractJson,
+  unitContext: unit.unitContextJson,
 });
 
 type CurriculumNodeRow = typeof TrainingCurriculumNode.$inferSelect;
@@ -500,7 +500,7 @@ export const trainingCurriculumRepository = {
     complexityBudget,
     teachbackSetup,
     scenario,
-    unitMasteryContract = null,
+    unitContext = null,
   }: {
     db: Database;
     nodeId: string;
@@ -511,7 +511,7 @@ export const trainingCurriculumRepository = {
     complexityBudget: UnitContent["complexityBudget"];
     teachbackSetup: UnitContent["teachbackSetup"];
     scenario: UnitContent["scenario"];
-    unitMasteryContract?: UnitContent["unitMasteryContract"];
+    unitContext?: UnitContent["unitContext"];
   }): Promise<UnitContent | null> => {
     // Build-level mutual exclusion lives in unit-build-lock.ts and is held by
     // the caller for the whole prepare. Taking the same advisory lock here on
@@ -534,7 +534,7 @@ export const trainingCurriculumRepository = {
           teachbackSetup,
           scenarioTitle: scenario.title,
           scenarioFocusAreas: scenario.focusAreas,
-          unitMasteryContractJson: unitMasteryContract,
+          unitContextJson: unitContext,
         })
         .onConflictDoNothing({ target: [TrainingUnitContent.nodeId] });
 
@@ -555,7 +555,7 @@ export const trainingCurriculumRepository = {
     complexityBudget,
     teachbackSetup,
     scenario,
-    unitMasteryContract = null,
+    unitContext = null,
   }: {
     db: Database;
     nodeId: string;
@@ -566,7 +566,7 @@ export const trainingCurriculumRepository = {
     complexityBudget: UnitContent["complexityBudget"];
     teachbackSetup: UnitContent["teachbackSetup"];
     scenario: UnitContent["scenario"];
-    unitMasteryContract?: UnitContent["unitMasteryContract"];
+    unitContext?: UnitContent["unitContext"];
   }): Promise<UnitContent | null> => {
     const [replaced] = await db
       .update(TrainingUnitContent)
@@ -579,7 +579,7 @@ export const trainingCurriculumRepository = {
         teachbackSetup,
         scenarioTitle: scenario.title,
         scenarioFocusAreas: scenario.focusAreas,
-        unitMasteryContractJson: unitMasteryContract,
+        unitContextJson: unitContext,
       })
       .where(eq(TrainingUnitContent.nodeId, nodeId))
       .returning({ id: TrainingUnitContent.id });

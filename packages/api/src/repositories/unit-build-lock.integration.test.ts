@@ -1,17 +1,25 @@
 /*
  * Integration test: the lock protocol's guarantees (singleflight, waiter
  * wake-up, and — critically — that a saturated pool of waiters cannot starve
- * the builder) belong to Postgres advisory locks and real pooled
- * connections, so mocks cannot prove them.
+ * the builder) depend on real lease rows and pooled connections, so mocks
+ * cannot prove them.
  */
-import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { sql } from "@acme/db";
+import type { db as databaseClient } from "@acme/db/client";
+import { and, eq, sql } from "@acme/db";
+import {
+  TrainingCurriculumNode,
+  TrainingCurriculumPlan,
+  TrainingNodeBuild,
+  TrainingOnboardingSession,
+} from "@acme/db/schema";
 
 import { awaitUnitBuildSettled, withUnitBuildLock } from "./unit-build-lock";
+
+type Database = typeof databaseClient;
 
 const loadPostgresUrlFromDotenv = () => {
   if (process.env.POSTGRES_URL) return;
@@ -29,37 +37,138 @@ loadPostgresUrlFromDotenv();
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+const withUnitNode = async <T>(
+  db: Database,
+  run: (nodeId: string) => Promise<T>,
+) => {
+  const [session] = await db
+    .insert(TrainingOnboardingSession)
+    .values({ userId: null })
+    .returning();
+  if (!session) throw new Error("Expected lock-test session.");
+  try {
+    const [plan] = await db
+      .insert(TrainingCurriculumPlan)
+      .values({
+        onboardingSessionId: session.id,
+        title: "Lock test",
+        summary: "Lock lifecycle integration test.",
+        targetIdentity: "Tester",
+      })
+      .returning();
+    if (!plan) throw new Error("Expected lock-test plan.");
+    const [node] = await db
+      .insert(TrainingCurriculumNode)
+      .values({
+        planId: plan.id,
+        kind: "unit",
+        status: "ready",
+        title: "Lock test unit",
+        summary: "Exercise node build ownership.",
+        whyItMatters: "Concurrency must be deterministic.",
+        orderIndex: 0,
+        depth: 1,
+        positionColumn: 0,
+        positionRow: 0,
+      })
+      .returning();
+    if (!node) throw new Error("Expected lock-test node.");
+    return await run(node.id);
+  } finally {
+    await db
+      .delete(TrainingOnboardingSession)
+      .where(eq(TrainingOnboardingSession.id, session.id));
+  }
+};
+
 describe("unit build lock concurrency", () => {
   it.skipIf(!process.env.POSTGRES_URL)(
-    "serializes concurrent builds for the same node",
+    "rejects a stale owner without changing the newer lease",
     async () => {
       const { db } = await import("@acme/db/client");
-      const nodeId = randomUUID();
-      const events: string[] = [];
+      for (const outcome of ["success", "failure"] as const) {
+        await withUnitNode(db, async (nodeId) => {
+          const newerLeaseId = "00000000-0000-0000-0000-000000000099";
+          await expect(
+            withUnitBuildLock({
+              db,
+              nodeId,
+              build: async (lockDb) => {
+                await lockDb
+                  .update(TrainingNodeBuild)
+                  .set({
+                    leaseId: newerLeaseId,
+                    leaseExpiresAt: new Date(Date.now() + 60_000),
+                  })
+                  .where(
+                    and(
+                      eq(TrainingNodeBuild.kind, "unit_content"),
+                      eq(TrainingNodeBuild.nodeId, nodeId),
+                    ),
+                  );
+                if (outcome === "failure") throw new Error("build failed");
+                return "stale result";
+              },
+              loadReady: () => Promise.resolve("ready"),
+            }),
+          ).rejects.toMatchObject({ _tag: "NodeBuildLeaseLostError" });
 
-      const build = (label: string, holdMs: number) =>
-        withUnitBuildLock({
-          db,
-          nodeId,
-          run: async (lockDb) => {
-            events.push(`${label}:start`);
-            await wait(holdMs);
-            await lockDb.execute(sql`select 1`);
-            events.push(`${label}:end`);
-          },
+          const build = await db.query.TrainingNodeBuild.findFirst({
+            where: and(
+              eq(TrainingNodeBuild.kind, "unit_content"),
+              eq(TrainingNodeBuild.nodeId, nodeId),
+            ),
+          });
+          expect(build).toMatchObject({
+            status: "running",
+            leaseId: newerLeaseId,
+            failureCode: null,
+            failureMessage: null,
+          });
         });
+      }
+    },
+    20_000,
+  );
 
-      const first = build("first", 400);
-      await wait(100);
-      const second = build("second", 0);
-      await Promise.all([first, second]);
+  it.skipIf(!process.env.POSTGRES_URL)(
+    "builds once and makes concurrent callers load the ready result",
+    async () => {
+      const { db } = await import("@acme/db/client");
+      await withUnitNode(db, async (nodeId) => {
+        const events: string[] = [];
 
-      expect(events).toEqual([
-        "first:start",
-        "first:end",
-        "second:start",
-        "second:end",
-      ]);
+        const build = (label: string, holdMs: number) =>
+          withUnitBuildLock({
+            db,
+            nodeId,
+            build: async (lockDb) => {
+              events.push(`${label}:start`);
+              await wait(holdMs);
+              await lockDb.execute(sql`select 1`);
+              events.push(`${label}:end`);
+              return "built" as const;
+            },
+            loadReady: async (readyDb) => {
+              await readyDb.execute(sql`select 1`);
+              events.push(`${label}:load`);
+              return "ready" as const;
+            },
+          });
+
+        const first = build("first", 400);
+        await wait(100);
+        const second = build("second", 0);
+        await expect(Promise.all([first, second])).resolves.toEqual([
+          "built",
+          "ready",
+        ]);
+
+        expect(events).toEqual(["first:start", "first:end", "second:load"]);
+
+        await expect(build("third", 0)).resolves.toBe("ready");
+        expect(events.at(-1)).toBe("third:load");
+      });
     },
     20_000,
   );
@@ -68,42 +177,43 @@ describe("unit build lock concurrency", () => {
     "completes a build while waiters saturate the pool",
     async () => {
       const { db } = await import("@acme/db/client");
-      const nodeId = randomUUID();
+      await withUnitNode(db, async (nodeId) => {
+        let release!: () => void;
+        const gate = new Promise<void>((r) => (release = r));
 
-      let release!: () => void;
-      const gate = new Promise<void>((r) => (release = r));
+        const build = withUnitBuildLock({
+          db,
+          nodeId,
+          build: async (lockDb) => {
+            await gate;
+            // The post-lock queries must succeed even though every other pool
+            // connection is being contended by waiters — the old protocol
+            // deadlocked exactly here.
+            await lockDb.execute(sql`select 1`);
+            return "built" as const;
+          },
+          loadReady: () => Promise.resolve("ready" as const),
+        });
+        // Let the builder reach the gate before waiters pile on.
+        await wait(200);
 
-      const build = withUnitBuildLock({
-        db,
-        nodeId,
-        run: async (lockDb) => {
-          await gate;
-          // The post-lock queries must succeed even though every other pool
-          // connection is being contended by waiters — the old protocol
-          // deadlocked exactly here.
-          await lockDb.execute(sql`select 1`);
-          return "built" as const;
-        },
+        // More waiters than the whole pool (default max is 5). Under the old
+        // parked-transaction protocol these held every connection until their
+        // timeout, starving the builder above.
+        const waiters = Promise.all(
+          Array.from({ length: 6 }, () =>
+            awaitUnitBuildSettled({ db, nodeId, timeoutMs: 8_000 }),
+          ),
+        );
+        await wait(500);
+        release();
+
+        const built = await build;
+        expect(built).toBe("built");
+        // With the lock released at commit, every waiter settles true well
+        // before its deadline.
+        expect(await waiters).toEqual([true, true, true, true, true, true]);
       });
-      // Let the builder reach the gate before waiters pile on.
-      await wait(200);
-
-      // More waiters than the whole pool (default max is 5). Under the old
-      // parked-transaction protocol these held every connection until their
-      // timeout, starving the builder above.
-      const waiters = Promise.all(
-        Array.from({ length: 6 }, () =>
-          awaitUnitBuildSettled({ db, nodeId, timeoutMs: 8_000 }),
-        ),
-      );
-      await wait(500);
-      release();
-
-      const built = await build;
-      expect(built).toBe("built");
-      // With the lock released at commit, every waiter settles true well
-      // before its deadline.
-      expect(await waiters).toEqual([true, true, true, true, true, true]);
     },
     20_000,
   );
@@ -112,33 +222,41 @@ describe("unit build lock concurrency", () => {
     "reports not-settled while a build is in flight, without parking",
     async () => {
       const { db } = await import("@acme/db/client");
-      const nodeId = randomUUID();
+      await withUnitNode(db, async (nodeId) => {
+        let release!: () => void;
+        const gate = new Promise<void>((r) => (release = r));
+        let markEntered!: () => void;
+        const entered = new Promise<void>((resolveEntered) => {
+          markEntered = resolveEntered;
+        });
 
-      let release!: () => void;
-      const gate = new Promise<void>((r) => (release = r));
+        const build = withUnitBuildLock({
+          db,
+          nodeId,
+          build: () => {
+            markEntered();
+            return gate.then(() => "built" as const);
+          },
+          loadReady: () => Promise.resolve("ready" as const),
+        });
+        await entered;
 
-      const build = withUnitBuildLock({
-        db,
-        nodeId,
-        run: () => gate.then(() => "built" as const),
+        const startedAt = Date.now();
+        const settled = await awaitUnitBuildSettled({
+          db,
+          nodeId,
+          timeoutMs: 1_000,
+        });
+        expect(settled).toBe(false);
+        expect(Date.now() - startedAt).toBeGreaterThanOrEqual(1_000);
+
+        release();
+        await expect(build).resolves.toBe("built");
+
+        await expect(
+          awaitUnitBuildSettled({ db, nodeId, timeoutMs: 1_000 }),
+        ).resolves.toBe(true);
       });
-      await wait(200);
-
-      const startedAt = Date.now();
-      const settled = await awaitUnitBuildSettled({
-        db,
-        nodeId,
-        timeoutMs: 1_000,
-      });
-      expect(settled).toBe(false);
-      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(1_000);
-
-      release();
-      await expect(build).resolves.toBe("built");
-
-      await expect(
-        awaitUnitBuildSettled({ db, nodeId, timeoutMs: 1_000 }),
-      ).resolves.toBe(true);
     },
     20_000,
   );

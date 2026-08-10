@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { Cause, Effect, Exit, Option } from "effect";
+import { Cause, Effect, Option } from "effect";
 
 import type {
   MissionConflictReason,
@@ -138,15 +138,6 @@ export const translateMissionErrors = <A, R>(
     }),
   );
 
-/** tRPC surface. */
-export const runMission = async <A>(
-  effect: Effect.Effect<A, MissionError>,
-): Promise<A> => {
-  const exit = await Effect.runPromiseExit(translateMissionErrors(effect));
-  if (Exit.isSuccess(exit)) return exit.value;
-  throw Cause.squash(exit.cause);
-};
-
 /** HTTP surface, for the mission stream's preamble. */
 export const missionErrorResponse = (error: MissionError): Response => {
   const { status, message } = resolveMissionFailure(error);
@@ -154,20 +145,18 @@ export const missionErrorResponse = (error: MissionError): Response => {
 };
 
 /**
- * AI SDK tool surface. The thrown Error carries only the table's predefined
- * copy — never a domain-supplied message, a DbError, or a cause — because
- * whatever it holds is what the model reads and may repeat to the learner.
+ * AI SDK tool surface. The model reads whatever this throws and may repeat it
+ * to the learner, so the message is always the table's predefined copy — never
+ * a domain-supplied string, a DbError, or a cause.
  */
-export const runMissionTool = async <A>(
-  effect: Effect.Effect<A, MissionError>,
-): Promise<A> => {
-  const exit = await Effect.runPromiseExit(logMissionError(effect));
-  if (Exit.isSuccess(exit)) return exit.value;
-
-  const failure = Cause.findErrorOption(exit.cause);
-  throw new Error(
-    Option.isSome(failure)
-      ? resolveMissionFailure(failure.value).message
-      : INTERNAL.message,
-  );
+export const toolFailureMessage = (
+  cause: Cause.Cause<MissionError>,
+): string => {
+  const failure = Cause.findErrorOption(cause);
+  return Option.isSome(failure)
+    ? resolveMissionFailure(failure.value).message
+    : INTERNAL.message;
 };
+
+/** Tool callbacks report their own failures; the tRPC path logs via translate. */
+export const logMissionFailure = logMissionError;

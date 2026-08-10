@@ -2,14 +2,15 @@ import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { DbError } from "../../../effect/errors";
+import { runEffect } from "../../../router/run-effect";
 import { UnitAgentTimeoutError } from "../education-unit/agent-errors";
 import {
   TurnLeaseConflictError,
   WorkspaceInputError,
 } from "./workspace-errors";
-import { runWorkspaceTurn } from "./workspace-turn-edge";
+import { translateWorkspaceTurnErrors } from "./workspace-turn-edge";
 
-describe("runWorkspaceTurn", () => {
+describe("translateWorkspaceTurnErrors", () => {
   it.each([
     [
       new WorkspaceInputError({ message: "Write a fuller answer." }),
@@ -30,7 +31,7 @@ describe("runWorkspaceTurn", () => {
     "translates %s once at the edge",
     async (failure, code, message) => {
       await expect(
-        runWorkspaceTurn(Effect.fail(failure)),
+        runEffect(translateWorkspaceTurnErrors(Effect.fail(failure))),
       ).rejects.toMatchObject({
         code,
         message,
@@ -46,7 +47,9 @@ describe("runWorkspaceTurn", () => {
       kind: "serialization",
     });
 
-    await expect(runWorkspaceTurn(Effect.fail(failure))).rejects.toMatchObject({
+    await expect(
+      runEffect(translateWorkspaceTurnErrors(Effect.fail(failure))),
+    ).rejects.toMatchObject({
       code: "INTERNAL_SERVER_ERROR",
       message: "AI feedback could not be prepared.",
       cause: failure,

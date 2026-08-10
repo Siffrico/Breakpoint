@@ -6,6 +6,7 @@ import { db } from "@acme/db/client";
 import { requireSession } from "~/app/api/_lib/require-session";
 
 export const runtime = "nodejs";
+export const maxDuration = 300;
 
 export const POST = async (req: NextRequest) => {
   const session = await requireSession(req);

@@ -60,26 +60,17 @@ const plan = {
 } satisfies CurriculumPlan;
 
 describe("continueLearningProjectWorkflow", () => {
-  it("starts the earliest ready unit without waiting for preparation", async () => {
-    const preparation = new Promise<void>(() => undefined);
-    const startUnitPreparation = vi.fn(() => {
-      void preparation;
-    });
-
+  it("returns the earliest launch-ready unit without starting preparation", async () => {
+    const hasUnitContent = vi.fn().mockResolvedValue(true);
     const result = await continueLearningProjectWorkflow({
       sessionId: "session-1",
       deps: {
         getActivePlan: vi.fn().mockResolvedValue(plan),
-        recoverSkillUnits: vi.fn().mockResolvedValue(undefined),
-        startUnitPreparation,
+        hasUnitContent,
       },
     });
 
-    expect(startUnitPreparation).toHaveBeenCalledOnce();
-    expect(startUnitPreparation).toHaveBeenCalledWith({
-      nodeId: "unit-ready",
-      sessionId: "session-1",
-    });
+    expect(hasUnitContent).toHaveBeenCalledWith("unit-ready");
     expect(result).toEqual({
       success: true,
       data: {
@@ -91,7 +82,6 @@ describe("continueLearningProjectWorkflow", () => {
   });
 
   it("does not prepare a locked project", async () => {
-    const startUnitPreparation = vi.fn();
     const result = await continueLearningProjectWorkflow({
       sessionId: "session-1",
       deps: {
@@ -103,20 +93,17 @@ describe("continueLearningProjectWorkflow", () => {
             status: node.id === "unit-complete" ? "completed" : "planned",
           })),
         }),
-        recoverSkillUnits: vi.fn().mockResolvedValue(undefined),
-        startUnitPreparation,
+        hasUnitContent: vi.fn().mockResolvedValue(false),
       },
     });
 
     expect(result).toEqual({
       success: false,
-      error: "The next education unit is not ready yet.",
+      error: "This project is still preparing its first unit.",
     });
-    expect(startUnitPreparation).not.toHaveBeenCalled();
   });
 
   it("reports a completed project without preparing content", async () => {
-    const startUnitPreparation = vi.fn();
     const result = await continueLearningProjectWorkflow({
       sessionId: "session-1",
       deps: {
@@ -128,8 +115,7 @@ describe("continueLearningProjectWorkflow", () => {
             status: "completed" as const,
           })),
         }),
-        recoverSkillUnits: vi.fn().mockResolvedValue(undefined),
-        startUnitPreparation,
+        hasUnitContent: vi.fn().mockResolvedValue(false),
       },
     });
 
@@ -137,35 +123,35 @@ describe("continueLearningProjectWorkflow", () => {
       success: false,
       error: "This learning project is complete.",
     });
-    expect(startUnitPreparation).not.toHaveBeenCalled();
   });
 
-  it("recovers missing dynamic units before reporting the project blocked", async () => {
-    const recoveredPlan = {
-      ...plan,
-      nodes: plan.nodes.map((node) =>
-        node.id === "unit-ready" ? { ...node, status: "ready" as const } : node,
-      ),
-    };
-    const getActivePlan = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ...plan,
-        nodes: [],
-      })
-      .mockResolvedValueOnce(recoveredPlan);
-    const recoverSkillUnits = vi.fn().mockResolvedValue(undefined);
-
+  it("does not hide unit generation inside the learner click", async () => {
     const result = await continueLearningProjectWorkflow({
       sessionId: "session-1",
       deps: {
-        getActivePlan,
-        recoverSkillUnits,
-        startUnitPreparation: vi.fn(),
+        getActivePlan: vi.fn().mockResolvedValue({ ...plan, nodes: [] }),
+        hasUnitContent: vi.fn().mockResolvedValue(false),
       },
     });
 
-    expect(recoverSkillUnits).toHaveBeenCalledOnce();
-    expect(result.success).toBe(true);
+    expect(result).toEqual({
+      success: false,
+      error: "This project is still preparing its first unit.",
+    });
+  });
+
+  it("rejects a ready node whose content has not committed", async () => {
+    const result = await continueLearningProjectWorkflow({
+      sessionId: "session-1",
+      deps: {
+        getActivePlan: vi.fn().mockResolvedValue(plan),
+        hasUnitContent: vi.fn().mockResolvedValue(false),
+      },
+    });
+
+    expect(result).toEqual({
+      success: false,
+      error: "This project is still preparing its first unit.",
+    });
   });
 });

@@ -1,12 +1,13 @@
 import { Duration, Effect, Schedule } from "effect";
 
+import { UnitContextSchema } from "@acme/validators";
+
 import type { CurriculumNode, UnitContent } from "../types/training.types";
-import type {
-  PriorLearningRecord,
-  UnitBuilderContext,
-} from "../unit-builder/contracts";
+import type { UnitBuilderContext } from "../unit-builder/contracts";
 import type { UnitPreparationError } from "./errors";
 import { regimeForNodeKind } from "../engine/progression-model";
+import { OutcomeTaskContractSchema } from "../unit-builder/contracts";
+import { createUnitContext } from "../unit-builder/create-unit-context";
 import { runSeedStage } from "../unit-builder/seed-stage";
 import {
   classifyUnitScaffoldFailure,
@@ -25,7 +26,9 @@ interface PlanNodeContext {
   readonly whyItMatters: string;
   readonly orderIndex: number;
   readonly status: string;
+  readonly outcomeResult?: unknown;
   readonly skillMap?: unknown;
+  readonly practiceContract?: unknown;
 }
 
 export interface UnitPreparationDependencies {
@@ -34,15 +37,23 @@ export interface UnitPreparationDependencies {
     sessionId: string,
   ) => Promise<PlanNodeContext[] | null>;
   readonly getTargetIdentity: (sessionId: string) => Promise<string | null>;
-  readonly listAttemptHistory: (
-    sessionId: string,
-  ) => Promise<PriorLearningRecord[]>;
+  /**
+   * The goldilocks directive for this unit's parent cluster. Resolved here
+   * rather than passed down from unit creation because a unit can reach
+   * preparation by three paths (creation, pre-generation, on-demand open) and
+   * only two of them ever held a directive.
+   */
+  readonly getUnitDifficulty: (unitNodeId: string) => Promise<{
+    promptBlock: string;
+    bandOrder: number;
+  } | null>;
   readonly getUnitKnowledgeContext: (unitNodeId: string) => Promise<{
     workflow: { name: string; steps: string[] };
     framing: { question: string; part: number } | null;
     checked: { label: string; content: string }[];
     targets: {
       id: string;
+      skill: string;
       kind: "concept" | "mechanism";
       label: string;
       content: string;
@@ -57,7 +68,7 @@ export interface UnitPreparationDependencies {
     complexityBudget: UnitContent["complexityBudget"];
     teachbackSetup: UnitContent["teachbackSetup"];
     scenario: UnitContent["scenario"];
-    unitMasteryContract: NonNullable<UnitContent["unitMasteryContract"]>;
+    unitContext: NonNullable<UnitContent["unitContext"]>;
   }) => Promise<UnitContent | null>;
   readonly replaceUnitContent: (input: {
     nodeId: string;
@@ -68,22 +79,19 @@ export interface UnitPreparationDependencies {
     complexityBudget: UnitContent["complexityBudget"];
     teachbackSetup: UnitContent["teachbackSetup"];
     scenario: UnitContent["scenario"];
-    unitMasteryContract: NonNullable<UnitContent["unitMasteryContract"]>;
+    unitContext: NonNullable<UnitContent["unitContext"]>;
   }) => Promise<UnitContent | null>;
   readonly saveNodeBriefing: (input: {
     nodeId: string;
     briefing: NonNullable<UnitContent["clusterBriefing"]>;
   }) => Promise<UnitContent["clusterBriefing"]>;
-  /**
-   * Holds this node's build lock while `run` executes. Concurrent prepares
-   * for the same node must serialize here (the loser re-checks and skips),
-   * and readiness waiters observe the same lock until the holder commits.
-   * `run` receives deps bound to the lock's own connection; the build must
-   * use those so it never waits on a second connection from the pool.
-   */
+  /** Runs `build` only for the lease owner and `loadReady` after another owner
+   * has committed. An explicit rebuild must reacquire the lease first. */
   readonly withUnitBuildLock: <T>(
     nodeId: string,
-    run: (lockedDeps: UnitPreparationDependencies) => Promise<T>,
+    build: (lockedDeps: UnitPreparationDependencies) => Promise<T>,
+    loadReady: (deps: UnitPreparationDependencies) => Promise<T>,
+    options?: { readonly rebuildReady?: boolean },
   ) => Promise<T>;
 }
 
@@ -92,6 +100,8 @@ export interface PrepareUnitContentInput {
   readonly sessionId: string;
   readonly deps: UnitPreparationDependencies;
   readonly forceRefresh?: boolean;
+  /** Request-level deadline when preparation is on a synchronous critical path. */
+  readonly abortSignal?: AbortSignal;
   /** Optional non-critical briefing work that must share the node build lock. */
   readonly prepareClusterBriefing?: () => Promise<{
     nodeId: string;
@@ -107,19 +117,30 @@ const RESTART_SCHEDULE = Schedule.exponential(Duration.millis(300), 2).pipe(
 const contextMissing = (message: string, cause?: unknown) =>
   new UnitContextMissingError({ message, cause });
 
+const outcomeTaskContractOf = (node: PlanNodeContext | null | undefined) => {
+  const parsed = OutcomeTaskContractSchema.safeParse({
+    outcomeResult: node?.outcomeResult,
+    skillMap: node?.skillMap,
+    practiceContract: node?.practiceContract,
+  });
+  return parsed.success ? parsed.data : null;
+};
+
 const assembleSeedContext = ({
   nodeId,
   planNodes,
   targetIdentity,
-  priorLearning,
   knowledge,
+  difficulty,
 }: {
   nodeId: string;
   planNodes: PlanNodeContext[] | null;
   targetIdentity: string | null;
-  priorLearning: PriorLearningRecord[];
   knowledge: Awaited<
     ReturnType<UnitPreparationDependencies["getUnitKnowledgeContext"]>
+  >;
+  difficulty: Awaited<
+    ReturnType<UnitPreparationDependencies["getUnitDifficulty"]>
   >;
 }): Effect.Effect<UnitBuilderContext, UnitContextMissingError> => {
   if (!planNodes) {
@@ -148,6 +169,13 @@ const assembleSeedContext = ({
     siblingUnits.findIndex((candidate) => candidate.id === node.id) + 1,
     1,
   );
+  const regime = parentNode ? regimeForNodeKind(parentNode.kind) : null;
+  const taskContract = outcomeTaskContractOf(parentNode);
+  if (regime === "main_outcome" && !taskContract) {
+    return Effect.fail(
+      contextMissing("Outcome task-generation contract is missing or invalid."),
+    );
+  }
 
   return Effect.succeed({
     node: {
@@ -159,7 +187,7 @@ const assembleSeedContext = ({
       orderIndex: node.orderIndex,
     },
     planContext: {
-      regime: parentNode ? regimeForNodeKind(parentNode.kind) : null,
+      regime,
       slotIndex,
       totalSlots: siblingUnits.length || 1,
       clusterContext: parentNode
@@ -167,11 +195,13 @@ const assembleSeedContext = ({
             title: parentNode.title,
             summary: parentNode.summary,
             whyItMatters: parentNode.whyItMatters,
+            taskContract,
           }
         : null,
     },
-    learner: { targetIdentity: targetIdentity.trim(), priorLearning },
+    learner: { targetIdentity: targetIdentity.trim() },
     knowledge,
+    difficulty,
   });
 };
 
@@ -186,6 +216,7 @@ const prepareUnitContentUnlocked = ({
   deps,
   forceRefresh = false,
   prepareClusterBriefing,
+  abortSignal,
 }: PrepareUnitContentInput): Effect.Effect<UnitContent, UnitPreparationError> =>
   Effect.gen(function* () {
     const existing = yield* Effect.tryPromise({
@@ -198,21 +229,30 @@ const prepareUnitContentUnlocked = ({
           cause,
         }),
     });
-    if (existing?.unitMasteryContract && !forceRefresh) return existing;
+    if (
+      existing &&
+      UnitContextSchema.safeParse(existing.unitContext).success &&
+      !forceRefresh
+    ) {
+      return existing;
+    }
     const replacesExistingContent = existing !== null;
 
     const briefingPromise = prepareClusterBriefing
       ? prepareClusterBriefing().catch(() => null)
       : Promise.resolve(null);
 
-    const [planNodes, targetIdentity, priorLearning, knowledge] =
+    const [planNodes, targetIdentity, knowledge, difficulty] =
       yield* Effect.tryPromise({
         try: () =>
           Promise.all([
             deps.getPlanNodesBySession(sessionId),
             deps.getTargetIdentity(sessionId),
-            deps.listAttemptHistory(sessionId),
             deps.getUnitKnowledgeContext(node.id),
+            // Fail-open: a unit still builds without a directive, on slot
+            // position alone. Losing the whole unit over a rating read would
+            // be the worse trade.
+            deps.getUnitDifficulty(node.id).catch(() => null),
           ]),
         catch: (cause) =>
           contextMissing(
@@ -224,12 +264,20 @@ const prepareUnitContentUnlocked = ({
       nodeId: node.id,
       planNodes,
       targetIdentity,
-      priorLearning,
       knowledge,
+      difficulty,
+    });
+    const unitContext = yield* Effect.try({
+      try: () => createUnitContext(context),
+      catch: (cause) =>
+        contextMissing(
+          "Authoritative unit context could not be created.",
+          cause,
+        ),
     });
 
     const setup = yield* Effect.tryPromise({
-      try: () => runSeedStage(context),
+      try: () => runSeedStage(context, { abortSignal }),
       catch: classifyUnitScaffoldFailure,
     }).pipe(
       Effect.timeout(Duration.seconds(45)),
@@ -261,7 +309,7 @@ const prepareUnitContentUnlocked = ({
           complexityBudget: setup.complexityBudget,
           teachbackSetup: setup.teachbackSetup,
           scenario: setup.scenario,
-          unitMasteryContract: setup.unitMasteryContract,
+          unitContext,
         });
         if (!persisted) throw new Error("Unit content write returned no row.");
         return persisted;
@@ -295,6 +343,19 @@ const lockFailure = (cause: unknown): UnitPreparationError => {
   });
 };
 
+const loadReadyUnitContent = async (
+  deps: UnitPreparationDependencies,
+  nodeId: string,
+): Promise<UnitContent> => {
+  const unit = await deps.getUnitByNodeId(nodeId);
+  if (!unit) {
+    throw new UnitPersistError({
+      message: "Prepared unit content could not be loaded.",
+    });
+  }
+  return unit;
+};
+
 /**
  * Takes a unit node, session id, and persistence/provider dependencies;
  * serializes the complete check → generate → persist path for that node; and
@@ -305,10 +366,14 @@ export const prepareUnitContent = (
 ): Effect.Effect<UnitContent, UnitPreparationError> =>
   Effect.tryPromise({
     try: () =>
-      input.deps.withUnitBuildLock(input.node.id, (lockedDeps) =>
-        Effect.runPromise(
-          prepareUnitContentUnlocked({ ...input, deps: lockedDeps }),
-        ),
+      input.deps.withUnitBuildLock(
+        input.node.id,
+        (lockedDeps) =>
+          Effect.runPromise(
+            prepareUnitContentUnlocked({ ...input, deps: lockedDeps }),
+          ),
+        (readyDeps) => loadReadyUnitContent(readyDeps, input.node.id),
+        { rebuildReady: input.forceRefresh },
       ),
     catch: lockFailure,
   });

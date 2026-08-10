@@ -28,19 +28,83 @@ const planNode = {
   orderIndex: 1,
   status: "ready",
 };
-const planNodes = [
-  {
-    id: "cluster-1",
-    parentNodeId: null,
-    kind: "ability",
-    title: "Diagnosis",
-    summary: "Find causes before fixes.",
-    whyItMatters: "Bad diagnosis compounds errors.",
-    orderIndex: 0,
-    status: "ready",
-  },
-  planNode,
-];
+const baseSkillMap = {
+  skills: ["Frame", "Solve", "Verify"].map((name) => ({
+    name,
+    description: `${name} the task.`,
+    items: [
+      {
+        kind: "concept" as const,
+        name: `${name} item`,
+        description: `${name} knowledge.`,
+      },
+    ],
+  })),
+  expertJudgment: [
+    { rule: "Frame before acting.", when: "The task is ambiguous." },
+    { rule: "Verify before finishing.", when: "A result seems plausible." },
+  ],
+  commonMistakes: [
+    {
+      mistake: "Act before framing.",
+      whyItHappens: "The first route feels obvious.",
+      detectionCue: "No governing constraint is named.",
+    },
+    {
+      mistake: "Skip verification.",
+      whyItHappens: "The result looks plausible.",
+      detectionCue: "No independent check appears.",
+    },
+  ],
+};
+const basePracticeContract = {
+  workflow: { name: "Solve one task", steps: ["Frame.", "Solve.", "Verify."] },
+  responseMode: "judge" as const,
+  taskTypes: [
+    {
+      name: "Diagnosis",
+      situation: "A realistic failure needs diagnosis.",
+      learnerDoes: "Diagnose and justify.",
+      output: "A defensible diagnosis.",
+      taskShape: "Evidence and one decision.",
+      skills: ["Frame", "Solve", "Verify"],
+    },
+  ],
+  qualityBar: ["The diagnosis fits the evidence."],
+  variationAxes: [
+    { name: "Evidence", description: "The evidence changes." },
+    { name: "Trap", description: "The tempting wrong cause changes." },
+  ],
+  evaluationCriteria: [
+    {
+      criterion: "The conclusion follows from the evidence.",
+      skills: ["Frame", "Solve", "Verify"],
+    },
+  ],
+  difficultyBands: [0, 1, 2].map((band) => ({
+    band: band as 0 | 1 | 2,
+    task: `Band ${band} task`,
+    reasoning: `${band + 1} reasoning steps`,
+    support: band === 0 ? "Full" : band === 1 ? "Partial" : "None",
+    traps: band === 0 ? [] : ["near miss"],
+  })),
+  neverDo: ["Require missing evidence."],
+};
+
+const parentPlanNode = {
+  id: "cluster-1",
+  parentNodeId: null,
+  kind: "outcome",
+  title: "Diagnosis",
+  summary: "Find causes before fixes.",
+  whyItMatters: "Bad diagnosis compounds errors.",
+  orderIndex: 0,
+  status: "ready",
+  outcomeResult: "Diagnose the cause from available evidence.",
+  skillMap: baseSkillMap,
+  practiceContract: basePracticeContract,
+};
+const planNodes = [parentPlanNode, planNode];
 
 const setup = {
   title: "Isolate the failure",
@@ -67,39 +131,43 @@ const setup = {
     title: "The slow deployment",
     focusAreas: ["causal isolation", "diagnostic sequencing"],
   },
-  conceptTarget: "discriminating evidence",
-  misconceptionTarget: "temporal proximity proves causality",
-  workedExampleBrief: "Compare two low-risk probes.",
-  unitMasteryContract: {
-    version: 1,
-    dimensions: [
+} satisfies SeedStageOutput;
+
+const unitContext = {
+  version: 1 as const,
+  performance: parentPlanNode.outcomeResult,
+  targets: [
+    {
+      id: "entry-1",
+      skill: "Frame",
+      kind: "concept" as const,
+      label: "Causal probe",
+      content:
+        "A probe that both hypotheses predict identically cannot separate them.",
+    },
+  ],
+  workflow: basePracticeContract.workflow,
+  expertise: {
+    expertJudgment: baseSkillMap.expertJudgment,
+    commonMistakes: baseSkillMap.commonMistakes,
+  },
+  testing: {
+    responseMode: basePracticeContract.responseMode,
+    taskTypes: basePracticeContract.taskTypes,
+    variationAxes: basePracticeContract.variationAxes,
+    neverDo: basePracticeContract.neverDo,
+  },
+  judgment: {
+    criteria: [
       {
-        id: "choose-discriminating-probe",
-        name: "Choose a discriminating probe",
-        description:
-          "Select a low-risk probe whose result separates the live causal hypotheses.",
-        passSignals: ["Predicts how each hypothesis responds to the probe"],
-        failSignals: ["Chooses a probe both hypotheses predict identically"],
-        surrogateTraps: [
-          "Names a familiar diagnostic without comparing predictions",
-        ],
-      },
-      {
-        id: "update-from-evidence",
-        name: "Update from evidence",
-        description:
-          "Use the observed result to narrow causes and choose the next diagnostic move.",
-        passSignals: [
-          "Eliminates or weakens a hypothesis from the observed result",
-        ],
-        failSignals: ["Keeps the original diagnosis regardless of the result"],
-        surrogateTraps: [
-          "Restates the evidence without changing the causal model",
-        ],
+        id: "criterion-1",
+        criterion: "The conclusion follows from the evidence.",
+        skills: ["Frame", "Solve", "Verify"],
       },
     ],
+    qualityBar: basePracticeContract.qualityBar,
   },
-} satisfies SeedStageOutput;
+};
 
 const unit = {
   id: "content-1",
@@ -117,7 +185,7 @@ const unit = {
   practicePrompts: null,
   teachbackSetup: setup.teachbackSetup,
   scenario: setup.scenario,
-  unitMasteryContract: setup.unitMasteryContract,
+  unitContext,
   difficultyBands: null,
 } satisfies UnitContent;
 
@@ -128,7 +196,9 @@ const makeDeps = (
     getUnitByNodeId: vi.fn(() => Promise.resolve(null)),
     getPlanNodesBySession: vi.fn(() => Promise.resolve(planNodes)),
     getTargetIdentity: vi.fn(() => Promise.resolve("Incident commander")),
-    listAttemptHistory: vi.fn(() => Promise.resolve([])),
+    getUnitDifficulty: vi.fn(() =>
+      Promise.resolve({ promptBlock: "## Difficulty directive", bandOrder: 1 }),
+    ),
     getUnitKnowledgeContext: vi.fn(() =>
       Promise.resolve({
         workflow: { name: "Diagnose an incident", steps: ["Choose a probe"] },
@@ -137,6 +207,7 @@ const makeDeps = (
         targets: [
           {
             id: "entry-1",
+            skill: "Frame",
             kind: "concept" as const,
             label: "Causal probe",
             content:
@@ -148,7 +219,7 @@ const makeDeps = (
     createUnitContentIfAbsent: vi.fn(() => Promise.resolve(unit)),
     replaceUnitContent: vi.fn(() => Promise.resolve(unit)),
     saveNodeBriefing: vi.fn(() => Promise.resolve(null)),
-    withUnitBuildLock: (_nodeId, run) => run(deps),
+    withUnitBuildLock: (_nodeId, build) => build(deps),
     ...overrides,
   };
   return deps;
@@ -160,7 +231,7 @@ afterEach(() => {
 });
 
 describe("prepareUnitContent", () => {
-  it("prepares a legacy unit without knowledge targets", async () => {
+  it("rejects a unit without an outcome contract and selected targets", async () => {
     runSeedStageMock.mockResolvedValue(setup);
     const legacyParent = planNodes[0];
     if (!legacyParent) throw new Error("Expected a legacy parent node.");
@@ -168,7 +239,7 @@ describe("prepareUnitContent", () => {
       { ...legacyParent, kind: "root", skillMap: undefined },
       { ...planNode, parentNodeId: "cluster-1" },
     ];
-    const result = await Effect.runPromise(
+    const exit = await Effect.runPromiseExit(
       prepareUnitContent({
         node,
         sessionId: "session-1",
@@ -179,7 +250,196 @@ describe("prepareUnitContent", () => {
       }),
     );
 
-    expect(result).toBe(unit);
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(runSeedStageMock).not.toHaveBeenCalled();
+  });
+
+  it("passes an outcome's Skill Map and Practice Contract to the seed stage", async () => {
+    runSeedStageMock.mockResolvedValue(setup);
+    const skillMap = {
+      skills: [
+        {
+          name: "Read constraints",
+          description: "Find the governing constraint.",
+          items: [
+            {
+              kind: "concept" as const,
+              name: "Constraint",
+              description: "The text limits the defensible answer.",
+            },
+          ],
+        },
+        {
+          name: "Test options",
+          description: "Compare each option with the constraint.",
+          items: [
+            {
+              kind: "mechanism" as const,
+              name: "Option test",
+              description: "Reject any option that violates the constraint.",
+            },
+          ],
+        },
+        {
+          name: "Verify",
+          description: "Confirm the surviving answer.",
+          items: [
+            {
+              kind: "mechanism" as const,
+              name: "Evidence check",
+              description: "Locate the evidence that supports the survivor.",
+            },
+          ],
+        },
+      ],
+      expertJudgment: [
+        {
+          rule: "Predict before comparing.",
+          when: "Options can anchor judgment.",
+        },
+        {
+          rule: "Require textual support.",
+          when: "An option is plausible but unstated.",
+        },
+      ],
+      commonMistakes: [
+        {
+          mistake: "Choose a true but unsupported answer.",
+          whyItHappens: "Outside knowledge feels relevant.",
+          detectionCue: "No text supports the claim.",
+        },
+        {
+          mistake: "Choose a broad synonym.",
+          whyItHappens: "It sounds fluent.",
+          detectionCue: "It misses the precise constraint.",
+        },
+      ],
+    };
+    const practiceContract = {
+      workflow: {
+        name: "Solve one item",
+        steps: [
+          "Read the constraint.",
+          "Test the options.",
+          "Verify the survivor.",
+        ],
+      },
+      responseMode: "select" as const,
+      taskTypes: [
+        {
+          name: "SAT selected response",
+          situation: "A passage and question.",
+          learnerDoes: "Select the defensible answer.",
+          output: "One selected answer.",
+          taskShape: "One passage and four options.",
+          skills: ["Read constraints", "Test options", "Verify"],
+        },
+      ],
+      qualityBar: ["Exactly one option satisfies the text."],
+      variationAxes: [
+        { name: "Constraint location", description: "The evidence moves." },
+        { name: "Distractor", description: "The near miss changes." },
+      ],
+      evaluationCriteria: [
+        {
+          criterion: "The selected answer is supported by the text.",
+          skills: ["Read constraints", "Test options", "Verify"],
+        },
+      ],
+      difficultyBands: [
+        {
+          band: 0 as const,
+          task: "Direct",
+          reasoning: "One step",
+          support: "Full",
+          traps: [],
+        },
+        {
+          band: 1 as const,
+          task: "Messy",
+          reasoning: "Two steps",
+          support: "Partial",
+          traps: ["broad synonym"],
+        },
+        {
+          band: 2 as const,
+          task: "Adversarial",
+          reasoning: "Three steps",
+          support: "None",
+          traps: ["broad synonym", "outside knowledge"],
+        },
+      ],
+      neverDo: ["Require outside knowledge."],
+    };
+    const outcomeResult = "Select the single defensible answer.";
+    const outcomeNodes = [
+      {
+        ...parentPlanNode,
+        kind: "outcome",
+        outcomeResult,
+        skillMap,
+        practiceContract,
+      },
+      planNode,
+    ];
+
+    await Effect.runPromise(
+      prepareUnitContent({
+        node,
+        sessionId: "session-1",
+        deps: makeDeps({
+          getPlanNodesBySession: vi.fn(() => Promise.resolve(outcomeNodes)),
+          getUnitKnowledgeContext: vi.fn(() =>
+            Promise.resolve({
+              workflow: practiceContract.workflow,
+              framing: null,
+              checked: [],
+              targets: [
+                {
+                  id: "entry-1",
+                  skill: "Read constraints",
+                  kind: "concept" as const,
+                  label: "Constraint",
+                  content: "The text limits the defensible answer.",
+                },
+              ],
+            }),
+          ),
+        }),
+      }),
+    );
+
+    const seedContext = runSeedStageMock.mock.calls[0]?.[0];
+    expect(seedContext?.planContext.regime).toBe("main_outcome");
+    expect(seedContext?.planContext.clusterContext?.taskContract).toEqual({
+      outcomeResult,
+      skillMap,
+      practiceContract,
+    });
+  });
+
+  it("rejects an outcome missing its task-generation contract", async () => {
+    const outcomeNodes = [
+      { ...parentPlanNode, kind: "outcome", skillMap: {} },
+      planNode,
+    ];
+
+    const exit = await Effect.runPromiseExit(
+      prepareUnitContent({
+        node,
+        sessionId: "session-1",
+        deps: makeDeps({
+          getPlanNodesBySession: vi.fn(() => Promise.resolve(outcomeNodes)),
+        }),
+      }),
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(String(exit.cause)).toContain("UnitContextMissingError");
+      expect(String(exit.cause)).toContain("task-generation contract");
+    }
+    expect(runSeedStageMock).not.toHaveBeenCalled();
   });
 
   it("locks before re-checking and short-circuits an existing row", async () => {
@@ -188,9 +448,9 @@ describe("prepareUnitContent", () => {
     });
     const lockedNodeIds: string[] = [];
     const withUnitBuildLock: UnitPreparationDependencies["withUnitBuildLock"] =
-      (nodeId, run) => {
+      (nodeId, build) => {
         lockedNodeIds.push(nodeId);
-        return run(lockedDeps);
+        return build(lockedDeps);
       };
     const deps = { ...lockedDeps, withUnitBuildLock };
 
@@ -217,7 +477,7 @@ describe("prepareUnitContent", () => {
     const lockedDeps = makeDeps({
       getUnitByNodeId: vi.fn(() => Promise.resolve(storedUnit)),
       createUnitContentIfAbsent,
-      withUnitBuildLock: async (_nodeId, run) => {
+      withUnitBuildLock: async (_nodeId, build) => {
         const previous = lockTail;
         let release!: () => void;
         lockTail = new Promise<void>((resolveLock) => {
@@ -225,7 +485,7 @@ describe("prepareUnitContent", () => {
         });
         await previous;
         try {
-          return await run(lockedDeps);
+          return await build(lockedDeps);
         } finally {
           release();
         }
@@ -301,7 +561,7 @@ describe("prepareUnitContent", () => {
     expect(runSeedStageMock).toHaveBeenCalledTimes(2);
     expect(deps.createUnitContentIfAbsent).toHaveBeenCalledWith(
       expect.objectContaining({
-        unitMasteryContract: setup.unitMasteryContract,
+        unitContext,
       }),
     );
     expect(deps.replaceUnitContent).not.toHaveBeenCalled();
@@ -331,7 +591,7 @@ describe("prepareUnitContent", () => {
     runSeedStageMock.mockResolvedValue(setup);
     const deps = makeDeps({
       getUnitByNodeId: vi.fn(() =>
-        Promise.resolve({ ...unit, unitMasteryContract: null }),
+        Promise.resolve({ ...unit, unitContext: null }),
       ),
     });
 
@@ -341,7 +601,7 @@ describe("prepareUnitContent", () => {
 
     expect(deps.replaceUnitContent).toHaveBeenCalledWith(
       expect.objectContaining({
-        unitMasteryContract: setup.unitMasteryContract,
+        unitContext,
       }),
     );
     expect(deps.createUnitContentIfAbsent).not.toHaveBeenCalled();

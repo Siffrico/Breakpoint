@@ -40,10 +40,10 @@ export const createTrainingRatingGoldilocksDeps = (
       }),
     ]);
     if (!attempt) return null;
-    if (!node?.skillMap) {
-      throw new Error("Rating ability is missing its scenario contract.");
+    if (!node?.practiceContract) {
+      throw new Error("Outcome is missing its Practice Contract.");
     }
-    const format = resolveScenarioFormat(node.skillMap);
+    const format = resolveScenarioFormat(node.practiceContract);
     return {
       ...attempt,
       guessChance:

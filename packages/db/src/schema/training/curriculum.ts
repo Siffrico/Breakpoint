@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { check, index, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
 
-import type { ScenarioArchetype } from "@acme/validators";
+import type { PracticeContract, SkillMap } from "@acme/validators";
 
 import { user } from "../../auth-schema";
 import { TrainingOnboardingSession } from "./onboarding";
@@ -72,15 +72,6 @@ export const TrainingCurriculumNode = pgTable(
     parentNodeId: t.uuid(),
     kind: t.varchar({ length: 32 }).notNull(),
     status: t.varchar({ length: 32 }).notNull().default("planned"),
-    // `ability` nodes always have a stage; structural and skill/unit nodes never do.
-    abilityStage: t.varchar({ length: 16 }),
-    // Which child skill this unit is a rep OF. Set only on skillset units (whose
-    // parent is an ability); null on every other kind, and on foundation units,
-    // whose owning skill is already their parent. The interleaving round-robin
-    // counts reps per skill off this column — it cannot be derived from the
-    // knowledge items' evidenceNodeId, because a later unit re-targeting the
-    // same item overwrites the earlier unit's stamp and loses the rep.
-    practicedSkillNodeId: t.uuid(),
     title: t.varchar({ length: 240 }).notNull(),
     summary: t.text().notNull(),
     whyItMatters: t.text().notNull(),
@@ -99,15 +90,11 @@ export const TrainingCurriculumNode = pgTable(
         label?: string;
       }[]
     >(),
-    skillMap: t.jsonb().$type<{
-      workflow: { name: string; steps: string[] };
-      bandRamp: { startRating: number; peakRating: number };
-      masteryContract: {
-        exitCriteria: string[];
-        maxRatingDeviation?: number;
-      };
-      scenarioArchetype: ScenarioArchetype;
-    }>(),
+    // Fixed by the learner-approved onboarding handoff. Compilation may fill
+    // the two contracts later, but it never changes this result.
+    outcomeResult: t.text(),
+    skillMap: t.jsonb().$type<SkillMap | null>(),
+    practiceContract: t.jsonb().$type<PracticeContract | null>(),
     orderIndex: t.integer().notNull(),
     depth: t.integer().notNull(),
     positionColumn: t.integer().notNull(),
@@ -126,30 +113,22 @@ export const TrainingCurriculumNode = pgTable(
       table.parentNodeId,
       table.orderIndex,
     ),
-    // The rep-count read is "completed units under this ability, by skill".
-    index("becoming_curriculum_node_practiced_skill_idx").on(
-      table.parentNodeId,
-      table.practicedSkillNodeId,
-    ),
     check(
       "becoming_curriculum_node_v4_shape",
-      sql`(
-        (
-          kind = 'ability'
-          and ability_stage is not null
-          and ability_stage in ('foundations', 'skillset', 'mastered')
-        )
-        or (kind <> 'ability' and ability_stage is null)
-      )
-      and kind in ('root', 'ability', 'skill', 'unit')
+      sql`kind in ('root', 'outcome', 'unit')
       and (
         (
-          kind in ('ability', 'skill')
-          and skill_map is not null
-          and coalesce(skill_map ->> 'scenarioArchetype', '') in ('select', 'transform', 'judge')
-          and not (skill_map ? 'scenarioFormats')
+          kind = 'outcome'
+          and outcome_result is not null
+          and ((skill_map is null and practice_contract is null)
+            or (skill_map is not null and practice_contract is not null))
         )
-        or (kind in ('root', 'unit') and skill_map is null)
+        or (
+          kind in ('root', 'unit')
+          and outcome_result is null
+          and skill_map is null
+          and practice_contract is null
+        )
       )`,
     ),
   ],
@@ -165,6 +144,7 @@ export const TrainingKnowledgeQuestion = pgTable(
       .references(() => TrainingCurriculumNode.id, { onDelete: "cascade" }),
     orderIndex: t.integer().notNull(),
     question: t.text().notNull(),
+    practiceCount: t.integer().notNull().default(0),
     createdAt: t
       .timestamp({ mode: "date", withTimezone: true })
       .defaultNow()
@@ -190,10 +170,6 @@ export const TrainingKnowledgeItem = pgTable(
     kind: t.varchar({ length: 32 }).notNull(),
     label: t.text().notNull(),
     content: t.text().notNull(),
-    // How many scored solves this item was load-bearing in. Skill mastery
-    // requires every item to reach the coverage target (see
-    // engine/concept-coverage.ts) — never a drifting rating.
-    coverageCount: t.integer().notNull().default(0),
     status: t.varchar({ length: 32 }).notNull().default("unchecked"),
     checkedAt: t.timestamp({ mode: "date", withTimezone: true }),
     // Spaced-reinforcement state: how many consecutive scored recalls this

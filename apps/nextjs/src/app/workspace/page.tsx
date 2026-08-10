@@ -87,14 +87,6 @@ export default async function WorkspacePage(props: {
     prefetch(
       trpc.training.aiWorkspace.queryOptions({ sessionId: shell.sessionId }),
     );
-    if (shell.plan.nextUnitId) {
-      prefetch(
-        trpc.training.unit.queryOptions({
-          sessionId: shell.sessionId,
-          nodeId: shell.plan.nextUnitId,
-        }),
-      );
-    }
   }
 
   return (

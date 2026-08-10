@@ -14,8 +14,9 @@ import type {
 } from "../engine/rating";
 import {
   applyEvaluation,
-  BAND_DIAL_PRESETS,
+  BAND_DIAL_GUIDES,
   buildGeneratorCalibrationNote,
+  chooseDifficultyDials,
   createInitialRatingState,
   decayRatingState,
   decideNextScenario,
@@ -199,9 +200,14 @@ export const resolveScenarioDirective = async ({
 
   const calibration = buildGeneratorCalibrationNote(predictions);
   const format = scenarioFormat;
-  const dialPreset =
-    BAND_DIAL_PRESETS[directive.bandOrder] ?? BAND_DIAL_PRESETS[2];
-  if (!dialPreset) throw new RangeError("difficulty dial presets are empty");
+  const dialGuide =
+    BAND_DIAL_GUIDES[directive.bandOrder] ?? BAND_DIAL_GUIDES[2];
+  if (!dialGuide) throw new RangeError("difficulty dial presets are empty");
+  const dialPreset = chooseDifficultyDials({
+    targetItemRating: directive.targetItemRating,
+    format,
+    guide: dialGuide,
+  });
   const promptBlock = renderScenarioDirective(
     directive,
     band,

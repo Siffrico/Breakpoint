@@ -7,6 +7,7 @@ import type {
   UnitContent,
 } from "../types/training.types";
 import { DEFAULT_EDUCATION_EXPERIENCE } from "../education-unit/experience";
+import { makeUnitContext } from "../education-unit/unit-context.fixture";
 import { createUnitRun } from "../education-unit/unit-state";
 import { advanceCompletedUnitWorkflow } from "./advance-completed-unit-workflow";
 
@@ -37,7 +38,7 @@ const abilityNode = {
   ...currentNode,
   id: "ability-1",
   parentNodeId: null,
-  kind: "ability",
+  kind: "outcome",
   orderIndex: 0,
 } satisfies CurriculumNode;
 
@@ -53,31 +54,23 @@ const masteredRun = {
     userId: "user-1",
     kind: "education",
     experience: DEFAULT_EDUCATION_EXPERIENCE,
-    masteryContract: {
-      version: 1,
-      dimensions: [
-        {
-          id: "perform-workflow",
-          name: "Perform the workflow",
-          description: "Perform and defend the target workflow.",
-          passSignals: ["Performs the workflow"],
-          failSignals: ["Cannot perform the workflow"],
-          surrogateTraps: ["Describes terminology without performing"],
-        },
-      ],
-    },
+    unitContext: makeUnitContext({
+      criterionId: "perform-workflow",
+      criterion: "Perform and defend the target workflow.",
+    }),
   }),
   mode: "complete" as const,
 };
 
 describe("advanceCompletedUnitWorkflow", () => {
-  it("routes a mastered ability unit to its required mission without completing it", async () => {
+  it("routes a mastered outcome unit to its required mission without completing it", async () => {
     const completeNode = vi.fn(() => Promise.resolve());
     const advanceSkillMapNode = vi.fn(() => Effect.void);
     const getProgressionState = vi.fn(() =>
       Effect.succeed({
-        regime: "skillset" as const,
-        skillsBelowRepTarget: 0,
+        regime: "main_outcome" as const,
+        unpracticedSkillCount: 0,
+        skillCount: 1,
         learnerRating: 1_800,
         ratingDeviation: 50,
         masteryRating: 1_800,
@@ -156,9 +149,12 @@ describe("advanceCompletedUnitWorkflow", () => {
         createUnit,
         getProgressionState: () =>
           Effect.succeed({
-            regime: "foundation" as const,
-            entries: [{ coverageCount: 1 }, { coverageCount: 0 }],
-            coverageTarget: 3,
+            regime: "main_outcome" as const,
+            unpracticedSkillCount: 1,
+            skillCount: 2,
+            learnerRating: 1_000,
+            ratingDeviation: 100,
+            masteryRating: 1_800,
           }),
         getMissionStatus: () => Promise.resolve(null),
         advanceSkillMapNode: () => Effect.void,
@@ -256,9 +252,12 @@ describe("advanceCompletedUnitWorkflow", () => {
         createUnit,
         getProgressionState: () =>
           Effect.succeed({
-            regime: "foundation" as const,
-            entries: [{ coverageCount: 1 }],
-            coverageTarget: 3,
+            regime: "main_outcome" as const,
+            unpracticedSkillCount: 1,
+            skillCount: 1,
+            learnerRating: 1_000,
+            ratingDeviation: 100,
+            masteryRating: 1_800,
           }),
         getMissionStatus: () => Promise.resolve(null),
         advanceSkillMapNode: () => Effect.void,
@@ -304,9 +303,12 @@ describe("advanceCompletedUnitWorkflow", () => {
         createUnit,
         getProgressionState: () =>
           Effect.succeed({
-            regime: "foundation" as const,
-            entries: [{ coverageCount: 1 }],
-            coverageTarget: 3,
+            regime: "main_outcome" as const,
+            unpracticedSkillCount: 1,
+            skillCount: 1,
+            learnerRating: 1_000,
+            ratingDeviation: 100,
+            masteryRating: 1_800,
           }),
         getMissionStatus: () => Promise.resolve(null),
         advanceSkillMapNode: () => Effect.void,

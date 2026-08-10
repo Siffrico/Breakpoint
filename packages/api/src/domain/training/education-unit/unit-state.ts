@@ -3,8 +3,8 @@ import { Data, Effect } from "effect";
 import type {
   EducationExperienceSnapshot,
   UnitCompleteTodo,
+  UnitContext,
   UnitDifficultySnapshot,
-  UnitMasteryContract,
   UnitReviewChallenge,
   UnitReviewPass,
   UnitRunKind,
@@ -13,15 +13,15 @@ import type {
   UnitTodo,
   UnitTodoResult,
 } from "@acme/validators";
-import { UnitMasteryContractSchema } from "@acme/validators";
+import { UnitContextSchema } from "@acme/validators";
 
 import type { EducationExperienceDefinition } from "./experience";
 import { snapshotEducationExperience } from "./experience";
 
 /**
- * One run teaches one capability. `todos` is the whole state: the teaching
- * moves, then the solve the learner answers, then the complete the reviewer
- * marks. `mode`, `reviewPass` and `activeReviewChallenge` are projections of
+ * One run has one teaching move. `todos` is the whole state: teach, present a
+ * solve, then record the review result. `mode`, `reviewPass` and
+ * `activeReviewChallenge` are projections of
  * that list, recomputed on every read — never branched on to decide what
  * happens next.
  */
@@ -31,9 +31,8 @@ export interface PersistedUnitRun {
   readonly userId: string | null;
   readonly kind: UnitRunKind;
   readonly experience: EducationExperienceSnapshot;
-  readonly masteryContract: UnitMasteryContract;
+  readonly unitContext: UnitContext;
   readonly todos: readonly UnitTodo[];
-  readonly reviewerFeedback: string | null;
   readonly difficultySnapshot: UnitDifficultySnapshot | null;
   /** Projection of `todos`. */
   readonly mode: UnitRunMode;
@@ -78,6 +77,12 @@ export const passTodos = (
   },
 ];
 
+/**
+ * The single teaching step an education run opens with. The `capability` todo
+ * is the existing state-machine name; its one authoritative id is `teach`.
+ */
+export const TEACH_TODO_ID = "teach";
+
 export const currentTodo = (
   run: Pick<PersistedUnitRun, "todos">,
 ): UnitTodo | null =>
@@ -85,6 +90,18 @@ export const currentTodo = (
 
 const currentSolve = (todos: readonly UnitTodo[]): UnitSolveTodo | null => {
   const todo = todos.find((candidate) => candidate.status !== "completed");
+  return todo?.kind === "solve" ? todo : null;
+};
+
+/**
+ * The next unanswered solve, whether or not it heads the list. Only the prefill
+ * slot looks past the head — presenting and answering stay head-bound.
+ */
+const nextSolve = (todos: readonly UnitTodo[]): UnitSolveTodo | null => {
+  const todo = todos.find(
+    (candidate) =>
+      candidate.kind === "solve" && candidate.status !== "completed",
+  );
   return todo?.kind === "solve" ? todo : null;
 };
 
@@ -157,36 +174,33 @@ export const createUnitRun = ({
   sessionId,
   userId,
   kind,
-  masteryContract,
+  unitContext,
   experience,
 }: {
   unitId: string;
   sessionId: string;
   userId?: string | null;
   kind: UnitRunKind;
-  masteryContract: UnitMasteryContract;
+  unitContext: UnitContext;
   experience: EducationExperienceDefinition;
 }): PersistedUnitRun => {
-  const contract = UnitMasteryContractSchema.parse(masteryContract);
+  const context = UnitContextSchema.parse(unitContext);
   return project({
     unitId,
     sessionId,
     userId: userId ?? null,
     kind,
     experience: snapshotEducationExperience(experience),
-    masteryContract: contract,
+    unitContext: context,
     todos: [
-      ...contract.dimensions.map(
-        (dimension): UnitTodo => ({
-          kind: "capability",
-          // A recall run re-tests a capability that was already taught.
-          status: kind === "recall" ? "completed" : "pending",
-          dimensionId: dimension.id,
-        }),
-      ),
+      {
+        kind: "capability",
+        // A recall run re-tests a capability that was already taught.
+        status: kind === "recall" ? "completed" : "pending",
+        dimensionId: TEACH_TODO_ID,
+      },
       ...passTodos(kind, 1),
     ],
-    reviewerFeedback: null,
     difficultySnapshot: null,
   });
 };
@@ -222,9 +236,10 @@ export const completeCurrentCapabilityTodo = (
 };
 
 /**
- * Parks a challenge on the pending solve. Pre-generation and live presentation
- * write through the same slot, so a background task that lands late is a no-op
- * rather than a challenge swap.
+ * Parks a challenge on the next unanswered solve, which is usually still behind
+ * the head — that is the whole point of a prefill. Pre-generation and live
+ * presentation write through the same slot, so a background task that lands
+ * after the solve opened is a no-op rather than a challenge swap.
  */
 export const attachChallenge = ({
   run,
@@ -233,7 +248,7 @@ export const attachChallenge = ({
   run: PersistedUnitRun;
   challenge: UnitReviewChallenge;
 }): Effect.Effect<PersistedUnitRun, UnitStateContractError> => {
-  const solve = currentSolve(run.todos);
+  const solve = nextSolve(run.todos);
   if (solve?.status !== "pending") {
     return contractFailure("There is no unopened challenge to fill.");
   }
@@ -319,7 +334,6 @@ export const markComplete = ({
   return Effect.succeed(
     project({
       ...run,
-      reviewerFeedback: feedback.trim(),
       todos: unitEnds
         ? marked
         : [...marked, ...passTodos(run.kind, complete.pass + 1)],

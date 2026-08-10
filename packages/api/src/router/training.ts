@@ -1,6 +1,5 @@
 import type { TRPCRouterRecord } from "@trpc/server";
 import { TRPCError } from "@trpc/server";
-import { Effect } from "effect";
 import { z } from "zod/v4";
 
 import type { StartingPointTier } from "@acme/validators";
@@ -29,10 +28,7 @@ import { listUnfinishedOnboardingSessionsWorkflow } from "../domain/training/wor
 import { prepareUnitWorkflow } from "../domain/training/workflows/prepare-unit-workflow";
 import { startOnboardingWorkflow } from "../domain/training/workflows/start-onboarding-workflow";
 import { queryWithClient } from "../effect/db";
-import { runMission } from "../effect/mission-edge";
-import { missionLayer } from "../effect/runtime";
 import { buildProjectCheckpointRepository } from "../repositories/build-project-checkpoint-repository";
-import { recoverSkillUnits } from "../repositories/build-project-repository-deps";
 import { trainingCurriculumRepository } from "../repositories/training-curriculum-repository";
 import { trainingOnboardingRepository } from "../repositories/training-onboarding-repository";
 import { trainingRatingRepository } from "../repositories/training-rating-repository";
@@ -47,6 +43,7 @@ import {
 import { createUnitPreparationRepositoryDeps } from "../repositories/unit-preparation-repository-deps";
 import { createWorkspaceTurnRepositoryDeps } from "../repositories/workspace-turn-repository-deps";
 import { protectedProcedure } from "../trpc";
+import { runMission } from "./run-effect";
 
 const SessionIdSchema = z.object({
   sessionId: z.string().uuid(),
@@ -233,12 +230,16 @@ export const trainingRouter = {
       await startOnboardingWorkflow({
         userId: ctx.session.user.id,
         deps: {
-          createSession: (userId) =>
-            trainingOnboardingRepository.createSession({ db: ctx.db, userId }),
-          appendMessage: (input) =>
+          createSession: ({ userId }) =>
+            trainingOnboardingRepository.createSession({
+              db: ctx.db,
+              userId,
+            }),
+          appendMessage: (message) =>
             trainingOnboardingRepository.appendMessage({
               db: ctx.db,
-              ...input,
+              ...message,
+              slot: null,
             }),
         },
       }),
@@ -321,6 +322,27 @@ export const trainingRouter = {
       },
     }),
   ),
+
+  /**
+   * The durable build state for one session. This is what makes the build
+   * survive a dropped connection: the SSE stream is a live view, this row is
+   * the record. Ownership is checked here because the checkpoint is keyed by
+   * session, not by user.
+   */
+  getBuildRun: protectedProcedure
+    .input(z.object({ sessionId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const session = await trainingOnboardingRepository.getSession({
+        db: ctx.db,
+        sessionId: input.sessionId,
+      });
+      if (!session || session.userId !== ctx.session.user.id) return null;
+      const run = await buildProjectCheckpointRepository.getRun({
+        db: ctx.db,
+        sessionId: input.sessionId,
+      });
+      return run ? run.state : null;
+    }),
 
   listLearningProjects: protectedProcedure.query(({ ctx }) =>
     trainingWorkspaceReadRepository.listLearningProjectsForUser({
@@ -571,43 +593,13 @@ export const trainingRouter = {
                 db: ctx.db,
                 sessionId,
               }),
-            recoverSkillUnits: () =>
-              recoverSkillUnits({
-                db: ctx.db,
-                sessionId: input.sessionId,
-                userId: ctx.session.user.id,
-                scheduleBackgroundTask: ctx.scheduleBackgroundTask,
-              }),
-            startUnitPreparation: ({ nodeId, sessionId }) => {
-              const prepare = () =>
-                prepareUnitWorkflow({
+            hasUnitContent: async (nodeId) =>
+              Boolean(
+                await trainingCurriculumRepository.getUnitByNodeId({
+                  db: ctx.db,
                   nodeId,
-                  sessionId,
-                  deps: createPrepareUnitDependencies(ctx.db),
-                }).then(
-                  (result) => {
-                    if (!result.success) {
-                      console.error("First workspace unit preparation failed", {
-                        nodeId,
-                        sessionId,
-                        error: result.error,
-                      });
-                    }
-                  },
-                  (error: unknown) => {
-                    console.error("First workspace unit preparation failed", {
-                      nodeId,
-                      sessionId,
-                      error,
-                    });
-                  },
-                );
-              if (ctx.scheduleBackgroundTask) {
-                ctx.scheduleBackgroundTask(prepare);
-              } else {
-                void prepare();
-              }
-            },
+                }),
+              ),
           },
         }),
       );
@@ -691,11 +683,12 @@ export const trainingRouter = {
               ),
             getMissionStatus: ({ sessionId, unitContentId, userId }) =>
               runMission(
+                ctx.db,
                 getMissionStatusWorkflow({
                   userId,
                   unitContentId,
                   sessionId,
-                }).pipe(Effect.provide(missionLayer(ctx.db))),
+                }),
               ),
             advanceSkillMapNode: ({ skillNodeId, sessionId, userId }) =>
               queryWithClient(ctx.db, "advanceSkillMapNode", () =>

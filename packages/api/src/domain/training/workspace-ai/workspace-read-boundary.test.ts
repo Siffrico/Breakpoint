@@ -11,6 +11,7 @@ import type {
 } from "../types/training.types";
 import type { WorkspaceTurnOrchestrationDependencies } from "./workspace-turn-orchestration";
 import { DEFAULT_EDUCATION_EXPERIENCE } from "../education-unit/experience";
+import { makeUnitContext } from "../education-unit/unit-context.fixture";
 import { createUnitRun } from "../education-unit/unit-state";
 import { UnitNotReadyError } from "../unit-preparation/errors";
 import { getAiWorkspaceWorkflow } from "../workflows/get-ai-workspace-workflow";
@@ -20,7 +21,7 @@ import { WorkspaceTurnRepo } from "./workspace-turn-repo";
 
 const readyNode = {
   id: "node-1",
-  parentNodeId: "cluster-1",
+  parentNodeId: "outcome-1",
   kind: "unit",
   title: "Unit",
   summary: "Summary",
@@ -43,53 +44,50 @@ const completedNode = {
   orderIndex: 0,
   status: "completed",
 } satisfies CurriculumNode;
-const abilityNode = {
+const outcomeNode = {
   ...completedNode,
-  id: "ability-1",
+  id: "outcome-1",
   parentNodeId: null,
-  kind: "ability",
-  title: "Ability",
-} satisfies CurriculumNode;
-const skillNode = {
-  ...completedNode,
-  id: "cluster-1",
-  parentNodeId: abilityNode.id,
-  kind: "skill",
-  title: "Skill",
+  kind: "outcome",
+  title: "Outcome",
 } satisfies CurriculumNode;
 const recallPlan = {
   id: "plan-1",
-  nodes: [abilityNode, skillNode, completedNode, readyNode],
+  nodes: [outcomeNode, completedNode, readyNode],
 } as CurriculumPlan;
-const masteryContract = {
-  version: 1 as const,
-  dimensions: [
-    {
-      id: "stable-boundaries",
-      name: "Use stable boundaries",
-      description: "Keep responsibility at the canonical boundary.",
-      passSignals: ["Chooses the canonical boundary"],
-      failSignals: ["Duplicates responsibility"],
-      surrogateTraps: ["Names the boundary without using it"],
-    },
-  ],
+const unitContext = makeUnitContext();
+const unitStateFields = {
+  title: "Stable boundaries",
+  summary: "Keep one canonical boundary.",
+  whyItMatters: "Duplicated ownership creates divergent behavior.",
+  learningGoal: "Choose and defend the canonical boundary.",
+  seedPrompt: "Where should this responsibility live?",
+  seedHint: "Choose one boundary and defend it.",
+  clusterArcFrame: null,
+  clusterBriefing: null,
+  scenario: {
+    title: "A duplicated boundary",
+    focusAreas: ["ownership"],
+  },
 };
 const recallUnit = {
+  ...unitStateFields,
   id: "unit-content-recall",
   nodeId: completedNode.id,
-  unitMasteryContract: masteryContract,
+  unitContext,
 } as UnitContent;
 const activeUnit = {
+  ...unitStateFields,
   id: "unit-content-active",
   nodeId: readyNode.id,
-  unitMasteryContract: masteryContract,
+  unitContext,
 } as UnitContent;
 const recallRun = createUnitRun({
   unitId: recallUnit.id,
   sessionId: "session-1",
   userId: "user-1",
   kind: "recall",
-  masteryContract,
+  unitContext,
   experience: DEFAULT_EDUCATION_EXPERIENCE,
 });
 const recallCandidate = {
@@ -220,11 +218,37 @@ describe("workspace read preparation boundary", () => {
     expect(upsertUnitRun).not.toHaveBeenCalled();
   });
 
+  it("treats a pre-refactor unit contract as unprepared", async () => {
+    const staleUnit = {
+      id: "unit-content-1",
+      nodeId: readyNode.id,
+      unitContext: {
+        version: 1,
+        dimensions: [{ id: "legacy-dimension" }],
+      },
+    } as unknown as UnitContent;
+
+    await expect(
+      resolveWorkspaceTurn({
+        sessionId: "session-1",
+        deps: {
+          getActivePlan: () => Promise.resolve(plan),
+          getPhaseResponses: () => Promise.resolve([]),
+          getUnitRun: () => Promise.resolve(null),
+          getInFlightRecallRun: () => Promise.resolve(null),
+          retireInFlightRecallRun: () => Promise.resolve(),
+          getUnitByNodeId: () => Promise.resolve(staleUnit),
+          ...noRecallProjectionDeps,
+        },
+      }),
+    ).rejects.toBeInstanceOf(UnitNotReadyError);
+  });
+
   it("derives an initial run in memory when the run row is missing", async () => {
     const unit = {
       id: "unit-content-1",
       nodeId: readyNode.id,
-      unitMasteryContract: masteryContract,
+      unitContext,
     } as UnitContent;
     const upsertUnitRun = vi.fn();
 
@@ -247,7 +271,7 @@ describe("workspace read preparation boundary", () => {
         unitId: unit.id,
         sessionId: "session-1",
         kind: "education",
-        masteryContract,
+        unitContext,
         experience: DEFAULT_EDUCATION_EXPERIENCE,
       }),
     );
@@ -263,7 +287,7 @@ describe("workspace read preparation boundary", () => {
     const unit = {
       id: "unit-content-1",
       nodeId: readyNode.id,
-      unitMasteryContract: masteryContract,
+      unitContext,
     } as UnitContent;
     const customizedExperience = {
       ...DEFAULT_EDUCATION_EXPERIENCE,
@@ -298,7 +322,7 @@ describe("workspace read preparation boundary", () => {
     const unit = {
       id: "unit-content-1",
       nodeId: readyNode.id,
-      unitMasteryContract: masteryContract,
+      unitContext,
     } as UnitContent;
 
     await resolveWorkspaceTurn({
@@ -346,6 +370,58 @@ describe("durable recall projection", () => {
     expect(turn.recallFocus?.primary.id).toBe(recallCandidate.id);
   });
 
+  it("returns a cached turn even when speculative context loading fails", async () => {
+    const turn = await resolveWorkspaceTurn({
+      sessionId: "session-1",
+      deps: recallDeps(),
+    });
+    const assistantMessage = {
+      role: "assistant" as const,
+      content: "Cached feedback",
+      sequence: 1,
+      slot: "education_unit",
+      unitId: completedNode.id,
+      turnId: "turn-cached",
+      metadata: null,
+    };
+    const onAssistantMessage = vi.fn();
+    const deps: WorkspaceTurnOrchestrationDependencies = {
+      ...recallDeps(),
+      claimWorkspaceTurn: () =>
+        Promise.resolve({ status: "completed" as const, assistantMessage }),
+      appendMessage: () => Promise.resolve(null),
+      listUnitMessages: () => Promise.resolve([assistantMessage]),
+      markWorkspaceTurnFailed: () => Promise.resolve(),
+      claimWorkspaceUnitLease: () => Promise.resolve(true),
+      releaseWorkspaceUnitLease: () => Promise.resolve(),
+      listMemories: () => Promise.reject(new Error("memory read failed")),
+      resolveDifficultyDirective: () =>
+        Promise.reject(new Error("rating read failed")),
+    };
+
+    const result = await Effect.runPromise(
+      runEducationUnitTurn({
+        sessionId: "session-1",
+        userId: "user-1",
+        turnId: "turn-cached",
+        turnLeaseId: "lease-cached",
+        message: "Repeated answer",
+        turn,
+        deps,
+        onAssistantMessage,
+      }).pipe(
+        Effect.provide(
+          Layer.succeed(WorkspaceTurnRepo, {
+            commitEducationTurn: () => Effect.die("must not commit"),
+          }),
+        ),
+      ),
+    );
+
+    expect(result.assistantMessage).toBe(assistantMessage);
+    expect(onAssistantMessage).toHaveBeenCalledWith("Cached feedback");
+  });
+
   it("persists and resumes the fresh recall target after presenting its review", async () => {
     const phaseResponses: PhaseResponseRecord[] = [];
     let inFlightRecallRun: PersistedUnitRun | null = null;
@@ -355,7 +431,7 @@ describe("durable recall projection", () => {
         sessionId: "session-1",
         userId: "user-1",
         kind: "education",
-        masteryContract,
+        unitContext,
         experience: DEFAULT_EDUCATION_EXPERIENCE,
       }),
       mode: "complete" as const,
@@ -425,22 +501,7 @@ describe("durable recall projection", () => {
                 version: 1 as const,
                 runKind: "recall",
                 scenarioPromptSummary: "Choose and defend the next move.",
-                testedDimensions: [
-                  {
-                    dimensionId: "stable-boundaries",
-                    promptRole: "Test transfer.",
-                    expectedStrongMoves: ["Defends the canonical boundary"],
-                    acceptableVariants: [],
-                    commonWrongMoves: ["Duplicates responsibility"],
-                    scoreBands: {
-                      strong: "Defends the boundary causally.",
-                      partial: "Names the boundary without a causal defense.",
-                      weak: "Duplicates responsibility.",
-                    },
-                  },
-                ],
-                learnerVisibleCriteria: ["Choose and defend one move."],
-                evaluatorNotes: [],
+                testedCriterionIds: ["criterion-1"],
               },
             },
           },
@@ -626,6 +687,11 @@ describe("workspace view reads", () => {
     expect(view.messages).toEqual([
       unitMessage(readyNode.id, "Scenario prompt"),
     ]);
+    expect(view.unit).toMatchObject({
+      id: activeUnit.id,
+      nodeId: readyNode.id,
+      activeStage: "challenge",
+    });
     expect(view.introMessage).toBeNull();
     expect(listUnitMessages).toHaveBeenCalledWith("session-1", readyNode.id);
   });
@@ -662,6 +728,11 @@ describe("workspace view reads", () => {
     expect(view.messages).toEqual([
       unitMessage(completedNode.id, `Chat for ${completedNode.id}`),
     ]);
+    expect(view.unit).toMatchObject({
+      id: recallUnit.id,
+      nodeId: completedNode.id,
+      activeStage: "challenge",
+    });
     expect(view.introMessage).toMatchObject({ helper: "Recall" });
     // A recall interlude has no scenario plan of its own.
     expect(listUnitMessages).toHaveBeenCalledWith(
@@ -681,7 +752,7 @@ describe("workspace view reads", () => {
         sessionId: "session-1",
         userId: "user-1",
         kind: "education",
-        masteryContract,
+        unitContext,
         experience: DEFAULT_EDUCATION_EXPERIENCE,
       }),
       mode: "complete" as const,
@@ -747,7 +818,7 @@ describe("workspace view reads", () => {
   it("does not hydrate a transcript when no turn is runnable", async () => {
     const completedOnlyPlan = {
       id: "plan-1",
-      nodes: [completedNode],
+      nodes: [outcomeNode, completedNode],
     } as CurriculumPlan;
     const listUnitMessages = vi.fn().mockResolvedValue([]);
 
@@ -768,6 +839,7 @@ describe("workspace view reads", () => {
     const view = readyView(result);
     expect(view.state).toBeNull();
     expect(view.projectComplete).toBe(true);
+    expect(view.unit).toBeNull();
     expect(view.messages).toEqual([]);
     expect(listUnitMessages).not.toHaveBeenCalled();
   });

@@ -19,7 +19,7 @@ const ACCESS: MissionAccess = {
   run: { id: "run-1", sessionId: "session-1", mode: "complete" },
   unit: { id: "unit-1", title: "Diagnose", scenarioFocusAreas: ["evidence"] },
   node: { id: "node-1", summary: "Use evidence first." },
-  parentNode: { kind: "ability" },
+  parentNode: { kind: "outcome" },
   plan: { targetIdentity: "Incident commander" },
   mission: null,
 };

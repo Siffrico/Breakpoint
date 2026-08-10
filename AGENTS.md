@@ -100,6 +100,10 @@ The profile slice is the reference implementation of the modernized path — mir
 
 ### Over-engineering bans
 
+- Build production systems that are fast, reliable, functional, and easy to explain. Prefer the smallest system whose source of truth, success path, failure path, and recovery path are obvious. Simple systems should still support ambitious product behavior.
+- Reliability should make local sense: a reviewer should be able to point to the invariant, the authority that enforces it, and the safe recovery path without tracing extra machinery. If that explanation is hard, simplify the design before coding.
+- Before adding a helper, state variable, branch, service, or test, name the distinct failure it prevents. If an existing check already closes that failure, do not add another layer.
+- Prefer ambitious ideas with simple systems. Don't preserve complexity that already exists, don't add machinery that "looks architecturally impressive," and fight for the smallest model that makes correct behavior unsurprising.
 - No abstraction until the third concrete usage. Two similar blocks may stay similar.
 - No interface/registry/factory with a single implementation. No config options, parameters, or feature flags nobody asked for.
 - No backwards-compat shims or deprecated re-exports — this is pre-launch; delete the legacy path in the same change.

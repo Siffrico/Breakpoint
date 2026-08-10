@@ -1,49 +1,20 @@
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
-import type { UnitMasteryContract } from "@acme/validators";
-
 import type { UnitTurnDependencies } from "./run-unit-turn";
 import type { PersistedUnitRun } from "./unit-state";
 import { DEFAULT_EDUCATION_EXPERIENCE } from "./experience";
 import { runPassAdvanceTurn, runUnitTurn } from "./run-unit-turn";
-import { attachChallenge, createUnitRun } from "./unit-state";
+import { makeUnitContext } from "./unit-context.fixture";
+import { attachChallenge, createUnitRun, TEACH_TODO_ID } from "./unit-state";
 
-const masteryContract = {
-  version: 1,
-  dimensions: [
-    {
-      id: "derive-under-pressure",
-      name: "Derive under pressure",
-      description:
-        "Re-derive the decision when a realistic constraint changes.",
-      passSignals: ["Explains why the changed constraint changes the move"],
-      failSignals: ["Repeats the original procedure"],
-      surrogateTraps: ["Uses the right vocabulary without a causal chain"],
-    },
-  ],
-} satisfies UnitMasteryContract;
+const unitContext = makeUnitContext();
 
 const challengeContract = {
   version: 1 as const,
   runKind: "education" as const,
   scenarioPromptSummary: "Choose under a changed production constraint.",
-  testedDimensions: [
-    {
-      dimensionId: "derive-under-pressure",
-      promptRole: "Test mechanism-based transfer.",
-      expectedStrongMoves: ["Re-derives from the changed constraint"],
-      acceptableVariants: [],
-      commonWrongMoves: ["Copies the original procedure"],
-      scoreBands: {
-        strong: "Correct and causal.",
-        partial: "Plausible with a gap.",
-        weak: "Copied or unsupported.",
-      },
-    },
-  ],
-  learnerVisibleCriteria: ["Choose one move and defend it."],
-  evaluatorNotes: ["Do not reward copied wording."],
+  testedCriterionIds: ["derive-under-pressure"],
 };
 
 const difficultyVector = {
@@ -53,13 +24,21 @@ const difficultyVector = {
   embeddedAlternatives: 2,
 };
 
+const scenarioVerifier = {
+  type: "judge_rubric" as const,
+  answer: null,
+  checkerSpec: null,
+  scratchpad:
+    "Solution: re-derive from the changed constraint. Traps: repeat the old procedure; optimize the visible symptom. Both ignore the controlling cause. Audit: self-contained and answer hidden.",
+};
+
 const baseRun = (): PersistedUnitRun => ({
   ...createUnitRun({
     unitId: "unit-1",
     sessionId: "session-1",
     userId: "user-1",
     kind: "education",
-    masteryContract,
+    unitContext,
     experience: DEFAULT_EDUCATION_EXPERIENCE,
   }),
   difficultySnapshot: {
@@ -94,10 +73,12 @@ const input = (run = baseRun()) => ({
   run,
   transcript: [{ role: "user" as const, content: "I would derive it again." }],
   experience: DEFAULT_EDUCATION_EXPERIENCE,
-  buildContext: {
-    forMentor: () => "Unit context with the capability checklist.",
-    forPresenter: () => "Unit context for authoring the challenge.",
-    forCritic: () => "Unit context with the mastery contract.",
+  contexts: {
+    mentor: "Unit context for teaching.",
+    critique: {
+      createChallenge: "Unit context for authoring the challenge.",
+      judgeAnswer: "Unit context with the judgment standard.",
+    },
   },
 });
 
@@ -116,16 +97,17 @@ const deps = (
       object: {
         assistantMessage:
           "The production constraint changed. Choose the next move and defend it.",
+        verifier: scenarioVerifier,
       },
     }),
   runReviewGrade: () =>
     Effect.succeed({
       object: {
         assistantMessage:
-          "Your defense still copies the original rule. Try this changed case and re-derive the move.",
+          "Your defense preserves the procedure that worked before, which is sensible if the controlling constraint stayed fixed. The hidden assumption is that the changed production limit does not alter which signal should drive the decision.\n\nRe-derive the move from the constraint that can invalidate the original procedure. Which step of your original defense changes first once that constraint becomes controlling?",
         errorCodes: [],
-        gradeReasoning:
-          "The learner repeated the procedure without deriving it.",
+        scratchpad:
+          "Optimized for the proven procedure. Assumed the changed constraint did not alter the controlling signal. Cause: constraint blindness. JIT: re-derive from the invalidating constraint.",
         dimensionResults: [
           {
             dimensionId: "derive-under-pressure",
@@ -157,7 +139,7 @@ describe("runUnitTurn", () => {
             Effect.succeed({
               object: {
                 assistantMessage: "Move on.",
-                completedCapabilityId: "derive-under-pressure",
+                completedCapabilityId: TEACH_TODO_ID,
               },
             }),
         }),
@@ -180,7 +162,7 @@ describe("runUnitTurn", () => {
             Effect.succeed({
               object: {
                 assistantMessage: mentorMessage,
-                completedCapabilityId: "derive-under-pressure",
+                completedCapabilityId: TEACH_TODO_ID,
               },
             }),
         }),
@@ -189,12 +171,15 @@ describe("runUnitTurn", () => {
 
     expect(result.actor).toBe("reviewer");
     expect(result.nextRun.mode).toBe("review");
-    expect(result.completedCapabilityId).toBe("derive-under-pressure");
+    expect(result.completedCapabilityId).toBe(TEACH_TODO_ID);
     expect(result.presentedReviewChallenge).toBe(true);
     // The persisted challenge stays the challenge alone; the learner-facing
     // reply carries the mentor's handoff in front of it.
     const challengePrompt = result.nextRun.activeReviewChallenge?.prompt;
     expect(challengePrompt).toBeDefined();
+    expect(result.nextRun.activeReviewChallenge?.contract.verifier).toEqual(
+      scenarioVerifier,
+    );
     expect(result.assistantMessage).toBe(
       `${mentorMessage}\n\n${challengePrompt}`,
     );
@@ -215,7 +200,7 @@ describe("runUnitTurn", () => {
             return Effect.succeed({
               object: {
                 assistantMessage: mentorMessage,
-                completedCapabilityId: "derive-under-pressure",
+                completedCapabilityId: TEACH_TODO_ID,
               },
             });
           },
@@ -225,6 +210,7 @@ describe("runUnitTurn", () => {
               object: {
                 assistantMessage:
                   "The production constraint changed. Choose the next move and defend it.",
+                verifier: scenarioVerifier,
               },
             });
           },
@@ -233,11 +219,58 @@ describe("runUnitTurn", () => {
     );
 
     // Every snapshot extends the previous one, so the stream never has to
-    // retract text the learner has already read.
+    // retract text the learner has already read. The scenario was authored
+    // alongside the mentor, so it lands as one snapshot rather than its own
+    // partials.
     expect(streamed).toEqual([
       mentorMessage,
-      `${mentorMessage}\n\nThe production constraint changed.`,
+      `${mentorMessage}\n\nThe production constraint changed. Choose the next move and defend it.`,
     ]);
+  });
+
+  it("authors the pass-1 scenario alongside the mentor, not after it", async () => {
+    const order: string[] = [];
+    let releaseMentor: (() => void) | undefined;
+    const mentorGate = new Promise<void>((resolve) => {
+      releaseMentor = resolve;
+    });
+
+    const result = await Effect.runPromise(
+      runUnitTurn(
+        input(),
+        deps({
+          runMentor: () =>
+            Effect.gen(function* () {
+              order.push("mentor:start");
+              yield* Effect.promise(() => mentorGate);
+              order.push("mentor:end");
+              return {
+                object: {
+                  assistantMessage: "Here is the move, worked end to end.",
+                  completedCapabilityId: TEACH_TODO_ID,
+                },
+              };
+            }),
+          runReviewPresentation: () =>
+            Effect.sync(() => {
+              // Only reachable before the mentor resolves if the two ran
+              // together; a serial teach turn would deadlock on the gate.
+              order.push("scenario");
+              releaseMentor?.();
+              return {
+                object: {
+                  assistantMessage:
+                    "A supplier raised prices mid-cycle. Choose the next move.",
+                  verifier: scenarioVerifier,
+                },
+              };
+            }),
+        }),
+      ),
+    );
+
+    expect(order).toEqual(["mentor:start", "scenario", "mentor:end"]);
+    expect(result.presentedReviewChallenge).toBe(true);
   });
 
   it("opens the next pass when a Pass 1 grade finds a gap", async () => {
@@ -249,7 +282,7 @@ describe("runUnitTurn", () => {
             Effect.succeed({
               object: {
                 assistantMessage: "Now test it independently.",
-                completedCapabilityId: "derive-under-pressure",
+                completedCapabilityId: TEACH_TODO_ID,
               },
             }),
         }),
@@ -280,7 +313,7 @@ describe("runUnitTurn", () => {
               object: {
                 assistantMessage:
                   "You derived the mechanism, so now test it under pressure.",
-                completedCapabilityId: "derive-under-pressure",
+                completedCapabilityId: TEACH_TODO_ID,
               },
             }),
         }),
@@ -296,8 +329,8 @@ describe("runUnitTurn", () => {
                 assistantMessage:
                   "You re-derived and defended the decision under the new pressure.",
                 errorCodes: [],
-                gradeReasoning:
-                  "The learner used the mechanism and remained stable under pressure.",
+                scratchpad:
+                  "No material divergence: the learner used the mechanism and remained stable under pressure.",
                 dimensionResults: [
                   {
                     dimensionId: "derive-under-pressure",
@@ -324,7 +357,12 @@ describe("runUnitTurn", () => {
         input(settledPass1.nextRun),
         deps({
           runReviewPresentation: () =>
-            Effect.succeed({ object: { assistantMessage: pass2Prompt } }),
+            Effect.succeed({
+              object: {
+                assistantMessage: pass2Prompt,
+                verifier: scenarioVerifier,
+              },
+            }),
         }),
       ),
     );
@@ -337,7 +375,7 @@ describe("runUnitTurn", () => {
         difficultyVector,
         contract: {
           runKind: "education",
-          testedDimensions: [{ dimensionId: "derive-under-pressure" }],
+          testedCriterionIds: ["derive-under-pressure"],
         },
       },
     });
@@ -352,8 +390,8 @@ describe("runUnitTurn", () => {
                 assistantMessage:
                   "The judgment transferred cleanly to the new system.",
                 errorCodes: [],
-                gradeReasoning:
-                  "The learner independently transferred the causal mechanism.",
+                scratchpad:
+                  "No material divergence: the learner independently transferred the causal mechanism.",
                 dimensionResults: [
                   {
                     dimensionId: "derive-under-pressure",
@@ -387,7 +425,7 @@ describe("runUnitTurn", () => {
             Effect.succeed({
               object: {
                 assistantMessage: "Now test it independently.",
-                completedCapabilityId: "derive-under-pressure",
+                completedCapabilityId: TEACH_TODO_ID,
               },
             }),
         }),
@@ -413,6 +451,7 @@ describe("runUnitTurn", () => {
             return Effect.succeed({
               object: {
                 assistantMessage: "Unexpected model-authored challenge.",
+                verifier: scenarioVerifier,
               },
             });
           },

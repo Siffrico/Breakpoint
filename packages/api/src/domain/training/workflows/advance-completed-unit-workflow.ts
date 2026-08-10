@@ -50,11 +50,7 @@ interface AdvanceCompletedUnitDependencies {
     unitRunId: string;
     status: "completed" | "active" | "drafting" | null;
   } | null>;
-  /**
-   * The parent skill/ability is mastered: complete it, unlock what follows
-   * (next skill's foundation unit, the ability's skillset units, or the next
-   * ability), and create the unlocked unit.
-   */
+  /** Complete a mastered outcome, unlock the next one, and create its unit. */
   advanceSkillMapNode: (input: {
     skillNodeId: string;
     sessionId: string;
@@ -149,7 +145,7 @@ export const advanceCompletedUnitWorkflow = async ({
       const decision = decideMasteryProgression(state);
       if (
         decision.intent === "node_complete" &&
-        completed.parent?.kind === "ability"
+        completed.parent?.kind === "outcome"
       ) {
         const mission = await deps.getMissionStatus({
           sessionId,
@@ -227,7 +223,7 @@ export const advanceCompletedUnitWorkflow = async ({
           userId,
         });
       } else {
-        // The parent skill/ability is mastered — advance the hierarchy.
+        // The outcome is mastered — advance to the next outcome.
         yield* deps.advanceSkillMapNode({ skillNodeId, sessionId, userId });
       }
     }).pipe(

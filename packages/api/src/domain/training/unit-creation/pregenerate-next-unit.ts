@@ -3,7 +3,10 @@ import { Effect } from "effect";
 import type { DbError } from "../../../effect/errors";
 import type { MasteryProgressionState } from "../engine/plan-progression";
 import type { CreateNextUnitError } from "./create-next-unit";
-import { decideMasteryProgression } from "../engine/plan-progression";
+import {
+  decideMasteryProgression,
+  shouldWarmNextOutcome,
+} from "../engine/plan-progression";
 
 export const ADVANCE_COMPLETED_UNIT_LOCK_KEY = "advance-completed-unit";
 
@@ -33,6 +36,13 @@ export interface PregenerateNextUnitDependencies<TNode> {
   ensureSkillKnowledge: (
     skillNodeId: string,
   ) => Effect.Effect<unknown, DbError>;
+  /**
+   * The next planned outcome after this one, or null when there is
+   * none or the plan is not topic-shaped.
+   */
+  findNextPlannedCluster: (
+    skillNodeId: string,
+  ) => Effect.Effect<string | null, DbError>;
   withLock: <A>(input: {
     sessionId: string;
     key: typeof ADVANCE_COMPLETED_UNIT_LOCK_KEY;
@@ -70,7 +80,7 @@ export const pregenerateNextUnit = <TNode>({
 }): Effect.Effect<void, DbError | CreateNextUnitError> =>
   Effect.gen(function* () {
     yield* deps.ensureSkillKnowledge(skillNodeId);
-    const created = yield* deps.withLock({
+    const outcome = yield* deps.withLock({
       sessionId,
       key: ADVANCE_COMPLETED_UNIT_LOCK_KEY,
       run: (locked) =>
@@ -79,27 +89,49 @@ export const pregenerateNextUnit = <TNode>({
             skillNodeId,
             userId,
           });
-          if (
-            !state ||
-            decideMasteryProgression(state).intent !== "create_unit"
-          ) {
-            return null;
+          if (!state) return { state: null, created: null };
+          if (decideMasteryProgression(state).intent !== "create_unit") {
+            return { state, created: null };
           }
           const isAwaitingAdvance = yield* locked.isAwaitingUnitAdvance({
             skillNodeId,
             sessionId,
           });
-          if (!isAwaitingAdvance) return null;
+          if (!isAwaitingAdvance) return { state, created: null };
 
-          return yield* locked.createUnitNode({
-            skillNodeId,
-            sessionId,
-            userId,
-            status: "planned",
-          });
+          return {
+            state,
+            created: yield* locked.createUnitNode({
+              skillNodeId,
+              sessionId,
+              userId,
+              status: "planned",
+            }),
+          };
         }),
     });
-    if (created?.needsContent) {
-      yield* deps.prepareUnit(created.node);
+
+    // Both remaining steps are model calls, so both run after the advance lock
+    // has committed and released. The learner's next unit comes first: it is
+    // what they are about to open, while the warm is for an outcome they have
+    // not reached. A failed warm must never cost them that unit, so it is
+    // fire-and-forget — the lazy path rebuilds it on demand if it never lands.
+    if (outcome.created?.needsContent) {
+      yield* deps.prepareUnit(outcome.created.node);
+    }
+    if (outcome.state && shouldWarmNextOutcome(outcome.state)) {
+      const nextClusterId = yield* deps.findNextPlannedCluster(skillNodeId);
+      if (nextClusterId) {
+        yield* deps.ensureSkillKnowledge(nextClusterId).pipe(
+          Effect.tapCause((cause) =>
+            Effect.logWarning("next outcome warm failed", {
+              skillNodeId,
+              nextClusterId,
+              cause,
+            }),
+          ),
+          Effect.ignore,
+        );
+      }
     }
   });

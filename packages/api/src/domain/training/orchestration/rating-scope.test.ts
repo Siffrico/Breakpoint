@@ -33,10 +33,10 @@ const unit = (nodeId: string, bands: DifficultyBand[] | null = null) => ({
   difficultyBands: bands,
 });
 
-void test("rates against the unit's ability ancestor", () => {
+void test("rates against the unit's outcome ancestor", () => {
   const planNodes = [
     node({ id: "root", kind: "root" }),
-    node({ id: "cluster", kind: "ability", parentNodeId: "root" }),
+    node({ id: "cluster", kind: "outcome", parentNodeId: "root" }),
     node({ id: "unit-a", kind: "unit", parentNodeId: "cluster" }),
     node({ id: "unit-b", kind: "unit", parentNodeId: "cluster" }),
   ];
@@ -53,7 +53,7 @@ void test("prefers the cluster's bands over the unit's", () => {
   const planNodes = [
     node({
       id: "cluster",
-      kind: "ability",
+      kind: "outcome",
       difficultyBands: [band(0)],
     }),
     node({ id: "unit-a", kind: "unit", parentNodeId: "cluster" }),
@@ -70,7 +70,7 @@ void test("prefers the cluster's bands over the unit's", () => {
 
 void test("falls back to the unit's bands when the cluster has none", () => {
   const planNodes = [
-    node({ id: "cluster", kind: "ability" }),
+    node({ id: "cluster", kind: "outcome" }),
     node({ id: "unit-a", kind: "unit", parentNodeId: "cluster" }),
   ];
 
@@ -83,7 +83,7 @@ void test("falls back to the unit's bands when the cluster has none", () => {
   assert.deepEqual(scope.bands, [band(1)]);
 });
 
-void test("rejects a unit without a skill cluster", () => {
+void test("rejects a unit without a outcome", () => {
   const planNodes = [
     node({ id: "root", kind: "root" }),
     node({ id: "unit-a", kind: "unit", parentNodeId: "root" }),
@@ -99,24 +99,12 @@ void test("rejects a unit without a skill cluster", () => {
   );
 });
 
-void test("walks through an intermediate ancestor to reach the cluster", () => {
-  const planNodes = [
-    node({ id: "cluster", kind: "ability" }),
-    node({ id: "integration", kind: "skill", parentNodeId: "cluster" }),
-    node({ id: "unit-a", kind: "unit", parentNodeId: "integration" }),
-  ];
-
-  const scope = resolveRatingScope({ unit: unit("unit-a"), planNodes });
-
-  assert.equal(scope.nodeId, "cluster");
-});
-
 void test("rejects a missing unit node", () => {
   assert.throws(
     () =>
       resolveRatingScope({
         unit: unit("ghost", [band(0)]),
-        planNodes: [node({ id: "cluster", kind: "ability" })],
+        planNodes: [node({ id: "cluster", kind: "outcome" })],
       }),
     CurriculumInvariantError,
   );

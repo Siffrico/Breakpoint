@@ -295,7 +295,7 @@ export const previewPlanState: PlanState = {
     {
       id: "node-cluster-1",
       parentNodeId: "node-root",
-      kind: "ability",
+      kind: "outcome",
       title: "Replication and Quorum",
       summary:
         "Model how writes, reads, and acknowledgements move across replicas.",
@@ -329,7 +329,7 @@ export const previewPlanState: PlanState = {
     {
       id: "node-cluster-2",
       parentNodeId: "node-root",
-      kind: "ability",
+      kind: "outcome",
       title: "Coordination and Recovery",
       summary:
         "Reason through leader election, retries, replay, and safe failover.",

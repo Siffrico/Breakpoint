@@ -1,3 +1,5 @@
+import { UnitContextSchema } from "@acme/validators";
+
 import type { Result } from "../../../lib/result";
 import type {
   EducationUnitState,
@@ -60,7 +62,10 @@ export const prepareUnitWorkflow = async ({
   const existingResponses = existingUnit
     ? await deps.getPhaseResponses(existingUnit.id, sessionId)
     : [];
-  if (existingUnit?.unitMasteryContract) {
+  if (
+    existingUnit &&
+    UnitContextSchema.safeParse(existingUnit.unitContext).success
+  ) {
     return ok(
       getEducationUnitState({
         unit: existingUnit,

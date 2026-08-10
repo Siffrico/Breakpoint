@@ -13,6 +13,9 @@ import {
 import { requireSession } from "~/app/api/_lib/require-session";
 
 export const runtime = "nodejs";
+// An education turn is a multi-model call that streams well past the platform
+// default (10-15s on Vercel). Matches the onboarding and mission chat routes.
+export const maxDuration = 300;
 
 const AI_MODEL_COOKIE = "bp-ai-model";
 const resolveModelPreference = (req: NextRequest, model?: string) => {

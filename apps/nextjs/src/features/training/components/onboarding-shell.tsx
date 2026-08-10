@@ -10,11 +10,10 @@ import {
   useRef,
   useState,
 } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import { ArrowClockwise, ArrowUp, Plus } from "@phosphor-icons/react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   DefaultChatTransport,
   lastAssistantMessageIsCompleteWithApprovalResponses,
@@ -27,7 +26,6 @@ import type {
   ProjectBuildState,
 } from "@acme/api/onboarding-chat";
 import type { StartingPointTier } from "@acme/validators";
-import { Button } from "@acme/ui/button";
 import {
   ChatComposerDock,
   ChatMessage,
@@ -51,10 +49,10 @@ import { previewOnboardingStates } from "~/features/training/lib/training-previe
 import { useTRPC } from "~/trpc/react";
 import { AssistantRichText } from "./assistant-rich-text";
 import { CreateProjectConfirm } from "./onboarding/create-project-confirm";
-import { ProjectBuildCard } from "./onboarding/project-build-card";
+import { OnboardingUtilityActions } from "./onboarding/onboarding-utility-actions";
+import { ProjectBuildScreen } from "./onboarding/project-build-screen";
 import { selectProjectBuildPart } from "./onboarding/select-project-build-part";
 import { StartingPointCheck } from "./onboarding/starting-point-check";
-import { UnfinishedOnboardingDialog } from "./onboarding/unfinished-onboarding-dialog";
 
 type OnboardingState = RouterOutputs["training"]["startOnboarding"];
 
@@ -181,6 +179,9 @@ export function OnboardingShell({
     trpc.training.startOnboarding.mutationOptions({
       onSuccess: (data) => {
         setSessionId(data.sessionId);
+        router.replace(
+          `/onboarding?session=${encodeURIComponent(data.sessionId)}`,
+        );
       },
       onError: (error) => toast.error(error.message),
     }),
@@ -289,11 +290,11 @@ export function OnboardingShell({
     },
   });
 
-  const seededFromStartRef = useRef(false);
+  const seededSessionIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (seededFromStartRef.current) return;
     if (!startOnboarding.data) return;
-    seededFromStartRef.current = true;
+    if (seededSessionIdRef.current === startOnboarding.data.sessionId) return;
+    seededSessionIdRef.current = startOnboarding.data.sessionId;
     setMessages(transcriptToMessages(startOnboarding.data));
   }, [setMessages, startOnboarding.data]);
 
@@ -323,8 +324,38 @@ export function OnboardingShell({
     () => selectProjectBuildPart(messages),
     [messages],
   );
-  const projectBuild = latestProjectBuildPart?.state ?? null;
+  const streamedBuild = latestProjectBuildPart?.state ?? null;
+
+  // The SSE stream is a live view of the build; the checkpoint row is the
+  // record of it. While the stream is connected it is authoritative and we do
+  // not poll at all — the poll only takes over once the stream is gone (tab
+  // reopened, invocation killed, or the build yielded). Because the two are
+  // never live at the same time, there is nothing to order and no revision
+  // number to carry.
+  const buildUnfinished =
+    Boolean(streamedBuild) &&
+    streamedBuild?.phase !== "complete" &&
+    streamedBuild?.phase !== "error";
+  const buildRun = useQuery({
+    ...trpc.training.getBuildRun.queryOptions({ sessionId: sessionId ?? "" }),
+    enabled: !preview && Boolean(sessionId) && buildUnfinished && !isStreaming,
+    refetchInterval: 2_000,
+  });
+  const projectBuild = (!isStreaming ? buildRun.data : null) ?? streamedBuild;
   const projectReady = projectBuild?.phase === "complete";
+
+  // A yielded build checkpointed itself and released its lease; picking it up is
+  // the same deterministic resume the retry button fires. The ref keys on the
+  // round so each yield resumes exactly once, however often this re-renders.
+  const resumedRoundRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (preview || !sessionId || isStreaming) return;
+    if (projectBuild?.phase !== "needs_resume") return;
+    const round = projectBuild.resumeRounds ?? 0;
+    if (resumedRoundRef.current === round) return;
+    resumedRoundRef.current = round;
+    void regenerate({ body: { resumeBuild: true } });
+  }, [preview, sessionId, isStreaming, projectBuild, regenerate]);
 
   useEffect(() => {
     onRunningChange?.(isStreaming || startOnboarding.isPending);
@@ -473,17 +504,10 @@ export function OnboardingShell({
       : "/settings/topics";
 
   const manualSetupAction = !embedded ? (
-    <div className="absolute top-4 right-4 z-10 flex items-center gap-1.5">
-      <UnfinishedOnboardingDialog activeSessionId={sessionId} />
-      <Button
-        render={<Link href={manualSetupHref} />}
-        variant="outline"
-        size="sm"
-        className="border-foreground/12 bg-background/88 text-foreground/72 hover:border-foreground/22 hover:bg-foreground/[0.04] hover:text-foreground h-7 rounded-none px-2.5 text-[12px] shadow-sm backdrop-blur before:rounded-none"
-      >
-        Do manually
-      </Button>
-    </div>
+    <OnboardingUtilityActions
+      activeSessionId={sessionId}
+      manualSetupHref={manualSetupHref}
+    />
   ) : null;
 
   const composer = (
@@ -690,25 +714,30 @@ export function OnboardingShell({
                         ) {
                           return null;
                         }
-                        const build = part.data as ProjectBuildState;
+                        // Prefer the durable row when the stream is down, so a
+                        // reopened tab renders live progress instead of the
+                        // snapshot frozen at disconnect.
+                        const build =
+                          projectBuild ?? (part.data as ProjectBuildState);
                         return (
-                          <ProjectBuildCard
+                          <ProjectBuildScreen
                             key={`${message.id}-build-${partIndex}`}
                             state={build}
                             preview={preview}
                             startPending={continueLearning.isPending}
                             retryDisabled={effectiveIsStreaming}
                             onStartLearning={() => {
-                              if (preview || !build.sessionId) return;
+                              if (
+                                preview ||
+                                build.phase !== "complete" ||
+                                !build.sessionId ||
+                                !build.firstUnitId
+                              ) {
+                                return;
+                              }
                               continueLearning.mutate({
                                 sessionId: build.sessionId,
                               });
-                            }}
-                            onSeeOverview={() => {
-                              if (preview || !build.sessionId) return;
-                              router.push(
-                                `/overview?session=${encodeURIComponent(build.sessionId)}`,
-                              );
                             }}
                             onRetry={() => {
                               // Any persisted build resumes deterministically;
@@ -720,12 +749,6 @@ export function OnboardingShell({
                                 return;
                               }
                               void regenerate();
-                            }}
-                            onRegenerateOverview={() => {
-                              if (!build.sessionId) return;
-                              // Stream the overview regen into the existing card
-                              // — stay on the page, no redirect.
-                              void regenerate({ body: { resumeBuild: true } });
                             }}
                           />
                         );

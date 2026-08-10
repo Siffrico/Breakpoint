@@ -151,19 +151,6 @@ export function useWorkspaceSession({
   const resolvedChatHistory = isHistorySelected
     ? (chatHistoryQuery.data ?? null)
     : null;
-  const unitQuery = useQuery(
-    trpc.training.unit.queryOptions(
-      { sessionId: selectedSessionId, nodeId: activeNode?.id ?? "" },
-      {
-        enabled:
-          !preview &&
-          !isHistorySelected &&
-          !unitPreparing &&
-          Boolean(activeNode),
-        retry: false,
-      },
-    ),
-  );
   const awaitUnitQuery = useQuery(
     trpc.training.awaitUnit.queryOptions(
       { sessionId: selectedSessionId, nodeId: preparingNodeId ?? "" },
@@ -205,7 +192,7 @@ export function useWorkspaceSession({
         }
       : null;
   const retryUnitPreparation = useMutation(
-    trpc.training.continueLearningProject.mutationOptions({
+    trpc.training.prepareUnit.mutationOptions({
       onSuccess: async () => {
         await Promise.all([
           queryClient.invalidateQueries({
@@ -224,8 +211,12 @@ export function useWorkspaceSession({
     }),
   );
   const retryPreparation = useCallback(() => {
-    retryUnitPreparation.mutate({ sessionId: selectedSessionId });
-  }, [retryUnitPreparation, selectedSessionId]);
+    if (!preparingNodeId) return;
+    retryUnitPreparation.mutate({
+      sessionId: selectedSessionId,
+      nodeId: preparingNodeId,
+    });
+  }, [preparingNodeId, retryUnitPreparation, selectedSessionId]);
 
   // Optimistic unit overlay: a running turn streams unit-state updates faster
   // than the unit query refetches. The overlay only shadows the same unit in
@@ -234,7 +225,7 @@ export function useWorkspaceSession({
     sessionId,
     unit: null as EducationUnit | null,
   });
-  const fetchedUnit = unitQuery.data ?? null;
+  const fetchedUnit = aiWorkspace?.unit ?? null;
   const liveUnit =
     liveUnitState.sessionId === selectedSessionId &&
     liveUnitState.unit?.nodeId === fetchedUnit?.nodeId
@@ -251,22 +242,16 @@ export function useWorkspaceSession({
     ? workspaceShellQuery.error.message
     : aiWorkspaceQuery.isError
       ? aiWorkspaceQuery.error.message
-      : unitQuery.isError
-        ? unitQuery.error.message
-        : null;
+      : null;
   const retryWorkspaceShell = workspaceShellQuery.refetch;
   const retryAiWorkspace = aiWorkspaceQuery.refetch;
-  const retryUnit = unitQuery.refetch;
   const retryWorkspaceLoad = useCallback(() => {
     if (workspaceShellQuery.isError) void retryWorkspaceShell();
     if (aiWorkspaceQuery.isError) void retryAiWorkspace();
-    if (unitQuery.isError) void retryUnit();
   }, [
     aiWorkspaceQuery.isError,
     retryAiWorkspace,
-    retryUnit,
     retryWorkspaceShell,
-    unitQuery.isError,
     workspaceShellQuery.isError,
   ]);
 

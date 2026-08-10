@@ -9,7 +9,6 @@ import { DefaultChatTransport, isTextUIPart } from "ai";
 
 import type { RouterOutputs, WorkspaceStreamStatus } from "@acme/api";
 import { ChatComposerDock, WorkspaceStatusLine } from "@acme/ui/chat";
-import { Separator } from "@acme/ui/separator";
 import { toast } from "@acme/ui/toast";
 
 import type { ExchangeMessage } from "./exchange-grouping";
@@ -17,6 +16,7 @@ import type { UnitCoachCommandIntent } from "~/features/training/lib/unit-coach-
 import { AssistantRichText } from "~/features/training/components/assistant-rich-text";
 import {
   educationUnitResponseDraftKey,
+  resolveActiveResponseDraftKey,
   shouldClearSubmittedDraft,
   useAutosavedResponseDraft,
 } from "~/features/training/hooks/use-autosaved-response-draft";
@@ -189,6 +189,18 @@ function PromptTurn({
         ) : null}
       </div>
     </section>
+  );
+}
+
+function PassDivider() {
+  return (
+    <div className="flex items-center gap-3 py-5">
+      <span className="bg-border h-px flex-1" />
+      <span className="text-muted-foreground text-xs whitespace-nowrap">
+        Next section
+      </span>
+      <span className="bg-border h-px flex-1" />
+    </div>
   );
 }
 
@@ -440,6 +452,9 @@ function EducationUnitWorkspaceComponent({
   const pendingSubmissionRef = useRef<string | null>(null);
   const pendingDraftKeyRef = useRef<string | null>(null);
   const pendingTurnIdRef = useRef<string | null>(null);
+  const [submittedDraftKey, setSubmittedDraftKey] = useState<string | null>(
+    null,
+  );
   const initialChatMessages = useMemo(
     () => transcriptToChatMessages(aiWorkspace, sessionId),
     [aiWorkspace, sessionId],
@@ -469,6 +484,7 @@ function EducationUnitWorkspaceComponent({
       if (!shouldClearSubmittedDraft(finishState)) return;
       clearSubmittedDraft(pendingDraftKeyRef.current);
       pendingDraftKeyRef.current = null;
+      setSubmittedDraftKey(null);
       pendingSubmissionRef.current = null;
       // The turn committed: its user message is now in the server transcript,
       // so it must stop qualifying as an unpersisted send to preserve.
@@ -617,14 +633,103 @@ function EducationUnitWorkspaceComponent({
     };
   }, []);
 
-  const chatTextLength = useMemo(
-    () =>
-      chatMessages.reduce(
-        (length, message) => length + getChatMessageText(message).length,
-        0,
-      ),
-    [chatMessages],
-  );
+  const introMessage = getIntroMessage(aiWorkspace);
+  const fallbackTurn = getFallbackTurn(unit);
+  // A turn that has run reports the brief for the pass it left on the board;
+  // before then, the bootstrap read is the only source. Ordering matters — the
+  // reverse would show the previous pass's scenario after every advance.
+  const scenario = latestTurnState
+    ? latestTurnState.scenario
+    : getScenario(aiWorkspace);
+  const transcriptProjection = useMemo(() => {
+    const messagesById = new Map<string, WorkspaceChatMessage>();
+    const exchangeMessages: ExchangeMessage[] = [];
+    let chatTextLength = 0;
+    let assistantPromptCount = 0;
+    let scenarioFoundInTranscript = false;
+
+    for (const message of chatMessages) {
+      const text = getChatMessageText(message);
+      messagesById.set(message.id, message);
+      chatTextLength += text.length;
+
+      if (message.role === "assistant" && text.trim().length > 0) {
+        assistantPromptCount += 1;
+        if (scenario && text.includes(scenario.stateA)) {
+          scenarioFoundInTranscript = true;
+        }
+      }
+
+      if (
+        (message.role === "assistant" || message.role === "user") &&
+        !(message.role === "user" && message.metadata?.synthetic)
+      ) {
+        exchangeMessages.push({
+          id: message.id,
+          role: message.role,
+          text,
+          failed: message.metadata?.failed === true,
+        });
+      }
+    }
+
+    const grouped = groupLiveExchanges(exchangeMessages);
+    const exchangeHistory: typeof grouped.history = [];
+    for (const exchange of grouped.history) {
+      const previous = exchangeHistory[exchangeHistory.length - 1];
+      if (!exchange.answer && exchange.prompt && previous?.prompt) {
+        exchangeHistory[exchangeHistory.length - 1] = {
+          ...previous,
+          prompt: {
+            ...previous.prompt,
+            text: `${previous.prompt.text}\n\n${exchange.prompt.text}`,
+          },
+        };
+      } else {
+        exchangeHistory.push(exchange);
+      }
+    }
+
+    const exchangeHistoryWithPassBoundaries: {
+      exchange: (typeof exchangeHistory)[number];
+      passNumber: number | undefined;
+      startsPass: boolean;
+    }[] = [];
+    let previousPassNumber: number | undefined;
+    for (const exchange of exchangeHistory) {
+      const promptMessage = exchange.prompt
+        ? messagesById.get(exchange.prompt.id)
+        : undefined;
+      const passNumber = promptMessage
+        ? getPassNumber(promptMessage)
+        : undefined;
+      exchangeHistoryWithPassBoundaries.push({
+        exchange,
+        passNumber,
+        startsPass:
+          passNumber !== undefined && passNumber !== previousPassNumber,
+      });
+      previousPassNumber = passNumber ?? previousPassNumber;
+    }
+
+    const activePromptMessage = grouped.activePrompt
+      ? (messagesById.get(grouped.activePrompt.id) ?? null)
+      : null;
+
+    return {
+      activePromptMessage,
+      chatTextLength,
+      exchangeHistoryWithPassBoundaries,
+      grouped,
+      latestAssistantPromptId:
+        assistantPromptCount > 0
+          ? `assistant:${assistantPromptCount - 1}`
+          : `initial:${unit.activeStage}`,
+      messagesById,
+      scenarioMissingFromTranscript:
+        scenario !== null && !scenarioFoundInTranscript,
+    };
+  }, [chatMessages, scenario, unit.activeStage]);
 
   useEffect(() => {
     if (!shouldAutoFollowRef.current) return;
@@ -636,40 +741,21 @@ function EducationUnitWorkspaceComponent({
     });
 
     return () => window.cancelAnimationFrame(frameId);
-  }, [chatMessages.length, chatTextLength, status]);
+  }, [chatMessages.length, status, transcriptProjection.chatTextLength]);
 
-  const introMessage = getIntroMessage(aiWorkspace);
-  const fallbackTurn = getFallbackTurn(unit);
-  // A turn that has run reports the brief for the pass it left on the board;
-  // before then, the bootstrap read is the only source. Ordering matters — the
-  // reverse would show the previous pass's scenario after every advance.
-  const scenario = latestTurnState
-    ? latestTurnState.scenario
-    : getScenario(aiWorkspace);
-  const scenarioMissingFromTranscript =
-    scenario !== null &&
-    !chatMessages.some(
-      (message) =>
-        message.role === "assistant" &&
-        getChatMessageText(message).includes(scenario.stateA),
-    );
-  const latestAssistantPromptId = useMemo(() => {
-    const assistantPromptCount = chatMessages.filter(
-      (message) =>
-        message.role === "assistant" &&
-        getChatMessageText(message).trim().length > 0,
-    ).length;
-    return assistantPromptCount > 0
-      ? `assistant:${assistantPromptCount - 1}`
-      : `initial:${unit.activeStage}`;
-  }, [chatMessages, unit.activeStage]);
-  const responseDraftKey = preview
+  const { latestAssistantPromptId, scenarioMissingFromTranscript } =
+    transcriptProjection;
+  const currentResponseDraftKey = preview
     ? null
     : educationUnitResponseDraftKey({
         projectId: sessionId,
         unitId: unit.nodeId,
         promptId: latestAssistantPromptId,
       });
+  const responseDraftKey = resolveActiveResponseDraftKey({
+    currentKey: currentResponseDraftKey,
+    submittedKey: submittedDraftKey,
+  });
   const {
     value: response,
     setValue: setResponse,
@@ -701,6 +787,12 @@ function EducationUnitWorkspaceComponent({
       pendingSubmissionRef.current = null;
       pendingDraftKeyRef.current = null;
       pendingTurnIdRef.current = null;
+      // The pin deliberately survives recovery. Releasing it here would hand
+      // the draft key back to the live prompt count, and the restored answer
+      // would only stay in the composer for as long as that count happens to
+      // match what it was at submit time. The next submit re-pins it and
+      // `onFinish` clears it, so holding it is also what the learner wants:
+      // they are editing an answer to the prompt they already answered.
       restoreSubmittedDraft(pendingDraftKey, pendingSubmission);
       setMessages((current) => {
         const failedMessageIndex = current.findIndex(
@@ -815,6 +907,7 @@ function EducationUnitWorkspaceComponent({
     clearError();
     pendingSubmissionRef.current = message;
     pendingDraftKeyRef.current = markSubmitted();
+    setSubmittedDraftKey(pendingDraftKeyRef.current);
     setIsExpanded(false);
     const turnId = retryTurnId ?? createWorkspaceTurnId();
     pendingTurnIdRef.current = turnId;
@@ -896,74 +989,14 @@ function EducationUnitWorkspaceComponent({
     void stop();
   };
 
-  const visibleMessages = chatMessages.filter(
-    (message) =>
-      (message.role === "assistant" || message.role === "user") &&
-      !(message.role === "user" && message.metadata?.synthetic),
-  );
-  const exchangeMessages: ExchangeMessage[] = visibleMessages.map(
-    (message) => ({
-      id: message.id,
-      role: message.role as "assistant" | "user",
-      text: getChatMessageText(message),
-      failed: message.metadata?.failed === true,
-    }),
-  );
-  const grouped = groupLiveExchanges(exchangeMessages);
-  const exchangeHistory = grouped.history.reduce<typeof grouped.history>(
-    (history, exchange) => {
-      const previous = history[history.length - 1];
-      if (!exchange.answer && exchange.prompt && previous?.prompt) {
-        history[history.length - 1] = {
-          ...previous,
-          prompt: {
-            ...previous.prompt,
-            text: `${previous.prompt.text}\n\n${exchange.prompt.text}`,
-          },
-        };
-        return history;
-      }
-      history.push(exchange);
-      return history;
-    },
-    [],
-  );
-  const exchangeHistoryWithPassBoundaries = exchangeHistory.reduce<{
-    previousPassNumber: number | undefined;
-    entries: {
-      exchange: (typeof exchangeHistory)[number];
-      passNumber: number | undefined;
-      startsPass: boolean;
-    }[];
-  }>(
-    (state, exchange) => {
-      const promptMessage = exchange.prompt
-        ? chatMessages.find((message) => message.id === exchange.prompt?.id)
-        : undefined;
-      const passNumber = promptMessage
-        ? getPassNumber(promptMessage)
-        : undefined;
-      return {
-        previousPassNumber: passNumber ?? state.previousPassNumber,
-        entries: [
-          ...state.entries,
-          {
-            exchange,
-            passNumber,
-            startsPass:
-              passNumber !== undefined &&
-              passNumber !== state.previousPassNumber,
-          },
-        ],
-      };
-    },
-    { previousPassNumber: undefined, entries: [] },
-  ).entries;
+  const {
+    activePromptMessage,
+    exchangeHistoryWithPassBoundaries,
+    grouped,
+    messagesById,
+  } = transcriptProjection;
   const activePrompt = grouped.activePrompt;
   const pendingAnswer = grouped.pendingAnswer;
-  const activePromptMessage = activePrompt
-    ? (chatMessages.find((message) => message.id === activePrompt.id) ?? null)
-    : null;
   const activePassNumber = activePromptMessage
     ? getPassNumber(activePromptMessage)
     : undefined;
@@ -1024,9 +1057,7 @@ function EducationUnitWorkspaceComponent({
             }
           >
             {startsPass && passNumber !== undefined && passNumber > 1 ? (
-              <div className="py-5">
-                <Separator />
-              </div>
+              <PassDivider />
             ) : null}
             {exchange.prompt ? (
               <PromptTurn prompt={exchange.prompt.text} />
@@ -1051,11 +1082,7 @@ function EducationUnitWorkspaceComponent({
 
       {activePrompt ? (
         <>
-          {activePromptStartsPass ? (
-            <div className="py-5">
-              <Separator />
-            </div>
-          ) : null}
+          {activePromptStartsPass ? <PassDivider /> : null}
           <PromptTurn
             prompt={activePrompt.text}
             helper={null}
@@ -1091,9 +1118,7 @@ function EducationUnitWorkspaceComponent({
       ) : null}
 
       {grouped.failedAnswers.map((answer) => {
-        const failedMessage = chatMessages.find(
-          (message) => message.id === answer.id,
-        );
+        const failedMessage = messagesById.get(answer.id);
         const failedTurnId = failedMessage?.metadata?.turnId;
         return (
           <SubmittedAnswerReceipt

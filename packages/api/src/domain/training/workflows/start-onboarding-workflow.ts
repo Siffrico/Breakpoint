@@ -1,15 +1,16 @@
 import type { Result } from "../../../lib/result";
 import type { OnboardingSessionState } from "../types/training.types";
 import { err, ok } from "../../../lib/result";
-import { INTRO_PROMPT } from "../services/onboarding-prompts";
+import { TOPIC_SCOPE_CONSULTANT_OPENER } from "../prompts/personas/topic-scope-consultant";
 
 interface StartOnboardingDependencies {
-  createSession: (userId?: string | null) => Promise<{ id: string } | null>;
+  createSession: (input: {
+    userId?: string | null;
+  }) => Promise<{ id: string } | null>;
   appendMessage: (input: {
     sessionId: string;
-    role: "assistant" | "user";
+    role: "assistant";
     content: string;
-    slot: string | null;
   }) => Promise<unknown>;
 }
 
@@ -20,16 +21,13 @@ export const startOnboardingWorkflow = async ({
   userId?: string | null;
   deps: StartOnboardingDependencies;
 }): Promise<Result<OnboardingSessionState>> => {
-  const session = await deps.createSession(userId);
-  if (!session) {
-    return err("Failed to start onboarding.");
-  }
+  const session = await deps.createSession({ userId });
+  if (!session) return err("Failed to start onboarding.");
 
   await deps.appendMessage({
     sessionId: session.id,
     role: "assistant",
-    content: INTRO_PROMPT,
-    slot: "target_identity",
+    content: TOPIC_SCOPE_CONSULTANT_OPENER,
   });
 
   return ok({
@@ -38,9 +36,9 @@ export const startOnboardingWorkflow = async ({
     transcript: [
       {
         role: "assistant",
-        content: INTRO_PROMPT,
+        content: TOPIC_SCOPE_CONSULTANT_OPENER,
         sequence: 0,
-        slot: "target_identity",
+        slot: null,
       },
     ],
     activeQuestion: null,

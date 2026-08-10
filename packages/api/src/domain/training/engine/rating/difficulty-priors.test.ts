@@ -1,14 +1,14 @@
 import { expect, test } from "vitest";
 
-import { BAND_DIAL_PRESETS } from "./difficulty-priors";
+import { BAND_DIAL_GUIDES } from "./difficulty-priors";
 
-test("every band preset contains ordered non-negative ranges", () => {
-  expect(Object.keys(BAND_DIAL_PRESETS)).toEqual(["0", "1", "2"]);
-  for (const preset of Object.values(BAND_DIAL_PRESETS)) {
+test("every band guide contains ordered non-negative ranges", () => {
+  expect(Object.keys(BAND_DIAL_GUIDES)).toEqual(["0", "1", "2"]);
+  for (const guide of Object.values(BAND_DIAL_GUIDES)) {
     for (const range of [
-      preset.steps,
-      preset.withheldGivens,
-      preset.alternatives,
+      guide.steps,
+      guide.withheldGivens,
+      guide.alternatives,
     ]) {
       expect(range[0]).toBeGreaterThanOrEqual(0);
       expect(range[1]).toBeGreaterThanOrEqual(range[0]);

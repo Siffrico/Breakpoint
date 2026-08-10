@@ -1,7 +1,10 @@
 import { z } from "zod/v4";
 
 import type { EvaluationDimensionResult } from "@acme/validators";
-import { EvaluationDimensionResultSchema } from "@acme/validators";
+import {
+  EvaluationDimensionResultSchema,
+  ScenarioVerifierSchema,
+} from "@acme/validators";
 
 export const LearnerFacingMessageSchema = z.string().trim().min(24).max(8_000);
 
@@ -44,6 +47,24 @@ export const mentorOutputSchema = (currentCapabilityId: string) =>
         });
       }
     });
+
+export const reviewPresentationSchema = z
+  .object({
+    assistantMessage: LearnerFacingMessageSchema,
+    verifier: ScenarioVerifierSchema,
+  })
+  .strict()
+  .superRefine((output, ctx) => {
+    if (
+      /<\/?scratchpad>|verifier\.|checkerSpec/i.test(output.assistantMessage)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["assistantMessage"],
+        message: "learner-facing text must not expose private authoring data",
+      });
+    }
+  });
 
 // ---------------------------------------------------------------------------
 // Critic contracts
@@ -136,7 +157,7 @@ export const reviewGradeSchema = ({
     .object({
       assistantMessage: LearnerFacingMessageSchema,
       errorCodes: z.array(z.string().min(1)).max(3),
-      gradeReasoning: z.string().min(12),
+      scratchpad: z.string().trim().min(24).max(600),
       dimensionResults: z
         .array(
           EvaluationDimensionResultSchema.extend({
@@ -166,10 +187,29 @@ export const reviewGradeSchema = ({
           message: "Grade each tested dimension exactly once.",
         });
       }
+
+      const gap = hasModelGap(output.dimensionResults);
+      if (gap && !output.assistantMessage.trimEnd().endsWith("?")) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["assistantMessage"],
+          message:
+            "feedback for a learner gap must end with one targeted application question",
+        });
+      }
+      if (
+        /\b(?:the mirror|the pivot|the crucible)\b/i.test(
+          output.assistantMessage,
+        )
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["assistantMessage"],
+          message: "write naturally without named diagnostic template sections",
+        });
+      }
     });
 
 export type MentorOutput = z.infer<ReturnType<typeof mentorOutputSchema>>;
-export interface ReviewPresentationOutput {
-  readonly assistantMessage: string;
-}
+export type ReviewPresentationOutput = z.infer<typeof reviewPresentationSchema>;
 export type ReviewGradeOutput = z.infer<ReturnType<typeof reviewGradeSchema>>;
