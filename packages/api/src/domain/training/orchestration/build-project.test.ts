@@ -243,18 +243,10 @@ describe("buildProjectFromOnboarding", () => {
       success: false,
       error: "The first outcome is missing required curriculum data.",
     });
-    expect(deps.saveArtifact).toHaveBeenCalledWith(
-      expect.objectContaining({
-        step: "outcomeCurriculum",
-        status: "failed",
-        failureKind: "schema",
-      }),
-    );
+    // Outcome compilation is tracked by TrainingNodeBuild, not the project
+    // artifact registry — a failure here must not write a competing status row.
     expect(deps.saveArtifact).not.toHaveBeenCalledWith(
-      expect.objectContaining({
-        step: "outcomeCurriculum",
-        status: "complete",
-      }),
+      expect.objectContaining({ step: "outcomeCurriculum" }),
     );
     expect(deps.createOutcomeUnit).not.toHaveBeenCalled();
   });

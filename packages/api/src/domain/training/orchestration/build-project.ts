@@ -81,17 +81,15 @@ export type ProjectBuildGap = "overview";
 /**
  * The AI-generated artifacts that get their own registry lifecycle row.
  *
- * `curriculum` and `overview` additionally checkpoint their *payload*, so a
- * resume can re-save an already-generated output for zero tokens. `blueprint`
- * and `unitSeed` record status only: both already dedupe on their own durable
- * rows (a blueprinted outcome has syllabus rows; a prepared unit has content),
- * so a payload copy would buy nothing a re-read does not already give.
+ * Only artifacts this orchestrator *owns* belong here: both checkpoint their
+ * payload, so a resume can re-save an already-generated output for zero tokens.
+ *
+ * Outcome-curriculum compilation and unit seeding are deliberately absent. They
+ * have their own lifecycle in `TrainingNodeBuild` and dedupe on their own
+ * durable rows, so a second status row here could only ever disagree with the
+ * one that actually gates the work.
  */
-export type ProjectBuildArtifactStep =
-  | "curriculum"
-  | "outcomeCurriculum"
-  | "unitSeed"
-  | "overview";
+export type ProjectBuildArtifactStep = "curriculum" | "overview";
 
 /**
  * The full snapshot streamed to the client on every transition. It is emitted
@@ -605,8 +603,6 @@ export const buildProjectFromOnboarding = async ({
   const artifacts = await deps.getArtifacts({ sessionId, sourceKey });
   const artifactMap = new Map(artifacts.map((record) => [record.step, record]));
   const curriculumRecord = artifactMap.get("curriculum");
-  const outcomeCurriculumRecord = artifactMap.get("outcomeCurriculum");
-  const unitSeedRecord = artifactMap.get("unitSeed");
   const overviewRecord = artifactMap.get("overview");
 
   // Idempotency: a fully-built plan (status "active") with no unfinished artifact
@@ -796,66 +792,26 @@ export const buildProjectFromOnboarding = async ({
       // between the two steps loses nothing. Both calls below are AI-backed.
       if (outOfBudgetFor("unit")) return yieldForResume();
 
-      // Compile the first outcome's Skill Map and Practice Contract. Status-only
-      // checkpoint: the call already short-circuits on its own persisted rows,
-      // so the registry row exists to record failures and skip a redundant
-      // round-trip, not to re-save a payload.
-      // Both knowledge and unit-content generation belong to one critical-path
-      // budget. Sharing this signal prevents a slow blueprint from leaving a
-      // fresh full timeout for the unit seed.
+      // Compile the first outcome's Skill Map and Practice Contract, then seed
+      // its unit. Neither call is checkpointed here: both own a TrainingNodeBuild
+      // lifecycle row that already records attempts and short-circuits finished
+      // work, so a resume re-enters them and they no-op on their own state.
+      // Both belong to one critical-path budget. Sharing this signal prevents a
+      // slow compile from leaving a fresh full timeout for the unit seed.
       const unitAbortSignal = stepAbortSignal("unit");
-      if (decide(outcomeCurriculumRecord) === "generate") {
-        const outcomeCurriculumAttempts =
-          (outcomeCurriculumRecord?.attempts ?? 0) + 1;
-        await recordArtifact(
-          "outcomeCurriculum",
-          "generating",
-          null,
-          null,
-          outcomeCurriculumAttempts,
-        );
-        try {
-          const outcomeCurriculum = await deps.ensureOutcomeCurriculum({
-            outcomeNodeId: firstFrontier.id,
-            targetIdentity: launchPlan.targetIdentity,
-            abortSignal: unitAbortSignal,
-          });
-          if (outcomeCurriculum === null) {
-            throw new ArtifactBuildError(
-              "The first outcome is missing required curriculum data.",
-              "schema",
-            );
-          }
-        } catch (error) {
-          await recordArtifact(
-            "outcomeCurriculum",
-            "failed",
-            null,
-            failureKindOf(error),
-            outcomeCurriculumAttempts,
-          );
-          if (unitAbortSignal.aborted) return yieldForResume();
-          throw error;
-        }
-        await recordArtifact(
-          "outcomeCurriculum",
-          "complete",
-          null,
-          null,
-          outcomeCurriculumAttempts,
-        );
-      }
-
-      const unitSeedAttempts = (unitSeedRecord?.attempts ?? 0) + 1;
-      await recordArtifact(
-        "unitSeed",
-        "generating",
-        null,
-        null,
-        unitSeedAttempts,
-      );
       let firstUnit: { id: string } | null;
       try {
+        const outcomeCurriculum = await deps.ensureOutcomeCurriculum({
+          outcomeNodeId: firstFrontier.id,
+          targetIdentity: launchPlan.targetIdentity,
+          abortSignal: unitAbortSignal,
+        });
+        if (outcomeCurriculum === null) {
+          throw new ArtifactBuildError(
+            "The first outcome is missing required curriculum data.",
+            "schema",
+          );
+        }
         firstUnit = await deps.createOutcomeUnit({
           outcomeNodeId: firstFrontier.id,
           sessionId,
@@ -863,33 +819,12 @@ export const buildProjectFromOnboarding = async ({
           abortSignal: unitAbortSignal,
         });
       } catch (error) {
-        await recordArtifact(
-          "unitSeed",
-          "failed",
-          null,
-          failureKindOf(error),
-          unitSeedAttempts,
-        );
         if (unitAbortSignal.aborted) return yieldForResume();
         throw error;
       }
       if (!firstUnit) {
-        await recordArtifact(
-          "unitSeed",
-          "failed",
-          null,
-          "provider",
-          unitSeedAttempts,
-        );
         return fail("I couldn't prepare your first unit. Want to try again?");
       }
-      await recordArtifact(
-        "unitSeed",
-        "complete",
-        null,
-        null,
-        unitSeedAttempts,
-      );
       state.firstUnitId = firstUnit.id;
     }
   } catch (error) {
