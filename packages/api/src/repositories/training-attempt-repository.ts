@@ -73,17 +73,31 @@ export const trainingAttemptRepository = {
       orderBy: [desc(TrainingUnitAttempt.createdAt)],
     })) ?? null,
 
+  /**
+   * Oldest-first attempt history. Callers that only need the recent tail pass
+   * `limit`, which is applied in the query rather than sliced afterwards — the
+   * whole history rides a prompt or a render, and neither improves by loading
+   * attempts nobody reads.
+   */
   listAttemptHistory: async ({
     db,
     sessionId,
+    limit,
   }: {
     db: Database;
     sessionId: string;
+    limit?: number;
   }) => {
-    const attempts = await db.query.TrainingUnitAttempt.findMany({
+    // Newest-first + limit is how the database can honour a tail; flip back to
+    // oldest-first afterwards so every caller sees the same ordering.
+    const rows = await db.query.TrainingUnitAttempt.findMany({
       where: eq(TrainingUnitAttempt.onboardingSessionId, sessionId),
-      orderBy: asc(TrainingUnitAttempt.createdAt),
+      orderBy: limit
+        ? desc(TrainingUnitAttempt.createdAt)
+        : asc(TrainingUnitAttempt.createdAt),
+      limit,
     });
+    const attempts = limit ? rows.reverse() : rows;
 
     if (attempts.length === 0) {
       return [];

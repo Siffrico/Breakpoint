@@ -91,13 +91,17 @@ const listRecentPriorPerformance = async ({
   db: Database;
   sessionId: string;
 }) =>
-  (await trainingAttemptRepository.listAttemptHistory({ db, sessionId }))
-    .slice(-PRIOR_PERFORMANCE_LIMIT)
-    .map((attempt) => ({
-      title: attempt.title,
-      score: attempt.score,
-      failureTags: attempt.failureTags,
-    }));
+  (
+    await trainingAttemptRepository.listAttemptHistory({
+      db,
+      sessionId,
+      limit: PRIOR_PERFORMANCE_LIMIT,
+    })
+  ).map((attempt) => ({
+    title: attempt.title,
+    score: attempt.score,
+    failureTags: attempt.failureTags,
+  }));
 
 export const ensureOutcomeCurriculum = async ({
   db,
