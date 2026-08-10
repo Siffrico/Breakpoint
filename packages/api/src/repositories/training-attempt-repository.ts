@@ -89,11 +89,16 @@ export const trainingAttemptRepository = {
       return [];
     }
 
-    const unitRows = await db.query.TrainingUnitContent.findMany();
-    const unitsById = new Map(unitRows.map((unit) => [unit.id, unit]));
+    const unitRows = await db.query.TrainingUnitContent.findMany({
+      columns: { id: true, title: true },
+      where: inArray(TrainingUnitContent.id, [
+        ...new Set(attempts.map((attempt) => attempt.unitContentId)),
+      ]),
+    });
+    const titlesById = new Map(unitRows.map((unit) => [unit.id, unit.title]));
 
     return attempts.map((attempt) => ({
-      title: unitsById.get(attempt.unitContentId)?.title ?? "Completed unit",
+      title: titlesById.get(attempt.unitContentId) ?? "Completed unit",
       score: attempt.score,
       readiness: attempt.readiness,
       finalArticulation: attempt.finalArticulation,
