@@ -31,11 +31,11 @@ const PREFERENCE_STACKS: Record<AiModelPreference, ModelStack> = {
     provider: "openrouter",
     models: { critical: "z-ai/glm-5.2", standard: "z-ai/glm-5.2" },
   },
-  "deepseek-v4-pro": {
+  "deepseek-v4-flash-0731": {
     provider: "openrouter",
     models: {
-      critical: "deepseek/deepseek-v4-pro",
-      standard: "deepseek/deepseek-v4-pro",
+      critical: "deepseek/deepseek-v4-flash-0731",
+      standard: "deepseek/deepseek-v4-flash-0731",
     },
   },
   "gpt-5.5": {
