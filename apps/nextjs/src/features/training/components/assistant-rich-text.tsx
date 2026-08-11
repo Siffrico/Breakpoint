@@ -1,14 +1,20 @@
 "use client";
 
+import { createCodePlugin } from "@streamdown/code";
 import { createMathPlugin } from "@streamdown/math";
 import { createMermaidPlugin } from "@streamdown/mermaid";
 import { Streamdown } from "streamdown";
 
+import { assistantCodeThemes } from "./assistant-code-theme";
 import { normalizeAssistantMarkdown } from "./assistant-markdown";
 
 const mathPlugin = createMathPlugin({
   singleDollarTextMath: true,
 });
+
+// Shiki highlighting is opt-in: without this plugin Streamdown renders fences
+// as unstyled monospace. Themes are CSS-variable based — see assistant-code-theme.
+const codePlugin = createCodePlugin({ themes: assistantCodeThemes });
 
 // Renders ```mermaid fences the assistant emits (flows, architecture, sequence
 // diagrams) as SVG. Client-only: mermaid.js is dynamically imported on first
@@ -39,7 +45,11 @@ export function AssistantRichText({
   return (
     <Streamdown
       mode="static"
-      plugins={{ math: mathPlugin, mermaid: mermaidPlugin }}
+      plugins={{
+        code: codePlugin,
+        math: mathPlugin,
+        mermaid: mermaidPlugin,
+      }}
       mermaid={{
         errorComponent: ({ error }) => (
           <pre className="text-foreground/48 overflow-x-auto text-[13px]">
