@@ -21,6 +21,7 @@ import type {
   ProjectBuildState,
 } from "./domain/training/orchestration/build-project";
 import {
+  AskStartingPointInputSchema,
   AskStartingPointOutputSchema,
   askStartingPointTool,
 } from "./domain/training/agents/onboarding-chat-agent";
@@ -58,6 +59,7 @@ export type { CreateProjectResult } from "./domain/training/agents/onboarding-ch
 export const PROJECT_BUILD_DATA_ID = "project-build";
 const PROJECT_PROPOSAL_TURN_ID = "onboarding-project-proposal";
 const PROJECT_BUILD_STATUS_TURN_ID = "onboarding-project-build-status";
+const STARTING_POINT_TURN_ID = "onboarding-starting-point-question";
 
 interface ProjectBuildData extends Record<string, unknown> {
   "project-build": ProjectBuildState;
@@ -260,8 +262,11 @@ export const streamProjectBuildResume = async ({
             input: run.input,
             deps: createBuildProjectDeps(db),
             scheduleBackgroundTask,
-            // Carried forward so a build that keeps yielding eventually stops.
-            resumeRound: run.state.resumeRounds ?? 0,
+            // Automatic resumes stay bounded. A learner-triggered retry of a
+            // terminal error gets a fresh bounded window instead of failing
+            // forever on the already-exhausted counter.
+            resumeRound:
+              run.status === "error" ? 0 : (run.state.resumeRounds ?? 0),
             onProgress: (build) => {
               writer.write({
                 type: "data-project-build",
@@ -458,7 +463,7 @@ ${startingPointNote}`,
         messages: modelMessages,
         tools: {
           ...getSearchToolsForSelectedProvider("onboarding"),
-          askStartingPoint: askStartingPointTool,
+          ...(storedTier ? {} : { askStartingPoint: askStartingPointTool }),
           createProject: createCreateTopicProjectTool({ buildProject }),
         },
         // SDK-native server-side smoothing: release whole words on a short
@@ -476,14 +481,18 @@ ${startingPointNote}`,
           // every future model turn and from the build agents' transcript.
           const rows = new Set<string>();
           const proposals: CreateProjectInput[] = [];
+          const startingPointQuestions: ReturnType<
+            typeof AskStartingPointInputSchema.parse
+          >[] = [];
           const trimmed = text.trim();
           for (const step of steps) {
             for (const call of step.toolCalls) {
+              if (!call) continue;
               if (call.toolName === "askStartingPoint") {
-                const question = (
-                  call.input as { question?: string }
-                ).question?.trim();
-                if (question) rows.add(question);
+                const parsed = AskStartingPointInputSchema.safeParse(
+                  call.input,
+                );
+                if (parsed.success) startingPointQuestions.push(parsed.data);
               }
               if (call.toolName === "createProject") {
                 proposals.push(call.input as CreateProjectInput);
@@ -511,6 +520,18 @@ ${startingPointNote}`,
               role: "assistant",
               content,
               slot: "chat",
+            });
+          }
+          const startingPointQuestion = startingPointQuestions.at(-1);
+          if (startingPointQuestion) {
+            await trainingOnboardingRepository.upsertMessageByTurnRole({
+              db,
+              sessionId,
+              role: "assistant",
+              content: startingPointQuestion.question,
+              slot: "chat",
+              turnId: STARTING_POINT_TURN_ID,
+              metadata: { startingPointQuestion },
             });
           }
           const proposal = proposals.at(-1);

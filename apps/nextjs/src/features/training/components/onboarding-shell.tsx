@@ -20,7 +20,6 @@ import {
   lastAssistantMessageIsCompleteWithToolCalls,
 } from "ai";
 
-import type { RouterOutputs } from "@acme/api";
 import type {
   OnboardingChatUIMessage,
   ProjectBuildState,
@@ -40,6 +39,7 @@ import {
 } from "@acme/ui/chat";
 import { toast } from "@acme/ui/toast";
 
+import type { OnboardingState } from "./onboarding-transcript";
 import {
   onboardingResponseDraftKey,
   shouldClearSubmittedDraft,
@@ -48,56 +48,14 @@ import {
 import { previewOnboardingStates } from "~/features/training/lib/training-preview";
 import { useTRPC } from "~/trpc/react";
 import { AssistantRichText } from "./assistant-rich-text";
+import { transcriptToMessages } from "./onboarding-transcript";
 import { CreateProjectConfirm } from "./onboarding/create-project-confirm";
 import { OnboardingUtilityActions } from "./onboarding/onboarding-utility-actions";
 import { ProjectBuildScreen } from "./onboarding/project-build-screen";
 import { selectProjectBuildPart } from "./onboarding/select-project-build-part";
 import { StartingPointCheck } from "./onboarding/starting-point-check";
 
-type OnboardingState = RouterOutputs["training"]["startOnboarding"];
-
 const PREVIEW_RESPONSE_DELAY_MS = 450;
-
-const transcriptToMessages = (
-  state: OnboardingState | null,
-): OnboardingChatUIMessage[] => {
-  if (!state) return [];
-  const messages: OnboardingChatUIMessage[] = state.transcript.map(
-    (message) => ({
-      id: `seed-${state.sessionId}-${message.sequence}`,
-      role: message.role,
-      parts: [{ type: "text" as const, text: message.content }],
-    }),
-  );
-
-  if (state.pendingProjectProposal) {
-    messages.push({
-      id: `seed-${state.sessionId}-project-proposal`,
-      role: "assistant",
-      parts: [
-        {
-          type: "tool-createProject",
-          toolCallId: `rehydrated-create-project-${state.sessionId}`,
-          state: "approval-requested",
-          input: state.pendingProjectProposal,
-          approval: {
-            id: `rehydrated-create-project-approval-${state.sessionId}`,
-          },
-        },
-      ],
-    } as OnboardingChatUIMessage);
-  }
-
-  if (state.projectBuild) {
-    messages.push({
-      id: `seed-${state.sessionId}-project-build`,
-      role: "assistant",
-      parts: [{ type: "data-project-build", data: state.projectBuild }],
-    });
-  }
-
-  return messages;
-};
 
 const extractText = (message: UIMessage): string =>
   message.parts
