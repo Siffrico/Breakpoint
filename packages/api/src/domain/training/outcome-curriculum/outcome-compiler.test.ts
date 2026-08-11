@@ -26,4 +26,11 @@ describe("OUTCOME_COMPILER_SYSTEM", () => {
       "fluent but causally empty explanation",
     );
   });
+
+  it("states the cross-field schema invariants the provider cannot infer", () => {
+    expect(OUTCOME_COMPILER_SYSTEM).toContain(
+      "every exact Skill Map skill name appears",
+    );
+    expect(OUTCOME_COMPILER_SYSTEM).toContain("band values 0, 1, and 2");
+  });
 });
