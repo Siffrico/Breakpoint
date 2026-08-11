@@ -8,7 +8,7 @@
    arbitrary utilities Streamdown relies on (token colors, line-number
    counters) are silently never generated. */
 @source "../../node_modules/streamdown/dist/*.js";
-@source "../../../../node_modules/@streamdown/math/dist/*.js";
+@source "../../node_modules/@streamdown/math/dist/*.js";
 
 @custom-variant dark (&:where(.dark, .dark *));
 @custom-variant light (&:where(.light, .light *));
