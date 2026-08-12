@@ -5,7 +5,7 @@ import type { UnitContent } from "../types/training.types";
 import { SELECT_OPTION_COUNT } from "../engine/scenario-archetypes";
 
 const LABELED_OPTION_PATTERN =
-  /^\s*(?:[-*]\s*)?(?:\*\*)?\(?([A-D])(?:\)|[.:])(?:\*\*)?[ \t]+\S/gim;
+  /(?:^|\s)(?:[-*]\s*)?(?:\*\*)?\(?([A-D])(?:\)|[.:])(?:\*\*)?[ \t]+\S/gim;
 
 export const getSeedTaskReadinessIssue = ({
   seedPrompt,

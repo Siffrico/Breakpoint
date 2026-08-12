@@ -97,6 +97,16 @@ D. indifferent`,
     ).toBeNull();
   });
 
+  it("accepts complete inline choices for deterministic display formatting", () => {
+    expect(
+      getSeedTaskReadinessIssue({
+        seedPrompt:
+          "Which word fits? A) skeptical B) cautious C) elated D) indifferent",
+        responseMode: "select",
+      }),
+    ).toBeNull();
+  });
+
   it("rejects a selected-response task that refers to absent choices", () => {
     expect(
       getSeedTaskReadinessIssue({

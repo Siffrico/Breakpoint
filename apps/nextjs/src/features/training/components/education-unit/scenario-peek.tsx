@@ -13,6 +13,8 @@
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 
+import { AssistantRichText } from "../assistant-rich-text";
+
 export interface ScenarioBrief {
   stateA: string;
   stateB: string;
@@ -25,6 +27,8 @@ export type ScenarioView = "closed" | "peeking" | "pinned";
 const PIN_THRESHOLD_MS = 180;
 
 const PEEK_ELEMENT_ID = "scenario-peek";
+const SCENARIO_RICH_TEXT_CLASS =
+  "text-foreground/94 mt-2 text-[15px] leading-7 [&_h1]:!mt-5 [&_h1]:!text-[16px] [&_h2]:!mt-5 [&_h2]:!text-[15px] [&_h3]:!mt-4 [&_h3]:!text-[15px] [&_li]:my-1 [&_ol]:my-3 [&_p]:my-3 [&_ul]:my-3";
 
 /**
  * Where a press lands when it is released. A press that started on a pinned
@@ -201,25 +205,28 @@ function ScenarioPeekComponent({
         <h2 className="text-foreground/52 text-[13px] font-medium tracking-[0.08em]">
           THE SITUATION
         </h2>
-        <p className="text-foreground/94 mt-2 text-[15px] leading-7">
-          {scenario.stateA}
-        </p>
+        <AssistantRichText
+          content={scenario.stateA}
+          className={SCENARIO_RICH_TEXT_CLASS}
+        />
 
         <h2 className="text-foreground/52 mt-7 text-[13px] font-medium tracking-[0.08em]">
           WHAT DONE LOOKS LIKE
         </h2>
-        <p className="text-foreground/94 mt-2 text-[15px] leading-7">
-          {scenario.stateB}
-        </p>
+        <AssistantRichText
+          content={scenario.stateB}
+          className={SCENARIO_RICH_TEXT_CLASS}
+        />
 
         {scenario.frictionNoise ? (
           <>
             <h2 className="text-foreground/52 mt-7 text-[13px] font-medium tracking-[0.08em]">
               COMPLICATIONS
             </h2>
-            <p className="text-foreground/94 mt-2 text-[15px] leading-7">
-              {scenario.frictionNoise}
-            </p>
+            <AssistantRichText
+              content={scenario.frictionNoise}
+              className={SCENARIO_RICH_TEXT_CLASS}
+            />
           </>
         ) : null}
       </div>
