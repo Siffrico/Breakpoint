@@ -2,12 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   mentorCheckOutputSchema,
+  reviewFeedbackSchema,
   reviewGradeSchema,
   reviewPresentationSchema,
 } from "./agent-contracts";
 
 describe("mentorCheckOutputSchema", () => {
-  it("accepts a causal teachback pass with a concise acknowledgement", () => {
+  it("accepts a causal teaching check with a concise acknowledgement", () => {
     expect(
       mentorCheckOutputSchema("teach").safeParse({
         assistantMessage:
@@ -19,7 +20,7 @@ describe("mentorCheckOutputSchema", () => {
     ).toBe(true);
   });
 
-  it("requires an incomplete teachback to end in one visible question", () => {
+  it("requires an incomplete teaching check to end in one visible question", () => {
     expect(
       mentorCheckOutputSchema("teach").safeParse({
         assistantMessage:
@@ -148,6 +149,7 @@ const gradeShape = {
   testedDimensionIds: ["constraint-tradeoff"],
   learnerAnswer:
     "I would keep the original procedure because it is simpler and already proven.",
+  interactiveFeedback: true,
 } as const;
 
 const weakDimensionResult = {
@@ -167,7 +169,7 @@ Keeping the proven procedure protects simplicity while its safety conditions hol
 You assumed the new constraint does not change the controlling failure mode.
 
 **Use next time**
-Re-derive a heuristic when the constraint that made it safe changes.`,
+Re-derive a heuristic when the constraint that made it safe changes. Which constraint must you inspect first?`,
       errorCodes: ["missed-controlling-constraint"],
       scratchpad:
         "Optimized for simplicity. Assumed the old safety condition still holds. Cause: constraint blindness. JIT: re-derive when its controlling constraint changes.",
@@ -187,6 +189,31 @@ Re-derive a heuristic when the constraint that made it safe changes.`,
     });
 
     expect(result.success).toBe(false);
+  });
+
+  it("closes failed one-shot checkpoints without opening feedback", () => {
+    const oneShotShape = { ...gradeShape, interactiveFeedback: false };
+    const result = reviewGradeSchema(oneShotShape).safeParse({
+      assistantMessage: `**What held**
+Keeping the proven procedure protects simplicity while its conditions hold.
+
+**Change**
+The changed constraint invalidates the old safety condition.
+
+**Use next time**
+Re-derive the move from the controlling constraint.`,
+      errorCodes: ["missed-controlling-constraint"],
+      scratchpad:
+        "The learner preserved simplicity but missed the changed safety condition.",
+      dimensionResults: [weakDimensionResult],
+    });
+    expect(result.success).toBe(true);
+    expect(
+      reviewGradeSchema(oneShotShape).safeParse({
+        ...(result.success ? result.data : {}),
+        assistantMessage: "Which constraint controls the move?",
+      }).success,
+    ).toBe(false);
   });
 
   it("rejects vague named-template feedback", () => {
@@ -270,5 +297,43 @@ Re-derive the move from the controlling constraint.`,
     });
 
     expect(result.success).toBe(false);
+  });
+});
+
+describe("reviewFeedbackSchema", () => {
+  it("keeps feedback active only when it ends in one question", () => {
+    expect(
+      reviewFeedbackSchema(1).safeParse({
+        assistantMessage:
+          "The old procedure still controls your answer. Which changed limit makes it unsafe?",
+        feedbackComplete: false,
+        scratchpad: "The learner still relies on the old procedure.",
+      }).success,
+    ).toBe(true);
+    expect(
+      reviewFeedbackSchema(1).safeParse({
+        assistantMessage: "The old procedure still controls your answer.",
+        feedbackComplete: false,
+        scratchpad: "The learner still relies on the old procedure.",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("forces the third feedback answer to close without another question", () => {
+    expect(
+      reviewFeedbackSchema(3).safeParse({
+        assistantMessage:
+          "Focus on the changed limit before reusing the familiar procedure.",
+        feedbackComplete: true,
+        scratchpad: "Close at the bounded feedback limit.",
+      }).success,
+    ).toBe(true);
+    expect(
+      reviewFeedbackSchema(3).safeParse({
+        assistantMessage: "Which changed limit controls the move?",
+        feedbackComplete: false,
+        scratchpad: "The gap remains after the third answer.",
+      }).success,
+    ).toBe(false);
   });
 });

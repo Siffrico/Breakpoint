@@ -40,11 +40,12 @@ const contractFailure = (message: string) =>
 
 const modeFor = (cursor: UnitCursor): UnitRunMode => {
   switch (cursor.step.kind) {
-    case "teachback":
+    case "teaching":
       return "learning";
     case "scenario":
-      return "review";
     case "feedback":
+      return "review";
+    case "pass_result":
       return "awaiting_next_pass";
     case "complete":
       return "complete";
@@ -52,7 +53,7 @@ const modeFor = (cursor: UnitCursor): UnitRunMode => {
 };
 
 const attemptFor = (cursor: UnitCursor): UnitReviewPass =>
-  cursor.step.kind === "teachback" ? 1 : cursor.step.attempt;
+  cursor.step.kind === "teaching" ? 1 : cursor.step.attempt;
 
 const activeChallengeFor = (cursor: UnitCursor) =>
   cursor.step.kind === "scenario" ? cursor.step.challenge : null;
@@ -107,7 +108,7 @@ export const createUnitRun = ({
       scenarioPrompts: [],
       step:
         kind === "education"
-          ? { kind: "teachback", preparedScenario: null }
+          ? { kind: "teaching", preparedScenario: null }
           : { kind: "scenario", attempt: 1, challenge: null },
     },
     difficultySnapshot: null,
@@ -132,7 +133,7 @@ export const preparedScenario = (
   run: PersistedUnitRun,
 ): UnitReviewChallenge | null => {
   const step = run.cursor.step;
-  return step.kind === "teachback" || step.kind === "feedback"
+  return step.kind === "teaching" || step.kind === "pass_result"
     ? step.preparedScenario
     : step.kind === "scenario"
       ? step.challenge
@@ -147,7 +148,7 @@ export const attachPreparedScenario = ({
   challenge: UnitReviewChallenge;
 }): Effect.Effect<PersistedUnitRun, UnitStateContractError> => {
   const step = run.cursor.step;
-  if (step.kind !== "teachback" && step.kind !== "feedback") {
+  if (step.kind !== "teaching" && step.kind !== "pass_result") {
     return contractFailure("There is no unopened scenario to prepare.");
   }
   if (step.preparedScenario) {
@@ -161,11 +162,11 @@ export const attachPreparedScenario = ({
   );
 };
 
-export const repeatTeachback = (
+export const repeatTeaching = (
   run: PersistedUnitRun,
 ): Effect.Effect<PersistedUnitRun, UnitStateContractError> => {
-  if (run.cursor.step.kind !== "teachback") {
-    return contractFailure("This unit is not waiting for a teachback.");
+  if (run.cursor.step.kind !== "teaching") {
+    return contractFailure("This unit is not waiting for the teaching check.");
   }
   return Effect.succeed(
     replaceCursor(run, {
@@ -200,9 +201,9 @@ export const presentScenario = ({
     );
   }
   const attempt =
-    step.kind === "teachback"
+    step.kind === "teaching"
       ? 1
-      : step.kind === "feedback"
+      : step.kind === "pass_result"
         ? step.attempt + 1
         : step.kind === "scenario" && step.challenge === null
           ? step.attempt
@@ -254,26 +255,81 @@ export const settleScenario = ({
       "A passing scenario must evidence every target in the unit contract.",
     );
   }
-  const complete = passed || run.kind === "recall";
-  return Effect.succeed(
-    replaceCursor(run, {
-      ...run.cursor,
-      interactionId: randomUUID(),
-      step: complete
+  const nextStep: UnitCursor["step"] =
+    run.kind === "recall" || (passed && step.attempt >= 2)
+      ? {
+          kind: "complete",
+          attempt: step.attempt,
+          outcome: passed ? "pass" : "fail",
+          evidence: [...dimensionResults],
+          evidencedTargetIds: [...evidencedTargetIds],
+        }
+      : passed
         ? {
-            kind: "complete",
+            kind: "pass_result",
             attempt: step.attempt,
-            outcome: passed ? "pass" : "fail",
+            outcome: "pass",
+            errorCodes: [],
             evidence: [...dimensionResults],
             evidencedTargetIds: [...evidencedTargetIds],
+            preparedScenario: null,
           }
         : {
             kind: "feedback",
             attempt: step.attempt,
+            promptRound: 1,
             errorCodes: [...errorCodes],
             dimensionResults: [...dimensionResults],
-            preparedScenario: null,
-          },
+            evidencedTargetIds: [...evidencedTargetIds],
+          };
+  return Effect.succeed(
+    replaceCursor(run, {
+      ...run.cursor,
+      interactionId: randomUUID(),
+      step: nextStep,
+    }),
+  );
+};
+
+export const continueFeedback = (
+  run: PersistedUnitRun,
+): Effect.Effect<PersistedUnitRun, UnitStateContractError> => {
+  const step = run.cursor.step;
+  if (step.kind !== "feedback") {
+    return contractFailure("This unit is not waiting for a feedback answer.");
+  }
+  if (step.promptRound >= 3) {
+    return contractFailure("The feedback prompt limit has been reached.");
+  }
+  return Effect.succeed(
+    replaceCursor(run, {
+      ...run.cursor,
+      interactionId: randomUUID(),
+      step: { ...step, promptRound: step.promptRound + 1 },
+    }),
+  );
+};
+
+export const completeFeedback = (
+  run: PersistedUnitRun,
+): Effect.Effect<PersistedUnitRun, UnitStateContractError> => {
+  const step = run.cursor.step;
+  if (step.kind !== "feedback") {
+    return contractFailure("This unit has no feedback turn to complete.");
+  }
+  return Effect.succeed(
+    replaceCursor(run, {
+      ...run.cursor,
+      interactionId: randomUUID(),
+      step: {
+        kind: "pass_result",
+        attempt: step.attempt,
+        outcome: "fail",
+        errorCodes: step.errorCodes,
+        evidence: step.dimensionResults,
+        evidencedTargetIds: step.evidencedTargetIds,
+        preparedScenario: null,
+      },
     }),
   );
 };

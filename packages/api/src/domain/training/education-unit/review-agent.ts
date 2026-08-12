@@ -1,10 +1,15 @@
 import type { ModelMessage } from "ai";
 import type { Effect } from "effect";
 
-import type { UnitReviewChallenge, UnitReviewPass } from "@acme/validators";
+import type {
+  EvaluationDimensionResult,
+  UnitReviewChallenge,
+  UnitReviewPass,
+} from "@acme/validators";
 
 import type {
   GradeShape,
+  ReviewFeedbackOutput,
   ReviewGradeOutput,
   ReviewPresentationOutput,
 } from "./agent-contracts";
@@ -13,6 +18,7 @@ import type { EducationExperienceDefinition } from "./experience";
 import {
   PASSING_COMPOSITE,
   PASSING_DIMENSION,
+  reviewFeedbackSchema,
   reviewGradeSchema,
   reviewPresentationSchema,
 } from "./agent-contracts";
@@ -90,13 +96,17 @@ export const runReviewPresentationAgent = ({
   });
 };
 
-const GRADE_TURN_INSTRUCTION = `## This turn: the unaided check
-Grade the learner's latest answer against the immutable active challenge. Clean scores end the unit; a real gap opens a fresh attempt. Name only the first mental-model divergence and repair it closely enough that the learner carries the idea into that attempt. Never say the words pass, fail, or next pass.
+const gradeTurnInstruction = (
+  interactiveFeedback: boolean,
+) => `## This turn: the unaided check
+Grade the learner's latest answer against the immutable active challenge. A clean answer closes this pass immediately. ${interactiveFeedback ? "A real gap starts a short feedback exchange: name only the first mental-model divergence, repair it closely, and end with one small question that lets the learner show the repair landed." : "This is a one-shot checkpoint: if there is a real gap, name only the first mental-model divergence, give the smallest useful repair, and close without a question."} Never say the words pass, fail, or next pass.
 
 ## Score scale
 Every criterion score is an integer percentage from 0 to 100, never a 1-3 ordinal. A pass requires a composite score of at least ${PASSING_COMPOSITE} and every criterion at least ${PASSING_DIMENSION}. Make the scores, errorCodes, and learner-facing conclusion agree.`;
 
-const COGNITIVE_DIAGNOSIS_POLICY = `## This grading turn: cognitive diagnosis and JIT repair
+const cognitiveDiagnosisPolicy = (
+  interactiveFeedback: boolean,
+) => `## This grading turn: cognitive diagnosis and JIT repair
 Scores and rubric evidence are private control data. The learner-facing response is not a report card. Its job is to reconstruct why the learner's move felt correct, locate the first hidden assumption that made it diverge from the expert workflow, and supply only the smallest fragment needed to rethink that move.
 
 When the answer has a real gap, write one private scratchpad of at most 500 characters before finalizing assistantMessage:
@@ -114,11 +124,18 @@ One sentence acknowledging the sound part of their reasoning.
 Name the first hidden assumption and show why it breaks on this scenario.
 
 **Use next time**
-Give the minimum reusable cue in one or two sentences. Do not append a question; the server supplies a fresh scenario to solve.
+${interactiveFeedback ? "Give the minimum reusable cue in one or two sentences, then ask one small question that checks the repaired idea without becoming another full scenario." : "Give the minimum reusable cue in one or two sentences and close without a question."}
 
 Avoid clinical or academic diagnostic language when plain words work. Do not use headings named Mirror, Pivot, Crucible, Diagnosis, or JIT. Do not mention scores, grading, rubrics, dimensions, agents, passes, or scratchpads.
 
 When there is no real gap, keep the scratchpad to one short statement that no material divergence exists. Write one short paragraph confirming the answer and naming the decisive evidence. Do not use the repair sections, invent a flaw, ask a remedial question, or promise another task. When there is a gap, do not imply that one explanation completes the capability: the server will continue presenting fresh scenarios until the learner demonstrates the repaired model independently.`;
+
+const feedbackTurnInstruction = (
+  promptRound: number,
+) => `## This turn: feedback check ${promptRound} of 3
+The scenario grade is already final and cannot change. Read the learner's latest reply to your feedback question and decide only whether the specific diagnosed gap has now been understood.
+
+If it has landed, set feedbackComplete=true, confirm the corrected idea briefly, and ask no question. If it has not landed and this is before check 3, set feedbackComplete=false, correct only the remaining mismatch, and end with exactly one smaller question. On check 3, set feedbackComplete=true and close honestly without claiming understanding that was not shown. Never mention the grade, pass numbers, prompt limits, internal state, or Goldilocks.`;
 
 export const runReviewGradeAgent = ({
   messages,
@@ -139,12 +156,43 @@ export const runReviewGradeAgent = ({
     agent: "reviewer",
     purpose: "evaluation",
     reasoning: "medium",
-    system: `${CRITIC_SYSTEM}\n\n${COGNITIVE_DIAGNOSIS_POLICY}\n\n## Customized behavior\n${experience.reviewer.instructions}`,
+    system: `${CRITIC_SYSTEM}\n\n${cognitiveDiagnosisPolicy(shape.interactiveFeedback)}\n\n## Customized behavior\n${experience.reviewer.instructions}`,
     messages,
-    context: `${context}\n\n## Immutable active challenge and private verifier\n${JSON.stringify(activeChallenge)}\n\n${GRADE_TURN_INSTRUCTION}`,
+    context: `${context}\n\n## Immutable active challenge and private verifier\n${JSON.stringify(activeChallenge)}\n\n${gradeTurnInstruction(shape.interactiveFeedback)}`,
     schema: reviewGradeSchema(shape),
     schemaName: "unit_review_grade",
     maxOutputTokens: 3_000,
     errorMessage: "Failed to grade the adversarial review.",
+    onPartialAssistantMessage,
+  });
+
+export const runReviewFeedbackAgent = ({
+  messages,
+  context,
+  experience,
+  promptRound,
+  errorCodes,
+  dimensionResults,
+  onPartialAssistantMessage,
+}: {
+  messages: readonly ModelMessage[];
+  context: string;
+  experience: EducationExperienceDefinition;
+  promptRound: number;
+  errorCodes: readonly string[];
+  dimensionResults: readonly EvaluationDimensionResult[];
+  onPartialAssistantMessage?: (content: string) => void;
+}): Effect.Effect<{ object: ReviewFeedbackOutput }, UnitAgentError> =>
+  runUnitAgent({
+    agent: "reviewer",
+    purpose: "evaluation",
+    reasoning: "low",
+    system: `${CRITIC_SYSTEM}\n\n## Customized behavior\n${experience.reviewer.instructions}`,
+    messages,
+    context: `${context}\n\n## Frozen scenario diagnosis\n${JSON.stringify({ errorCodes, dimensionResults })}\n\n${feedbackTurnInstruction(promptRound)}`,
+    schema: reviewFeedbackSchema(promptRound),
+    schemaName: "unit_review_feedback",
+    maxOutputTokens: 1_200,
+    errorMessage: "Failed to continue the learner feedback.",
     onPartialAssistantMessage,
   });

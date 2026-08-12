@@ -765,7 +765,7 @@ const PreparedUnitScenarioSchema = UnitReviewChallengeSchema.nullable();
 export const UnitCursorStepSchema = z.discriminatedUnion("kind", [
   z
     .object({
-      kind: z.literal("teachback"),
+      kind: z.literal("teaching"),
       preparedScenario: PreparedUnitScenarioSchema,
     })
     .strict(),
@@ -780,8 +780,20 @@ export const UnitCursorStepSchema = z.discriminatedUnion("kind", [
     .object({
       kind: z.literal("feedback"),
       attempt: UnitReviewPassSchema,
+      promptRound: z.number().int().min(1).max(3),
       errorCodes: z.array(z.string().min(1)).max(3),
       dimensionResults: z.array(EvaluationDimensionResultSchema).max(5),
+      evidencedTargetIds: z.array(z.string().min(1)).max(4),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("pass_result"),
+      attempt: UnitReviewPassSchema,
+      outcome: z.enum(["pass", "fail"]),
+      errorCodes: z.array(z.string().min(1)).max(3),
+      evidence: z.array(EvaluationDimensionResultSchema).max(5),
+      evidencedTargetIds: z.array(z.string().min(1)).max(4),
       preparedScenario: PreparedUnitScenarioSchema,
     })
     .strict(),

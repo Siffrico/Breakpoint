@@ -308,7 +308,7 @@ const seedUnitRun = async ({
               }
             : mode === "review"
               ? { kind: "scenario", attempt: 1, challenge: null }
-              : { kind: "teachback", preparedScenario: null },
+              : { kind: "teaching", preparedScenario: null },
       },
     })
     .returning({ id: TrainingUnitRun.id });

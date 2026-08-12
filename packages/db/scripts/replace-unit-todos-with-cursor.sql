@@ -22,13 +22,18 @@ SET cursor_json = jsonb_build_object(
       'evidencedTargetIds', '[]'::jsonb
     )
     WHEN run.mode = 'awaiting_next_pass' THEN jsonb_build_object(
-      'kind', 'feedback',
+      'kind', 'pass_result',
       'attempt', COALESCE(
         (SELECT MAX((todo->>'pass')::int) FROM jsonb_array_elements(run.todos_json) AS todo WHERE todo->>'kind' = 'complete' AND todo->>'status' = 'completed'),
         1
       ),
+      'outcome', COALESCE(
+        (SELECT todo->>'result' FROM jsonb_array_elements(run.todos_json) AS todo WHERE todo->>'kind' = 'complete' AND todo->>'status' = 'completed' ORDER BY (todo->>'pass')::int DESC LIMIT 1),
+        'fail'
+      ),
       'errorCodes', '[]'::jsonb,
-      'dimensionResults', '[]'::jsonb,
+      'evidence', '[]'::jsonb,
+      'evidencedTargetIds', '[]'::jsonb,
       'preparedScenario', (
         SELECT todo->'challenge'
         FROM jsonb_array_elements(run.todos_json) AS todo
@@ -50,7 +55,7 @@ SET cursor_json = jsonb_build_object(
       )
     )
     ELSE jsonb_build_object(
-      'kind', 'teachback',
+      'kind', 'teaching',
       'preparedScenario', (
         SELECT todo->'challenge'
         FROM jsonb_array_elements(run.todos_json) AS todo

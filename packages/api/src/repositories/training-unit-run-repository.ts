@@ -160,7 +160,7 @@ export const trainingUnitRunRepository = {
     if (!run) return;
     const step = run.cursor.step;
     if (
-      step.kind !== "feedback" ||
+      step.kind !== "pass_result" ||
       step.attempt + 1 !== pass ||
       step.preparedScenario
     ) {

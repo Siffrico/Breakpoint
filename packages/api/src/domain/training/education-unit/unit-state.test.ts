@@ -9,9 +9,11 @@ import { makeUnitContext } from "./unit-context.fixture";
 import {
   assertInteractionId,
   attachPreparedScenario,
+  completeFeedback,
+  continueFeedback,
   createUnitRun,
   presentScenario,
-  repeatTeachback,
+  repeatTeaching,
   settleScenario,
 } from "./unit-state";
 
@@ -43,11 +45,11 @@ const makeRun = (kind: "education" | "recall" = "education") =>
   });
 
 describe("unit cursor", () => {
-  it("starts education at teachback with a deterministic initial identity", () => {
+  it("starts education at teaching with a deterministic initial identity", () => {
     const first = makeRun();
     const sameProjection = makeRun();
     expect(first.cursor.step).toEqual({
-      kind: "teachback",
+      kind: "teaching",
       preparedScenario: null,
     });
     expect(first.cursor.interactionId).toBe(
@@ -58,7 +60,7 @@ describe("unit cursor", () => {
 
   it("rejects a response to an interaction that is no longer current", async () => {
     const run = makeRun();
-    const repeated = await Effect.runPromise(repeatTeachback(run));
+    const repeated = await Effect.runPromise(repeatTeaching(run));
     const exit = await Effect.runPromiseExit(
       assertInteractionId(repeated, run.cursor.interactionId),
     );
@@ -72,12 +74,12 @@ describe("unit cursor", () => {
     );
     expect(parked.cursor.interactionId).toBe(run.cursor.interactionId);
     expect(parked.cursor.step).toMatchObject({
-      kind: "teachback",
+      kind: "teaching",
       preparedScenario: challenge,
     });
   });
 
-  it("moves teachback to a presented scenario and records its surface", async () => {
+  it("moves teaching to a presented scenario and records its surface", async () => {
     const scenario = await Effect.runPromise(
       presentScenario({ run: makeRun(), challenge }),
     );
@@ -125,16 +127,17 @@ describe("unit cursor", () => {
     expect(feedback.cursor.step).toMatchObject({
       kind: "feedback",
       attempt: 1,
+      promptRound: 1,
       errorCodes: ["constraint_blindness"],
     });
-    expect(feedback.mode).toBe("awaiting_next_pass");
+    expect(feedback.mode).toBe("review");
   });
 
-  it("completes with only the targets supported by reviewer evidence", async () => {
+  it("settles a correct first scenario without opening feedback", async () => {
     const scenario = await Effect.runPromise(
       presentScenario({ run: makeRun(), challenge }),
     );
-    const complete = await Effect.runPromise(
+    const settled = await Effect.runPromise(
       settleScenario({
         run: scenario,
         passed: true,
@@ -150,11 +153,104 @@ describe("unit cursor", () => {
         evidencedTargetIds: ["target-1"],
       }),
     );
-    expect(complete.cursor.step).toMatchObject({
-      kind: "complete",
+    expect(settled.cursor.step).toMatchObject({
+      kind: "pass_result",
+      attempt: 1,
       outcome: "pass",
       evidencedTargetIds: ["target-1"],
     });
+    expect(settled.mode).toBe("awaiting_next_pass");
+  });
+
+  it("requires a correct independent scenario from pass 2 onward to complete", async () => {
+    const firstScenario = await Effect.runPromise(
+      presentScenario({ run: makeRun(), challenge }),
+    );
+    const firstResult = await Effect.runPromise(
+      settleScenario({
+        run: firstScenario,
+        passed: true,
+        errorCodes: [],
+        dimensionResults: [
+          {
+            dimensionId: "derive-under-pressure",
+            score: 92,
+            evidence: "derive from the changed constraint",
+            missing: null,
+          },
+        ],
+        evidencedTargetIds: ["target-1"],
+      }),
+    );
+    const secondScenario = await Effect.runPromise(
+      presentScenario({ run: firstResult, challenge }),
+    );
+    const complete = await Effect.runPromise(
+      settleScenario({
+        run: secondScenario,
+        passed: true,
+        errorCodes: [],
+        dimensionResults: [
+          {
+            dimensionId: "derive-under-pressure",
+            score: 94,
+            evidence: "derive from the changed constraint",
+            missing: null,
+          },
+        ],
+        evidencedTargetIds: ["target-1"],
+      }),
+    );
+    expect(secondScenario.reviewPass).toBe(2);
+    expect(complete.cursor.step).toMatchObject({
+      kind: "complete",
+      attempt: 2,
+      outcome: "pass",
+    });
+  });
+
+  it("keeps the failed scenario grade immutable through at most three feedback answers", async () => {
+    const scenario = await Effect.runPromise(
+      presentScenario({ run: makeRun(), challenge }),
+    );
+    const feedback = await Effect.runPromise(
+      settleScenario({
+        run: scenario,
+        passed: false,
+        errorCodes: ["constraint_blindness"],
+        dimensionResults: [
+          {
+            dimensionId: "derive-under-pressure",
+            score: 55,
+            evidence: "repeat the old move",
+            missing: "A derivation from the changed constraint.",
+          },
+        ],
+        evidencedTargetIds: [],
+      }),
+    );
+    const secondPrompt = await Effect.runPromise(continueFeedback(feedback));
+    const thirdPrompt = await Effect.runPromise(continueFeedback(secondPrompt));
+    const fourthPrompt = await Effect.runPromiseExit(
+      continueFeedback(thirdPrompt),
+    );
+    expect(thirdPrompt.cursor.step).toMatchObject({
+      kind: "feedback",
+      promptRound: 3,
+      errorCodes: ["constraint_blindness"],
+      dimensionResults: [{ score: 55 }],
+    });
+    expect(Exit.isFailure(fourthPrompt)).toBe(true);
+
+    const settled = await Effect.runPromise(completeFeedback(thirdPrompt));
+    expect(settled.cursor.step).toMatchObject({
+      kind: "pass_result",
+      attempt: 1,
+      outcome: "fail",
+      errorCodes: ["constraint_blindness"],
+      evidence: [{ score: 55 }],
+    });
+    expect(settled.mode).toBe("awaiting_next_pass");
   });
 
   it("refuses a passing completion without evidence for every target", async () => {

@@ -141,11 +141,14 @@ function PromptTurn({
   difficultyDirectiveReason = null,
   statusLabel = null,
   copyable = true,
+  streaming = false,
 }: {
   prompt: string;
   helper?: string | null;
   difficultyDirectiveReason?: string | null;
   statusLabel?: string | null;
+  /** True while this turn's text is still arriving, so words reveal as they land. */
+  streaming?: boolean;
   /** False for the notice turns (unavailable, resume-blocked) — those are UI
       copy, not something the learner would ever want on their clipboard. */
   copyable?: boolean;
@@ -172,9 +175,11 @@ function PromptTurn({
         ) : null}
         {prompt.trim() ? (
           // Live turns are smoothed server-side by smoothStream, so render the
-          // streamed text straight — no client-side pacing needed.
+          // streamed text straight — no client-side pacing needed. The focus
+          // reveal is CSS-only on top of whatever cadence the server sends.
           <AssistantRichText
             content={prompt}
+            streaming={streaming}
             className="text-foreground/94 [&_h2]:!text-foreground/52 [&_hr]:border-foreground/10 text-[15px] leading-7 [&_h1]:!mt-0 [&_h1]:!mb-3 [&_h1]:!text-[24px] [&_h1]:!leading-8 [&_h1]:!font-semibold [&_h1]:!tracking-[-0.025em] [&_h2]:!mt-7 [&_h2]:!mb-2 [&_h2]:!text-[13px] [&_h2]:!font-medium [&_h2]:!tracking-[0.08em] [&_h3]:!mt-6 [&_h3]:!mb-2 [&_h3]:!text-[17px] [&_h3]:!font-semibold [&_hr]:my-6 [&_li]:my-1 [&_li]:leading-7 [&_ol]:!my-3 [&_ol]:list-decimal [&_ol]:pl-7 [&_p]:!my-3 [&_strong]:font-semibold [&_ul]:!my-3 [&_ul]:list-disc [&_ul]:pl-7 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
           />
         ) : null}
@@ -1143,6 +1148,7 @@ function EducationUnitWorkspaceComponent({
                 ? activeLiveStatus.label
                 : null
             }
+            streaming={effectiveIsRunning}
           />
         </>
       ) : (

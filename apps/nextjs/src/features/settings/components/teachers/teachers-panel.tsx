@@ -127,7 +127,7 @@ export function CustomizePanel({ initial }: { initial: ExperienceState }) {
                 className="text-[12.5px] leading-5"
               />
               <p className="text-foreground/45 mt-2 text-[11px] leading-4">
-                Mentor teachbacks are grounded in each unit&apos;s mastery
+                Mentor teaching checks are grounded in each unit&apos;s mastery
                 contract.
               </p>
             </div>

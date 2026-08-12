@@ -112,7 +112,7 @@ export const prefillScenario = (
       context: presentationContext(context, difficultyVector),
       experience,
       pass:
-        run.cursor.step.kind === "feedback"
+        run.cursor.step.kind === "pass_result"
           ? run.cursor.step.attempt + 1
           : run.reviewPass,
       selectedResponse: run.difficultySnapshot?.format?.kind === "mcq",

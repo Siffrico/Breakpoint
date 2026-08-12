@@ -252,6 +252,8 @@ export interface GradeShape {
   readonly testedDimensionIds: readonly string[];
   /** The learner's latest answer, which every evidence quote must come from. */
   readonly learnerAnswer: string;
+  /** Whether a failed grade will actually open the persisted feedback loop. */
+  readonly interactiveFeedback: boolean;
 }
 
 /**
@@ -262,6 +264,7 @@ export interface GradeShape {
 export const reviewGradeSchema = ({
   testedDimensionIds,
   learnerAnswer,
+  interactiveFeedback,
 }: GradeShape) =>
   z
     .object({
@@ -340,11 +343,33 @@ export const reviewGradeSchema = ({
             "feedback for a learner gap must include What held, Change, and Use next time labels",
         });
       }
+      const questionCount = output.assistantMessage.match(/\?/g)?.length ?? 0;
+      if (
+        gap &&
+        interactiveFeedback &&
+        (!output.assistantMessage.trimEnd().endsWith("?") ||
+          questionCount !== 1)
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["assistantMessage"],
+          message:
+            "feedback for a learner gap must end in exactly one focused question",
+        });
+      }
+      if (gap && !interactiveFeedback && questionCount > 0) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["assistantMessage"],
+          message: "one-shot feedback must close without a learner question",
+        });
+      }
       if (
         !gap &&
-        /\*\*(?:What held|Change|Use next time)\*\*|\b(?:one more|another|next|fresh) (?:challenge|scenario|problem)\b/i.test(
-          output.assistantMessage,
-        )
+        (questionCount > 0 ||
+          /\*\*(?:What held|Change|Use next time)\*\*|\b(?:one more|another|next|fresh) (?:challenge|scenario|problem)\b/i.test(
+            output.assistantMessage,
+          ))
       ) {
         ctx.addIssue({
           code: "custom",
@@ -366,6 +391,44 @@ export const reviewGradeSchema = ({
       }
     });
 
+export const reviewFeedbackSchema = (promptRound: number) =>
+  z
+    .object({
+      assistantMessage: LearnerFacingMessageSchema,
+      feedbackComplete: z.boolean(),
+      scratchpad: z.string().trim().min(1).max(600),
+    })
+    .strict()
+    .superRefine((output, ctx) => {
+      const questionCount = output.assistantMessage.match(/\?/g)?.length ?? 0;
+      if (promptRound === 3 && !output.feedbackComplete) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["feedbackComplete"],
+          message: "The third feedback answer must close the feedback turn.",
+        });
+      }
+      if (
+        !output.feedbackComplete &&
+        (!output.assistantMessage.trimEnd().endsWith("?") ||
+          questionCount !== 1)
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["assistantMessage"],
+          message:
+            "Continuing feedback must end in exactly one focused question.",
+        });
+      }
+      if (output.feedbackComplete && questionCount > 0) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["assistantMessage"],
+          message: "Completed feedback must close without another question.",
+        });
+      }
+    });
+
 export type MentorCheckOutput = z.infer<
   ReturnType<typeof mentorCheckOutputSchema>
 >;
@@ -376,3 +439,6 @@ export type ReviewPresentationOutput = z.infer<
   ReturnType<typeof reviewPresentationSchema>
 >;
 export type ReviewGradeOutput = z.infer<ReturnType<typeof reviewGradeSchema>>;
+export type ReviewFeedbackOutput = z.infer<
+  ReturnType<typeof reviewFeedbackSchema>
+>;

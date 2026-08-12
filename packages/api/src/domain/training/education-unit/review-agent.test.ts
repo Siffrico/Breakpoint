@@ -61,6 +61,7 @@ describe("runReviewGradeAgent", () => {
         shape: {
           testedDimensionIds: ["criterion-1"],
           learnerAnswer: "I would choose B because...",
+          interactiveFeedback: true,
         },
       }),
     );

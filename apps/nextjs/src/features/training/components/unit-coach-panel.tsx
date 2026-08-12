@@ -295,6 +295,7 @@ function UnitCoachPanelComponent({
                           <AssistantRichText
                             content={content}
                             className={ASSISTANT_PROSE_CLASS}
+                            streaming={isLive}
                           />
                         ) : isLive ? (
                           <TextShimmer

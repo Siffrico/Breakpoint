@@ -214,7 +214,10 @@ export function MissionCanvas({
             >
               {latestText ? (
                 <div className="mt-6">
-                  <AssistantRichText content={latestText} />
+                  <AssistantRichText
+                    content={latestText}
+                    streaming={status === "streaming"}
+                  />
                 </div>
               ) : null}
               {debrief ? (

@@ -718,14 +718,14 @@ export const runEducationUnitTurn = ({
       turnResult.nextRun.mode === "awaiting_next_pass" &&
       savePendingChallenge
     ) {
-      const feedback = turnResult.nextRun.cursor.step;
+      const passResult = turnResult.nextRun.cursor.step;
       const runPassPregeneration = () =>
         Effect.runPromise(
           prefillScenario({
             run: turnResult.nextRun,
             experience,
             context:
-              feedback.kind === "feedback"
+              passResult.kind === "pass_result" && passResult.outcome === "fail"
                 ? createCritiqueContext({
                     unitContext: turnResult.nextRun.unitContext,
                     difficulty: difficultySnapshot,
@@ -734,8 +734,8 @@ export const runEducationUnitTurn = ({
                     previousChallengePrompts:
                       turnResult.nextRun.cursor.scenarioPrompts,
                     repair: {
-                      errorCodes: feedback.errorCodes,
-                      dimensionResults: feedback.dimensionResults,
+                      errorCodes: passResult.errorCodes,
+                      dimensionResults: passResult.evidence,
                     },
                   })
                 : contexts.critique.createChallenge,

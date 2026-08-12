@@ -10,8 +10,8 @@ import { requireAiModelForPurpose } from "../engine/model-router";
 import {
   classifyUnitAgentFailure,
   isRetryableUnitAgentError,
-  UnitAgentFirstVisibleTimeoutError,
   nameUnitAgentSchemaError,
+  UnitAgentFirstVisibleTimeoutError,
   UnitAgentWallClockTimeoutError,
 } from "./agent-errors";
 

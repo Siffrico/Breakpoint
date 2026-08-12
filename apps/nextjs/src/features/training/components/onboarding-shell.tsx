@@ -649,11 +649,17 @@ export function OnboardingShell({
                       preview && showCaret ? (
                         <PacedAssistantText text={text} active={showCaret}>
                           {(visibleText) => (
-                            <AssistantRichText content={visibleText} />
+                            <AssistantRichText
+                              content={visibleText}
+                              streaming
+                            />
                           )}
                         </PacedAssistantText>
                       ) : (
-                        <AssistantRichText content={text} />
+                        <AssistantRichText
+                          content={text}
+                          streaming={showCaret}
+                        />
                       )
                     ) : (
                       text

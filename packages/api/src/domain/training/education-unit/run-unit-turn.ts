@@ -22,15 +22,18 @@ import {
   UnitTurnContractError,
 } from "./prefill";
 import {
+  runReviewFeedbackAgent,
   runReviewGradeAgent,
   runReviewPresentationAgent,
 } from "./review-agent";
 import {
   assertInteractionId,
   attachPreparedScenario,
+  completeFeedback,
+  continueFeedback,
   preparedScenario,
   presentScenario,
-  repeatTeachback,
+  repeatTeaching,
   settleScenario,
 } from "./unit-state";
 
@@ -66,6 +69,7 @@ export interface UnitTurnDependencies {
   readonly runMentorCheck: typeof runMentorCheckAgent;
   readonly runReviewPresentation: typeof runReviewPresentationAgent;
   readonly runReviewGrade: typeof runReviewGradeAgent;
+  readonly runReviewFeedback: typeof runReviewFeedbackAgent;
 }
 
 const LIVE_DEPENDENCIES: UnitTurnDependencies = {
@@ -73,6 +77,7 @@ const LIVE_DEPENDENCIES: UnitTurnDependencies = {
   runMentorCheck: runMentorCheckAgent,
   runReviewPresentation: runReviewPresentationAgent,
   runReviewGrade: runReviewGradeAgent,
+  runReviewFeedback: runReviewFeedbackAgent,
 };
 
 const contractFailure = (message: string) =>
@@ -114,7 +119,7 @@ const openScenario = ({
     const prepared = preparedScenario(run);
     const challenge =
       prepared ??
-      (run.cursor.step.kind === "feedback" || run.kind === "recall"
+      (run.cursor.step.kind === "pass_result" || run.kind === "recall"
         ? yield* prefillScenario(
             {
               run,
@@ -193,6 +198,7 @@ const gradeScenario = ({
       shape: {
         testedDimensionIds: step.challenge.contract.testedCriterionIds,
         learnerAnswer,
+        interactiveFeedback: run.kind === "education",
       },
       onPartialAssistantMessage,
     })).object;
@@ -237,6 +243,54 @@ const gradeScenario = ({
     };
   });
 
+const continueFeedbackTurn = ({
+  run,
+  transcript,
+  experience,
+  contexts,
+  onPartialAssistantMessage,
+  deps,
+}: {
+  run: PersistedUnitRun;
+  transcript: readonly ModelMessage[];
+  experience: EducationExperienceDefinition;
+  contexts: UnitAgentContexts;
+  onPartialAssistantMessage?: (content: string) => void;
+  deps: UnitTurnDependencies;
+}): Effect.Effect<UnitTurnResult, UnitAgentError | UnitTurnContractError> =>
+  Effect.gen(function* () {
+    const step = run.cursor.step;
+    if (step.kind !== "feedback") {
+      return yield* contractFailure("There is no feedback answer to assess.");
+    }
+    const learnerAnswer = latestUserText(transcript);
+    if (!learnerAnswer) {
+      return yield* contractFailure(
+        "Feedback requires the learner's latest answer.",
+      );
+    }
+    const output = (yield* deps.runReviewFeedback({
+      messages: transcript,
+      context: contexts.critique.judgeAnswer,
+      experience,
+      promptRound: step.promptRound,
+      errorCodes: step.errorCodes,
+      dimensionResults: step.dimensionResults,
+      onPartialAssistantMessage,
+    })).object;
+    const nextRun = yield* (
+      output.feedbackComplete ? completeFeedback(run) : continueFeedback(run)
+    ).pipe(asTurnError);
+    return {
+      assistantMessage: output.assistantMessage,
+      nextRun,
+      actor: "reviewer" as const,
+      reviewGrade: null,
+      ratingWrite: null,
+      presentedReviewChallenge: false,
+    };
+  });
+
 export const runPassAdvanceTurn = (
   {
     run,
@@ -255,7 +309,7 @@ export const runPassAdvanceTurn = (
 ): Effect.Effect<UnitTurnResult, UnitAgentError | UnitTurnContractError> =>
   Effect.gen(function* () {
     yield* assertInteractionId(run, interactionId).pipe(asTurnError);
-    if (run.cursor.step.kind !== "feedback") {
+    if (run.cursor.step.kind !== "pass_result") {
       return yield* contractFailure("There is no feedback waiting to advance.");
     }
     return yield* openScenario({
@@ -293,10 +347,18 @@ export const runUnitTurn = (
     if (step.kind === "complete") {
       return yield* contractFailure("The education unit is already complete.");
     }
+    if (step.kind === "pass_result") {
+      return yield* contractFailure("Press Enter to continue after this pass.");
+    }
     if (step.kind === "feedback") {
-      return yield* contractFailure(
-        "Press Enter to continue after the feedback.",
-      );
+      return yield* continueFeedbackTurn({
+        run,
+        transcript,
+        experience,
+        contexts,
+        onPartialAssistantMessage,
+        deps,
+      });
     }
     if (step.kind === "scenario") {
       return step.challenge
@@ -340,7 +402,7 @@ export const runUnitTurn = (
       }).pipe(asTurnError);
       return {
         assistantMessage: mentor.object.assistantMessage,
-        nextRun: yield* repeatTeachback(preparedRun).pipe(asTurnError),
+        nextRun: yield* repeatTeaching(preparedRun).pipe(asTurnError),
         actor: "mentor" as const,
         reviewGrade: null,
         ratingWrite: null,
@@ -367,7 +429,7 @@ export const runUnitTurn = (
     if (!mentor.object.completedCapabilityId) {
       return {
         assistantMessage: mentor.object.assistantMessage,
-        nextRun: yield* repeatTeachback(run).pipe(asTurnError),
+        nextRun: yield* repeatTeaching(run).pipe(asTurnError),
         actor: "mentor" as const,
         reviewGrade: null,
         ratingWrite: null,
