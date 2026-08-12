@@ -1,10 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { UnitContent } from "../types/training.types";
+import { makeUnitContext } from "../education-unit/unit-context.fixture";
 import { getUnitReadinessWorkflow } from "./get-unit-readiness-workflow";
 
 const nodeId = "node-1";
-const unit = { id: "unit-1", nodeId } as UnitContent;
+const unit = {
+  id: "unit-1",
+  nodeId,
+  seedPrompt: "Diagnose the failure and justify the next probe.",
+  unitContext: makeUnitContext(),
+} as UnitContent;
 
 const makeDeps = () => ({
   awaitBuildSettled: vi.fn().mockResolvedValue(true),

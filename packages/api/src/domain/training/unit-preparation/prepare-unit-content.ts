@@ -1,9 +1,8 @@
 import { Duration, Effect, Schedule } from "effect";
 
-import { UnitContextSchema } from "@acme/validators";
-
 import type { CurriculumNode, UnitContent } from "../types/training.types";
 import type { UnitBuilderContext } from "../unit-builder/contracts";
+import { getUnitReadinessIssue } from "../education-unit/unit-readiness";
 import type { UnitPreparationError } from "./errors";
 import { regimeForNodeKind } from "../engine/progression-model";
 import { OutcomeTaskContractSchema } from "../unit-builder/contracts";
@@ -231,7 +230,7 @@ const prepareUnitContentUnlocked = ({
     });
     if (
       existing &&
-      UnitContextSchema.safeParse(existing.unitContext).success &&
+      getUnitReadinessIssue(existing) === null &&
       !forceRefresh
     ) {
       return existing;

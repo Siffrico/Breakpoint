@@ -56,7 +56,7 @@ Rules:
 - title is a task-worded directive naming the concrete task, never a question
 - seedPrompt must be the complete learner-ready task in the required task shape, including all stimuli, options, inputs, or constraints needed to attempt it
 - the learner is judged only against the fixed result; do not add a second deliverable
-- selected-response task shapes must include the complete response options and satisfy the quality bar
+- selected-response task shapes must include exactly four complete options on separate plain Markdown lines labeled A-D and satisfy the quality bar
 - use the current Skill Map targets to choose this repetition's content and variation, but never name those targets or prescribe the solve procedure
 - make the learner apply an expert heuristic; do not reward recall of a fact alone
 - build the task at the band the difficulty directive names, to the band brief's stated reasoning path, withheld givens, and embedded alternatives — those counts are the difficulty, not a suggestion

@@ -17,6 +17,7 @@ import type { WorkspaceAiState } from "./types";
 import type { WorkspaceProjectionReaderSource } from "./workspace-reader";
 import { DEFAULT_EDUCATION_EXPERIENCE } from "../education-unit/experience";
 import { createUnitRun } from "../education-unit/unit-state";
+import { getUnitReadinessIssue } from "../education-unit/unit-readiness";
 import { UnitNotReadyError } from "../unit-preparation/errors";
 import { isUnitMidFlight, planWorkspaceTurn } from "./orchestrator";
 import {
@@ -383,7 +384,7 @@ export const loadNextReadyUnitProjection = ({
     const reader = yield* WorkspaceProjectionReader;
     const node = getNextReadyLearningNode(nodes);
     const unit = node ? yield* reader.getUnitByNodeId(node.id) : null;
-    if (!unit || !UnitContextSchema.safeParse(unit.unitContext).success) {
+    if (!unit || getUnitReadinessIssue(unit) !== null) {
       return { node, unit: null, responses: [], run: null };
     }
     const [responses, existingRun] = yield* Effect.all(
