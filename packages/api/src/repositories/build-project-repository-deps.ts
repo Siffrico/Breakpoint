@@ -55,7 +55,7 @@ export const ensureOutcomeUnit = async ({
           abortSignal,
         }).loadOpenUnit(outcomeNodeId, "ready"),
       ),
-    build: (lockDb) =>
+    build: (lockDb, withLease) =>
       Effect.runPromise(
         createNextUnit({
           skillNodeId: outcomeNodeId,
@@ -64,6 +64,7 @@ export const ensureOutcomeUnit = async ({
             sessionId,
             userId,
             abortSignal,
+            withLease,
           }),
         }),
       ),

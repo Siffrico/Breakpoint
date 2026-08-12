@@ -41,8 +41,26 @@ describe("normalizeAssistantMarkdown", () => {
       normalizeAssistantMarkdown(
         "## Worked Example\n\nSolved case.\n\n## Your Task\n\nFresh case.",
       ),
+    ).toBe("## Worked Example\n\nSolved case.\n\n## Your Task\n\nFresh case.");
+  });
+
+  it("promotes inline teaching labels into scannable sections", () => {
+    expect(
+      normalizeAssistantMarkdown(
+        "**Heuristic** Read past the target. **Worked example** **Read** The claim is qualified. **Predict** Positive, but measured. **Compare** - optimistic is too strong - encouraging fits **Decide** Choose encouraging.",
+      ),
     ).toBe(
-      "## Worked Example\n\nSolved case.\n\n## Your Task\n\nFresh case.",
+      "## Heuristic\n\nRead past the target.\n\n## Worked example\n\n### Read\n\nThe claim is qualified.\n\n### Predict\n\nPositive, but measured.\n\n### Compare\n\noptimistic is too strong - encouraging fits\n\n### Decide\n\nChoose encouraging.",
+    );
+  });
+
+  it("promotes compact gap feedback into scannable sections", () => {
+    expect(
+      normalizeAssistantMarkdown(
+        "**What held** You noticed the positive signal. **Change** You treated it as certainty. **Use next time** Let the qualifier cap the word's strength.",
+      ),
+    ).toBe(
+      "## What held\n\nYou noticed the positive signal.\n\n## Change\n\nYou treated it as certainty.\n\n## Use next time\n\nLet the qualifier cap the word's strength.",
     );
   });
 
@@ -51,9 +69,7 @@ describe("normalizeAssistantMarkdown", () => {
       normalizeAssistantMarkdown(
         "Which word fits? A) narrow B) broad C) quiet D) late",
       ),
-    ).toBe(
-      "Which word fits?\n\nA) narrow\n\nB) broad\n\nC) quiet\n\nD) late",
-    );
+    ).toBe("Which word fits?\n\nA) narrow\n\nB) broad\n\nC) quiet\n\nD) late");
   });
 
   it("keeps a horizontal rule and code comments that only look like headings", () => {

@@ -119,6 +119,25 @@ D. indifferent`,
     );
   });
 
+  it("rejects raw HTML and worked answers in learner tasks", () => {
+    expect(
+      getSeedTaskReadinessIssue({
+        seedPrompt:
+          "<p>Which claim fits?</p> A) first B) second C) third D) fourth",
+        responseMode: "select",
+      }),
+    ).toBe("Learner task must use Markdown, not raw HTML.");
+    expect(
+      getSeedTaskReadinessIssue({
+        seedPrompt:
+          "Worked Example: Correct answer: B. A) first B) second C) third D) fourth",
+        responseMode: "select",
+      }),
+    ).toBe(
+      "Selected-response task must be unsolved and must not expose an answer.",
+    );
+  });
+
   it("rejects persisted content without authoritative context", () => {
     expect(
       getUnitReadinessIssue({

@@ -547,24 +547,19 @@ describe("prepareUnitContent", () => {
     expect(result).toBe(unit);
   });
 
-  it("retries a provider failure and then persists the successful scaffold", async () => {
+  it("does not add a second recovery loop around the seed agent", async () => {
     runSeedStageMock
       .mockRejectedValueOnce(new Error("provider unavailable"))
       .mockResolvedValueOnce(setup);
     const deps = makeDeps();
 
-    const result = await Effect.runPromise(
+    const exit = await Effect.runPromiseExit(
       prepareUnitContent({ node, sessionId: "session-1", deps }),
     );
 
-    expect(result).toBe(unit);
-    expect(runSeedStageMock).toHaveBeenCalledTimes(2);
-    expect(deps.createUnitContentIfAbsent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        unitContext,
-      }),
-    );
-    expect(deps.replaceUnitContent).not.toHaveBeenCalled();
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(runSeedStageMock).toHaveBeenCalledTimes(1);
+    expect(deps.createUnitContentIfAbsent).not.toHaveBeenCalled();
   });
 
   it("uses replacement for an explicit refresh", async () => {
@@ -631,7 +626,7 @@ describe("prepareUnitContent", () => {
     const resultPromise = Effect.runPromiseExit(
       prepareUnitContent({ node, sessionId: "session-1", deps }),
     );
-    await vi.advanceTimersByTimeAsync(140_000);
+    await vi.advanceTimersByTimeAsync(46_000);
     const exit = await resultPromise;
 
     expect(Exit.isFailure(exit)).toBe(true);
@@ -639,7 +634,7 @@ describe("prepareUnitContent", () => {
       expect(String(exit.cause)).toContain("UnitScaffoldError");
       expect(String(exit.cause)).toContain("timed out");
     }
-    expect(runSeedStageMock).toHaveBeenCalledTimes(3);
+    expect(runSeedStageMock).toHaveBeenCalledTimes(1);
   });
 
   it("tags a write failure as UnitPersistError without regenerating", async () => {

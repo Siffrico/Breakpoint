@@ -139,17 +139,17 @@ describe("unit state", () => {
     expect(Exit.isFailure(exit)).toBe(true);
   });
 
-  it("cannot end the unit on Pass 1, whatever the mark says", async () => {
+  it("ends after a clean first solve and retries only after a gap", async () => {
     const learned = await completeLearning();
-    expect(isDecisivePass(learned)).toBe(false);
+    expect(isDecisivePass(learned)).toBe(true);
 
-    for (const result of ["pass", "fail"] as const) {
-      const marked = await answerAndMark(learned, result);
+    const complete = await answerAndMark(learned, "pass");
+    expect(complete.mode).toBe("complete");
 
-      expect(marked.mode).toBe("awaiting_next_pass");
-      expect(marked.reviewPass).toBe(2);
-      expect(currentTodo(marked)).toMatchObject({ kind: "solve", pass: 2 });
-    }
+    const retry = await answerAndMark(learned, "fail");
+    expect(retry.mode).toBe("awaiting_next_pass");
+    expect(retry.reviewPass).toBe(2);
+    expect(currentTodo(retry)).toMatchObject({ kind: "solve", pass: 2 });
   });
 
   it("opens another pass when a decisive mark fails", async () => {
@@ -163,7 +163,7 @@ describe("unit state", () => {
   });
 
   it("ends the unit when a decisive mark passes", async () => {
-    const pass2 = await answerAndMark(await completeLearning(), "pass");
+    const pass2 = await answerAndMark(await completeLearning(), "fail");
     const complete = await answerAndMark(pass2, "pass");
 
     expect(complete.mode).toBe("complete");
@@ -192,7 +192,7 @@ describe("unit state", () => {
   });
 
   it("parks a pre-generated challenge on the unopened solve", async () => {
-    const pass2 = await answerAndMark(await completeLearning(), "pass");
+    const pass2 = await answerAndMark(await completeLearning(), "fail");
     const parked = await Effect.runPromise(
       attachChallenge({ run: pass2, challenge }),
     );

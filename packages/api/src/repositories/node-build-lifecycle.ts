@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Data } from "effect";
 
 import type { db as databaseClient } from "@acme/db/client";
-import { and, eq, sql } from "@acme/db";
+import { and, eq, gt, sql } from "@acme/db";
 import { TrainingNodeBuild } from "@acme/db/schema";
 
 type Database = typeof databaseClient;
@@ -13,6 +13,10 @@ type Database = typeof databaseClient;
  * each append their own unit before either has a unit id to lock on.
  */
 type BuildKind = "skill_knowledge" | "unit_content" | "unit_creation";
+
+export type NodeBuildLeaseGuard = <T>(
+  persist: (db: Database) => Promise<T>,
+) => Promise<T>;
 
 const LEASE_MS = 60_000;
 const HEARTBEAT_MS = 20_000;
@@ -158,7 +162,7 @@ export const withNodeBuildLifecycle = async <T>({
   db: Database;
   kind: BuildKind;
   nodeId: string;
-  build: (db: Database) => Promise<T>;
+  build: (db: Database, withLease: NodeBuildLeaseGuard) => Promise<T>;
   loadReady: (db: Database) => Promise<T>;
   rebuildReady?: boolean;
 }): Promise<T> => {
@@ -173,6 +177,7 @@ export const withNodeBuildLifecycle = async <T>({
   }
   if (ownership.status === "ready") return loadReady(db);
 
+  let heartbeatFailure: unknown = null;
   const heartbeat = setInterval(() => {
     void db
       .update(TrainingNodeBuild)
@@ -186,11 +191,54 @@ export const withNodeBuildLifecycle = async <T>({
           eq(TrainingNodeBuild.nodeId, nodeId),
           eq(TrainingNodeBuild.leaseId, ownership.leaseId),
         ),
-      );
+      )
+      .then(() => undefined)
+      .catch((cause: unknown) => {
+        heartbeatFailure = cause;
+      });
   }, HEARTBEAT_MS);
 
+  const withLease: NodeBuildLeaseGuard = (persist) => {
+    if (heartbeatFailure) {
+      return Promise.reject(
+        new NodeBuildLeaseLostError({ kind, nodeId, cause: heartbeatFailure }),
+      );
+    }
+    return db.transaction(async (tx) => {
+      const transactionDb = tx as unknown as Database;
+      const now = new Date();
+      const [owned] = await transactionDb
+        .update(TrainingNodeBuild)
+        .set({
+          leaseExpiresAt: new Date(now.getTime() + LEASE_MS),
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(TrainingNodeBuild.kind, kind),
+            eq(TrainingNodeBuild.nodeId, nodeId),
+            eq(TrainingNodeBuild.status, "running"),
+            eq(TrainingNodeBuild.leaseId, ownership.leaseId),
+            gt(TrainingNodeBuild.leaseExpiresAt, now),
+          ),
+        )
+        .returning({ id: TrainingNodeBuild.id });
+      if (!owned) {
+        throw new NodeBuildLeaseLostError({ kind, nodeId });
+      }
+      return persist(transactionDb);
+    });
+  };
+
   try {
-    const result = await build(db);
+    const result = await build(db, withLease);
+    if (heartbeatFailure) {
+      throw new NodeBuildLeaseLostError({
+        kind,
+        nodeId,
+        cause: heartbeatFailure,
+      });
+    }
     const [completed] = await db
       .update(TrainingNodeBuild)
       .set({

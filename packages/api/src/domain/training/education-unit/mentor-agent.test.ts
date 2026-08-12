@@ -23,7 +23,9 @@ describe("runMentorAgent", () => {
   it("asks for semantic structure without generic report headings", async () => {
     await Effect.runPromise(
       runMentorAgent({
-        messages: [{ role: "user", content: "I chose A because it is measured." }],
+        messages: [
+          { role: "user", content: "I chose A because it is measured." },
+        ],
         context: "Authoritative unit teaching context.",
         experience: DEFAULT_EDUCATION_EXPERIENCE,
         currentCapabilityId: "capability-1",
@@ -33,8 +35,12 @@ describe("runMentorAgent", () => {
     const call = runUnitAgentMock.mock.calls[0]?.[0] as
       | { system: string }
       | undefined;
+    expect(call?.system).toContain("**Heuristic**");
     expect(call?.system).toContain("**Worked example**");
-    expect(call?.system).toContain("**Pattern to reuse**");
+    expect(call?.system).toContain("**Read**");
+    expect(call?.system).toContain("**Predict**");
+    expect(call?.system).toContain("**Compare**");
+    expect(call?.system).toContain("**Decide**");
     expect(call?.system).toContain(
       "Keep each prose paragraph to one or two sentences.",
     );

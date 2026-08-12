@@ -89,8 +89,44 @@ export const UnitBuilderContextSchema = z.object({
     .nullable(),
 });
 
-export const SeedStageOutputSchema = PreSeedUnitContentDraftSchema;
+const seedOptionSchema = (label: "A" | "B" | "C" | "D") =>
+  z
+    .object({
+      label: z.literal(label),
+      text: z.string().trim().min(1).max(1_000),
+    })
+    .strict();
+
+const selectedSeedStageOutputSchema = PreSeedUnitContentDraftSchema.extend({
+  options: z.tuple([
+    seedOptionSchema("A"),
+    seedOptionSchema("B"),
+    seedOptionSchema("C"),
+    seedOptionSchema("D"),
+  ]),
+});
+
+export const seedStageOutputSchema = (selectedResponse: boolean) =>
+  selectedResponse
+    ? selectedSeedStageOutputSchema
+    : PreSeedUnitContentDraftSchema;
+
+export const renderSeedPrompt = (output: {
+  readonly seedPrompt: string;
+  readonly options?: readonly {
+    readonly label: "A" | "B" | "C" | "D";
+    readonly text: string;
+  }[];
+}): string =>
+  [
+    output.seedPrompt.trim(),
+    output.options
+      ?.map((option) => `${option.label}) ${option.text.trim()}`)
+      .join("\n\n"),
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join("\n\n");
 
 export type OutcomeTaskContract = z.infer<typeof OutcomeTaskContractSchema>;
 export type UnitBuilderContext = z.infer<typeof UnitBuilderContextSchema>;
-export type SeedStageOutput = z.infer<typeof SeedStageOutputSchema>;
+export type SeedStageOutput = z.infer<typeof PreSeedUnitContentDraftSchema>;

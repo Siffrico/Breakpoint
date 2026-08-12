@@ -65,6 +65,26 @@ describe("unit agent context projections", () => {
     expect(result).not.toContain("Learner memory");
   });
 
+  it("keeps teaching support out of the independent review prompt", () => {
+    const result = createCritiqueContext({
+      unitContext,
+      difficulty: {
+        ...difficulty,
+        promptBlock: `## Difficulty directive
+- Format: Selected response
+- Support: Begin with a fully worked example, then pose the scenario.
+- Approach: Standard training scenario.`,
+      },
+      focus,
+      mode: "create_challenge",
+    });
+
+    expect(result).toContain("- Format: Selected response");
+    expect(result).toContain("- Approach: Standard training scenario.");
+    expect(result).not.toContain("- Support:");
+    expect(result).not.toContain("fully worked example");
+  });
+
   it("keeps grading independent from difficulty, memory, and prior challenges", () => {
     const result = createCritiqueContext({
       unitContext,

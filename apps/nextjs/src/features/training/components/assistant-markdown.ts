@@ -5,9 +5,14 @@ const FENCE_LINE = /^ {0,3}(?:```|~~~)/;
 const ATX_HEADING_LINE = /^ {0,3}#{1,6}(?:[ \t]|$)/;
 const SETEXT_UNDERLINE_LINE = /^ {0,3}(?:=+|-{2,})[ \t]*$/;
 const CHAT_META_HEADING = /^(?:feedback|response|the scenario|scenario)$/i;
-const OPTION_LABEL = /(?:^|\s)(?:\*\*)?\(?([A-D])(?:\)|[.:])(?:\*\*)?[ \t]+\S/gim;
+const OPTION_LABEL =
+  /(?:^|\s)(?:\*\*)?\(?([A-D])(?:\)|[.:])(?:\*\*)?[ \t]+\S/gim;
 const OPTION_BOUNDARY =
   /[ \t\n]+(?=(?:\*\*)?\(?[A-D](?:\)|[.:])(?:\*\*)?[ \t]+\S)/g;
+const TEACHING_SECTION_LABEL =
+  /(?:^|[ \t]*)\*\*(Heuristic|Worked example|What held|Change|Use next time)\*\*[ \t]*/gim;
+const TEACHING_STEP_LABEL =
+  /(?:^|[ \t]*)\*\*(Read|Predict|Compare|Decide)\*\*[ \t]*(?:—|-|:)?[ \t]*/gim;
 
 const headingText = (line: string): string =>
   line
@@ -75,7 +80,16 @@ const stripHeadings = (markdown: string): string => {
 };
 
 export function normalizeAssistantMarkdown(content: string): string {
-  const trimmed = content.trim();
+  const trimmed = content
+    .replace(
+      TEACHING_SECTION_LABEL,
+      (_match, label: string) => `\n\n## ${label}\n\n`,
+    )
+    .replace(
+      TEACHING_STEP_LABEL,
+      (_match, label: string) => `\n\n### ${label}\n\n`,
+    )
+    .trim();
   const blockMarkdown =
     trimmed.includes("\n") || !FLATTENED_MARKDOWN_BLOCK.test(trimmed)
       ? trimmed

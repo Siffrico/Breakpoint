@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 
 import type { UnitTurnDependencies } from "./run-unit-turn";
 import type { PersistedUnitRun } from "./unit-state";
-import { DEFAULT_EDUCATION_EXPERIENCE } from "./experience";
 import { UnitAgentSchemaError } from "./agent-errors";
+import { DEFAULT_EDUCATION_EXPERIENCE } from "./experience";
 import { runPassAdvanceTurn, runUnitTurn } from "./run-unit-turn";
 import { makeUnitContext } from "./unit-context.fixture";
 import { attachChallenge, createUnitRun, TEACH_TODO_ID } from "./unit-state";
@@ -323,7 +323,7 @@ describe("runUnitTurn", () => {
       runUnitTurn(input(opened.nextRun), deps()),
     );
 
-    // Pass 1 cannot end the unit, so a gap simply parks the next scenario.
+    // A real gap parks a fresh scenario; a clean first solve would end here.
     expect(graded.nextRun.mode).toBe("awaiting_next_pass");
     expect(graded.nextRun.reviewPass).toBe(2);
     expect(graded.settledPass).toBe(1);
@@ -331,10 +331,13 @@ describe("runUnitTurn", () => {
     expect(graded.reviewGrade?.errorCodes).toEqual([
       "gap:derive-under-pressure",
     ]);
-    expect(graded.ratingWrite).toBeNull();
+    expect(graded.ratingWrite).toEqual({
+      score: 62,
+      errorCodes: ["gap:derive-under-pressure"],
+    });
   });
 
-  it("holds after Pass 1, opens Pass 2, and rates only the decisive mark", async () => {
+  it("completes and rates a clean first solve", async () => {
     const opened = await Effect.runPromise(
       runUnitTurn(
         input(),
@@ -376,70 +379,9 @@ describe("runUnitTurn", () => {
       ),
     );
 
-    // A clean Pass 1 still cannot finish the unit.
-    expect(settledPass1.nextRun.mode).toBe("awaiting_next_pass");
+    expect(settledPass1.nextRun.mode).toBe("complete");
     expect(settledPass1.settledPass).toBe(1);
-    expect(settledPass1.ratingWrite).toBeNull();
-
-    const pass2Prompt =
-      "Transfer the same judgment to a different production system.";
-    const advanced = await Effect.runPromise(
-      runPassAdvanceTurn(
-        input(settledPass1.nextRun),
-        deps({
-          runReviewPresentation: () =>
-            Effect.succeed({
-              object: {
-                assistantMessage: pass2Prompt,
-                verifier: scenarioVerifier,
-              },
-            }),
-        }),
-      ),
-    );
-
-    expect(advanced.nextRun).toMatchObject({
-      mode: "review",
-      reviewPass: 2,
-      activeReviewChallenge: {
-        prompt: pass2Prompt,
-        difficultyVector,
-        contract: {
-          runKind: "education",
-          testedCriterionIds: ["derive-under-pressure"],
-        },
-      },
-    });
-
-    const passed = await Effect.runPromise(
-      runUnitTurn(
-        input(advanced.nextRun),
-        deps({
-          runReviewGrade: () =>
-            Effect.succeed({
-              object: {
-                assistantMessage:
-                  "The judgment transferred cleanly to the new system.",
-                errorCodes: [],
-                scratchpad:
-                  "No material divergence: the learner independently transferred the causal mechanism.",
-                dimensionResults: [
-                  {
-                    dimensionId: "derive-under-pressure",
-                    score: 91,
-                    evidence: "I would derive it again.",
-                    missing: null,
-                  },
-                ],
-              },
-            }),
-        }),
-      ),
-    );
-
-    expect(passed.nextRun.mode).toBe("complete");
-    expect(passed.settledPass).toBe(2);
-    expect(passed.ratingWrite).toEqual({ score: 91, errorCodes: [] });
+    expect(settledPass1.ratingWrite).toEqual({ score: 88, errorCodes: [] });
   });
 
   it("replays a pre-generated challenge without another model call", async () => {

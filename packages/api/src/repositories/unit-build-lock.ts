@@ -2,6 +2,7 @@ import type { db as databaseClient } from "@acme/db/client";
 import { and, eq } from "@acme/db";
 import { TrainingNodeBuild } from "@acme/db/schema";
 
+import type { NodeBuildLeaseGuard } from "./node-build-lifecycle";
 import { withNodeBuildLifecycle } from "./node-build-lifecycle";
 
 type Database = typeof databaseClient;
@@ -17,7 +18,7 @@ export const withUnitBuildLock = async <T>({
 }: {
   db: Database;
   nodeId: string;
-  build: (lockDb: Database) => Promise<T>;
+  build: (lockDb: Database, withLease: NodeBuildLeaseGuard) => Promise<T>;
   loadReady: (db: Database) => Promise<T>;
   rebuildReady?: boolean;
 }): Promise<T> =>

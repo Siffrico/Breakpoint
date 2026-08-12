@@ -257,9 +257,8 @@ const heartbeatLeases = ({
 const SLOT = "education_unit" as const;
 
 /**
- * What the learner sees where a difficulty note normally sits, on the turn that
- * closes Pass 1. Deliberately not a section of prose: the transition should read
- * as momentum, not as a status report about internal passes.
+ * What the learner sees where a difficulty note normally sits when the first
+ * solve exposes a gap. The transition reads as momentum, not internal state.
  */
 const PASS_ONE_SETTLED_NOTE = "Nice. One more challenge.";
 
@@ -639,7 +638,7 @@ export const runEducationUnitTurn = ({
     }
 
     const completed = turnResult.nextRun.mode === "complete";
-    const settlesPass1 =
+    const opensRetryAfterPass1 =
       turnResult.settledPass === 1 && turnResult.nextRun.kind === "education";
     const knowledgeCheckOff =
       completed && turnResult.nextRun.kind === "education"
@@ -696,9 +695,10 @@ export const runEducationUnitTurn = ({
           ? composedEntryIds
           : null,
       difficultySnapshot,
-      difficultyDirectiveReason: settlesPass1
-        ? PASS_ONE_SETTLED_NOTE
-        : difficultySnapshot.directive.reason,
+      difficultyDirectiveReason:
+        opensRetryAfterPass1 && !completed
+          ? PASS_ONE_SETTLED_NOTE
+          : difficultySnapshot.directive.reason,
       turnId,
       turnLeaseId,
       persistUserMessage: loadedTranscript.claimedDurableTurn,

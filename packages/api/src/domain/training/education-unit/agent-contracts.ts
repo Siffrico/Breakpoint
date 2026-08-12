@@ -5,6 +5,7 @@ import {
   EvaluationDimensionResultSchema,
   ScenarioVerifierSchema,
 } from "@acme/validators";
+
 import { getReviewPresentationReadinessIssue } from "./unit-readiness";
 
 export const LearnerFacingMessageSchema = z.string().trim().min(24).max(8_000);
@@ -25,24 +26,22 @@ export const mentorOutputSchema = (currentCapabilityId: string) =>
     .superRefine((output, ctx) => {
       if (
         output.completedCapabilityId !== null &&
-        !/^\s*\*\*Worked example\*\*\s*$/im.test(output.assistantMessage)
+        ![
+          "Heuristic",
+          "Worked example",
+          "Read",
+          "Predict",
+          "Compare",
+          "Decide",
+        ].every((label) =>
+          new RegExp(`\\*\\*${label}\\*\\*`, "i").test(output.assistantMessage),
+        )
       ) {
         ctx.addIssue({
           code: "custom",
           path: ["assistantMessage"],
           message:
-            "A completed teaching turn must include a bold Worked example section.",
-        });
-      }
-      if (
-        output.completedCapabilityId !== null &&
-        !/^\s*\*\*Pattern to reuse\*\*\s*$/im.test(output.assistantMessage)
-      ) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["assistantMessage"],
-          message:
-            "A completed teaching turn must include a bold Pattern to reuse section.",
+            "A completed teaching turn must include Heuristic, Worked example, Read, Predict, Compare, and Decide labels.",
         });
       }
       if (
@@ -71,31 +70,88 @@ export const mentorOutputSchema = (currentCapabilityId: string) =>
       }
     });
 
-export const reviewPresentationSchema = z
+const reviewOptionSchema = (label: "A" | "B" | "C" | "D") =>
+  z
+    .object({
+      label: z.literal(label),
+      text: z.string().trim().min(1).max(1_000),
+    })
+    .strict();
+
+const reviewPresentationBase = {
+  assistantMessage: LearnerFacingMessageSchema,
+  verifier: ScenarioVerifierSchema,
+};
+
+interface ReviewOption {
+  readonly label: "A" | "B" | "C" | "D";
+  readonly text: string;
+}
+
+export const renderReviewPresentation = (output: {
+  readonly assistantMessage: string;
+  readonly options?: readonly ReviewOption[];
+}): string =>
+  [
+    output.assistantMessage.trim(),
+    output.options
+      ?.map((option) => `${option.label}) ${option.text.trim()}`)
+      .join("\n\n"),
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join("\n\n");
+
+const refineReviewPresentation = (
+  output: {
+    readonly assistantMessage: string;
+    readonly options?: readonly ReviewOption[];
+    readonly verifier: z.infer<typeof ScenarioVerifierSchema>;
+  },
+  ctx: z.RefinementCtx,
+) => {
+  const assistantMessage = renderReviewPresentation(output);
+  const readinessIssue = getReviewPresentationReadinessIssue({
+    assistantMessage,
+    verifier: output.verifier,
+  });
+  if (readinessIssue) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["assistantMessage"],
+      message: readinessIssue,
+    });
+  }
+  if (/<\/?scratchpad>|verifier\.|checkerSpec/i.test(assistantMessage)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["assistantMessage"],
+      message: "learner-facing text must not expose private authoring data",
+    });
+  }
+};
+
+const selectedReviewPresentationSchema = z
   .object({
-    assistantMessage: LearnerFacingMessageSchema,
-    verifier: ScenarioVerifierSchema,
+    ...reviewPresentationBase,
+    options: z.tuple([
+      reviewOptionSchema("A"),
+      reviewOptionSchema("B"),
+      reviewOptionSchema("C"),
+      reviewOptionSchema("D"),
+    ]),
   })
   .strict()
-  .superRefine((output, ctx) => {
-    const readinessIssue = getReviewPresentationReadinessIssue(output);
-    if (readinessIssue) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["assistantMessage"],
-        message: readinessIssue,
-      });
-    }
-    if (
-      /<\/?scratchpad>|verifier\.|checkerSpec/i.test(output.assistantMessage)
-    ) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["assistantMessage"],
-        message: "learner-facing text must not expose private authoring data",
-      });
-    }
-  });
+  .superRefine(refineReviewPresentation);
+
+const openReviewPresentationSchema = z
+  .object(reviewPresentationBase)
+  .strict()
+  .superRefine(refineReviewPresentation);
+
+export const reviewPresentationSchema = (selectedResponse: boolean) =>
+  selectedResponse
+    ? selectedReviewPresentationSchema
+    : openReviewPresentationSchema;
 
 // ---------------------------------------------------------------------------
 // Critic contracts
@@ -220,12 +276,30 @@ export const reviewGradeSchema = ({
       }
 
       const gap = hasModelGap(output.dimensionResults);
-      if (gap && !output.assistantMessage.trimEnd().endsWith("?")) {
+      if (
+        gap &&
+        !["What held", "Change", "Use next time"].every((label) =>
+          new RegExp(`\\*\\*${label}\\*\\*`, "i").test(output.assistantMessage),
+        )
+      ) {
         ctx.addIssue({
           code: "custom",
           path: ["assistantMessage"],
           message:
-            "feedback for a learner gap must end with one targeted application question",
+            "feedback for a learner gap must include What held, Change, and Use next time labels",
+        });
+      }
+      if (
+        !gap &&
+        /\*\*(?:What held|Change|Use next time)\*\*|\b(?:one more|another|next|fresh) (?:challenge|scenario|problem)\b/i.test(
+          output.assistantMessage,
+        )
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["assistantMessage"],
+          message:
+            "feedback for a clean answer must close concisely without repair sections or promising another task",
         });
       }
       if (
@@ -242,5 +316,7 @@ export const reviewGradeSchema = ({
     });
 
 export type MentorOutput = z.infer<ReturnType<typeof mentorOutputSchema>>;
-export type ReviewPresentationOutput = z.infer<typeof reviewPresentationSchema>;
+export type ReviewPresentationOutput = z.infer<
+  ReturnType<typeof reviewPresentationSchema>
+>;
 export type ReviewGradeOutput = z.infer<ReturnType<typeof reviewGradeSchema>>;

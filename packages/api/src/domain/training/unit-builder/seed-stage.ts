@@ -2,9 +2,13 @@ import type { SeedStageOutput, UnitBuilderContext } from "./contracts";
 import { getSeedTaskReadinessIssue } from "../education-unit/unit-readiness";
 import {
   ArtifactBuildError,
-  runAgent,
+  runResilientAgent,
 } from "../orchestration/agent-runtime";
-import { SeedStageOutputSchema, UnitBuilderContextSchema } from "./contracts";
+import {
+  renderSeedPrompt,
+  seedStageOutputSchema,
+  UnitBuilderContextSchema,
+} from "./contracts";
 import { buildSeedStageRequest } from "./seed-prompt-policy";
 
 export const runSeedStage = async (
@@ -13,15 +17,6 @@ export const runSeedStage = async (
 ): Promise<SeedStageOutput> => {
   UnitBuilderContextSchema.parse(context);
   const request = buildSeedStageRequest(context);
-
-  const output = await runAgent({
-    agent: "buildContent",
-    system: request.system,
-    schema: SeedStageOutputSchema,
-    errorMessage: "Failed to generate the seed stage.",
-    prompt: request.prompt,
-    abortSignal: options?.abortSignal,
-  });
   const responseMode =
     context.planContext.clusterContext?.taskContract?.practiceContract
       .responseMode;
@@ -31,12 +26,23 @@ export const runSeedStage = async (
       "schema",
     );
   }
+  const selectedResponse = responseMode === "select";
+
+  const output = await runResilientAgent({
+    agent: "buildContent",
+    system: request.system,
+    schema: seedStageOutputSchema(selectedResponse),
+    errorMessage: "Failed to generate the seed stage.",
+    prompt: request.prompt,
+    abortSignal: options?.abortSignal,
+  });
+  const seedPrompt = renderSeedPrompt(output);
   const readinessIssue = getSeedTaskReadinessIssue({
-    seedPrompt: output.seedPrompt,
+    seedPrompt,
     responseMode,
   });
   if (readinessIssue) {
     throw new ArtifactBuildError(readinessIssue, "schema", output);
   }
-  return output;
+  return { ...output, seedPrompt };
 };

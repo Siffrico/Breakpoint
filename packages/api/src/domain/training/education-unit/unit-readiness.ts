@@ -6,6 +6,9 @@ import { SELECT_OPTION_COUNT } from "../engine/scenario-archetypes";
 
 const LABELED_OPTION_PATTERN =
   /(?:^|\s)(?:[-*]\s*)?(?:\*\*)?\(?([A-D])(?:\)|[.:])(?:\*\*)?[ \t]+\S/gim;
+const HTML_TAG_PATTERN = /<\/?[a-z][^>]*>/i;
+const EXPOSED_FIXED_ANSWER_PATTERN =
+  /\b(?:(?:correct\s+)?answer\s*(?:is|:)\s*|worked\s+(?:example|reasoning)\b)/i;
 
 export const getSeedTaskReadinessIssue = ({
   seedPrompt,
@@ -14,7 +17,14 @@ export const getSeedTaskReadinessIssue = ({
   seedPrompt: string;
   responseMode: ScenarioArchetype;
 }): string | null => {
+  if (HTML_TAG_PATTERN.test(seedPrompt)) {
+    return "Learner task must use Markdown, not raw HTML.";
+  }
   if (responseMode !== "select") return null;
+
+  if (EXPOSED_FIXED_ANSWER_PATTERN.test(seedPrompt)) {
+    return "Selected-response task must be unsolved and must not expose an answer.";
+  }
 
   const labels = new Set(
     [...seedPrompt.matchAll(LABELED_OPTION_PATTERN)].map((match) =>
@@ -37,9 +47,6 @@ export const getUnitReadinessIssue = (
   });
 };
 
-const EXPOSED_FIXED_ANSWER_PATTERN =
-  /\b(?:(?:correct\s+)?answer\s*(?:is|:)\s*|worked\s+(?:example|reasoning)\b)/i;
-
 export const getReviewPresentationReadinessIssue = ({
   assistantMessage,
   verifier,
@@ -57,13 +64,13 @@ export const getReviewPresentationReadinessIssue = ({
   if (!verifier.answer || !/^[A-D]$/i.test(verifier.answer.trim())) {
     return "Selected-response verifier answer must be one label from A-D.";
   }
+  if (EXPOSED_FIXED_ANSWER_PATTERN.test(assistantMessage)) {
+    return "Selected-response challenge must not contain a worked solution or expose its answer.";
+  }
   const optionIssue = getSeedTaskReadinessIssue({
     seedPrompt: assistantMessage,
     responseMode: "select",
   });
   if (optionIssue) return optionIssue;
-  if (EXPOSED_FIXED_ANSWER_PATTERN.test(assistantMessage)) {
-    return "Selected-response challenge must not contain a worked solution or expose its answer.";
-  }
   return null;
 };

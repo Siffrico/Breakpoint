@@ -50,17 +50,12 @@ const contractFailure = (message: string) =>
   Effect.fail(new UnitStateContractError({ message }));
 
 /**
- * An education run's first pass is a warm-up: its mark cannot end the unit, so
- * a Pass 1 fail and a Pass 1 succeed both open Pass 2. A recall run is a single
- * checkpoint that closes either way. This is the only place a pass number is
- * compared to anything.
+ * A clean education solve ends the unit; a gap opens another fresh attempt.
+ * A recall run is a one-shot checkpoint that closes either way.
  */
-const endsOnFor = (
-  kind: UnitRunKind,
-  pass: UnitReviewPass,
-): UnitCompleteTodo["endsOn"] => {
+const endsOnFor = (kind: UnitRunKind): UnitCompleteTodo["endsOn"] => {
   if (kind === "recall") return "any";
-  return pass > 1 ? "pass" : "never";
+  return "pass";
 };
 
 export const passTodos = (
@@ -72,7 +67,7 @@ export const passTodos = (
     kind: "complete",
     status: "pending",
     pass,
-    endsOn: endsOnFor(kind, pass),
+    endsOn: endsOnFor(kind),
     result: null,
   },
 ];

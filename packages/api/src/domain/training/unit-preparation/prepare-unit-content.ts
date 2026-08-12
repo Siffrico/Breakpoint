@@ -1,16 +1,15 @@
-import { Duration, Effect, Schedule } from "effect";
+import { Duration, Effect } from "effect";
 
 import type { CurriculumNode, UnitContent } from "../types/training.types";
 import type { UnitBuilderContext } from "../unit-builder/contracts";
-import { getUnitReadinessIssue } from "../education-unit/unit-readiness";
 import type { UnitPreparationError } from "./errors";
+import { getUnitReadinessIssue } from "../education-unit/unit-readiness";
 import { regimeForNodeKind } from "../engine/progression-model";
 import { OutcomeTaskContractSchema } from "../unit-builder/contracts";
 import { createUnitContext } from "../unit-builder/create-unit-context";
 import { runSeedStage } from "../unit-builder/seed-stage";
 import {
   classifyUnitScaffoldFailure,
-  isRetryable,
   UnitContextMissingError,
   UnitPersistError,
   UnitScaffoldError,
@@ -107,11 +106,6 @@ export interface PrepareUnitContentInput {
     briefing: NonNullable<UnitContent["clusterBriefing"]>;
   }>;
 }
-
-const MAX_RESTARTS = 2;
-const RESTART_SCHEDULE = Schedule.exponential(Duration.millis(300), 2).pipe(
-  Schedule.both(Schedule.recurs(MAX_RESTARTS)),
-);
 
 const contextMissing = (message: string, cause?: unknown) =>
   new UnitContextMissingError({ message, cause });
@@ -228,11 +222,7 @@ const prepareUnitContentUnlocked = ({
           cause,
         }),
     });
-    if (
-      existing &&
-      getUnitReadinessIssue(existing) === null &&
-      !forceRefresh
-    ) {
+    if (existing && getUnitReadinessIssue(existing) === null && !forceRefresh) {
       return existing;
     }
     const replacesExistingContent = existing !== null;
@@ -288,10 +278,6 @@ const prepareUnitContentUnlocked = ({
             })
           : error,
       ),
-      Effect.retry({
-        schedule: RESTART_SCHEDULE,
-        while: isRetryable,
-      }),
     );
 
     const created = yield* Effect.tryPromise({

@@ -62,6 +62,12 @@ const testingSection = (context: UnitContext) =>
 const goldilocksSection = (difficulty: UnitDifficultySnapshot) =>
   `## Goldilocks\n${difficulty.promptBlock}`;
 
+const reviewGoldilocksSection = (difficulty: UnitDifficultySnapshot) =>
+  `## Goldilocks\n${difficulty.promptBlock
+    .split("\n")
+    .filter((line) => !line.startsWith("- Support:"))
+    .join("\n")}`;
+
 const focusSection = (focus: UnitAgentFocus): string | null =>
   focus.kind === "education"
     ? null
@@ -117,7 +123,7 @@ export const createCritiqueContext = ({
     expertiseSection(unitContext),
     mode === "create_challenge" ? testingSection(unitContext) : null,
     judgmentSection(unitContext),
-    mode === "create_challenge" ? goldilocksSection(difficulty) : null,
+    mode === "create_challenge" ? reviewGoldilocksSection(difficulty) : null,
     mode === "create_challenge" && previousChallengePrompts.length > 0
       ? `## Previously used challenge surfaces\nCreate a genuinely fresh surface; do not repeat these prompts:\n${bulletList(previousChallengePrompts)}`
       : null,

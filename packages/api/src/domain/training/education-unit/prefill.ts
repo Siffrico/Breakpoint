@@ -6,10 +6,11 @@ import type {
   UnitReviewChallenge,
 } from "@acme/validators";
 
-import type { ReviewPresentationOutput } from "./agent-contracts";
 import type { UnitAgentError } from "./agent-errors";
 import type { EducationExperienceDefinition } from "./experience";
 import type { PersistedUnitRun } from "./unit-state";
+import type { ReviewPresentationOutput } from "./agent-contracts";
+import { renderReviewPresentation } from "./agent-contracts";
 import { runReviewPresentationAgent } from "./review-agent";
 
 export class UnitTurnContractError extends Data.TaggedError(
@@ -98,14 +99,16 @@ export const prefillScenario = (
       context: presentationContext(context, difficultyVector),
       experience,
       pass: run.reviewPass,
-      onPartialAssistantMessage,
+      selectedResponse: run.difficultySnapshot?.format?.kind === "mcq",
     });
+    const prompt = renderReviewPresentation(result.object);
+    onPartialAssistantMessage?.(prompt);
     return {
-      prompt: result.object.assistantMessage,
+      prompt,
       difficultyVector,
       contract: evaluationContractFor(
         run,
-        result.object.assistantMessage,
+        prompt,
         result.object.verifier,
       ),
     };

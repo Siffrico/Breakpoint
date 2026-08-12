@@ -58,19 +58,21 @@ Before writing assistantMessage, privately establish the intended expert solutio
 
 Write one verifier.scratchpad of at most 500 characters containing only: the expert solution; each plausible wrong path with why a smart learner would choose it and the decisive flaw; and a final realism/self-containment check. Use verifier.type=fixed_answer for selected-response work, judge_rubric for open-ended expert judgment, and checker only when correctness can be completely specified without subjective grading.
 
-assistantMessage must contain only the learner-facing scenario and task, with options when the authentic format requires them. Never reveal the verifier, answer, solution, traps, rubric, difficulty controls, authoring process, or phrases such as scratchpad and Goldilocks.`;
+assistantMessage must contain only the learner-facing scenario and task stem. When the requested schema includes options, put the four complete answer choices there in A-D order; do not duplicate them in assistantMessage. Never reveal the verifier, answer, solution, traps, rubric, difficulty controls, authoring process, or phrases such as scratchpad and Goldilocks.`;
 
 export const runReviewPresentationAgent = ({
   messages,
   context,
   experience,
   pass,
+  selectedResponse,
   onPartialAssistantMessage,
 }: {
   messages: readonly ModelMessage[];
   context: string;
   experience: EducationExperienceDefinition;
   pass: UnitReviewPass;
+  selectedResponse: boolean;
   onPartialAssistantMessage?: (content: string) => void;
 }): Effect.Effect<{ object: ReviewPresentationOutput }, UnitAgentError> => {
   return runUnitAgent({
@@ -80,7 +82,7 @@ export const runReviewPresentationAgent = ({
     system: `${CRITIC_SYSTEM}\n\n${SCENARIO_AUTHORING_POLICY}\n\n## Customized behavior\n${experience.reviewer.instructions}`,
     messages,
     context: `${context}\n\n${presentationTurnInstruction(pass)}`,
-    schema: reviewPresentationSchema,
+    schema: reviewPresentationSchema(selectedResponse),
     schemaName: "unit_review_presentation",
     maxOutputTokens: 3_000,
     errorMessage: "Failed to open the adversarial review.",
@@ -92,8 +94,8 @@ const gradeTurnInstruction = (decisive: boolean) => {
   const task = decisive
     ? `## This turn: the unaided check
 Grade the learner's latest answer against the immutable active challenge. This attempt decides the unit: clean scores end it, a gap opens another fresh scenario. Say plainly where they landed and why.`
-    : `## This turn: the warm-up
-Grade the learner's latest answer against the immutable active challenge. This attempt cannot end the unit — an unaided check follows either way. So teach through the miss: name the first mental-model divergence and repair it in words, close enough that they walk into the next scenario carrying the idea. Never say the words pass, fail, warm-up, or next pass.`;
+    : `## This turn: supported review
+Grade the learner's latest answer against the immutable active challenge. A clean answer completes the unit; a real gap opens a fresh attempt. Name only the first mental-model divergence and repair it closely enough that the learner carries the idea into that attempt. Never say the words pass, fail, warm-up, or next pass.`;
 
   return `${task}
 
@@ -110,9 +112,20 @@ When the answer has a real gap, write one private scratchpad of at most 500 char
 3. Classify the first cause as constraint blindness, a misapplied heuristic, or a missing prerequisite. Diagnose the cause, not its downstream symptoms.
 4. Choose one JIT intervention: the minimum mental model, rule, procedural cue, or syntax fragment that breaks that assumption. Do not teach the surrounding topic.
 
-Write assistantMessage as natural coaching, not a named template. Use short sentences and the learner's vocabulary. Avoid clinical or academic diagnostic language when plain words work; direct transitions such as "The part to change is..." or "Do this instead..." are welcome when they fit, but never force the same stock phrase into every response. In a few compact paragraphs, acknowledge the sound part of their reasoning and name the hidden assumption plainly; deliver the JIT intervention in one or two sentences; then end with exactly one focused question that makes them revise the relevant choice, causal step, or tradeoff without revealing the final answer. Do not use headings named Mirror, Pivot, Crucible, Diagnosis, or JIT. Do not mention scores, grading, rubrics, dimensions, agents, passes, or scratchpads.
+When the answer has a real gap, write assistantMessage in this compact semantic order, using the learner's vocabulary:
 
-When there is no real gap, keep the scratchpad to one short statement that no material divergence exists, do not invent a flaw or ask a remedial question, and close cleanly. When there is a gap, do not imply that one explanation completes the capability: the server will continue presenting fresh scenarios until the learner demonstrates the repaired model independently.`;
+**What held**
+One sentence acknowledging the sound part of their reasoning.
+
+**Change**
+Name the first hidden assumption and show why it breaks on this scenario.
+
+**Use next time**
+Give the minimum reusable cue in one or two sentences. Do not append a question; the server supplies a fresh scenario to solve.
+
+Avoid clinical or academic diagnostic language when plain words work. Do not use headings named Mirror, Pivot, Crucible, Diagnosis, or JIT. Do not mention scores, grading, rubrics, dimensions, agents, passes, or scratchpads.
+
+When there is no real gap, keep the scratchpad to one short statement that no material divergence exists. Write one short paragraph confirming the answer and naming the decisive evidence. Do not use the repair sections, invent a flaw, ask a remedial question, or promise another task. When there is a gap, do not imply that one explanation completes the capability: the server will continue presenting fresh scenarios until the learner demonstrates the repaired model independently.`;
 
 export const runReviewGradeAgent = ({
   messages,
