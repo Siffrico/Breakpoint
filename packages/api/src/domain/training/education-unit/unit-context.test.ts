@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import type { UnitDifficultySnapshot } from "@acme/validators";
 
-import { makeUnitContext } from "./unit-context.fixture";
 import { createCritiqueContext, createMentorContext } from "./unit-context";
+import { makeUnitContext } from "./unit-context.fixture";
 
 const unitContext = makeUnitContext();
 const difficulty = {
@@ -45,8 +45,8 @@ describe("unit agent context projections", () => {
     expect(result).toContain("## Expert workflow");
     expect(result).toContain("## Goldilocks");
     expect(result).toContain("The learner defaults to copied procedures.");
-    expect(result).not.toContain("## Test contract");
-    expect(result).not.toContain("## Judgment standard");
+    expect(result).toContain("## Test contract");
+    expect(result).toContain("## Judgment standard");
   });
 
   it("gives challenge creation the test contract, judgment, Goldilocks, and fresh-surface guard", () => {

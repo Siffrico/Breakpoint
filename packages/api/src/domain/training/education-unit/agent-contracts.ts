@@ -10,17 +10,18 @@ import { getReviewPresentationReadinessIssue } from "./unit-readiness";
 
 export const LearnerFacingMessageSchema = z.string().trim().min(24).max(8_000);
 
-export const mentorOutputSchema = () =>
+export const mentorCheckOutputSchema = (currentCapabilityId: string) =>
   z
     .object({
       assistantMessage: LearnerFacingMessageSchema,
-      teachbackPassed: z.boolean(),
+      completedCapabilityId: z.literal(currentCapabilityId).nullable(),
+      scratchpad: z.string().trim().min(1).max(600),
     })
     .strict()
     .superRefine((output, ctx) => {
       const questionCount = output.assistantMessage.match(/\?/g)?.length ?? 0;
       if (
-        !output.teachbackPassed &&
+        output.completedCapabilityId === null &&
         (!output.assistantMessage.trimEnd().endsWith("?") ||
           questionCount !== 1)
       ) {
@@ -28,26 +29,28 @@ export const mentorOutputSchema = () =>
           code: "custom",
           path: ["assistantMessage"],
           message:
-            "An incomplete teachback must end in exactly one visible learner question.",
+            "An incomplete comprehension check must end in exactly one visible learner question.",
         });
       }
-      if (output.teachbackPassed && questionCount > 0) {
+      if (output.completedCapabilityId !== null && questionCount > 0) {
         ctx.addIssue({
           code: "custom",
           path: ["assistantMessage"],
-          message: "A passing teachback must close without another question.",
+          message:
+            "A passing comprehension check must close without another question.",
         });
       }
       if (
-        !output.teachbackPassed &&
+        output.completedCapabilityId === null &&
         /\bmark (?:this|it|the (?:capability|unit|todo))(?: one)? complete\b/i.test(
           output.assistantMessage,
         )
       ) {
         ctx.addIssue({
           code: "custom",
-          path: ["teachbackPassed"],
-          message: "A completion claim requires teachbackPassed to be true.",
+          path: ["completedCapabilityId"],
+          message:
+            "A completion claim requires completedCapabilityId to be set.",
         });
       }
     });
@@ -134,6 +137,46 @@ export const reviewPresentationSchema = (selectedResponse: boolean) =>
   selectedResponse
     ? selectedReviewPresentationSchema
     : openReviewPresentationSchema;
+
+const mentorOpeningBase = {
+  assistantMessage: LearnerFacingMessageSchema,
+  completedCapabilityId: z.null(),
+  scratchpad: z.string().trim().min(1).max(600),
+};
+
+export const mentorOpeningOutputSchema = (selectedResponse: boolean) =>
+  (selectedResponse
+    ? z.object({
+        ...mentorOpeningBase,
+        preparedScenario: selectedReviewPresentationSchema,
+      })
+    : z.object({
+        ...mentorOpeningBase,
+        preparedScenario: openReviewPresentationSchema,
+      })
+  )
+    .strict()
+    .superRefine((output, ctx) => {
+      const questionCount = output.assistantMessage.match(/\?/g)?.length ?? 0;
+      const wordCount = output.assistantMessage.trim().split(/\s+/).length;
+      if (wordCount < 100 || wordCount > 200) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["assistantMessage"],
+          message: "An opening teaching step must contain 100 to 200 words.",
+        });
+      }
+      if (
+        !output.assistantMessage.trimEnd().endsWith("?") ||
+        questionCount !== 1
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["assistantMessage"],
+          message: "An opening teaching step must end in exactly one question.",
+        });
+      }
+    });
 
 // ---------------------------------------------------------------------------
 // Critic contracts
@@ -323,7 +366,12 @@ export const reviewGradeSchema = ({
       }
     });
 
-export type MentorOutput = z.infer<ReturnType<typeof mentorOutputSchema>>;
+export type MentorCheckOutput = z.infer<
+  ReturnType<typeof mentorCheckOutputSchema>
+>;
+export type MentorOpeningOutput = z.infer<
+  ReturnType<typeof mentorOpeningOutputSchema>
+>;
 export type ReviewPresentationOutput = z.infer<
   ReturnType<typeof reviewPresentationSchema>
 >;

@@ -377,7 +377,7 @@ const claimTurnAndLoadTranscript = ({
     // carries no answer at all — appending an empty user turn would put a blank
     // learner message in the transcript for the next grade to score.
     const messages =
-      action === "advance_pass"
+      action !== "submit_answer"
         ? persistedMessages
         : [
             ...persistedMessages,
@@ -400,7 +400,7 @@ const claimTurnAndLoadTranscript = ({
       kind: "claimed",
       messages,
       transcript: boundTranscript(messages),
-      claimedDurableTurn: action !== "advance_pass",
+      claimedDurableTurn: action === "submit_answer",
       claimedAt: claim.claimedAt,
     };
   });
@@ -570,6 +570,7 @@ export const runEducationUnitTurn = ({
     const turnInput = {
       run: { ...unitRun, difficultySnapshot },
       interactionId,
+      action,
       transcript: toModelMessages(loadedTranscript.transcript),
       experience,
       contexts,
@@ -704,6 +705,7 @@ export const runEducationUnitTurn = ({
       turnId,
       turnLeaseId,
       persistUserMessage: loadedTranscript.claimedDurableTurn,
+      persistPhaseResponse: action !== "start_unit",
       responseSequence: unitResponses.filter(
         (response) =>
           response.phase === "ai_education" || response.phase === "ai_recall",

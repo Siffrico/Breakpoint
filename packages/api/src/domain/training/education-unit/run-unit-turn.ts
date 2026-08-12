@@ -1,7 +1,10 @@
 import type { ModelMessage } from "ai";
-import { Effect, Exit } from "effect";
+import { Effect } from "effect";
 
-import type { EvaluationDimensionResult } from "@acme/validators";
+import type {
+  EvaluationDimensionResult,
+  WorkspaceTurnAction,
+} from "@acme/validators";
 
 import type { UnitAgentError } from "./agent-errors";
 import type { EducationExperienceDefinition } from "./experience";
@@ -12,8 +15,12 @@ import {
   PASSING_COMPOSITE,
   PASSING_DIMENSION,
 } from "./agent-contracts";
-import { runMentorAgent } from "./mentor-agent";
-import { prefillScenario, UnitTurnContractError } from "./prefill";
+import { runMentorCheckAgent, runMentorOpeningAgent } from "./mentor-agent";
+import {
+  prefillScenario,
+  scenarioFromPresentation,
+  UnitTurnContractError,
+} from "./prefill";
 import {
   runReviewGradeAgent,
   runReviewPresentationAgent,
@@ -55,13 +62,15 @@ export interface UnitTurnResult {
 }
 
 export interface UnitTurnDependencies {
-  readonly runMentor: typeof runMentorAgent;
+  readonly runMentorOpening: typeof runMentorOpeningAgent;
+  readonly runMentorCheck: typeof runMentorCheckAgent;
   readonly runReviewPresentation: typeof runReviewPresentationAgent;
   readonly runReviewGrade: typeof runReviewGradeAgent;
 }
 
 const LIVE_DEPENDENCIES: UnitTurnDependencies = {
-  runMentor: runMentorAgent,
+  runMentorOpening: runMentorOpeningAgent,
+  runMentorCheck: runMentorCheckAgent,
   runReviewPresentation: runReviewPresentationAgent,
   runReviewGrade: runReviewGradeAgent,
 };
@@ -83,6 +92,11 @@ const latestUserText = (transcript: readonly ModelMessage[]): string | null => {
     : null;
 };
 
+const MENTOR_CAPABILITY_ID = "teach";
+
+const selectedResponse = (run: PersistedUnitRun) =>
+  run.difficultySnapshot?.format?.kind === "mcq";
+
 const openScenario = ({
   run,
   experience,
@@ -97,18 +111,23 @@ const openScenario = ({
   deps: UnitTurnDependencies;
 }): Effect.Effect<UnitTurnResult, UnitAgentError | UnitTurnContractError> =>
   Effect.gen(function* () {
+    const prepared = preparedScenario(run);
     const challenge =
-      preparedScenario(run) ??
-      (yield* prefillScenario(
-        {
-          run,
-          experience,
-          context: contexts.critique.createChallenge,
-          onPartialAssistantMessage,
-        },
-        deps,
-      ));
-    if (preparedScenario(run)) onPartialAssistantMessage?.(challenge.prompt);
+      prepared ??
+      (run.cursor.step.kind === "feedback" || run.kind === "recall"
+        ? yield* prefillScenario(
+            {
+              run,
+              experience,
+              context: contexts.critique.createChallenge,
+              onPartialAssistantMessage,
+            },
+            deps,
+          )
+        : yield* contractFailure(
+            "The mentor did not prepare the first scenario.",
+          ));
+    if (prepared) onPartialAssistantMessage?.(challenge.prompt);
     const nextRun = yield* presentScenario({ run, challenge }).pipe(
       asTurnError,
     );
@@ -252,6 +271,7 @@ export const runUnitTurn = (
   {
     run,
     interactionId,
+    action,
     transcript,
     experience,
     contexts,
@@ -259,6 +279,7 @@ export const runUnitTurn = (
   }: {
     run: PersistedUnitRun;
     interactionId: string;
+    action?: WorkspaceTurnAction;
     transcript: readonly ModelMessage[];
     experience: EducationExperienceDefinition;
     contexts: UnitAgentContexts;
@@ -296,46 +317,27 @@ export const runUnitTurn = (
           });
     }
 
-    const learnerAnswer = latestUserText(transcript);
-    if (!learnerAnswer) {
-      return yield* contractFailure(
-        "Teachback requires the learner's explanation.",
-      );
-    }
-    const [mentor, scenarioExit] = yield* Effect.all(
-      [
-        deps.runMentor({
-          messages: [{ role: "user", content: learnerAnswer }],
-          context: contexts.mentor,
-          experience,
-          onPartialAssistantMessage,
-        }),
-        Effect.exit(
-          preparedScenario(run)
-            ? Effect.succeed(preparedScenario(run))
-            : prefillScenario(
-                {
-                  run,
-                  experience,
-                  context: contexts.critique.createChallenge,
-                },
-                deps,
-              ),
-        ),
-      ],
-      { concurrency: 2 },
-    );
-    if (!mentor.object.teachbackPassed) {
-      const preparedRun = preparedScenario(run)
-        ? run
-        : Exit.isSuccess(scenarioExit)
-          ? scenarioExit.value
-            ? yield* attachPreparedScenario({
-                run,
-                challenge: scenarioExit.value,
-              }).pipe(asTurnError)
-            : run
-          : run;
+    if (action === "start_unit") {
+      if (step.preparedScenario) {
+        return yield* contractFailure(
+          "The mentor has already opened this unit.",
+        );
+      }
+      const mentor = yield* deps.runMentorOpening({
+        context: contexts.mentor,
+        experience,
+        currentCapabilityId: MENTOR_CAPABILITY_ID,
+        selectedResponse: selectedResponse(run),
+        onPartialAssistantMessage,
+      });
+      const challenge = yield* scenarioFromPresentation({
+        run,
+        presentation: mentor.object.preparedScenario,
+      });
+      const preparedRun = yield* attachPreparedScenario({
+        run,
+        challenge,
+      }).pipe(asTurnError);
       return {
         assistantMessage: mentor.object.assistantMessage,
         nextRun: yield* repeatTeachback(preparedRun).pipe(asTurnError),
@@ -345,21 +347,36 @@ export const runUnitTurn = (
         presentedReviewChallenge: false,
       };
     }
-    if (Exit.isFailure(scenarioExit)) {
-      return yield* Effect.failCause(scenarioExit.cause);
+
+    const learnerAnswer = latestUserText(transcript);
+    if (!learnerAnswer) {
+      return yield* contractFailure(
+        "Teachback requires the learner's explanation.",
+      );
     }
-    const scenario = scenarioExit.value;
-    if (!scenario) {
-      return yield* contractFailure("The next scenario could not be prepared.");
+    if (!step.preparedScenario) {
+      return yield* contractFailure("The mentor has not opened this unit yet.");
     }
-    const preparedRun = preparedScenario(run)
-      ? run
-      : yield* attachPreparedScenario({ run, challenge: scenario }).pipe(
-          asTurnError,
-        );
+    const mentor = yield* deps.runMentorCheck({
+      messages: [{ role: "user", content: learnerAnswer }],
+      context: contexts.mentor,
+      experience,
+      currentCapabilityId: MENTOR_CAPABILITY_ID,
+      onPartialAssistantMessage,
+    });
+    if (!mentor.object.completedCapabilityId) {
+      return {
+        assistantMessage: mentor.object.assistantMessage,
+        nextRun: yield* repeatTeachback(run).pipe(asTurnError),
+        actor: "mentor" as const,
+        reviewGrade: null,
+        ratingWrite: null,
+        presentedReviewChallenge: false,
+      };
+    }
     const handoff = `${mentor.object.assistantMessage}\n\n`;
     const opened = yield* openScenario({
-      run: preparedRun,
+      run,
       experience,
       contexts,
       onPartialAssistantMessage: onPartialAssistantMessage

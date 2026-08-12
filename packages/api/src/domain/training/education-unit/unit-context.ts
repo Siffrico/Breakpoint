@@ -101,6 +101,8 @@ export const createMentorContext = ({
     targetSection(unitContext),
     workflowSection(unitContext),
     expertiseSection(unitContext),
+    testingSection(unitContext),
+    judgmentSection(unitContext),
     goldilocksSection(difficulty),
     memories.length > 0
       ? `## Learner memory\n${bulletList(memories.map((memory) => memory.content))}`

@@ -222,6 +222,9 @@ describe("saveUnitTurnResult", () => {
           Layer.succeed(WorkspaceTurnRepo, {
             commitEducationTurn: (input) =>
               Effect.sync(() => {
+                if (!input.phaseResponse) {
+                  throw new Error("Expected a learner phase response.");
+                }
                 commits.push(input);
                 phaseResponses.push({
                   id: "response-1",
@@ -244,7 +247,7 @@ describe("saveUnitTurnResult", () => {
       ),
     );
 
-    expect(commits[0]?.phaseResponse.metadata?.recallEntryIds).toEqual([
+    expect(commits[0]?.phaseResponse?.metadata?.recallEntryIds).toEqual([
       recallCandidate.id,
     ]);
     expect(result.state).toMatchObject({

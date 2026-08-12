@@ -426,17 +426,19 @@ const commitEducationTurn = async ({
       throw new Error("AI response could not be saved.");
     }
 
-    await trainingCurriculumRepository.savePhaseResponse({
-      db: txDb,
-      ...input.phaseResponse,
-      metadata: presentedScenarioAttemptId
-        ? {
-            ...input.phaseResponse.metadata,
-            scenarioAttemptId: presentedScenarioAttemptId,
-          }
-        : input.phaseResponse.metadata,
-      sequence: input.phaseResponse.sequence ?? assistantMessage.sequence,
-    });
+    if (input.phaseResponse) {
+      await trainingCurriculumRepository.savePhaseResponse({
+        db: txDb,
+        ...input.phaseResponse,
+        metadata: presentedScenarioAttemptId
+          ? {
+              ...input.phaseResponse.metadata,
+              scenarioAttemptId: presentedScenarioAttemptId,
+            }
+          : input.phaseResponse.metadata,
+        sequence: input.phaseResponse.sequence ?? assistantMessage.sequence,
+      });
+    }
     await trainingUnitRunRepository.upsertUnitRun({
       db: txDb,
       run: input.nextRun,

@@ -1,42 +1,65 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  mentorOutputSchema,
+  mentorCheckOutputSchema,
   reviewGradeSchema,
   reviewPresentationSchema,
 } from "./agent-contracts";
 
-describe("mentorOutputSchema", () => {
+describe("mentorCheckOutputSchema", () => {
   it("accepts a causal teachback pass with a concise acknowledgement", () => {
     expect(
-      mentorOutputSchema().safeParse({
+      mentorCheckOutputSchema("teach").safeParse({
         assistantMessage:
           "Yes—the changed constraint controls the choice, so the old procedure must be re-derived.",
-        teachbackPassed: true,
+        completedCapabilityId: "teach",
+        scratchpad:
+          "Causal explanation names the changed constraint and its consequence.",
       }).success,
     ).toBe(true);
   });
 
   it("requires an incomplete teachback to end in one visible question", () => {
     expect(
-      mentorOutputSchema().safeParse({
+      mentorCheckOutputSchema("teach").safeParse({
         assistantMessage:
           "You named the move but not what makes it valid in this case.",
-        teachbackPassed: false,
+        completedCapabilityId: null,
+        scratchpad: "The learner named the move without its controlling cause.",
       }).success,
     ).toBe(false);
     expect(
-      mentorOutputSchema().safeParse({
+      mentorCheckOutputSchema("teach").safeParse({
         assistantMessage:
           "You named the move but not what makes it valid. Which constraint controls it?",
-        teachbackPassed: false,
+        completedCapabilityId: null,
+        scratchpad: "The learner named the move without its controlling cause.",
       }).success,
     ).toBe(true);
     expect(
-      mentorOutputSchema().safeParse({
+      mentorCheckOutputSchema("teach").safeParse({
         assistantMessage:
           "Which constraint changed? Why does that invalidate the old move?",
-        teachbackPassed: false,
+        completedCapabilityId: null,
+        scratchpad: "The learner omitted the causal mechanism.",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("requires a concise private scratchpad", () => {
+    expect(
+      mentorCheckOutputSchema("teach").safeParse({
+        assistantMessage:
+          "The changed constraint controls the move, so the old procedure no longer applies.",
+        completedCapabilityId: "teach",
+      }).success,
+    ).toBe(false);
+    expect(
+      mentorCheckOutputSchema("teach").safeParse({
+        assistantMessage:
+          "The changed constraint controls the move, so the old procedure no longer applies.",
+        completedCapabilityId: "teach",
+        scratchpad: "x".repeat(601),
       }).success,
     ).toBe(false);
   });

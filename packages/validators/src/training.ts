@@ -18,10 +18,11 @@ const WorkspaceChatMessageSchema = z.looseObject({
 });
 
 /**
- * What a workspace turn is claiming. `advance_pass` moves from settled
- * feedback into the next scenario and is the only action without learner text.
+ * What a workspace turn is claiming. `start_unit` opens the mentor's teaching
+ * step, and `advance_pass` moves from settled feedback into the next scenario.
  */
 export const WorkspaceTurnActionSchema = z.enum([
+  "start_unit",
   "submit_answer",
   "advance_pass",
 ]);
@@ -38,6 +39,7 @@ export const WorkspaceChatRequestSchema = z
   })
   .refine(
     (body) =>
+      body.action === "start_unit" ||
       body.action === "advance_pass" ||
       typeof body.message === "string" ||
       Array.isArray(body.messages),

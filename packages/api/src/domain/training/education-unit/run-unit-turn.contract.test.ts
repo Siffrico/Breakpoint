@@ -1,37 +1,12 @@
-import { Effect, Exit } from "effect";
+import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
 import type { UnitTurnDependencies } from "./run-unit-turn";
 import type { PersistedUnitRun } from "./unit-state";
-import { UnitAgentTransientProviderError } from "./agent-errors";
 import { DEFAULT_EDUCATION_EXPERIENCE } from "./experience";
 import { runPassAdvanceTurn, runUnitTurn } from "./run-unit-turn";
 import { makeUnitContext } from "./unit-context.fixture";
-import { createUnitRun, presentScenario } from "./unit-state";
-
-const challenge = {
-  prompt:
-    "The production constraint changed. Choose the next move and defend it from the controlling mechanism.",
-  difficultyVector: {
-    formatId: "frq",
-    reasoningPathSteps: 3,
-    withheldGivens: 1,
-    embeddedAlternatives: 2,
-  },
-  contract: {
-    version: 1 as const,
-    runKind: "education" as const,
-    scenarioPromptSummary: "Choose after a changed constraint.",
-    testedCriterionIds: ["derive-under-pressure"],
-    verifier: {
-      type: "judge_rubric" as const,
-      answer: null,
-      checkerSpec: null,
-      scratchpad:
-        "Re-derive from the changed constraint. Repeating the old move ignores the controlling cause.",
-    },
-  },
-};
+import { createUnitRun } from "./unit-state";
 
 const makeRun = (): PersistedUnitRun => ({
   ...createUnitRun({
@@ -71,45 +46,69 @@ const makeRun = (): PersistedUnitRun => ({
 });
 
 const contexts = {
-  mentor: "Authoritative teaching context.",
+  mentor: "Authoritative mentor context.",
   critique: {
-    createChallenge: "Authoritative scenario context.",
-    judgeAnswer: "Authoritative judgment context.",
+    createChallenge: "Authoritative critique scenario context.",
+    judgeAnswer: "Authoritative critique judgment context.",
+  },
+};
+
+const verifier = {
+  type: "judge_rubric" as const,
+  answer: null,
+  checkerSpec: null,
+  scratchpad:
+    "Expert move follows the changed constraint. The familiar move ignores it.",
+};
+
+const opening = {
+  assistantMessage:
+    "Read the changed constraint before you reuse the old move. A familiar case can trick you into copying yesterday's procedure, but the new limit changes what stays safe. Which detail must you check before you reuse the old move?",
+  completedCapabilityId: null,
+  scratchpad: "Heuristic: read the changed constraint before reusing a move.",
+  preparedScenario: {
+    assistantMessage:
+      "A production limit changes after a familiar deployment. Choose the next move and defend it from the controlling constraint.",
+    verifier,
   },
 };
 
 const deps = (
   overrides: Partial<UnitTurnDependencies> = {},
 ): UnitTurnDependencies => ({
-  runMentor: () =>
+  runMentorOpening: () => Effect.succeed({ object: opening }),
+  runMentorCheck: () =>
     Effect.succeed({
       object: {
         assistantMessage:
-          "You named the move but not the controlling cause. Which constraint makes it valid?",
-        teachbackPassed: false,
+          "You named the old move but not the changed limit. Which limit changes what is safe?",
+        completedCapabilityId: null,
+        scratchpad:
+          "The learner repeated the old move without naming the changed limit.",
       },
     }),
   runReviewPresentation: () =>
     Effect.succeed({
       object: {
-        assistantMessage: challenge.prompt,
-        verifier: challenge.contract.verifier,
+        assistantMessage:
+          "A different production limit changes. Choose the next move and defend it.",
+        verifier,
       },
     }),
   runReviewGrade: () =>
     Effect.succeed({
       object: {
         assistantMessage:
-          "**What held** You chose a plausible move. **Change** Derive it from the changed constraint. **Use next time** Name the controlling cause first.",
+          "You protected a familiar procedure, but the changed limit makes it unsafe. Read that limit before choosing the move.",
         errorCodes: ["constraint_blindness"],
         scratchpad:
-          "The learner repeated a familiar move without causal support.",
+          "The learner reused a move without re-deriving from the changed limit.",
         dimensionResults: [
           {
             dimensionId: "derive-under-pressure",
             score: 55,
-            evidence: "repeat the old move",
-            missing: "A derivation from the changed constraint.",
+            evidence: "old move",
+            missing: "A move derived from the changed constraint.",
           },
         ],
       },
@@ -117,242 +116,154 @@ const deps = (
   ...overrides,
 });
 
-const input = (run: PersistedUnitRun) => ({
+const input = (run: PersistedUnitRun, action?: "start_unit") => ({
   run,
   interactionId: run.cursor.interactionId,
-  transcript: [
-    { role: "user" as const, content: "I would repeat the old move." },
-  ],
+  ...(action ? { action } : {}),
+  transcript: [],
   experience: DEFAULT_EDUCATION_EXPERIENCE,
   contexts,
 });
 
-describe("runUnitTurn", () => {
-  it("rejects stale answers before invoking an agent", async () => {
-    const run = makeRun();
-    const runMentor = vi.fn(deps().runMentor);
+describe("runUnitTurn mentor and critique boundaries", () => {
+  it("rejects a stale interaction before calling an agent", async () => {
+    const runMentorOpening = vi.fn(deps().runMentorOpening);
+
+    await expect(
+      Effect.runPromise(
+        runUnitTurn(
+          { ...input(makeRun(), "start_unit"), interactionId: "stale" },
+          deps({ runMentorOpening }),
+        ),
+      ),
+    ).rejects.toThrow("no longer active");
+    expect(runMentorOpening).not.toHaveBeenCalled();
+  });
+
+  it("lets the mentor open the lesson and park its first scenario on teachback", async () => {
     const runReviewPresentation = vi.fn(deps().runReviewPresentation);
-    const exit = await Effect.runPromiseExit(
+    const result = await Effect.runPromise(
       runUnitTurn(
-        { ...input(run), interactionId: "stale-interaction" },
-        deps({ runMentor, runReviewPresentation }),
+        input(makeRun(), "start_unit"),
+        deps({ runReviewPresentation }),
       ),
     );
-    expect(Exit.isFailure(exit)).toBe(true);
-    expect(runMentor).not.toHaveBeenCalled();
+
+    expect(result.actor).toBe("mentor");
+    expect(result.nextRun.cursor.step).toMatchObject({
+      kind: "teachback",
+      preparedScenario: { prompt: opening.preparedScenario.assistantMessage },
+    });
+    expect(result.nextRun.cursor.interactionId).not.toBe(
+      makeRun().cursor.interactionId,
+    );
     expect(runReviewPresentation).not.toHaveBeenCalled();
   });
 
-  it("prepares the scenario while the teachback is being assessed", async () => {
-    interface MentorResult {
-      object: { assistantMessage: string; teachbackPassed: boolean };
-    }
-    let releaseMentor = (_result: MentorResult) => undefined;
-    const mentorPromise = new Promise<MentorResult>((resolve) => {
-      releaseMentor = (result) => {
-        resolve(result);
-      };
-    });
-    const runReviewPresentation = vi.fn(deps().runReviewPresentation);
-    const pending = Effect.runPromise(
-      runUnitTurn(
-        input(makeRun()),
-        deps({
-          runMentor: () => Effect.promise(() => mentorPromise),
-          runReviewPresentation,
-        }),
-      ),
-    );
-
-    await vi.waitFor(() =>
-      expect(runReviewPresentation).toHaveBeenCalledOnce(),
-    );
-    releaseMentor({
-      object: {
-        assistantMessage:
-          "You named the move but not the cause. Which constraint controls it?",
-        teachbackPassed: false,
-      },
-    });
-
-    await expect(pending).resolves.toMatchObject({ actor: "mentor" });
-  });
-
-  it("keeps a failed teachback at teachback with a fresh identity", async () => {
-    const run = makeRun();
-    const result = await Effect.runPromise(runUnitTurn(input(run), deps()));
-    expect(result.nextRun.cursor.step.kind).toBe("teachback");
-    expect(result.nextRun.cursor.interactionId).not.toBe(
-      run.cursor.interactionId,
-    );
-    expect(result.nextRun.cursor.step).toMatchObject({
-      preparedScenario: {
-        prompt: challenge.prompt,
-        contract: { testedCriterionIds: ["derive-under-pressure"] },
-      },
-    });
-  });
-
-  it("still returns corrective teachback when speculative scenario authoring fails", async () => {
-    const result = await Effect.runPromise(
-      runUnitTurn(
-        input(makeRun()),
-        deps({
-          runReviewPresentation: () =>
-            Effect.fail(
-              new UnitAgentTransientProviderError({
-                message: "Scenario provider unavailable.",
-              }),
-            ),
-        }),
-      ),
-    );
-
-    expect(result).toMatchObject({
-      actor: "mentor",
-      nextRun: { cursor: { step: { kind: "teachback" } } },
-    });
-  });
-
-  it("hands a passing teachback directly to the first scenario", async () => {
-    const run = makeRun();
-    const result = await Effect.runPromise(
-      runUnitTurn(
-        input(run),
-        deps({
-          runMentor: () =>
-            Effect.succeed({
-              object: {
-                assistantMessage:
-                  "Yes—the changed constraint is the controlling cause.",
-                teachbackPassed: true,
-              },
-            }),
-        }),
-      ),
-    );
-    expect(result.nextRun.cursor.step).toMatchObject({
-      kind: "scenario",
-      attempt: 1,
-    });
-    expect(result.assistantMessage).toContain(challenge.prompt);
-  });
-
-  it("does not advance a passing teachback without a prepared scenario", async () => {
-    const exit = await Effect.runPromiseExit(
-      runUnitTurn(
-        input(makeRun()),
-        deps({
-          runMentor: () =>
-            Effect.succeed({
-              object: {
-                assistantMessage:
-                  "Yes—the changed constraint is the controlling cause.",
-                teachbackPassed: true,
-              },
-            }),
-          runReviewPresentation: () =>
-            Effect.fail(
-              new UnitAgentTransientProviderError({
-                message: "Scenario provider unavailable.",
-              }),
-            ),
-        }),
-      ),
-    );
-
-    expect(Exit.isFailure(exit)).toBe(true);
-  });
-
-  it("stores failed grading evidence in feedback", async () => {
-    const run = await Effect.runPromise(
-      presentScenario({ run: makeRun(), challenge }),
-    );
-    const result = await Effect.runPromise(runUnitTurn(input(run), deps()));
-    expect(result.nextRun.cursor.step).toMatchObject({
-      kind: "feedback",
-      errorCodes: ["constraint_blindness"],
-    });
-  });
-
-  it("requires all target skills to have passing evidence before completion", async () => {
-    const run = await Effect.runPromise(
-      presentScenario({ run: makeRun(), challenge }),
+  it("keeps a failed comprehension answer on teachback and keeps the mentor scenario", async () => {
+    const started = await Effect.runPromise(
+      runUnitTurn(input(makeRun(), "start_unit"), deps()),
     );
     const result = await Effect.runPromise(
       runUnitTurn(
-        input(run),
-        deps({
-          runReviewGrade: () =>
-            Effect.succeed({
-              object: {
-                assistantMessage:
-                  "The answer derives the move from the controlling constraint.",
-                errorCodes: [],
-                scratchpad: "All criterion and target evidence is present.",
-                dimensionResults: [
-                  {
-                    dimensionId: "derive-under-pressure",
-                    score: 92,
-                    evidence: "repeat the old move",
-                    missing: null,
-                  },
-                ],
-              },
-            }),
-        }),
-      ),
-    );
-    expect(result.nextRun.cursor.step).toMatchObject({
-      kind: "complete",
-      evidencedTargetIds: ["target-1"],
-    });
-  });
-
-  it("opens a fresh second scenario only from feedback", async () => {
-    const scenario = await Effect.runPromise(
-      presentScenario({ run: makeRun(), challenge }),
-    );
-    const failed = await Effect.runPromise(
-      runUnitTurn(input(scenario), deps()),
-    );
-    const result = await Effect.runPromise(
-      runPassAdvanceTurn(
         {
-          run: failed.nextRun,
-          interactionId: failed.nextRun.cursor.interactionId,
-          experience: DEFAULT_EDUCATION_EXPERIENCE,
-          contexts,
+          ...input(started.nextRun),
+          transcript: [{ role: "user", content: "Reuse the old move." }],
         },
         deps(),
       ),
     );
+
     expect(result.nextRun.cursor.step).toMatchObject({
-      kind: "scenario",
-      attempt: 2,
+      kind: "teachback",
+      preparedScenario: { prompt: opening.preparedScenario.assistantMessage },
     });
   });
 
-  it("rejects stale feedback advances before authoring a scenario", async () => {
-    const scenario = await Effect.runPromise(
-      presentScenario({ run: makeRun(), challenge }),
+  it("opens the mentor-owned scenario after the mini-check lands", async () => {
+    const started = await Effect.runPromise(
+      runUnitTurn(input(makeRun(), "start_unit"), deps()),
     );
-    const failed = await Effect.runPromise(
-      runUnitTurn(input(scenario), deps()),
+    const result = await Effect.runPromise(
+      runUnitTurn(
+        {
+          ...input(started.nextRun),
+          transcript: [
+            { role: "user", content: "Read the changed limit first." },
+          ],
+        },
+        deps({
+          runMentorCheck: () =>
+            Effect.succeed({
+              object: {
+                assistantMessage: "Exactly. You read the changed limit first.",
+                completedCapabilityId: "teach",
+                scratchpad:
+                  "The learner stated the command in their own words.",
+              },
+            }),
+        }),
+      ),
+    );
+
+    expect(result.nextRun.cursor.step).toMatchObject({
+      kind: "scenario",
+      challenge: { prompt: opening.preparedScenario.assistantMessage },
+    });
+    expect(result.assistantMessage).toContain(
+      opening.preparedScenario.assistantMessage,
+    );
+  });
+
+  it("uses the critique to open a targeted retry after a failed scenario", async () => {
+    const run = await Effect.runPromise(
+      runUnitTurn(input(makeRun(), "start_unit"), deps()),
+    ).then((started) =>
+      Effect.runPromise(
+        runUnitTurn(
+          {
+            ...input(started.nextRun),
+            transcript: [{ role: "user", content: "Read the changed limit." }],
+          },
+          deps({
+            runMentorCheck: () =>
+              Effect.succeed({
+                object: {
+                  assistantMessage:
+                    "Exactly. You read the changed limit first.",
+                  completedCapabilityId: "teach",
+                  scratchpad:
+                    "The learner stated the command in their own words.",
+                },
+              }),
+          }),
+        ),
+      ),
+    );
+    const graded = await Effect.runPromise(
+      runUnitTurn(
+        {
+          ...input(run.nextRun),
+          transcript: [{ role: "user", content: "I would use the old move." }],
+        },
+        deps(),
+      ),
     );
     const runReviewPresentation = vi.fn(deps().runReviewPresentation);
-    const exit = await Effect.runPromiseExit(
+    const reopened = await Effect.runPromise(
       runPassAdvanceTurn(
         {
-          run: failed.nextRun,
-          interactionId: "stale-interaction",
+          run: graded.nextRun,
+          interactionId: graded.nextRun.cursor.interactionId,
           experience: DEFAULT_EDUCATION_EXPERIENCE,
           contexts,
         },
         deps({ runReviewPresentation }),
       ),
     );
-    expect(Exit.isFailure(exit)).toBe(true);
-    expect(runReviewPresentation).not.toHaveBeenCalled();
+
+    expect(graded.nextRun.cursor.step.kind).toBe("feedback");
+    expect(reopened.nextRun.cursor.step.kind).toBe("scenario");
+    expect(runReviewPresentation).toHaveBeenCalledOnce();
   });
 });

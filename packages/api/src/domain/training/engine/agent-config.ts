@@ -32,12 +32,6 @@ export const AGENT_CONFIG = {
     purpose: "curriculum",
     limits: "purpose-profile",
   },
-  buildContent: {
-    description:
-      "Builds unit seed content and cross-unit briefing artifacts used by later teaching agents.",
-    purpose: "buildContent",
-    limits: "purpose-profile",
-  },
   projectOverview: {
     description:
       "Writes the learner-facing overview that explains the project's destination and learning path.",
@@ -46,7 +40,7 @@ export const AGENT_CONFIG = {
   },
   unitMentor: {
     description:
-      "Assesses the learner's teachback and repairs only the missing mechanism before scenario practice.",
+      "Teaches one concrete intuition, verifies it with a small check, and owns the first independent scenario.",
     purpose: "education",
     limits: "default",
     maxSteps: 1,

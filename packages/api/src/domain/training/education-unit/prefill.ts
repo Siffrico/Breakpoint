@@ -67,6 +67,23 @@ const presentationContext = (
 ## Exact structural target
 Author the scenario to this server-owned target: ${JSON.stringify(difficultyVector)}. Return only the learner-facing scenario in assistantMessage.`;
 
+export const scenarioFromPresentation = ({
+  run,
+  presentation,
+}: {
+  run: PersistedUnitRun;
+  presentation: ReviewPresentationOutput;
+}): Effect.Effect<UnitReviewChallenge, UnitTurnContractError> =>
+  Effect.gen(function* () {
+    const difficultyVector = yield* difficultyVectorFor(run);
+    const prompt = renderReviewPresentation(presentation);
+    return {
+      prompt,
+      difficultyVector,
+      contract: evaluationContractFor(run, prompt, presentation.verifier),
+    };
+  });
+
 export interface PrefillDependencies {
   readonly runReviewPresentation: typeof runReviewPresentationAgent;
 }
@@ -100,11 +117,10 @@ export const prefillScenario = (
           : run.reviewPass,
       selectedResponse: run.difficultySnapshot?.format?.kind === "mcq",
     });
-    const prompt = renderReviewPresentation(result.object);
-    onPartialAssistantMessage?.(prompt);
-    return {
-      prompt,
-      difficultyVector,
-      contract: evaluationContractFor(run, prompt, result.object.verifier),
-    };
+    const challenge = yield* scenarioFromPresentation({
+      run,
+      presentation: result.object,
+    });
+    onPartialAssistantMessage?.(challenge.prompt);
+    return challenge;
   });

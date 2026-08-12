@@ -128,7 +128,7 @@ export interface WorkspaceEducationTurnCommit {
   unitLeaseId: string;
   userMessage: WorkspaceUserMessageCommit | null;
   assistantMessage: WorkspaceAssistantMessageCommit;
-  phaseResponse: WorkspacePhaseResponseCommit;
+  phaseResponse: WorkspacePhaseResponseCommit | null;
   ratingEvaluation: WorkspaceRatingEvaluationCommit | null;
   knowledgeCheckOff: WorkspaceKnowledgeCheckOffCommit | null;
   knowledgeReinforcement?: { knowledgeIds: string[]; passed: boolean } | null;
@@ -209,6 +209,7 @@ export const saveUnitTurnResult = ({
   turnId,
   turnLeaseId,
   persistUserMessage,
+  persistPhaseResponse = true,
   responseSequence,
   deps,
 }: {
@@ -229,6 +230,7 @@ export const saveUnitTurnResult = ({
   turnId: string;
   turnLeaseId: string;
   persistUserMessage: boolean;
+  persistPhaseResponse?: boolean;
   responseSequence: number;
   deps: WorkspaceTurnPersistenceDependencies;
 }): Effect.Effect<
@@ -262,32 +264,36 @@ export const saveUnitTurnResult = ({
     const solvePresentation = opensRatingAttempt
       ? { scenarioAttemptId: null, presentedAt }
       : null;
-    const phaseResponse: WorkspacePhaseResponseCommit = {
-      unitContentId: unit.id,
-      sessionId,
-      userId,
-      phase: nextRun.kind === "recall" ? "ai_recall" : "ai_education",
-      sequence: responseSequence,
-      userResponse: message,
-      aiResponse: turnResult.assistantMessage,
-      passed: complete,
-      score: turnResult.reviewGrade?.score ?? null,
-      metadata: {
-        aiEducationStage: nextRun.mode,
-        promptKind: nextRun.kind === "recall" ? "recall" : "education_unit",
-        modelPurpose:
-          turnResult.actor === "reviewer" ? "evaluation" : "education",
-        verdict: verdictLabel(turnResult),
-        evaluationSummary: turnResult.reviewGrade?.reasoning,
-        dimensionResults: turnResult.reviewGrade
-          ? [...turnResult.reviewGrade.dimensionResults]
-          : undefined,
-        difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
-        goldilocksUpdated: ratingEvaluation ? true : undefined,
-        recallEntryIds: recallEntryIds ?? undefined,
-        feedback: turnResult.assistantMessage,
-      },
-    };
+    const phaseResponse: WorkspacePhaseResponseCommit | null =
+      persistPhaseResponse
+        ? {
+            unitContentId: unit.id,
+            sessionId,
+            userId,
+            phase: nextRun.kind === "recall" ? "ai_recall" : "ai_education",
+            sequence: responseSequence,
+            userResponse: message,
+            aiResponse: turnResult.assistantMessage,
+            passed: complete,
+            score: turnResult.reviewGrade?.score ?? null,
+            metadata: {
+              aiEducationStage: nextRun.mode,
+              promptKind:
+                nextRun.kind === "recall" ? "recall" : "education_unit",
+              modelPurpose:
+                turnResult.actor === "reviewer" ? "evaluation" : "education",
+              verdict: verdictLabel(turnResult),
+              evaluationSummary: turnResult.reviewGrade?.reasoning,
+              dimensionResults: turnResult.reviewGrade
+                ? [...turnResult.reviewGrade.dimensionResults]
+                : undefined,
+              difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
+              goldilocksUpdated: ratingEvaluation ? true : undefined,
+              recallEntryIds: recallEntryIds ?? undefined,
+              feedback: turnResult.assistantMessage,
+            },
+          }
+        : null;
     const completion =
       complete && nextRun.kind === "education"
         ? {

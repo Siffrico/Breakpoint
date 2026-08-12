@@ -7,9 +7,6 @@ import {
   getUnitReadinessIssue,
 } from "./unit-readiness";
 
-const teachingCard =
-  "**Heuristic** Re-derive the move when the controlling constraint changes. **Worked example** **Read** A deploy slows after one configuration change. **Predict** The changed input may invalidate the usual fix. **Compare** Restarting hides the cause; isolating the changed input tests it. **Decide** Test the changed input first. How would you explain this heuristic in your own words?";
-
 describe("unit learner readiness", () => {
   it("accepts free-response task modes without inventing format constraints", () => {
     expect(
@@ -144,7 +141,6 @@ D. indifferent`,
   it("rejects persisted content without authoritative context", () => {
     expect(
       getUnitReadinessIssue({
-        buildContent: teachingCard,
         seedPrompt: "Choose one.",
         unitContext: null,
       }),
@@ -155,7 +151,6 @@ D. indifferent`,
     const unitContext = makeUnitContext();
     expect(
       getUnitReadinessIssue({
-        buildContent: teachingCard,
         seedPrompt: "Choose from the four options below.",
         unitContext: {
           ...unitContext,
@@ -168,13 +163,12 @@ D. indifferent`,
     ).toContain("options labeled A-D");
   });
 
-  it("rejects teaching that does not have one worked example and one own-words question", () => {
+  it("does not require a persisted teaching card because the mentor writes it live", () => {
     expect(
       getUnitReadinessIssue({
-        buildContent: "A useful explanation without the required contract.",
         seedPrompt: "Diagnose the failure.",
         unitContext: makeUnitContext(),
       }),
-    ).toBe("Unit teaching content is missing or invalid.");
+    ).toBeNull();
   });
 });

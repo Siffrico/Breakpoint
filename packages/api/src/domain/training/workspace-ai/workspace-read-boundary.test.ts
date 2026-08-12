@@ -536,6 +536,9 @@ describe("durable recall projection", () => {
           Layer.succeed(WorkspaceTurnRepo, {
             commitEducationTurn: (input) =>
               Effect.sync(() => {
+                if (!input.phaseResponse) {
+                  throw new Error("Expected a learner phase response.");
+                }
                 inFlightRecallRun = input.nextRun;
                 phaseResponses.push({
                   id: "response-1",

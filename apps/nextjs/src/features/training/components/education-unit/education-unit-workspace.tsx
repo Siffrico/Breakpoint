@@ -70,7 +70,7 @@ interface WorkspaceChatData extends Record<string, unknown> {
   };
 }
 interface WorkspaceChatMetadata {
-  action?: "submit_answer" | "advance_pass";
+  action?: "start_unit" | "submit_answer" | "advance_pass";
   synthetic?: boolean;
   difficultyDirectiveReason?: string;
   passNumber?: number;
@@ -452,6 +452,7 @@ function EducationUnitWorkspaceComponent({
   const pendingSubmissionRef = useRef<string | null>(null);
   const pendingDraftKeyRef = useRef<string | null>(null);
   const pendingTurnIdRef = useRef<string | null>(null);
+  const startedUnitRef = useRef<string | null>(null);
   const [submittedDraftKey, setSubmittedDraftKey] = useState<string | null>(
     null,
   );
@@ -493,6 +494,42 @@ function EducationUnitWorkspaceComponent({
   });
   const isRunning = status === "submitted" || status === "streaming";
   const effectiveIsRunning = preview ? previewIsRunning : isRunning;
+
+  useEffect(() => {
+    const interactionId = aiWorkspace?.state?.interactionId;
+    const shouldStart =
+      !preview &&
+      aiWorkspace != null &&
+      chatMessages.length === 0 &&
+      aiWorkspace.state?.educationStage === "learning" &&
+      interactionId != null &&
+      !effectiveIsRunning;
+    if (!shouldStart) return;
+
+    const startKey = `${unit.nodeId}:${interactionId}`;
+    if (startedUnitRef.current === startKey) return;
+    startedUnitRef.current = startKey;
+    const turnId = createWorkspaceTurnId();
+    void sendMessage(undefined, {
+      body: {
+        action: "start_unit",
+        interactionId,
+        sessionId,
+        turnId,
+      },
+    }).catch(() => {
+      startedUnitRef.current = null;
+      toast.error("The mentor could not open this unit. Refresh to try again.");
+    });
+  }, [
+    aiWorkspace,
+    chatMessages.length,
+    effectiveIsRunning,
+    preview,
+    sendMessage,
+    sessionId,
+    unit.nodeId,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -1110,8 +1147,20 @@ function EducationUnitWorkspaceComponent({
         </>
       ) : (
         <PromptTurn
-          prompt={introMessage?.prompt ?? fallbackTurn.prompt}
-          helper={introMessage?.helper ?? fallbackTurn.helper}
+          prompt={
+            !preview &&
+            aiWorkspace != null &&
+            aiWorkspace.state?.educationStage === "learning"
+              ? ""
+              : (introMessage?.prompt ?? fallbackTurn.prompt)
+          }
+          helper={
+            !preview &&
+            aiWorkspace != null &&
+            aiWorkspace.state?.educationStage === "learning"
+              ? "Preparing your lesson…"
+              : (introMessage?.helper ?? fallbackTurn.helper)
+          }
         />
       )}
 
