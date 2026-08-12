@@ -1,9 +1,10 @@
-import { Effect } from "effect";
+import { Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
 
 import type { UnitTurnDependencies } from "./run-unit-turn";
 import type { PersistedUnitRun } from "./unit-state";
 import { DEFAULT_EDUCATION_EXPERIENCE } from "./experience";
+import { UnitAgentSchemaError } from "./agent-errors";
 import { runPassAdvanceTurn, runUnitTurn } from "./run-unit-turn";
 import { makeUnitContext } from "./unit-context.fixture";
 import { attachChallenge, createUnitRun, TEACH_TODO_ID } from "./unit-state";
@@ -271,6 +272,36 @@ describe("runUnitTurn", () => {
 
     expect(order).toEqual(["mentor:start", "scenario", "mentor:end"]);
     expect(result.presentedReviewChallenge).toBe(true);
+  });
+
+  it("does not repeat challenge authoring after its bounded failure", async () => {
+    let presentationCalls = 0;
+    const result = await Effect.runPromiseExit(
+      runUnitTurn(
+        input(),
+        deps({
+          runMentor: () =>
+            Effect.succeed({
+              object: {
+                assistantMessage: "Here is the move, worked end to end.",
+                completedCapabilityId: TEACH_TODO_ID,
+              },
+            }),
+          runReviewPresentation: () => {
+            presentationCalls += 1;
+            return Effect.fail(
+              new UnitAgentSchemaError({
+                message: "The challenge did not match its contract.",
+                schemaName: "unit_review_presentation",
+              }),
+            );
+          },
+        }),
+      ),
+    );
+
+    expect(Exit.isFailure(result)).toBe(true);
+    expect(presentationCalls).toBe(1);
   });
 
   it("opens the next pass when a Pass 1 grade finds a gap", async () => {

@@ -24,6 +24,28 @@ export const mentorOutputSchema = (currentCapabilityId: string) =>
     .strict()
     .superRefine((output, ctx) => {
       if (
+        output.completedCapabilityId !== null &&
+        !/^\s*\*\*Worked example\*\*\s*$/im.test(output.assistantMessage)
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["assistantMessage"],
+          message:
+            "A completed teaching turn must include a bold Worked example section.",
+        });
+      }
+      if (
+        output.completedCapabilityId !== null &&
+        !/^\s*\*\*Pattern to reuse\*\*\s*$/im.test(output.assistantMessage)
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["assistantMessage"],
+          message:
+            "A completed teaching turn must include a bold Pattern to reuse section.",
+        });
+      }
+      if (
         output.completedCapabilityId === null &&
         !output.assistantMessage.includes("?")
       ) {

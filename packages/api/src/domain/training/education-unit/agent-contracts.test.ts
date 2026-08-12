@@ -7,6 +7,33 @@ import {
 } from "./agent-contracts";
 
 describe("mentorOutputSchema", () => {
+  it("accepts a completed teaching turn with scannable semantic sections", () => {
+    const result = mentorOutputSchema("capability-1").safeParse({
+      assistantMessage: `Your qualifier read is precise.
+
+**Worked example**
+
+A local sentence suggests two plausible functions. The surrounding paragraph shows that one only qualifies the earlier claim.
+
+**Pattern to reuse**
+
+Expand the context window, then use tone strength to break the tie.`,
+      completedCapabilityId: "capability-1",
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects praise that claims completion without teaching the pattern", () => {
+    const result = mentorOutputSchema("capability-1").safeParse({
+      assistantMessage:
+        "Exactly right. You calibrated the qualifier cleanly, so let me move you into the scenario.",
+      completedCapabilityId: "capability-1",
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   it("rejects an incomplete turn that leaves the learner with no ask", () => {
     const result = mentorOutputSchema("capability-1").safeParse({
       assistantMessage:

@@ -1,5 +1,5 @@
 import type { ModelMessage } from "ai";
-import { Effect } from "effect";
+import { Effect, Exit } from "effect";
 
 import type {
   EvaluationDimensionResult,
@@ -321,10 +321,11 @@ export const runUnitTurn = (
     // The teach step normally completes on its first message and hands straight
     // to the scenario, so authoring that scenario alongside the mentor rather
     // than after it takes a whole model call off the learner's wait. A miss is
-    // not wasted: it is parked on the solve for whichever turn opens it. A
-    // failure is swallowed, because a teach turn must not die for a scenario
-    // that openSolve can still write live.
-    const [mentor, speculative] = yield* Effect.all(
+    // not wasted: it is parked on the solve for whichever turn opens it. The
+    // agent runner already exhausts its bounded retry and repair policy, so a
+    // failure must propagate instead of launching the same expensive call a
+    // second time inside one learner request.
+    const [mentor, speculativeExit] = yield* Effect.all(
       [
         deps.runMentor({
           messages: transcript,
@@ -333,19 +334,25 @@ export const runUnitTurn = (
           currentCapabilityId: head.dimensionId,
           onPartialAssistantMessage,
         }),
-        parkedChallenge(run)
-          ? Effect.succeed(null)
-          : prefillScenario(
-              {
-                run,
-                experience,
-                context: contexts.critique.createChallenge,
-              },
-              deps,
-            ).pipe(Effect.catch(() => Effect.succeed(null))),
+        Effect.exit(
+          parkedChallenge(run)
+            ? Effect.succeed(null)
+            : prefillScenario(
+                {
+                  run,
+                  experience,
+                  context: contexts.critique.createChallenge,
+                },
+                deps,
+              ),
+        ),
       ],
       { concurrency: 2 },
     );
+    if (Exit.isFailure(speculativeExit)) {
+      return yield* Effect.failCause(speculativeExit.cause);
+    }
+    const speculative = speculativeExit.value;
     const mentorMessage = mentor.object.assistantMessage;
     const completedCapabilityId = mentor.object.completedCapabilityId;
     const park = (target: PersistedUnitRun) =>
