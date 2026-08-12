@@ -8,16 +8,14 @@ import {
 
 describe("classifyUnitAgentFailure", () => {
   it("preserves nested validation detail for a schema repair", () => {
-    const cause = new Error("completedCapabilityId: expected string");
+    const cause = new Error("teachbackPassed: expected boolean");
     cause.name = "AI_TypeValidationError";
     const error = new Error("No object generated", { cause });
 
     const classified = classifyUnitAgentFailure(error);
 
     expect(classified._tag).toBe("UnitAgentSchemaError");
-    expect(classified.message).toContain(
-      "completedCapabilityId: expected string",
-    );
+    expect(classified.message).toContain("teachbackPassed: expected boolean");
   });
 
   it("keeps message and cause when attaching the schema name", () => {

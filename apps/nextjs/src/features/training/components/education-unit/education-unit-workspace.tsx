@@ -904,6 +904,11 @@ function EducationUnitWorkspaceComponent({
       return;
     }
 
+    const interactionId = streamState?.interactionId;
+    if (!interactionId) {
+      toast.error("Refresh the workspace before submitting this response.");
+      return;
+    }
     clearError();
     pendingSubmissionRef.current = message;
     pendingDraftKeyRef.current = markSubmitted();
@@ -929,6 +934,7 @@ function EducationUnitWorkspaceComponent({
         {
           body: {
             action: "submit_answer",
+            interactionId,
             sessionId,
             message,
             turnId,
@@ -947,12 +953,18 @@ function EducationUnitWorkspaceComponent({
 
   const handleAdvancePass = async () => {
     if (!awaitingPassAdvance || effectiveIsRunning) return;
+    const interactionId = streamState.interactionId;
+    if (!interactionId) {
+      toast.error("Refresh the workspace before continuing.");
+      return;
+    }
     clearError();
     const turnId = createWorkspaceTurnId();
     try {
       await sendMessage(undefined, {
         body: {
           action: "advance_pass",
+          interactionId,
           sessionId,
           turnId,
         },

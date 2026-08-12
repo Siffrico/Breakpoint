@@ -17,8 +17,8 @@ export type ScenarioBrief = z.infer<typeof ScenarioBriefSchema>;
 /**
  * Projects only learner-safe fields from the private review contract.
  *
- * `activeReviewChallenge` is itself a projection of the run's todo list, so
- * this brief is always the *current pass's* scenario — never a stale one. It
+ * `activeReviewChallenge` is itself a projection of the run cursor, so this
+ * brief is always the current scenario — never a stale one. It
  * lives here rather than in the workspace read so the turn stream can project
  * the same brief from the run it just wrote, without either path importing the
  * other.

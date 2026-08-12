@@ -1,65 +1,65 @@
 import { Effect, Exit } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { UnitTurnDependencies } from "./run-unit-turn";
 import type { PersistedUnitRun } from "./unit-state";
-import { UnitAgentSchemaError } from "./agent-errors";
+import { UnitAgentTransientProviderError } from "./agent-errors";
 import { DEFAULT_EDUCATION_EXPERIENCE } from "./experience";
 import { runPassAdvanceTurn, runUnitTurn } from "./run-unit-turn";
 import { makeUnitContext } from "./unit-context.fixture";
-import { attachChallenge, createUnitRun, TEACH_TODO_ID } from "./unit-state";
+import { createUnitRun, presentScenario } from "./unit-state";
 
-const unitContext = makeUnitContext();
-
-const challengeContract = {
-  version: 1 as const,
-  runKind: "education" as const,
-  scenarioPromptSummary: "Choose under a changed production constraint.",
-  testedCriterionIds: ["derive-under-pressure"],
+const challenge = {
+  prompt:
+    "The production constraint changed. Choose the next move and defend it from the controlling mechanism.",
+  difficultyVector: {
+    formatId: "frq",
+    reasoningPathSteps: 3,
+    withheldGivens: 1,
+    embeddedAlternatives: 2,
+  },
+  contract: {
+    version: 1 as const,
+    runKind: "education" as const,
+    scenarioPromptSummary: "Choose after a changed constraint.",
+    testedCriterionIds: ["derive-under-pressure"],
+    verifier: {
+      type: "judge_rubric" as const,
+      answer: null,
+      checkerSpec: null,
+      scratchpad:
+        "Re-derive from the changed constraint. Repeating the old move ignores the controlling cause.",
+    },
+  },
 };
 
-const difficultyVector = {
-  formatId: "frq",
-  reasoningPathSteps: 3,
-  withheldGivens: 1,
-  embeddedAlternatives: 2,
-};
-
-const scenarioVerifier = {
-  type: "judge_rubric" as const,
-  answer: null,
-  checkerSpec: null,
-  scratchpad:
-    "Solution: re-derive from the changed constraint. Traps: repeat the old procedure; optimize the visible symptom. Both ignore the controlling cause. Audit: self-contained and answer hidden.",
-};
-
-const baseRun = (): PersistedUnitRun => ({
+const makeRun = (): PersistedUnitRun => ({
   ...createUnitRun({
     unitId: "unit-1",
     sessionId: "session-1",
     userId: "user-1",
     kind: "education",
-    unitContext,
+    unitContext: makeUnitContext(),
     experience: DEFAULT_EDUCATION_EXPERIENCE,
   }),
   difficultySnapshot: {
     nodeId: "node-1",
     directive: {
-      intent: "probe" as const,
+      intent: "probe",
       bandOrder: 0,
-      supportLevel: "none" as const,
+      supportLevel: "none",
       targetItemRating: 1200,
       targetMisconceptionCode: null,
-      reason: "Probe independent transfer.",
-      nextProgress: { bandOrder: 0, supportLevel: "none" as const },
+      reason: "Probe transfer.",
+      nextProgress: { bandOrder: 0, supportLevel: "none" },
     },
-    promptBlock: "Probe independent transfer.",
-    ratingSnapshot: "rating snapshot",
+    promptBlock: "Probe transfer.",
+    ratingSnapshot: "snapshot",
     learnerRating: 1200,
     format: {
       id: "frq",
       label: "Free response",
-      kind: "frq" as const,
+      kind: "frq",
       description: "Explain the decision.",
     },
     dialPreset: {
@@ -70,18 +70,13 @@ const baseRun = (): PersistedUnitRun => ({
   },
 });
 
-const input = (run = baseRun()) => ({
-  run,
-  transcript: [{ role: "user" as const, content: "I would derive it again." }],
-  experience: DEFAULT_EDUCATION_EXPERIENCE,
-  contexts: {
-    mentor: "Unit context for teaching.",
-    critique: {
-      createChallenge: "Unit context for authoring the challenge.",
-      judgeAnswer: "Unit context with the judgment standard.",
-    },
+const contexts = {
+  mentor: "Authoritative teaching context.",
+  critique: {
+    createChallenge: "Authoritative scenario context.",
+    judgeAnswer: "Authoritative judgment context.",
   },
-});
+};
 
 const deps = (
   overrides: Partial<UnitTurnDependencies> = {},
@@ -89,32 +84,32 @@ const deps = (
   runMentor: () =>
     Effect.succeed({
       object: {
-        assistantMessage: "Try the same decision after the constraint changes.",
-        completedCapabilityId: null,
+        assistantMessage:
+          "You named the move but not the controlling cause. Which constraint makes it valid?",
+        teachbackPassed: false,
       },
     }),
   runReviewPresentation: () =>
     Effect.succeed({
       object: {
-        assistantMessage:
-          "The production constraint changed. Choose the next move and defend it.",
-        verifier: scenarioVerifier,
+        assistantMessage: challenge.prompt,
+        verifier: challenge.contract.verifier,
       },
     }),
   runReviewGrade: () =>
     Effect.succeed({
       object: {
         assistantMessage:
-          "Your defense preserves the procedure that worked before, which is sensible if the controlling constraint stayed fixed. The hidden assumption is that the changed production limit does not alter which signal should drive the decision.\n\nRe-derive the move from the constraint that can invalidate the original procedure. Which step of your original defense changes first once that constraint becomes controlling?",
-        errorCodes: [],
+          "**What held** You chose a plausible move. **Change** Derive it from the changed constraint. **Use next time** Name the controlling cause first.",
+        errorCodes: ["constraint_blindness"],
         scratchpad:
-          "Optimized for the proven procedure. Assumed the changed constraint did not alter the controlling signal. Cause: constraint blindness. JIT: re-derive from the invalidating constraint.",
+          "The learner repeated a familiar move without causal support.",
         dimensionResults: [
           {
             dimensionId: "derive-under-pressure",
-            score: 62,
-            evidence: "I would derive it again.",
-            missing: "A causal derivation from the changed constraint.",
+            score: 55,
+            evidence: "repeat the old move",
+            missing: "A derivation from the changed constraint.",
           },
         ],
       },
@@ -122,254 +117,184 @@ const deps = (
   ...overrides,
 });
 
-describe("runUnitTurn", () => {
-  it("keeps the mentor on an incomplete capability", async () => {
-    const result = await Effect.runPromise(runUnitTurn(input(), deps()));
+const input = (run: PersistedUnitRun) => ({
+  run,
+  interactionId: run.cursor.interactionId,
+  transcript: [
+    { role: "user" as const, content: "I would repeat the old move." },
+  ],
+  experience: DEFAULT_EDUCATION_EXPERIENCE,
+  contexts,
+});
 
-    expect(result.actor).toBe("mentor");
-    expect(result.nextRun.mode).toBe("learning");
-    expect(result.nextRun.todos[0]?.status).toBe("pending");
+describe("runUnitTurn", () => {
+  it("rejects stale answers before invoking an agent", async () => {
+    const run = makeRun();
+    const runMentor = vi.fn(deps().runMentor);
+    const runReviewPresentation = vi.fn(deps().runReviewPresentation);
+    const exit = await Effect.runPromiseExit(
+      runUnitTurn(
+        { ...input(run), interactionId: "stale-interaction" },
+        deps({ runMentor, runReviewPresentation }),
+      ),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(runMentor).not.toHaveBeenCalled();
+    expect(runReviewPresentation).not.toHaveBeenCalled();
   });
 
-  it("completes a mentor todo with only its id", async () => {
-    const result = await Effect.runPromise(
+  it("prepares the scenario while the teachback is being assessed", async () => {
+    interface MentorResult {
+      object: { assistantMessage: string; teachbackPassed: boolean };
+    }
+    let releaseMentor = (_result: MentorResult) => undefined;
+    const mentorPromise = new Promise<MentorResult>((resolve) => {
+      releaseMentor = (result) => {
+        resolve(result);
+      };
+    });
+    const runReviewPresentation = vi.fn(deps().runReviewPresentation);
+    const pending = Effect.runPromise(
       runUnitTurn(
-        input(),
+        input(makeRun()),
         deps({
-          runMentor: () =>
-            Effect.succeed({
-              object: {
-                assistantMessage: "Move on.",
-                completedCapabilityId: TEACH_TODO_ID,
-              },
-            }),
+          runMentor: () => Effect.promise(() => mentorPromise),
+          runReviewPresentation,
         }),
       ),
     );
 
-    expect(result.nextRun.todos[0]).toMatchObject({
-      status: "completed",
+    await vi.waitFor(() =>
+      expect(runReviewPresentation).toHaveBeenCalledOnce(),
+    );
+    releaseMentor({
+      object: {
+        assistantMessage:
+          "You named the move but not the cause. Which constraint controls it?",
+        teachbackPassed: false,
+      },
+    });
+
+    await expect(pending).resolves.toMatchObject({ actor: "mentor" });
+  });
+
+  it("keeps a failed teachback at teachback with a fresh identity", async () => {
+    const run = makeRun();
+    const result = await Effect.runPromise(runUnitTurn(input(run), deps()));
+    expect(result.nextRun.cursor.step.kind).toBe("teachback");
+    expect(result.nextRun.cursor.interactionId).not.toBe(
+      run.cursor.interactionId,
+    );
+    expect(result.nextRun.cursor.step).toMatchObject({
+      preparedScenario: {
+        prompt: challenge.prompt,
+        contract: { testedCriterionIds: ["derive-under-pressure"] },
+      },
     });
   });
 
-  it("hands the final mentor completion directly to adversarial review", async () => {
-    const mentorMessage =
-      "You re-derived the move correctly from the changed constraint.";
+  it("still returns corrective teachback when speculative scenario authoring fails", async () => {
     const result = await Effect.runPromise(
       runUnitTurn(
-        input(),
+        input(makeRun()),
         deps({
-          runMentor: () =>
-            Effect.succeed({
-              object: {
-                assistantMessage: mentorMessage,
-                completedCapabilityId: TEACH_TODO_ID,
-              },
-            }),
+          runReviewPresentation: () =>
+            Effect.fail(
+              new UnitAgentTransientProviderError({
+                message: "Scenario provider unavailable.",
+              }),
+            ),
         }),
       ),
     );
 
-    expect(result.actor).toBe("reviewer");
-    expect(result.nextRun.mode).toBe("review");
-    expect(result.completedCapabilityId).toBe(TEACH_TODO_ID);
-    expect(result.presentedReviewChallenge).toBe(true);
-    // The persisted challenge stays the challenge alone; the learner-facing
-    // reply carries the mentor's handoff in front of it.
-    const challengePrompt = result.nextRun.activeReviewChallenge?.prompt;
-    expect(challengePrompt).toBeDefined();
-    expect(result.nextRun.activeReviewChallenge?.contract.verifier).toEqual(
-      scenarioVerifier,
-    );
-    expect(result.assistantMessage).toBe(
-      `${mentorMessage}\n\n${challengePrompt}`,
-    );
+    expect(result).toMatchObject({
+      actor: "mentor",
+      nextRun: { cursor: { step: { kind: "teachback" } } },
+    });
   });
 
-  it("streams the reviewer handoff as a continuation of the mentor's message", async () => {
-    const mentorMessage = "That derivation holds. Now defend it under load.";
-    const streamed: string[] = [];
-    await Effect.runPromise(
+  it("hands a passing teachback directly to the first scenario", async () => {
+    const run = makeRun();
+    const result = await Effect.runPromise(
       runUnitTurn(
-        {
-          ...input(),
-          onPartialAssistantMessage: (content) => streamed.push(content),
-        },
+        input(run),
         deps({
-          runMentor: ({ onPartialAssistantMessage }) => {
-            onPartialAssistantMessage?.(mentorMessage);
-            return Effect.succeed({
-              object: {
-                assistantMessage: mentorMessage,
-                completedCapabilityId: TEACH_TODO_ID,
-              },
-            });
-          },
-          runReviewPresentation: ({ onPartialAssistantMessage }) => {
-            onPartialAssistantMessage?.("The production constraint changed.");
-            return Effect.succeed({
+          runMentor: () =>
+            Effect.succeed({
               object: {
                 assistantMessage:
-                  "The production constraint changed. Choose the next move and defend it.",
-                verifier: scenarioVerifier,
+                  "Yes—the changed constraint is the controlling cause.",
+                teachbackPassed: true,
               },
-            });
-          },
+            }),
         }),
       ),
     );
-
-    // Every snapshot extends the previous one, so the stream never has to
-    // retract text the learner has already read. The scenario was authored
-    // alongside the mentor, so it lands as one snapshot rather than its own
-    // partials.
-    expect(streamed).toEqual([
-      mentorMessage,
-      `${mentorMessage}\n\nThe production constraint changed. Choose the next move and defend it.`,
-    ]);
+    expect(result.nextRun.cursor.step).toMatchObject({
+      kind: "scenario",
+      attempt: 1,
+    });
+    expect(result.assistantMessage).toContain(challenge.prompt);
   });
 
-  it("authors the pass-1 scenario alongside the mentor, not after it", async () => {
-    const order: string[] = [];
-    let releaseMentor: (() => void) | undefined;
-    const mentorGate = new Promise<void>((resolve) => {
-      releaseMentor = resolve;
-    });
-
-    const result = await Effect.runPromise(
+  it("does not advance a passing teachback without a prepared scenario", async () => {
+    const exit = await Effect.runPromiseExit(
       runUnitTurn(
-        input(),
+        input(makeRun()),
         deps({
           runMentor: () =>
-            Effect.gen(function* () {
-              order.push("mentor:start");
-              yield* Effect.promise(() => mentorGate);
-              order.push("mentor:end");
-              return {
-                object: {
-                  assistantMessage: "Here is the move, worked end to end.",
-                  completedCapabilityId: TEACH_TODO_ID,
-                },
-              };
+            Effect.succeed({
+              object: {
+                assistantMessage:
+                  "Yes—the changed constraint is the controlling cause.",
+                teachbackPassed: true,
+              },
             }),
           runReviewPresentation: () =>
-            Effect.sync(() => {
-              // Only reachable before the mentor resolves if the two ran
-              // together; a serial teach turn would deadlock on the gate.
-              order.push("scenario");
-              releaseMentor?.();
-              return {
-                object: {
-                  assistantMessage:
-                    "A supplier raised prices mid-cycle. Choose the next move.",
-                  verifier: scenarioVerifier,
-                },
-              };
-            }),
-        }),
-      ),
-    );
-
-    expect(order).toEqual(["mentor:start", "scenario", "mentor:end"]);
-    expect(result.presentedReviewChallenge).toBe(true);
-  });
-
-  it("does not repeat challenge authoring after its bounded failure", async () => {
-    let presentationCalls = 0;
-    const result = await Effect.runPromiseExit(
-      runUnitTurn(
-        input(),
-        deps({
-          runMentor: () =>
-            Effect.succeed({
-              object: {
-                assistantMessage: "Here is the move, worked end to end.",
-                completedCapabilityId: TEACH_TODO_ID,
-              },
-            }),
-          runReviewPresentation: () => {
-            presentationCalls += 1;
-            return Effect.fail(
-              new UnitAgentSchemaError({
-                message: "The challenge did not match its contract.",
-                schemaName: "unit_review_presentation",
+            Effect.fail(
+              new UnitAgentTransientProviderError({
+                message: "Scenario provider unavailable.",
               }),
-            );
-          },
+            ),
         }),
       ),
     );
 
-    expect(Exit.isFailure(result)).toBe(true);
-    expect(presentationCalls).toBe(1);
+    expect(Exit.isFailure(exit)).toBe(true);
   });
 
-  it("opens the next pass when a Pass 1 grade finds a gap", async () => {
-    const opened = await Effect.runPromise(
-      runUnitTurn(
-        input(),
-        deps({
-          runMentor: () =>
-            Effect.succeed({
-              object: {
-                assistantMessage: "Now test it independently.",
-                completedCapabilityId: TEACH_TODO_ID,
-              },
-            }),
-        }),
-      ),
+  it("stores failed grading evidence in feedback", async () => {
+    const run = await Effect.runPromise(
+      presentScenario({ run: makeRun(), challenge }),
     );
-    const graded = await Effect.runPromise(
-      runUnitTurn(input(opened.nextRun), deps()),
-    );
-
-    // A real gap parks a fresh scenario; a clean first solve would end here.
-    expect(graded.nextRun.mode).toBe("awaiting_next_pass");
-    expect(graded.nextRun.reviewPass).toBe(2);
-    expect(graded.settledPass).toBe(1);
-    expect(graded.reviewGrade?.passed).toBe(false);
-    expect(graded.reviewGrade?.errorCodes).toEqual([
-      "gap:derive-under-pressure",
-    ]);
-    expect(graded.ratingWrite).toEqual({
-      score: 62,
-      errorCodes: ["gap:derive-under-pressure"],
+    const result = await Effect.runPromise(runUnitTurn(input(run), deps()));
+    expect(result.nextRun.cursor.step).toMatchObject({
+      kind: "feedback",
+      errorCodes: ["constraint_blindness"],
     });
   });
 
-  it("completes and rates a clean first solve", async () => {
-    const opened = await Effect.runPromise(
-      runUnitTurn(
-        input(),
-        deps({
-          runMentor: () =>
-            Effect.succeed({
-              object: {
-                assistantMessage:
-                  "You derived the mechanism, so now test it under pressure.",
-                completedCapabilityId: TEACH_TODO_ID,
-              },
-            }),
-        }),
-      ),
+  it("requires all target skills to have passing evidence before completion", async () => {
+    const run = await Effect.runPromise(
+      presentScenario({ run: makeRun(), challenge }),
     );
-    const settledPass1 = await Effect.runPromise(
+    const result = await Effect.runPromise(
       runUnitTurn(
-        input(opened.nextRun),
+        input(run),
         deps({
           runReviewGrade: () =>
             Effect.succeed({
               object: {
                 assistantMessage:
-                  "You re-derived and defended the decision under the new pressure.",
+                  "The answer derives the move from the controlling constraint.",
                 errorCodes: [],
-                scratchpad:
-                  "No material divergence: the learner used the mechanism and remained stable under pressure.",
+                scratchpad: "All criterion and target evidence is present.",
                 dimensionResults: [
                   {
                     dimensionId: "derive-under-pressure",
-                    score: 88,
-                    evidence: "I would derive it again.",
+                    score: 92,
+                    evidence: "repeat the old move",
                     missing: null,
                   },
                 ],
@@ -378,66 +303,56 @@ describe("runUnitTurn", () => {
         }),
       ),
     );
-
-    expect(settledPass1.nextRun.mode).toBe("complete");
-    expect(settledPass1.settledPass).toBe(1);
-    expect(settledPass1.ratingWrite).toEqual({ score: 88, errorCodes: [] });
+    expect(result.nextRun.cursor.step).toMatchObject({
+      kind: "complete",
+      evidencedTargetIds: ["target-1"],
+    });
   });
 
-  it("replays a pre-generated challenge without another model call", async () => {
-    const preparedChallenge = {
-      prompt: "Diagnose the same constraint on an unfamiliar system.",
-      difficultyVector,
-      contract: challengeContract,
-    };
-    const opened = await Effect.runPromise(
-      runUnitTurn(
-        input(),
-        deps({
-          runMentor: () =>
-            Effect.succeed({
-              object: {
-                assistantMessage: "Now test it independently.",
-                completedCapabilityId: TEACH_TODO_ID,
-              },
-            }),
-        }),
-      ),
+  it("opens a fresh second scenario only from feedback", async () => {
+    const scenario = await Effect.runPromise(
+      presentScenario({ run: makeRun(), challenge }),
     );
-    const answered = await Effect.runPromise(
-      runUnitTurn(input(opened.nextRun), deps()),
+    const failed = await Effect.runPromise(
+      runUnitTurn(input(scenario), deps()),
     );
-    const parked = await Effect.runPromise(
-      attachChallenge({
-        run: answered.nextRun,
-        challenge: preparedChallenge,
-      }),
-    );
-
-    let presentationCalls = 0;
-    const advanced = await Effect.runPromise(
+    const result = await Effect.runPromise(
       runPassAdvanceTurn(
-        input(parked),
-        deps({
-          runReviewPresentation: () => {
-            presentationCalls += 1;
-            return Effect.succeed({
-              object: {
-                assistantMessage: "Unexpected model-authored challenge.",
-                verifier: scenarioVerifier,
-              },
-            });
-          },
-        }),
+        {
+          run: failed.nextRun,
+          interactionId: failed.nextRun.cursor.interactionId,
+          experience: DEFAULT_EDUCATION_EXPERIENCE,
+          contexts,
+        },
+        deps(),
       ),
     );
-
-    expect(presentationCalls).toBe(0);
-    expect(advanced.nextRun).toMatchObject({
-      mode: "review",
-      reviewPass: 2,
-      activeReviewChallenge: preparedChallenge,
+    expect(result.nextRun.cursor.step).toMatchObject({
+      kind: "scenario",
+      attempt: 2,
     });
-    expect(advanced.assistantMessage).toBe(preparedChallenge.prompt);
+  });
+
+  it("rejects stale feedback advances before authoring a scenario", async () => {
+    const scenario = await Effect.runPromise(
+      presentScenario({ run: makeRun(), challenge }),
+    );
+    const failed = await Effect.runPromise(
+      runUnitTurn(input(scenario), deps()),
+    );
+    const runReviewPresentation = vi.fn(deps().runReviewPresentation);
+    const exit = await Effect.runPromiseExit(
+      runPassAdvanceTurn(
+        {
+          run: failed.nextRun,
+          interactionId: "stale-interaction",
+          experience: DEFAULT_EDUCATION_EXPERIENCE,
+          contexts,
+        },
+        deps({ runReviewPresentation }),
+      ),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(runReviewPresentation).not.toHaveBeenCalled();
   });
 });

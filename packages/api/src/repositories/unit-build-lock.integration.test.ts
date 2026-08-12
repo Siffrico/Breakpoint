@@ -93,6 +93,7 @@ describe("unit build lock concurrency", () => {
           const contentInput = {
             nodeId,
             title: "Stale content",
+            buildContent: "Stale teaching content",
             seedPrompt: "Stale prompt",
             seedHint: "Stale hint",
             clusterArcFrame: "Stale frame",

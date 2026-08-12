@@ -19,7 +19,6 @@ import type { WorkspaceAiMessage, WorkspaceAiTurnResult } from "./types";
 import type { RatingEvidenceError } from "./workspace-errors";
 import type { WorkspaceTurnDependencies } from "./workspace-turn";
 import { projectScenarioBrief } from "../education-unit/scenario-brief";
-import { isDecisivePass } from "../education-unit/unit-state";
 import { WorkspacePersistenceError } from "./workspace-errors";
 import { resolveWorkspaceTurn } from "./workspace-turn";
 import { WorkspaceTurnRepo } from "./workspace-turn-repo";
@@ -189,7 +188,6 @@ const verdictLabel = (result: UnitTurnResult): string => {
     return result.reviewGrade.passed ? "review_passed" : "review_continues";
   }
   if (result.presentedReviewChallenge) return "review_prompted";
-  if (result.completedCapabilityId) return "capability_completed";
   return "learning_continues";
 };
 
@@ -246,13 +244,12 @@ export const saveUnitTurnResult = ({
       difficultySnapshot,
     };
     const complete = nextRun.mode === "complete";
-    // The rating attempt opens on the challenge Glicko will actually score: one
-    // whose mark can end the unit. An education Pass 1 is diagnostic, so it is
-    // not the performance being rated.
+    // The rating attempt opens only on a scenario whose mark can end the unit.
     const opensRatingAttempt =
       tracksRating &&
       turnResult.presentedReviewChallenge &&
-      isDecisivePass(nextRun);
+      nextRun.cursor.step.kind === "scenario" &&
+      nextRun.cursor.step.challenge !== null;
     const presentedAt = new Date();
     const scenarioPresentation = opensRatingAttempt
       ? {

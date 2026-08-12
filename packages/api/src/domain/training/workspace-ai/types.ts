@@ -30,6 +30,7 @@ export const WorkspaceAiStateSchema = z.object({
   mode: WorkspaceAiTurnModeSchema,
   promptKind: WorkspaceAiPromptKindSchema,
   educationStage: WorkspaceAiEducationStageSchema.nullable(),
+  interactionId: z.string().min(1).max(160).nullable(),
   workflowId: z.string().nullable().optional(),
   activeUnitId: z.string().uuid().nullable(),
   activeUnitTitle: z.string().min(1).nullable(),

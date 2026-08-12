@@ -10,62 +10,44 @@ import { getReviewPresentationReadinessIssue } from "./unit-readiness";
 
 export const LearnerFacingMessageSchema = z.string().trim().min(24).max(8_000);
 
-/**
- * The mentor may only ever check off the capability it is currently working on,
- * so that id is baked into the schema as a literal. Naming a stale, unknown, or
- * out-of-order capability is unrepresentable rather than rejected after the
- * model has already streamed a reply to the learner.
- */
-export const mentorOutputSchema = (currentCapabilityId: string) =>
+export const mentorOutputSchema = () =>
   z
     .object({
       assistantMessage: LearnerFacingMessageSchema,
-      completedCapabilityId: z.literal(currentCapabilityId).nullable(),
+      teachbackPassed: z.boolean(),
     })
     .strict()
     .superRefine((output, ctx) => {
+      const questionCount = output.assistantMessage.match(/\?/g)?.length ?? 0;
       if (
-        output.completedCapabilityId !== null &&
-        ![
-          "Heuristic",
-          "Worked example",
-          "Read",
-          "Predict",
-          "Compare",
-          "Decide",
-        ].every((label) =>
-          new RegExp(`\\*\\*${label}\\*\\*`, "i").test(output.assistantMessage),
-        )
+        !output.teachbackPassed &&
+        (!output.assistantMessage.trimEnd().endsWith("?") ||
+          questionCount !== 1)
       ) {
         ctx.addIssue({
           code: "custom",
           path: ["assistantMessage"],
           message:
-            "A completed teaching turn must include Heuristic, Worked example, Read, Predict, Compare, and Decide labels.",
+            "An incomplete teachback must end in exactly one visible learner question.",
         });
       }
-      if (
-        output.completedCapabilityId === null &&
-        !output.assistantMessage.includes("?")
-      ) {
+      if (output.teachbackPassed && questionCount > 0) {
         ctx.addIssue({
           code: "custom",
           path: ["assistantMessage"],
-          message:
-            "An incomplete capability response must end in a visible learner question.",
+          message: "A passing teachback must close without another question.",
         });
       }
       if (
-        output.completedCapabilityId === null &&
+        !output.teachbackPassed &&
         /\bmark (?:this|it|the (?:capability|unit|todo))(?: one)? complete\b/i.test(
           output.assistantMessage,
         )
       ) {
         ctx.addIssue({
           code: "custom",
-          path: ["completedCapabilityId"],
-          message:
-            "A completion claim requires completedCapabilityId to be set.",
+          path: ["teachbackPassed"],
+          message: "A completion claim requires teachbackPassed to be true.",
         });
       }
     });
@@ -227,8 +209,6 @@ export interface GradeShape {
   readonly testedDimensionIds: readonly string[];
   /** The learner's latest answer, which every evidence quote must come from. */
   readonly learnerAnswer: string;
-  /** Whether this mark can end the unit, or only opens another pass. */
-  readonly decisive: boolean;
 }
 
 /**
@@ -276,6 +256,34 @@ export const reviewGradeSchema = ({
       }
 
       const gap = hasModelGap(output.dimensionResults);
+      if (gap && output.errorCodes.length === 0) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["errorCodes"],
+          message: "A learner gap requires at least one diagnostic error code.",
+        });
+      }
+      if (!gap && output.errorCodes.length > 0) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["errorCodes"],
+          message: "A clean answer cannot carry diagnostic error codes.",
+        });
+      }
+      if (gap && !output.dimensionResults.some((result) => result.missing)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["dimensionResults"],
+          message: "A learner gap requires a concrete missing element.",
+        });
+      }
+      if (!gap && output.dimensionResults.some((result) => result.missing)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["dimensionResults"],
+          message: "A clean answer cannot report a missing element.",
+        });
+      }
       if (
         gap &&
         !["What held", "Change", "Use next time"].every((label) =>

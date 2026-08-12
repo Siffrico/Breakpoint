@@ -15,7 +15,8 @@ const OUTPUT_RULES = `Output rules:
 - scenario.focusAreas contains 2 or 3 precise evaluation targets
 - seedHint guides the kind of response to give without giving away the answer
 - clusterArcFrame positions this slot in the larger sequence without teaching the answer
-- complexityBudget is 1, 2, or 3 based on the real reasoning load`;
+- complexityBudget is 1, 2, or 3 based on the real reasoning load
+- buildContent is the concise teaching card shown before the task. Use exactly this order: **Heuristic**, **Worked example**, **Read**, **Predict**, **Compare**, **Decide**. End with exactly one question asking the learner to explain the heuristic in their own words. Do not include any other question`;
 
 const mainOutcomePrompt = (context: UnitBuilderContext): string => {
   const contract = context.planContext.clusterContext?.taskContract;

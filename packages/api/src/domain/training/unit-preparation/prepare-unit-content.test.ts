@@ -108,6 +108,8 @@ const planNodes = [parentPlanNode, planNode];
 
 const setup = {
   title: "Isolate the failure",
+  buildContent:
+    "**Heuristic**\nRe-derive the move whenever a material constraint changes.\n\n**Worked example**\n**Read** — A deploy slows after one configuration change.\n**Predict** — The changed constraint may invalidate the familiar fix.\n**Compare** — Restarting treats the symptom; isolating the changed variable tests the cause.\n**Decide** — Probe the changed variable first because it distinguishes the causal hypotheses.\n\nHow would you explain this heuristic in your own words?",
   seedPrompt: "A deployment slows after one change. What do you inspect first?",
   seedHint: "Name the probe and the signal it would distinguish.",
   clusterArcFrame: "Move from symptoms to discriminating evidence.",
@@ -181,7 +183,7 @@ const unit = {
   clusterArcFrame: setup.clusterArcFrame,
   clusterBriefing: null,
   complexityBudget: setup.complexityBudget,
-  buildContent: null,
+  buildContent: setup.buildContent,
   practicePrompts: null,
   teachbackSetup: setup.teachbackSetup,
   scenario: setup.scenario,

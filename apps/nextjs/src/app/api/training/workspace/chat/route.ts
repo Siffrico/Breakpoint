@@ -124,7 +124,7 @@ export const POST = async (req: NextRequest) => {
   }
   const body = parsed.data;
 
-  const { sessionId, turnId } = body;
+  const { interactionId, sessionId, turnId } = body;
   const action = body.action ?? "submit_answer";
   const submittedMessage = resolveSubmittedMessage(body);
   if (
@@ -139,6 +139,7 @@ export const POST = async (req: NextRequest) => {
     sessionId,
     userId: session.user.id,
     action,
+    interactionId,
     message: submittedMessage,
     turnId,
     modelName: resolveModelPreference(req, body.model),

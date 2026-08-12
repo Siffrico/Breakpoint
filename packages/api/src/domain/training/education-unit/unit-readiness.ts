@@ -3,6 +3,7 @@ import { UnitContextSchema } from "@acme/validators";
 
 import type { UnitContent } from "../types/training.types";
 import { SELECT_OPTION_COUNT } from "../engine/scenario-archetypes";
+import { TeachingCardSchema } from "../unit-builder/contracts";
 
 const LABELED_OPTION_PATTERN =
   /(?:^|\s)(?:[-*]\s*)?(?:\*\*)?\(?([A-D])(?:\)|[.:])(?:\*\*)?[ \t]+\S/gim;
@@ -37,10 +38,13 @@ export const getSeedTaskReadinessIssue = ({
 };
 
 export const getUnitReadinessIssue = (
-  unit: Pick<UnitContent, "seedPrompt" | "unitContext">,
+  unit: Pick<UnitContent, "buildContent" | "seedPrompt" | "unitContext">,
 ): string | null => {
   const context = UnitContextSchema.safeParse(unit.unitContext);
   if (!context.success) return "Unit capability context is missing or invalid.";
+  if (!TeachingCardSchema.safeParse(unit.buildContent).success) {
+    return "Unit teaching content is missing or invalid.";
+  }
   return getSeedTaskReadinessIssue({
     seedPrompt: unit.seedPrompt,
     responseMode: context.data.testing.responseMode,

@@ -4,6 +4,8 @@ import { renderSeedPrompt, seedStageOutputSchema } from "./contracts";
 
 const base = {
   title: "Choose the precise claim",
+  buildContent:
+    "**Heuristic**\nRe-derive the move whenever a material constraint changes.\n\n**Worked example**\n**Read** — A deploy slows after one configuration change.\n**Predict** — The changed constraint may invalidate the familiar fix.\n**Compare** — Restarting treats the symptom; isolating the changed variable tests the cause.\n**Decide** — Probe the changed variable first because it distinguishes the causal hypotheses.\n\nHow would you explain this heuristic in your own words?",
   seedPrompt: "Read the passage. Which choice best states its main claim?",
   seedHint: "Choose one answer and cite the decisive sentence.",
   clusterArcFrame: "Match claims to evidence under pressure.",
@@ -62,5 +64,34 @@ describe("seedStageOutputSchema", () => {
     expect(renderSeedPrompt({ ...base, options })).toBe(
       `${base.seedPrompt}\n\nA) The broad background claim\n\nB) The qualified central claim\n\nC) A true supporting detail\n\nD) An unsupported implication`,
     );
+  });
+
+  it("rejects teaching without the worked-example reasoning sequence", () => {
+    expect(
+      seedStageOutputSchema(false).safeParse({
+        ...base,
+        buildContent:
+          "**Heuristic** Re-check changed constraints before acting. **Worked example** A configuration changed, so inspect it first. How would you explain this heuristic in your own words?",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects teaching sections in the wrong order", () => {
+    expect(
+      seedStageOutputSchema(false).safeParse({
+        ...base,
+        buildContent:
+          "**Worked example** **Read** A deploy slows. **Predict** The changed input matters. **Compare** Restarting hides the cause. **Decide** Test the input. **Heuristic** Re-derive after a material change. How would you explain this heuristic in your own words?",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects a teaching card with more than one learner question", () => {
+    expect(
+      seedStageOutputSchema(false).safeParse({
+        ...base,
+        buildContent: `${base.buildContent} What example would you use?`,
+      }).success,
+    ).toBe(false);
   });
 });

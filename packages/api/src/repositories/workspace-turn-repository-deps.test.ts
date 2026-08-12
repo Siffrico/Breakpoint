@@ -56,12 +56,11 @@ describe("workspace unit lease acquisition", () => {
       sessionId: freshRun.sessionId,
       unitContentId: freshRun.unitId,
       kind: freshRun.kind,
-      mode: freshRun.mode,
       experienceId: freshRun.experience.id,
       experienceVersion: freshRun.experience.version,
       experienceJson: freshRun.experience,
       unitContextJson: freshRun.unitContext,
-      todosJson: freshRun.todos,
+      cursorJson: freshRun.cursor,
       turnLeaseId: "00000000-0000-0000-0000-000000000099",
     });
     expect(inserted?.turnLeaseExpiresAt).toBeInstanceOf(Date);

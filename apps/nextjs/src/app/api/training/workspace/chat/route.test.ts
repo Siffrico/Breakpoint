@@ -23,6 +23,7 @@ vi.mock("@acme/db/client", () => ({ db: {} }));
 
 const session = { user: { id: "user-1" } };
 const validBody = {
+  interactionId: "education:session-1:unit-1:initial",
   message: "Here is my diagnosis.",
   sessionId: "00000000-0000-4000-8000-000000000001",
   turnId: "turn-1",
@@ -67,11 +68,26 @@ describe("workspace chat route boundary", () => {
     expect(mocks.streamWorkspaceChat).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionId: validBody.sessionId,
+        interactionId: validBody.interactionId,
         turnId: validBody.turnId,
         userId: session.user.id,
         message: validBody.message,
       }),
     );
+  });
+
+  it("rejects an answer that does not identify the active interaction", async () => {
+    mocks.requireSession.mockResolvedValue(session);
+    const body = {
+      message: validBody.message,
+      sessionId: validBody.sessionId,
+      turnId: validBody.turnId,
+    };
+
+    const response = await POST(request(JSON.stringify(body)));
+
+    expect(response.status).toBe(400);
+    expect(mocks.streamWorkspaceChat).not.toHaveBeenCalled();
   });
 
   it("rejects an oversized body before entering the workspace boundary", async () => {
@@ -108,6 +124,7 @@ describe("workspace chat route boundary", () => {
     const response = await POST(
       request(
         JSON.stringify({
+          interactionId: validBody.interactionId,
           sessionId: validBody.sessionId,
           turnId: validBody.turnId,
           messages: [

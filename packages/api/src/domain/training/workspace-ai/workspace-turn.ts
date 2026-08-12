@@ -16,8 +16,8 @@ import type {
 import type { WorkspaceAiState } from "./types";
 import type { WorkspaceProjectionReaderSource } from "./workspace-reader";
 import { DEFAULT_EDUCATION_EXPERIENCE } from "../education-unit/experience";
-import { createUnitRun } from "../education-unit/unit-state";
 import { getUnitReadinessIssue } from "../education-unit/unit-readiness";
+import { createUnitRun } from "../education-unit/unit-state";
 import { UnitNotReadyError } from "../unit-preparation/errors";
 import { isUnitMidFlight, planWorkspaceTurn } from "./orchestrator";
 import {
@@ -542,6 +542,7 @@ export const resolveWorkspaceTurnEffect = ({
     const resolvedState = {
       ...state,
       educationStage: unitRun.mode,
+      interactionId: unitRun.cursor.interactionId,
       workflowId: `${unitRun.experience.id}@${unitRun.experience.version}`,
     };
 

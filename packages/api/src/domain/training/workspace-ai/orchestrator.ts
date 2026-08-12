@@ -85,6 +85,7 @@ export const planWorkspaceTurn = ({
       mode: "education_unit",
       promptKind: "recall",
       educationStage: "review",
+      interactionId: null,
       workflowId: null,
       activeUnitId: null,
       activeUnitTitle: null,
@@ -103,6 +104,7 @@ export const planWorkspaceTurn = ({
     promptKind: "education_unit",
     educationStage:
       activeUnitRun?.mode ?? getCurrentEducationStage(activeUnitResponses),
+    interactionId: activeUnitRun?.cursor.interactionId ?? null,
     workflowId: activeUnitRun
       ? `${activeUnitRun.experience.id}@${activeUnitRun.experience.version}`
       : null,

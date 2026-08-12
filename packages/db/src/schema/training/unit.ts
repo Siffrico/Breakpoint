@@ -3,8 +3,8 @@ import { index, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
 import type {
   EducationExperienceSnapshot,
   UnitContext,
+  UnitCursor,
   UnitDifficultySnapshot,
-  UnitTodo,
 } from "@acme/validators";
 
 import { user } from "../../auth-schema";
@@ -214,7 +214,6 @@ export const TrainingUnitRun = pgTable(
       .references(() => TrainingOnboardingSession.id, { onDelete: "cascade" }),
     userId: t.text().references(() => user.id, { onDelete: "set null" }),
     kind: t.varchar({ length: 24 }).notNull().default("education"),
-    mode: t.varchar({ length: 24 }).notNull().default("learning"),
     experienceId: t
       .varchar({ length: 96 })
       .notNull()
@@ -222,7 +221,7 @@ export const TrainingUnitRun = pgTable(
     experienceVersion: t.integer().notNull().default(1),
     experienceJson: t.jsonb().$type<EducationExperienceSnapshot>().notNull(),
     unitContextJson: t.jsonb().$type<UnitContext>().notNull(),
-    todosJson: t.jsonb().$type<UnitTodo[]>().notNull(),
+    cursorJson: t.jsonb().$type<UnitCursor>().notNull(),
     difficultySnapshotJson: t
       .jsonb()
       .$type<TrainingUnitDifficultySnapshotJson | null>(),

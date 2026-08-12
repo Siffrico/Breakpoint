@@ -7,60 +7,38 @@ import {
 } from "./agent-contracts";
 
 describe("mentorOutputSchema", () => {
-  it("accepts a completed teaching turn with scannable semantic sections", () => {
-    const result = mentorOutputSchema("capability-1").safeParse({
-      assistantMessage: `**Heuristic**
-Read past the target and cap the answer's strength at the qualifier.
-
-**Worked example**
-**Read** — The metric rises while the constraint tightens.
-**Predict** — Positive, but measured.
-**Compare** — Optimistic is too strong; encouraging preserves the hedge.
-**Decide** — Choose encouraging because the qualifier limits confidence.`,
-      completedCapabilityId: "capability-1",
-    });
-
-    expect(result.success).toBe(true);
+  it("accepts a causal teachback pass with a concise acknowledgement", () => {
+    expect(
+      mentorOutputSchema().safeParse({
+        assistantMessage:
+          "Yes—the changed constraint controls the choice, so the old procedure must be re-derived.",
+        teachbackPassed: true,
+      }).success,
+    ).toBe(true);
   });
 
-  it("rejects praise that claims completion without teaching the pattern", () => {
-    const result = mentorOutputSchema("capability-1").safeParse({
-      assistantMessage:
-        "Exactly right. You calibrated the qualifier cleanly, so let me move you into the scenario.",
-      completedCapabilityId: "capability-1",
-    });
-
-    expect(result.success).toBe(false);
-  });
-
-  it("accepts semantic teaching labels even when Markdown spacing varies", () => {
-    const result = mentorOutputSchema("capability-1").safeParse({
-      assistantMessage:
-        "**Heuristic** Let the qualifier cap intensity. **Worked example** **Read** Expand the window. **Predict** Positive but measured. **Compare** Optimistic overstates; encouraging fits. **Decide** Choose encouraging.",
-      completedCapabilityId: "capability-1",
-    });
-
-    expect(result.success).toBe(true);
-  });
-
-  it("rejects an incomplete turn that leaves the learner with no ask", () => {
-    const result = mentorOutputSchema("capability-1").safeParse({
-      assistantMessage:
-        "That part is correct. I will note it and move us forward now.",
-      completedCapabilityId: null,
-    });
-
-    expect(result.success).toBe(false);
-  });
-
-  it("accepts a focused question while the capability remains incomplete", () => {
-    const result = mentorOutputSchema("capability-1").safeParse({
-      assistantMessage:
-        "The state transition is still ambiguous. What durable fact makes the UI claim true?",
-      completedCapabilityId: null,
-    });
-
-    expect(result.success).toBe(true);
+  it("requires an incomplete teachback to end in one visible question", () => {
+    expect(
+      mentorOutputSchema().safeParse({
+        assistantMessage:
+          "You named the move but not what makes it valid in this case.",
+        teachbackPassed: false,
+      }).success,
+    ).toBe(false);
+    expect(
+      mentorOutputSchema().safeParse({
+        assistantMessage:
+          "You named the move but not what makes it valid. Which constraint controls it?",
+        teachbackPassed: false,
+      }).success,
+    ).toBe(true);
+    expect(
+      mentorOutputSchema().safeParse({
+        assistantMessage:
+          "Which constraint changed? Why does that invalidate the old move?",
+        teachbackPassed: false,
+      }).success,
+    ).toBe(false);
   });
 });
 
@@ -147,7 +125,6 @@ const gradeShape = {
   testedDimensionIds: ["constraint-tradeoff"],
   learnerAnswer:
     "I would keep the original procedure because it is simpler and already proven.",
-  decisive: true,
 } as const;
 
 const weakDimensionResult = {
@@ -235,6 +212,38 @@ Re-derive a heuristic when the constraint that made it safe changes.`,
           missing: null,
         },
       ],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("requires diagnostic codes and a concrete missing element for a gap", () => {
+    const result = reviewGradeSchema(gradeShape).safeParse({
+      assistantMessage: `**What held**
+The familiar procedure protects simplicity.
+
+**Change**
+The changed constraint invalidates its safety condition.
+
+**Use next time**
+Re-derive the move from the controlling constraint.`,
+      errorCodes: [],
+      scratchpad:
+        "The learner preserved simplicity but missed the changed safety condition.",
+      dimensionResults: [{ ...weakDimensionResult, missing: null }],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects diagnostic residue on a clean answer", () => {
+    const result = reviewGradeSchema(gradeShape).safeParse({
+      assistantMessage:
+        "Exactly right: the changed constraint invalidates the old safety condition.",
+      errorCodes: ["stale-diagnosis"],
+      scratchpad:
+        "No material divergence: the learner re-derived from the controlling constraint.",
+      dimensionResults: [{ ...weakDimensionResult, score: 96, missing: null }],
     });
 
     expect(result.success).toBe(false);

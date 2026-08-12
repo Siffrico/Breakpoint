@@ -1,10 +1,7 @@
 import type { ModelMessage } from "ai";
 import { Effect, Exit } from "effect";
 
-import type {
-  EvaluationDimensionResult,
-  UnitReviewPass,
-} from "@acme/validators";
+import type { EvaluationDimensionResult } from "@acme/validators";
 
 import type { UnitAgentError } from "./agent-errors";
 import type { EducationExperienceDefinition } from "./experience";
@@ -13,25 +10,21 @@ import {
   compositeScore,
   hasModelGap,
   PASSING_COMPOSITE,
+  PASSING_DIMENSION,
 } from "./agent-contracts";
 import { runMentorAgent } from "./mentor-agent";
-import {
-  parkedChallenge,
-  prefillScenario,
-  UnitTurnContractError,
-} from "./prefill";
+import { prefillScenario, UnitTurnContractError } from "./prefill";
 import {
   runReviewGradeAgent,
   runReviewPresentationAgent,
 } from "./review-agent";
 import {
-  attachChallenge,
-  closeSolve,
-  completeCurrentCapabilityTodo,
-  currentTodo,
-  isDecisivePass,
-  markComplete,
-  presentSolve,
+  assertInteractionId,
+  attachPreparedScenario,
+  preparedScenario,
+  presentScenario,
+  repeatTeachback,
+  settleScenario,
 } from "./unit-state";
 
 export interface UnitAgentContexts {
@@ -47,7 +40,6 @@ export interface UnitTurnResult {
   readonly assistantMessage: string;
   readonly nextRun: PersistedUnitRun;
   readonly actor: "mentor" | "reviewer";
-  readonly completedCapabilityId: string | null;
   readonly reviewGrade: {
     readonly score: number;
     readonly errorCodes: readonly string[];
@@ -60,8 +52,6 @@ export interface UnitTurnResult {
     readonly errorCodes: readonly string[];
   } | null;
   readonly presentedReviewChallenge: boolean;
-  /** The pass this turn closed out, if it closed one. */
-  readonly settledPass: UnitReviewPass | null;
 }
 
 export interface UnitTurnDependencies {
@@ -93,11 +83,7 @@ const latestUserText = (transcript: readonly ModelMessage[]): string | null => {
     : null;
 };
 
-/**
- * Opens the pending solve. A pre-generated challenge is replayed as-is; only an
- * empty slot costs a model call.
- */
-const openSolve = ({
+const openScenario = ({
   run,
   experience,
   contexts,
@@ -111,12 +97,8 @@ const openSolve = ({
   deps: UnitTurnDependencies;
 }): Effect.Effect<UnitTurnResult, UnitAgentError | UnitTurnContractError> =>
   Effect.gen(function* () {
-    const pending = currentTodo(run);
-    if (pending?.kind !== "solve" || pending.status !== "pending") {
-      return yield* contractFailure("There is no challenge to open.");
-    }
     const challenge =
-      pending.challenge ??
+      preparedScenario(run) ??
       (yield* prefillScenario(
         {
           run,
@@ -126,27 +108,39 @@ const openSolve = ({
         },
         deps,
       ));
-    if (pending.challenge) {
-      onPartialAssistantMessage?.(challenge.prompt);
-    }
-    const nextRun = yield* presentSolve({ run, challenge }).pipe(asTurnError);
+    if (preparedScenario(run)) onPartialAssistantMessage?.(challenge.prompt);
+    const nextRun = yield* presentScenario({ run, challenge }).pipe(
+      asTurnError,
+    );
     return {
       assistantMessage: challenge.prompt,
       nextRun,
       actor: "reviewer" as const,
-      completedCapabilityId: null,
       reviewGrade: null,
       ratingWrite: null,
       presentedReviewChallenge: true,
-      settledPass: null,
     };
   });
 
-/**
- * Grades the answered solve and marks the pass. The mark is the only thing that
- * ends a unit; a non-decisive or failed mark appends the next pass.
- */
-const gradeSolve = ({
+const evidencedTargets = (
+  run: PersistedUnitRun,
+  results: readonly EvaluationDimensionResult[],
+): string[] => {
+  const passingSkills = new Set(
+    results.flatMap((result) =>
+      result.score < PASSING_DIMENSION
+        ? []
+        : (run.unitContext.judgment.criteria.find(
+            (criterion) => criterion.id === result.dimensionId,
+          )?.skills ?? []),
+    ),
+  );
+  return run.unitContext.targets
+    .filter((target) => passingSkills.has(target.skill))
+    .map((target) => target.id);
+};
+
+const gradeScenario = ({
   run,
   transcript,
   experience,
@@ -162,11 +156,9 @@ const gradeSolve = ({
   deps: UnitTurnDependencies;
 }): Effect.Effect<UnitTurnResult, UnitAgentError | UnitTurnContractError> =>
   Effect.gen(function* () {
-    const activeChallenge = run.activeReviewChallenge;
-    if (!activeChallenge) {
-      return yield* contractFailure(
-        "The critic has no presented challenge to grade.",
-      );
+    const step = run.cursor.step;
+    if (step.kind !== "scenario" || !step.challenge) {
+      return yield* contractFailure("There is no presented scenario to grade.");
     }
     const learnerAnswer = latestUserText(transcript);
     if (!learnerAnswer) {
@@ -174,45 +166,46 @@ const gradeSolve = ({
         "Grading requires the learner's latest answer.",
       );
     }
-    const decisive = isDecisivePass(run);
-    const answered = yield* closeSolve(run).pipe(asTurnError);
-
-    const result = yield* deps.runReviewGrade({
+    const output = (yield* deps.runReviewGrade({
       messages: [{ role: "user", content: learnerAnswer }],
       context: contexts.critique.judgeAnswer,
-      activeChallenge,
+      activeChallenge: step.challenge,
       experience,
       shape: {
-        testedDimensionIds: activeChallenge.contract.testedCriterionIds,
+        testedDimensionIds: step.challenge.contract.testedCriterionIds,
         learnerAnswer,
-        decisive,
       },
       onPartialAssistantMessage,
-    });
-
-    const output = result.object;
-    const gap = hasModelGap(output.dimensionResults);
+    })).object;
+    const evidenceIds = evidencedTargets(run, output.dimensionResults);
+    const allTargetsEvidenced = run.unitContext.targets.every((target) =>
+      evidenceIds.includes(target.id),
+    );
+    const gap = hasModelGap(output.dimensionResults) || !allTargetsEvidenced;
     const errorCodes = gap
       ? output.errorCodes.length > 0
         ? output.errorCodes
-        : output.dimensionResults
-            .filter((dimension) => dimension.score < PASSING_COMPOSITE)
-            .map((dimension) => `gap:${dimension.dimensionId}`)
-            .slice(0, 3)
+        : [
+            ...output.dimensionResults
+              .filter((dimension) => dimension.score < PASSING_COMPOSITE)
+              .map((dimension) => `gap:${dimension.dimensionId}`),
+            ...run.unitContext.targets
+              .filter((target) => !evidenceIds.includes(target.id))
+              .map((target) => `unevidenced:${target.id}`),
+          ].slice(0, 3)
       : [];
-    const settledPass = answered.reviewPass;
-    const nextRun = yield* markComplete({
-      run: answered,
-      result: gap ? "fail" : "pass",
-      feedback: output.assistantMessage,
-    }).pipe(asTurnError);
-
     const score = compositeScore(output.dimensionResults);
+    const nextRun = yield* settleScenario({
+      run,
+      passed: !gap,
+      errorCodes,
+      dimensionResults: output.dimensionResults,
+      evidencedTargetIds: evidenceIds,
+    }).pipe(asTurnError);
     return {
       assistantMessage: output.assistantMessage,
       nextRun,
       actor: "reviewer" as const,
-      completedCapabilityId: null,
       reviewGrade: {
         score,
         errorCodes,
@@ -220,25 +213,21 @@ const gradeSolve = ({
         dimensionResults: output.dimensionResults,
         passed: !gap,
       },
-      // Goldilocks reads only the marks that could end the unit.
-      ratingWrite: decisive ? { score, errorCodes } : null,
+      ratingWrite: { score, errorCodes },
       presentedReviewChallenge: false,
-      settledPass,
     };
   });
 
-/**
- * Enter opens the next pass's scenario. It carries no learner answer and never
- * completes the unit.
- */
 export const runPassAdvanceTurn = (
   {
     run,
+    interactionId,
     experience,
     contexts,
     onPartialAssistantMessage,
   }: {
     run: PersistedUnitRun;
+    interactionId: string;
     experience: EducationExperienceDefinition;
     contexts: UnitAgentContexts;
     onPartialAssistantMessage?: (content: string) => void;
@@ -246,10 +235,11 @@ export const runPassAdvanceTurn = (
   deps: UnitTurnDependencies = LIVE_DEPENDENCIES,
 ): Effect.Effect<UnitTurnResult, UnitAgentError | UnitTurnContractError> =>
   Effect.gen(function* () {
-    if (run.mode !== "awaiting_next_pass") {
-      return yield* contractFailure("There is no next pass to open yet.");
+    yield* assertInteractionId(run, interactionId).pipe(asTurnError);
+    if (run.cursor.step.kind !== "feedback") {
+      return yield* contractFailure("There is no feedback waiting to advance.");
     }
-    return yield* openSolve({
+    return yield* openScenario({
       run,
       experience,
       contexts,
@@ -258,19 +248,17 @@ export const runPassAdvanceTurn = (
     });
   });
 
-/**
- * One turn is one look at the head of the list: a teaching move belongs to the
- * mentor, everything from the solve onward belongs to the reviewer.
- */
 export const runUnitTurn = (
   {
     run,
+    interactionId,
     transcript,
     experience,
     contexts,
     onPartialAssistantMessage,
   }: {
     run: PersistedUnitRun;
+    interactionId: string;
     transcript: readonly ModelMessage[];
     experience: EducationExperienceDefinition;
     contexts: UnitAgentContexts;
@@ -279,64 +267,52 @@ export const runUnitTurn = (
   deps: UnitTurnDependencies = LIVE_DEPENDENCIES,
 ): Effect.Effect<UnitTurnResult, UnitAgentError | UnitTurnContractError> =>
   Effect.gen(function* () {
-    const head = currentTodo(run);
-    if (!head) {
+    yield* assertInteractionId(run, interactionId).pipe(asTurnError);
+    const step = run.cursor.step;
+    if (step.kind === "complete") {
       return yield* contractFailure("The education unit is already complete.");
     }
-
-    if (head.kind === "solve") {
-      if (head.status === "presented") {
-        return yield* gradeSolve({
-          run,
-          transcript,
-          experience,
-          contexts,
-          onPartialAssistantMessage,
-          deps,
-        });
-      }
-      // A recall run pre-completes its teaching moves, so its first solve is
-      // the head from the moment the run exists and nothing else can open it.
-      // Only a later pass parks behind Enter, so pass 1 opens here.
-      return head.pass === 1
-        ? yield* openSolve({
+    if (step.kind === "feedback") {
+      return yield* contractFailure(
+        "Press Enter to continue after the feedback.",
+      );
+    }
+    if (step.kind === "scenario") {
+      return step.challenge
+        ? yield* gradeScenario({
             run,
+            transcript,
             experience,
             contexts,
             onPartialAssistantMessage,
             deps,
           })
-        : yield* contractFailure(
-            "This challenge is finished. Press Enter to continue.",
-          );
+        : yield* openScenario({
+            run,
+            experience,
+            contexts,
+            onPartialAssistantMessage,
+            deps,
+          });
     }
 
-    if (head.kind === "complete") {
-      // Reachable only if a previous turn died between the answer and the mark.
+    const learnerAnswer = latestUserText(transcript);
+    if (!learnerAnswer) {
       return yield* contractFailure(
-        "This answer is still being marked. Try again in a moment.",
+        "Teachback requires the learner's explanation.",
       );
     }
-
-    // The teach step normally completes on its first message and hands straight
-    // to the scenario, so authoring that scenario alongside the mentor rather
-    // than after it takes a whole model call off the learner's wait. A miss is
-    // not wasted: it is parked on the solve for whichever turn opens it. The
-    // agent runner already exhausts its bounded retry and repair policy, so a
-    // failure must propagate instead of launching the same expensive call a
-    // second time inside one learner request.
-    const [mentor, speculativeExit] = yield* Effect.all(
+    const [mentor, scenarioExit] = yield* Effect.all(
       [
         deps.runMentor({
-          messages: transcript,
+          messages: [{ role: "user", content: learnerAnswer }],
           context: contexts.mentor,
           experience,
-          currentCapabilityId: head.dimensionId,
           onPartialAssistantMessage,
         }),
         Effect.exit(
-          parkedChallenge(run)
-            ? Effect.succeed(null)
+          preparedScenario(run)
+            ? Effect.succeed(preparedScenario(run))
             : prefillScenario(
                 {
                   run,
@@ -349,64 +325,50 @@ export const runUnitTurn = (
       ],
       { concurrency: 2 },
     );
-    if (Exit.isFailure(speculativeExit)) {
-      return yield* Effect.failCause(speculativeExit.cause);
-    }
-    const speculative = speculativeExit.value;
-    const mentorMessage = mentor.object.assistantMessage;
-    const completedCapabilityId = mentor.object.completedCapabilityId;
-    const park = (target: PersistedUnitRun) =>
-      speculative
-        ? attachChallenge({ run: target, challenge: speculative }).pipe(
-            asTurnError,
-          )
-        : Effect.succeed(target);
-    if (!completedCapabilityId) {
+    if (!mentor.object.teachbackPassed) {
+      const preparedRun = preparedScenario(run)
+        ? run
+        : Exit.isSuccess(scenarioExit)
+          ? scenarioExit.value
+            ? yield* attachPreparedScenario({
+                run,
+                challenge: scenarioExit.value,
+              }).pipe(asTurnError)
+            : run
+          : run;
       return {
-        assistantMessage: mentorMessage,
-        nextRun: yield* park(run),
+        assistantMessage: mentor.object.assistantMessage,
+        nextRun: yield* repeatTeachback(preparedRun).pipe(asTurnError),
         actor: "mentor" as const,
-        completedCapabilityId: null,
         reviewGrade: null,
         ratingWrite: null,
         presentedReviewChallenge: false,
-        settledPass: null,
       };
     }
-    const advanced = yield* park(
-      yield* completeCurrentCapabilityTodo(run, completedCapabilityId).pipe(
-        asTurnError,
-      ),
-    );
-    if (currentTodo(advanced)?.kind === "capability") {
-      return {
-        assistantMessage: mentorMessage,
-        nextRun: advanced,
-        actor: "mentor" as const,
-        completedCapabilityId,
-        reviewGrade: null,
-        ratingWrite: null,
-        presentedReviewChallenge: false,
-        settledPass: null,
-      };
+    if (Exit.isFailure(scenarioExit)) {
+      return yield* Effect.failCause(scenarioExit.cause);
     }
-    // The learner has already read the mentor's closing words. Continuing
-    // that message with the critic's opening challenge — rather than
-    // returning the challenge alone — keeps the committed reply an extension
-    // of what was streamed, so the stream never retracts text it has shown.
-    const handoff = `${mentorMessage}\n\n`;
-    const opened = yield* openSolve({
-      run: advanced,
+    const scenario = scenarioExit.value;
+    if (!scenario) {
+      return yield* contractFailure("The next scenario could not be prepared.");
+    }
+    const preparedRun = preparedScenario(run)
+      ? run
+      : yield* attachPreparedScenario({ run, challenge: scenario }).pipe(
+          asTurnError,
+        );
+    const handoff = `${mentor.object.assistantMessage}\n\n`;
+    const opened = yield* openScenario({
+      run: preparedRun,
       experience,
       contexts,
       onPartialAssistantMessage: onPartialAssistantMessage
-        ? (challenge) => onPartialAssistantMessage(`${handoff}${challenge}`)
+        ? (scenario) => onPartialAssistantMessage(`${handoff}${scenario}`)
         : undefined,
       deps,
     });
     return {
       ...opened,
       assistantMessage: `${handoff}${opened.assistantMessage}`,
-      completedCapabilityId,
     };
   });

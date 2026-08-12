@@ -46,7 +46,7 @@ export const AGENT_CONFIG = {
   },
   unitMentor: {
     description:
-      "Persistently mentors one capability todo at a time until the learner demonstrates autonomous ability.",
+      "Assesses the learner's teachback and repairs only the missing mechanism before scenario practice.",
     purpose: "education",
     limits: "default",
     maxSteps: 1,

@@ -97,7 +97,31 @@ const seedOptionSchema = (label: "A" | "B" | "C" | "D") =>
     })
     .strict();
 
-const selectedSeedStageOutputSchema = PreSeedUnitContentDraftSchema.extend({
+export const TeachingCardSchema = z
+  .string()
+  .trim()
+  .min(120)
+  .max(2_500)
+  .refine(
+    (content) =>
+      /^\*\*Heuristic\*\*[\s\S]+\*\*Worked example\*\*[\s\S]+\*\*Read\*\*[\s\S]+\*\*Predict\*\*[\s\S]+\*\*Compare\*\*[\s\S]+\*\*Decide\*\*/i.test(
+        content,
+      ),
+    "Teaching must contain the required semantic sections in order.",
+  )
+  .refine(
+    (content) =>
+      /own words/i.test(content) &&
+      content.trimEnd().endsWith("?") &&
+      (content.match(/\?/g)?.length ?? 0) === 1,
+    "Teaching must end with exactly one own-words question.",
+  );
+
+const SeedStageBaseSchema = PreSeedUnitContentDraftSchema.extend({
+  buildContent: TeachingCardSchema,
+});
+
+const selectedSeedStageOutputSchema = SeedStageBaseSchema.extend({
   options: z.tuple([
     seedOptionSchema("A"),
     seedOptionSchema("B"),
@@ -107,9 +131,7 @@ const selectedSeedStageOutputSchema = PreSeedUnitContentDraftSchema.extend({
 });
 
 export const seedStageOutputSchema = (selectedResponse: boolean) =>
-  selectedResponse
-    ? selectedSeedStageOutputSchema
-    : PreSeedUnitContentDraftSchema;
+  selectedResponse ? selectedSeedStageOutputSchema : SeedStageBaseSchema;
 
 export const renderSeedPrompt = (output: {
   readonly seedPrompt: string;
@@ -129,4 +151,4 @@ export const renderSeedPrompt = (output: {
 
 export type OutcomeTaskContract = z.infer<typeof OutcomeTaskContractSchema>;
 export type UnitBuilderContext = z.infer<typeof UnitBuilderContextSchema>;
-export type SeedStageOutput = z.infer<typeof PreSeedUnitContentDraftSchema>;
+export type SeedStageOutput = z.infer<typeof SeedStageBaseSchema>;

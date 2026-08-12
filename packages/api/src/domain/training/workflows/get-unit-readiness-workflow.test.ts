@@ -8,6 +8,8 @@ const nodeId = "node-1";
 const unit = {
   id: "unit-1",
   nodeId,
+  buildContent:
+    "**Heuristic** Re-derive the move when the controlling constraint changes. **Worked example** **Read** A deploy slows after one configuration change. **Predict** The change may invalidate the usual fix. **Compare** Restarting hides the cause; isolating the changed input tests it. **Decide** Test the changed input first. How would you explain this heuristic in your own words?",
   seedPrompt: "Diagnose the failure and justify the next probe.",
   unitContext: makeUnitContext(),
 } as UnitContent;

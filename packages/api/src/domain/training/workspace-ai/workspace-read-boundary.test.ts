@@ -61,6 +61,8 @@ const unitStateFields = {
   summary: "Keep one canonical boundary.",
   whyItMatters: "Duplicated ownership creates divergent behavior.",
   learningGoal: "Choose and defend the canonical boundary.",
+  buildContent:
+    "**Heuristic** Choose one canonical owner. **Worked example** **Read** Two services write the same state. **Predict** They can diverge. **Compare** Shared ownership hides authority; one owner makes recovery explicit. **Decide** Put the transition at the durable boundary. How would you explain this heuristic in your own words?",
   seedPrompt: "Where should this responsibility live?",
   seedHint: "Choose one boundary and defend it.",
   clusterArcFrame: null,
@@ -246,9 +248,9 @@ describe("workspace read preparation boundary", () => {
 
   it("derives an initial run in memory when the run row is missing", async () => {
     const unit = {
+      ...activeUnit,
       id: "unit-content-1",
       nodeId: readyNode.id,
-      unitContext,
     } as UnitContent;
     const upsertUnitRun = vi.fn();
 
@@ -278,16 +280,16 @@ describe("workspace read preparation boundary", () => {
     expect(turn.state).toMatchObject({
       mode: "education_unit",
       educationStage: "learning",
-      workflowId: "breakpoint-mentor@1",
+      workflowId: "breakpoint-mentor@2",
     });
     expect(upsertUnitRun).not.toHaveBeenCalled();
   });
 
   it("snapshots the account customization onto a new unit run", async () => {
     const unit = {
+      ...activeUnit,
       id: "unit-content-1",
       nodeId: readyNode.id,
-      unitContext,
     } as UnitContent;
     const customizedExperience = {
       ...DEFAULT_EDUCATION_EXPERIENCE,
@@ -320,9 +322,9 @@ describe("workspace read preparation boundary", () => {
   it("reuses an authorized plan without reading it again", async () => {
     const getActivePlan = vi.fn();
     const unit = {
+      ...activeUnit,
       id: "unit-content-1",
       nodeId: readyNode.id,
-      unitContext,
     } as UnitContent;
 
     await resolveWorkspaceTurn({
@@ -363,7 +365,7 @@ describe("durable recall projection", () => {
       promptKind: "recall",
       recallUnitId: completedNode.id,
       activeUnitId: null,
-      workflowId: "breakpoint-mentor@1",
+      workflowId: "breakpoint-mentor@2",
       educationStage: "review",
     });
     expect(turn.unitRun).toBe(recallRun);
@@ -405,6 +407,7 @@ describe("durable recall projection", () => {
         userId: "user-1",
         turnId: "turn-cached",
         turnLeaseId: "lease-cached",
+        interactionId: turn.unitRun.cursor.interactionId,
         message: "Repeated answer",
         turn,
         deps,
@@ -506,11 +509,9 @@ describe("durable recall projection", () => {
             },
           },
           actor: "reviewer" as const,
-          completedCapabilityId: null,
           reviewGrade: null,
           ratingWrite: null,
           presentedReviewChallenge: true,
-          settledPass: null,
         }),
     };
 
@@ -526,6 +527,7 @@ describe("durable recall projection", () => {
         userId: "user-1",
         turnId: "turn-1",
         turnLeaseId: "lease-1",
+        interactionId: freshTurn.unitRun.cursor.interactionId,
         message: "Start recall",
         turn: freshTurn,
         deps,
@@ -606,7 +608,7 @@ describe("durable recall projection", () => {
     expect(turn.state).toMatchObject({
       activeUnitId: readyNode.id,
       recallUnitId: null,
-      workflowId: "breakpoint-mentor@1",
+      workflowId: "breakpoint-mentor@2",
     });
     expect(deps.retireInFlightRecallRun).toHaveBeenCalledWith(
       "session-1",
@@ -629,7 +631,7 @@ describe("durable recall projection", () => {
     expect(turn.state).toMatchObject({
       activeUnitId: readyNode.id,
       recallUnitId: null,
-      workflowId: "breakpoint-mentor@1",
+      workflowId: "breakpoint-mentor@2",
     });
   });
 });
@@ -722,7 +724,7 @@ describe("workspace view reads", () => {
       promptKind: "recall",
       recallUnitId: completedNode.id,
       activeUnitId: null,
-      workflowId: "breakpoint-mentor@1",
+      workflowId: "breakpoint-mentor@2",
       educationStage: "review",
     });
     expect(view.messages).toEqual([

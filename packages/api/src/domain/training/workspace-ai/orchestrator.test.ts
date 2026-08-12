@@ -77,24 +77,24 @@ void test("unit advance assertion rejects unmastered runs and accepts idempotent
   );
 });
 
-void test("a settled Pass 1 remains in the current unit with Next Unit locked", () => {
-  const awaitingPass2Run = {
+void test("settled feedback remains in the current unit with Next Unit locked", () => {
+  const feedbackRun = {
     ...baseRun,
     mode: "awaiting_next_pass" as const,
   };
 
   assert.equal(
-    isUnitAwaitingNextPass({ node: readyNode, run: awaitingPass2Run }),
+    isUnitAwaitingNextPass({ node: readyNode, run: feedbackRun }),
     true,
   );
   assert.equal(
-    isUnitAwaitingAdvance({ node: readyNode, run: awaitingPass2Run }),
+    isUnitAwaitingAdvance({ node: readyNode, run: feedbackRun }),
     false,
   );
   assert.deepEqual(
     getUnitAdvanceGate({
       node: readyNode,
-      run: awaitingPass2Run,
+      run: feedbackRun,
       nextNode: null,
     }),
     { status: "locked" },
@@ -103,7 +103,7 @@ void test("a settled Pass 1 remains in the current unit with Next Unit locked", 
     planWorkspaceTurn({
       nodes: [readyNode],
       activeUnitResponses: [],
-      activeUnitRun: awaitingPass2Run,
+      activeUnitRun: feedbackRun,
     })?.educationStage,
     "awaiting_next_pass",
   );

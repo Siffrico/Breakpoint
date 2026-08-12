@@ -6,10 +6,10 @@ import type {
   UnitReviewChallenge,
 } from "@acme/validators";
 
+import type { ReviewPresentationOutput } from "./agent-contracts";
 import type { UnitAgentError } from "./agent-errors";
 import type { EducationExperienceDefinition } from "./experience";
 import type { PersistedUnitRun } from "./unit-state";
-import type { ReviewPresentationOutput } from "./agent-contracts";
 import { renderReviewPresentation } from "./agent-contracts";
 import { runReviewPresentationAgent } from "./review-agent";
 
@@ -71,11 +71,7 @@ export interface PrefillDependencies {
   readonly runReviewPresentation: typeof runReviewPresentationAgent;
 }
 
-/**
- * Writes one scenario for the run's pending solve. Every caller goes through
- * here — the live open, the teach turn's speculative authoring, and the next
- * pass's background pre-generation — so all three produce the same shape.
- */
+/** Every scenario authoring path produces the same server-owned contract. */
 export const prefillScenario = (
   {
     run,
@@ -98,7 +94,10 @@ export const prefillScenario = (
       messages: [],
       context: presentationContext(context, difficultyVector),
       experience,
-      pass: run.reviewPass,
+      pass:
+        run.cursor.step.kind === "feedback"
+          ? run.cursor.step.attempt + 1
+          : run.reviewPass,
       selectedResponse: run.difficultySnapshot?.format?.kind === "mcq",
     });
     const prompt = renderReviewPresentation(result.object);
@@ -106,23 +105,6 @@ export const prefillScenario = (
     return {
       prompt,
       difficultyVector,
-      contract: evaluationContractFor(
-        run,
-        prompt,
-        result.object.verifier,
-      ),
+      contract: evaluationContractFor(run, prompt, result.object.verifier),
     };
   });
-
-/**
- * The challenge already parked on the next unfinished solve. Read during the
- * teach step, where the head is still a capability, so it cannot use the head.
- */
-export const parkedChallenge = (
-  run: PersistedUnitRun,
-): UnitReviewChallenge | null => {
-  const solve = run.todos.find(
-    (todo) => todo.kind === "solve" && todo.status !== "completed",
-  );
-  return solve?.kind === "solve" ? solve.challenge : null;
-};

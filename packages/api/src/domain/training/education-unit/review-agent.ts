@@ -90,18 +90,11 @@ export const runReviewPresentationAgent = ({
   });
 };
 
-const gradeTurnInstruction = (decisive: boolean) => {
-  const task = decisive
-    ? `## This turn: the unaided check
-Grade the learner's latest answer against the immutable active challenge. This attempt decides the unit: clean scores end it, a gap opens another fresh scenario. Say plainly where they landed and why.`
-    : `## This turn: supported review
-Grade the learner's latest answer against the immutable active challenge. A clean answer completes the unit; a real gap opens a fresh attempt. Name only the first mental-model divergence and repair it closely enough that the learner carries the idea into that attempt. Never say the words pass, fail, warm-up, or next pass.`;
-
-  return `${task}
+const GRADE_TURN_INSTRUCTION = `## This turn: the unaided check
+Grade the learner's latest answer against the immutable active challenge. Clean scores end the unit; a real gap opens a fresh attempt. Name only the first mental-model divergence and repair it closely enough that the learner carries the idea into that attempt. Never say the words pass, fail, or next pass.
 
 ## Score scale
 Every criterion score is an integer percentage from 0 to 100, never a 1-3 ordinal. A pass requires a composite score of at least ${PASSING_COMPOSITE} and every criterion at least ${PASSING_DIMENSION}. Make the scores, errorCodes, and learner-facing conclusion agree.`;
-};
 
 const COGNITIVE_DIAGNOSIS_POLICY = `## This grading turn: cognitive diagnosis and JIT repair
 Scores and rubric evidence are private control data. The learner-facing response is not a report card. Its job is to reconstruct why the learner's move felt correct, locate the first hidden assumption that made it diverge from the expert workflow, and supply only the smallest fragment needed to rethink that move.
@@ -145,10 +138,10 @@ export const runReviewGradeAgent = ({
   runUnitAgent({
     agent: "reviewer",
     purpose: "evaluation",
-    reasoning: shape.decisive ? "medium" : "low",
+    reasoning: "medium",
     system: `${CRITIC_SYSTEM}\n\n${COGNITIVE_DIAGNOSIS_POLICY}\n\n## Customized behavior\n${experience.reviewer.instructions}`,
     messages,
-    context: `${context}\n\n## Immutable active challenge and private verifier\n${JSON.stringify(activeChallenge)}\n\n${gradeTurnInstruction(shape.decisive)}`,
+    context: `${context}\n\n## Immutable active challenge and private verifier\n${JSON.stringify(activeChallenge)}\n\n${GRADE_TURN_INSTRUCTION}`,
     schema: reviewGradeSchema(shape),
     schemaName: "unit_review_grade",
     maxOutputTokens: 3_000,

@@ -56,7 +56,8 @@ const unit = {
   clusterArcFrame: "Move from symptoms to causal evidence.",
   clusterBriefing: null,
   complexityBudget: 1,
-  buildContent: null,
+  buildContent:
+    "**Heuristic** Re-derive the move when the controlling constraint changes. **Worked example** **Read** A deploy slows after one configuration change. **Predict** The change may invalidate the usual fix. **Compare** Restarting hides the cause; isolating the changed input tests it. **Decide** Test the changed input first. How would you explain this heuristic in your own words?",
   practicePrompts: null,
   teachbackSetup: {
     studentPersona: "A skeptical incident commander",

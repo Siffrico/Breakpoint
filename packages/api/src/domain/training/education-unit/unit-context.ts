@@ -1,4 +1,8 @@
-import type { UnitContext, UnitDifficultySnapshot } from "@acme/validators";
+import type {
+  EvaluationDimensionResult,
+  UnitContext,
+  UnitDifficultySnapshot,
+} from "@acme/validators";
 
 import type { Memory } from "../../memory/types";
 
@@ -110,12 +114,17 @@ export const createCritiqueContext = ({
   focus,
   mode,
   previousChallengePrompts = [],
+  repair = null,
 }: {
   unitContext: UnitContext;
   difficulty: UnitDifficultySnapshot;
   focus: UnitAgentFocus;
   mode: "create_challenge" | "judge_answer";
   previousChallengePrompts?: readonly string[];
+  repair?: {
+    errorCodes: readonly string[];
+    dimensionResults: readonly EvaluationDimensionResult[];
+  } | null;
 }): string =>
   joinSections([
     targetSection(unitContext),
@@ -126,6 +135,13 @@ export const createCritiqueContext = ({
     mode === "create_challenge" ? reviewGoldilocksSection(difficulty) : null,
     mode === "create_challenge" && previousChallengePrompts.length > 0
       ? `## Previously used challenge surfaces\nCreate a genuinely fresh surface; do not repeat these prompts:\n${bulletList(previousChallengePrompts)}`
+      : null,
+    mode === "create_challenge" && repair
+      ? `## Repair target\nPrior error codes: ${repair.errorCodes.join(", ")}\nWeak dimensions:\n${bulletList(
+          repair.dimensionResults
+            .filter((result) => result.score < 70)
+            .map((result) => `${result.dimensionId}: ${result.missing}`),
+        )}`
       : null,
     focusSection(focus),
   ]);

@@ -2,8 +2,8 @@
  * Transcript-bounding policy — the ONE file you edit to retune how a single
  * unit's transcript is capped before it is handed to a model.
  *
- * Each unit is its own chat and structured todo evidence survives outside the
- * verbatim window. These limits prevent a long adaptive loop or one oversized
+ * Each unit is its own chat and cursor evidence survives outside the verbatim
+ * window. These limits prevent a long adaptive loop or one oversized
  * answer from exhausting context. Change a number, change behaviour; the pure
  * functions in `compaction.ts` read these.
  */

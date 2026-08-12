@@ -60,6 +60,7 @@ export interface UnitPreparationDependencies {
   readonly createUnitContentIfAbsent: (input: {
     nodeId: string;
     title: string;
+    buildContent: string;
     seedPrompt: string;
     seedHint: string;
     clusterArcFrame: string;
@@ -71,6 +72,7 @@ export interface UnitPreparationDependencies {
   readonly replaceUnitContent: (input: {
     nodeId: string;
     title: string;
+    buildContent: string;
     seedPrompt: string;
     seedHint: string;
     clusterArcFrame: string;
@@ -288,6 +290,7 @@ const prepareUnitContentUnlocked = ({
         const persisted = await persist({
           nodeId: node.id,
           title: setup.title,
+          buildContent: setup.buildContent,
           seedPrompt: setup.seedPrompt,
           seedHint: setup.seedHint,
           clusterArcFrame: setup.clusterArcFrame,
