@@ -5,6 +5,7 @@ import {
   EvaluationDimensionResultSchema,
   ScenarioVerifierSchema,
 } from "@acme/validators";
+import { getReviewPresentationReadinessIssue } from "./unit-readiness";
 
 export const LearnerFacingMessageSchema = z.string().trim().min(24).max(8_000);
 
@@ -55,6 +56,14 @@ export const reviewPresentationSchema = z
   })
   .strict()
   .superRefine((output, ctx) => {
+    const readinessIssue = getReviewPresentationReadinessIssue(output);
+    if (readinessIssue) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["assistantMessage"],
+        message: readinessIssue,
+      });
+    }
     if (
       /<\/?scratchpad>|verifier\.|checkerSpec/i.test(output.assistantMessage)
     ) {

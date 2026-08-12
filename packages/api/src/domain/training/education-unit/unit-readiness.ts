@@ -36,3 +36,34 @@ export const getUnitReadinessIssue = (
     responseMode: context.data.testing.responseMode,
   });
 };
+
+const EXPOSED_FIXED_ANSWER_PATTERN =
+  /\b(?:(?:correct\s+)?answer\s*(?:is|:)\s*|worked\s+(?:example|reasoning)\b)/i;
+
+export const getReviewPresentationReadinessIssue = ({
+  assistantMessage,
+  verifier,
+}: {
+  assistantMessage: string;
+  verifier: {
+    type: "fixed_answer" | "checker" | "judge_rubric";
+    answer: string | null;
+    checkerSpec: string | null;
+    scratchpad: string;
+  };
+}): string | null => {
+  if (verifier.type !== "fixed_answer") return null;
+
+  if (!verifier.answer || !/^[A-D]$/i.test(verifier.answer.trim())) {
+    return "Selected-response verifier answer must be one label from A-D.";
+  }
+  const optionIssue = getSeedTaskReadinessIssue({
+    seedPrompt: assistantMessage,
+    responseMode: "select",
+  });
+  if (optionIssue) return optionIssue;
+  if (EXPOSED_FIXED_ANSWER_PATTERN.test(assistantMessage)) {
+    return "Selected-response challenge must not contain a worked solution or expose its answer.";
+  }
+  return null;
+};

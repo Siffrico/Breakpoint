@@ -39,8 +39,12 @@ const verifier = {
 describe("reviewPresentationSchema", () => {
   it("keeps a validated private verifier beside learner-facing scenario text", () => {
     const result = reviewPresentationSchema.safeParse({
-      assistantMessage:
-        "A signed-in learner sees stale progress after reconnecting. Which recovery policy should the team ship, and why?",
+      assistantMessage: `A signed-in learner sees stale progress after reconnecting. Which recovery policy should the team ship, and why?
+
+A. Retry every request
+B. Retry only idempotent requests
+C. Never retry
+D. Retry writes without a key`,
       verifier,
     });
 
@@ -49,8 +53,12 @@ describe("reviewPresentationSchema", () => {
 
   it("caps private scenario planning so it cannot become an internal essay", () => {
     const result = reviewPresentationSchema.safeParse({
-      assistantMessage:
-        "A signed-in learner sees stale progress after reconnecting. Which recovery policy should the team ship, and why?",
+      assistantMessage: `A signed-in learner sees stale progress after reconnecting. Which recovery policy should the team ship, and why?
+
+A. Retry every request
+B. Retry only idempotent requests
+C. Never retry
+D. Retry writes without a key`,
       verifier: {
         ...verifier,
         scratchpad: "x".repeat(601),
@@ -64,6 +72,24 @@ describe("reviewPresentationSchema", () => {
     const result = reviewPresentationSchema.safeParse({
       assistantMessage:
         "The checkerSpec selects option B. Explain why it preserves both constraints.",
+      verifier,
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a worked example instead of an unsolved challenge", () => {
+    const result = reviewPresentationSchema.safeParse({
+      assistantMessage: `## Worked Example
+
+Which policy should the team ship?
+
+A. Retry every request
+B. Retry only idempotent requests
+C. Never retry
+D. Retry writes without a key
+
+Answer: B`,
       verifier,
     });
 
