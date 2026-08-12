@@ -11,7 +11,7 @@ import {
   classifyUnitAgentFailure,
   isRetryableUnitAgentError,
   UnitAgentFirstVisibleTimeoutError,
-  UnitAgentSchemaError,
+  nameUnitAgentSchemaError,
   UnitAgentWallClockTimeoutError,
 } from "./agent-errors";
 
@@ -178,10 +178,7 @@ const attempt = <TSchema extends z.ZodTypeAny>(
   }).pipe(
     Effect.mapError((error) =>
       error._tag === "UnitAgentSchemaError"
-        ? new UnitAgentSchemaError({
-            ...error,
-            schemaName: input.schemaName,
-          })
+        ? nameUnitAgentSchemaError(error, input.schemaName)
         : error,
     ),
   );

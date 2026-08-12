@@ -93,3 +93,13 @@ export const classifyUnitAgentFailure = (error: unknown): UnitAgentError => {
         : new UnitAgentProviderRejectedError({ message, cause: error });
   }
 };
+
+export const nameUnitAgentSchemaError = (
+  error: UnitAgentSchemaError,
+  schemaName: string,
+): UnitAgentSchemaError =>
+  new UnitAgentSchemaError({
+    message: error.message,
+    cause: error.cause,
+    schemaName,
+  });

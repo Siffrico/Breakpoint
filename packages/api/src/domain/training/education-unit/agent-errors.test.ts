@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { classifyUnitAgentFailure } from "./agent-errors";
+import {
+  classifyUnitAgentFailure,
+  nameUnitAgentSchemaError,
+  UnitAgentSchemaError,
+} from "./agent-errors";
 
 describe("classifyUnitAgentFailure", () => {
   it("preserves nested validation detail for a schema repair", () => {
@@ -14,6 +18,23 @@ describe("classifyUnitAgentFailure", () => {
     expect(classified.message).toContain(
       "completedCapabilityId: expected string",
     );
+  });
+
+  it("keeps message and cause when attaching the schema name", () => {
+    const cause = new Error("assistantMessage: answer must stay private");
+    const original = new UnitAgentSchemaError({
+      message: "Review presentation failed validation.",
+      cause,
+    });
+
+    const named = nameUnitAgentSchemaError(
+      original,
+      "unit_review_presentation",
+    );
+
+    expect(named.message).toBe("Review presentation failed validation.");
+    expect(named.cause).toBe(cause);
+    expect(named.schemaName).toBe("unit_review_presentation");
   });
 
   it("keeps the validation issue when a generated value makes the error long", () => {
