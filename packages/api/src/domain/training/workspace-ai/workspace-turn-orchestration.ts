@@ -34,6 +34,7 @@ import { projectScenarioBrief } from "../education-unit/scenario-brief";
 import {
   createCritiqueContext,
   createMentorContext,
+  createMentorScenarioContext,
 } from "../education-unit/unit-context";
 import { boundTranscript } from "../engine/compaction";
 import { resolveRatingScope } from "../orchestration/rating-scope";
@@ -550,19 +551,16 @@ export const runEducationUnitTurn = ({
         memories,
         focus,
       }),
+      mentorScenario: createMentorScenarioContext({
+        unitContext: unitRun.unitContext,
+        difficulty: difficultySnapshot,
+        focus,
+        previousChallengePrompts,
+      }),
       critique: {
-        createChallenge: createCritiqueContext({
-          unitContext: unitRun.unitContext,
-          difficulty: difficultySnapshot,
-          focus,
-          mode: "create_challenge",
-          previousChallengePrompts,
-        }),
         judgeAnswer: createCritiqueContext({
           unitContext: unitRun.unitContext,
-          difficulty: difficultySnapshot,
           focus,
-          mode: "judge_answer",
         }),
       },
     };
@@ -726,11 +724,10 @@ export const runEducationUnitTurn = ({
             experience,
             context:
               passResult.kind === "pass_result" && passResult.outcome === "fail"
-                ? createCritiqueContext({
+                ? createMentorScenarioContext({
                     unitContext: turnResult.nextRun.unitContext,
                     difficulty: difficultySnapshot,
                     focus,
-                    mode: "create_challenge",
                     previousChallengePrompts:
                       turnResult.nextRun.cursor.scenarioPrompts,
                     repair: {
@@ -738,7 +735,7 @@ export const runEducationUnitTurn = ({
                       dimensionResults: passResult.evidence,
                     },
                   })
-                : contexts.critique.createChallenge,
+                : contexts.mentorScenario,
           }).pipe(
             Effect.flatMap((challenge) =>
               Effect.tryPromise(() =>

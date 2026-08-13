@@ -5,38 +5,50 @@ import { DEFAULT_EDUCATION_EXPERIENCE } from "./experience";
 
 const runUnitAgentMock = vi.fn((input: unknown) => {
   void input;
-  return Effect.succeed({
-    object: {
-      assistantMessage: "A concise worked example and transferable pattern.",
-      completedCapabilityId: "teach",
-      scratchpad: "The learner named the mechanism and its controlling cause.",
-    },
-  });
+  return Effect.succeed({ object: { assistantMessage: "Mentor output." } });
 });
 
 vi.mock("./run-unit-agent", () => ({
   runUnitAgent: (input: unknown) => runUnitAgentMock(input),
 }));
 
-const { runMentorCheckAgent } = await import("./mentor-agent");
+const { runMentorScenarioAgent, runMentorTeachingAgent } = await import(
+  "./mentor-agent"
+);
 
-describe("runMentorCheckAgent", () => {
-  it("assesses the learner's own-words explanation without reteaching the card", async () => {
+describe("mentor prompt modules", () => {
+  it("gives Pass 1 the Teach and Scenario modules", async () => {
     await Effect.runPromise(
-      runMentorCheckAgent({
-        messages: [
-          { role: "user", content: "I chose A because it is measured." },
-        ],
-        context: "Authoritative unit teaching context.",
+      runMentorTeachingAgent({
+        messages: [],
+        context: "Authoritative unit context.",
         experience: DEFAULT_EDUCATION_EXPERIENCE,
-        currentCapabilityId: "teach",
+        createScenario: false,
+        selectedResponse: false,
       }),
     );
 
     const call = runUnitAgentMock.mock.calls[0]?.[0] as
       | { system: string }
       | undefined;
-    expect(call?.system).toContain("The readability law");
-    expect(call?.system).toContain("small comprehension question");
+    expect(call?.system).toContain("## Teach");
+    expect(call?.system).toContain("## Scenario");
+  });
+
+  it("gives later scenario turns only the Scenario module", async () => {
+    await Effect.runPromise(
+      runMentorScenarioAgent({
+        context: "Authoritative scenario context.",
+        experience: DEFAULT_EDUCATION_EXPERIENCE,
+        pass: 2,
+        selectedResponse: false,
+      }),
+    );
+
+    const call = runUnitAgentMock.mock.calls[1]?.[0] as
+      | { system: string }
+      | undefined;
+    expect(call?.system).not.toContain("## Teach");
+    expect(call?.system).toContain("## Scenario");
   });
 });

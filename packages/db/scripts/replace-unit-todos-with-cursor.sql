@@ -56,12 +56,7 @@ SET cursor_json = jsonb_build_object(
     )
     ELSE jsonb_build_object(
       'kind', 'teaching',
-      'preparedScenario', (
-        SELECT todo->'challenge'
-        FROM jsonb_array_elements(run.todos_json) AS todo
-        WHERE todo->>'kind' = 'solve' AND todo->>'status' = 'pending'
-        LIMIT 1
-      )
+      'preparedScenario', NULL
     )
   END
 );

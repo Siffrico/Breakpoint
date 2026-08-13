@@ -381,13 +381,13 @@ const commitEducationTurn = async ({
       presentedScenarioAttemptId = attempt.id;
     }
     if (input.solvePresentation) {
-      // The review presentation opens its rating attempt in this same commit
+      // The scenario presentation opens its rating attempt in this same commit
       // and stamps the learner's answer clock directly.
       const solveAttemptId =
         input.solvePresentation.scenarioAttemptId ?? presentedScenarioAttemptId;
       if (!solveAttemptId) {
         throw new Error(
-          "Review presentation has no scenario attempt to stamp.",
+          "Scenario presentation has no scenario attempt to stamp.",
         );
       }
       await trainingRatingRepository.stampSolvePresentation({

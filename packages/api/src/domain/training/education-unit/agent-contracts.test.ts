@@ -1,66 +1,61 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  mentorCheckOutputSchema,
+  mentorTeachingOutputSchema,
   reviewFeedbackSchema,
   reviewGradeSchema,
   reviewPresentationSchema,
 } from "./agent-contracts";
 
-describe("mentorCheckOutputSchema", () => {
-  it("accepts a causal teaching check with a concise acknowledgement", () => {
-    expect(
-      mentorCheckOutputSchema("teach").safeParse({
-        assistantMessage:
-          "Yes—the changed constraint controls the choice, so the old procedure must be re-derived.",
-        completedCapabilityId: "teach",
-        scratchpad:
-          "Causal explanation names the changed constraint and its consequence.",
-      }).success,
-    ).toBe(true);
-  });
+describe("mentorTeachingOutputSchema", () => {
+  const openingMessage = [
+    "Read",
+    ...Array.from({ length: 98 }, () => "carefully"),
+    "why?",
+  ].join(" ");
+  const preparedScenario = {
+    assistantMessage:
+      "A production constraint changed. Choose the safe move and explain the controlling reason.",
+    verifier: {
+      type: "judge_rubric" as const,
+      answer: null,
+      checkerSpec: null,
+      scratchpad:
+        "The safe move follows the changed constraint; the trap reuses the old procedure.",
+    },
+  };
 
-  it("requires an incomplete teaching check to end in one visible question", () => {
+  it("teaches first without creating the scenario", () => {
     expect(
-      mentorCheckOutputSchema("teach").safeParse({
-        assistantMessage:
-          "You named the move but not what makes it valid in this case.",
-        completedCapabilityId: null,
-        scratchpad: "The learner named the move without its controlling cause.",
-      }).success,
-    ).toBe(false);
-    expect(
-      mentorCheckOutputSchema("teach").safeParse({
-        assistantMessage:
-          "You named the move but not what makes it valid. Which constraint controls it?",
-        completedCapabilityId: null,
-        scratchpad: "The learner named the move without its controlling cause.",
+      mentorTeachingOutputSchema(false, false).safeParse({
+        assistantMessage: openingMessage,
+        scratchpad: "A concrete teaching plan.",
+        preparedScenario: null,
       }).success,
     ).toBe(true);
     expect(
-      mentorCheckOutputSchema("teach").safeParse({
-        assistantMessage:
-          "Which constraint changed? Why does that invalidate the old move?",
-        completedCapabilityId: null,
-        scratchpad: "The learner omitted the causal mechanism.",
+      mentorTeachingOutputSchema(false, false).safeParse({
+        assistantMessage: openingMessage,
+        scratchpad: "A concrete teaching plan.",
+        preparedScenario,
       }).success,
     ).toBe(false);
   });
 
-  it("requires a concise private scratchpad", () => {
+  it("creates the scenario after one answer and asks no second question", () => {
     expect(
-      mentorCheckOutputSchema("teach").safeParse({
+      mentorTeachingOutputSchema(false, true).safeParse({
         assistantMessage:
-          "The changed constraint controls the move, so the old procedure no longer applies.",
-        completedCapabilityId: "teach",
+          "The changed constraint must control the move, not the familiar procedure.",
+        scratchpad: "The learner needed one brief correction.",
+        preparedScenario,
       }).success,
-    ).toBe(false);
+    ).toBe(true);
     expect(
-      mentorCheckOutputSchema("teach").safeParse({
-        assistantMessage:
-          "The changed constraint controls the move, so the old procedure no longer applies.",
-        completedCapabilityId: "teach",
-        scratchpad: "x".repeat(601),
+      mentorTeachingOutputSchema(false, true).safeParse({
+        assistantMessage: "Which constraint controls the move?",
+        scratchpad: "The learner needed one brief correction.",
+        preparedScenario,
       }).success,
     ).toBe(false);
   });

@@ -110,18 +110,16 @@ export const createMentorContext = ({
     focusSection(focus),
   ]);
 
-export const createCritiqueContext = ({
+export const createMentorScenarioContext = ({
   unitContext,
   difficulty,
   focus,
-  mode,
   previousChallengePrompts = [],
   repair = null,
 }: {
   unitContext: UnitContext;
   difficulty: UnitDifficultySnapshot;
   focus: UnitAgentFocus;
-  mode: "create_challenge" | "judge_answer";
   previousChallengePrompts?: readonly string[];
   repair?: {
     errorCodes: readonly string[];
@@ -132,18 +130,33 @@ export const createCritiqueContext = ({
     targetSection(unitContext),
     workflowSection(unitContext),
     expertiseSection(unitContext),
-    mode === "create_challenge" ? testingSection(unitContext) : null,
+    testingSection(unitContext),
     judgmentSection(unitContext),
-    mode === "create_challenge" ? reviewGoldilocksSection(difficulty) : null,
-    mode === "create_challenge" && previousChallengePrompts.length > 0
+    reviewGoldilocksSection(difficulty),
+    previousChallengePrompts.length > 0
       ? `## Previously used challenge surfaces\nCreate a genuinely fresh surface; do not repeat these prompts:\n${bulletList(previousChallengePrompts)}`
       : null,
-    mode === "create_challenge" && repair
+    repair
       ? `## Repair target\nPrior error codes: ${repair.errorCodes.join(", ")}\nWeak dimensions:\n${bulletList(
           repair.dimensionResults
             .filter((result) => result.score < 70)
             .map((result) => `${result.dimensionId}: ${result.missing}`),
         )}`
       : null,
+    focusSection(focus),
+  ]);
+
+export const createCritiqueContext = ({
+  unitContext,
+  focus,
+}: {
+  unitContext: UnitContext;
+  focus: UnitAgentFocus;
+}): string =>
+  joinSections([
+    targetSection(unitContext),
+    workflowSection(unitContext),
+    expertiseSection(unitContext),
+    judgmentSection(unitContext),
     focusSection(focus),
   ]);

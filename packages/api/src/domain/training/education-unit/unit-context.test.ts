@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import type { UnitDifficultySnapshot } from "@acme/validators";
 
-import { createCritiqueContext, createMentorContext } from "./unit-context";
+import {
+  createCritiqueContext,
+  createMentorContext,
+  createMentorScenarioContext,
+} from "./unit-context";
 import { makeUnitContext } from "./unit-context.fixture";
 
 const unitContext = makeUnitContext();
@@ -50,11 +54,10 @@ describe("unit agent context projections", () => {
   });
 
   it("gives challenge creation the test contract, judgment, Goldilocks, and fresh-surface guard", () => {
-    const result = createCritiqueContext({
+    const result = createMentorScenarioContext({
       unitContext,
       difficulty,
       focus,
-      mode: "create_challenge",
       previousChallengePrompts: ["The earlier production scenario."],
     });
 
@@ -66,7 +69,7 @@ describe("unit agent context projections", () => {
   });
 
   it("keeps teaching support out of the independent review prompt", () => {
-    const result = createCritiqueContext({
+    const result = createMentorScenarioContext({
       unitContext,
       difficulty: {
         ...difficulty,
@@ -76,7 +79,6 @@ describe("unit agent context projections", () => {
 - Approach: Standard training scenario.`,
       },
       focus,
-      mode: "create_challenge",
     });
 
     expect(result).toContain("- Format: Selected response");
@@ -88,10 +90,7 @@ describe("unit agent context projections", () => {
   it("keeps grading independent from difficulty, memory, and prior challenges", () => {
     const result = createCritiqueContext({
       unitContext,
-      difficulty,
       focus,
-      mode: "judge_answer",
-      previousChallengePrompts: ["The earlier production scenario."],
     });
 
     expect(result).toContain("## Unit assignment");

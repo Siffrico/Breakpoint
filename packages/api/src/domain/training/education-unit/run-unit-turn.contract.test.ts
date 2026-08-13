@@ -46,11 +46,9 @@ const makeRun = (): PersistedUnitRun => ({
 });
 
 const contexts = {
-  mentor: "Authoritative mentor context.",
-  critique: {
-    createChallenge: "Authoritative critique scenario context.",
-    judgeAnswer: "Authoritative critique judgment context.",
-  },
+  mentor: "Authoritative mentor teaching context.",
+  mentorScenario: "Authoritative mentor scenario context.",
+  critique: { judgeAnswer: "Authoritative critique judgment context." },
 };
 
 const verifier = {
@@ -61,33 +59,33 @@ const verifier = {
     "Expert move follows the changed constraint. The familiar move ignores it.",
 };
 
-const opening = {
+const scenario = {
+  assistantMessage:
+    "A production limit changes after a familiar deployment. Choose the next move and defend it from the controlling constraint.",
+  verifier,
+};
+
+const teachingOpening = {
   assistantMessage:
     "Read the changed constraint before you reuse the old move. A familiar case can trick you into copying yesterday's procedure, but the new limit changes what stays safe. Which detail must you check before you reuse the old move?",
-  completedCapabilityId: null,
-  scratchpad: "Heuristic: read the changed constraint before reusing a move.",
-  preparedScenario: {
-    assistantMessage:
-      "A production limit changes after a familiar deployment. Choose the next move and defend it from the controlling constraint.",
-    verifier,
-  },
+  scratchpad: "Teach the controlling constraint with a concrete contrast.",
+  preparedScenario: null,
+};
+
+const teachingHandoff = {
+  assistantMessage: "Exactly. Read the changed limit before reusing the move.",
+  scratchpad: "The learner identified the controlling constraint.",
+  preparedScenario: scenario,
 };
 
 const deps = (
   overrides: Partial<UnitTurnDependencies> = {},
 ): UnitTurnDependencies => ({
-  runMentorOpening: () => Effect.succeed({ object: opening }),
-  runMentorCheck: () =>
+  runMentorTeaching: ({ createScenario }) =>
     Effect.succeed({
-      object: {
-        assistantMessage:
-          "You named the old move but not the changed limit. Which limit changes what is safe?",
-        completedCapabilityId: null,
-        scratchpad:
-          "The learner repeated the old move without naming the changed limit.",
-      },
+      object: createScenario ? teachingHandoff : teachingOpening,
     }),
-  runReviewPresentation: () =>
+  runMentorScenario: () =>
     Effect.succeed({
       object: {
         assistantMessage:
@@ -99,7 +97,7 @@ const deps = (
     Effect.succeed({
       object: {
         assistantMessage:
-          "You protected a familiar procedure, but the changed limit makes it unsafe. Which limit must control the move?",
+          "You protected the familiar procedure, but the changed limit makes it unsafe. Which limit must control the move?",
         errorCodes: ["constraint_blindness"],
         scratchpad:
           "The learner reused a move without re-deriving from the changed limit.",
@@ -134,171 +132,104 @@ const input = (run: PersistedUnitRun, action?: "start_unit") => ({
   contexts,
 });
 
-describe("runUnitTurn mentor and critique boundaries", () => {
-  it("rejects a stale interaction before calling an agent", async () => {
-    const runMentorOpening = vi.fn(deps().runMentorOpening);
+const startTeaching = () =>
+  Effect.runPromise(runUnitTurn(input(makeRun(), "start_unit"), deps()));
 
+const openFirstScenario = async () => {
+  const started = await startTeaching();
+  return Effect.runPromise(
+    runUnitTurn(
+      {
+        ...input(started.nextRun),
+        transcript: [{ role: "user", content: "Read the changed limit." }],
+      },
+      deps(),
+    ),
+  );
+};
+
+describe("runUnitTurn mentor and critique boundaries", () => {
+  it("rejects a stale interaction before calling the mentor", async () => {
+    const runMentorTeaching = vi.fn(deps().runMentorTeaching);
     await expect(
       Effect.runPromise(
         runUnitTurn(
           { ...input(makeRun(), "start_unit"), interactionId: "stale" },
-          deps({ runMentorOpening }),
+          deps({ runMentorTeaching }),
         ),
       ),
     ).rejects.toThrow("no longer active");
-    expect(runMentorOpening).not.toHaveBeenCalled();
+    expect(runMentorTeaching).not.toHaveBeenCalled();
   });
 
-  it("lets the mentor open the lesson and park its first scenario on teaching", async () => {
-    const runReviewPresentation = vi.fn(deps().runReviewPresentation);
+  it("teaches first without generating a scenario", async () => {
+    const runMentorTeaching = vi.fn(deps().runMentorTeaching);
+    const runMentorScenario = vi.fn(deps().runMentorScenario);
     const result = await Effect.runPromise(
       runUnitTurn(
         input(makeRun(), "start_unit"),
-        deps({ runReviewPresentation }),
+        deps({ runMentorTeaching, runMentorScenario }),
       ),
     );
 
-    expect(result.actor).toBe("mentor");
-    expect(result.nextRun.cursor.step).toMatchObject({
+    expect(result.nextRun.cursor.step).toEqual({
       kind: "teaching",
-      preparedScenario: { prompt: opening.preparedScenario.assistantMessage },
+      preparedScenario: null,
     });
-    expect(result.nextRun.cursor.interactionId).not.toBe(
-      makeRun().cursor.interactionId,
+    expect(runMentorTeaching).toHaveBeenCalledWith(
+      expect.objectContaining({ createScenario: false }),
     );
-    expect(runReviewPresentation).not.toHaveBeenCalled();
+    expect(runMentorScenario).not.toHaveBeenCalled();
   });
 
-  it("keeps a failed comprehension answer on teaching and keeps the mentor scenario", async () => {
-    const started = await Effect.runPromise(
-      runUnitTurn(input(makeRun(), "start_unit"), deps()),
-    );
+  it("uses the learner's one teaching answer, then creates and opens Pass 1", async () => {
+    const runMentorTeaching = vi.fn(deps().runMentorTeaching);
+    const started = await startTeaching();
     const result = await Effect.runPromise(
       runUnitTurn(
         {
           ...input(started.nextRun),
           transcript: [{ role: "user", content: "Reuse the old move." }],
         },
-        deps(),
+        deps({ runMentorTeaching }),
       ),
     );
 
-    expect(result.nextRun.cursor.step).toMatchObject({
-      kind: "teaching",
-      preparedScenario: { prompt: opening.preparedScenario.assistantMessage },
-    });
-  });
-
-  it("opens the mentor-owned scenario after the mini-check lands", async () => {
-    const started = await Effect.runPromise(
-      runUnitTurn(input(makeRun(), "start_unit"), deps()),
+    expect(runMentorTeaching).toHaveBeenCalledWith(
+      expect.objectContaining({ createScenario: true }),
     );
-    const result = await Effect.runPromise(
-      runUnitTurn(
-        {
-          ...input(started.nextRun),
-          transcript: [
-            { role: "user", content: "Read the changed limit first." },
-          ],
-        },
-        deps({
-          runMentorCheck: () =>
-            Effect.succeed({
-              object: {
-                assistantMessage: "Exactly. You read the changed limit first.",
-                completedCapabilityId: "teach",
-                scratchpad:
-                  "The learner stated the command in their own words.",
-              },
-            }),
-        }),
-      ),
-    );
-
     expect(result.nextRun.cursor.step).toMatchObject({
       kind: "scenario",
-      challenge: { prompt: opening.preparedScenario.assistantMessage },
+      attempt: 1,
+      challenge: { prompt: scenario.assistantMessage },
     });
-    expect(result.assistantMessage).toContain(
-      opening.preparedScenario.assistantMessage,
-    );
+    expect(result.assistantMessage).toContain(scenario.assistantMessage);
   });
 
-  it("uses the critique to open a targeted retry after a failed scenario", async () => {
-    const run = await Effect.runPromise(
-      runUnitTurn(input(makeRun(), "start_unit"), deps()),
-    ).then((started) =>
-      Effect.runPromise(
-        runUnitTurn(
-          {
-            ...input(started.nextRun),
-            transcript: [{ role: "user", content: "Read the changed limit." }],
-          },
-          deps({
-            runMentorCheck: () =>
-              Effect.succeed({
-                object: {
-                  assistantMessage:
-                    "Exactly. You read the changed limit first.",
-                  completedCapabilityId: "teach",
-                  scratchpad:
-                    "The learner stated the command in their own words.",
-                },
-              }),
-          }),
-        ),
-      ),
-    );
+  it("keeps critique on grading and feedback, then uses mentor for Pass 2", async () => {
+    const firstScenario = await openFirstScenario();
     const graded = await Effect.runPromise(
       runUnitTurn(
         {
-          ...input(run.nextRun),
-          transcript: [{ role: "user", content: "I would use the old move." }],
+          ...input(firstScenario.nextRun),
+          transcript: [{ role: "user", content: "I use the old move." }],
         },
         deps(),
-      ),
-    );
-    const runReviewPresentation = vi.fn(deps().runReviewPresentation);
-    const continuedFeedback = await Effect.runPromise(
-      runUnitTurn(
-        {
-          ...input(graded.nextRun),
-          transcript: [
-            {
-              role: "user",
-              content: "The changed limit must control the move.",
-            },
-          ],
-        },
-        deps({
-          runReviewFeedback: () =>
-            Effect.succeed({
-              object: {
-                assistantMessage:
-                  "The changed limit matters, but what does it make unsafe?",
-                feedbackComplete: false,
-                scratchpad:
-                  "The learner named the constraint without its consequence.",
-              },
-            }),
-        }),
       ),
     );
     const feedback = await Effect.runPromise(
       runUnitTurn(
         {
-          ...input(continuedFeedback.nextRun),
+          ...input(graded.nextRun),
           transcript: [
-            {
-              role: "user",
-              content: "It makes the familiar procedure unsafe.",
-            },
+            { role: "user", content: "The changed limit controls it." },
           ],
         },
         deps(),
       ),
     );
-    const reopened = await Effect.runPromise(
+    const runMentorScenario = vi.fn(deps().runMentorScenario);
+    const secondScenario = await Effect.runPromise(
       runPassAdvanceTurn(
         {
           run: feedback.nextRun,
@@ -306,55 +237,33 @@ describe("runUnitTurn mentor and critique boundaries", () => {
           experience: DEFAULT_EDUCATION_EXPERIENCE,
           contexts,
         },
-        deps({ runReviewPresentation }),
+        deps({ runMentorScenario }),
       ),
     );
 
-    expect(graded.nextRun.cursor.step.kind).toBe("feedback");
     expect(graded.ratingWrite).toEqual({
       score: 55,
       errorCodes: ["constraint_blindness"],
     });
-    expect(continuedFeedback.nextRun.cursor.step).toMatchObject({
-      kind: "feedback",
-      promptRound: 2,
-      errorCodes: ["constraint_blindness"],
-      dimensionResults: [{ score: 55 }],
-    });
-    expect(continuedFeedback.ratingWrite).toBeNull();
     expect(feedback.nextRun.cursor.step).toMatchObject({
       kind: "pass_result",
       outcome: "fail",
     });
-    expect(reopened.nextRun.cursor.step.kind).toBe("scenario");
-    expect(reopened.nextRun.reviewPass).toBe(2);
-    expect(runReviewPresentation).toHaveBeenCalledOnce();
+    expect(runMentorScenario).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pass: 2,
+      }),
+    );
+    expect(runMentorScenario.mock.calls[0]?.[0].context).toContain(
+      contexts.mentorScenario,
+    );
+    expect(secondScenario.nextRun.cursor.step).toMatchObject({
+      kind: "scenario",
+      attempt: 2,
+    });
   });
 
-  it("skips feedback after a correct scenario and requires pass 2 to complete", async () => {
-    const started = await Effect.runPromise(
-      runUnitTurn(input(makeRun(), "start_unit"), deps()),
-    );
-    const firstScenario = await Effect.runPromise(
-      runUnitTurn(
-        {
-          ...input(started.nextRun),
-          transcript: [
-            { role: "user", content: "Read the changed limit first." },
-          ],
-        },
-        deps({
-          runMentorCheck: () =>
-            Effect.succeed({
-              object: {
-                assistantMessage: "Exactly. Read the changed limit first.",
-                completedCapabilityId: "teach",
-                scratchpad: "The learner stated the controlling command.",
-              },
-            }),
-        }),
-      ),
-    );
+  it("skips feedback after a correct scenario and completes on a correct Pass 2", async () => {
     const cleanGrade = () =>
       Effect.succeed({
         object: {
@@ -373,15 +282,13 @@ describe("runUnitTurn mentor and critique boundaries", () => {
         },
       });
     const runReviewFeedback = vi.fn(deps().runReviewFeedback);
+    const firstScenario = await openFirstScenario();
     const firstResult = await Effect.runPromise(
       runUnitTurn(
         {
           ...input(firstScenario.nextRun),
           transcript: [
-            {
-              role: "user",
-              content: "The changed constraint controls the move.",
-            },
+            { role: "user", content: "The changed constraint controls it." },
           ],
         },
         deps({ runReviewGrade: cleanGrade, runReviewFeedback }),
@@ -410,10 +317,7 @@ describe("runUnitTurn mentor and critique boundaries", () => {
         {
           ...input(secondScenario.nextRun),
           transcript: [
-            {
-              role: "user",
-              content: "Again, the changed constraint controls the move.",
-            },
+            { role: "user", content: "The changed constraint controls it." },
           ],
         },
         deps({ runReviewGrade: cleanGrade }),

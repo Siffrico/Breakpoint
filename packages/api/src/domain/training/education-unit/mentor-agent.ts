@@ -1,73 +1,93 @@
 import type { ModelMessage } from "ai";
 import type { Effect } from "effect";
 
-import type { MentorCheckOutput, MentorOpeningOutput } from "./agent-contracts";
+import type {
+  MentorTeachingOutput,
+  ReviewPresentationOutput,
+} from "./agent-contracts";
 import type { UnitAgentError } from "./agent-errors";
 import type { EducationExperienceDefinition } from "./experience";
 import {
-  mentorCheckOutputSchema,
-  mentorOpeningOutputSchema,
+  mentorTeachingOutputSchema,
+  reviewPresentationSchema,
 } from "./agent-contracts";
 import {
-  MENTOR_SYSTEM_PROMPT,
-  mentorCheckInstruction,
-  mentorOpeningInstruction,
+  MENTOR_BASE_PROMPT,
+  MENTOR_SCENARIO_MODULE,
+  MENTOR_TEACH_MODULE,
+  mentorScenarioInstruction,
+  mentorTeachingInstruction,
 } from "./mentor-prompt";
 import { runUnitAgent } from "./run-unit-agent";
 
-const mentorSystem = (experience: EducationExperienceDefinition) =>
-  `${MENTOR_SYSTEM_PROMPT}\n\n## Customized behavior\n${experience.main.instructions}`;
-
-export const runMentorOpeningAgent = ({
-  context,
+const mentorSystem = ({
   experience,
-  currentCapabilityId,
-  selectedResponse,
-  onPartialAssistantMessage,
+  teach,
 }: {
-  context: string;
   experience: EducationExperienceDefinition;
-  currentCapabilityId: string;
-  selectedResponse: boolean;
-  onPartialAssistantMessage?: (content: string) => void;
-}): Effect.Effect<{ object: MentorOpeningOutput }, UnitAgentError> =>
-  runUnitAgent({
-    agent: "mentor",
-    purpose: "education",
-    reasoning: "none",
-    system: mentorSystem(experience),
-    messages: [],
-    context: `${context}\n\n${mentorOpeningInstruction(currentCapabilityId)}`,
-    schema: mentorOpeningOutputSchema(selectedResponse),
-    schemaName: "unit_mentor_opening",
-    maxOutputTokens: 3_000,
-    errorMessage: "Failed to open the education-unit mentor.",
-    onPartialAssistantMessage,
-  });
+  teach: boolean;
+}) =>
+  [
+    MENTOR_BASE_PROMPT,
+    teach ? MENTOR_TEACH_MODULE : null,
+    MENTOR_SCENARIO_MODULE,
+    `## Customized behavior\n${experience.main.instructions}`,
+  ]
+    .filter((part): part is string => part !== null)
+    .join("\n\n");
 
-export const runMentorCheckAgent = ({
+export const runMentorTeachingAgent = ({
   messages,
   context,
   experience,
-  currentCapabilityId,
+  createScenario,
+  selectedResponse,
   onPartialAssistantMessage,
 }: {
   messages: readonly ModelMessage[];
   context: string;
   experience: EducationExperienceDefinition;
-  currentCapabilityId: string;
+  createScenario: boolean;
+  selectedResponse: boolean;
   onPartialAssistantMessage?: (content: string) => void;
-}): Effect.Effect<{ object: MentorCheckOutput }, UnitAgentError> =>
+}): Effect.Effect<{ object: MentorTeachingOutput }, UnitAgentError> =>
   runUnitAgent({
     agent: "mentor",
     purpose: "education",
     reasoning: "none",
-    system: mentorSystem(experience),
+    system: mentorSystem({ experience, teach: true }),
     messages,
-    context: `${context}\n\n${mentorCheckInstruction(currentCapabilityId)}`,
-    schema: mentorCheckOutputSchema(currentCapabilityId),
-    schemaName: "unit_mentor_check",
-    maxOutputTokens: 900,
-    errorMessage: "Failed to assess the learner's comprehension.",
+    context: `${context}\n\n${mentorTeachingInstruction(createScenario)}`,
+    schema: mentorTeachingOutputSchema(selectedResponse, createScenario),
+    schemaName: "unit_mentor_teaching",
+    maxOutputTokens: createScenario ? 3_000 : 1_500,
+    errorMessage: "Failed to run the education-unit mentor.",
+    onPartialAssistantMessage,
+  });
+
+export const runMentorScenarioAgent = ({
+  context,
+  experience,
+  pass,
+  selectedResponse,
+  onPartialAssistantMessage,
+}: {
+  context: string;
+  experience: EducationExperienceDefinition;
+  pass: number;
+  selectedResponse: boolean;
+  onPartialAssistantMessage?: (content: string) => void;
+}): Effect.Effect<{ object: ReviewPresentationOutput }, UnitAgentError> =>
+  runUnitAgent({
+    agent: "mentor",
+    purpose: "education",
+    reasoning: "low",
+    system: mentorSystem({ experience, teach: false }),
+    messages: [],
+    context: `${context}\n\n${mentorScenarioInstruction(pass)}`,
+    schema: reviewPresentationSchema(selectedResponse),
+    schemaName: "unit_mentor_scenario",
+    maxOutputTokens: 3_000,
+    errorMessage: "Failed to create the education-unit scenario.",
     onPartialAssistantMessage,
   });

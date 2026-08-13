@@ -10,51 +10,6 @@ import { getReviewPresentationReadinessIssue } from "./unit-readiness";
 
 export const LearnerFacingMessageSchema = z.string().trim().min(24).max(8_000);
 
-export const mentorCheckOutputSchema = (currentCapabilityId: string) =>
-  z
-    .object({
-      assistantMessage: LearnerFacingMessageSchema,
-      completedCapabilityId: z.literal(currentCapabilityId).nullable(),
-      scratchpad: z.string().trim().min(1).max(600),
-    })
-    .strict()
-    .superRefine((output, ctx) => {
-      const questionCount = output.assistantMessage.match(/\?/g)?.length ?? 0;
-      if (
-        output.completedCapabilityId === null &&
-        (!output.assistantMessage.trimEnd().endsWith("?") ||
-          questionCount !== 1)
-      ) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["assistantMessage"],
-          message:
-            "An incomplete comprehension check must end in exactly one visible learner question.",
-        });
-      }
-      if (output.completedCapabilityId !== null && questionCount > 0) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["assistantMessage"],
-          message:
-            "A passing comprehension check must close without another question.",
-        });
-      }
-      if (
-        output.completedCapabilityId === null &&
-        /\bmark (?:this|it|the (?:capability|unit|todo))(?: one)? complete\b/i.test(
-          output.assistantMessage,
-        )
-      ) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["completedCapabilityId"],
-          message:
-            "A completion claim requires completedCapabilityId to be set.",
-        });
-      }
-    });
-
 const reviewOptionSchema = (label: "A" | "B" | "C" | "D") =>
   z
     .object({
@@ -138,42 +93,64 @@ export const reviewPresentationSchema = (selectedResponse: boolean) =>
     ? selectedReviewPresentationSchema
     : openReviewPresentationSchema;
 
-const mentorOpeningBase = {
+const mentorTeachingBase = {
   assistantMessage: LearnerFacingMessageSchema,
-  completedCapabilityId: z.null(),
   scratchpad: z.string().trim().min(1).max(600),
 };
 
-export const mentorOpeningOutputSchema = (selectedResponse: boolean) =>
+export const mentorTeachingOutputSchema = (
+  selectedResponse: boolean,
+  createScenario: boolean,
+) =>
   (selectedResponse
     ? z.object({
-        ...mentorOpeningBase,
-        preparedScenario: selectedReviewPresentationSchema,
+        ...mentorTeachingBase,
+        preparedScenario: selectedReviewPresentationSchema.nullable(),
       })
     : z.object({
-        ...mentorOpeningBase,
-        preparedScenario: openReviewPresentationSchema,
+        ...mentorTeachingBase,
+        preparedScenario: openReviewPresentationSchema.nullable(),
       })
   )
     .strict()
     .superRefine((output, ctx) => {
       const questionCount = output.assistantMessage.match(/\?/g)?.length ?? 0;
-      const wordCount = output.assistantMessage.trim().split(/\s+/).length;
-      if (wordCount < 100 || wordCount > 200) {
+      if (createScenario !== (output.preparedScenario !== null)) {
         ctx.addIssue({
           code: "custom",
-          path: ["assistantMessage"],
-          message: "An opening teaching step must contain 100 to 200 words.",
+          path: ["preparedScenario"],
+          message: createScenario
+            ? "The learner's teaching answer must be followed by a private scenario."
+            : "The opening teaching turn must not prepare a scenario.",
         });
       }
+      if (!createScenario) {
+        const wordCount = output.assistantMessage.trim().split(/\s+/).length;
+        if (wordCount < 100 || wordCount > 200) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["assistantMessage"],
+            message: "An opening teaching step must contain 100 to 200 words.",
+          });
+        }
+      }
       if (
-        !output.assistantMessage.trimEnd().endsWith("?") ||
-        questionCount !== 1
+        !createScenario &&
+        (!output.assistantMessage.trimEnd().endsWith("?") ||
+          questionCount !== 1)
       ) {
         ctx.addIssue({
           code: "custom",
           path: ["assistantMessage"],
           message: "An opening teaching step must end in exactly one question.",
+        });
+      }
+      if (createScenario && questionCount > 0) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["assistantMessage"],
+          message:
+            "The answer to the teaching question must hand off without another question.",
         });
       }
     });
@@ -429,11 +406,8 @@ export const reviewFeedbackSchema = (promptRound: number) =>
       }
     });
 
-export type MentorCheckOutput = z.infer<
-  ReturnType<typeof mentorCheckOutputSchema>
->;
-export type MentorOpeningOutput = z.infer<
-  ReturnType<typeof mentorOpeningOutputSchema>
+export type MentorTeachingOutput = z.infer<
+  ReturnType<typeof mentorTeachingOutputSchema>
 >;
 export type ReviewPresentationOutput = z.infer<
   ReturnType<typeof reviewPresentationSchema>

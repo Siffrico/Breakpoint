@@ -11,7 +11,7 @@ import type { UnitAgentError } from "./agent-errors";
 import type { EducationExperienceDefinition } from "./experience";
 import type { PersistedUnitRun } from "./unit-state";
 import { renderReviewPresentation } from "./agent-contracts";
-import { runReviewPresentationAgent } from "./review-agent";
+import { runMentorScenarioAgent } from "./mentor-agent";
 
 export class UnitTurnContractError extends Data.TaggedError(
   "UnitTurnContractError",
@@ -85,7 +85,7 @@ export const scenarioFromPresentation = ({
   });
 
 export interface PrefillDependencies {
-  readonly runReviewPresentation: typeof runReviewPresentationAgent;
+  readonly runMentorScenario: typeof runMentorScenarioAgent;
 }
 
 /** Every scenario authoring path produces the same server-owned contract. */
@@ -102,13 +102,12 @@ export const prefillScenario = (
     onPartialAssistantMessage?: (content: string) => void;
   },
   deps: PrefillDependencies = {
-    runReviewPresentation: runReviewPresentationAgent,
+    runMentorScenario: runMentorScenarioAgent,
   },
 ): Effect.Effect<UnitReviewChallenge, UnitAgentError | UnitTurnContractError> =>
   Effect.gen(function* () {
     const difficultyVector = yield* difficultyVectorFor(run);
-    const result = yield* deps.runReviewPresentation({
-      messages: [],
+    const result = yield* deps.runMentorScenario({
       context: presentationContext(context, difficultyVector),
       experience,
       pass:

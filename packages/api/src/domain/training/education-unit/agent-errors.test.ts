@@ -8,7 +8,7 @@ import {
 
 describe("classifyUnitAgentFailure", () => {
   it("preserves nested validation detail for a schema repair", () => {
-    const cause = new Error("completedCapabilityId: expected string");
+    const cause = new Error("preparedScenario: expected object");
     cause.name = "AI_TypeValidationError";
     const error = new Error("No object generated", { cause });
 
@@ -16,7 +16,7 @@ describe("classifyUnitAgentFailure", () => {
 
     expect(classified._tag).toBe("UnitAgentSchemaError");
     expect(classified.message).toContain(
-      "completedCapabilityId: expected string",
+      "preparedScenario: expected object",
     );
   });
 
@@ -29,12 +29,12 @@ describe("classifyUnitAgentFailure", () => {
 
     const named = nameUnitAgentSchemaError(
       original,
-      "unit_review_presentation",
+      "unit_mentor_scenario",
     );
 
     expect(named.message).toBe("Review presentation failed validation.");
     expect(named.cause).toBe(cause);
-    expect(named.schemaName).toBe("unit_review_presentation");
+    expect(named.schemaName).toBe("unit_mentor_scenario");
   });
 
   it("keeps the validation issue when a generated value makes the error long", () => {
