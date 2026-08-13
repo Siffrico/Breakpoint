@@ -9,6 +9,7 @@ import type {
 import { DEFAULT_EDUCATION_EXPERIENCE } from "../education-unit/experience";
 import { makeUnitContext } from "../education-unit/unit-context.fixture";
 import { createUnitRun } from "../education-unit/unit-state";
+import { KnowledgeTargetsMissingError } from "../unit-creation/create-next-unit";
 import { advanceCompletedUnitWorkflow } from "./advance-completed-unit-workflow";
 
 const currentNode = {
@@ -119,8 +120,12 @@ describe("advanceCompletedUnitWorkflow", () => {
     });
   });
 
-  it("commits immediately and creates the next unit in the background", async () => {
+  it("keeps the current unit open until background creation succeeds", async () => {
     const events: string[] = [];
+    const completeNode = vi.fn(() => {
+      events.push("complete_node");
+      return Promise.resolve();
+    });
     const createUnit = vi.fn(() => {
       events.push("create_unit");
       return Effect.void;
@@ -139,7 +144,7 @@ describe("advanceCompletedUnitWorkflow", () => {
               } as CurriculumPlan),
             getUnitByNodeId: () => Promise.resolve(unit),
             getUnitRun: () => Promise.resolve(masteredRun),
-            completeNode: () => Promise.resolve(nextNode),
+            completeNode,
             markNodeReady: () => Promise.resolve(),
             touchSession: () => Promise.resolve(),
           });
@@ -162,6 +167,8 @@ describe("advanceCompletedUnitWorkflow", () => {
     });
 
     await vi.waitFor(() => expect(createUnit).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(completeNode).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(events).toHaveLength(8));
 
     expect(result).toEqual({
       success: true,
@@ -178,7 +185,53 @@ describe("advanceCompletedUnitWorkflow", () => {
       "transaction:start",
       "transaction:commit",
       "create_unit",
+      "transaction:start",
+      "complete_node",
+      "transaction:commit",
     ]);
+  });
+
+  it("leaves the completed run retryable when successor creation fails", async () => {
+    const completeNode = vi.fn(() => Promise.resolve());
+    const createUnit = vi.fn(() =>
+      Effect.fail(new KnowledgeTargetsMissingError({ skillNodeId: "cluster-1" })),
+    );
+
+    const result = await advanceCompletedUnitWorkflow({
+      sessionId: "session-1",
+      nodeId: currentNode.id,
+      deps: {
+        withTransaction: (run) =>
+          run({
+            getActivePlan: () =>
+              Promise.resolve({ nodes: [currentNode] } as CurriculumPlan),
+            getUnitByNodeId: () => Promise.resolve(unit),
+            getUnitRun: () => Promise.resolve(masteredRun),
+            completeNode,
+            markNodeReady: () => Promise.resolve(),
+            touchSession: () => Promise.resolve(),
+          }),
+        createUnit,
+        getProgressionState: () =>
+          Effect.succeed({
+            regime: "main_outcome" as const,
+            unpracticedSkillCount: 1,
+            skillCount: 2,
+            learnerRating: 1_000,
+            ratingDeviation: 100,
+            masteryRating: 1_800,
+          }),
+        getMissionStatus: () => Promise.resolve(null),
+        advanceSkillMapNode: () => Effect.void,
+      },
+    });
+
+    await vi.waitFor(() => expect(createUnit).toHaveBeenCalledOnce());
+    expect(result).toEqual({
+      success: true,
+      data: { advanced: true, nextReadyNode: null },
+    });
+    expect(completeNode).not.toHaveBeenCalled();
   });
 
   it("skips the mastery loop quietly for legacy plans without a skill map", async () => {
