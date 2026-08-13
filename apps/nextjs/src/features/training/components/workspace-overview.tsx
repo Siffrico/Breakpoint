@@ -25,8 +25,10 @@ export function WorkspaceOverview({
   );
   const resumableMission = missions.data?.[0] ?? null;
   const progress =
-    workspace.totalUnits > 0
-      ? Math.round((workspace.completedUnits / workspace.totalUnits) * 100)
+    workspace.totalOutcomes > 0
+      ? Math.round(
+          (workspace.completedOutcomes / workspace.totalOutcomes) * 100,
+        )
       : 0;
   const activeUnitId = workspace.nextUnitId;
   const trainHref = preview ? "/ui/train" : `/workspace?session=${sessionId}`;
@@ -40,7 +42,7 @@ export function WorkspaceOverview({
       <div className="border-border/50 mx-auto max-w-3xl border-x">
         <section className="border-border flex items-center justify-between border-b px-6 py-4">
           <span className="text-muted-foreground font-mono text-xs">
-            {workspace.completedUnits}/{workspace.totalUnits} units
+            {workspace.completedOutcomes}/{workspace.totalOutcomes} outcomes
           </span>
           <span className="text-muted-foreground font-mono text-xs">
             {progress}%

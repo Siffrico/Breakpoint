@@ -217,8 +217,8 @@ export const previewHomeState: HomeState = {
     "This path starts with how LLM serving actually behaves, then moves into evals that catch regressions, retrieval correctness, and latency-shaped system design.",
   nextUnitTitle: "Why temperature 0 is not deterministic",
   nextUnitId: "00000000-0000-4000-8000-000000000101",
-  totalUnits: 8,
-  completedUnits: 3,
+  totalOutcomes: 8,
+  completedOutcomes: 3,
   blockingSignals: [
     "You know the terms but still blur consistency guarantees under partition pressure.",
     "Replica lag and read freshness tradeoffs are not yet instinctive.",
