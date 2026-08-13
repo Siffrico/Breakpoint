@@ -38,6 +38,13 @@ const PREFERENCE_STACKS: Record<AiModelPreference, ModelStack> = {
       standard: "deepseek/deepseek-v4-flash-0731",
     },
   },
+  "deepseek-v4-pro-0813": {
+    provider: "openrouter",
+    models: {
+      critical: "deepseek/deepseek-v4-pro-0813",
+      standard: "deepseek/deepseek-v4-pro-0813",
+    },
+  },
   "gpt-5.5": {
     provider: "openai",
     models: { critical: "gpt-5.5", standard: "gpt-5.5-mini" },

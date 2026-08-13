@@ -3,6 +3,7 @@ import { z } from "zod/v4";
 export const AiModelPreferenceSchema = z.enum([
   "glm-5.2",
   "deepseek-v4-flash-0731",
+  "deepseek-v4-pro-0813",
   "gpt-5.5",
   "gemini-3.5-flash",
 ]);
@@ -22,6 +23,12 @@ export const AI_MODEL_OPTIONS = [
     value: "deepseek-v4-flash-0731",
     label: "DeepSeek V4 Flash 0731",
     description: "Fast, capable reasoning for curriculum and evaluation work.",
+  },
+  {
+    value: "deepseek-v4-pro-0813",
+    label: "DeepSeek V4 Pro 0813",
+    description:
+      "Frontier reasoning for complex curriculum and evaluation work.",
   },
   {
     value: "gpt-5.5",
