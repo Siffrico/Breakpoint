@@ -458,6 +458,8 @@ function EducationUnitWorkspaceComponent({
   const pendingDraftKeyRef = useRef<string | null>(null);
   const pendingTurnIdRef = useRef<string | null>(null);
   const startedUnitRef = useRef<string | null>(null);
+  const openingUnitTurnRef = useRef<string | null>(null);
+  const [openingUnitFailed, setOpeningUnitFailed] = useState(false);
   const [submittedDraftKey, setSubmittedDraftKey] = useState<string | null>(
     null,
   );
@@ -487,6 +489,16 @@ function EducationUnitWorkspaceComponent({
     // Batch SDK stream updates to one render at most every 50 ms.
     experimental_throttle: 50,
     onFinish: (finishState) => {
+      const openingUnitFailed =
+        openingUnitTurnRef.current !== null &&
+        !shouldClearSubmittedDraft(finishState);
+      openingUnitTurnRef.current = null;
+      if (openingUnitFailed) {
+        startedUnitRef.current = null;
+        setOpeningUnitFailed(true);
+        return;
+      }
+      setOpeningUnitFailed(false);
       if (!shouldClearSubmittedDraft(finishState)) return;
       clearSubmittedDraft(pendingDraftKeyRef.current);
       pendingDraftKeyRef.current = null;
@@ -495,6 +507,11 @@ function EducationUnitWorkspaceComponent({
       // The turn committed: its user message is now in the server transcript,
       // so it must stop qualifying as an unpersisted send to preserve.
       pendingTurnIdRef.current = null;
+    },
+    onError: () => {
+      if (openingUnitTurnRef.current === null) return;
+      startedUnitRef.current = null;
+      setOpeningUnitFailed(true);
     },
   });
   const isRunning = status === "submitted" || status === "streaming";
@@ -508,6 +525,7 @@ function EducationUnitWorkspaceComponent({
       chatMessages.length === 0 &&
       aiWorkspace.state?.educationStage === "learning" &&
       interactionId != null &&
+      !openingUnitFailed &&
       !effectiveIsRunning;
     if (!shouldStart) return;
 
@@ -515,6 +533,7 @@ function EducationUnitWorkspaceComponent({
     if (startedUnitRef.current === startKey) return;
     startedUnitRef.current = startKey;
     const turnId = createWorkspaceTurnId();
+    openingUnitTurnRef.current = turnId;
     void sendMessage(undefined, {
       body: {
         action: "start_unit",
@@ -523,18 +542,33 @@ function EducationUnitWorkspaceComponent({
         turnId,
       },
     }).catch(() => {
+      if (openingUnitTurnRef.current !== turnId) return;
+      openingUnitTurnRef.current = null;
       startedUnitRef.current = null;
-      toast.error("The mentor could not open this unit. Refresh to try again.");
+      setOpeningUnitFailed(true);
     });
   }, [
     aiWorkspace,
     chatMessages.length,
     effectiveIsRunning,
+    openingUnitFailed,
     preview,
     sendMessage,
     sessionId,
     unit.nodeId,
   ]);
+
+  useEffect(() => {
+    if (!openingUnitFailed) return;
+    setMessages(initialChatMessages);
+  }, [initialChatMessages, openingUnitFailed, setMessages]);
+
+  const retryOpeningUnit = useCallback(() => {
+    clearError();
+    openingUnitTurnRef.current = null;
+    startedUnitRef.current = null;
+    setOpeningUnitFailed(false);
+  }, [clearError]);
 
   useEffect(() => {
     return () => {
@@ -1152,22 +1186,39 @@ function EducationUnitWorkspaceComponent({
           />
         </>
       ) : (
-        <PromptTurn
-          prompt={
-            !preview &&
-            aiWorkspace != null &&
-            aiWorkspace.state?.educationStage === "learning"
-              ? ""
-              : (introMessage?.prompt ?? fallbackTurn.prompt)
-          }
-          helper={
-            !preview &&
-            aiWorkspace != null &&
-            aiWorkspace.state?.educationStage === "learning"
-              ? "Preparing your lesson…"
-              : (introMessage?.helper ?? fallbackTurn.helper)
-          }
-        />
+        <>
+          <PromptTurn
+            prompt={
+              openingUnitFailed
+                ? "The mentor couldn't open this lesson. Nothing was lost."
+                : !preview &&
+                    aiWorkspace != null &&
+                    aiWorkspace.state?.educationStage === "learning"
+                  ? ""
+                  : (introMessage?.prompt ?? fallbackTurn.prompt)
+            }
+            helper={
+              openingUnitFailed
+                ? null
+                : !preview &&
+                    aiWorkspace != null &&
+                    aiWorkspace.state?.educationStage === "learning"
+                  ? "Preparing your lesson…"
+                  : (introMessage?.helper ?? fallbackTurn.helper)
+            }
+          />
+          {openingUnitFailed ? (
+            <div className={CHAT_COLUMN_CLASS}>
+              <button
+                type="button"
+                onClick={retryOpeningUnit}
+                className="text-foreground/70 hover:text-foreground mt-2 text-[13px] underline underline-offset-4"
+              >
+                Try again
+              </button>
+            </div>
+          ) : null}
+        </>
       )}
 
       {pendingAnswer ? (

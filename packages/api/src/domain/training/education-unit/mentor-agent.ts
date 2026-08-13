@@ -1,5 +1,5 @@
 import type { ModelMessage } from "ai";
-import type { Effect } from "effect";
+import { Effect } from "effect";
 
 import type {
   MentorTeachingOutput,
@@ -8,7 +8,9 @@ import type {
 import type { UnitAgentError } from "./agent-errors";
 import type { EducationExperienceDefinition } from "./experience";
 import {
-  mentorTeachingOutputSchema,
+  mentorHandoffOutputSchema,
+  mentorOpeningOutputSchema,
+  renderMentorOpening,
   reviewPresentationSchema,
 } from "./agent-contracts";
 import {
@@ -23,14 +25,16 @@ import { runUnitAgent } from "./run-unit-agent";
 const mentorSystem = ({
   experience,
   teach,
+  scenario,
 }: {
   experience: EducationExperienceDefinition;
   teach: boolean;
+  scenario: boolean;
 }) =>
   [
     MENTOR_BASE_PROMPT,
     teach ? MENTOR_TEACH_MODULE : null,
-    MENTOR_SCENARIO_MODULE,
+    scenario ? MENTOR_SCENARIO_MODULE : null,
     `## Customized behavior\n${experience.main.instructions}`,
   ]
     .filter((part): part is string => part !== null)
@@ -50,20 +54,43 @@ export const runMentorTeachingAgent = ({
   createScenario: boolean;
   selectedResponse: boolean;
   onPartialAssistantMessage?: (content: string) => void;
-}): Effect.Effect<{ object: MentorTeachingOutput }, UnitAgentError> =>
-  runUnitAgent({
-    agent: "mentor",
-    purpose: "education",
-    reasoning: "none",
-    system: mentorSystem({ experience, teach: true }),
+}): Effect.Effect<{ object: MentorTeachingOutput }, UnitAgentError> => {
+  const base = {
+    agent: "mentor" as const,
+    purpose: "education" as const,
+    reasoning: "none" as const,
+    system: mentorSystem({
+      experience,
+      teach: true,
+      scenario: createScenario,
+    }),
     messages,
     context: `${context}\n\n${mentorTeachingInstruction(createScenario)}`,
-    schema: mentorTeachingOutputSchema(selectedResponse, createScenario),
     schemaName: "unit_mentor_teaching",
-    maxOutputTokens: createScenario ? 3_000 : 1_500,
     errorMessage: "Failed to run the education-unit mentor.",
     onPartialAssistantMessage,
-  });
+  };
+  if (createScenario) {
+    return runUnitAgent({
+      ...base,
+      schema: mentorHandoffOutputSchema(selectedResponse),
+      maxOutputTokens: 3_000,
+    });
+  }
+  return runUnitAgent({
+    ...base,
+    schema: mentorOpeningOutputSchema,
+    maxOutputTokens: 1_200,
+    renderPartialAssistantMessage: (partial) => renderMentorOpening(partial),
+  }).pipe(
+    Effect.map(({ object }) => ({
+      object: {
+        assistantMessage: renderMentorOpening(object),
+        preparedScenario: null,
+      },
+    })),
+  );
+};
 
 export const runMentorScenarioAgent = ({
   context,
@@ -82,7 +109,7 @@ export const runMentorScenarioAgent = ({
     agent: "mentor",
     purpose: "education",
     reasoning: "low",
-    system: mentorSystem({ experience, teach: false }),
+    system: mentorSystem({ experience, teach: false, scenario: true }),
     messages: [],
     context: `${context}\n\n${mentorScenarioInstruction(pass)}`,
     schema: reviewPresentationSchema(selectedResponse),

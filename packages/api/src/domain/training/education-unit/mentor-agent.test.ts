@@ -17,7 +17,7 @@ const { runMentorScenarioAgent, runMentorTeachingAgent } = await import(
 );
 
 describe("mentor prompt modules", () => {
-  it("gives Pass 1 the Teach and Scenario modules", async () => {
+  it("gives the opening turn only the Teach module", async () => {
     await Effect.runPromise(
       runMentorTeachingAgent({
         messages: [],
@@ -28,7 +28,25 @@ describe("mentor prompt modules", () => {
       }),
     );
 
-    const call = runUnitAgentMock.mock.calls[0]?.[0] as
+    const call = runUnitAgentMock.mock.calls.at(-1)?.[0] as
+      | { system: string }
+      | undefined;
+    expect(call?.system).toContain("## Teach");
+    expect(call?.system).not.toContain("## Scenario");
+  });
+
+  it("adds the Scenario module when handing off from teaching", async () => {
+    await Effect.runPromise(
+      runMentorTeachingAgent({
+        messages: [{ role: "user", content: "The pivot controls the role." }],
+        context: "Authoritative unit context.",
+        experience: DEFAULT_EDUCATION_EXPERIENCE,
+        createScenario: true,
+        selectedResponse: false,
+      }),
+    );
+
+    const call = runUnitAgentMock.mock.calls.at(-1)?.[0] as
       | { system: string }
       | undefined;
     expect(call?.system).toContain("## Teach");
@@ -45,7 +63,7 @@ describe("mentor prompt modules", () => {
       }),
     );
 
-    const call = runUnitAgentMock.mock.calls[1]?.[0] as
+    const call = runUnitAgentMock.mock.calls.at(-1)?.[0] as
       | { system: string }
       | undefined;
     expect(call?.system).not.toContain("## Teach");

@@ -1,18 +1,31 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod/v4";
 
 import {
   mentorTeachingOutputSchema,
+  renderMentorOpening,
   reviewFeedbackSchema,
   reviewGradeSchema,
   reviewPresentationSchema,
 } from "./agent-contracts";
 
 describe("mentorTeachingOutputSchema", () => {
-  const openingMessage = [
-    "Read",
-    ...Array.from({ length: 98 }, () => "carefully"),
-    "why?",
-  ].join(" ");
+  const opening = {
+    heuristic:
+      "Name what the sentence does in the argument, then use the next sentence to verify that role.",
+    workedExample: {
+      read: "A study reports that urban trees lowered summer street temperatures. However, the researchers warn that scarce water can limit this benefit during severe droughts.",
+      predict:
+        "The first sentence establishes the positive result that the next sentence qualifies.",
+      compare:
+        "A tempting answer merely says the sentence discusses cooler streets. That repeats the topic. The stronger answer names its structural job: it presents a finding before the passage introduces a limit.",
+      decide:
+        "Choose the function answer because However confirms that the second sentence pivots away from an unqualified benefit.",
+    },
+    check:
+      "A claim is followed by Nevertheless and an opposing result. What function does the claim serve?",
+    preparedScenario: null,
+  };
   const preparedScenario = {
     assistantMessage:
       "A production constraint changed. Choose the safe move and explain the controlling reason.",
@@ -28,18 +41,54 @@ describe("mentorTeachingOutputSchema", () => {
   it("teaches first without creating the scenario", () => {
     expect(
       mentorTeachingOutputSchema(false, false).safeParse({
-        assistantMessage: openingMessage,
-        scratchpad: "A concrete teaching plan.",
-        preparedScenario: null,
+        ...opening,
       }).success,
     ).toBe(true);
     expect(
       mentorTeachingOutputSchema(false, false).safeParse({
-        assistantMessage: openingMessage,
-        scratchpad: "A concrete teaching plan.",
+        ...opening,
         preparedScenario,
       }).success,
     ).toBe(false);
+  });
+
+  it("renders the opening with product-owned semantic structure", () => {
+    expect(renderMentorOpening(opening)).toBe(`## Heuristic
+
+${opening.heuristic}
+
+## Worked example
+
+### Read
+
+${opening.workedExample.read}
+
+### Predict
+
+${opening.workedExample.predict}
+
+### Compare
+
+${opening.workedExample.compare}
+
+### Decide
+
+${opening.workedExample.decide}
+
+## Check
+
+${opening.check}`);
+  });
+
+  it("does not expose the unused scenario object in the opening JSON schema", () => {
+    const openingJsonSchema = z.toJSONSchema(
+      mentorTeachingOutputSchema(true, false),
+    );
+
+    expect(JSON.stringify(openingJsonSchema)).not.toContain("verifier");
+    expect(openingJsonSchema.properties?.preparedScenario).toMatchObject({
+      type: "null",
+    });
   });
 
   it("creates the scenario after one answer and asks no second question", () => {
@@ -47,14 +96,12 @@ describe("mentorTeachingOutputSchema", () => {
       mentorTeachingOutputSchema(false, true).safeParse({
         assistantMessage:
           "The changed constraint must control the move, not the familiar procedure.",
-        scratchpad: "The learner needed one brief correction.",
         preparedScenario,
       }).success,
     ).toBe(true);
     expect(
       mentorTeachingOutputSchema(false, true).safeParse({
         assistantMessage: "Which constraint controls the move?",
-        scratchpad: "The learner needed one brief correction.",
         preparedScenario,
       }).success,
     ).toBe(false);

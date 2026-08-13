@@ -95,57 +95,89 @@ export const reviewPresentationSchema = (selectedResponse: boolean) =>
 
 const mentorTeachingBase = {
   assistantMessage: LearnerFacingMessageSchema,
-  scratchpad: z.string().trim().min(1).max(600),
 };
+
+export const mentorOpeningOutputSchema = z
+  .object({
+    heuristic: z
+      .string()
+      .trim()
+      .min(12)
+      .max(500)
+      .describe("One or two sentences stating the followable command."),
+    workedExample: z
+      .object({
+        read: z
+          .string()
+          .trim()
+          .min(12)
+          .max(1_000)
+          .describe("The short concrete passage or problem."),
+        predict: z
+          .string()
+          .trim()
+          .min(8)
+          .max(500)
+          .describe("The predicted role or answer before comparing choices."),
+        compare: z
+          .string()
+          .trim()
+          .min(12)
+          .max(1_000)
+          .describe(
+            "The tempting wrong move, the correct move, and the mechanical difference.",
+          ),
+        decide: z
+          .string()
+          .trim()
+          .min(8)
+          .max(500)
+          .describe("The heuristic applied to the final result."),
+      })
+      .strict(),
+    check: z
+      .string()
+      .trim()
+      .min(12)
+      .max(500)
+      .describe("Exactly one small unanswered question with new details."),
+    preparedScenario: z.null(),
+  })
+  .strict()
+  .superRefine((output, ctx) => {
+    const questionCount = output.check.match(/\?/g)?.length ?? 0;
+    if (!output.check.endsWith("?") || questionCount !== 1) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["check"],
+        message: "The check must end in exactly one question.",
+      });
+    }
+  });
 
 export const mentorTeachingOutputSchema = (
   selectedResponse: boolean,
   createScenario: boolean,
 ) =>
+  createScenario
+    ? mentorHandoffOutputSchema(selectedResponse)
+    : mentorOpeningOutputSchema;
+
+export const mentorHandoffOutputSchema = (selectedResponse: boolean) =>
   (selectedResponse
     ? z.object({
         ...mentorTeachingBase,
-        preparedScenario: selectedReviewPresentationSchema.nullable(),
+        preparedScenario: selectedReviewPresentationSchema,
       })
     : z.object({
         ...mentorTeachingBase,
-        preparedScenario: openReviewPresentationSchema.nullable(),
+        preparedScenario: openReviewPresentationSchema,
       })
   )
     .strict()
     .superRefine((output, ctx) => {
       const questionCount = output.assistantMessage.match(/\?/g)?.length ?? 0;
-      if (createScenario !== (output.preparedScenario !== null)) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["preparedScenario"],
-          message: createScenario
-            ? "The learner's teaching answer must be followed by a private scenario."
-            : "The opening teaching turn must not prepare a scenario.",
-        });
-      }
-      if (!createScenario) {
-        const wordCount = output.assistantMessage.trim().split(/\s+/).length;
-        if (wordCount < 100 || wordCount > 200) {
-          ctx.addIssue({
-            code: "custom",
-            path: ["assistantMessage"],
-            message: "An opening teaching step must contain 100 to 200 words.",
-          });
-        }
-      }
-      if (
-        !createScenario &&
-        (!output.assistantMessage.trimEnd().endsWith("?") ||
-          questionCount !== 1)
-      ) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["assistantMessage"],
-          message: "An opening teaching step must end in exactly one question.",
-        });
-      }
-      if (createScenario && questionCount > 0) {
+      if (questionCount > 0) {
         ctx.addIssue({
           code: "custom",
           path: ["assistantMessage"],
@@ -154,6 +186,46 @@ export const mentorTeachingOutputSchema = (
         });
       }
     });
+
+export type MentorOpeningOutput = z.infer<typeof mentorOpeningOutputSchema>;
+
+export const renderMentorOpening = (output: unknown): string => {
+  if (typeof output !== "object" || output === null) return "";
+  const candidate = output as Record<string, unknown>;
+  const heuristic =
+    typeof candidate.heuristic === "string" ? candidate.heuristic : null;
+  const workedExample =
+    typeof candidate.workedExample === "object" &&
+    candidate.workedExample !== null
+      ? (candidate.workedExample as Record<string, unknown>)
+      : null;
+  const check = typeof candidate.check === "string" ? candidate.check : null;
+  const workedPart = (key: "read" | "predict" | "compare" | "decide") =>
+    workedExample && typeof workedExample[key] === "string"
+      ? workedExample[key].trim()
+      : null;
+  const read = workedPart("read");
+  const predict = workedPart("predict");
+  const compare = workedPart("compare");
+  const decide = workedPart("decide");
+  return [
+    heuristic ? `## Heuristic\n\n${heuristic.trim()}` : null,
+    workedExample
+      ? [
+          "## Worked example",
+          read ? `### Read\n\n${read}` : null,
+          predict ? `### Predict\n\n${predict}` : null,
+          compare ? `### Compare\n\n${compare}` : null,
+          decide ? `### Decide\n\n${decide}` : null,
+        ]
+          .filter((part): part is string => part !== null)
+          .join("\n\n")
+      : null,
+    check ? `## Check\n\n${check.trim()}` : null,
+  ]
+    .filter((part): part is string => part !== null)
+    .join("\n\n");
+};
 
 // ---------------------------------------------------------------------------
 // Critic contracts
@@ -406,9 +478,10 @@ export const reviewFeedbackSchema = (promptRound: number) =>
       }
     });
 
-export type MentorTeachingOutput = z.infer<
-  ReturnType<typeof mentorTeachingOutputSchema>
->;
+export interface MentorTeachingOutput {
+  readonly assistantMessage: string;
+  readonly preparedScenario: ReviewPresentationOutput | null;
+}
 export type ReviewPresentationOutput = z.infer<
   ReturnType<typeof reviewPresentationSchema>
 >;

@@ -367,7 +367,7 @@ export const trainingRatingRepository = {
     const [row] = await db
       .update(TrainingScenarioAttempt)
       .set({
-        solvePresentedAt: sql<Date>`coalesce(${TrainingScenarioAttempt.solvePresentedAt}, ${presentedAt})`,
+        solvePresentedAt: sql<Date>`coalesce(${TrainingScenarioAttempt.solvePresentedAt}, ${sql.param(presentedAt, TrainingScenarioAttempt.solvePresentedAt)})`,
         solvePromptTurnId: sql<
           string | null
         >`case when ${TrainingScenarioAttempt.solvePresentedAt} is null then ${solvePromptTurnId} else ${TrainingScenarioAttempt.solvePromptTurnId} end`,
