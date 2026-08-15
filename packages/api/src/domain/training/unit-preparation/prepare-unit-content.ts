@@ -317,19 +317,35 @@ const prepareUnitContentUnlocked = ({
     return created;
   });
 
-const lockFailure = (cause: unknown): UnitPreparationError => {
-  if (
-    cause instanceof UnitContextMissingError ||
-    cause instanceof UnitScaffoldError ||
-    cause instanceof UnitPersistError
-  ) {
-    return cause;
-  }
-  return new UnitPersistError({
-    message: "Unit preparation lock failed.",
-    cause,
-  });
+/**
+ * `withUnitBuildLock` is a Promise API, so the inner effect's typed error
+ * channel is erased at the boundary and `lockFailure` has to rebuild the union
+ * from `unknown`. Keying that reconstruction off the union's own `_tag` makes
+ * it the compiler's problem: a fourth member of `UnitPreparationError` fails
+ * to typecheck here until it is listed, instead of silently falling through to
+ * the "lock failed" branch and reaching the edge with the wrong diagnosis.
+ */
+const unitPreparationTags: Record<UnitPreparationError["_tag"], true> = {
+  UnitContextMissingError: true,
+  UnitScaffoldError: true,
+  UnitPersistError: true,
 };
+
+const isUnitPreparationError = (
+  cause: unknown,
+): cause is UnitPreparationError =>
+  cause instanceof Error &&
+  "_tag" in cause &&
+  typeof cause._tag === "string" &&
+  cause._tag in unitPreparationTags;
+
+const lockFailure = (cause: unknown): UnitPreparationError =>
+  isUnitPreparationError(cause)
+    ? cause
+    : new UnitPersistError({
+        message: "Unit preparation lock failed.",
+        cause,
+      });
 
 const loadReadyUnitContent = async (
   deps: UnitPreparationDependencies,
