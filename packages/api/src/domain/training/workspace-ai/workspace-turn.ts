@@ -16,6 +16,7 @@ import type {
 import type { WorkspaceAiState } from "./types";
 import type { WorkspaceProjectionReaderSource } from "./workspace-reader";
 import { DEFAULT_EDUCATION_EXPERIENCE } from "../education-unit/experience";
+import { getUnitReadinessIssue } from "../education-unit/unit-readiness";
 import { createUnitRun } from "../education-unit/unit-state";
 import { UnitNotReadyError } from "../unit-preparation/errors";
 import { isUnitMidFlight, planWorkspaceTurn } from "./orchestrator";
@@ -291,8 +292,8 @@ export const loadPlannedRecall = ({
 
     if (
       isUnitMidFlight({
-        activeUnitResponses: active.responses,
         activeUnitRun: active.run,
+        hasPersistedActiveUnitRun: active.hasPersistedRun,
       })
     ) {
       return null;
@@ -361,6 +362,7 @@ export interface NextReadyUnitProjection {
   unit: UnitContent | null;
   responses: PhaseResponseRecord[];
   run: PersistedUnitRun | null;
+  hasPersistedRun: boolean;
 }
 
 /**
@@ -383,8 +385,14 @@ export const loadNextReadyUnitProjection = ({
     const reader = yield* WorkspaceProjectionReader;
     const node = getNextReadyLearningNode(nodes);
     const unit = node ? yield* reader.getUnitByNodeId(node.id) : null;
-    if (!unit || !UnitContextSchema.safeParse(unit.unitContext).success) {
-      return { node, unit: null, responses: [], run: null };
+    if (!unit || getUnitReadinessIssue(unit) !== null) {
+      return {
+        node,
+        unit: null,
+        responses: [],
+        run: null,
+        hasPersistedRun: false,
+      };
     }
     const [responses, existingRun] = yield* Effect.all(
       [
@@ -400,6 +408,7 @@ export const loadNextReadyUnitProjection = ({
       node,
       unit,
       responses,
+      hasPersistedRun: existingRun !== null,
       run: resolveUnitRunProjection({
         sessionId,
         unit,
@@ -466,6 +475,7 @@ export const resolveWorkspaceTurnEffect = ({
       nodes: plan.nodes,
       activeUnitResponses: active.responses,
       activeUnitRun: active.run,
+      hasPersistedActiveUnitRun: active.hasPersistedRun,
       recallTarget: plannedRecall
         ? {
             unitNodeId: plannedRecall.node.id,
@@ -541,6 +551,7 @@ export const resolveWorkspaceTurnEffect = ({
     const resolvedState = {
       ...state,
       educationStage: unitRun.mode,
+      interactionId: unitRun.cursor.interactionId,
       workflowId: `${unitRun.experience.id}@${unitRun.experience.version}`,
     };
 

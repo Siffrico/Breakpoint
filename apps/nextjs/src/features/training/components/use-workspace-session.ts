@@ -113,6 +113,14 @@ export function useWorkspaceSession({
         staleTime: Number.POSITIVE_INFINITY,
         refetchOnWindowFocus: false,
         retry: false,
+        refetchInterval: (query) => {
+          const result = query.state.data;
+          return result?.kind === "ready" &&
+            result.workspace.state === null &&
+            !result.workspace.projectComplete
+            ? 3_000
+            : false;
+        },
       },
     ),
   );

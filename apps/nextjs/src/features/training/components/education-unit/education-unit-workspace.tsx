@@ -24,6 +24,7 @@ import { useTRPC } from "~/trpc/react";
 import { groupLiveExchanges } from "./exchange-grouping";
 import { FocusComposer } from "./focus-composer";
 import { MessageActions } from "./message-actions";
+import { beginRetryableTurn, finishRetryableTurn } from "./retryable-turn";
 // `scenario-anchor.tsx` is retired from the workspace but kept in the tree: the
 // header bar it rendered (unit title + Recall badge) is deliberately off-site,
 // and the file stands as the reference if that orientation cue is ever wanted
@@ -70,7 +71,7 @@ interface WorkspaceChatData extends Record<string, unknown> {
   };
 }
 interface WorkspaceChatMetadata {
-  action?: "submit_answer" | "advance_pass";
+  action?: "start_unit" | "submit_answer" | "advance_pass";
   synthetic?: boolean;
   difficultyDirectiveReason?: string;
   passNumber?: number;
@@ -141,11 +142,14 @@ function PromptTurn({
   difficultyDirectiveReason = null,
   statusLabel = null,
   copyable = true,
+  streaming = false,
 }: {
   prompt: string;
   helper?: string | null;
   difficultyDirectiveReason?: string | null;
   statusLabel?: string | null;
+  /** True while this turn's text is still arriving, so words reveal as they land. */
+  streaming?: boolean;
   /** False for the notice turns (unavailable, resume-blocked) — those are UI
       copy, not something the learner would ever want on their clipboard. */
   copyable?: boolean;
@@ -172,9 +176,11 @@ function PromptTurn({
         ) : null}
         {prompt.trim() ? (
           // Live turns are smoothed server-side by smoothStream, so render the
-          // streamed text straight — no client-side pacing needed.
+          // streamed text straight — no client-side pacing needed. The focus
+          // reveal is CSS-only on top of whatever cadence the server sends.
           <AssistantRichText
             content={prompt}
+            streaming={streaming}
             className="text-foreground/94 [&_h2]:!text-foreground/52 [&_hr]:border-foreground/10 text-[15px] leading-7 [&_h1]:!mt-0 [&_h1]:!mb-3 [&_h1]:!text-[24px] [&_h1]:!leading-8 [&_h1]:!font-semibold [&_h1]:!tracking-[-0.025em] [&_h2]:!mt-7 [&_h2]:!mb-2 [&_h2]:!text-[13px] [&_h2]:!font-medium [&_h2]:!tracking-[0.08em] [&_h3]:!mt-6 [&_h3]:!mb-2 [&_h3]:!text-[17px] [&_h3]:!font-semibold [&_hr]:my-6 [&_li]:my-1 [&_li]:leading-7 [&_ol]:!my-3 [&_ol]:list-decimal [&_ol]:pl-7 [&_p]:!my-3 [&_strong]:font-semibold [&_ul]:!my-3 [&_ul]:list-disc [&_ul]:pl-7 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
           />
         ) : null}
@@ -452,6 +458,10 @@ function EducationUnitWorkspaceComponent({
   const pendingSubmissionRef = useRef<string | null>(null);
   const pendingDraftKeyRef = useRef<string | null>(null);
   const pendingTurnIdRef = useRef<string | null>(null);
+  const startedUnitRef = useRef<string | null>(null);
+  const openingUnitTurnRef = useRef<string | null>(null);
+  const passAdvanceTurnRef = useRef<string | null>(null);
+  const [openingUnitFailed, setOpeningUnitFailed] = useState(false);
   const [submittedDraftKey, setSubmittedDraftKey] = useState<string | null>(
     null,
   );
@@ -481,7 +491,18 @@ function EducationUnitWorkspaceComponent({
     // Batch SDK stream updates to one render at most every 50 ms.
     experimental_throttle: 50,
     onFinish: (finishState) => {
-      if (!shouldClearSubmittedDraft(finishState)) return;
+      const committed = shouldClearSubmittedDraft(finishState);
+      const openingFailed =
+        openingUnitTurnRef.current !== null && !committed;
+      finishRetryableTurn(openingUnitTurnRef, committed);
+      finishRetryableTurn(passAdvanceTurnRef, committed);
+      if (openingFailed) {
+        startedUnitRef.current = null;
+        setOpeningUnitFailed(true);
+        return;
+      }
+      setOpeningUnitFailed(false);
+      if (!committed) return;
       clearSubmittedDraft(pendingDraftKeyRef.current);
       pendingDraftKeyRef.current = null;
       setSubmittedDraftKey(null);
@@ -490,9 +511,67 @@ function EducationUnitWorkspaceComponent({
       // so it must stop qualifying as an unpersisted send to preserve.
       pendingTurnIdRef.current = null;
     },
+    onError: () => {
+      if (openingUnitTurnRef.current === null) return;
+      startedUnitRef.current = null;
+      setOpeningUnitFailed(true);
+    },
   });
   const isRunning = status === "submitted" || status === "streaming";
   const effectiveIsRunning = preview ? previewIsRunning : isRunning;
+
+  useEffect(() => {
+    const interactionId = aiWorkspace?.state?.interactionId;
+    const shouldStart =
+      !preview &&
+      aiWorkspace != null &&
+      chatMessages.length === 0 &&
+      aiWorkspace.state?.educationStage === "learning" &&
+      interactionId != null &&
+      !openingUnitFailed &&
+      !effectiveIsRunning;
+    if (!shouldStart) return;
+
+    const startKey = `${unit.nodeId}:${interactionId}`;
+    if (startedUnitRef.current === startKey) return;
+    startedUnitRef.current = startKey;
+    const turnId = beginRetryableTurn(
+      openingUnitTurnRef,
+      createWorkspaceTurnId,
+    );
+    void sendMessage(undefined, {
+      body: {
+        action: "start_unit",
+        interactionId,
+        sessionId,
+        turnId,
+      },
+    }).catch(() => {
+      if (openingUnitTurnRef.current !== turnId) return;
+      startedUnitRef.current = null;
+      setOpeningUnitFailed(true);
+    });
+  }, [
+    aiWorkspace,
+    chatMessages.length,
+    effectiveIsRunning,
+    openingUnitFailed,
+    preview,
+    sendMessage,
+    sessionId,
+    unit.nodeId,
+  ]);
+
+  useEffect(() => {
+    if (!openingUnitFailed) return;
+    setMessages(initialChatMessages);
+  }, [initialChatMessages, openingUnitFailed, setMessages]);
+
+  const retryOpeningUnit = useCallback(() => {
+    clearError();
+    startedUnitRef.current = null;
+    setOpeningUnitFailed(false);
+  }, [clearError]);
 
   useEffect(() => {
     return () => {
@@ -904,6 +983,11 @@ function EducationUnitWorkspaceComponent({
       return;
     }
 
+    const interactionId = streamState?.interactionId;
+    if (!interactionId) {
+      toast.error("Refresh the workspace before submitting this response.");
+      return;
+    }
     clearError();
     pendingSubmissionRef.current = message;
     pendingDraftKeyRef.current = markSubmitted();
@@ -929,6 +1013,7 @@ function EducationUnitWorkspaceComponent({
         {
           body: {
             action: "submit_answer",
+            interactionId,
             sessionId,
             message,
             turnId,
@@ -947,12 +1032,21 @@ function EducationUnitWorkspaceComponent({
 
   const handleAdvancePass = async () => {
     if (!awaitingPassAdvance || effectiveIsRunning) return;
+    const interactionId = streamState.interactionId;
+    if (!interactionId) {
+      toast.error("Refresh the workspace before continuing.");
+      return;
+    }
     clearError();
-    const turnId = createWorkspaceTurnId();
+    const turnId = beginRetryableTurn(
+      passAdvanceTurnRef,
+      createWorkspaceTurnId,
+    );
     try {
       await sendMessage(undefined, {
         body: {
           action: "advance_pass",
+          interactionId,
           sessionId,
           turnId,
         },
@@ -1094,13 +1188,43 @@ function EducationUnitWorkspaceComponent({
                 ? activeLiveStatus.label
                 : null
             }
+            streaming={effectiveIsRunning}
           />
         </>
       ) : (
-        <PromptTurn
-          prompt={introMessage?.prompt ?? fallbackTurn.prompt}
-          helper={introMessage?.helper ?? fallbackTurn.helper}
-        />
+        <>
+          <PromptTurn
+            prompt={
+              openingUnitFailed
+                ? "The mentor couldn't open this lesson. Nothing was lost."
+                : !preview &&
+                    aiWorkspace != null &&
+                    aiWorkspace.state?.educationStage === "learning"
+                  ? ""
+                  : (introMessage?.prompt ?? fallbackTurn.prompt)
+            }
+            helper={
+              openingUnitFailed
+                ? null
+                : !preview &&
+                    aiWorkspace != null &&
+                    aiWorkspace.state?.educationStage === "learning"
+                  ? "Preparing your lesson…"
+                  : (introMessage?.helper ?? fallbackTurn.helper)
+            }
+          />
+          {openingUnitFailed ? (
+            <div className={CHAT_COLUMN_CLASS}>
+              <button
+                type="button"
+                onClick={retryOpeningUnit}
+                className="text-foreground/70 hover:text-foreground mt-2 text-[13px] underline underline-offset-4"
+              >
+                Try again
+              </button>
+            </div>
+          ) : null}
+        </>
       )}
 
       {pendingAnswer ? (

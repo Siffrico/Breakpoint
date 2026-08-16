@@ -1,5 +1,3 @@
-import { UnitContextSchema } from "@acme/validators";
-
 import type { Result } from "../../../lib/result";
 import type {
   EducationUnitState,
@@ -7,6 +5,7 @@ import type {
   UnitContent,
 } from "../types/training.types";
 import { err, ok } from "../../../lib/result";
+import { getUnitReadinessIssue } from "../education-unit/unit-readiness";
 import { getEducationUnitState } from "../policies/education-unit-state-policy";
 
 export interface GetUnitDependencies {
@@ -52,7 +51,7 @@ export const getUnitWorkflow = async ({
   }
 
   const unit = await deps.getUnitByNodeId(nodeId);
-  if (!unit || !UnitContextSchema.safeParse(unit.unitContext).success) {
+  if (!unit || getUnitReadinessIssue(unit) !== null) {
     return err(
       node.status === "ready"
         ? "UNIT_PREPARING"

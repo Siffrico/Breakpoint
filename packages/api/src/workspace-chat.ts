@@ -128,6 +128,7 @@ export const streamWorkspaceChat = async ({
   sessionId,
   userId,
   action = "submit_answer",
+  interactionId,
   message,
   turnId,
   modelName,
@@ -138,6 +139,7 @@ export const streamWorkspaceChat = async ({
   sessionId: string;
   userId: string;
   action?: WorkspaceTurnAction;
+  interactionId: string;
   message: string;
   turnId: string;
   modelName?: string | null;
@@ -150,6 +152,7 @@ export const streamWorkspaceChat = async ({
       sessionId,
       userId,
       action,
+      interactionId,
       message,
       turnId,
       signal,
@@ -162,6 +165,7 @@ const streamWorkspaceChatWithModelPreference = ({
   sessionId,
   userId,
   action,
+  interactionId,
   message,
   turnId,
   signal,
@@ -171,6 +175,7 @@ const streamWorkspaceChatWithModelPreference = ({
   sessionId: string;
   userId: string;
   action: WorkspaceTurnAction;
+  interactionId: string;
   message: string;
   turnId: string;
   signal?: AbortSignal;
@@ -358,6 +363,7 @@ const streamWorkspaceChatWithModelPreference = ({
             userId,
             turnId,
             turnLeaseId: effectiveLeaseId,
+            interactionId,
             action,
             message: trimmedMessage,
             turn,

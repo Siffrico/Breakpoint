@@ -1,6 +1,6 @@
 import type { ModelMessage, StreamTextResult, ToolSet } from "ai";
 import type { z } from "zod/v4";
-import { Output, smoothStream, stepCountIs, streamText } from "ai";
+import { Output, stepCountIs, streamText } from "ai";
 
 import type { RunProfile } from "./run-profiles";
 import {
@@ -69,6 +69,41 @@ const mergeProviderOptions = (
   return merged;
 };
 
+export const extractFirstJsonObject = (text: string): string => {
+  const start = text.indexOf("{");
+  if (start === -1) return text;
+
+  let depth = 0;
+  let insideString = false;
+  let escaped = false;
+
+  for (let index = start; index < text.length; index += 1) {
+    const character = text[index];
+
+    if (insideString) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === '"') {
+        insideString = false;
+      }
+      continue;
+    }
+
+    if (character === '"') {
+      insideString = true;
+    } else if (character === "{") {
+      depth += 1;
+    } else if (character === "}") {
+      depth -= 1;
+      if (depth === 0) return text.slice(start, index + 1);
+    }
+  }
+
+  return text.slice(start);
+};
+
 /**
  * The one place a structured-output model call is constructed. Retry policy,
  * prompt content, and error classification belong to the callers — this owns
@@ -85,7 +120,6 @@ export const invokeStructuredModel = <TSchema extends z.ZodTypeAny>({
   maxSteps,
   profile,
   cache = false,
-  smoothPartials = false,
   abortSignal,
   onChunk,
   providerOptions,
@@ -102,8 +136,6 @@ export const invokeStructuredModel = <TSchema extends z.ZodTypeAny>({
   /** Artifact agents pass their run profile; interactive turns omit it. */
   profile?: RunProfile;
   cache?: boolean;
-  /** Pace partial-output deltas for checkpoint streaming (resilient agent). */
-  smoothPartials?: boolean;
   abortSignal?: AbortSignal;
   onChunk?: ModelOnChunk;
   providerOptions?: Parameters<typeof streamText>[0]["providerOptions"];
@@ -113,10 +145,26 @@ export const invokeStructuredModel = <TSchema extends z.ZodTypeAny>({
 }): StreamTextResult<
   ToolSet,
   ReturnType<typeof Output.object<z.infer<TSchema>>>
-> =>
-  streamText({
+> => {
+  const objectOutput = Output.object({
+    schema,
+    name: schemaName,
+  });
+
+  return streamText({
     model,
-    output: Output.object({ schema, name: schemaName }),
+    output: {
+      ...objectOutput,
+      parseCompleteOutput: ({ text }, context) =>
+        objectOutput.parseCompleteOutput(
+          { text: extractFirstJsonObject(text) },
+          context,
+        ),
+      parsePartialOutput: ({ text }) =>
+        objectOutput.parsePartialOutput({
+          text: extractFirstJsonObject(text),
+        }),
+    },
     ...(cache && Array.isArray(prompt)
       ? {
           prompt: withCacheBreakpoints([
@@ -133,14 +181,6 @@ export const invokeStructuredModel = <TSchema extends z.ZodTypeAny>({
     stopWhen: stepCountIs(maxSteps),
     abortSignal,
     onChunk,
-    ...(smoothPartials
-      ? {
-          experimental_transform: smoothStream({
-            delayInMs: 15,
-            chunking: "word",
-          }),
-        }
-      : {}),
     ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
     ...(profile
       ? {
@@ -170,6 +210,7 @@ export const invokeStructuredModel = <TSchema extends z.ZodTypeAny>({
       return resolved ? { providerOptions: resolved } : {};
     })(),
   });
+};
 
 export const invokeTextModel = ({
   model,

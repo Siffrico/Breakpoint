@@ -494,6 +494,7 @@ export const trainingCurriculumRepository = {
     db,
     nodeId,
     title,
+    buildContent,
     seedPrompt,
     seedHint,
     clusterArcFrame,
@@ -505,6 +506,7 @@ export const trainingCurriculumRepository = {
     db: Database;
     nodeId: string;
     title: string;
+    buildContent: string;
     seedPrompt: string;
     seedHint: string;
     clusterArcFrame: string;
@@ -528,7 +530,7 @@ export const trainingCurriculumRepository = {
           seedHint,
           clusterArcFrame,
           complexityBudget,
-          buildContent: null,
+          buildContent,
           practicePrompts: null,
           contentGeneratedAt: null,
           teachbackSetup,
@@ -549,6 +551,7 @@ export const trainingCurriculumRepository = {
     db,
     nodeId,
     title,
+    buildContent,
     seedPrompt,
     seedHint,
     clusterArcFrame,
@@ -560,6 +563,7 @@ export const trainingCurriculumRepository = {
     db: Database;
     nodeId: string;
     title: string;
+    buildContent: string;
     seedPrompt: string;
     seedHint: string;
     clusterArcFrame: string;
@@ -572,6 +576,7 @@ export const trainingCurriculumRepository = {
       .update(TrainingUnitContent)
       .set({
         title,
+        buildContent,
         seedPrompt,
         seedHint,
         clusterArcFrame,

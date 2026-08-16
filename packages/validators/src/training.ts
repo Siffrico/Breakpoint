@@ -18,11 +18,11 @@ const WorkspaceChatMessageSchema = z.looseObject({
 });
 
 /**
- * What a workspace turn is claiming. `advance_pass` is the learner pressing
- * Enter to move from a settled Pass 1 into Pass 2 of the same unit: it carries
- * no answer, so it is the one action that runs without learner text.
+ * What a workspace turn is claiming. `start_unit` opens the mentor's teaching
+ * step, and `advance_pass` moves from settled feedback into the next scenario.
  */
 export const WorkspaceTurnActionSchema = z.enum([
+  "start_unit",
   "submit_answer",
   "advance_pass",
 ]);
@@ -30,6 +30,7 @@ export const WorkspaceTurnActionSchema = z.enum([
 export const WorkspaceChatRequestSchema = z
   .object({
     action: WorkspaceTurnActionSchema.optional(),
+    interactionId: z.string().min(1).max(160),
     message: z.string().max(WORKSPACE_CHAT_MESSAGE_MAX_CHARS).optional(),
     messages: z.array(WorkspaceChatMessageSchema).max(100).optional(),
     model: z.string().max(120).optional(),
@@ -38,6 +39,7 @@ export const WorkspaceChatRequestSchema = z
   })
   .refine(
     (body) =>
+      body.action === "start_unit" ||
       body.action === "advance_pass" ||
       typeof body.message === "string" ||
       Array.isArray(body.messages),
@@ -585,46 +587,89 @@ export const ContractDimensionIdSchema = z
   .max(80)
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
 
-export const UnitContextSchema = z.object({
-  version: z.literal(1),
-  performance: z.string().min(1),
-  targets: z
-    .array(
-      z.object({
-        id: z.string().min(1),
-        skill: z.string().min(1),
-        kind: z.enum(["concept", "mechanism"]),
-        label: z.string().min(1),
-        content: z.string().min(1),
-      }),
-    )
-    .min(1)
-    .max(4),
-  workflow: PracticeContractSchema.shape.workflow,
-  expertise: z.object({
-    expertJudgment: SkillMapSchema.shape.expertJudgment,
-    commonMistakes: SkillMapSchema.shape.commonMistakes,
-  }),
-  testing: z.object({
-    responseMode: ScenarioArchetypeSchema,
-    taskTypes: PracticeContractSchema.shape.taskTypes,
-    variationAxes: PracticeContractSchema.shape.variationAxes,
-    neverDo: PracticeContractSchema.shape.neverDo,
-  }),
-  judgment: z.object({
-    criteria: z
+export const UnitContextSchema = z
+  .object({
+    version: z.literal(1),
+    performance: z.string().min(1),
+    targets: z
       .array(
         z.object({
-          id: ContractDimensionIdSchema,
-          criterion: z.string().min(1),
-          skills: z.array(z.string().min(1)).min(1),
+          id: z.string().min(1),
+          skill: z.string().min(1),
+          kind: z.enum(["concept", "mechanism"]),
+          label: z.string().min(1),
+          content: z.string().min(1),
         }),
       )
       .min(1)
-      .max(5),
-    qualityBar: PracticeContractSchema.shape.qualityBar,
-  }),
-});
+      .max(4),
+    workflow: PracticeContractSchema.shape.workflow,
+    expertise: z.object({
+      expertJudgment: SkillMapSchema.shape.expertJudgment,
+      commonMistakes: SkillMapSchema.shape.commonMistakes,
+    }),
+    testing: z.object({
+      responseMode: ScenarioArchetypeSchema,
+      taskTypes: PracticeContractSchema.shape.taskTypes,
+      variationAxes: PracticeContractSchema.shape.variationAxes,
+      neverDo: PracticeContractSchema.shape.neverDo,
+    }),
+    judgment: z.object({
+      criteria: z
+        .array(
+          z.object({
+            id: ContractDimensionIdSchema,
+            criterion: z.string().min(1),
+            skills: z.array(z.string().min(1)).min(1),
+          }),
+        )
+        .min(1)
+        .max(5),
+      qualityBar: PracticeContractSchema.shape.qualityBar,
+    }),
+  })
+  .superRefine((context, ctx) => {
+    const targetIds = context.targets.map((target) => target.id);
+    if (new Set(targetIds).size !== targetIds.length) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["targets"],
+        message: "Target ids must be unique inside a unit.",
+      });
+    }
+    const criterionIds = context.judgment.criteria.map(
+      (criterion) => criterion.id,
+    );
+    if (new Set(criterionIds).size !== criterionIds.length) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["judgment", "criteria"],
+        message: "Judgment criterion ids must be unique inside a unit.",
+      });
+    }
+    const judgedSkills = new Set(
+      context.judgment.criteria.flatMap((criterion) => criterion.skills),
+    );
+    const practicedSkills = new Set(
+      context.testing.taskTypes.flatMap((task) => task.skills),
+    );
+    for (const [index, target] of context.targets.entries()) {
+      if (!judgedSkills.has(target.skill)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["targets", index, "skill"],
+          message: "Every target skill must have a judgment criterion.",
+        });
+      }
+      if (!practicedSkills.has(target.skill)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["targets", index, "skill"],
+          message: "Every target skill must appear in a practice task.",
+        });
+      }
+    }
+  });
 
 const EducationExperienceInstructionsSchema = z
   .string()
@@ -644,7 +689,7 @@ export const EducationExperienceSnapshotSchema = z.object({
   reviewer: z.object({ instructions: EducationExperienceInstructionsSchema }),
 });
 
-/** A settled pass waits for Enter before its next independent scenario. */
+/** Feedback waits for Enter before the next independent scenario. */
 export const UnitRunModeSchema = z.enum([
   "learning",
   "review",
@@ -653,7 +698,7 @@ export const UnitRunModeSchema = z.enum([
 ]);
 export const UnitRunKindSchema = z.enum(["education", "recall"]);
 
-/** Independent scenarios are unbounded; only Pass 2 feeds Goldilocks. */
+/** The one-based number of the scenario attempt inside a run. */
 export const UnitReviewPassSchema = z.number().int().positive();
 
 export const WORKSPACE_EDUCATION_STAGE_IDS = [
@@ -708,54 +753,69 @@ export const UnitReviewChallengeSchema = z.object({
   contract: ScenarioEvaluationContractSchema,
 });
 
-/**
- * A unit run opens with one teaching move. A pass is one route through it: the
- * teaching move, then the solve the learner answers, then the complete the
- * reviewer marks. The list is the whole state — a pass is over when its list
- * is done, and the complete's mark decides whether the unit ends or another
- * pass is appended.
- */
-export const UnitTodoStatusSchema = z.enum(["pending", "completed"]);
-export const UnitTodoResultSchema = z.enum(["pass", "fail"]);
-
-export const UnitTodoSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("capability"),
-    status: UnitTodoStatusSchema,
-    dimensionId: ContractDimensionIdSchema,
-  }),
-  z.object({
-    kind: z.literal("solve"),
-    /**
-     * `pending` is waiting to be shown, `presented` is on the learner's screen
-     * waiting for an answer. A later pass parks at `pending` until Enter.
-     */
-    status: z.enum(["pending", "presented", "completed"]),
-    pass: UnitReviewPassSchema,
-    /** Filled ahead of time by pre-generation; presented when this todo heads. */
-    challenge: UnitReviewChallengeSchema.nullable(),
-  }),
-  z.object({
-    kind: z.literal("complete"),
-    status: UnitTodoStatusSchema,
-    pass: UnitReviewPassSchema,
-    /**
-     * What this mark can do, fixed when the todo is created — the one place the
-     * difference between "ends the unit" and "opens another pass" is written
-     * down. `never` is an education warm-up, `pass` ends only on a clean mark,
-     * `any` is a one-shot checkpoint that closes either way.
-     */
-    endsOn: z.enum(["never", "pass", "any"]),
-    result: UnitTodoResultSchema.nullable(),
-  }),
-]);
-
 export const EvaluationDimensionResultSchema = z.object({
   dimensionId: ContractDimensionIdSchema,
   score: z.number().int().min(0).max(100),
   evidence: z.string().min(1),
   missing: z.string().min(1).nullable(),
 });
+
+const PreparedUnitScenarioSchema = UnitReviewChallengeSchema.nullable();
+
+export const UnitCursorStepSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("teaching"),
+      preparedScenario: PreparedUnitScenarioSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("scenario"),
+      attempt: UnitReviewPassSchema,
+      challenge: PreparedUnitScenarioSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("feedback"),
+      attempt: UnitReviewPassSchema,
+      promptRound: z.number().int().min(1).max(3),
+      errorCodes: z.array(z.string().min(1)).max(3),
+      dimensionResults: z.array(EvaluationDimensionResultSchema).max(5),
+      evidencedTargetIds: z.array(z.string().min(1)).max(4),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("pass_result"),
+      attempt: UnitReviewPassSchema,
+      outcome: z.enum(["pass", "fail"]),
+      errorCodes: z.array(z.string().min(1)).max(3),
+      evidence: z.array(EvaluationDimensionResultSchema).max(5),
+      evidencedTargetIds: z.array(z.string().min(1)).max(4),
+      preparedScenario: PreparedUnitScenarioSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("complete"),
+      attempt: UnitReviewPassSchema,
+      outcome: z.enum(["pass", "fail", "retired"]),
+      evidence: z.array(EvaluationDimensionResultSchema).max(5),
+      evidencedTargetIds: z.array(z.string().min(1)).max(4),
+    })
+    .strict(),
+]);
+
+/** The one durable authority for which learner interaction may happen next. */
+export const UnitCursorSchema = z
+  .object({
+    interactionId: z.string().min(1).max(160),
+    scenarioPrompts: z.array(z.string().min(24)),
+    step: UnitCursorStepSchema,
+  })
+  .strict();
 
 export const ForgeUnitContentSchema = z.object({
   id: z.string().min(1),
@@ -1115,10 +1175,8 @@ export type EducationExperienceSnapshot = z.infer<
 export type EducationExperienceCustomization = z.infer<
   typeof EducationExperienceCustomizationSchema
 >;
-export type UnitTodo = z.infer<typeof UnitTodoSchema>;
-export type UnitTodoResult = z.infer<typeof UnitTodoResultSchema>;
-export type UnitSolveTodo = Extract<UnitTodo, { kind: "solve" }>;
-export type UnitCompleteTodo = Extract<UnitTodo, { kind: "complete" }>;
+export type UnitCursor = z.infer<typeof UnitCursorSchema>;
+export type UnitCursorStep = z.infer<typeof UnitCursorStepSchema>;
 export type UnitRunMode = z.infer<typeof UnitRunModeSchema>;
 export type UnitRunKind = z.infer<typeof UnitRunKindSchema>;
 export type UnitReviewPass = z.infer<typeof UnitReviewPassSchema>;

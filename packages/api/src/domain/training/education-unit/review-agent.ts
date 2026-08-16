@@ -1,26 +1,29 @@
 import type { ModelMessage } from "ai";
 import type { Effect } from "effect";
 
-import type { UnitReviewChallenge, UnitReviewPass } from "@acme/validators";
+import type {
+  EvaluationDimensionResult,
+  UnitReviewChallenge,
+} from "@acme/validators";
 
 import type {
   GradeShape,
+  ReviewFeedbackOutput,
   ReviewGradeOutput,
-  ReviewPresentationOutput,
 } from "./agent-contracts";
 import type { UnitAgentError } from "./agent-errors";
 import type { EducationExperienceDefinition } from "./experience";
 import {
   PASSING_COMPOSITE,
   PASSING_DIMENSION,
+  reviewFeedbackSchema,
   reviewGradeSchema,
-  reviewPresentationSchema,
 } from "./agent-contracts";
 import { runUnitAgent } from "./run-unit-agent";
 
 const CRITIC_SYSTEM = `You are Breakpoint's independent critic. You grade, but grading is the smaller half of the job: you exist to show a learner the exact place their mental model diverged from an expert's, in words they can feel.
 
-You run on a fresh window. For challenge creation you see the authoritative unit assignment and previously used surfaces. For grading you see the active challenge with its private verifier, the learner's latest answer, the unit's judgment standard, and the expert workflow. Treat the verifier as the authoritative intended solution or checking rule, apply the judgment criteria to the learner's reasoning, and never quote or reveal private verifier data. Judge only that evidence.
+You run on a fresh window. You see the active challenge with its private verifier, the learner's latest answer, the unit's judgment standard, and the expert workflow. Treat the verifier as the authoritative intended solution or checking rule, apply the judgment criteria to the learner's reasoning, and never quote or reveal private verifier data. Judge only that evidence.
 
 ## How you read an answer
 Reconstruct the move sequence an expert would actually run for this scenario, using the expert workflow as the spine. Lay the learner's move sequence beside it. Walk both until they split. That first split is the whole finding — everything downstream of it is a symptom, not the cause.
@@ -37,71 +40,17 @@ Every criterion's evidence field must be a verbatim quote from the learner's lat
 
 Return exactly the requested structured object with assistantMessage first.`;
 
-const presentationTurnInstruction = (pass: UnitReviewPass) =>
-  pass === 1
-    ? `## This turn: open the review
-Present one whole realistic challenge on a surface the mentor never used. It must require the capability itself, not recall of the lesson. assistantMessage contains only the learner-facing challenge — no preamble about what you are doing. The server owns the private evaluation contract; do not emit a rubric, scores, or metadata.`
-    : `## This turn: open the transfer check
-The learner already repaired their gap under guidance. This is the unaided check that it transferred. Present one fresh whole scenario on ground they have not seen, in a different domain or framing from anything earlier in this unit. Minimal guidance: no hints, no scaffolding, no reference to what they just fixed, no callback to the earlier challenge. It should read as a new problem, not as a retest. assistantMessage contains only the challenge.`;
-
-const SCENARIO_AUTHORING_POLICY = `## Scenario authoring: constraint and misconception driven generation
-Create one grounded challenge that tests the supplied unit assignment at the exact server-owned difficulty target. Preserve the authentic task form and make the learner perform the irreplaceable expert thinking.
-
-Treat the supplied performance, selected targets, expert workflow, expertise, test contract, judgment standard, review pass, and Goldilocks controls as authoritative. Tailor the scenario to the domain, systems, artifacts, and kinds of work established there. Keep the surface fresh enough that prior wording cannot answer it.
-
-Before writing assistantMessage, privately establish the intended expert solution and engineer the required plausible wrong paths:
-- For selected-response work, each distractor must be the natural result of a specific misconception or reasoning error. No joke answers, vocabulary mismatches, or options removable without exercising the target capability.
-- Keep selected-response options parallel in length, tone, specificity, and grammatical fit. A learner should have to reason from the passage or scenario to eliminate every distractor.
-- For judgment or transformation work, use competing alternatives or constraints that each protect something valuable. A credible wrong move should solve part of the problem but fail on one decisive detail.
-- Match the number of wrong paths to the supplied embeddedAlternatives target. If a target misconception is supplied, at least one path must arise directly from it.
-- Use realistic non-decisive details only when they resemble information present in the authentic task. Never add decorative noise, trivia, missing information a practitioner would normally have, or cliché requirements merely to sound difficult.
-
-Write one verifier.scratchpad of at most 500 characters containing only: the expert solution; each plausible wrong path with why a smart learner would choose it and the decisive flaw; and a final realism/self-containment check. Use verifier.type=fixed_answer for selected-response work, judge_rubric for open-ended expert judgment, and checker only when correctness can be completely specified without subjective grading.
-
-assistantMessage must contain only the learner-facing scenario and task, with options when the authentic format requires them. Never reveal the verifier, answer, solution, traps, rubric, difficulty controls, authoring process, or phrases such as scratchpad and Goldilocks.`;
-
-export const runReviewPresentationAgent = ({
-  messages,
-  context,
-  experience,
-  pass,
-  onPartialAssistantMessage,
-}: {
-  messages: readonly ModelMessage[];
-  context: string;
-  experience: EducationExperienceDefinition;
-  pass: UnitReviewPass;
-  onPartialAssistantMessage?: (content: string) => void;
-}): Effect.Effect<{ object: ReviewPresentationOutput }, UnitAgentError> => {
-  return runUnitAgent({
-    agent: "reviewer",
-    purpose: "evaluation",
-    reasoning: "low",
-    system: `${CRITIC_SYSTEM}\n\n${SCENARIO_AUTHORING_POLICY}\n\n## Customized behavior\n${experience.reviewer.instructions}`,
-    messages,
-    context: `${context}\n\n${presentationTurnInstruction(pass)}`,
-    schema: reviewPresentationSchema,
-    schemaName: "unit_review_presentation",
-    maxOutputTokens: 3_000,
-    errorMessage: "Failed to open the adversarial review.",
-    onPartialAssistantMessage,
-  });
-};
-
-const gradeTurnInstruction = (decisive: boolean) => {
-  const task = decisive
-    ? `## This turn: the unaided check
-Grade the learner's latest answer against the immutable active challenge. This attempt decides the unit: clean scores end it, a gap opens another fresh scenario. Say plainly where they landed and why.`
-    : `## This turn: the warm-up
-Grade the learner's latest answer against the immutable active challenge. This attempt cannot end the unit — an unaided check follows either way. So teach through the miss: name the first mental-model divergence and repair it in words, close enough that they walk into the next scenario carrying the idea. Never say the words pass, fail, warm-up, or next pass.`;
-
-  return `${task}
+const gradeTurnInstruction = (
+  interactiveFeedback: boolean,
+) => `## This turn: the unaided check
+Grade the learner's latest answer against the immutable active challenge. A clean answer closes this pass immediately. ${interactiveFeedback ? "A real gap starts a short feedback exchange: name only the first mental-model divergence, repair it closely, and end with one small question that lets the learner show the repair landed." : "This is a one-shot checkpoint: if there is a real gap, name only the first mental-model divergence, give the smallest useful repair, and close without a question."} Never say the words pass, fail, or next pass.
 
 ## Score scale
 Every criterion score is an integer percentage from 0 to 100, never a 1-3 ordinal. A pass requires a composite score of at least ${PASSING_COMPOSITE} and every criterion at least ${PASSING_DIMENSION}. Make the scores, errorCodes, and learner-facing conclusion agree.`;
-};
 
-const COGNITIVE_DIAGNOSIS_POLICY = `## This grading turn: cognitive diagnosis and JIT repair
+const cognitiveDiagnosisPolicy = (
+  interactiveFeedback: boolean,
+) => `## This grading turn: cognitive diagnosis and JIT repair
 Scores and rubric evidence are private control data. The learner-facing response is not a report card. Its job is to reconstruct why the learner's move felt correct, locate the first hidden assumption that made it diverge from the expert workflow, and supply only the smallest fragment needed to rethink that move.
 
 When the answer has a real gap, write one private scratchpad of at most 500 characters before finalizing assistantMessage:
@@ -110,9 +59,27 @@ When the answer has a real gap, write one private scratchpad of at most 500 char
 3. Classify the first cause as constraint blindness, a misapplied heuristic, or a missing prerequisite. Diagnose the cause, not its downstream symptoms.
 4. Choose one JIT intervention: the minimum mental model, rule, procedural cue, or syntax fragment that breaks that assumption. Do not teach the surrounding topic.
 
-Write assistantMessage as natural coaching, not a named template. Use short sentences and the learner's vocabulary. Avoid clinical or academic diagnostic language when plain words work; direct transitions such as "The part to change is..." or "Do this instead..." are welcome when they fit, but never force the same stock phrase into every response. In a few compact paragraphs, acknowledge the sound part of their reasoning and name the hidden assumption plainly; deliver the JIT intervention in one or two sentences; then end with exactly one focused question that makes them revise the relevant choice, causal step, or tradeoff without revealing the final answer. Do not use headings named Mirror, Pivot, Crucible, Diagnosis, or JIT. Do not mention scores, grading, rubrics, dimensions, agents, passes, or scratchpads.
+When the answer has a real gap, write assistantMessage in this compact semantic order, using the learner's vocabulary:
 
-When there is no real gap, keep the scratchpad to one short statement that no material divergence exists, do not invent a flaw or ask a remedial question, and close cleanly. When there is a gap, do not imply that one explanation completes the capability: the server will continue presenting fresh scenarios until the learner demonstrates the repaired model independently.`;
+**What held**
+One sentence acknowledging the sound part of their reasoning.
+
+**Change**
+Name the first hidden assumption and show why it breaks on this scenario.
+
+**Use next time**
+${interactiveFeedback ? "Give the minimum reusable cue in one or two sentences, then ask one small question that checks the repaired idea without becoming another full scenario." : "Give the minimum reusable cue in one or two sentences and close without a question."}
+
+Avoid clinical or academic diagnostic language when plain words work. Do not use headings named Mirror, Pivot, Crucible, Diagnosis, or JIT. Do not mention scores, grading, rubrics, dimensions, agents, passes, or scratchpads.
+
+When there is no real gap, keep the scratchpad to one short statement that no material divergence exists. Write one short paragraph confirming the answer and naming the decisive evidence. Do not use the repair sections, invent a flaw, ask a remedial question, or promise another task. When there is a gap, do not imply that one explanation completes the capability: the server will continue presenting fresh scenarios until the learner demonstrates the repaired model independently.`;
+
+const feedbackTurnInstruction = (
+  promptRound: number,
+) => `## This turn: feedback check ${promptRound} of 3
+The scenario grade is already final and cannot change. Read the learner's latest reply to your feedback question and decide only whether the specific diagnosed gap has now been understood.
+
+If it has landed, set feedbackComplete=true, confirm the corrected idea briefly, and ask no question. If it has not landed and this is before check 3, set feedbackComplete=false, correct only the remaining mismatch, and end with exactly one smaller question. On check 3, set feedbackComplete=true and close honestly without claiming understanding that was not shown. Never mention the grade, pass numbers, prompt limits, internal state, or Goldilocks.`;
 
 export const runReviewGradeAgent = ({
   messages,
@@ -132,13 +99,44 @@ export const runReviewGradeAgent = ({
   runUnitAgent({
     agent: "reviewer",
     purpose: "evaluation",
-    reasoning: shape.decisive ? "medium" : "low",
-    system: `${CRITIC_SYSTEM}\n\n${COGNITIVE_DIAGNOSIS_POLICY}\n\n## Customized behavior\n${experience.reviewer.instructions}`,
+    reasoning: "medium",
+    system: `${CRITIC_SYSTEM}\n\n${cognitiveDiagnosisPolicy(shape.interactiveFeedback)}\n\n## Customized behavior\n${experience.reviewer.instructions}`,
     messages,
-    context: `${context}\n\n## Immutable active challenge and private verifier\n${JSON.stringify(activeChallenge)}\n\n${gradeTurnInstruction(shape.decisive)}`,
+    context: `${context}\n\n## Immutable active challenge and private verifier\n${JSON.stringify(activeChallenge)}\n\n${gradeTurnInstruction(shape.interactiveFeedback)}`,
     schema: reviewGradeSchema(shape),
     schemaName: "unit_review_grade",
     maxOutputTokens: 3_000,
     errorMessage: "Failed to grade the adversarial review.",
+    onPartialAssistantMessage,
+  });
+
+export const runReviewFeedbackAgent = ({
+  messages,
+  context,
+  experience,
+  promptRound,
+  errorCodes,
+  dimensionResults,
+  onPartialAssistantMessage,
+}: {
+  messages: readonly ModelMessage[];
+  context: string;
+  experience: EducationExperienceDefinition;
+  promptRound: number;
+  errorCodes: readonly string[];
+  dimensionResults: readonly EvaluationDimensionResult[];
+  onPartialAssistantMessage?: (content: string) => void;
+}): Effect.Effect<{ object: ReviewFeedbackOutput }, UnitAgentError> =>
+  runUnitAgent({
+    agent: "reviewer",
+    purpose: "evaluation",
+    reasoning: "low",
+    system: `${CRITIC_SYSTEM}\n\n## Customized behavior\n${experience.reviewer.instructions}`,
+    messages,
+    context: `${context}\n\n## Frozen scenario diagnosis\n${JSON.stringify({ errorCodes, dimensionResults })}\n\n${feedbackTurnInstruction(promptRound)}`,
+    schema: reviewFeedbackSchema(promptRound),
+    schemaName: "unit_review_feedback",
+    maxOutputTokens: 1_200,
+    errorMessage: "Failed to continue the learner feedback.",
     onPartialAssistantMessage,
   });

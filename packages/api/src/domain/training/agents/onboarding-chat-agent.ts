@@ -21,6 +21,8 @@ export const AskStartingPointOutputSchema = z.object({
   label: z.string().min(1),
 });
 
+export type AskStartingPointInput = z.infer<typeof AskStartingPointInputSchema>;
+
 export const askStartingPointTool = tool({
   description:
     "Ask where the learner is starting from using concrete domain-specific experiences, once, before proposing outcomes.",

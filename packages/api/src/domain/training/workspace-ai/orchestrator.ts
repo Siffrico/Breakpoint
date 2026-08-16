@@ -30,13 +30,13 @@ export interface PlannedRecallTarget {
  * Learners are never interrupted while the mentor or reviewer is mid-unit.
  */
 export const isUnitMidFlight = ({
-  activeUnitResponses,
   activeUnitRun,
+  hasPersistedActiveUnitRun,
 }: {
-  activeUnitResponses: PhaseResponseRecord[];
   activeUnitRun?: PersistedUnitRun | null;
+  hasPersistedActiveUnitRun: boolean;
 }): boolean =>
-  activeUnitResponses.some((response) => response.phase === "ai_education") &&
+  hasPersistedActiveUnitRun &&
   activeUnitRun != null &&
   activeUnitRun.mode !== "complete";
 
@@ -66,17 +66,19 @@ export const planWorkspaceTurn = ({
   nodes,
   activeUnitResponses,
   activeUnitRun,
+  hasPersistedActiveUnitRun,
   recallTarget = null,
 }: {
   nodes: RuntimeNode[];
   activeUnitResponses: PhaseResponseRecord[];
   activeUnitRun?: PersistedUnitRun | null;
+  hasPersistedActiveUnitRun: boolean;
   /** Due recall chosen by the decay policy; only honored at a unit boundary. */
   recallTarget?: PlannedRecallTarget | null;
 }): WorkspaceAiState | null => {
   if (
     recallTarget &&
-    !isUnitMidFlight({ activeUnitResponses, activeUnitRun })
+    !isUnitMidFlight({ activeUnitRun, hasPersistedActiveUnitRun })
   ) {
     // A recall interlude is an education turn against the source unit's
     // content — recallUnitId (not activeUnitId) marks the run as recall so
@@ -85,6 +87,7 @@ export const planWorkspaceTurn = ({
       mode: "education_unit",
       promptKind: "recall",
       educationStage: "review",
+      interactionId: null,
       workflowId: null,
       activeUnitId: null,
       activeUnitTitle: null,
@@ -103,6 +106,7 @@ export const planWorkspaceTurn = ({
     promptKind: "education_unit",
     educationStage:
       activeUnitRun?.mode ?? getCurrentEducationStage(activeUnitResponses),
+    interactionId: activeUnitRun?.cursor.interactionId ?? null,
     workflowId: activeUnitRun
       ? `${activeUnitRun.experience.id}@${activeUnitRun.experience.version}`
       : null,

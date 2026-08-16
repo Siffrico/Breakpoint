@@ -128,6 +128,7 @@ export const getAiWorkspaceWorkflowEffect = ({
       nodes: plan.nodes,
       activeUnitResponses: active.responses,
       activeUnitRun: active.run,
+      hasPersistedActiveUnitRun: active.hasPersistedRun,
       recallTarget: plannedRecall
         ? {
             unitNodeId: plannedRecall.node.id,

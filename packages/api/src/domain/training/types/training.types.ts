@@ -49,6 +49,7 @@ import type {
   UnitContext,
 } from "@acme/validators";
 
+import type { AskStartingPointInput } from "../agents/onboarding-chat-agent";
 import type {
   CreateProjectInput,
   ProjectBuildState,
@@ -149,6 +150,10 @@ export interface OnboardingSessionState {
   transcript: OnboardingTranscriptMessage[];
   activeQuestion: OnboardingQuestion | null;
   projectBuild?: ProjectBuildState | null;
+  pendingStartingPointQuestion?: {
+    sequence: number;
+    input: AskStartingPointInput;
+  } | null;
   pendingProjectProposal?: CreateProjectInput | null;
 }
 
@@ -157,8 +162,8 @@ export interface HomeState {
   headline: string;
   planTitle: string;
   planSummary: string;
-  completedUnits: number;
-  totalUnits: number;
+  completedOutcomes: number;
+  totalOutcomes: number;
   nextUnitId: string | null;
   nextUnitTitle: string | null;
   blockingSignals: string[];

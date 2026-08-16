@@ -15,8 +15,10 @@ import {
   TrainingCurriculumPlan,
   TrainingNodeBuild,
   TrainingOnboardingSession,
+  TrainingUnitContent,
 } from "@acme/db/schema";
 
+import { trainingCurriculumRepository } from "./training-curriculum-repository";
 import { awaitUnitBuildSettled, withUnitBuildLock } from "./unit-build-lock";
 
 type Database = typeof databaseClient;
@@ -82,6 +84,107 @@ const withUnitNode = async <T>(
 };
 
 describe("unit build lock concurrency", () => {
+  it.skipIf(!process.env.POSTGRES_URL)(
+    "rejects stale-owner unit content inserts and replacements",
+    async () => {
+      const { db } = await import("@acme/db/client");
+      for (const operation of ["insert", "replace"] as const) {
+        await withUnitNode(db, async (nodeId) => {
+          const contentInput = {
+            nodeId,
+            title: "Stale content",
+            buildContent: "Stale teaching content",
+            seedPrompt: "Stale prompt",
+            seedHint: "Stale hint",
+            clusterArcFrame: "Stale frame",
+            complexityBudget: 3 as const,
+            teachbackSetup: {
+              studentPersona: "Stale learner",
+              openingMisconception: "Stale misconception",
+              roundLadder: [
+                {
+                  round: 1,
+                  objection: "Stale objection",
+                  objective: "Stale objective",
+                },
+              ],
+              passSignals: ["Stale signal"],
+              failureModes: ["Stale failure"],
+            },
+            scenario: {
+              title: "Stale scenario",
+              focusAreas: ["stale"],
+            },
+          };
+          if (operation === "replace") {
+            await db.insert(TrainingUnitContent).values({
+              nodeId,
+              title: "Current owner content",
+              seedPrompt: "Current prompt",
+              seedHint: "Current hint",
+              clusterArcFrame: "Current frame",
+              complexityBudget: 1,
+              teachbackSetup: {
+                studentPersona: "Current learner",
+                openingMisconception: "Current misconception",
+              },
+              scenarioTitle: "Current scenario",
+              scenarioFocusAreas: ["current"],
+            });
+          }
+
+          const newerLeaseId = "00000000-0000-0000-0000-000000000099";
+          await expect(
+            withUnitBuildLock({
+              db,
+              nodeId,
+              build: async (lockDb, withLease) => {
+                await lockDb
+                  .update(TrainingNodeBuild)
+                  .set({
+                    leaseId: newerLeaseId,
+                    leaseExpiresAt: new Date(Date.now() + 60_000),
+                  })
+                  .where(
+                    and(
+                      eq(TrainingNodeBuild.kind, "unit_content"),
+                      eq(TrainingNodeBuild.nodeId, nodeId),
+                    ),
+                  );
+
+                return withLease(async (leaseDb) => {
+                  if (operation === "insert") {
+                    await trainingCurriculumRepository.createUnitContentIfAbsent(
+                      { db: leaseDb, ...contentInput },
+                    );
+                  } else {
+                    await trainingCurriculumRepository.replaceUnitContent({
+                      db: leaseDb,
+                      ...contentInput,
+                      title: "Stale replacement",
+                    });
+                  }
+                  return "stale result";
+                });
+              },
+              loadReady: () => Promise.resolve("ready"),
+            }),
+          ).rejects.toMatchObject({ _tag: "NodeBuildLeaseLostError" });
+
+          const content = await db.query.TrainingUnitContent.findFirst({
+            where: eq(TrainingUnitContent.nodeId, nodeId),
+          });
+          if (operation === "insert") {
+            expect(content).toBeUndefined();
+          } else {
+            expect(content?.title).toBe("Current owner content");
+          }
+        });
+      }
+    },
+    20_000,
+  );
+
   it.skipIf(!process.env.POSTGRES_URL)(
     "rejects a stale owner without changing the newer lease",
     async () => {
@@ -259,5 +362,57 @@ describe("unit build lock concurrency", () => {
       });
     },
     20_000,
+  );
+
+  it.skipIf(!process.env.POSTGRES_URL)(
+    "executes the heartbeat while a slow build is in flight",
+    async () => {
+      const { db } = await import("@acme/db/client");
+      await withUnitNode(db, async (nodeId) => {
+        let release!: () => void;
+        const gate = new Promise<void>(
+          (resolveGate) => (release = resolveGate),
+        );
+        let markEntered!: () => void;
+        const entered = new Promise<void>((resolveEntered) => {
+          markEntered = resolveEntered;
+        });
+
+        const build = withUnitBuildLock({
+          db,
+          nodeId,
+          build: () => {
+            markEntered();
+            return gate.then(() => "built" as const);
+          },
+          loadReady: () => Promise.resolve("ready" as const),
+        });
+        await entered;
+        const before = await db.query.TrainingNodeBuild.findFirst({
+          where: and(
+            eq(TrainingNodeBuild.kind, "unit_content"),
+            eq(TrainingNodeBuild.nodeId, nodeId),
+          ),
+        });
+        if (!before?.leaseExpiresAt)
+          throw new Error("Expected an active lease.");
+
+        await wait(20_500);
+
+        const after = await db.query.TrainingNodeBuild.findFirst({
+          where: and(
+            eq(TrainingNodeBuild.kind, "unit_content"),
+            eq(TrainingNodeBuild.nodeId, nodeId),
+          ),
+        });
+        expect(after?.leaseExpiresAt?.getTime()).toBeGreaterThan(
+          before.leaseExpiresAt.getTime(),
+        );
+
+        release();
+        await expect(build).resolves.toBe("built");
+      });
+    },
+    30_000,
   );
 });

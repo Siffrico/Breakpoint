@@ -12,7 +12,7 @@ import { getRunProfile } from "../engine/run-profiles";
 
 type ArtifactAgentId = Extract<
   AgentId,
-  "curriculumDesigner" | "knowledgeMapper" | "buildContent" | "projectOverview"
+  "curriculumDesigner" | "knowledgeMapper" | "projectOverview"
 >;
 
 export const runAgent = async <TSchema extends z.ZodTypeAny>({
@@ -154,6 +154,15 @@ export const classifyFailure = (
   return "provider";
 };
 
+export const classifyRecoveryFailure = (
+  error: unknown,
+  hasPartial: boolean,
+  supportsContinuation: boolean,
+): ArtifactFailureKind => {
+  const kind = classifyFailure(error, hasPartial);
+  return kind === "partial" && !supportsContinuation ? "schema" : kind;
+};
+
 const MAX_RESTARTS = 2;
 const MAX_CONTINUATIONS = 2;
 const MAX_REPAIRS = 1;
@@ -195,6 +204,21 @@ const errorText = (prefix: string, error: unknown): string =>
     ? `${prefix} ${error.message}`
     : prefix;
 
+const errorCauseChain = (
+  error: unknown,
+): { name: string; message: string }[] => {
+  const causes: { name: string; message: string }[] = [];
+  let current = error;
+  while (current instanceof Error && causes.length < 5) {
+    causes.push({
+      name: current.name,
+      message: current.message.slice(0, 500),
+    });
+    current = current.cause;
+  }
+  return causes;
+};
+
 /** Walk the cause chain for the NoObjectGeneratedError carrying the raw text. */
 const rawModelText = (error: unknown, depth = 0): string => {
   if (depth > 5 || error == null) return "";
@@ -209,11 +233,18 @@ const rawModelText = (error: unknown, depth = 0): string => {
 
 const buildRepairPrompt = (basePrompt: string, error: unknown): string => {
   const raw = rawModelText(error);
+  const validationDetails = errorCauseChain(error)
+    .slice(1)
+    .map((cause) => `${cause.name}: ${cause.message}`)
+    .join("\n")
+    .slice(0, 2_000);
   return `${basePrompt}
 
 The previous attempt did not return an object matching the required schema. Return exactly one complete JSON object that strictly matches the schema, with no commentary.${
-    raw ? `\n\nPrevious raw output to correct:\n${raw.slice(0, 6000)}` : ""
-  }`;
+    validationDetails
+      ? `\n\nValidation failures to correct:\n${validationDetails}`
+      : ""
+  }${raw ? `\n\nPrevious raw output to correct:\n${raw.slice(0, 6000)}` : ""}`;
 };
 
 /**
@@ -271,9 +302,12 @@ export const runResilientAgent = async <TSchema extends z.ZodTypeAny>({
   let restarts = 0;
   let continuations = seeded ? 1 : 0;
   let repairs = 0;
+  let attempts = 0;
   let lastFlush = 0;
 
   while (true) {
+    attempts += 1;
+    const attemptStartedAt = Date.now();
     try {
       const result = invokeStructuredModel({
         model,
@@ -300,8 +334,24 @@ export const runResilientAgent = async <TSchema extends z.ZodTypeAny>({
       return continuation?.merge ? continuation.merge(partial, output) : output;
     } catch (error) {
       const partialPresent = hasContent(partial);
-      const kind = classifyFailure(error, partialPresent);
+      const kind = classifyRecoveryFailure(
+        error,
+        partialPresent,
+        continuation !== undefined,
+      );
       const message = errorText(errorMessage, error);
+
+      console.error(`[agent-runtime] ${agent} attempt failed`, {
+        attempt: attempts,
+        durationMs: Date.now() - attemptStartedAt,
+        kind,
+        aborted: abortSignal?.aborted ?? false,
+        partialPresent,
+        restarts,
+        continuations,
+        repairs,
+        causes: errorCauseChain(error),
+      });
 
       // Budget spent. Every branch below starts another model call, so none of
       // them can run — surface the partial so the caller can checkpoint it.

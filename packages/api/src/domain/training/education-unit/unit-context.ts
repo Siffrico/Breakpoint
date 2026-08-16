@@ -1,4 +1,8 @@
-import type { UnitContext, UnitDifficultySnapshot } from "@acme/validators";
+import type {
+  EvaluationDimensionResult,
+  UnitContext,
+  UnitDifficultySnapshot,
+} from "@acme/validators";
 
 import type { Memory } from "../../memory/types";
 
@@ -62,6 +66,12 @@ const testingSection = (context: UnitContext) =>
 const goldilocksSection = (difficulty: UnitDifficultySnapshot) =>
   `## Goldilocks\n${difficulty.promptBlock}`;
 
+const reviewGoldilocksSection = (difficulty: UnitDifficultySnapshot) =>
+  `## Goldilocks\n${difficulty.promptBlock
+    .split("\n")
+    .filter((line) => !line.startsWith("- Support:"))
+    .join("\n")}`;
+
 const focusSection = (focus: UnitAgentFocus): string | null =>
   focus.kind === "education"
     ? null
@@ -91,6 +101,8 @@ export const createMentorContext = ({
     targetSection(unitContext),
     workflowSection(unitContext),
     expertiseSection(unitContext),
+    testingSection(unitContext),
+    judgmentSection(unitContext),
     goldilocksSection(difficulty),
     memories.length > 0
       ? `## Learner memory\n${bulletList(memories.map((memory) => memory.content))}`
@@ -98,28 +110,53 @@ export const createMentorContext = ({
     focusSection(focus),
   ]);
 
-export const createCritiqueContext = ({
+export const createMentorScenarioContext = ({
   unitContext,
   difficulty,
   focus,
-  mode,
   previousChallengePrompts = [],
+  repair = null,
 }: {
   unitContext: UnitContext;
   difficulty: UnitDifficultySnapshot;
   focus: UnitAgentFocus;
-  mode: "create_challenge" | "judge_answer";
   previousChallengePrompts?: readonly string[];
+  repair?: {
+    errorCodes: readonly string[];
+    dimensionResults: readonly EvaluationDimensionResult[];
+  } | null;
 }): string =>
   joinSections([
     targetSection(unitContext),
     workflowSection(unitContext),
     expertiseSection(unitContext),
-    mode === "create_challenge" ? testingSection(unitContext) : null,
+    testingSection(unitContext),
     judgmentSection(unitContext),
-    mode === "create_challenge" ? goldilocksSection(difficulty) : null,
-    mode === "create_challenge" && previousChallengePrompts.length > 0
+    reviewGoldilocksSection(difficulty),
+    previousChallengePrompts.length > 0
       ? `## Previously used challenge surfaces\nCreate a genuinely fresh surface; do not repeat these prompts:\n${bulletList(previousChallengePrompts)}`
       : null,
+    repair
+      ? `## Repair target\nPrior error codes: ${repair.errorCodes.join(", ")}\nWeak dimensions:\n${bulletList(
+          repair.dimensionResults
+            .filter((result) => result.score < 70)
+            .map((result) => `${result.dimensionId}: ${result.missing}`),
+        )}`
+      : null,
+    focusSection(focus),
+  ]);
+
+export const createCritiqueContext = ({
+  unitContext,
+  focus,
+}: {
+  unitContext: UnitContext;
+  focus: UnitAgentFocus;
+}): string =>
+  joinSections([
+    targetSection(unitContext),
+    workflowSection(unitContext),
+    expertiseSection(unitContext),
+    judgmentSection(unitContext),
     focusSection(focus),
   ]);

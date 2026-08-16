@@ -147,6 +147,7 @@ export const previewAiWorkspace: ReadyAiWorkspace = {
       mode: "education_unit",
       promptKind: "education_unit",
       educationStage: "learning",
+      interactionId: null,
       workflowId: null,
       activeUnitId: previewEducationUnit.nodeId,
       activeUnitTitle: previewEducationUnit.title,

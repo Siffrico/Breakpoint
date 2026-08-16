@@ -14,6 +14,7 @@ import type {
 } from "../domain/training/engine/plan-progression";
 import type { JobRatingState } from "../domain/training/engine/rating";
 import type { CreateNextUnitDependencies } from "../domain/training/unit-creation/create-next-unit";
+import type { NodeBuildLeaseGuard } from "./node-build-lifecycle";
 import { resolveProgressionModel } from "../domain/training/engine/progression-model";
 import { createInitialRatingState } from "../domain/training/engine/rating";
 import { isArtifactBuildError } from "../domain/training/orchestration/agent-runtime";
@@ -134,7 +135,7 @@ export const ensureOutcomeCurriculum = async ({
         });
       }
     },
-    build: (lockDb) => {
+    build: (lockDb, withLease) => {
       const persistence = <A>(operation: string, run: () => Promise<A>) =>
         Effect.tryPromise({
           try: run,
@@ -201,10 +202,12 @@ export const ensureOutcomeCurriculum = async ({
               }),
             persist: (input) =>
               persistence("persistOutcomeCurriculum", () =>
-                skillKnowledgeRepository.ensureOutcomeCurriculum({
-                  db: lockDb,
-                  ...input,
-                }),
+                withLease((leaseDb) =>
+                  skillKnowledgeRepository.ensureOutcomeCurriculum({
+                    db: leaseDb,
+                    ...input,
+                  }),
+                ),
               ).pipe(
                 Effect.flatMap((knowledge) =>
                   knowledge
@@ -228,11 +231,13 @@ export const createUnitCreationRepositoryDeps = ({
   sessionId,
   userId,
   abortSignal,
+  withLease,
 }: {
   db: Database;
   sessionId: string;
   userId: string;
   abortSignal?: AbortSignal;
+  withLease?: NodeBuildLeaseGuard;
 }): CreateNextUnitDependencies<NodeRow> => {
   // One seed lookup per node, cached for the life of this deps factory, so a
   // multi-touch unit creation pays for at most one extra query. Fail-closed: a null seed
@@ -326,7 +331,11 @@ export const createUnitCreationRepositoryDeps = ({
       ),
     appendUnit: (input) =>
       queryWithClient(db, "appendDynamicUnit", () =>
-        appendDynamicUnitNode({ db, ...input }),
+        withLease
+          ? withLease((leaseDb) =>
+              appendDynamicUnitNode({ db: leaseDb, ...input }),
+            )
+          : appendDynamicUnitNode({ db, ...input }),
       ),
     hasUnitContent: (nodeId) =>
       queryWithClient(db, "hasDynamicUnitContent", async () =>

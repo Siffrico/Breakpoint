@@ -77,24 +77,24 @@ void test("unit advance assertion rejects unmastered runs and accepts idempotent
   );
 });
 
-void test("a settled Pass 1 remains in the current unit with Next Unit locked", () => {
-  const awaitingPass2Run = {
+void test("settled feedback remains in the current unit with Next Unit locked", () => {
+  const feedbackRun = {
     ...baseRun,
     mode: "awaiting_next_pass" as const,
   };
 
   assert.equal(
-    isUnitAwaitingNextPass({ node: readyNode, run: awaitingPass2Run }),
+    isUnitAwaitingNextPass({ node: readyNode, run: feedbackRun }),
     true,
   );
   assert.equal(
-    isUnitAwaitingAdvance({ node: readyNode, run: awaitingPass2Run }),
+    isUnitAwaitingAdvance({ node: readyNode, run: feedbackRun }),
     false,
   );
   assert.deepEqual(
     getUnitAdvanceGate({
       node: readyNode,
-      run: awaitingPass2Run,
+      run: feedbackRun,
       nextNode: null,
     }),
     { status: "locked" },
@@ -103,8 +103,63 @@ void test("a settled Pass 1 remains in the current unit with Next Unit locked", 
     planWorkspaceTurn({
       nodes: [readyNode],
       activeUnitResponses: [],
-      activeUnitRun: awaitingPass2Run,
+      activeUnitRun: feedbackRun,
+      hasPersistedActiveUnitRun: true,
     })?.educationStage,
     "awaiting_next_pass",
+  );
+});
+
+void test("a durable incomplete education run blocks recall without a phase response", () => {
+  assert.deepEqual(
+    planWorkspaceTurn({
+      nodes: [readyNode],
+      activeUnitResponses: [],
+      activeUnitRun: baseRun,
+      hasPersistedActiveUnitRun: true,
+      recallTarget: {
+        unitNodeId: "recall-node",
+        unitTitle: "Due recall",
+      },
+    }),
+    {
+      mode: "education_unit",
+      promptKind: "education_unit",
+      educationStage: "learning",
+      interactionId: baseRun.cursor.interactionId,
+      workflowId: `${baseRun.experience.id}@${baseRun.experience.version}`,
+      activeUnitId: readyNode.id,
+      activeUnitTitle: readyNode.title,
+      recallUnitId: null,
+      recallUnitTitle: null,
+    },
+  );
+});
+
+void test("a completed education run allows recall at the unit boundary", () => {
+  const completedRun = { ...baseRun, mode: "complete" as const };
+
+  assert.deepEqual(
+    planWorkspaceTurn({
+      nodes: [readyNode],
+      activeUnitResponses: [],
+      activeUnitRun: completedRun,
+      hasPersistedActiveUnitRun: true,
+      recallTarget: {
+        unitNodeId: "recall-node",
+        unitTitle: "Due recall",
+      },
+    }),
+    {
+      mode: "education_unit",
+      promptKind: "recall",
+      educationStage: "review",
+      interactionId: null,
+      workflowId: null,
+      activeUnitId: null,
+      activeUnitTitle: null,
+      recallUnitId: "recall-node",
+      recallUnitTitle: "Due recall",
+    },
   );
 });

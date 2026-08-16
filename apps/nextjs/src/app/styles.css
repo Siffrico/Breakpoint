@@ -655,6 +655,30 @@
   animation: bp-loader-letter 3s infinite;
 }
 
+/* Streaming reveal for assistant prose. Streamdown's animate plugin wraps each
+   newly-arrived word in a [data-sd-animate] span and hands us the timing through
+   CSS variables; words that were already on screen get --sd-duration: 0ms.
+
+   `backwards` rather than `both` is deliberate: with `both` every word keeps
+   filter: blur(0) forever, which pins a compositing layer per word for the whole
+   transcript. `backwards` drops the filter the moment the animation ends, so a
+   finished message is plain inline text again. */
+@keyframes sd-focus {
+  from {
+    opacity: 0.18;
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+
+[data-sd-animate] {
+  animation: var(--sd-animation, sd-focus) var(--sd-duration, 280ms)
+    var(--sd-easing, ease) var(--sd-delay, 0ms) backwards;
+}
+
 /* Accessibility: honor the user's OS-level "reduce motion" setting (WCAG 2.3.3).
    Neutralizes CSS transitions/animations and smooth scrolling for everyone who
    asks for it; JS-driven animation (Motion, GSAP) should additionally guard on

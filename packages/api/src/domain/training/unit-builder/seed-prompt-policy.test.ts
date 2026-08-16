@@ -193,6 +193,20 @@ describe("buildSeedStageRequest", () => {
     );
   });
 
+  it("leaves teaching support to the mentor instead of the unsolved task", () => {
+    const request = buildSeedStageRequest({
+      ...context,
+      difficulty: {
+        promptBlock:
+          "## Difficulty\n- Support: Begin with a fully worked example.\n- Approach: Keep the scenario direct.",
+        bandOrder: 1,
+      },
+    });
+
+    expect(request.prompt).not.toContain("Begin with a fully worked example");
+    expect(request.prompt).toContain("Keep the scenario direct");
+  });
+
   it("requires a compiled outcome contract", () => {
     const clusterContext = context.planContext.clusterContext;
     if (!clusterContext) throw new Error("Missing test cluster context.");

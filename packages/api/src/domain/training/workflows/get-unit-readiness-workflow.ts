@@ -1,4 +1,5 @@
 import type { UnitContent } from "../types/training.types";
+import { getUnitReadinessIssue } from "../education-unit/unit-readiness";
 
 export type UnitReadiness =
   | { kind: "ready" }
@@ -28,7 +29,16 @@ export const getUnitReadinessWorkflow = async ({
   };
 
   const first = await readAfterBuildWait();
-  if (first.unit) return { kind: "ready" };
+  if (first.unit && getUnitReadinessIssue(first.unit) === null) {
+    return { kind: "ready" };
+  }
+  if (first.unit) {
+    return {
+      kind: "failed",
+      retryable: true,
+      message: learnerSafeFailureMessage,
+    };
+  }
   if (!first.settled) return { kind: "preparing" };
 
   // The background callback may be scheduled but not yet have acquired its
@@ -36,7 +46,9 @@ export const getUnitReadinessWorkflow = async ({
   // a permanent generation failure.
   await deps.waitForStartGrace();
   const second = await readAfterBuildWait();
-  if (second.unit) return { kind: "ready" };
+  if (second.unit && getUnitReadinessIssue(second.unit) === null) {
+    return { kind: "ready" };
+  }
   if (!second.settled) return { kind: "preparing" };
 
   return {

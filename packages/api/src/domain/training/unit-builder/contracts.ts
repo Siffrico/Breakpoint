@@ -89,8 +89,66 @@ export const UnitBuilderContextSchema = z.object({
     .nullable(),
 });
 
-export const SeedStageOutputSchema = PreSeedUnitContentDraftSchema;
+const seedOptionSchema = (label: "A" | "B" | "C" | "D") =>
+  z
+    .object({
+      label: z.literal(label),
+      text: z.string().trim().min(1).max(1_000),
+    })
+    .strict();
+
+export const TeachingCardSchema = z
+  .string()
+  .trim()
+  .min(120)
+  .max(2_500)
+  .refine(
+    (content) =>
+      /^\*\*Heuristic\*\*[\s\S]+\*\*Worked example\*\*[\s\S]+\*\*Read\*\*[\s\S]+\*\*Predict\*\*[\s\S]+\*\*Compare\*\*[\s\S]+\*\*Decide\*\*/i.test(
+        content,
+      ),
+    "Teaching must contain the required semantic sections in order.",
+  )
+  .refine(
+    (content) =>
+      /own words/i.test(content) &&
+      content.trimEnd().endsWith("?") &&
+      (content.match(/\?/g)?.length ?? 0) === 1,
+    "Teaching must end with exactly one own-words question.",
+  );
+
+const SeedStageBaseSchema = PreSeedUnitContentDraftSchema.extend({
+  buildContent: TeachingCardSchema,
+});
+
+const selectedSeedStageOutputSchema = SeedStageBaseSchema.extend({
+  options: z.tuple([
+    seedOptionSchema("A"),
+    seedOptionSchema("B"),
+    seedOptionSchema("C"),
+    seedOptionSchema("D"),
+  ]),
+});
+
+export const seedStageOutputSchema = (selectedResponse: boolean) =>
+  selectedResponse ? selectedSeedStageOutputSchema : SeedStageBaseSchema;
+
+export const renderSeedPrompt = (output: {
+  readonly seedPrompt: string;
+  readonly options?: readonly {
+    readonly label: "A" | "B" | "C" | "D";
+    readonly text: string;
+  }[];
+}): string =>
+  [
+    output.seedPrompt.trim(),
+    output.options
+      ?.map((option) => `${option.label}) ${option.text.trim()}`)
+      .join("\n\n"),
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join("\n\n");
 
 export type OutcomeTaskContract = z.infer<typeof OutcomeTaskContractSchema>;
 export type UnitBuilderContext = z.infer<typeof UnitBuilderContextSchema>;
-export type SeedStageOutput = z.infer<typeof SeedStageOutputSchema>;
+export type SeedStageOutput = z.infer<typeof SeedStageBaseSchema>;

@@ -87,13 +87,29 @@ const activeNode = {
   status: "ready",
 } satisfies CurriculumNode;
 
+const unitStateFields = {
+  title: "Stable boundaries",
+  summary: "Keep one canonical boundary.",
+  whyItMatters: "Duplicated ownership creates divergent behavior.",
+  learningGoal: "Choose and defend the canonical boundary.",
+  buildContent:
+    "**Heuristic** Re-derive the move when the controlling constraint changes. **Worked example** **Read** A deploy slows after one configuration change. **Predict** The change may invalidate the usual fix. **Compare** Restarting hides the cause; isolating the changed input tests it. **Decide** Test the changed input first. How would you explain this heuristic in your own words?",
+  seedPrompt: "Diagnose the failure and justify the next probe.",
+  seedHint: "Name the controlling evidence.",
+  clusterArcFrame: null,
+  clusterBriefing: null,
+  scenario: { title: "A changed boundary", focusAreas: ["ownership"] },
+};
+
 const recallUnit = {
+  ...unitStateFields,
   id: "unit-recall",
   nodeId: recallNode.id,
   unitContext,
 } as UnitContent;
 
 const activeUnit = {
+  ...unitStateFields,
   id: "unit-active",
   nodeId: activeNode.id,
   unitContext,
@@ -164,11 +180,9 @@ describe("saveUnitTurnResult", () => {
           assistantMessage: challenge.prompt,
           nextRun: recallRun,
           actor: "reviewer",
-          completedCapabilityId: null,
           reviewGrade: null,
           ratingWrite: null,
           presentedReviewChallenge: true,
-          settledPass: null,
         },
         ratingEvaluation: null,
         tracksRating: true,
@@ -208,6 +222,9 @@ describe("saveUnitTurnResult", () => {
           Layer.succeed(WorkspaceTurnRepo, {
             commitEducationTurn: (input) =>
               Effect.sync(() => {
+                if (!input.phaseResponse) {
+                  throw new Error("Expected a learner phase response.");
+                }
                 commits.push(input);
                 phaseResponses.push({
                   id: "response-1",
@@ -230,7 +247,7 @@ describe("saveUnitTurnResult", () => {
       ),
     );
 
-    expect(commits[0]?.phaseResponse.metadata?.recallEntryIds).toEqual([
+    expect(commits[0]?.phaseResponse?.metadata?.recallEntryIds).toEqual([
       recallCandidate.id,
     ]);
     expect(result.state).toMatchObject({

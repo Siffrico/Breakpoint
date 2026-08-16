@@ -1,6 +1,5 @@
 import { Duration, Effect, Schedule } from "effect";
 
-import type { DbError } from "../../../effect/errors";
 import type { Result } from "../../../lib/result";
 import type { PersistedUnitRun } from "../education-unit/unit-state";
 import type { MasteryProgressionState } from "../engine/plan-progression";
@@ -10,6 +9,7 @@ import type {
   UnitContent,
 } from "../types/training.types";
 import type { CreateNextUnitError } from "../unit-creation/create-next-unit";
+import { DbError } from "../../../effect/errors";
 import { err, ok } from "../../../lib/result";
 import { decideMasteryProgression } from "../engine/plan-progression";
 import { assertUnitCanAdvance } from "../workspace-ai/workspace-turn";
@@ -168,15 +168,15 @@ export const advanceCompletedUnitWorkflow = async ({
   }
 
   let promoted: { node: CurriculumNode; hadContent: boolean } | null = null;
+  let completeAfterBackground = false;
   try {
-    promoted = await deps.withTransaction(async (tx) => {
+    const transition = await deps.withTransaction(async (tx) => {
       const plan = await tx.getActivePlan(sessionId);
       const node = plan?.nodes.find((item) => item.id === nodeId) ?? null;
       const unit = node ? await tx.getUnitByNodeId(node.id) : null;
       const run = unit ? await tx.getUnitRun(sessionId, unit.id) : null;
       assertUnitCanAdvance({ node, run });
       if (!node) throw new Error("Completed unit context is missing.");
-      if (node.status !== "completed") await tx.completeNode(nodeId);
       const plannedSibling =
         progression?.decision.intent === "create_unit"
           ? (plan?.nodes.find(
@@ -195,14 +195,25 @@ export const advanceCompletedUnitWorkflow = async ({
       const plannedContent = plannedSibling
         ? await tx.getUnitByNodeId(plannedSibling.id)
         : null;
+      const shouldCompleteAfterBackground =
+        progression != null &&
+        (progression.decision.intent === "node_complete" || !plannedSibling);
+      if (!shouldCompleteAfterBackground && node.status !== "completed") {
+        await tx.completeNode(nodeId);
+      }
       await tx.touchSession(sessionId);
-      return plannedSibling
-        ? {
-            node: { ...plannedSibling, status: "ready" as const },
-            hadContent: plannedContent != null,
-          }
-        : null;
+      return {
+        completeAfterBackground: shouldCompleteAfterBackground,
+        promoted: plannedSibling
+          ? {
+              node: { ...plannedSibling, status: "ready" as const },
+              hadContent: plannedContent != null,
+            }
+          : null,
+      };
     });
+    promoted = transition.promoted;
+    completeAfterBackground = transition.completeAfterBackground;
   } catch (error) {
     return err(error instanceof Error ? error.message : "Unit cannot advance.");
   }
@@ -211,6 +222,24 @@ export const advanceCompletedUnitWorkflow = async ({
   if (progression) {
     const { skillNodeId, userId, decision } = progression;
     const promotedHadContent = promoted?.hadContent ?? false;
+    const completeCurrentUnit = Effect.tryPromise({
+      try: () =>
+        deps.withTransaction(async (tx) => {
+          const plan = await tx.getActivePlan(sessionId);
+          const node =
+            plan?.nodes.find((candidate) => candidate.id === nodeId) ?? null;
+          if (!node) throw new Error("Completed unit context is missing.");
+          if (node.status !== "completed") await tx.completeNode(nodeId);
+          await tx.touchSession(sessionId);
+        }),
+      catch: (cause) =>
+        new DbError({
+          operation: "completeAdvancedUnit",
+          kind: "unknown",
+          message: "The completed unit could not be finalized.",
+          cause,
+        }),
+    });
     const createNextUnitTask = Effect.gen(function* () {
       if (decision.intent === "create_unit") {
         // Fully prepared by pre-generation — nothing left to create. A
@@ -226,6 +255,7 @@ export const advanceCompletedUnitWorkflow = async ({
         // The outcome is mastered — advance to the next outcome.
         yield* deps.advanceSkillMapNode({ skillNodeId, sessionId, userId });
       }
+      if (completeAfterBackground) yield* completeCurrentUnit;
     }).pipe(
       Effect.retry({
         schedule: Schedule.exponential(Duration.seconds(2)).pipe(
@@ -235,7 +265,7 @@ export const advanceCompletedUnitWorkflow = async ({
         while: isTransientUnitCreationFailure,
       }),
       Effect.tapCause((cause) =>
-        Effect.logError("unit creation failed permanently", {
+        Effect.logError("unit progression failed permanently", {
           skillNodeId,
           cause,
         }),

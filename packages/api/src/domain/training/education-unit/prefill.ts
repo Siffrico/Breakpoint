@@ -10,7 +10,8 @@ import type { ReviewPresentationOutput } from "./agent-contracts";
 import type { UnitAgentError } from "./agent-errors";
 import type { EducationExperienceDefinition } from "./experience";
 import type { PersistedUnitRun } from "./unit-state";
-import { runReviewPresentationAgent } from "./review-agent";
+import { renderReviewPresentation } from "./agent-contracts";
+import { runMentorScenarioAgent } from "./mentor-agent";
 
 export class UnitTurnContractError extends Data.TaggedError(
   "UnitTurnContractError",
@@ -66,15 +67,28 @@ const presentationContext = (
 ## Exact structural target
 Author the scenario to this server-owned target: ${JSON.stringify(difficultyVector)}. Return only the learner-facing scenario in assistantMessage.`;
 
+export const scenarioFromPresentation = ({
+  run,
+  presentation,
+}: {
+  run: PersistedUnitRun;
+  presentation: ReviewPresentationOutput;
+}): Effect.Effect<UnitReviewChallenge, UnitTurnContractError> =>
+  Effect.gen(function* () {
+    const difficultyVector = yield* difficultyVectorFor(run);
+    const prompt = renderReviewPresentation(presentation);
+    return {
+      prompt,
+      difficultyVector,
+      contract: evaluationContractFor(run, prompt, presentation.verifier),
+    };
+  });
+
 export interface PrefillDependencies {
-  readonly runReviewPresentation: typeof runReviewPresentationAgent;
+  readonly runMentorScenario: typeof runMentorScenarioAgent;
 }
 
-/**
- * Writes one scenario for the run's pending solve. Every caller goes through
- * here — the live open, the teach turn's speculative authoring, and the next
- * pass's background pre-generation — so all three produce the same shape.
- */
+/** Every scenario authoring path produces the same server-owned contract. */
 export const prefillScenario = (
   {
     run,
@@ -88,38 +102,25 @@ export const prefillScenario = (
     onPartialAssistantMessage?: (content: string) => void;
   },
   deps: PrefillDependencies = {
-    runReviewPresentation: runReviewPresentationAgent,
+    runMentorScenario: runMentorScenarioAgent,
   },
 ): Effect.Effect<UnitReviewChallenge, UnitAgentError | UnitTurnContractError> =>
   Effect.gen(function* () {
     const difficultyVector = yield* difficultyVectorFor(run);
-    const result = yield* deps.runReviewPresentation({
-      messages: [],
+    const result = yield* deps.runMentorScenario({
       context: presentationContext(context, difficultyVector),
       experience,
-      pass: run.reviewPass,
+      pass:
+        run.cursor.step.kind === "pass_result"
+          ? run.cursor.step.attempt + 1
+          : run.reviewPass,
+      selectedResponse: run.difficultySnapshot?.format?.kind === "mcq",
       onPartialAssistantMessage,
     });
-    return {
-      prompt: result.object.assistantMessage,
-      difficultyVector,
-      contract: evaluationContractFor(
-        run,
-        result.object.assistantMessage,
-        result.object.verifier,
-      ),
-    };
+    const challenge = yield* scenarioFromPresentation({
+      run,
+      presentation: result.object,
+    });
+    onPartialAssistantMessage?.(challenge.prompt);
+    return challenge;
   });
-
-/**
- * The challenge already parked on the next unfinished solve. Read during the
- * teach step, where the head is still a capability, so it cannot use the head.
- */
-export const parkedChallenge = (
-  run: PersistedUnitRun,
-): UnitReviewChallenge | null => {
-  const solve = run.todos.find(
-    (todo) => todo.kind === "solve" && todo.status !== "completed",
-  );
-  return solve?.kind === "solve" ? solve.challenge : null;
-};

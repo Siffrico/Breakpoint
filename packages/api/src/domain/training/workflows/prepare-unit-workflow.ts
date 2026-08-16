@@ -1,5 +1,3 @@
-import { UnitContextSchema } from "@acme/validators";
-
 import type { Result } from "../../../lib/result";
 import type {
   EducationUnitState,
@@ -7,6 +5,7 @@ import type {
 } from "../types/training.types";
 import type { UnitPreparationDependencies } from "../unit-preparation/prepare-unit-content";
 import { err, ok } from "../../../lib/result";
+import { getUnitReadinessIssue } from "../education-unit/unit-readiness";
 import { generateClusterBriefing } from "../generate-cluster-briefing";
 import { getEducationUnitState } from "../policies/education-unit-state-policy";
 import { runPrepareUnit } from "../unit-preparation/prepare-unit-edge";
@@ -62,10 +61,7 @@ export const prepareUnitWorkflow = async ({
   const existingResponses = existingUnit
     ? await deps.getPhaseResponses(existingUnit.id, sessionId)
     : [];
-  if (
-    existingUnit &&
-    UnitContextSchema.safeParse(existingUnit.unitContext).success
-  ) {
+  if (existingUnit && getUnitReadinessIssue(existingUnit) === null) {
     return ok(
       getEducationUnitState({
         unit: existingUnit,
@@ -86,6 +82,7 @@ export const prepareUnitWorkflow = async ({
       node,
       sessionId,
       deps,
+      forceRefresh: existingUnit !== null,
       prepareClusterBriefing: parentNode
         ? async () => ({
             nodeId: parentNode.id,

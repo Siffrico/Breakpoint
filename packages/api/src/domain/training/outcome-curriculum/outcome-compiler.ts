@@ -32,7 +32,7 @@ PRACTICE CONTRACT — how the outcome is practised and evaluated without allowin
 - neverDo lists ways a generated task could look plausible while failing to measure the result, including answer-pattern gaming, generic test-taking tricks, surface matching, or a shortcut that avoids the target judgment
 
 FINAL VALIDATION:
-Check that every Skill Map skill matters in at least one task type and affects at least one evaluation criterion. Remove anything that does not directly alter performance. Check that a generator could build a complete, domain-authentic task from the Practice Contract without inventing its format. Try to construct a learner who could pass through rote recall, answer-pattern gaming, or fluent but causally empty explanation; if they could, revise the task contract so it requires the target judgment.`;
+Check that every exact Skill Map skill name appears in at least one task type's skills and at least one evaluation criterion's skills. Remove anything that does not directly alter performance. Return exactly three difficulty bands in this order, with band values 0, 1, and 2. Check that a generator could build a complete, domain-authentic task from the Practice Contract without inventing its format. Try to construct a learner who could pass through rote recall, answer-pattern gaming, or fluent but causally empty explanation; if they could, revise the task contract so it requires the target judgment.`;
 
 export interface CompileOutcomeInput {
   targetIdentity: string;

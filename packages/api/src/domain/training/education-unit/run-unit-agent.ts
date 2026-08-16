@@ -10,8 +10,8 @@ import { requireAiModelForPurpose } from "../engine/model-router";
 import {
   classifyUnitAgentFailure,
   isRetryableUnitAgentError,
+  nameUnitAgentSchemaError,
   UnitAgentFirstVisibleTimeoutError,
-  UnitAgentSchemaError,
   UnitAgentWallClockTimeoutError,
 } from "./agent-errors";
 
@@ -31,6 +31,7 @@ interface RunUnitAgentInput<TSchema extends z.ZodTypeAny> {
   readonly errorMessage: string;
   readonly reasoning: ReasoningEffort;
   readonly onPartialAssistantMessage?: (content: string) => void;
+  readonly renderPartialAssistantMessage?: (partial: unknown) => string;
 }
 
 const MAX_RESTARTS = 1;
@@ -114,9 +115,6 @@ const callModel = async <TSchema extends z.ZodTypeAny>(
         { role: "user", content: input.context } as ModelMessage,
       ],
       cache: true,
-      // Pace the structured-output text deltas so the learner-facing reply
-      // types out word by word instead of landing in JSON-parse bursts.
-      smoothPartials: true,
       maxSteps: 1,
       maxOutputTokens: input.maxOutputTokens,
       abortSignal,
@@ -130,10 +128,11 @@ const callModel = async <TSchema extends z.ZodTypeAny>(
     for await (const partial of result.partialOutputStream as AsyncIterable<unknown>) {
       if (abortSignal.aborted) throw abortSignal.reason;
       armInactivityTimeout();
-      const assistantMessage =
-        typeof partial === "object" &&
-        partial !== null &&
-        "assistantMessage" in partial
+      const assistantMessage = input.renderPartialAssistantMessage
+        ? input.renderPartialAssistantMessage(partial)
+        : typeof partial === "object" &&
+            partial !== null &&
+            "assistantMessage" in partial
           ? partial.assistantMessage
           : undefined;
       if (typeof assistantMessage === "string") {
@@ -178,10 +177,7 @@ const attempt = <TSchema extends z.ZodTypeAny>(
   }).pipe(
     Effect.mapError((error) =>
       error._tag === "UnitAgentSchemaError"
-        ? new UnitAgentSchemaError({
-            ...error,
-            schemaName: input.schemaName,
-          })
+        ? nameUnitAgentSchemaError(error, input.schemaName)
         : error,
     ),
   );

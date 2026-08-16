@@ -19,7 +19,7 @@ import type { WorkspaceAiMessage, WorkspaceAiTurnResult } from "./types";
 import type { RatingEvidenceError } from "./workspace-errors";
 import type { WorkspaceTurnDependencies } from "./workspace-turn";
 import { projectScenarioBrief } from "../education-unit/scenario-brief";
-import { isDecisivePass } from "../education-unit/unit-state";
+import { isRatingEligibleScenario } from "../education-unit/unit-state";
 import { WorkspacePersistenceError } from "./workspace-errors";
 import { resolveWorkspaceTurn } from "./workspace-turn";
 import { WorkspaceTurnRepo } from "./workspace-turn-repo";
@@ -129,7 +129,7 @@ export interface WorkspaceEducationTurnCommit {
   unitLeaseId: string;
   userMessage: WorkspaceUserMessageCommit | null;
   assistantMessage: WorkspaceAssistantMessageCommit;
-  phaseResponse: WorkspacePhaseResponseCommit;
+  phaseResponse: WorkspacePhaseResponseCommit | null;
   ratingEvaluation: WorkspaceRatingEvaluationCommit | null;
   knowledgeCheckOff: WorkspaceKnowledgeCheckOffCommit | null;
   knowledgeReinforcement?: { knowledgeIds: string[]; passed: boolean } | null;
@@ -189,7 +189,6 @@ const verdictLabel = (result: UnitTurnResult): string => {
     return result.reviewGrade.passed ? "review_passed" : "review_continues";
   }
   if (result.presentedReviewChallenge) return "review_prompted";
-  if (result.completedCapabilityId) return "capability_completed";
   return "learning_continues";
 };
 
@@ -211,6 +210,7 @@ export const saveUnitTurnResult = ({
   turnId,
   turnLeaseId,
   persistUserMessage,
+  persistPhaseResponse = true,
   responseSequence,
   deps,
 }: {
@@ -231,6 +231,7 @@ export const saveUnitTurnResult = ({
   turnId: string;
   turnLeaseId: string;
   persistUserMessage: boolean;
+  persistPhaseResponse?: boolean;
   responseSequence: number;
   deps: WorkspaceTurnPersistenceDependencies;
 }): Effect.Effect<
@@ -246,13 +247,11 @@ export const saveUnitTurnResult = ({
       difficultySnapshot,
     };
     const complete = nextRun.mode === "complete";
-    // The rating attempt opens on the challenge Glicko will actually score: one
-    // whose mark can end the unit. An education Pass 1 is diagnostic, so it is
-    // not the performance being rated.
+    // The rating attempt opens only on a scenario whose mark can end the unit.
     const opensRatingAttempt =
       tracksRating &&
       turnResult.presentedReviewChallenge &&
-      isDecisivePass(nextRun);
+      isRatingEligibleScenario(nextRun);
     const presentedAt = new Date();
     const scenarioPresentation = opensRatingAttempt
       ? {
@@ -265,32 +264,36 @@ export const saveUnitTurnResult = ({
     const solvePresentation = opensRatingAttempt
       ? { scenarioAttemptId: null, presentedAt }
       : null;
-    const phaseResponse: WorkspacePhaseResponseCommit = {
-      unitContentId: unit.id,
-      sessionId,
-      userId,
-      phase: nextRun.kind === "recall" ? "ai_recall" : "ai_education",
-      sequence: responseSequence,
-      userResponse: message,
-      aiResponse: turnResult.assistantMessage,
-      passed: complete,
-      score: turnResult.reviewGrade?.score ?? null,
-      metadata: {
-        aiEducationStage: nextRun.mode,
-        promptKind: nextRun.kind === "recall" ? "recall" : "education_unit",
-        modelPurpose:
-          turnResult.actor === "reviewer" ? "evaluation" : "education",
-        verdict: verdictLabel(turnResult),
-        evaluationSummary: turnResult.reviewGrade?.reasoning,
-        dimensionResults: turnResult.reviewGrade
-          ? [...turnResult.reviewGrade.dimensionResults]
-          : undefined,
-        difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
-        goldilocksUpdated: ratingEvaluation ? true : undefined,
-        recallEntryIds: recallEntryIds ?? undefined,
-        feedback: turnResult.assistantMessage,
-      },
-    };
+    const phaseResponse: WorkspacePhaseResponseCommit | null =
+      persistPhaseResponse
+        ? {
+            unitContentId: unit.id,
+            sessionId,
+            userId,
+            phase: nextRun.kind === "recall" ? "ai_recall" : "ai_education",
+            sequence: responseSequence,
+            userResponse: message,
+            aiResponse: turnResult.assistantMessage,
+            passed: complete,
+            score: turnResult.reviewGrade?.score ?? null,
+            metadata: {
+              aiEducationStage: nextRun.mode,
+              promptKind:
+                nextRun.kind === "recall" ? "recall" : "education_unit",
+              modelPurpose:
+                turnResult.actor === "reviewer" ? "evaluation" : "education",
+              verdict: verdictLabel(turnResult),
+              evaluationSummary: turnResult.reviewGrade?.reasoning,
+              dimensionResults: turnResult.reviewGrade
+                ? [...turnResult.reviewGrade.dimensionResults]
+                : undefined,
+              difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
+              goldilocksUpdated: ratingEvaluation ? true : undefined,
+              recallEntryIds: recallEntryIds ?? undefined,
+              feedback: turnResult.assistantMessage,
+            },
+          }
+        : null;
     const completion =
       complete && nextRun.kind === "education"
         ? {

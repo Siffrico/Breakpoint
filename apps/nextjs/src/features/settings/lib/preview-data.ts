@@ -8,7 +8,7 @@ import type {
 const previewEducationCustomization = {
   main: {
     instructions:
-      "Build autonomous capability one todo at a time. Diagnose the learner's present blocker and choose the smallest high-leverage mentoring move.",
+      "Build autonomous capability one interaction at a time. Diagnose the learner's present blocker and choose the smallest high-leverage mentoring move.",
   },
   reviewer: {
     instructions:

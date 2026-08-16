@@ -15,7 +15,8 @@ const OUTPUT_RULES = `Output rules:
 - scenario.focusAreas contains 2 or 3 precise evaluation targets
 - seedHint guides the kind of response to give without giving away the answer
 - clusterArcFrame positions this slot in the larger sequence without teaching the answer
-- complexityBudget is 1, 2, or 3 based on the real reasoning load`;
+- complexityBudget is 1, 2, or 3 based on the real reasoning load
+- buildContent is the concise teaching card shown before the task. Use exactly this order: **Heuristic**, **Worked example**, **Read**, **Predict**, **Compare**, **Decide**. End with exactly one question asking the learner to explain the heuristic in their own words. Do not include any other question`;
 
 const mainOutcomePrompt = (context: UnitBuilderContext): string => {
   const contract = context.planContext.clusterContext?.taskContract;
@@ -56,7 +57,7 @@ Rules:
 - title is a task-worded directive naming the concrete task, never a question
 - seedPrompt must be the complete learner-ready task in the required task shape, including all stimuli, options, inputs, or constraints needed to attempt it
 - the learner is judged only against the fixed result; do not add a second deliverable
-- selected-response task shapes must include the complete response options and satisfy the quality bar
+- for selected-response task shapes, seedPrompt contains only the complete stimulus and question stem; put exactly four complete choices in the typed options fields labeled A-D and do not duplicate them in seedPrompt
 - use the current Skill Map targets to choose this repetition's content and variation, but never name those targets or prescribe the solve procedure
 - make the learner apply an expert heuristic; do not reward recall of a fact alone
 - build the task at the band the difficulty directive names, to the band brief's stated reasoning path, withheld givens, and embedded alternatives — those counts are the difficulty, not a suggestion
@@ -108,6 +109,10 @@ const formatUnitBuilderContext = (context: UnitBuilderContext): string => {
   const clusterContext = context.planContext.clusterContext
     ? `${context.planContext.clusterContext.title}: ${context.planContext.clusterContext.summary} | Why it matters: ${context.planContext.clusterContext.whyItMatters}`
     : "None";
+  const taskDifficulty = context.difficulty?.promptBlock
+    .split("\n")
+    .filter((line) => !line.startsWith("- Support:"))
+    .join("\n");
   return `Node kind: ${context.node.kind}
 Unit regime: ${context.planContext.regime ?? "missing"}
 Node title: ${context.node.title}
@@ -116,7 +121,7 @@ Why it matters: ${context.node.whyItMatters}
 Slot position: ${context.planContext.slotIndex} of ${context.planContext.totalSlots}
 Cluster context: ${clusterContext}
 Target identity: ${context.learner.targetIdentity}
-${context.difficulty?.promptBlock ?? "No difficulty directive resolved for this unit; build at the middle band."}
+${taskDifficulty ?? "No difficulty directive resolved for this unit; build at the middle band."}
 ${
   context.knowledge
     ? `Workflow: ${context.knowledge.workflow.name}

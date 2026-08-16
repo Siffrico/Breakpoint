@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import type { UnitDifficultySnapshot } from "@acme/validators";
 
+import {
+  createCritiqueContext,
+  createMentorContext,
+  createMentorScenarioContext,
+} from "./unit-context";
 import { makeUnitContext } from "./unit-context.fixture";
-import { createCritiqueContext, createMentorContext } from "./unit-context";
 
 const unitContext = makeUnitContext();
 const difficulty = {
@@ -45,16 +49,15 @@ describe("unit agent context projections", () => {
     expect(result).toContain("## Expert workflow");
     expect(result).toContain("## Goldilocks");
     expect(result).toContain("The learner defaults to copied procedures.");
-    expect(result).not.toContain("## Test contract");
-    expect(result).not.toContain("## Judgment standard");
+    expect(result).toContain("## Test contract");
+    expect(result).toContain("## Judgment standard");
   });
 
   it("gives challenge creation the test contract, judgment, Goldilocks, and fresh-surface guard", () => {
-    const result = createCritiqueContext({
+    const result = createMentorScenarioContext({
       unitContext,
       difficulty,
       focus,
-      mode: "create_challenge",
       previousChallengePrompts: ["The earlier production scenario."],
     });
 
@@ -65,13 +68,29 @@ describe("unit agent context projections", () => {
     expect(result).not.toContain("Learner memory");
   });
 
+  it("keeps teaching support out of the independent review prompt", () => {
+    const result = createMentorScenarioContext({
+      unitContext,
+      difficulty: {
+        ...difficulty,
+        promptBlock: `## Difficulty directive
+- Format: Selected response
+- Support: Begin with a fully worked example, then pose the scenario.
+- Approach: Standard training scenario.`,
+      },
+      focus,
+    });
+
+    expect(result).toContain("- Format: Selected response");
+    expect(result).toContain("- Approach: Standard training scenario.");
+    expect(result).not.toContain("- Support:");
+    expect(result).not.toContain("fully worked example");
+  });
+
   it("keeps grading independent from difficulty, memory, and prior challenges", () => {
     const result = createCritiqueContext({
       unitContext,
-      difficulty,
       focus,
-      mode: "judge_answer",
-      previousChallengePrompts: ["The earlier production scenario."],
     });
 
     expect(result).toContain("## Unit assignment");

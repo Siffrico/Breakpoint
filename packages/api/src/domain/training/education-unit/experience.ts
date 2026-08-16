@@ -23,10 +23,10 @@ export interface EducationExperienceDefinition {
 }
 
 export const DEFAULT_EDUCATION_EXPERIENCE = {
-  snapshot: { id: "breakpoint-mentor", version: 1 },
+  snapshot: { id: "breakpoint-mentor", version: 2 },
   main: {
     instructions:
-      "Build autonomous capability one todo at a time. Diagnose the learner's present blocker, choose the smallest high-leverage mentoring move, and stay on the current capability until the learner's own reasoning demonstrates it.",
+      "Build autonomous capability one interaction at a time. Diagnose the learner's present blocker, choose the smallest high-leverage mentoring move, and stay on the current capability until the learner's own reasoning demonstrates it.",
   },
   reviewer: {
     instructions:

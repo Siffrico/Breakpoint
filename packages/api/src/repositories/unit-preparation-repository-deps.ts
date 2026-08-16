@@ -3,6 +3,7 @@ import { eq } from "@acme/db";
 import { TrainingCurriculumPlan } from "@acme/db/schema";
 
 import type { UnitPreparationDependencies } from "../domain/training/unit-preparation/prepare-unit-content";
+import type { NodeBuildLeaseGuard } from "./node-build-lifecycle";
 import { resolveClusterDirective } from "./resolve-cluster-directive";
 import { skillKnowledgeRepository } from "./skill-knowledge-repository";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
@@ -13,6 +14,7 @@ type Database = typeof databaseClient;
 
 export const createUnitPreparationRepositoryDeps = (
   db: Database,
+  withLease?: NodeBuildLeaseGuard,
 ): UnitPreparationDependencies => ({
   getUnitByNodeId: (nodeId) =>
     trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),
@@ -51,20 +53,38 @@ export const createUnitPreparationRepositoryDeps = (
   getUnitKnowledgeContext: (unitNodeId) =>
     skillKnowledgeRepository.getUnitContext({ db, unitNodeId }),
   createUnitContentIfAbsent: (payload) =>
-    trainingCurriculumRepository.createUnitContentIfAbsent({ db, ...payload }),
+    withLease
+      ? withLease((leaseDb) =>
+          trainingCurriculumRepository.createUnitContentIfAbsent({
+            db: leaseDb,
+            ...payload,
+          }),
+        )
+      : trainingCurriculumRepository.createUnitContentIfAbsent({
+          db,
+          ...payload,
+        }),
   replaceUnitContent: (payload) =>
-    trainingCurriculumRepository.replaceUnitContent({ db, ...payload }),
+    withLease
+      ? withLease((leaseDb) =>
+          trainingCurriculumRepository.replaceUnitContent({
+            db: leaseDb,
+            ...payload,
+          }),
+        )
+      : trainingCurriculumRepository.replaceUnitContent({ db, ...payload }),
   // A savepoint keeps this optional write from aborting the unit-build
   // transaction while still making successful content + briefing atomic.
-  saveNodeBriefing: (payload) =>
-    db
-      .transaction(async (tx) =>
+  saveNodeBriefing: (payload) => {
+    const save = (writeDb: Database) =>
+      writeDb.transaction(async (tx) =>
         trainingCurriculumRepository.saveNodeBriefing({
           db: tx as unknown as Database,
           ...payload,
         }),
-      )
-      .catch(() => null),
+      );
+    return (withLease ? withLease(save) : save(db)).catch(() => null);
+  },
   // Rebinds the deps to the lock's own connection so the whole build rides
   // one pooled connection instead of holding the lock on one and querying
   // through others (which can deadlock an exhausted pool).
@@ -72,7 +92,8 @@ export const createUnitPreparationRepositoryDeps = (
     withUnitBuildLock({
       db,
       nodeId,
-      build: (lockDb) => build(createUnitPreparationRepositoryDeps(lockDb)),
+      build: (lockDb, guardLease) =>
+        build(createUnitPreparationRepositoryDeps(lockDb, guardLease)),
       loadReady: (readyDb) =>
         loadReady(createUnitPreparationRepositoryDeps(readyDb)),
       rebuildReady: options?.rebuildReady,

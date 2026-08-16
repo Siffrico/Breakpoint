@@ -108,6 +108,8 @@ const planNodes = [parentPlanNode, planNode];
 
 const setup = {
   title: "Isolate the failure",
+  buildContent:
+    "**Heuristic**\nRe-derive the move whenever a material constraint changes.\n\n**Worked example**\n**Read** — A deploy slows after one configuration change.\n**Predict** — The changed constraint may invalidate the familiar fix.\n**Compare** — Restarting treats the symptom; isolating the changed variable tests the cause.\n**Decide** — Probe the changed variable first because it distinguishes the causal hypotheses.\n\nHow would you explain this heuristic in your own words?",
   seedPrompt: "A deployment slows after one change. What do you inspect first?",
   seedHint: "Name the probe and the signal it would distinguish.",
   clusterArcFrame: "Move from symptoms to discriminating evidence.",
@@ -181,7 +183,7 @@ const unit = {
   clusterArcFrame: setup.clusterArcFrame,
   clusterBriefing: null,
   complexityBudget: setup.complexityBudget,
-  buildContent: null,
+  buildContent: setup.buildContent,
   practicePrompts: null,
   teachbackSetup: setup.teachbackSetup,
   scenario: setup.scenario,
@@ -547,24 +549,19 @@ describe("prepareUnitContent", () => {
     expect(result).toBe(unit);
   });
 
-  it("retries a provider failure and then persists the successful scaffold", async () => {
+  it("does not add a second recovery loop around the seed agent", async () => {
     runSeedStageMock
       .mockRejectedValueOnce(new Error("provider unavailable"))
       .mockResolvedValueOnce(setup);
     const deps = makeDeps();
 
-    const result = await Effect.runPromise(
+    const exit = await Effect.runPromiseExit(
       prepareUnitContent({ node, sessionId: "session-1", deps }),
     );
 
-    expect(result).toBe(unit);
-    expect(runSeedStageMock).toHaveBeenCalledTimes(2);
-    expect(deps.createUnitContentIfAbsent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        unitContext,
-      }),
-    );
-    expect(deps.replaceUnitContent).not.toHaveBeenCalled();
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(runSeedStageMock).toHaveBeenCalledTimes(1);
+    expect(deps.createUnitContentIfAbsent).not.toHaveBeenCalled();
   });
 
   it("uses replacement for an explicit refresh", async () => {
@@ -631,7 +628,7 @@ describe("prepareUnitContent", () => {
     const resultPromise = Effect.runPromiseExit(
       prepareUnitContent({ node, sessionId: "session-1", deps }),
     );
-    await vi.advanceTimersByTimeAsync(140_000);
+    await vi.advanceTimersByTimeAsync(46_000);
     const exit = await resultPromise;
 
     expect(Exit.isFailure(exit)).toBe(true);
@@ -639,7 +636,7 @@ describe("prepareUnitContent", () => {
       expect(String(exit.cause)).toContain("UnitScaffoldError");
       expect(String(exit.cause)).toContain("timed out");
     }
-    expect(runSeedStageMock).toHaveBeenCalledTimes(3);
+    expect(runSeedStageMock).toHaveBeenCalledTimes(1);
   });
 
   it("tags a write failure as UnitPersistError without regenerating", async () => {

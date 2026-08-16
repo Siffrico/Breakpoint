@@ -275,7 +275,6 @@ const seedUnitRun = async ({
       unitContentId: unit.id,
       sessionId: session.id,
       userId,
-      mode,
       experienceJson: {
         id: "breakpoint-mentor",
         version: 1,
@@ -288,7 +287,29 @@ const seedUnitRun = async ({
         criterionId: "perform-workflow",
         criterion: "Perform and defend the workflow.",
       }),
-      todosJson: [],
+      cursorJson: {
+        interactionId: randomUUID(),
+        scenarioPrompts: [],
+        step:
+          mode === "complete"
+            ? {
+                kind: "complete",
+                attempt: 1,
+                outcome: "pass",
+                evidence: [
+                  {
+                    dimensionId: "perform-workflow",
+                    score: 90,
+                    evidence: "Derived the move from the changed constraint.",
+                    missing: null,
+                  },
+                ],
+                evidencedTargetIds: ["target-1"],
+              }
+            : mode === "review"
+              ? { kind: "scenario", attempt: 1, challenge: null }
+              : { kind: "teaching", preparedScenario: null },
+      },
     })
     .returning({ id: TrainingUnitRun.id });
   if (!run) throw new Error("Expected a unit run.");

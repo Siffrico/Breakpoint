@@ -6,65 +6,226 @@ import {
   ScenarioVerifierSchema,
 } from "@acme/validators";
 
+import { getReviewPresentationReadinessIssue } from "./unit-readiness";
+
 export const LearnerFacingMessageSchema = z.string().trim().min(24).max(8_000);
 
-/**
- * The mentor may only ever check off the capability it is currently working on,
- * so that id is baked into the schema as a literal. Naming a stale, unknown, or
- * out-of-order capability is unrepresentable rather than rejected after the
- * model has already streamed a reply to the learner.
- */
-export const mentorOutputSchema = (currentCapabilityId: string) =>
+const reviewOptionSchema = (label: "A" | "B" | "C" | "D") =>
   z
     .object({
-      assistantMessage: LearnerFacingMessageSchema,
-      completedCapabilityId: z.literal(currentCapabilityId).nullable(),
+      label: z.literal(label),
+      text: z.string().trim().min(1).max(1_000),
     })
+    .strict();
+
+const reviewPresentationBase = {
+  assistantMessage: LearnerFacingMessageSchema,
+  verifier: ScenarioVerifierSchema,
+};
+
+interface ReviewOption {
+  readonly label: "A" | "B" | "C" | "D";
+  readonly text: string;
+}
+
+export const renderReviewPresentation = (output: {
+  readonly assistantMessage: string;
+  readonly options?: readonly ReviewOption[];
+}): string =>
+  [
+    output.assistantMessage.trim(),
+    output.options
+      ?.map((option) => `${option.label}) ${option.text.trim()}`)
+      .join("\n\n"),
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join("\n\n");
+
+const refineReviewPresentation = (
+  output: {
+    readonly assistantMessage: string;
+    readonly options?: readonly ReviewOption[];
+    readonly verifier: z.infer<typeof ScenarioVerifierSchema>;
+  },
+  ctx: z.RefinementCtx,
+) => {
+  const assistantMessage = renderReviewPresentation(output);
+  const readinessIssue = getReviewPresentationReadinessIssue({
+    assistantMessage,
+    verifier: output.verifier,
+  });
+  if (readinessIssue) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["assistantMessage"],
+      message: readinessIssue,
+    });
+  }
+  if (/<\/?scratchpad>|verifier\.|checkerSpec/i.test(assistantMessage)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["assistantMessage"],
+      message: "learner-facing text must not expose private authoring data",
+    });
+  }
+};
+
+const selectedReviewPresentationSchema = z
+  .object({
+    ...reviewPresentationBase,
+    options: z.tuple([
+      reviewOptionSchema("A"),
+      reviewOptionSchema("B"),
+      reviewOptionSchema("C"),
+      reviewOptionSchema("D"),
+    ]),
+  })
+  .strict()
+  .superRefine(refineReviewPresentation);
+
+const openReviewPresentationSchema = z
+  .object(reviewPresentationBase)
+  .strict()
+  .superRefine(refineReviewPresentation);
+
+export const reviewPresentationSchema = (selectedResponse: boolean) =>
+  selectedResponse
+    ? selectedReviewPresentationSchema
+    : openReviewPresentationSchema;
+
+const mentorTeachingBase = {
+  assistantMessage: LearnerFacingMessageSchema,
+};
+
+export const mentorOpeningOutputSchema = z
+  .object({
+    heuristic: z
+      .string()
+      .trim()
+      .min(12)
+      .max(500)
+      .describe("One or two sentences stating the followable command."),
+    workedExample: z
+      .object({
+        read: z
+          .string()
+          .trim()
+          .min(12)
+          .max(1_000)
+          .describe("The short concrete passage or problem."),
+        predict: z
+          .string()
+          .trim()
+          .min(8)
+          .max(500)
+          .describe("The predicted role or answer before comparing choices."),
+        compare: z
+          .string()
+          .trim()
+          .min(12)
+          .max(1_000)
+          .describe(
+            "The tempting wrong move, the correct move, and the mechanical difference.",
+          ),
+        decide: z
+          .string()
+          .trim()
+          .min(8)
+          .max(500)
+          .describe("The heuristic applied to the final result."),
+      })
+      .strict(),
+    check: z
+      .string()
+      .trim()
+      .min(12)
+      .max(500)
+      .describe("Exactly one small unanswered question with new details."),
+    preparedScenario: z.null(),
+  })
+  .strict()
+  .superRefine((output, ctx) => {
+    const questionCount = output.check.match(/\?/g)?.length ?? 0;
+    if (!output.check.endsWith("?") || questionCount !== 1) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["check"],
+        message: "The check must end in exactly one question.",
+      });
+    }
+  });
+
+export const mentorTeachingOutputSchema = (
+  selectedResponse: boolean,
+  createScenario: boolean,
+) =>
+  createScenario
+    ? mentorHandoffOutputSchema(selectedResponse)
+    : mentorOpeningOutputSchema;
+
+export const mentorHandoffOutputSchema = (selectedResponse: boolean) =>
+  (selectedResponse
+    ? z.object({
+        ...mentorTeachingBase,
+        preparedScenario: selectedReviewPresentationSchema,
+      })
+    : z.object({
+        ...mentorTeachingBase,
+        preparedScenario: openReviewPresentationSchema,
+      })
+  )
     .strict()
     .superRefine((output, ctx) => {
-      if (
-        output.completedCapabilityId === null &&
-        !output.assistantMessage.includes("?")
-      ) {
+      const questionCount = output.assistantMessage.match(/\?/g)?.length ?? 0;
+      if (questionCount > 0) {
         ctx.addIssue({
           code: "custom",
           path: ["assistantMessage"],
           message:
-            "An incomplete capability response must end in a visible learner question.",
-        });
-      }
-      if (
-        output.completedCapabilityId === null &&
-        /\bmark (?:this|it|the (?:capability|unit|todo))(?: one)? complete\b/i.test(
-          output.assistantMessage,
-        )
-      ) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["completedCapabilityId"],
-          message:
-            "A completion claim requires completedCapabilityId to be set.",
+            "The answer to the teaching question must hand off without another question.",
         });
       }
     });
 
-export const reviewPresentationSchema = z
-  .object({
-    assistantMessage: LearnerFacingMessageSchema,
-    verifier: ScenarioVerifierSchema,
-  })
-  .strict()
-  .superRefine((output, ctx) => {
-    if (
-      /<\/?scratchpad>|verifier\.|checkerSpec/i.test(output.assistantMessage)
-    ) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["assistantMessage"],
-        message: "learner-facing text must not expose private authoring data",
-      });
-    }
-  });
+export type MentorOpeningOutput = z.infer<typeof mentorOpeningOutputSchema>;
+
+export const renderMentorOpening = (output: unknown): string => {
+  if (typeof output !== "object" || output === null) return "";
+  const candidate = output as Record<string, unknown>;
+  const heuristic =
+    typeof candidate.heuristic === "string" ? candidate.heuristic : null;
+  const workedExample =
+    typeof candidate.workedExample === "object" &&
+    candidate.workedExample !== null
+      ? (candidate.workedExample as Record<string, unknown>)
+      : null;
+  const check = typeof candidate.check === "string" ? candidate.check : null;
+  const workedPart = (key: "read" | "predict" | "compare" | "decide") =>
+    workedExample && typeof workedExample[key] === "string"
+      ? workedExample[key].trim()
+      : null;
+  const read = workedPart("read");
+  const predict = workedPart("predict");
+  const compare = workedPart("compare");
+  const decide = workedPart("decide");
+  return [
+    heuristic ? `## Heuristic\n\n${heuristic.trim()}` : null,
+    workedExample
+      ? [
+          "## Worked example",
+          read ? `### Read\n\n${read}` : null,
+          predict ? `### Predict\n\n${predict}` : null,
+          compare ? `### Compare\n\n${compare}` : null,
+          decide ? `### Decide\n\n${decide}` : null,
+        ]
+          .filter((part): part is string => part !== null)
+          .join("\n\n")
+      : null,
+    check ? `## Check\n\n${check.trim()}` : null,
+  ]
+    .filter((part): part is string => part !== null)
+    .join("\n\n");
+};
 
 // ---------------------------------------------------------------------------
 // Critic contracts
@@ -140,8 +301,8 @@ export interface GradeShape {
   readonly testedDimensionIds: readonly string[];
   /** The learner's latest answer, which every evidence quote must come from. */
   readonly learnerAnswer: string;
-  /** Whether this mark can end the unit, or only opens another pass. */
-  readonly decisive: boolean;
+  /** Whether a failed grade will actually open the persisted feedback loop. */
+  readonly interactiveFeedback: boolean;
 }
 
 /**
@@ -152,6 +313,7 @@ export interface GradeShape {
 export const reviewGradeSchema = ({
   testedDimensionIds,
   learnerAnswer,
+  interactiveFeedback,
 }: GradeShape) =>
   z
     .object({
@@ -189,12 +351,80 @@ export const reviewGradeSchema = ({
       }
 
       const gap = hasModelGap(output.dimensionResults);
-      if (gap && !output.assistantMessage.trimEnd().endsWith("?")) {
+      if (gap && output.errorCodes.length === 0) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["errorCodes"],
+          message: "A learner gap requires at least one diagnostic error code.",
+        });
+      }
+      if (!gap && output.errorCodes.length > 0) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["errorCodes"],
+          message: "A clean answer cannot carry diagnostic error codes.",
+        });
+      }
+      if (gap && !output.dimensionResults.some((result) => result.missing)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["dimensionResults"],
+          message: "A learner gap requires a concrete missing element.",
+        });
+      }
+      if (!gap && output.dimensionResults.some((result) => result.missing)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["dimensionResults"],
+          message: "A clean answer cannot report a missing element.",
+        });
+      }
+      if (
+        gap &&
+        !["What held", "Change", "Use next time"].every((label) =>
+          new RegExp(`\\*\\*${label}\\*\\*`, "i").test(output.assistantMessage),
+        )
+      ) {
         ctx.addIssue({
           code: "custom",
           path: ["assistantMessage"],
           message:
-            "feedback for a learner gap must end with one targeted application question",
+            "feedback for a learner gap must include What held, Change, and Use next time labels",
+        });
+      }
+      const questionCount = output.assistantMessage.match(/\?/g)?.length ?? 0;
+      if (
+        gap &&
+        interactiveFeedback &&
+        (!output.assistantMessage.trimEnd().endsWith("?") ||
+          questionCount !== 1)
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["assistantMessage"],
+          message:
+            "feedback for a learner gap must end in exactly one focused question",
+        });
+      }
+      if (gap && !interactiveFeedback && questionCount > 0) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["assistantMessage"],
+          message: "one-shot feedback must close without a learner question",
+        });
+      }
+      if (
+        !gap &&
+        (questionCount > 0 ||
+          /\*\*(?:What held|Change|Use next time)\*\*|\b(?:one more|another|next|fresh) (?:challenge|scenario|problem)\b/i.test(
+            output.assistantMessage,
+          ))
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["assistantMessage"],
+          message:
+            "feedback for a clean answer must close concisely without repair sections or promising another task",
         });
       }
       if (
@@ -210,6 +440,52 @@ export const reviewGradeSchema = ({
       }
     });
 
-export type MentorOutput = z.infer<ReturnType<typeof mentorOutputSchema>>;
-export type ReviewPresentationOutput = z.infer<typeof reviewPresentationSchema>;
+export const reviewFeedbackSchema = (promptRound: number) =>
+  z
+    .object({
+      assistantMessage: LearnerFacingMessageSchema,
+      feedbackComplete: z.boolean(),
+      scratchpad: z.string().trim().min(1).max(600),
+    })
+    .strict()
+    .superRefine((output, ctx) => {
+      const questionCount = output.assistantMessage.match(/\?/g)?.length ?? 0;
+      if (promptRound === 3 && !output.feedbackComplete) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["feedbackComplete"],
+          message: "The third feedback answer must close the feedback turn.",
+        });
+      }
+      if (
+        !output.feedbackComplete &&
+        (!output.assistantMessage.trimEnd().endsWith("?") ||
+          questionCount !== 1)
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["assistantMessage"],
+          message:
+            "Continuing feedback must end in exactly one focused question.",
+        });
+      }
+      if (output.feedbackComplete && questionCount > 0) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["assistantMessage"],
+          message: "Completed feedback must close without another question.",
+        });
+      }
+    });
+
+export interface MentorTeachingOutput {
+  readonly assistantMessage: string;
+  readonly preparedScenario: ReviewPresentationOutput | null;
+}
+export type ReviewPresentationOutput = z.infer<
+  ReturnType<typeof reviewPresentationSchema>
+>;
 export type ReviewGradeOutput = z.infer<ReturnType<typeof reviewGradeSchema>>;
+export type ReviewFeedbackOutput = z.infer<
+  ReturnType<typeof reviewFeedbackSchema>
+>;

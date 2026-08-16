@@ -297,7 +297,7 @@ const isPrewarmNode = (node: { kind: string; status: string }): boolean =>
  * the onboarding agent has already spent part of it generating the tool call by
  * the time the build starts — this leaves that headroom.
  */
-const BUILD_BUDGET_MS = 180_000;
+const BUILD_BUDGET_MS = 270_000;
 
 /**
  * What each step is assumed to need. Derived from the run profiles the step's
@@ -309,7 +309,7 @@ const BUILD_BUDGET_MS = 180_000;
  * under-reserving costs the whole invocation, so they lean high.
  */
 const STEP_RESERVE_MS: Record<"unit", number> = {
-  unit: 120_000,
+  unit: 240_000,
 };
 
 /**

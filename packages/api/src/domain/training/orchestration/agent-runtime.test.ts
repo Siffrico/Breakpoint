@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { ArtifactBuildError, classifyFailure } from "./agent-runtime";
+import {
+  ArtifactBuildError,
+  classifyFailure,
+  classifyRecoveryFailure,
+} from "./agent-runtime";
 
 describe("classifyFailure", () => {
   it("passes through an ArtifactBuildError's own kind", () => {
@@ -34,5 +38,19 @@ describe("classifyFailure", () => {
 
   it("falls back to provider for an unknown error", () => {
     expect(classifyFailure(new Error("???"), false)).toBe("provider");
+  });
+});
+
+describe("classifyRecoveryFailure", () => {
+  it("repairs a structured partial when the agent cannot continue it", () => {
+    const error = new ArtifactBuildError("invalid object", "partial");
+
+    expect(classifyRecoveryFailure(error, true, false)).toBe("schema");
+  });
+
+  it("continues a partial when the agent supports continuation", () => {
+    const error = new ArtifactBuildError("truncated", "partial");
+
+    expect(classifyRecoveryFailure(error, true, true)).toBe("partial");
   });
 });

@@ -1,23 +1,24 @@
 import type { db as databaseClient } from "@acme/db/client";
-import type { UnitReviewChallenge, UnitReviewPass } from "@acme/validators";
-import { and, desc, eq, isNull, ne, sql } from "@acme/db";
+import type { UnitReviewChallenge } from "@acme/validators";
+import { and, desc, eq, isNull, sql } from "@acme/db";
 import { TrainingUnitRun } from "@acme/db/schema";
 import {
   EducationExperienceSnapshotSchema,
   UnitContextSchema,
+  UnitCursorSchema,
   UnitRunKindSchema,
-  UnitTodoSchema,
 } from "@acme/validators";
 
 import type { PersistedUnitRun } from "../domain/training/education-unit/unit-state";
-import { projectUnitRun } from "../domain/training/education-unit/unit-state";
+import {
+  projectUnitRun,
+  retireRun,
+} from "../domain/training/education-unit/unit-state";
 
 type Database = typeof databaseClient;
 
 const canonicalJson = (value: unknown): string => {
-  if (Array.isArray(value)) {
-    return `[${value.map(canonicalJson).join(",")}]`;
-  }
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
   if (value && typeof value === "object") {
     const entries = Object.entries(value).sort(([left], [right]) =>
       left.localeCompare(right),
@@ -43,27 +44,14 @@ const mapUnitRun = (
       "Unit run experience identity does not match its immutable snapshot.",
     );
   }
-  const unitContext = UnitContextSchema.parse(row.unitContextJson);
-  const kind = UnitRunKindSchema.parse(row.kind);
-  const todos = UnitTodoSchema.array().parse(row.todosJson);
-
-  const persistedIds = todos
-    .filter((todo) => todo.kind === "capability")
-    .map((todo) => todo.dimensionId);
-  if (persistedIds.length !== 1 || persistedIds[0] !== "teach") {
-    throw new Error(
-      "Unit run must contain exactly one authoritative teaching todo.",
-    );
-  }
-
   return projectUnitRun({
     unitId: row.unitContentId,
     sessionId: row.sessionId,
     userId: row.userId,
-    kind,
+    kind: UnitRunKindSchema.parse(row.kind),
     experience,
-    unitContext,
-    todos,
+    unitContext: UnitContextSchema.parse(row.unitContextJson),
+    cursor: UnitCursorSchema.parse(row.cursorJson),
     difficultySnapshot: row.difficultySnapshotJson,
   });
 };
@@ -71,7 +59,8 @@ const mapUnitRun = (
 const tryMapUnitRun = (
   row: typeof TrainingUnitRun.$inferSelect,
 ): PersistedUnitRun | null =>
-  UnitContextSchema.safeParse(row.unitContextJson).success
+  UnitContextSchema.safeParse(row.unitContextJson).success &&
+  UnitCursorSchema.safeParse(row.cursorJson).success
     ? mapUnitRun(row)
     : null;
 
@@ -92,7 +81,6 @@ export const trainingUnitRunRepository = {
         eq(TrainingUnitRun.kind, "education"),
       ),
     });
-
     return row ? tryMapUnitRun(row) : null;
   },
 
@@ -107,11 +95,10 @@ export const trainingUnitRunRepository = {
       where: and(
         eq(TrainingUnitRun.sessionId, sessionId),
         eq(TrainingUnitRun.kind, "recall"),
-        ne(TrainingUnitRun.mode, "complete"),
+        sql`${TrainingUnitRun.cursorJson}->'step'->>'kind' <> 'complete'`,
       ),
       orderBy: [desc(TrainingUnitRun.updatedAt)],
     });
-
     return row ? tryMapUnitRun(row) : null;
   },
 
@@ -129,34 +116,23 @@ export const trainingUnitRunRepository = {
         eq(TrainingUnitRun.sessionId, sessionId),
         eq(TrainingUnitRun.unitContentId, unitContentId),
         eq(TrainingUnitRun.kind, "recall"),
-        ne(TrainingUnitRun.mode, "complete"),
       ),
     });
     if (!row) return;
-
     const run = tryMapUnitRun(row);
-    if (!run) {
-      await db
-        .update(TrainingUnitRun)
-        .set({ mode: "complete" })
-        .where(eq(TrainingUnitRun.id, row.id));
-      return;
-    }
+    if (!run || run.cursor.step.kind === "complete") return;
     await db
       .update(TrainingUnitRun)
-      .set({
-        mode: "complete",
-        todosJson: run.todos.map((todo) => ({ ...todo, status: "completed" })),
-      })
-      .where(eq(TrainingUnitRun.id, row.id));
+      .set({ cursorJson: retireRun(run).cursor })
+      .where(
+        and(
+          eq(TrainingUnitRun.id, row.id),
+          eq(TrainingUnitRun.cursorJson, row.cursorJson),
+          isNull(TrainingUnitRun.turnLeaseId),
+        ),
+      );
   },
 
-  /**
-   * Parks a backgrounded challenge on the run's unopened solve todo. Guarded on
-   * the run still waiting with an empty slot and no live turn, so a task that
-   * lands after the learner already pressed Enter (or after a second task won
-   * the race) is a no-op rather than a challenge swap mid-pass.
-   */
   setPendingChallenge: async ({
     db,
     sessionId,
@@ -169,7 +145,7 @@ export const trainingUnitRunRepository = {
     sessionId: string;
     unitContentId: string;
     kind: string;
-    pass: UnitReviewPass;
+    pass: number;
     challenge: UnitReviewChallenge;
   }): Promise<void> => {
     const row = await db.query.TrainingUnitRun.findFirst({
@@ -182,28 +158,26 @@ export const trainingUnitRunRepository = {
     if (!row) return;
     const run = tryMapUnitRun(row);
     if (!run) return;
-    const pending = run.todos.find((todo) => todo.status !== "completed");
+    const step = run.cursor.step;
     if (
-      pending?.kind !== "solve" ||
-      pending.pass !== pass ||
-      pending.status !== "pending" ||
-      pending.challenge
+      step.kind !== "pass_result" ||
+      step.attempt + 1 !== pass ||
+      step.preparedScenario
     ) {
       return;
     }
-    const todos = run.todos.map((todo) =>
-      todo === pending ? { ...todo, challenge } : todo,
-    );
-
     await db
       .update(TrainingUnitRun)
-      .set({ todosJson: todos })
+      .set({
+        cursorJson: {
+          ...run.cursor,
+          step: { ...step, preparedScenario: challenge },
+        },
+      })
       .where(
         and(
-          eq(TrainingUnitRun.sessionId, sessionId),
-          eq(TrainingUnitRun.unitContentId, unitContentId),
-          eq(TrainingUnitRun.kind, kind),
-          eq(TrainingUnitRun.todosJson, row.todosJson),
+          eq(TrainingUnitRun.id, row.id),
+          eq(TrainingUnitRun.cursorJson, row.cursorJson),
           isNull(TrainingUnitRun.turnLeaseId),
         ),
       );
@@ -221,15 +195,13 @@ export const trainingUnitRunRepository = {
       unitContentId: run.unitId,
       userId: run.userId,
       kind: run.kind,
-      mode: run.mode,
       experienceId: run.experience.id,
       experienceVersion: run.experience.version,
       experienceJson: run.experience,
       unitContextJson: run.unitContext,
-      todosJson: [...run.todos],
+      cursorJson: run.cursor,
       difficultySnapshotJson: run.difficultySnapshot,
     };
-
     const [row] = await db
       .insert(TrainingUnitRun)
       .values(values)
@@ -241,21 +213,16 @@ export const trainingUnitRunRepository = {
         ],
         set: {
           userId: values.userId,
-          kind: values.kind,
-          mode: values.mode,
           experienceId: values.experienceId,
           experienceVersion: values.experienceVersion,
           experienceJson: values.experienceJson,
           unitContextJson: values.unitContextJson,
-          todosJson: values.todosJson,
-          difficultySnapshotJson: sql`case when ${TrainingUnitRun.kind} = excluded.kind and ${TrainingUnitRun.experienceId} = excluded.experience_id and ${TrainingUnitRun.experienceVersion} = excluded.experience_version and ${TrainingUnitRun.mode} != 'complete' then coalesce(${TrainingUnitRun.difficultySnapshotJson}, excluded.difficulty_snapshot_json) else excluded.difficulty_snapshot_json end`,
+          cursorJson: values.cursorJson,
+          difficultySnapshotJson: sql`case when ${TrainingUnitRun.experienceId} = excluded.experience_id and ${TrainingUnitRun.experienceVersion} = excluded.experience_version and ${TrainingUnitRun.cursorJson}->'step'->>'kind' <> 'complete' then coalesce(${TrainingUnitRun.difficultySnapshotJson}, excluded.difficulty_snapshot_json) else excluded.difficulty_snapshot_json end`,
         },
       })
       .returning();
-
-    if (!row) {
-      throw new Error("Unit run could not be saved.");
-    }
+    if (!row) throw new Error("Unit run could not be saved.");
     if (
       run.difficultySnapshot &&
       canonicalJson(row.difficultySnapshotJson) !==
@@ -263,7 +230,6 @@ export const trainingUnitRunRepository = {
     ) {
       throw new Error("A unit run's difficulty snapshot cannot be replaced.");
     }
-
     return mapUnitRun(row);
   },
 };

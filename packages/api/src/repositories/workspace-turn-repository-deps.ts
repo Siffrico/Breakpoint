@@ -63,12 +63,11 @@ const claimWorkspaceUnitLease = async ({
       unitContentId,
       userId: run.userId,
       kind: run.kind,
-      mode: run.mode,
       experienceId: run.experience.id,
       experienceVersion: run.experience.version,
       experienceJson: run.experience,
       unitContextJson: run.unitContext,
-      todosJson: [...run.todos],
+      cursorJson: run.cursor,
       difficultySnapshotJson: run.difficultySnapshot,
       turnLeaseId: leaseId,
       turnLeaseExpiresAt: workspaceLeaseExpiry(now),
@@ -382,13 +381,13 @@ const commitEducationTurn = async ({
       presentedScenarioAttemptId = attempt.id;
     }
     if (input.solvePresentation) {
-      // The review presentation opens its rating attempt in this same commit
+      // The scenario presentation opens its rating attempt in this same commit
       // and stamps the learner's answer clock directly.
       const solveAttemptId =
         input.solvePresentation.scenarioAttemptId ?? presentedScenarioAttemptId;
       if (!solveAttemptId) {
         throw new Error(
-          "Review presentation has no scenario attempt to stamp.",
+          "Scenario presentation has no scenario attempt to stamp.",
         );
       }
       await trainingRatingRepository.stampSolvePresentation({
@@ -427,17 +426,19 @@ const commitEducationTurn = async ({
       throw new Error("AI response could not be saved.");
     }
 
-    await trainingCurriculumRepository.savePhaseResponse({
-      db: txDb,
-      ...input.phaseResponse,
-      metadata: presentedScenarioAttemptId
-        ? {
-            ...input.phaseResponse.metadata,
-            scenarioAttemptId: presentedScenarioAttemptId,
-          }
-        : input.phaseResponse.metadata,
-      sequence: input.phaseResponse.sequence ?? assistantMessage.sequence,
-    });
+    if (input.phaseResponse) {
+      await trainingCurriculumRepository.savePhaseResponse({
+        db: txDb,
+        ...input.phaseResponse,
+        metadata: presentedScenarioAttemptId
+          ? {
+              ...input.phaseResponse.metadata,
+              scenarioAttemptId: presentedScenarioAttemptId,
+            }
+          : input.phaseResponse.metadata,
+        sequence: input.phaseResponse.sequence ?? assistantMessage.sequence,
+      });
+    }
     await trainingUnitRunRepository.upsertUnitRun({
       db: txDb,
       run: input.nextRun,

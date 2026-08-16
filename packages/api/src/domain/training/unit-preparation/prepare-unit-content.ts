@@ -1,17 +1,15 @@
-import { Duration, Effect, Schedule } from "effect";
-
-import { UnitContextSchema } from "@acme/validators";
+import { Duration, Effect } from "effect";
 
 import type { CurriculumNode, UnitContent } from "../types/training.types";
 import type { UnitBuilderContext } from "../unit-builder/contracts";
 import type { UnitPreparationError } from "./errors";
+import { getUnitReadinessIssue } from "../education-unit/unit-readiness";
 import { regimeForNodeKind } from "../engine/progression-model";
 import { OutcomeTaskContractSchema } from "../unit-builder/contracts";
 import { createUnitContext } from "../unit-builder/create-unit-context";
 import { runSeedStage } from "../unit-builder/seed-stage";
 import {
   classifyUnitScaffoldFailure,
-  isRetryable,
   UnitContextMissingError,
   UnitPersistError,
   UnitScaffoldError,
@@ -62,6 +60,7 @@ export interface UnitPreparationDependencies {
   readonly createUnitContentIfAbsent: (input: {
     nodeId: string;
     title: string;
+    buildContent: string;
     seedPrompt: string;
     seedHint: string;
     clusterArcFrame: string;
@@ -73,6 +72,7 @@ export interface UnitPreparationDependencies {
   readonly replaceUnitContent: (input: {
     nodeId: string;
     title: string;
+    buildContent: string;
     seedPrompt: string;
     seedHint: string;
     clusterArcFrame: string;
@@ -108,11 +108,6 @@ export interface PrepareUnitContentInput {
     briefing: NonNullable<UnitContent["clusterBriefing"]>;
   }>;
 }
-
-const MAX_RESTARTS = 2;
-const RESTART_SCHEDULE = Schedule.exponential(Duration.millis(300), 2).pipe(
-  Schedule.both(Schedule.recurs(MAX_RESTARTS)),
-);
 
 const contextMissing = (message: string, cause?: unknown) =>
   new UnitContextMissingError({ message, cause });
@@ -229,11 +224,7 @@ const prepareUnitContentUnlocked = ({
           cause,
         }),
     });
-    if (
-      existing &&
-      UnitContextSchema.safeParse(existing.unitContext).success &&
-      !forceRefresh
-    ) {
+    if (existing && getUnitReadinessIssue(existing) === null && !forceRefresh) {
       return existing;
     }
     const replacesExistingContent = existing !== null;
@@ -289,10 +280,6 @@ const prepareUnitContentUnlocked = ({
             })
           : error,
       ),
-      Effect.retry({
-        schedule: RESTART_SCHEDULE,
-        while: isRetryable,
-      }),
     );
 
     const created = yield* Effect.tryPromise({
@@ -303,6 +290,7 @@ const prepareUnitContentUnlocked = ({
         const persisted = await persist({
           nodeId: node.id,
           title: setup.title,
+          buildContent: setup.buildContent,
           seedPrompt: setup.seedPrompt,
           seedHint: setup.seedHint,
           clusterArcFrame: setup.clusterArcFrame,
@@ -329,19 +317,35 @@ const prepareUnitContentUnlocked = ({
     return created;
   });
 
-const lockFailure = (cause: unknown): UnitPreparationError => {
-  if (
-    cause instanceof UnitContextMissingError ||
-    cause instanceof UnitScaffoldError ||
-    cause instanceof UnitPersistError
-  ) {
-    return cause;
-  }
-  return new UnitPersistError({
-    message: "Unit preparation lock failed.",
-    cause,
-  });
+/**
+ * `withUnitBuildLock` is a Promise API, so the inner effect's typed error
+ * channel is erased at the boundary and `lockFailure` has to rebuild the union
+ * from `unknown`. Keying that reconstruction off the union's own `_tag` makes
+ * it the compiler's problem: a fourth member of `UnitPreparationError` fails
+ * to typecheck here until it is listed, instead of silently falling through to
+ * the "lock failed" branch and reaching the edge with the wrong diagnosis.
+ */
+const unitPreparationTags: Record<UnitPreparationError["_tag"], true> = {
+  UnitContextMissingError: true,
+  UnitScaffoldError: true,
+  UnitPersistError: true,
 };
+
+const isUnitPreparationError = (
+  cause: unknown,
+): cause is UnitPreparationError =>
+  cause instanceof Error &&
+  "_tag" in cause &&
+  typeof cause._tag === "string" &&
+  cause._tag in unitPreparationTags;
+
+const lockFailure = (cause: unknown): UnitPreparationError =>
+  isUnitPreparationError(cause)
+    ? cause
+    : new UnitPersistError({
+        message: "Unit preparation lock failed.",
+        cause,
+      });
 
 const loadReadyUnitContent = async (
   deps: UnitPreparationDependencies,

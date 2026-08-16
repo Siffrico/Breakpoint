@@ -34,6 +34,7 @@ import { projectScenarioBrief } from "../education-unit/scenario-brief";
 import {
   createCritiqueContext,
   createMentorContext,
+  createMentorScenarioContext,
 } from "../education-unit/unit-context";
 import { boundTranscript } from "../engine/compaction";
 import { resolveRatingScope } from "../orchestration/rating-scope";
@@ -257,11 +258,10 @@ const heartbeatLeases = ({
 const SLOT = "education_unit" as const;
 
 /**
- * What the learner sees where a difficulty note normally sits, on the turn that
- * closes Pass 1. Deliberately not a section of prose: the transition should read
- * as momentum, not as a status report about internal passes.
+ * What the learner sees where a difficulty note normally sits when the first
+ * solve exposes a gap. The transition reads as momentum, not internal state.
  */
-const PASS_ONE_SETTLED_NOTE = "Nice. One more challenge.";
+const RETRY_SCENARIO_NOTE = "Use the feedback in this fresh scenario.";
 
 const claimTurnAndLoadTranscript = ({
   sessionId,
@@ -369,16 +369,16 @@ const claimTurnAndLoadTranscript = ({
       deps,
     });
 
-    // Each unit is its own chat. Structured todo evidence survives outside the
-    // verbatim window, so bounding a long adaptive loop cannot erase durable
-    // progress and needs no summarization model on the hot path.
+    // Each unit is its own chat. The durable cursor keeps scenario evidence
+    // outside the verbatim window, so bounding a long adaptive loop cannot
+    // erase progress or require a summarization model on the hot path.
     //
     // The learner's message is committed with the turn, not before it, so the
     // model's view of this turn has to be assembled here. An `advance_pass`
     // carries no answer at all — appending an empty user turn would put a blank
     // learner message in the transcript for the next grade to score.
     const messages =
-      action === "advance_pass"
+      action !== "submit_answer"
         ? persistedMessages
         : [
             ...persistedMessages,
@@ -401,7 +401,7 @@ const claimTurnAndLoadTranscript = ({
       kind: "claimed",
       messages,
       transcript: boundTranscript(messages),
-      claimedDurableTurn: action !== "advance_pass",
+      claimedDurableTurn: action === "submit_answer",
       claimedAt: claim.claimedAt,
     };
   });
@@ -415,6 +415,7 @@ export const runEducationUnitTurn = ({
   userId,
   turnId,
   turnLeaseId,
+  interactionId,
   action = "submit_answer",
   message,
   turn,
@@ -426,6 +427,7 @@ export const runEducationUnitTurn = ({
   userId: string;
   turnId: string;
   turnLeaseId: string;
+  interactionId: string;
   action?: WorkspaceTurnAction;
   message: string;
   turn: ResolvedWorkspaceTurn;
@@ -541,9 +543,7 @@ export const runEducationUnitTurn = ({
             : null,
         }
       : { kind: "education" as const };
-    const previousChallengePrompts = unitRun.todos.flatMap((todo) =>
-      todo.kind === "solve" && todo.challenge ? [todo.challenge.prompt] : [],
-    );
+    const previousChallengePrompts = unitRun.cursor.scenarioPrompts;
     const contexts = {
       mentor: createMentorContext({
         unitContext: unitRun.unitContext,
@@ -551,25 +551,24 @@ export const runEducationUnitTurn = ({
         memories,
         focus,
       }),
+      mentorScenario: createMentorScenarioContext({
+        unitContext: unitRun.unitContext,
+        difficulty: difficultySnapshot,
+        focus,
+        previousChallengePrompts,
+      }),
       critique: {
-        createChallenge: createCritiqueContext({
-          unitContext: unitRun.unitContext,
-          difficulty: difficultySnapshot,
-          focus,
-          mode: "create_challenge",
-          previousChallengePrompts,
-        }),
         judgeAnswer: createCritiqueContext({
           unitContext: unitRun.unitContext,
-          difficulty: difficultySnapshot,
           focus,
-          mode: "judge_answer",
         }),
       },
     };
 
     const turnInput = {
       run: { ...unitRun, difficultySnapshot },
+      interactionId,
+      action,
       transcript: toModelMessages(loadedTranscript.transcript),
       experience,
       contexts,
@@ -639,17 +638,18 @@ export const runEducationUnitTurn = ({
     }
 
     const completed = turnResult.nextRun.mode === "complete";
-    const settlesPass1 =
-      turnResult.settledPass === 1 && turnResult.nextRun.kind === "education";
+    const evidencedTargetIds =
+      turnResult.nextRun.cursor.step.kind === "complete"
+        ? turnResult.nextRun.cursor.step.evidencedTargetIds
+        : [];
+    const opensRetry =
+      turnResult.reviewGrade?.passed === false &&
+      turnResult.nextRun.kind === "education";
     const knowledgeCheckOff =
       completed && turnResult.nextRun.kind === "education"
         ? {
-            requestedKnowledgeIds: unitRun.unitContext.targets.map(
-              (entry) => entry.id,
-            ),
-            targetedKnowledgeIds: unitRun.unitContext.targets.map(
-              (entry) => entry.id,
-            ),
+            requestedKnowledgeIds: evidencedTargetIds,
+            targetedKnowledgeIds: evidencedTargetIds,
             evidenceNodeId: unit.nodeId,
           }
         : null;
@@ -673,7 +673,7 @@ export const runEducationUnitTurn = ({
     const skillPractice =
       completed && !recallFocus
         ? {
-            knowledgeIds: unitRun.unitContext.targets.map((entry) => entry.id),
+            knowledgeIds: evidencedTargetIds,
           }
         : null;
 
@@ -696,12 +696,14 @@ export const runEducationUnitTurn = ({
           ? composedEntryIds
           : null,
       difficultySnapshot,
-      difficultyDirectiveReason: settlesPass1
-        ? PASS_ONE_SETTLED_NOTE
-        : difficultySnapshot.directive.reason,
+      difficultyDirectiveReason:
+        opensRetry && !completed
+          ? RETRY_SCENARIO_NOTE
+          : difficultySnapshot.directive.reason,
       turnId,
       turnLeaseId,
       persistUserMessage: loadedTranscript.claimedDurableTurn,
+      persistPhaseResponse: action !== "start_unit",
       responseSequence: unitResponses.filter(
         (response) =>
           response.phase === "ai_education" || response.phase === "ai_recall",
@@ -714,12 +716,26 @@ export const runEducationUnitTurn = ({
       turnResult.nextRun.mode === "awaiting_next_pass" &&
       savePendingChallenge
     ) {
+      const passResult = turnResult.nextRun.cursor.step;
       const runPassPregeneration = () =>
         Effect.runPromise(
           prefillScenario({
             run: turnResult.nextRun,
             experience,
-            context: contexts.critique.createChallenge,
+            context:
+              passResult.kind === "pass_result" && passResult.outcome === "fail"
+                ? createMentorScenarioContext({
+                    unitContext: turnResult.nextRun.unitContext,
+                    difficulty: difficultySnapshot,
+                    focus,
+                    previousChallengePrompts:
+                      turnResult.nextRun.cursor.scenarioPrompts,
+                    repair: {
+                      errorCodes: passResult.errorCodes,
+                      dimensionResults: passResult.evidence,
+                    },
+                  })
+                : contexts.mentorScenario,
           }).pipe(
             Effect.flatMap((challenge) =>
               Effect.tryPromise(() =>
@@ -727,7 +743,7 @@ export const runEducationUnitTurn = ({
                   sessionId,
                   unitContentId: unit.id,
                   kind: turnResult.nextRun.kind,
-                  pass: turnResult.nextRun.reviewPass,
+                  pass: turnResult.nextRun.reviewPass + 1,
                   challenge,
                 }),
               ),
