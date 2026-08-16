@@ -292,8 +292,8 @@ export const loadPlannedRecall = ({
 
     if (
       isUnitMidFlight({
-        activeUnitResponses: active.responses,
         activeUnitRun: active.run,
+        hasPersistedActiveUnitRun: active.hasPersistedRun,
       })
     ) {
       return null;
@@ -362,6 +362,7 @@ export interface NextReadyUnitProjection {
   unit: UnitContent | null;
   responses: PhaseResponseRecord[];
   run: PersistedUnitRun | null;
+  hasPersistedRun: boolean;
 }
 
 /**
@@ -385,7 +386,13 @@ export const loadNextReadyUnitProjection = ({
     const node = getNextReadyLearningNode(nodes);
     const unit = node ? yield* reader.getUnitByNodeId(node.id) : null;
     if (!unit || getUnitReadinessIssue(unit) !== null) {
-      return { node, unit: null, responses: [], run: null };
+      return {
+        node,
+        unit: null,
+        responses: [],
+        run: null,
+        hasPersistedRun: false,
+      };
     }
     const [responses, existingRun] = yield* Effect.all(
       [
@@ -401,6 +408,7 @@ export const loadNextReadyUnitProjection = ({
       node,
       unit,
       responses,
+      hasPersistedRun: existingRun !== null,
       run: resolveUnitRunProjection({
         sessionId,
         unit,
@@ -467,6 +475,7 @@ export const resolveWorkspaceTurnEffect = ({
       nodes: plan.nodes,
       activeUnitResponses: active.responses,
       activeUnitRun: active.run,
+      hasPersistedActiveUnitRun: active.hasPersistedRun,
       recallTarget: plannedRecall
         ? {
             unitNodeId: plannedRecall.node.id,

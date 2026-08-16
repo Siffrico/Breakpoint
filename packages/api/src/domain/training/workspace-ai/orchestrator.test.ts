@@ -104,7 +104,62 @@ void test("settled feedback remains in the current unit with Next Unit locked", 
       nodes: [readyNode],
       activeUnitResponses: [],
       activeUnitRun: feedbackRun,
+      hasPersistedActiveUnitRun: true,
     })?.educationStage,
     "awaiting_next_pass",
+  );
+});
+
+void test("a durable incomplete education run blocks recall without a phase response", () => {
+  assert.deepEqual(
+    planWorkspaceTurn({
+      nodes: [readyNode],
+      activeUnitResponses: [],
+      activeUnitRun: baseRun,
+      hasPersistedActiveUnitRun: true,
+      recallTarget: {
+        unitNodeId: "recall-node",
+        unitTitle: "Due recall",
+      },
+    }),
+    {
+      mode: "education_unit",
+      promptKind: "education_unit",
+      educationStage: "learning",
+      interactionId: baseRun.cursor.interactionId,
+      workflowId: `${baseRun.experience.id}@${baseRun.experience.version}`,
+      activeUnitId: readyNode.id,
+      activeUnitTitle: readyNode.title,
+      recallUnitId: null,
+      recallUnitTitle: null,
+    },
+  );
+});
+
+void test("a completed education run allows recall at the unit boundary", () => {
+  const completedRun = { ...baseRun, mode: "complete" as const };
+
+  assert.deepEqual(
+    planWorkspaceTurn({
+      nodes: [readyNode],
+      activeUnitResponses: [],
+      activeUnitRun: completedRun,
+      hasPersistedActiveUnitRun: true,
+      recallTarget: {
+        unitNodeId: "recall-node",
+        unitTitle: "Due recall",
+      },
+    }),
+    {
+      mode: "education_unit",
+      promptKind: "recall",
+      educationStage: "review",
+      interactionId: null,
+      workflowId: null,
+      activeUnitId: null,
+      activeUnitTitle: null,
+      recallUnitId: "recall-node",
+      recallUnitTitle: "Due recall",
+    },
   );
 });
