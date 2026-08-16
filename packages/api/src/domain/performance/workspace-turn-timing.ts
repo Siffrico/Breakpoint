@@ -52,7 +52,35 @@ export const getErrorTag = (error: unknown): string => {
   ) {
     return error._tag.slice(0, 96);
   }
-  return error instanceof Error ? error.name.slice(0, 96) : "UnknownError";
+  if (!(error instanceof Error)) return "UnknownError";
+  const causeName =
+    error.cause instanceof Error && error.cause.name !== error.name
+      ? error.cause.name
+      : null;
+  const generatedText =
+    "text" in error && typeof error.text === "string"
+      ? error.text.trim()
+      : null;
+  const finishReason =
+    "finishReason" in error && typeof error.finishReason === "string"
+      ? error.finishReason
+      : null;
+  const responseShape = generatedText
+    ? `:text=${generatedText.length},${
+        generatedText.startsWith("{")
+          ? `object/${generatedText.endsWith("}") ? "closed" : "open"}`
+          : generatedText.startsWith("[")
+            ? `array/${generatedText.endsWith("]") ? "closed" : "open"}`
+            : "other"
+      }`
+    : generatedText === ""
+      ? ":text=0"
+      : "";
+  const finish = finishReason ? `:finish=${finishReason}` : "";
+  return `${causeName ? `${error.name}:${causeName}` : error.name}${responseShape}${finish}`.slice(
+    0,
+    96,
+  );
 };
 
 export const createWorkspaceTurnPerformanceTimer = ({

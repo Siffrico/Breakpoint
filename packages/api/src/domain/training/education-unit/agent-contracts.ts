@@ -10,18 +10,26 @@ import { getReviewPresentationReadinessIssue } from "./unit-readiness";
 
 export const LearnerFacingMessageSchema = z.string().trim().min(24).max(8_000);
 
-const reviewOptionSchema = (label: "A" | "B" | "C" | "D") =>
-  z
-    .object({
-      label: z.literal(label),
-      text: z.string().trim().min(1).max(1_000),
-    })
-    .strict();
+const reviewOptionSchema = z
+  .object({
+    label: z.enum(["A", "B", "C", "D"]),
+    text: z.string().trim().min(1).max(1_000),
+  })
+  .strict();
 
 const reviewPresentationBase = {
   assistantMessage: LearnerFacingMessageSchema,
   verifier: ScenarioVerifierSchema,
 };
+
+const selectedReviewVerifierSchema = z
+  .object({
+    type: z.literal("fixed_answer"),
+    answer: z.enum(["A", "B", "C", "D"]),
+    checkerSpec: z.null(),
+    scratchpad: z.string().trim().min(24).max(600),
+  })
+  .strict();
 
 interface ReviewOption {
   readonly label: "A" | "B" | "C" | "D";
@@ -72,13 +80,9 @@ const refineReviewPresentation = (
 
 const selectedReviewPresentationSchema = z
   .object({
-    ...reviewPresentationBase,
-    options: z.tuple([
-      reviewOptionSchema("A"),
-      reviewOptionSchema("B"),
-      reviewOptionSchema("C"),
-      reviewOptionSchema("D"),
-    ]),
+    assistantMessage: LearnerFacingMessageSchema,
+    verifier: selectedReviewVerifierSchema,
+    options: z.array(reviewOptionSchema).length(4),
   })
   .strict()
   .superRefine(refineReviewPresentation);

@@ -45,10 +45,6 @@ export type UnitAgentError =
   | UnitAgentFirstVisibleTimeoutError
   | UnitAgentWallClockTimeoutError;
 
-export const isRetryableUnitAgentError = (error: UnitAgentError): boolean =>
-  error._tag === "UnitAgentTimeoutError" ||
-  error._tag === "UnitAgentTransientProviderError";
-
 const failureMessage = (error: unknown, depth = 0): string => {
   if (!(error instanceof Error) || depth > 5) return "";
 

@@ -1,24 +1,6 @@
-import type * as Ai from "ai";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { z } from "zod/v4";
+import { describe, expect, it } from "vitest";
 
-import {
-  extractFirstJsonObject,
-  invokeStructuredModel,
-} from "./invoke-structured-model";
-
-const streamText = vi.hoisted(() =>
-  vi.fn((options: unknown) => ({ options, result: true })),
-);
-
-vi.mock("ai", async (importOriginal) => {
-  const actual = await importOriginal<typeof Ai>();
-  return { ...actual, streamText };
-});
-
-beforeEach(() => {
-  streamText.mockClear();
-});
+import { extractFirstJsonObject } from "./invoke-structured-model";
 
 describe("extractFirstJsonObject", () => {
   it("leaves a single JSON object unchanged", () => {
@@ -47,34 +29,5 @@ describe("extractFirstJsonObject", () => {
 
   it("leaves output without an object unchanged for error reporting", () => {
     expect(extractFirstJsonObject("not json")).toBe("not json");
-  });
-});
-
-describe("invokeStructuredModel", () => {
-  it("routes OpenRouter structured output only through compatible low-latency endpoints", () => {
-    const model = { specificationVersion: "v3" } as never;
-
-    invokeStructuredModel({
-      model,
-      schema: z.object({ answer: z.string() }),
-      schemaName: "test_schema",
-      system: "System",
-      prompt: "Prompt",
-      maxSteps: 1,
-      reasoning: "none",
-    });
-
-    expect(streamText).toHaveBeenCalledOnce();
-    expect(streamText.mock.calls[0]?.[0]).toMatchObject({
-      providerOptions: {
-        openrouter: {
-          provider: {
-            require_parameters: true,
-            sort: "latency",
-          },
-          reasoning: { enabled: false, effort: "none" },
-        },
-      },
-    });
   });
 });

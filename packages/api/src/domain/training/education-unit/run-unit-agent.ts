@@ -1,6 +1,6 @@
 import type { ModelMessage } from "ai";
 import type { z } from "zod/v4";
-import { Duration, Effect, Schedule } from "effect";
+import { Effect } from "effect";
 
 import type { ReasoningEffort } from "../engine/invoke-structured-model";
 import type { AiModelPurpose } from "../engine/model-router";
@@ -12,11 +12,10 @@ import {
 import { invokeStructuredModel } from "../engine/invoke-structured-model";
 import {
   getAiModelMetadataForPurpose,
-  requireAiModelForPurpose,
+  requireStructuredAiModelForPurpose,
 } from "../engine/model-router";
 import {
   classifyUnitAgentFailure,
-  isRetryableUnitAgentError,
   nameUnitAgentSchemaError,
   UnitAgentFirstVisibleTimeoutError,
   UnitAgentWallClockTimeoutError,
@@ -41,9 +40,8 @@ interface RunUnitAgentInput<TSchema extends z.ZodTypeAny> {
   readonly renderPartialAssistantMessage?: (partial: unknown) => string;
 }
 
-const MAX_RESTARTS = 1;
-const MAX_SCHEMA_REPAIRS = 1;
-const INACTIVITY_TIMEOUT_MS = 10_000;
+const INITIAL_CHUNK_TIMEOUT_MS = 10_000;
+const STREAM_INACTIVITY_TIMEOUT_MS = 10_000;
 const FIRST_VISIBLE_TIMEOUT_MS = 5_000;
 const WALL_CLOCK_TIMEOUT_MS = 90_000;
 const MIN_VISIBLE_CHARACTERS = 24;
@@ -57,7 +55,10 @@ const callModel = async <TSchema extends z.ZodTypeAny>(
   input: RunUnitAgentInput<TSchema>,
   parentSignal: AbortSignal,
 ): Promise<AttemptResult<z.infer<TSchema>>> => {
-  const model = requireAiModelForPurpose(input.purpose, input.errorMessage);
+  const model = requireStructuredAiModelForPurpose(
+    input.purpose,
+    input.errorMessage,
+  );
   const modelMetadata = getAiModelMetadataForPurpose(input.purpose);
   const performanceAttempt =
     getWorkspaceTurnPerformanceTimer()?.startModelAttempt({
@@ -73,13 +74,20 @@ const callModel = async <TSchema extends z.ZodTypeAny>(
   let inactivityTimer: ReturnType<typeof setTimeout> | undefined;
   let firstVisibleTimer: ReturnType<typeof setTimeout> | undefined;
   let firstVisibleSatisfied = false;
+  let receivedChunk = false;
   const armInactivityTimeout = () => {
     if (inactivityTimer !== undefined) clearTimeout(inactivityTimer);
-    inactivityTimer = setTimeout(() => {
-      inactivityController.abort(
-        new DOMException("Unit agent stream became inactive.", "TimeoutError"),
-      );
-    }, INACTIVITY_TIMEOUT_MS);
+    inactivityTimer = setTimeout(
+      () => {
+        inactivityController.abort(
+          new DOMException(
+            "Unit agent stream became inactive.",
+            "TimeoutError",
+          ),
+        );
+      },
+      receivedChunk ? STREAM_INACTIVITY_TIMEOUT_MS : INITIAL_CHUNK_TIMEOUT_MS,
+    );
   };
   /**
    * Starts the "is anything visible yet" clock. It cannot start at call time:
@@ -134,8 +142,11 @@ const callModel = async <TSchema extends z.ZodTypeAny>(
       maxSteps: 1,
       maxOutputTokens: input.maxOutputTokens,
       abortSignal,
-      reasoning: input.reasoning,
+      reasoning: modelMetadata.disableStructuredReasoning
+        ? "none"
+        : input.reasoning,
       onChunk: ({ chunk }) => {
+        receivedChunk = true;
         armInactivityTimeout();
         performanceAttempt?.markFirstChunk();
         if (!chunk.type.startsWith("reasoning")) armFirstVisibleTimeout();
@@ -209,60 +220,19 @@ const attempt = <TSchema extends z.ZodTypeAny>(
     ),
   );
 
-const retrySchedule = Schedule.exponential(Duration.millis(200), 2).pipe(
-  Schedule.both(Schedule.recurs(MAX_RESTARTS)),
-);
-
-const withRepairInstruction = <TSchema extends z.ZodTypeAny>(
-  input: RunUnitAgentInput<TSchema>,
-  error: UnitAgentError,
-): RunUnitAgentInput<TSchema> => ({
-  ...input,
-  messages: [
-    ...input.messages,
-    {
-      role: "user",
-      content: `Your previous response violated the output contract (${error.message}). Return exactly one valid object, emit assistantMessage first, and keep private evidence and grading data out of it.`,
-    },
-  ],
-});
-
-const runPrepared = <TSchema extends z.ZodTypeAny>(
-  input: RunUnitAgentInput<TSchema>,
-  repairsLeft = MAX_SCHEMA_REPAIRS,
-): Effect.Effect<UnitAgentResult<z.infer<TSchema>>, UnitAgentError> =>
-  Effect.suspend(() => {
-    let attemptNumber = 0;
-    return Effect.retry(
-      Effect.suspend(() =>
-        attempt(input).pipe(
-          Effect.tap(({ cachedInputTokens, inputTokens }) =>
-            Effect.annotateCurrentSpan({ cachedInputTokens, inputTokens }),
-          ),
-          Effect.tap(() => Effect.annotateCurrentSpan({ outcome: "success" })),
-          Effect.tapError((error) =>
-            Effect.annotateCurrentSpan({ outcome: error._tag }),
-          ),
-          Effect.withSpan("unit-agent.attempt", {
-            attributes: {
-              agent: input.agent,
-              attempt: ++attemptNumber,
-            },
-          }),
-        ),
-      ),
-      { schedule: retrySchedule, while: isRetryableUnitAgentError },
-    ).pipe(
-      Effect.catchTag("UnitAgentSchemaError", (error) =>
-        repairsLeft > 0
-          ? runPrepared(withRepairInstruction(input, error), repairsLeft - 1)
-          : Effect.fail(error),
-      ),
-      Effect.map(({ object }) => ({ object })),
-    );
-  });
-
 export const runUnitAgent = <TSchema extends z.ZodTypeAny>(
   input: RunUnitAgentInput<TSchema>,
 ): Effect.Effect<UnitAgentResult<z.infer<TSchema>>, UnitAgentError> =>
-  runPrepared(input);
+  attempt(input).pipe(
+    Effect.tap(({ cachedInputTokens, inputTokens }) =>
+      Effect.annotateCurrentSpan({ cachedInputTokens, inputTokens }),
+    ),
+    Effect.tap(() => Effect.annotateCurrentSpan({ outcome: "success" })),
+    Effect.tapError((error) =>
+      Effect.annotateCurrentSpan({ outcome: error._tag }),
+    ),
+    Effect.withSpan("unit-agent.attempt", {
+      attributes: { agent: input.agent, attempt: 1 },
+    }),
+    Effect.map(({ object }) => ({ object })),
+  );

@@ -58,13 +58,18 @@ describe("unit agent context projections", () => {
       unitContext,
       difficulty,
       focus,
-      previousChallengePrompts: ["The earlier production scenario."],
+      previousChallengePrompts: [
+        "The earlier production scenario.\n\nA) Repeated option text.",
+      ],
     });
 
     expect(result).toContain("## Test contract");
     expect(result).toContain("## Judgment standard");
     expect(result).toContain("## Goldilocks");
     expect(result).toContain("The earlier production scenario.");
+    expect(result).not.toContain("Repeated option text");
+    expect(result).not.toContain("## Expert workflow");
+    expect(result).not.toContain("## Expert judgment");
     expect(result).not.toContain("Learner memory");
   });
 

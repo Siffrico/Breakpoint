@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createWorkspaceTurnPerformanceTimer,
+  getErrorTag,
   getWorkspaceTurnPerformanceTimer,
   withWorkspaceTurnPerformanceTimer,
 } from "./workspace-turn-timing";
@@ -98,5 +99,19 @@ describe("workspace turn performance timing", () => {
         expect(getWorkspaceTurnPerformanceTimer()).toBe(second);
       }),
     ]);
+  });
+
+  it("records the error type and cause without recording their messages", () => {
+    const error = Object.assign(
+      new Error("Generated content must stay private.", {
+        cause: new TypeError("Schema details must stay private too."),
+      }),
+      { text: '{"private":"not recorded"}', finishReason: "stop" },
+    );
+    error.name = "AI_NoObjectGeneratedError";
+
+    expect(getErrorTag(error)).toBe(
+      "AI_NoObjectGeneratedError:TypeError:text=26,object/closed:finish=stop",
+    );
   });
 });
