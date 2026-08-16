@@ -228,7 +228,24 @@ describe("runUnitTurn mentor and critique boundaries", () => {
         deps(),
       ),
     );
-    const runMentorScenario = vi.fn(deps().runMentorScenario);
+    const onPartialAssistantMessage = vi.fn();
+    const runMentorScenario = vi.fn<
+      UnitTurnDependencies["runMentorScenario"]
+    >((request) =>
+      Effect.sync(() => {
+        request.onPartialAssistantMessage?.("A different production limit");
+        request.onPartialAssistantMessage?.(
+          "A different production limit changes.",
+        );
+        return {
+          object: {
+            assistantMessage:
+              "A different production limit changes. Choose the next move and defend it.",
+            verifier,
+          },
+        };
+      }),
+    );
     const secondScenario = await Effect.runPromise(
       runPassAdvanceTurn(
         {
@@ -236,6 +253,7 @@ describe("runUnitTurn mentor and critique boundaries", () => {
           interactionId: feedback.nextRun.cursor.interactionId,
           experience: DEFAULT_EDUCATION_EXPERIENCE,
           contexts,
+          onPartialAssistantMessage,
         },
         deps({ runMentorScenario }),
       ),
@@ -253,6 +271,14 @@ describe("runUnitTurn mentor and critique boundaries", () => {
     );
     expect(runMentorScenario.mock.calls[0]?.[0].context).toContain(
       contexts.mentorScenario,
+    );
+    expect(onPartialAssistantMessage).toHaveBeenNthCalledWith(
+      1,
+      "A different production limit",
+    );
+    expect(onPartialAssistantMessage).toHaveBeenNthCalledWith(
+      2,
+      "A different production limit changes.",
     );
     expect(secondScenario.nextRun.cursor.step).toMatchObject({
       kind: "scenario",
