@@ -85,6 +85,11 @@ const getSelectedProvider = (): AiProvider => getActiveStack().provider;
 const resolveModelName = (tier: ModelTier): string =>
   getActiveStack().models[tier];
 
+export const getAiModelMetadataForPurpose = (purpose: AiModelPurpose) => ({
+  provider: getSelectedProvider(),
+  model: resolveModelName(getModelTierForPurpose(purpose)),
+});
+
 const PROVIDER_API_KEY_ENV: Record<AiProvider, string> = {
   google: "GOOGLE_GENERATIVE_AI_API_KEY",
   openai: "OPENAI_API_KEY",

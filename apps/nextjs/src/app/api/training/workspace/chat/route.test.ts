@@ -72,6 +72,7 @@ describe("workspace chat route boundary", () => {
         turnId: validBody.turnId,
         userId: session.user.id,
         message: validBody.message,
+        requestStartedAt: expect.any(Number) as unknown as number,
       }),
     );
   });

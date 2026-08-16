@@ -5,8 +5,15 @@ import { Duration, Effect, Schedule } from "effect";
 import type { ReasoningEffort } from "../engine/invoke-structured-model";
 import type { AiModelPurpose } from "../engine/model-router";
 import type { UnitAgentError } from "./agent-errors";
+import {
+  getErrorTag,
+  getWorkspaceTurnPerformanceTimer,
+} from "../../performance/workspace-turn-timing";
 import { invokeStructuredModel } from "../engine/invoke-structured-model";
-import { requireAiModelForPurpose } from "../engine/model-router";
+import {
+  getAiModelMetadataForPurpose,
+  requireAiModelForPurpose,
+} from "../engine/model-router";
 import {
   classifyUnitAgentFailure,
   isRetryableUnitAgentError,
@@ -51,6 +58,15 @@ const callModel = async <TSchema extends z.ZodTypeAny>(
   parentSignal: AbortSignal,
 ): Promise<AttemptResult<z.infer<TSchema>>> => {
   const model = requireAiModelForPurpose(input.purpose, input.errorMessage);
+  const modelMetadata = getAiModelMetadataForPurpose(input.purpose);
+  const performanceAttempt =
+    getWorkspaceTurnPerformanceTimer()?.startModelAttempt({
+      agent: input.agent,
+      purpose: input.purpose,
+      schemaName: input.schemaName,
+      provider: modelMetadata.provider,
+      model: modelMetadata.model,
+    });
   const inactivityController = new AbortController();
   const firstVisibleController = new AbortController();
   const wallClockController = new AbortController();
@@ -121,6 +137,7 @@ const callModel = async <TSchema extends z.ZodTypeAny>(
       reasoning: input.reasoning,
       onChunk: ({ chunk }) => {
         armInactivityTimeout();
+        performanceAttempt?.markFirstChunk();
         if (!chunk.type.startsWith("reasoning")) armFirstVisibleTimeout();
       },
     });
@@ -138,6 +155,7 @@ const callModel = async <TSchema extends z.ZodTypeAny>(
       if (typeof assistantMessage === "string") {
         if (assistantMessage.trim().length >= MIN_VISIBLE_CHARACTERS) {
           clearFirstVisibleTimeout();
+          performanceAttempt?.markFirstVisible();
         }
         input.onPartialAssistantMessage?.(assistantMessage);
       }
@@ -148,12 +166,21 @@ const callModel = async <TSchema extends z.ZodTypeAny>(
       result.output,
       result.totalUsage,
     ]);
+    performanceAttempt?.finish({
+      outcome: "success",
+      cachedInputTokens: usage.cachedInputTokens ?? 0,
+      inputTokens: usage.inputTokens ?? 0,
+    });
     return {
       object: object as z.infer<TSchema>,
       cachedInputTokens: usage.cachedInputTokens ?? 0,
       inputTokens: usage.inputTokens ?? 0,
     };
   } catch (error) {
+    performanceAttempt?.finish({
+      outcome: "error",
+      errorTag: getErrorTag(error),
+    });
     if (firstVisibleController.signal.aborted) {
       throw firstVisibleController.signal.reason;
     }

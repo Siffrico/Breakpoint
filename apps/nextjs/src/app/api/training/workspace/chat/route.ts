@@ -105,6 +105,7 @@ const readJsonBody = async (req: NextRequest) => {
 };
 
 export const POST = async (req: NextRequest) => {
+  const requestStartedAt = Date.now();
   const [session, bodyResult] = await Promise.all([
     requireSession(req),
     readJsonBody(req),
@@ -143,6 +144,7 @@ export const POST = async (req: NextRequest) => {
     message: submittedMessage,
     turnId,
     modelName: resolveModelPreference(req, body.model),
+    requestStartedAt,
     signal: req.signal,
     scheduleBackgroundTask: (task) => after(task),
   });
