@@ -15,6 +15,7 @@ import {
 } from "./agent-contracts";
 import {
   MENTOR_BASE_PROMPT,
+  MENTOR_HANDOFF_MODULE,
   MENTOR_SCENARIO_MODULE,
   MENTOR_TEACH_MODULE,
   mentorScenarioInstruction,
@@ -29,12 +30,13 @@ const mentorSystem = ({
 }: {
   experience: EducationExperienceDefinition;
   teach: boolean;
-  scenario: boolean;
+  scenario: "none" | "handoff" | "direct";
 }) =>
   [
     MENTOR_BASE_PROMPT,
     teach ? MENTOR_TEACH_MODULE : null,
-    scenario ? MENTOR_SCENARIO_MODULE : null,
+    scenario === "handoff" ? MENTOR_HANDOFF_MODULE : null,
+    scenario === "direct" ? MENTOR_SCENARIO_MODULE : null,
     `## Customized behavior\n${experience.main.instructions}`,
   ]
     .filter((part): part is string => part !== null)
@@ -62,12 +64,13 @@ export const runMentorTeachingAgent = ({
     system: mentorSystem({
       experience,
       teach: true,
-      scenario: createScenario,
+      scenario: createScenario ? "handoff" : "none",
     }),
     messages,
     context: `${context}\n\n${mentorTeachingInstruction(createScenario)}`,
     schemaName: "unit_mentor_teaching",
     errorMessage: "Failed to run the education-unit mentor.",
+    temperature: 0.2,
     onPartialAssistantMessage,
   };
   if (createScenario) {
@@ -108,13 +111,15 @@ export const runMentorScenarioAgent = ({
   runUnitAgent({
     agent: "mentor",
     purpose: "education",
-    reasoning: "low",
-    system: mentorSystem({ experience, teach: false, scenario: true }),
+    reasoning: "high",
+    system: mentorSystem({ experience, teach: false, scenario: "direct" }),
     messages: [],
     context: `${context}\n\n${mentorScenarioInstruction(pass)}`,
     schema: reviewPresentationSchema(selectedResponse),
     schemaName: "unit_mentor_scenario",
-    maxOutputTokens: 3_000,
+    maxOutputTokens: 5_000,
+    reasoningBudgetTokens: 2_400,
+    temperature: 0.3,
     errorMessage: "Failed to create the education-unit scenario.",
     onPartialAssistantMessage,
   });

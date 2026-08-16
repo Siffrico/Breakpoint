@@ -176,6 +176,25 @@ Answer: B`,
     expect(result.success).toBe(false);
   });
 
+  it("rejects drafting debris in learner-visible options", () => {
+    const result = reviewPresentationSchema(true).safeParse({
+      assistantMessage:
+        "A signed-in learner sees stale progress after reconnecting. Which recovery policy should the team ship?",
+      options: [
+        options[0],
+        {
+          label: "B",
+          text: "Retry idempotent requests. Hmm, this is the intended trap.",
+        },
+        options[2],
+        options[3],
+      ],
+      verifier,
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   it("rejects a selected-response verifier without learner-visible options", () => {
     const result = reviewPresentationSchema(true).safeParse({
       assistantMessage:

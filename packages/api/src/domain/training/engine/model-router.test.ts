@@ -46,8 +46,8 @@ describe("model router", () => {
       "deepseek/deepseek-v4-flash-0731",
       {
         provider: {
-          order: ["atlas-cloud", "akashml", "digitalocean"],
-          allow_fallbacks: true,
+          order: ["atlas-cloud"],
+          allow_fallbacks: false,
           require_parameters: true,
         },
       },

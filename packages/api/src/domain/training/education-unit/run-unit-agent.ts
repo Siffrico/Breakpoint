@@ -34,6 +34,8 @@ interface RunUnitAgentInput<TSchema extends z.ZodTypeAny> {
   readonly schema: TSchema;
   readonly schemaName: string;
   readonly maxOutputTokens: number;
+  readonly reasoningBudgetTokens?: number;
+  readonly temperature: number;
   readonly errorMessage: string;
   readonly reasoning: ReasoningEffort;
   readonly onPartialAssistantMessage?: (content: string) => void;
@@ -140,11 +142,15 @@ const callModel = async <TSchema extends z.ZodTypeAny>(
       ],
       cache: true,
       maxSteps: 1,
+      outputMode: "tool",
       maxOutputTokens: input.maxOutputTokens,
+      reasoningBudgetTokens: input.reasoningBudgetTokens,
+      temperature: input.temperature,
       abortSignal,
-      reasoning: modelMetadata.disableStructuredReasoning
-        ? "none"
-        : input.reasoning,
+      reasoning:
+        input.reasoning === "none"
+          ? "none"
+          : (modelMetadata.structuredReasoningEffort ?? input.reasoning),
       onChunk: ({ chunk }) => {
         receivedChunk = true;
         armInactivityTimeout();
@@ -153,7 +159,7 @@ const callModel = async <TSchema extends z.ZodTypeAny>(
       },
     });
 
-    for await (const partial of result.partialOutputStream as AsyncIterable<unknown>) {
+    for await (const partial of result.partialOutputStream) {
       if (abortSignal.aborted) throw abortSignal.reason;
       armInactivityTimeout();
       const assistantMessage = input.renderPartialAssistantMessage

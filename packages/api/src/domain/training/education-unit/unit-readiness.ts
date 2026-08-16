@@ -9,6 +9,8 @@ const LABELED_OPTION_PATTERN =
 const HTML_TAG_PATTERN = /<\/?[a-z][^>]*>/i;
 const EXPOSED_FIXED_ANSWER_PATTERN =
   /\b(?:(?:correct\s+)?answer\s*(?:is|:)\s*|worked\s+(?:example|reasoning)\b)/i;
+const AUTHORING_DEBRIS_PATTERN =
+  /\b(?:author(?:ing)? note|drafting note|internal note|hmm)\b|\b\S+\.png\b/i;
 
 export const getSeedTaskReadinessIssue = ({
   seedPrompt,
@@ -66,6 +68,9 @@ export const getReviewPresentationReadinessIssue = ({
   }
   if (EXPOSED_FIXED_ANSWER_PATTERN.test(assistantMessage)) {
     return "Selected-response challenge must not contain a worked solution or expose its answer.";
+  }
+  if (AUTHORING_DEBRIS_PATTERN.test(assistantMessage)) {
+    return "Selected-response challenge must not contain drafting notes or filenames.";
   }
   const optionIssue = getSeedTaskReadinessIssue({
     seedPrompt: assistantMessage,

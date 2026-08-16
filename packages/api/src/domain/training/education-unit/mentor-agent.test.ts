@@ -50,7 +50,8 @@ describe("mentor prompt modules", () => {
       | { system: string }
       | undefined;
     expect(call?.system).toContain("## Teach");
-    expect(call?.system).toContain("## Scenario");
+    expect(call?.system).toContain("## Scenario handoff");
+    expect(call?.system).toContain("inside preparedScenario");
   });
 
   it("gives later scenario turns only the Scenario module", async () => {
@@ -68,5 +69,7 @@ describe("mentor prompt modules", () => {
       | undefined;
     expect(call?.system).not.toContain("## Teach");
     expect(call?.system).toContain("## Scenario");
+    expect(call?.system).toContain("object is the scenario itself");
+    expect(call?.system).not.toContain("inside preparedScenario");
   });
 });

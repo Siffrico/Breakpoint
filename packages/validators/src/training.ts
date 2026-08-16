@@ -719,7 +719,14 @@ export const ScenarioVerifierSchema = z
     type: z.enum(["fixed_answer", "checker", "judge_rubric"]),
     answer: z.string().min(1).nullable(),
     checkerSpec: z.string().min(1).nullable(),
-    scratchpad: z.string().trim().min(24).max(600),
+    scratchpad: z
+      .string()
+      .trim()
+      .min(24)
+      .max(600)
+      .describe(
+        "A concise private solution check, 24 to 600 characters. Do not repeat the full prompt or checker instructions.",
+      ),
   })
   .superRefine((verifier, ctx) => {
     if (verifier.type === "fixed_answer" && !verifier.answer) {

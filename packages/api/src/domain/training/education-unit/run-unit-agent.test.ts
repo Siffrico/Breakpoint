@@ -12,7 +12,7 @@ vi.mock("../engine/model-router", () => ({
   getAiModelMetadataForPurpose: () => ({
     provider: "openrouter",
     model: "deepseek/deepseek-v4-flash-0731",
-    disableStructuredReasoning: true,
+    structuredReasoningEffort: "high",
   }),
   requireStructuredAiModelForPurpose: () => ({}),
 }));
@@ -48,6 +48,7 @@ describe("runUnitAgent", () => {
           schema: z.object({ assistantMessage: z.string() }),
           schemaName: "test_schema",
           maxOutputTokens: 100,
+          temperature: 0.2,
           errorMessage: "Failed.",
           reasoning: "low",
         }),
@@ -57,7 +58,9 @@ describe("runUnitAgent", () => {
     expect(invokeStructuredModel).toHaveBeenCalledOnce();
     expect(invokeStructuredModel).toHaveBeenCalledWith(
       expect.objectContaining({
-        reasoning: "none",
+        outputMode: "tool",
+        reasoning: "high",
+        temperature: 0.2,
         maxOutputTokens: 100,
       }),
     );

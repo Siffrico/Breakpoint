@@ -8,12 +8,28 @@ import {
 
 import { getReviewPresentationReadinessIssue } from "./unit-readiness";
 
-export const LearnerFacingMessageSchema = z.string().trim().min(24).max(8_000);
+export const LearnerFacingMessageSchema = z
+  .string()
+  .trim()
+  .min(24)
+  .max(8_000)
+  .describe(
+    "Complete learner-facing prose only. Use finished sentences. Exclude drafting notes, self-corrections, filenames, private reasoning, and the answer.",
+  );
 
 const reviewOptionSchema = z
   .object({
-    label: z.enum(["A", "B", "C", "D"]),
-    text: z.string().trim().min(1).max(1_000),
+    label: z
+      .enum(["A", "B", "C", "D"])
+      .describe("The option label. Use each label exactly once."),
+    text: z
+      .string()
+      .trim()
+      .min(1)
+      .max(1_000)
+      .describe(
+        "One complete answer choice. Keep it parallel in grammar and scope with the other choices. Do not add author notes or explain whether it is correct.",
+      ),
   })
   .strict();
 
@@ -25,9 +41,18 @@ const reviewPresentationBase = {
 const selectedReviewVerifierSchema = z
   .object({
     type: z.literal("fixed_answer"),
-    answer: z.enum(["A", "B", "C", "D"]),
+    answer: z
+      .enum(["A", "B", "C", "D"])
+      .describe("The one correct option label."),
     checkerSpec: z.null(),
-    scratchpad: z.string().trim().min(24).max(600),
+    scratchpad: z
+      .string()
+      .trim()
+      .min(24)
+      .max(600)
+      .describe(
+        "A concise private check, 24 to 600 characters, of the intended answer and why each distractor is wrong. Do not repeat the prompt. This is never shown to the learner.",
+      ),
   })
   .strict();
 

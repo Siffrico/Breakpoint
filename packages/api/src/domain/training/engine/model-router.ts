@@ -19,7 +19,7 @@ interface ModelStack {
   provider: AiProvider;
   models: Record<ModelTier, string>;
   structuredProviderOrder?: readonly string[];
-  disableStructuredReasoning?: boolean;
+  structuredReasoningEffort?: "high";
 }
 
 /**
@@ -39,8 +39,8 @@ const PREFERENCE_STACKS: Record<AiModelPreference, ModelStack> = {
       critical: "deepseek/deepseek-v4-flash-0731",
       standard: "deepseek/deepseek-v4-flash-0731",
     },
-    structuredProviderOrder: ["atlas-cloud", "akashml", "digitalocean"],
-    disableStructuredReasoning: true,
+    structuredProviderOrder: ["atlas-cloud"],
+    structuredReasoningEffort: "high",
   },
   "deepseek-v4-pro-0813": {
     provider: "openrouter",
@@ -92,8 +92,7 @@ const resolveModelName = (tier: ModelTier): string =>
 export const getAiModelMetadataForPurpose = (purpose: AiModelPurpose) => ({
   provider: getSelectedProvider(),
   model: resolveModelName(getModelTierForPurpose(purpose)),
-  disableStructuredReasoning:
-    getActiveStack().disableStructuredReasoning ?? false,
+  structuredReasoningEffort: getActiveStack().structuredReasoningEffort,
 });
 
 const PROVIDER_API_KEY_ENV: Record<AiProvider, string> = {
@@ -225,7 +224,7 @@ export const requireStructuredAiModelForPurpose = (
     {
       provider: {
         ...(order ? { order: [...order] } : {}),
-        allow_fallbacks: true,
+        allow_fallbacks: order ? false : true,
         require_parameters: true,
       },
       ...(searchWanted ? { plugins: [{ id: "web", max_results: 5 }] } : {}),
