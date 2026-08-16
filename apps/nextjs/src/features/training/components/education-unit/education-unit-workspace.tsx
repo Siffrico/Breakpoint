@@ -24,6 +24,7 @@ import { useTRPC } from "~/trpc/react";
 import { groupLiveExchanges } from "./exchange-grouping";
 import { FocusComposer } from "./focus-composer";
 import { MessageActions } from "./message-actions";
+import { beginRetryableTurn, finishRetryableTurn } from "./retryable-turn";
 // `scenario-anchor.tsx` is retired from the workspace but kept in the tree: the
 // header bar it rendered (unit title + Recall badge) is deliberately off-site,
 // and the file stands as the reference if that orientation cue is ever wanted
@@ -459,6 +460,7 @@ function EducationUnitWorkspaceComponent({
   const pendingTurnIdRef = useRef<string | null>(null);
   const startedUnitRef = useRef<string | null>(null);
   const openingUnitTurnRef = useRef<string | null>(null);
+  const passAdvanceTurnRef = useRef<string | null>(null);
   const [openingUnitFailed, setOpeningUnitFailed] = useState(false);
   const [submittedDraftKey, setSubmittedDraftKey] = useState<string | null>(
     null,
@@ -489,17 +491,18 @@ function EducationUnitWorkspaceComponent({
     // Batch SDK stream updates to one render at most every 50 ms.
     experimental_throttle: 50,
     onFinish: (finishState) => {
-      const openingUnitFailed =
-        openingUnitTurnRef.current !== null &&
-        !shouldClearSubmittedDraft(finishState);
-      openingUnitTurnRef.current = null;
-      if (openingUnitFailed) {
+      const committed = shouldClearSubmittedDraft(finishState);
+      const openingFailed =
+        openingUnitTurnRef.current !== null && !committed;
+      finishRetryableTurn(openingUnitTurnRef, committed);
+      finishRetryableTurn(passAdvanceTurnRef, committed);
+      if (openingFailed) {
         startedUnitRef.current = null;
         setOpeningUnitFailed(true);
         return;
       }
       setOpeningUnitFailed(false);
-      if (!shouldClearSubmittedDraft(finishState)) return;
+      if (!committed) return;
       clearSubmittedDraft(pendingDraftKeyRef.current);
       pendingDraftKeyRef.current = null;
       setSubmittedDraftKey(null);
@@ -532,8 +535,10 @@ function EducationUnitWorkspaceComponent({
     const startKey = `${unit.nodeId}:${interactionId}`;
     if (startedUnitRef.current === startKey) return;
     startedUnitRef.current = startKey;
-    const turnId = createWorkspaceTurnId();
-    openingUnitTurnRef.current = turnId;
+    const turnId = beginRetryableTurn(
+      openingUnitTurnRef,
+      createWorkspaceTurnId,
+    );
     void sendMessage(undefined, {
       body: {
         action: "start_unit",
@@ -543,7 +548,6 @@ function EducationUnitWorkspaceComponent({
       },
     }).catch(() => {
       if (openingUnitTurnRef.current !== turnId) return;
-      openingUnitTurnRef.current = null;
       startedUnitRef.current = null;
       setOpeningUnitFailed(true);
     });
@@ -565,7 +569,6 @@ function EducationUnitWorkspaceComponent({
 
   const retryOpeningUnit = useCallback(() => {
     clearError();
-    openingUnitTurnRef.current = null;
     startedUnitRef.current = null;
     setOpeningUnitFailed(false);
   }, [clearError]);
@@ -1035,7 +1038,10 @@ function EducationUnitWorkspaceComponent({
       return;
     }
     clearError();
-    const turnId = createWorkspaceTurnId();
+    const turnId = beginRetryableTurn(
+      passAdvanceTurnRef,
+      createWorkspaceTurnId,
+    );
     try {
       await sendMessage(undefined, {
         body: {
