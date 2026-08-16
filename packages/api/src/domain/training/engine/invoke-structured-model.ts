@@ -15,6 +15,15 @@ type ProviderOptions = NonNullable<
   Parameters<typeof streamText>[0]["providerOptions"]
 >;
 
+const STRUCTURED_OUTPUT_PROVIDER_OPTIONS: ProviderOptions = {
+  openrouter: {
+    provider: {
+      require_parameters: true,
+      sort: "latency",
+    },
+  },
+};
+
 /**
  * How hard a call should think. `ai@6` still has no portable top-level
  * `reasoning` setting, so this is the one place the three providers' spellings
@@ -195,7 +204,10 @@ export const invokeStructuredModel = <TSchema extends z.ZodTypeAny>({
           ? effortForBudget(profile.reasoningBudgetTokens)
           : undefined);
       const resolved = mergeProviderOptions(
-        providerOptions,
+        mergeProviderOptions(
+          STRUCTURED_OUTPUT_PROVIDER_OPTIONS,
+          providerOptions,
+        ),
         effort === undefined
           ? undefined
           : getReasoningProviderOptions(

@@ -194,7 +194,11 @@ const streamWorkspaceChatWithModelPreference = ({
 }) => {
   const trimmedMessage = message.trim();
   const effectiveLeaseId = randomUUID();
-  if (action === "submit_answer" && trimmedMessage.length < 2) {
+  if (
+    action === "submit_answer" &&
+    trimmedMessage.length < 2 &&
+    !/^[A-D]$/i.test(trimmedMessage)
+  ) {
     return Promise.resolve(
       new Response("Write a fuller message so the AI can respond usefully.", {
         status: 400,
