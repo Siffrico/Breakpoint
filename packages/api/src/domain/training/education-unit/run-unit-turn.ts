@@ -27,6 +27,7 @@ import {
   attachPreparedScenario,
   completeFeedback,
   continueFeedback,
+  isRatingEligibleScenario,
   preparedScenario,
   presentScenario,
   repeatTeaching,
@@ -182,6 +183,7 @@ const gradeScenario = ({
         "Grading requires the learner's latest answer.",
       );
     }
+    const ratingEligible = isRatingEligibleScenario(run);
     const output = (yield* deps.runReviewGrade({
       messages: [{ role: "user", content: learnerAnswer }],
       context: contexts.critique.judgeAnswer,
@@ -230,7 +232,7 @@ const gradeScenario = ({
         dimensionResults: output.dimensionResults,
         passed: !gap,
       },
-      ratingWrite: { score, errorCodes },
+      ratingWrite: ratingEligible ? { score, errorCodes } : null,
       presentedReviewChallenge: false,
     };
   });

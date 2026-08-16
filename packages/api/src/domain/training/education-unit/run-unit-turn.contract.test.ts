@@ -241,10 +241,7 @@ describe("runUnitTurn mentor and critique boundaries", () => {
       ),
     );
 
-    expect(graded.ratingWrite).toEqual({
-      score: 55,
-      errorCodes: ["constraint_blindness"],
-    });
+    expect(graded.ratingWrite).toBeNull();
     expect(feedback.nextRun.cursor.step).toMatchObject({
       kind: "pass_result",
       outcome: "fail",
@@ -328,5 +325,6 @@ describe("runUnitTurn mentor and critique boundaries", () => {
       attempt: 2,
       outcome: "pass",
     });
+    expect(complete.ratingWrite).toEqual({ score: 95, errorCodes: [] });
   });
 });

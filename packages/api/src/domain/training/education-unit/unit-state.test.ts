@@ -12,6 +12,7 @@ import {
   completeFeedback,
   continueFeedback,
   createUnitRun,
+  isRatingEligibleScenario,
   presentScenario,
   repeatTeaching,
   settleScenario,
@@ -185,6 +186,8 @@ describe("unit cursor", () => {
     const secondScenario = await Effect.runPromise(
       presentScenario({ run: firstResult, challenge }),
     );
+    expect(isRatingEligibleScenario(firstScenario)).toBe(false);
+    expect(isRatingEligibleScenario(secondScenario)).toBe(true);
     const complete = await Effect.runPromise(
       settleScenario({
         run: secondScenario,
@@ -207,6 +210,18 @@ describe("unit cursor", () => {
       attempt: 2,
       outcome: "pass",
     });
+  });
+
+  it("rates a recall scenario on its first attempt", async () => {
+    const recallChallenge = {
+      ...challenge,
+      contract: { ...challenge.contract, runKind: "recall" as const },
+    };
+    const scenario = await Effect.runPromise(
+      presentScenario({ run: makeRun("recall"), challenge: recallChallenge }),
+    );
+
+    expect(isRatingEligibleScenario(scenario)).toBe(true);
   });
 
   it("keeps the failed scenario grade immutable through at most three feedback answers", async () => {

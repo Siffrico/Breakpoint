@@ -140,6 +140,17 @@ export const preparedScenario = (
       : null;
 };
 
+export const isRatingEligibleScenario = (
+  run: PersistedUnitRun,
+): boolean => {
+  const step = run.cursor.step;
+  return (
+    step.kind === "scenario" &&
+    step.challenge !== null &&
+    (run.kind === "recall" || step.attempt >= 2)
+  );
+};
+
 export const attachPreparedScenario = ({
   run,
   challenge,

@@ -19,6 +19,7 @@ import type { WorkspaceAiMessage, WorkspaceAiTurnResult } from "./types";
 import type { RatingEvidenceError } from "./workspace-errors";
 import type { WorkspaceTurnDependencies } from "./workspace-turn";
 import { projectScenarioBrief } from "../education-unit/scenario-brief";
+import { isRatingEligibleScenario } from "../education-unit/unit-state";
 import { WorkspacePersistenceError } from "./workspace-errors";
 import { resolveWorkspaceTurn } from "./workspace-turn";
 import { WorkspaceTurnRepo } from "./workspace-turn-repo";
@@ -250,8 +251,7 @@ export const saveUnitTurnResult = ({
     const opensRatingAttempt =
       tracksRating &&
       turnResult.presentedReviewChallenge &&
-      nextRun.cursor.step.kind === "scenario" &&
-      nextRun.cursor.step.challenge !== null;
+      isRatingEligibleScenario(nextRun);
     const presentedAt = new Date();
     const scenarioPresentation = opensRatingAttempt
       ? {
