@@ -130,7 +130,7 @@ const recallCandidate = {
 };
 
 describe("saveUnitTurnResult", () => {
-  it("persists the recall target needed to resume the in-flight review", async () => {
+  it("persists recall metadata without resuming recall while it is disabled", async () => {
     const recallRun = {
       ...createUnitRun({
         unitId: recallUnit.id,
@@ -251,8 +251,8 @@ describe("saveUnitTurnResult", () => {
       recallCandidate.id,
     ]);
     expect(result.state).toMatchObject({
-      promptKind: "recall",
-      recallUnitId: recallNode.id,
+      promptKind: "education_unit",
+      recallUnitId: null,
     });
   });
 });

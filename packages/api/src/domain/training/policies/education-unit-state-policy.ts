@@ -31,11 +31,8 @@ export const createInitialEducationUnitState = ({
   unit,
 }: {
   unit: UnitContent;
-}): EducationUnitState => {
-  if (!unit.buildContent) {
-    throw new Error("Unit teaching content is missing.");
-  }
-  return EducationUnitStateSchema.parse({
+}): EducationUnitState =>
+  EducationUnitStateSchema.parse({
     id: unit.id,
     nodeId: unit.nodeId,
     title: unit.title,
@@ -48,8 +45,8 @@ export const createInitialEducationUnitState = ({
     retryCount: 0,
     challenge: {
       title: unit.scenario.title,
-      prompt: unit.buildContent,
-      helper: null,
+      prompt: unit.seedPrompt,
+      helper: unit.seedHint,
       responseMode: "free_response",
       options: null,
     },
@@ -71,7 +68,6 @@ export const createInitialEducationUnitState = ({
     improvements: [],
     nextStep: null,
   });
-};
 
 export const getEducationUnitState = ({
   unit,
