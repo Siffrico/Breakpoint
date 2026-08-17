@@ -64,6 +64,20 @@ const compactFailureMessage = (message: string): string => {
   return `${message.slice(0, half)} … ${message.slice(-half)}`;
 };
 
+/**
+ * A schema violation arrives wrapped in the provider's error, so the generic
+ * classifier reads it as a rejected call. It is not: the model answered, the
+ * answer failed our contract, and that is the one failure a repair round can
+ * actually fix.
+ */
+const isValidationFailure = (error: unknown, depth = 0): boolean => {
+  if (!(error instanceof Error) || depth > 5) return false;
+  return (
+    /^(?:AI_)?(?:Zod|TypeValidation)Error$/.test(error.name) ||
+    isValidationFailure(error.cause, depth + 1)
+  );
+};
+
 export const classifyUnitAgentFailure = (error: unknown): UnitAgentError => {
   if (error instanceof UnitAgentFirstVisibleTimeoutError) return error;
   if (error instanceof UnitAgentWallClockTimeoutError) return error;
@@ -71,6 +85,9 @@ export const classifyUnitAgentFailure = (error: unknown): UnitAgentError => {
   const message = compactFailureMessage(
     failureMessage(error) || "Education unit agent call failed.",
   );
+  if (isValidationFailure(error)) {
+    return new UnitAgentSchemaError({ message, cause: error });
+  }
   const kind = classifyFailure(error, false);
 
   switch (kind) {

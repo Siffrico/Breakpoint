@@ -65,7 +65,7 @@ const presentationContext = (
 ): string => `${context}
 
 ## Exact structural target
-Author the scenario to this server-owned target: ${JSON.stringify(difficultyVector)}. Return only the learner-facing scenario in assistantMessage.`;
+Author the scenario to this server-owned target: ${JSON.stringify(difficultyVector)}. Return only the learner-facing scenario.`;
 
 export const scenarioFromPresentation = ({
   run,

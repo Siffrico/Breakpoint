@@ -3,7 +3,6 @@ import { z } from "zod/v4";
 
 import {
   mentorTeachingOutputSchema,
-  renderMentorOpening,
   reviewFeedbackSchema,
   reviewGradeSchema,
   reviewPresentationSchema,
@@ -11,19 +10,13 @@ import {
 
 describe("mentorTeachingOutputSchema", () => {
   const opening = {
-    heuristic:
-      "Name what the sentence does in the argument, then use the next sentence to verify that role.",
-    workedExample: {
-      read: "A study reports that urban trees lowered summer street temperatures. However, the researchers warn that scarce water can limit this benefit during severe droughts.",
-      predict:
-        "The first sentence establishes the positive result that the next sentence qualifies.",
-      compare:
-        "A tempting answer merely says the sentence discusses cooler streets. That repeats the topic. The stronger answer names its structural job: it presents a finding before the passage introduces a limit.",
-      decide:
-        "Choose the function answer because However confirms that the second sentence pivots away from an unqualified benefit.",
-    },
-    check:
-      "A claim is followed by Nevertheless and an opposing result. What function does the claim serve?",
+    assistantMessage: `Name what a sentence does in the argument, then use the next sentence to verify that role.
+
+A study reports that urban trees lowered summer street temperatures. However, the researchers warn that scarce water can limit this benefit during droughts.
+
+The tempting answer says the sentence discusses cooler streets, which only repeats the topic. The stronger answer names its structural job: it presents a finding the passage then limits.
+
+A claim is followed by Nevertheless and an opposing result. What function does the claim serve?`,
     preparedScenario: null,
   };
   const preparedScenario = {
@@ -52,32 +45,16 @@ describe("mentorTeachingOutputSchema", () => {
     ).toBe(false);
   });
 
-  it("renders the opening with product-owned semantic structure", () => {
-    expect(renderMentorOpening(opening)).toBe(`## Heuristic
+  it("lets the mentor organize the lesson as Markdown without punctuation validation", () => {
+    expect(
+      mentorTeachingOutputSchema(false, false).safeParse({
+        ...opening,
+        assistantMessage: `**Try this**
 
-${opening.heuristic}
-
-## Worked example
-
-### Read
-
-${opening.workedExample.read}
-
-### Predict
-
-${opening.workedExample.predict}
-
-### Compare
-
-${opening.workedExample.compare}
-
-### Decide
-
-${opening.workedExample.decide}
-
-## Check
-
-${opening.check}`);
+- Name the sentence's role.
+- Check that role against the next sentence.`,
+      }).success,
+    ).toBe(true);
   });
 
   it("does not expose the unused scenario object in the opening JSON schema", () => {
@@ -91,7 +68,7 @@ ${opening.check}`);
     });
   });
 
-  it("creates the scenario after one answer and asks no second question", () => {
+  it("creates the scenario after one answer without validating prose layout", () => {
     expect(
       mentorTeachingOutputSchema(false, true).safeParse({
         assistantMessage:
@@ -104,7 +81,7 @@ ${opening.check}`);
         assistantMessage: "Which constraint controls the move?",
         preparedScenario,
       }).success,
-    ).toBe(false);
+    ).toBe(true);
   });
 });
 
@@ -122,27 +99,38 @@ const options = [
   { label: "D" as const, text: "Retry writes without a key" },
 ] as const;
 
+const selectScenario = {
+  stimulus:
+    "A signed-in learner sees stale progress after reconnecting. Retries currently fire for every failed request, including writes sent without an idempotency key.",
+  assistantMessage: "Which recovery policy should the team ship, and why?",
+  options,
+  verifier,
+} as const;
+
 describe("reviewPresentationSchema", () => {
   it("keeps a validated private verifier beside learner-facing scenario text", () => {
-    const result = reviewPresentationSchema(true).safeParse({
-      assistantMessage:
-        "A signed-in learner sees stale progress after reconnecting. Which recovery policy should the team ship, and why?",
-      options,
-      verifier,
-    });
+    const result = reviewPresentationSchema(true).safeParse(selectScenario);
 
     expect(result.success).toBe(true);
   });
 
   it("caps private scenario planning so it cannot become an internal essay", () => {
     const result = reviewPresentationSchema(true).safeParse({
-      assistantMessage:
-        "A signed-in learner sees stale progress after reconnecting. Which recovery policy should the team ship, and why?",
-      options,
+      ...selectScenario,
       verifier: {
         ...verifier,
         scratchpad: "x".repeat(601),
       },
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a stem that instructs without asking anything", () => {
+    const result = reviewPresentationSchema(true).safeParse({
+      ...selectScenario,
+      assistantMessage:
+        "Read the passage above, then run a qualifier audit and be ready to cite the phrase that confirms your choice.",
     });
 
     expect(result.success).toBe(false);
@@ -178,8 +166,7 @@ Answer: B`,
 
   it("rejects drafting debris in learner-visible options", () => {
     const result = reviewPresentationSchema(true).safeParse({
-      assistantMessage:
-        "A signed-in learner sees stale progress after reconnecting. Which recovery policy should the team ship?",
+      ...selectScenario,
       options: [
         options[0],
         {
@@ -196,11 +183,8 @@ Answer: B`,
   });
 
   it("rejects a selected-response verifier without learner-visible options", () => {
-    const result = reviewPresentationSchema(true).safeParse({
-      assistantMessage:
-        "A signed-in learner sees stale progress after reconnecting. Which recovery policy should the team ship, and why?",
-      verifier,
-    });
+    const { options: _options, ...withoutOptions } = selectScenario;
+    const result = reviewPresentationSchema(true).safeParse(withoutOptions);
 
     expect(result.success).toBe(false);
   });
@@ -240,6 +224,22 @@ Re-derive a heuristic when the constraint that made it safe changes. Which const
     expect(result.success).toBe(true);
   });
 
+  it("accepts selected-response evidence without requiring a verbatim quote", () => {
+    const result = reviewGradeSchema({
+      ...gradeShape,
+      learnerAnswer: "B",
+    }).safeParse({
+      assistantMessage: "Option B misses the changed constraint.",
+      errorCodes: ["missed-controlling-constraint"],
+      scratchpad: "The selected option applies the old constraint.",
+      dimensionResults: [
+        { ...weakDimensionResult, evidence: "The wording of option B" },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+  });
+
   it("rejects an oversized cognitive scratchpad", () => {
     const result = reviewGradeSchema(gradeShape).safeParse({
       assistantMessage:
@@ -252,7 +252,7 @@ Re-derive a heuristic when the constraint that made it safe changes. Which const
     expect(result.success).toBe(false);
   });
 
-  it("closes failed one-shot checkpoints without opening feedback", () => {
+  it("accepts one-shot feedback without enforcing punctuation in the schema", () => {
     const oneShotShape = { ...gradeShape, interactiveFeedback: false };
     const result = reviewGradeSchema(oneShotShape).safeParse({
       assistantMessage: `**What held**
@@ -274,10 +274,10 @@ Re-derive the move from the controlling constraint.`,
         ...(result.success ? result.data : {}),
         assistantMessage: "Which constraint controls the move?",
       }).success,
-    ).toBe(false);
+    ).toBe(true);
   });
 
-  it("rejects vague named-template feedback", () => {
+  it("accepts learner-facing Markdown without policing section names", () => {
     const result = reviewGradeSchema(gradeShape).safeParse({
       assistantMessage:
         "The Mirror: you chose simplicity. The Pivot: reconsider the constraint. The Crucible: which step changes?",
@@ -287,7 +287,7 @@ Re-derive the move from the controlling constraint.`,
       dimensionResults: [weakDimensionResult],
     });
 
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
   });
 
   it("accepts concise clean feedback without repair sections", () => {
@@ -309,7 +309,7 @@ Re-derive the move from the controlling constraint.`,
     expect(result.success).toBe(true);
   });
 
-  it("rejects repair sections when the answer is clean", () => {
+  it("does not reject a valid clean grade because of its prose layout", () => {
     const result = reviewGradeSchema(gradeShape).safeParse({
       assistantMessage:
         "**What held** Your reasoning was correct. **Change** Nothing. **Use next time** Keep going.",
@@ -325,10 +325,10 @@ Re-derive the move from the controlling constraint.`,
       ],
     });
 
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
   });
 
-  it("requires diagnostic codes and a concrete missing element for a gap", () => {
+  it("lets the workflow derive missing diagnostic codes from scores", () => {
     const result = reviewGradeSchema(gradeShape).safeParse({
       assistantMessage: `**What held**
 The familiar procedure protects simplicity.
@@ -344,10 +344,10 @@ Re-derive the move from the controlling constraint.`,
       dimensionResults: [{ ...weakDimensionResult, missing: null }],
     });
 
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
   });
 
-  it("rejects diagnostic residue on a clean answer", () => {
+  it("lets the workflow discard diagnostic residue on a clean answer", () => {
     const result = reviewGradeSchema(gradeShape).safeParse({
       assistantMessage:
         "Exactly right: the changed constraint invalidates the old safety condition.",
@@ -357,12 +357,12 @@ Re-derive the move from the controlling constraint.`,
       dimensionResults: [{ ...weakDimensionResult, score: 96, missing: null }],
     });
 
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
   });
 });
 
 describe("reviewFeedbackSchema", () => {
-  it("keeps feedback active only when it ends in one question", () => {
+  it("keeps feedback state independent of prose punctuation", () => {
     expect(
       reviewFeedbackSchema(1).safeParse({
         assistantMessage:
@@ -377,10 +377,20 @@ describe("reviewFeedbackSchema", () => {
         feedbackComplete: false,
         scratchpad: "The learner still relies on the old procedure.",
       }).success,
-    ).toBe(false);
+    ).toBe(true);
   });
 
-  it("forces the third feedback answer to close without another question", () => {
+  it("forces the third feedback answer closed as a state invariant", () => {
+    const result = reviewFeedbackSchema(3).safeParse({
+      assistantMessage: "Which changed limit controls the move?",
+      feedbackComplete: false,
+      scratchpad: "The gap remains after the third answer.",
+    });
+
+    expect(result).toMatchObject({
+      success: true,
+      data: { feedbackComplete: true },
+    });
     expect(
       reviewFeedbackSchema(3).safeParse({
         assistantMessage:
@@ -389,12 +399,5 @@ describe("reviewFeedbackSchema", () => {
         scratchpad: "Close at the bounded feedback limit.",
       }).success,
     ).toBe(true);
-    expect(
-      reviewFeedbackSchema(3).safeParse({
-        assistantMessage: "Which changed limit controls the move?",
-        feedbackComplete: false,
-        scratchpad: "The gap remains after the third answer.",
-      }).success,
-    ).toBe(false);
   });
 });

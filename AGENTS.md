@@ -5,6 +5,7 @@ This file defines project-specific guidance for agents working on Breakpoint.
 ## Working Agreement
 
 - Do not edit code or run mutating commands unless the user explicitly asks for implementation.
+- Only open localhost URLs. Never access the network.
 - Before proposing a solution, restate the intent, inspect the relevant existing flow, and ask about missing information that could change the design.
 - Before implementation, propose the smallest plan and stress-test its failure modes, edge cases, data flow, and tests. Wait for approval unless the user explicitly asks to implement immediately.
 - Do not add speculative abstractions, dependencies, configuration, refactors, or scope.

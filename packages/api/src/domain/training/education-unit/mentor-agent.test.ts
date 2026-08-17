@@ -71,9 +71,9 @@ describe("mentor prompt modules", () => {
     expect(call?.system).toContain("## Scenario");
     expect(call?.system).toContain("object is the scenario itself");
     expect(call?.system).not.toContain("inside preparedScenario");
-    expect(call?.system).toContain("final copy edit");
+    expect(call?.system).toContain("that material goes in stimulus");
     expect(call?.system).toContain("idiomatic English");
-    expect(call?.system).toContain("never use all caps for emphasis");
+    expect(call?.system).toContain("all-caps emphasis");
     expect(call?.temperature).toBe(0.2);
   });
 });

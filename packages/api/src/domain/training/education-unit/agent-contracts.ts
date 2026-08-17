@@ -11,10 +11,10 @@ import { getReviewPresentationReadinessIssue } from "./unit-readiness";
 export const LearnerFacingMessageSchema = z
   .string()
   .trim()
-  .min(24)
+  .min(1)
   .max(8_000)
   .describe(
-    "Polished learner-facing prose in short, idiomatic English and sentence case. Use complete sentences with correct word forms, agreement, tense, punctuation, clear pronoun references, and sensible singular-plural choices. Exclude awkward or inflated phrasing, slogans, all-caps emphasis, drafting notes, self-corrections, filenames, private reasoning, and the answer.",
+    "The Markdown shown to the learner, formatted and laid out by you. It must read as finished and self-contained: no drafting notes, no private reasoning, no answer.",
   );
 
 const reviewOptionSchema = z
@@ -62,10 +62,12 @@ interface ReviewOption {
 }
 
 export const renderReviewPresentation = (output: {
+  readonly stimulus?: string | null;
   readonly assistantMessage: string;
   readonly options?: readonly ReviewOption[];
 }): string =>
   [
+    output.stimulus?.trim(),
     output.assistantMessage.trim(),
     output.options
       ?.map((option) => `${option.label}) ${option.text.trim()}`)
@@ -76,6 +78,7 @@ export const renderReviewPresentation = (output: {
 
 const refineReviewPresentation = (
   output: {
+    readonly stimulus?: string | null;
     readonly assistantMessage: string;
     readonly options?: readonly ReviewOption[];
     readonly verifier: z.infer<typeof ScenarioVerifierSchema>;
@@ -83,6 +86,21 @@ const refineReviewPresentation = (
   ctx: z.RefinementCtx,
 ) => {
   const assistantMessage = renderReviewPresentation(output);
+  // A multiple-choice item that asks nothing is the shape that ships a bare
+  // instruction ("read the passage below") with no question attached. The ask
+  // may be a question in the stem or a blank inside the stimulus, so this reads
+  // both: words-in-context items legitimately carry the blank in the passage.
+  if (
+    output.options &&
+    !/\?|_{2,}/.test(`${output.stimulus ?? ""} ${output.assistantMessage}`)
+  ) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["assistantMessage"],
+      message:
+        "the question must ask something: pose a question or leave a blank to complete",
+    });
+  }
   const readinessIssue = getReviewPresentationReadinessIssue({
     assistantMessage,
     verifier: output.verifier,
@@ -105,7 +123,18 @@ const refineReviewPresentation = (
 
 const selectedReviewPresentationSchema = z
   .object({
-    assistantMessage: LearnerFacingMessageSchema,
+    stimulus: z
+      .string()
+      .trim()
+      .min(1)
+      .max(4_000)
+      .nullish()
+      .describe(
+        "The passage, data, code, or situation the question is about, reproduced in full because the learner sees nothing else. Null only when the question stands alone with no material to read.",
+      ),
+    assistantMessage: LearnerFacingMessageSchema.describe(
+      "The question about the stimulus, plus how to answer it. Do not repeat the stimulus here or point at it with phrases like 'the passage below'.",
+    ),
     verifier: selectedReviewVerifierSchema,
     options: z.array(reviewOptionSchema).length(4),
   })
@@ -128,61 +157,12 @@ const mentorTeachingBase = {
 
 export const mentorOpeningOutputSchema = z
   .object({
-    heuristic: z
-      .string()
-      .trim()
-      .min(12)
-      .max(500)
-      .describe("One or two sentences stating the followable command."),
-    workedExample: z
-      .object({
-        read: z
-          .string()
-          .trim()
-          .min(12)
-          .max(1_000)
-          .describe("The short concrete passage or problem."),
-        predict: z
-          .string()
-          .trim()
-          .min(8)
-          .max(500)
-          .describe("The predicted role or answer before comparing choices."),
-        compare: z
-          .string()
-          .trim()
-          .min(12)
-          .max(1_000)
-          .describe(
-            "The tempting wrong move, the correct move, and the mechanical difference.",
-          ),
-        decide: z
-          .string()
-          .trim()
-          .min(8)
-          .max(500)
-          .describe("The heuristic applied to the final result."),
-      })
-      .strict(),
-    check: z
-      .string()
-      .trim()
-      .min(12)
-      .max(500)
-      .describe("Exactly one small unanswered question with new details."),
+    assistantMessage: LearnerFacingMessageSchema.describe(
+      "The whole lesson, formatted by you: the heuristic, one worked example, and the closing check.",
+    ),
     preparedScenario: z.null(),
   })
-  .strict()
-  .superRefine((output, ctx) => {
-    const questionCount = output.check.match(/\?/g)?.length ?? 0;
-    if (!output.check.endsWith("?") || questionCount !== 1) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["check"],
-        message: "The check must end in exactly one question.",
-      });
-    }
-  });
+  .strict();
 
 export const mentorTeachingOutputSchema = (
   selectedResponse: boolean,
@@ -202,67 +182,7 @@ export const mentorHandoffOutputSchema = (selectedResponse: boolean) =>
         ...mentorTeachingBase,
         preparedScenario: openReviewPresentationSchema,
       })
-  )
-    .strict()
-    .superRefine((output, ctx) => {
-      const questionCount = output.assistantMessage.match(/\?/g)?.length ?? 0;
-      if (questionCount > 0) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["assistantMessage"],
-          message:
-            "The answer to the teaching question must hand off without another question.",
-        });
-      }
-    });
-
-export type MentorOpeningOutput = z.infer<typeof mentorOpeningOutputSchema>;
-
-export const renderMentorOpening = (output: unknown): string => {
-  if (typeof output !== "object" || output === null) return "";
-  const candidate = output as Record<string, unknown>;
-  const heuristic =
-    typeof candidate.heuristic === "string" ? candidate.heuristic : null;
-  const workedExample =
-    typeof candidate.workedExample === "object" &&
-    candidate.workedExample !== null
-      ? (candidate.workedExample as Record<string, unknown>)
-      : null;
-  const check = typeof candidate.check === "string" ? candidate.check : null;
-  const workedPart = (key: "read" | "predict" | "compare" | "decide") =>
-    workedExample && typeof workedExample[key] === "string"
-      ? workedExample[key].trim()
-      : null;
-  const read = workedPart("read");
-  const predict = workedPart("predict");
-  const compare = workedPart("compare");
-  const decide = workedPart("decide");
-  return [
-    heuristic ? `## Heuristic\n\n${heuristic.trim()}` : null,
-    workedExample
-      ? [
-          "## Worked example",
-          read ? `### Read\n\n${read}` : null,
-          predict ? `### Predict\n\n${predict}` : null,
-          compare ? `### Compare\n\n${compare}` : null,
-          decide ? `### Decide\n\n${decide}` : null,
-        ]
-          .filter((part): part is string => part !== null)
-          .join("\n\n")
-      : null,
-    check ? `## Check\n\n${check.trim()}` : null,
-  ]
-    .filter((part): part is string => part !== null)
-    .join("\n\n");
-};
-
-// ---------------------------------------------------------------------------
-// Critic contracts
-//
-// Every reviewer rule that used to be an imperative post-check lives here as
-// schema shape. A violation is then one cheap self-repair round inside the
-// agent runner instead of a dead turn the learner has already watched stream.
-// ---------------------------------------------------------------------------
+  ).strict();
 
 export const PASSING_COMPOSITE = 80;
 export const PASSING_DIMENSION = 70;
@@ -288,47 +208,12 @@ export const hasModelGap = (
   compositeScore(results) < PASSING_COMPOSITE ||
   results.some((result) => result.score < PASSING_DIMENSION);
 
-/**
- * Folds the differences a model reliably introduces when re-typing a learner's
- * words — smart quotes, dashes, collapsed whitespace, an added trailing period.
- * Without this the verbatim-quote rule burns a repair round on nearly every
- * grade while the quote is, for every human purpose, exact.
- */
-export const normalizeEvidence = (value: string): string =>
-  value
-    .replace(/[‘’‛′]/g, "'")
-    .replace(/[“”‟″]/g, '"')
-    .replace(/[‐-―]/g, "-")
-    .replace(/\s+/g, " ")
-    .replace(/^[\s"'`.,;:!?()[\]-]+/, "")
-    .replace(/[\s"'`.,;:!?()[\]-]+$/, "")
-    .toLocaleLowerCase();
-
-const MIN_EVIDENCE_CHARACTERS = 3;
-
-const evidenceSchema = (learnerAnswer: string) => {
-  const haystack = normalizeEvidence(learnerAnswer);
-  return z
-    .string()
-    .min(1)
-    .refine(
-      (quote) => {
-        const needle = normalizeEvidence(quote);
-        return (
-          needle.length >= MIN_EVIDENCE_CHARACTERS && haystack.includes(needle)
-        );
-      },
-      {
-        message:
-          "evidence must be a verbatim quote from the learner's latest answer",
-      },
-    );
-};
+const evidenceSchema = z.string().trim().min(1);
 
 export interface GradeShape {
   /** Exactly the dimensions the active challenge's contract tests. */
   readonly testedDimensionIds: readonly string[];
-  /** The learner's latest answer, which every evidence quote must come from. */
+  /** The learner's latest answer, included in the critic prompt. */
   readonly learnerAnswer: string;
   /** Whether a failed grade will actually open the persisted feedback loop. */
   readonly interactiveFeedback: boolean;
@@ -339,11 +224,7 @@ export interface GradeShape {
  * the scores the critic already committed to, so "did they get it" is never a
  * second, separately-fallible judgement call.
  */
-export const reviewGradeSchema = ({
-  testedDimensionIds,
-  learnerAnswer,
-  interactiveFeedback,
-}: GradeShape) =>
+export const reviewGradeSchema = ({ testedDimensionIds }: GradeShape) =>
   z
     .object({
       assistantMessage: LearnerFacingMessageSchema,
@@ -361,7 +242,7 @@ export const reviewGradeSchema = ({
               .describe(
                 "A percentage score from 0 to 100, never a 1-3 ordinal.",
               ),
-            evidence: evidenceSchema(learnerAnswer),
+            evidence: evidenceSchema,
           }),
         )
         .length(testedDimensionIds.length),
@@ -378,95 +259,6 @@ export const reviewGradeSchema = ({
           message: "Grade each tested dimension exactly once.",
         });
       }
-
-      const gap = hasModelGap(output.dimensionResults);
-      if (gap && output.errorCodes.length === 0) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["errorCodes"],
-          message: "A learner gap requires at least one diagnostic error code.",
-        });
-      }
-      if (!gap && output.errorCodes.length > 0) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["errorCodes"],
-          message: "A clean answer cannot carry diagnostic error codes.",
-        });
-      }
-      if (gap && !output.dimensionResults.some((result) => result.missing)) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["dimensionResults"],
-          message: "A learner gap requires a concrete missing element.",
-        });
-      }
-      if (!gap && output.dimensionResults.some((result) => result.missing)) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["dimensionResults"],
-          message: "A clean answer cannot report a missing element.",
-        });
-      }
-      if (
-        gap &&
-        !["What held", "Change", "Use next time"].every((label) =>
-          new RegExp(`\\*\\*${label}\\*\\*`, "i").test(output.assistantMessage),
-        )
-      ) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["assistantMessage"],
-          message:
-            "feedback for a learner gap must include What held, Change, and Use next time labels",
-        });
-      }
-      const questionCount = output.assistantMessage.match(/\?/g)?.length ?? 0;
-      if (
-        gap &&
-        interactiveFeedback &&
-        (!output.assistantMessage.trimEnd().endsWith("?") ||
-          questionCount !== 1)
-      ) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["assistantMessage"],
-          message:
-            "feedback for a learner gap must end in exactly one focused question",
-        });
-      }
-      if (gap && !interactiveFeedback && questionCount > 0) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["assistantMessage"],
-          message: "one-shot feedback must close without a learner question",
-        });
-      }
-      if (
-        !gap &&
-        (questionCount > 0 ||
-          /\*\*(?:What held|Change|Use next time)\*\*|\b(?:one more|another|next|fresh) (?:challenge|scenario|problem)\b/i.test(
-            output.assistantMessage,
-          ))
-      ) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["assistantMessage"],
-          message:
-            "feedback for a clean answer must close concisely without repair sections or promising another task",
-        });
-      }
-      if (
-        /\b(?:the mirror|the pivot|the crucible)\b/i.test(
-          output.assistantMessage,
-        )
-      ) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["assistantMessage"],
-          message: "write naturally without named diagnostic template sections",
-        });
-      }
     });
 
 export const reviewFeedbackSchema = (promptRound: number) =>
@@ -477,35 +269,10 @@ export const reviewFeedbackSchema = (promptRound: number) =>
       scratchpad: z.string().trim().min(1).max(600),
     })
     .strict()
-    .superRefine((output, ctx) => {
-      const questionCount = output.assistantMessage.match(/\?/g)?.length ?? 0;
-      if (promptRound === 3 && !output.feedbackComplete) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["feedbackComplete"],
-          message: "The third feedback answer must close the feedback turn.",
-        });
-      }
-      if (
-        !output.feedbackComplete &&
-        (!output.assistantMessage.trimEnd().endsWith("?") ||
-          questionCount !== 1)
-      ) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["assistantMessage"],
-          message:
-            "Continuing feedback must end in exactly one focused question.",
-        });
-      }
-      if (output.feedbackComplete && questionCount > 0) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["assistantMessage"],
-          message: "Completed feedback must close without another question.",
-        });
-      }
-    });
+    .transform((output) => ({
+      ...output,
+      feedbackComplete: promptRound === 3 || output.feedbackComplete,
+    }));
 
 export interface MentorTeachingOutput {
   readonly assistantMessage: string;

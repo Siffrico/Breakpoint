@@ -19,6 +19,7 @@ import {
   reviewFeedbackSchema,
   reviewGradeSchema,
 } from "./agent-contracts";
+import { LEARNER_FACING_FORMAT } from "./learner-facing-format";
 import { runUnitAgent } from "./run-unit-agent";
 
 const CRITIC_SYSTEM = `You are Breakpoint's independent critic. You grade, but grading is the smaller half of the job: you exist to show a learner the exact place their mental model diverged from an expert's, in words they can feel.
@@ -38,7 +39,9 @@ When the scores show no real gap, do not manufacture one. Close cleanly and say 
 ## Evidence
 Every criterion's evidence field must be a verbatim quote from the learner's latest answer — their characters, not your paraphrase. Fluent language without the mechanism is a failure signal, not a passing one. Difficulty comes from realistic constraints, ambiguity, and competing plausible alternatives; never from trivia, withheld information a practitioner would have, or contrived rules.
 
-Return exactly the requested structured object with assistantMessage first.`;
+Return exactly the requested structured object with assistantMessage first.
+
+${LEARNER_FACING_FORMAT}`;
 
 const gradeTurnInstruction = (
   interactiveFeedback: boolean,
@@ -105,7 +108,7 @@ export const runReviewGradeAgent = ({
     context: `${context}\n\n## Immutable active challenge and private verifier\n${JSON.stringify(activeChallenge)}\n\n${gradeTurnInstruction(shape.interactiveFeedback)}`,
     schema: reviewGradeSchema(shape),
     schemaName: "unit_review_grade",
-    maxOutputTokens: 6_000,
+    maxOutputTokens: 15_000,
     reasoningBudgetTokens: 3_000,
     temperature: 0.2,
     errorMessage: "Failed to grade the adversarial review.",
@@ -138,7 +141,7 @@ export const runReviewFeedbackAgent = ({
     context: `${context}\n\n## Frozen scenario diagnosis\n${JSON.stringify({ errorCodes, dimensionResults })}\n\n${feedbackTurnInstruction(promptRound)}`,
     schema: reviewFeedbackSchema(promptRound),
     schemaName: "unit_review_feedback",
-    maxOutputTokens: 3_000,
+    maxOutputTokens: 15_000,
     reasoningBudgetTokens: 1_400,
     temperature: 0.2,
     errorMessage: "Failed to continue the learner feedback.",

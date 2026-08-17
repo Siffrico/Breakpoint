@@ -39,7 +39,6 @@ interface RunUnitAgentInput<TSchema extends z.ZodTypeAny> {
   readonly errorMessage: string;
   readonly reasoning: ReasoningEffort;
   readonly onPartialAssistantMessage?: (content: string) => void;
-  readonly renderPartialAssistantMessage?: (partial: unknown) => string;
 }
 
 const INITIAL_CHUNK_TIMEOUT_MS = 10_000;
@@ -162,11 +161,10 @@ const callModel = async <TSchema extends z.ZodTypeAny>(
     for await (const partial of result.partialOutputStream) {
       if (abortSignal.aborted) throw abortSignal.reason;
       armInactivityTimeout();
-      const assistantMessage = input.renderPartialAssistantMessage
-        ? input.renderPartialAssistantMessage(partial)
-        : typeof partial === "object" &&
-            partial !== null &&
-            "assistantMessage" in partial
+      const assistantMessage =
+        typeof partial === "object" &&
+        partial !== null &&
+        "assistantMessage" in partial
           ? partial.assistantMessage
           : undefined;
       if (typeof assistantMessage === "string") {
@@ -226,9 +224,10 @@ const attempt = <TSchema extends z.ZodTypeAny>(
     ),
   );
 
-export const runUnitAgent = <TSchema extends z.ZodTypeAny>(
+const traced = <TSchema extends z.ZodTypeAny>(
   input: RunUnitAgentInput<TSchema>,
-): Effect.Effect<UnitAgentResult<z.infer<TSchema>>, UnitAgentError> =>
+  attemptNumber: number,
+): Effect.Effect<AttemptResult<z.infer<TSchema>>, UnitAgentError> =>
   attempt(input).pipe(
     Effect.tap(({ cachedInputTokens, inputTokens }) =>
       Effect.annotateCurrentSpan({ cachedInputTokens, inputTokens }),
@@ -238,7 +237,34 @@ export const runUnitAgent = <TSchema extends z.ZodTypeAny>(
       Effect.annotateCurrentSpan({ outcome: error._tag }),
     ),
     Effect.withSpan("unit-agent.attempt", {
-      attributes: { agent: input.agent, attempt: 1 },
+      attributes: { agent: input.agent, attempt: attemptNumber },
     }),
+  );
+
+/**
+ * One repair round. These schemas carry a dozen interacting rules, so a model
+ * that gets the substance right routinely trips one of them — and without a
+ * retry that is a dead turn the learner already watched stream. Handing the
+ * validation errors back is the cheapest fix that exists: the model keeps its
+ * own content and only corrects the contract violation. Repairs once, never
+ * loops, so a genuinely unsatisfiable schema still fails fast.
+ */
+export const runUnitAgent = <TSchema extends z.ZodTypeAny>(
+  input: RunUnitAgentInput<TSchema>,
+): Effect.Effect<UnitAgentResult<z.infer<TSchema>>, UnitAgentError> =>
+  traced(input, 1).pipe(
+    Effect.catchTag("UnitAgentSchemaError", (error) =>
+      traced(
+        {
+          ...input,
+          context: `${input.context}
+
+## Repair your previous reply
+It was rejected for failing the output contract. Keep your content and fix only what is listed:
+${error.message}`,
+        },
+        2,
+      ),
+    ),
     Effect.map(({ object }) => ({ object })),
   );

@@ -1,5 +1,5 @@
 import type { ModelMessage } from "ai";
-import { Effect } from "effect";
+import type { Effect } from "effect";
 
 import type {
   MentorTeachingOutput,
@@ -10,7 +10,6 @@ import type { EducationExperienceDefinition } from "./experience";
 import {
   mentorHandoffOutputSchema,
   mentorOpeningOutputSchema,
-  renderMentorOpening,
   reviewPresentationSchema,
 } from "./agent-contracts";
 import {
@@ -73,26 +72,17 @@ export const runMentorTeachingAgent = ({
     temperature: 0.2,
     onPartialAssistantMessage,
   };
-  if (createScenario) {
-    return runUnitAgent({
-      ...base,
-      schema: mentorHandoffOutputSchema(selectedResponse),
-      maxOutputTokens: 3_000,
-    });
-  }
-  return runUnitAgent({
-    ...base,
-    schema: mentorOpeningOutputSchema,
-    maxOutputTokens: 1_200,
-    renderPartialAssistantMessage: (partial) => renderMentorOpening(partial),
-  }).pipe(
-    Effect.map(({ object }) => ({
-      object: {
-        assistantMessage: renderMentorOpening(object),
-        preparedScenario: null,
-      },
-    })),
-  );
+  return createScenario
+    ? runUnitAgent({
+        ...base,
+        schema: mentorHandoffOutputSchema(selectedResponse),
+        maxOutputTokens: 15_000,
+      })
+    : runUnitAgent({
+        ...base,
+        schema: mentorOpeningOutputSchema,
+        maxOutputTokens: 15_000,
+      });
 };
 
 export const runMentorScenarioAgent = ({
@@ -117,7 +107,7 @@ export const runMentorScenarioAgent = ({
     context: `${context}\n\n${mentorScenarioInstruction(pass)}`,
     schema: reviewPresentationSchema(selectedResponse),
     schemaName: "unit_mentor_scenario",
-    maxOutputTokens: 5_000,
+    maxOutputTokens: 15_000,
     reasoningBudgetTokens: 2_400,
     temperature: 0.2,
     errorMessage: "Failed to create the education-unit scenario.",
