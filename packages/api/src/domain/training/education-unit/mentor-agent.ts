@@ -119,7 +119,7 @@ export const runMentorScenarioAgent = ({
     schemaName: "unit_mentor_scenario",
     maxOutputTokens: 5_000,
     reasoningBudgetTokens: 2_400,
-    temperature: 0.3,
+    temperature: 0.2,
     errorMessage: "Failed to create the education-unit scenario.",
     onPartialAssistantMessage,
   });

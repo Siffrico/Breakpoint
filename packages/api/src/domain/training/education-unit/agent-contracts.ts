@@ -14,7 +14,7 @@ export const LearnerFacingMessageSchema = z
   .min(24)
   .max(8_000)
   .describe(
-    "Complete learner-facing prose only. Use finished sentences. Exclude drafting notes, self-corrections, filenames, private reasoning, and the answer.",
+    "Polished learner-facing prose in short, idiomatic English and sentence case. Use complete sentences with correct word forms, agreement, tense, punctuation, clear pronoun references, and sensible singular-plural choices. Exclude awkward or inflated phrasing, slogans, all-caps emphasis, drafting notes, self-corrections, filenames, private reasoning, and the answer.",
   );
 
 const reviewOptionSchema = z
@@ -28,7 +28,7 @@ const reviewOptionSchema = z
       .min(1)
       .max(1_000)
       .describe(
-        "One complete answer choice. Keep it parallel in grammar and scope with the other choices. Do not add author notes or explain whether it is correct.",
+        "One polished, idiomatic answer choice. It must read grammatically after the question stem and stay parallel in grammar and scope with the other choices. Do not use all-caps emphasis, add author notes, or explain whether it is correct.",
       ),
   })
   .strict();
