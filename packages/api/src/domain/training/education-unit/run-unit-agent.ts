@@ -16,6 +16,7 @@ import {
 } from "../engine/model-router";
 import {
   classifyUnitAgentFailure,
+  describeSchemaIssues,
   nameUnitAgentSchemaError,
   UnitAgentFirstVisibleTimeoutError,
   UnitAgentWallClockTimeoutError,
@@ -39,6 +40,13 @@ interface RunUnitAgentInput<TSchema extends z.ZodTypeAny> {
   readonly errorMessage: string;
   readonly reasoning: ReasoningEffort;
   readonly onPartialAssistantMessage?: (content: string) => void;
+  /**
+   * Presentation rules, kept out of the schema on purpose. A reply whose data is
+   * sound but whose shape is untidy is worth one more ask, never worth throwing
+   * away — scores drive progression, and losing them to a missing bold label
+   * costs the learner the whole turn. Return null when the shape is fine.
+   */
+  readonly checkPresentation?: (object: z.infer<TSchema>) => string | null;
 }
 
 const INITIAL_CHUNK_TIMEOUT_MS = 10_000;
@@ -195,6 +203,7 @@ const callModel = async <TSchema extends z.ZodTypeAny>(
     performanceAttempt?.finish({
       outcome: "error",
       errorTag: getErrorTag(error),
+      schemaIssues: describeSchemaIssues(error),
     });
     if (firstVisibleController.signal.aborted) {
       throw firstVisibleController.signal.reason;
@@ -241,30 +250,48 @@ const traced = <TSchema extends z.ZodTypeAny>(
     }),
   );
 
+const repaired = <TSchema extends z.ZodTypeAny>(
+  input: RunUnitAgentInput<TSchema>,
+  problem: string,
+): RunUnitAgentInput<TSchema> => ({
+  ...input,
+  context: `${input.context}
+
+## Repair your previous reply
+It broke the output contract. Keep your content and your judgement, and change only what is listed:
+${problem}`,
+});
+
 /**
- * One repair round. These schemas carry a dozen interacting rules, so a model
- * that gets the substance right routinely trips one of them — and without a
- * retry that is a dead turn the learner already watched stream. Handing the
- * validation errors back is the cheapest fix that exists: the model keeps its
- * own content and only corrects the contract violation. Repairs once, never
- * loops, so a genuinely unsatisfiable schema still fails fast.
+ * Exactly one repair round, down either branch.
+ *
+ * A hard schema failure has no usable result, so repair is the only way the
+ * turn survives; these contracts carry enough interacting rules that a model
+ * with the substance right still trips one, and every trip used to be a dead
+ * turn the learner had already watched stream.
+ *
+ * A presentation slip is different: the result is valid and already banked, so
+ * the retry is an upgrade attempt. If it fails or is refused, the first result
+ * stands. That asymmetry is the point — data must be correct, shape merely
+ * should be, and only one of those is worth failing a turn over.
  */
 export const runUnitAgent = <TSchema extends z.ZodTypeAny>(
   input: RunUnitAgentInput<TSchema>,
 ): Effect.Effect<UnitAgentResult<z.infer<TSchema>>, UnitAgentError> =>
   traced(input, 1).pipe(
-    Effect.catchTag("UnitAgentSchemaError", (error) =>
-      traced(
-        {
-          ...input,
-          context: `${input.context}
-
-## Repair your previous reply
-It was rejected for failing the output contract. Keep your content and fix only what is listed:
-${error.message}`,
-        },
-        2,
-      ),
-    ),
+    Effect.matchEffect({
+      onFailure: (error: UnitAgentError) =>
+        error._tag === "UnitAgentSchemaError"
+          ? traced(repaired(input, error.message), 2)
+          : Effect.fail(error),
+      onSuccess: (result) => {
+        const issue = input.checkPresentation?.(result.object) ?? null;
+        return issue === null
+          ? Effect.succeed(result)
+          : traced(repaired(input, issue), 2).pipe(
+              Effect.orElseSucceed(() => result),
+            );
+      },
+    }),
     Effect.map(({ object }) => ({ object })),
   );

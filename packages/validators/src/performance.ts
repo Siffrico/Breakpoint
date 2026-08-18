@@ -40,6 +40,12 @@ export interface WorkspaceModelAttemptMetric {
   cachedInputTokens: number | null;
   outcome: "success" | "error";
   errorTag: string | null;
+  /**
+   * Which output-contract rules the model broke, when that is why the attempt
+   * failed. `errorTag` only says "ZodError", which is not enough to fix a
+   * prompt: without this the reason exists for one stack frame and is gone.
+   */
+  schemaIssues: string[] | null;
 }
 
 export interface WorkspaceTurnTimingMetric {

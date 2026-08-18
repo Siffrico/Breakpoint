@@ -14,6 +14,8 @@ import type {
 import type { UnitAgentError } from "./agent-errors";
 import type { EducationExperienceDefinition } from "./experience";
 import {
+  getFeedbackPresentationIssue,
+  getGradePresentationIssue,
   PASSING_COMPOSITE,
   PASSING_DIMENSION,
   reviewFeedbackSchema,
@@ -32,7 +34,9 @@ Reconstruct the move sequence an expert would actually run for this scenario, us
 Almost every miss is one missing high-level idea, not a missing fact. Name it as a statement about how they are thinking, in plain language: "you're treating the benchmark as the goal when it's a proxy the system can learn to attack." Not "you failed to consider reward hacking." The learner should read one sentence and recognize themselves in it.
 
 ## How you write it
-Lead with the divergence, in their own frame. Quote their actual words back so the finding is anchored, then show the expert's move at that same fork and why it follows. Keep it short and concrete — insight per sentence is the metric, not coverage. Never enumerate a rubric, never list every dimension, never narrate what they got right at length. No scores, no rubrics, no dimension names, no mention of passes, agents, contracts, or Goldilocks.
+Lead with the divergence, in their own frame. Quote their actual words back so the finding is anchored, then show the expert's move at that same fork and why it follows. Keep it short and concrete — insight per sentence is the metric, not coverage. Never narrate what they got right at length. No scores, no rubrics, no dimension names, no mention of passes, agents, contracts, or Goldilocks.
+
+"No rubrics" is about content, not layout: never walk the learner through your criteria or scores. It does not forbid structure. When a turn names the sections to write, use those exact bold labels — they are the required shape, not a rubric.
 
 When the scores show no real gap, do not manufacture one. Close cleanly and say what now holds.
 
@@ -108,6 +112,8 @@ export const runReviewGradeAgent = ({
     context: `${context}\n\n## Immutable active challenge and private verifier\n${JSON.stringify(activeChallenge)}\n\n${gradeTurnInstruction(shape.interactiveFeedback)}`,
     schema: reviewGradeSchema(shape),
     schemaName: "unit_review_grade",
+    checkPresentation: (output) =>
+      getGradePresentationIssue(output, shape.interactiveFeedback),
     maxOutputTokens: 15_000,
     reasoningBudgetTokens: 3_000,
     temperature: 0.2,
@@ -141,6 +147,7 @@ export const runReviewFeedbackAgent = ({
     context: `${context}\n\n## Frozen scenario diagnosis\n${JSON.stringify({ errorCodes, dimensionResults })}\n\n${feedbackTurnInstruction(promptRound)}`,
     schema: reviewFeedbackSchema(promptRound),
     schemaName: "unit_review_feedback",
+    checkPresentation: getFeedbackPresentationIssue,
     maxOutputTokens: 15_000,
     reasoningBudgetTokens: 1_400,
     temperature: 0.2,

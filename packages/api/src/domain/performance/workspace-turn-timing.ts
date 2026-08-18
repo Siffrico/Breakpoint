@@ -16,6 +16,7 @@ interface ModelAttemptStart {
 interface ModelAttemptFinish {
   outcome: "success" | "error";
   errorTag?: string | null;
+  schemaIssues?: readonly string[] | null;
   inputTokens?: number | null;
   cachedInputTokens?: number | null;
 }
@@ -151,6 +152,9 @@ export const createWorkspaceTurnPerformanceTimer = ({
             cachedInputTokens: result.cachedInputTokens ?? null,
             outcome: result.outcome,
             errorTag: result.errorTag ?? null,
+            schemaIssues: result.schemaIssues?.length
+              ? [...result.schemaIssues]
+              : null,
           });
         },
       };

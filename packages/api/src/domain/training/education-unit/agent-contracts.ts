@@ -274,6 +274,79 @@ export const reviewFeedbackSchema = (promptRound: number) =>
       feedbackComplete: promptRound === 3 || output.feedbackComplete,
     }));
 
+// ---------------------------------------------------------------------------
+// Presentation rules
+//
+// Deliberately not schema rules. These describe the shape of learner-facing
+// prose, and prose shape must never invalidate a grade: the scores and evidence
+// drive rating and mastery, so discarding them because a bold label is missing
+// costs the learner a turn to fix a cosmetic defect. The runner asks once for a
+// tidier reply and keeps the original either way.
+// ---------------------------------------------------------------------------
+
+const REPAIR_LABELS = ["What held", "Change", "Use next time"] as const;
+
+const hasLabel = (message: string, label: string): boolean =>
+  new RegExp(`\\*\\*${label}\\*\\*`, "i").test(message);
+
+/**
+ * Whether the reply closes on a single thing to answer. Only the closing block
+ * counts: a rhetorical question inside the diagnosis is prose, not a second
+ * ask, and counting every "?" in the message rejects good writing.
+ */
+const closesOnOneQuestion = (message: string): boolean => {
+  const trimmed = message.trimEnd();
+  if (!trimmed.endsWith("?")) return false;
+  const closing = trimmed.split(/\n\s*\n/).at(-1) ?? trimmed;
+  return (closing.match(/\?/g)?.length ?? 0) === 1;
+};
+
+export const getGradePresentationIssue = (
+  output: Pick<ReviewGradeOutput, "assistantMessage" | "dimensionResults">,
+  interactiveFeedback: boolean,
+): string | null => {
+  const message = output.assistantMessage;
+  if (/\b(?:the mirror|the pivot|the crucible)\b/i.test(message)) {
+    return "Write naturally: drop the named template sections.";
+  }
+  if (!hasModelGap(output.dimensionResults)) {
+    const stray = REPAIR_LABELS.find((label) => hasLabel(message, label));
+    if (stray) {
+      return `The answer was clean, so there is nothing to repair: drop the **${stray}** section and confirm the answer in one short paragraph.`;
+    }
+    return message.includes("?")
+      ? "The answer was clean: confirm what now holds and ask the learner nothing."
+      : null;
+  }
+  const missing = REPAIR_LABELS.filter((label) => !hasLabel(message, label));
+  if (missing.length > 0) {
+    return `Label each repair section in bold, in this order: ${REPAIR_LABELS.map(
+      (label) => `**${label}**`,
+    ).join(", ")}. Missing: ${missing.join(", ")}.`;
+  }
+  if (!interactiveFeedback) {
+    return message.includes("?")
+      ? "This is a one-shot checkpoint: give the repair and close without asking a question."
+      : null;
+  }
+  return closesOnOneQuestion(message)
+    ? null
+    : "End with exactly one short question for the learner, as the last thing in the reply, and ask nothing else in that closing paragraph.";
+};
+
+export const getFeedbackPresentationIssue = (
+  output: Pick<ReviewFeedbackOutput, "assistantMessage" | "feedbackComplete">,
+): string | null => {
+  if (output.feedbackComplete) {
+    return output.assistantMessage.includes("?")
+      ? "This closes the feedback: confirm the corrected idea and ask nothing further."
+      : null;
+  }
+  return closesOnOneQuestion(output.assistantMessage)
+    ? null
+    : "Feedback that continues must end with exactly one short question, as the last thing in the reply.";
+};
+
 export interface MentorTeachingOutput {
   readonly assistantMessage: string;
   readonly preparedScenario: ReviewPresentationOutput | null;
