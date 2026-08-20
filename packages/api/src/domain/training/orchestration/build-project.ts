@@ -468,9 +468,17 @@ export const buildProjectFromOnboarding = async ({
   const startedAt = Date.now();
   const remainingMs = () => BUILD_BUDGET_MS - (Date.now() - startedAt);
   const projectName = normalizeLearningTrackName(input.projectName);
-  const persistedStartingPoint = await deps
-    .getStartingPoint(sessionId)
-    .catch(() => null);
+  let persistedStartingPoint: Awaited<
+    ReturnType<BuildProjectDeps["getStartingPoint"]>
+  >;
+  try {
+    persistedStartingPoint = await deps.getStartingPoint(sessionId);
+  } catch {
+    return {
+      success: false,
+      error: "I couldn't load your starting point. Want to try again?",
+    };
+  }
   const sourceKey = getProjectBuildSourceKey(input, persistedStartingPoint);
   const steps = initialSteps();
   const state: ProjectBuildState = {

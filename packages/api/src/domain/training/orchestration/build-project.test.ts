@@ -171,6 +171,22 @@ const run = (
   });
 
 describe("buildProjectFromOnboarding", () => {
+  it("stops before claiming a build when the authoritative starting point cannot be read", async () => {
+    const { deps } = makeDeps();
+    vi.mocked(deps.getStartingPoint).mockRejectedValue(
+      new Error("database unavailable"),
+    );
+
+    const result = await run(deps);
+
+    expect(result).toEqual({
+      success: false,
+      error: "I couldn't load your starting point. Want to try again?",
+    });
+    expect(deps.claimRun).not.toHaveBeenCalled();
+    expect(deps.ensureShell).not.toHaveBeenCalled();
+  });
+
   it("reserves behavior signal capacity for the learner's goal and gap", async () => {
     const { deps } = makeDeps();
 
