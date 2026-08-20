@@ -5,6 +5,12 @@
       "source": "cosscom/coss",
       "sourceType": "github",
       "computedHash": "7fc8b04e73c445d9463ce27d0719832ed5ca3cbe70c3ac20fe15848aae24180e"
+    },
+    "install-anti-slop": {
+      "source": "dmmulroy/anti-slop",
+      "sourceType": "github",
+      "skillPath": "skills/install-anti-slop/SKILL.md",
+      "computedHash": "b903a7ac2c823d473a4b0046834fccbab0bc75ee4fda8be4f81efa895d475b01"
     }
   }
 }
