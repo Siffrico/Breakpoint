@@ -4,6 +4,10 @@ export const WORKSPACE_CHAT_MESSAGE_MAX_CHARS = 12_000;
 export const WORKSPACE_CHAT_BODY_MAX_BYTES = 64 * 1024;
 export const ONBOARDING_CHAT_BODY_MAX_BYTES = 64 * 1024;
 export const ONBOARDING_CHAT_MAX_MESSAGES = 32;
+export const MISSION_CHAT_BODY_MAX_BYTES = 64 * 1024;
+export const MISSION_CHAT_MAX_MESSAGES = 32;
+export const MISSION_CHAT_MESSAGE_MAX_CHARS = 12_000;
+export const MISSION_CHAT_HISTORY_MAX_CHARS = 32_000;
 
 const WorkspaceChatMessageSchema = z.looseObject({
   role: z.enum(["system", "user", "assistant"]),
@@ -97,6 +101,48 @@ export const MissionProofSchema = z
       message: "Mission proof must include text or an image.",
     },
   );
+
+const MissionChatMessageSchema = z.looseObject({
+  id: z.string().min(1).max(128),
+  role: z.enum(["user", "assistant"]),
+  parts: z
+    .array(
+      z.looseObject({
+        type: z.string().max(64),
+        text: z.string().max(MISSION_CHAT_MESSAGE_MAX_CHARS).optional(),
+      }),
+    )
+    .max(100),
+});
+
+export const MissionChatRequestSchema = z
+  .object({
+    unitRunId: z.string().uuid(),
+    messages: z
+      .array(MissionChatMessageSchema)
+      .min(1)
+      .max(MISSION_CHAT_MAX_MESSAGES),
+    proof: MissionProofSchema.optional(),
+    model: z.string().max(120).optional(),
+  })
+  .superRefine((body, context) => {
+    const textLength = body.messages.reduce(
+      (messageTotal, message) =>
+        messageTotal +
+        message.parts.reduce(
+          (partTotal, part) => partTotal + (part.text?.length ?? 0),
+          0,
+        ),
+      0,
+    );
+    if (textLength > MISSION_CHAT_HISTORY_MAX_CHARS) {
+      context.addIssue({
+        code: "custom",
+        path: ["messages"],
+        message: "Mission chat history is too large.",
+      });
+    }
+  });
 
 export const MissionEvaluationCriterionSchema = z.object({
   key: z.enum(["execution", "evidence", "judgment"]),

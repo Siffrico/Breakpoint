@@ -1,26 +1,33 @@
 import type { NextRequest } from "next/server";
 import { after } from "next/server";
-import { z } from "zod/v4";
 
 import { streamMissionChat } from "@acme/api/mission-chat";
 import { db } from "@acme/db/client";
-import { AiModelPreferenceSchema, MissionProofSchema } from "@acme/validators";
+import {
+  AiModelPreferenceSchema,
+  MISSION_CHAT_BODY_MAX_BYTES,
+  MissionChatRequestSchema,
+} from "@acme/validators";
 
 import { requireSession } from "~/app/api/_lib/require-session";
+import { readJsonBody } from "../../_lib/read-json-body";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
-const BodySchema = z.object({
-  unitRunId: z.string().uuid(),
-  messages: z.array(z.unknown()),
-  proof: MissionProofSchema.optional(),
-  model: z.string().optional(),
-});
 
 export const POST = async (req: NextRequest) => {
-  const session = await requireSession(req);
+  const [session, bodyResult] = await Promise.all([
+    requireSession(req),
+    readJsonBody(req, MISSION_CHAT_BODY_MAX_BYTES),
+  ]);
   if (!session) return new Response("Unauthorized", { status: 401 });
-  const parsed = BodySchema.safeParse(await req.json().catch(() => null));
+  if (bodyResult.status === "too_large") {
+    return new Response("Request body too large", { status: 413 });
+  }
+  if (bodyResult.status === "invalid") {
+    return new Response("Invalid JSON", { status: 400 });
+  }
+  const parsed = MissionChatRequestSchema.safeParse(bodyResult.body);
   if (!parsed.success)
     return new Response("Invalid request body", { status: 400 });
   const model = AiModelPreferenceSchema.safeParse(
