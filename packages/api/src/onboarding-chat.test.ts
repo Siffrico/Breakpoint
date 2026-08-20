@@ -51,6 +51,15 @@ describe("validateOnboardingMessages", () => {
 
     expect(result.success).toBe(false);
   });
+
+  it("rejects a message id that cannot fit the durable onboarding turn key", async () => {
+    const learnerMessage = message("user", "A valid answer");
+    learnerMessage.id = "x".repeat(81);
+
+    const result = await validateOnboardingMessages([learnerMessage]);
+
+    expect(result.success).toBe(false);
+  });
 });
 
 describe("omitPendingOnboardingToolCalls", () => {

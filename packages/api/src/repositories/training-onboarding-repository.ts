@@ -75,7 +75,11 @@ const mapWorkspaceMessage = (
 
 type WorkspaceMessage = ReturnType<typeof mapWorkspaceMessage>;
 
-type WorkspaceTurnAction = "start_unit" | "submit_answer" | "advance_pass";
+type WorkspaceTurnAction =
+  | "start_unit"
+  | "submit_answer"
+  | "advance_pass"
+  | "onboarding_chat";
 
 const getMessageByTurnRole = async ({
   db,
@@ -468,6 +472,102 @@ export const trainingOnboardingRepository = {
 
       return { status: "processing" };
     }
+  },
+
+  renewOnboardingTurnLease: async ({
+    db,
+    sessionId,
+    turnId,
+    leaseId,
+  }: {
+    db: Database;
+    sessionId: string;
+    turnId: string;
+    leaseId: string;
+  }) => {
+    const [renewed] = await db
+      .update(TrainingWorkspaceTurn)
+      .set({ leaseExpiresAt: workspaceLeaseExpiry() })
+      .where(
+        and(
+          eq(TrainingWorkspaceTurn.sessionId, sessionId),
+          eq(TrainingWorkspaceTurn.turnId, turnId),
+          eq(TrainingWorkspaceTurn.status, "processing"),
+          eq(TrainingWorkspaceTurn.leaseId, leaseId),
+        ),
+      )
+      .returning({ id: TrainingWorkspaceTurn.id });
+
+    return Boolean(renewed);
+  },
+
+  completeOnboardingTurn: async ({
+    db,
+    sessionId,
+    turnId,
+    leaseId,
+    userMessageId,
+    assistantMessageId,
+  }: {
+    db: Database;
+    sessionId: string;
+    turnId: string;
+    leaseId: string;
+    userMessageId: string | null;
+    assistantMessageId: string;
+  }) => {
+    const [completed] = await db
+      .update(TrainingWorkspaceTurn)
+      .set({
+        status: "completed",
+        userMessageId,
+        assistantMessageId,
+        leaseId: null,
+        leaseExpiresAt: null,
+        failureReason: null,
+      })
+      .where(
+        and(
+          eq(TrainingWorkspaceTurn.sessionId, sessionId),
+          eq(TrainingWorkspaceTurn.turnId, turnId),
+          eq(TrainingWorkspaceTurn.status, "processing"),
+          eq(TrainingWorkspaceTurn.leaseId, leaseId),
+        ),
+      )
+      .returning({ id: TrainingWorkspaceTurn.id });
+
+    return Boolean(completed);
+  },
+
+  failOnboardingTurn: async ({
+    db,
+    sessionId,
+    turnId,
+    leaseId,
+    reason,
+  }: {
+    db: Database;
+    sessionId: string;
+    turnId: string;
+    leaseId: string;
+    reason: string;
+  }) => {
+    await db
+      .update(TrainingWorkspaceTurn)
+      .set({
+        status: "failed",
+        leaseId: null,
+        leaseExpiresAt: null,
+        failureReason: reason.slice(0, 2_000),
+      })
+      .where(
+        and(
+          eq(TrainingWorkspaceTurn.sessionId, sessionId),
+          eq(TrainingWorkspaceTurn.turnId, turnId),
+          eq(TrainingWorkspaceTurn.status, "processing"),
+          eq(TrainingWorkspaceTurn.leaseId, leaseId),
+        ),
+      );
   },
 
   getSession: async ({ db, sessionId }: { db: Database; sessionId: string }) =>

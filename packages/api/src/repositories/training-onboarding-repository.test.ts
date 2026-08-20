@@ -223,3 +223,55 @@ describe("trainingOnboardingRepository.claimWorkspaceTurn", () => {
     expect(leaseUpdate?.leaseExpiresAt).toBeInstanceOf(Date);
   });
 });
+
+describe("trainingOnboardingRepository onboarding turn lifecycle", () => {
+  const createLifecycleDb = (returnedRows: { id: string }[]) => {
+    const returning = vi.fn(() => Promise.resolve(returnedRows));
+    const where = vi.fn(() => ({ returning }));
+    const set = vi.fn((_values: Record<string, unknown>) => ({ where }));
+    const update = vi.fn(() => ({ set }));
+    const db = { update } as unknown as Parameters<
+      typeof trainingOnboardingRepository.completeOnboardingTurn
+    >[0]["db"];
+    return { db, set };
+  };
+
+  it("commits the canonical messages and clears the lease atomically", async () => {
+    const { db, set } = createLifecycleDb([{ id: "turn-row" }]);
+
+    await expect(
+      trainingOnboardingRepository.completeOnboardingTurn({
+        db,
+        sessionId: "session-1",
+        turnId: "onboarding:message-1",
+        leaseId: "lease-1",
+        userMessageId: "user-message-1",
+        assistantMessageId: "assistant-message-1",
+      }),
+    ).resolves.toBe(true);
+
+    expect(set).toHaveBeenCalledWith({
+      status: "completed",
+      userMessageId: "user-message-1",
+      assistantMessageId: "assistant-message-1",
+      leaseId: null,
+      leaseExpiresAt: null,
+      failureReason: null,
+    });
+  });
+
+  it("reports a lost lease instead of claiming completion", async () => {
+    const { db } = createLifecycleDb([]);
+
+    await expect(
+      trainingOnboardingRepository.completeOnboardingTurn({
+        db,
+        sessionId: "session-1",
+        turnId: "onboarding:message-1",
+        leaseId: "stale-lease",
+        userMessageId: "user-message-1",
+        assistantMessageId: "assistant-message-1",
+      }),
+    ).resolves.toBe(false);
+  });
+});
