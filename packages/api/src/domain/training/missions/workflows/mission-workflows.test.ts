@@ -37,6 +37,7 @@ const makeRepo = (overrides: Partial<MissionRepoShape>): MissionRepoShape => ({
   start: notImplemented("start"),
   reserveEvaluation: notImplemented("reserveEvaluation"),
   finishEvaluation: notImplemented("finishEvaluation"),
+  heartbeatEvaluation: notImplemented("heartbeatEvaluation"),
   cancelEvaluation: notImplemented("cancelEvaluation"),
   ...overrides,
 });

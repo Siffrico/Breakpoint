@@ -17,12 +17,12 @@ import {
   MissionConflictError,
   MissionNotReadyError,
 } from "../domain/training/missions/mission-errors";
+import { MISSION_EVALUATION_LEASE_TTL_MS } from "../domain/training/missions/mission-evaluation-lease";
 import { RESUMABLE_MISSION_STATUSES } from "../domain/training/missions/mission-lifecycle";
 import { MissionRepo } from "../domain/training/missions/mission-repo";
 import { Db, queryWithClient } from "../effect/db";
 
 type Database = typeof databaseClient;
-const STALE_EVALUATION_MS = 2 * 60 * 1_000;
 
 /**
  * What the reservation transaction reports. The transaction stays pure data and
@@ -285,9 +285,11 @@ export const MissionRepoLive = Layer.effect(
                   (attempt) => attempt.status === "evaluating",
                 );
                 if (pendingAttempt) {
+                  const lastHeartbeat =
+                    pendingAttempt.updatedAt ?? pendingAttempt.createdAt;
                   if (
-                    Date.now() - pendingAttempt.createdAt.getTime() <
-                    STALE_EVALUATION_MS
+                    Date.now() - lastHeartbeat.getTime() <
+                    MISSION_EVALUATION_LEASE_TTL_MS
                   )
                     return { kind: "in-flight" };
                   await transactionDb
@@ -368,6 +370,22 @@ export const MissionRepoLive = Layer.effect(
           if (!saved) {
             return yield* new MissionConflictError({ reason: "finish_race" });
           }
+        }),
+
+      heartbeatEvaluation: (attemptId) =>
+        query("heartbeatMissionEvaluation", async (client) => {
+          const [renewed] = await client
+            .update(TrainingMissionEvaluation)
+            .set({ updatedAt: new Date() })
+            .where(
+              and(
+                eq(TrainingMissionEvaluation.id, attemptId),
+                eq(TrainingMissionEvaluation.status, "evaluating"),
+              ),
+            )
+            .returning({ id: TrainingMissionEvaluation.id });
+
+          return Boolean(renewed);
         }),
 
       cancelEvaluation: (attemptId) =>
