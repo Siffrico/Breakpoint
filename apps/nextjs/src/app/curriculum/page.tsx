@@ -19,7 +19,7 @@ export default async function CurriculumPage(props: {
     redirect("/");
   }
 
-  const projects = await listLearningProjects().catch(() => []);
+  const projects = await listLearningProjects();
   const cookieSessionId = cookieStore.get(LAST_SESSION_COOKIE)?.value;
   const resolvedSessionId =
     session ?? cookieSessionId ?? projects[0]?.sessionId ?? null;

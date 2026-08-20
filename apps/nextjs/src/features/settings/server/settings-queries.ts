@@ -25,7 +25,7 @@ export const resolveSettingsSessionId = async (
   }
 
   const caller = await createCaller();
-  const projects = await caller.training.listLearningProjects().catch(() => []);
+  const projects = await caller.training.listLearningProjects();
 
   return (
     projects.find((project) => project.status === "active")?.sessionId ??

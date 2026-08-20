@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { TopicDetail } from "~/features/settings/components/topics/topic-detail";
 import { getProjectTopic } from "~/features/settings/server/settings-queries";
+import { recoverTRPCError } from "~/trpc/errors";
 
 export const metadata: Metadata = {
   title: "Topic · Settings",
@@ -16,7 +17,11 @@ export default async function SettingsTopicPage(props: {
 
   // projectTopic throws NOT_FOUND / FORBIDDEN for unknown or unowned projects;
   // both should read as a missing page rather than a server error.
-  const topic = await getProjectTopic(sessionId).catch(() => null);
+  const topic = await recoverTRPCError({
+    promise: getProjectTopic(sessionId),
+    codes: ["NOT_FOUND", "FORBIDDEN"],
+    fallback: null,
+  });
 
   if (!topic) {
     notFound();
