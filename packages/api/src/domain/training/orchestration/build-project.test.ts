@@ -239,6 +239,25 @@ describe("buildProjectFromOnboarding", () => {
     ]);
   });
 
+  it("uses the persisted starting-point override in the learner baseline", async () => {
+    const { deps } = makeDeps();
+    vi.mocked(deps.getStartingPoint).mockResolvedValue({
+      tier: "fundamentals",
+      label: "Has only watched introductory lessons.",
+    });
+
+    await run(deps);
+
+    const persistedReport = vi.mocked(deps.persistCurriculum).mock.calls[0]?.[0]
+      .report;
+    expect(persistedReport?.currentBaseline).toBe(
+      "Has only watched introductory lessons. Finishes routine questions without help.",
+    );
+    expect(persistedReport?.currentBaseline).not.toContain(
+      input.startingPoint.reason,
+    );
+  });
+
   it("saves the confirmed outcomes without a second curriculum model call", async () => {
     const { deps, getPlan } = makeDeps();
 

@@ -351,7 +351,10 @@ const getProjectBuildSourceKey = (
 const uniqueEvidence = (values: string[]): string[] =>
   [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 
-const buildIdentityReport = (input: CreateProjectInput): IdentityReport => {
+const buildIdentityReport = (
+  input: CreateProjectInput,
+  startingPointReason: string,
+): IdentityReport => {
   const qualityStandards = input.understanding.goodMeans.map((quality) =>
     quality.trim(),
   );
@@ -368,7 +371,7 @@ const buildIdentityReport = (input: CreateProjectInput): IdentityReport => {
     headline: input.summary.trim(),
     motivation: input.understanding.build.trim(),
     currentBaseline: uniqueEvidence([
-      input.startingPoint.reason,
+      startingPointReason,
       ...input.understanding.evidence.currentBaseline,
     ]).join(" "),
     hardMoments: uniqueEvidence([
@@ -717,7 +720,10 @@ export const buildProjectFromOnboarding = async ({
   setStep("name", "done");
   emit();
 
-  const report = buildIdentityReport(input);
+  const report = buildIdentityReport(
+    input,
+    persistedStartingPoint?.label ?? input.startingPoint.reason,
+  );
   const blueprint: CurriculumBlueprint = {
     title: projectName,
     summary: input.summary.trim(),
