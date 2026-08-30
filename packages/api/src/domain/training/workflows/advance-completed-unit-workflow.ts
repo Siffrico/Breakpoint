@@ -34,6 +34,7 @@ interface AdvanceCompletedUnitDependencies {
     skillNodeId: string;
     sessionId: string;
     userId: string;
+    excludeUnitNodeId?: string;
   }) => Effect.Effect<unknown, CreateNextUnitError>;
   /** Resolves null when the parent has no skill map (legacy/imported plans). */
   getProgressionState: (input: {
@@ -250,6 +251,7 @@ export const advanceCompletedUnitWorkflow = async ({
           skillNodeId,
           sessionId,
           userId,
+          excludeUnitNodeId: promoted ? undefined : nodeId,
         });
       } else {
         // The outcome is mastered — advance to the next outcome.

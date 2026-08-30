@@ -663,9 +663,15 @@ export const trainingRouter = {
                     }),
                 });
               }),
-            createUnit: ({ skillNodeId, sessionId, userId }) =>
+            createUnit: ({
+              skillNodeId,
+              sessionId,
+              userId,
+              excludeUnitNodeId,
+            }) =>
               createNextUnit({
                 skillNodeId,
+                excludeUnitNodeId,
                 deps: createUnitCreationRepositoryDeps({
                   db: ctx.db,
                   sessionId,

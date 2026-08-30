@@ -53,6 +53,51 @@ const openSkill = {
 };
 
 describe("createNextUnit", () => {
+  it("excludes the completed ready unit when creating its successor", async () => {
+    const successor = { id: "unit-2" };
+    const loadOpenUnit = vi.fn(() => Effect.succeed(null));
+    const loadSkill = vi.fn(() =>
+      Effect.succeed({
+        ...openSkill,
+        openUnit: null,
+        entries: [entry("a")],
+      }),
+    );
+
+    const result = await Effect.runPromise(
+      createNextUnit({
+        skillNodeId: "cluster-1",
+        excludeUnitNodeId: openUnit.id,
+        deps: {
+          ensureSkillKnowledge: () => Effect.void,
+          loadOpenUnit,
+          loadSkill,
+          resolveDirective: () =>
+            Effect.succeed({
+              directive: { targetItemRating: 1200 } as never,
+              promptBlock: "",
+            }),
+          appendUnit: () =>
+            Effect.succeed({ node: successor, created: true }),
+          hasUnitContent: () => Effect.succeed(true),
+          prepareUnitEffect: () => Effect.void,
+        },
+      }),
+    );
+
+    expect(result).toBe(successor);
+    expect(loadOpenUnit).toHaveBeenCalledWith(
+      "cluster-1",
+      "ready",
+      openUnit.id,
+    );
+    expect(loadSkill).toHaveBeenCalledWith(
+      "cluster-1",
+      "ready",
+      openUnit.id,
+    );
+  });
+
   it("resumes missing content without generating knowledge for an open unit", async () => {
     const ensureSkillKnowledge = vi.fn(() => Effect.void);
     const prepareUnitEffect = vi.fn(() => Effect.void);

@@ -178,6 +178,7 @@ describe("advanceCompletedUnitWorkflow", () => {
       skillNodeId: "cluster-1",
       sessionId: "session-1",
       userId: "user-1",
+      excludeUnitNodeId: currentNode.id,
     });
     expect(events).toEqual([
       "transaction:start",
@@ -379,5 +380,11 @@ describe("advanceCompletedUnitWorkflow", () => {
       },
     });
     expect(markNodeReady).toHaveBeenCalledWith(plannedNode.id);
+    expect(createUnit).toHaveBeenCalledWith({
+      skillNodeId: "cluster-1",
+      sessionId: "session-1",
+      userId: "user-1",
+      excludeUnitNodeId: undefined,
+    });
   });
 });
