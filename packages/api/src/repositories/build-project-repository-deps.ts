@@ -92,8 +92,8 @@ export const createBuildProjectDeps = (db: Database): BuildProjectDeps => ({
       : null;
   },
 
-  getActivePlan: (sessionId) =>
-    trainingCurriculumRepository.getActivePlan({ db, sessionId }),
+  getBuildPlan: (sessionId) =>
+    trainingCurriculumRepository.getBuildPlan({ db, sessionId }),
   hasUnitContent: async (nodeId) =>
     Boolean(await trainingCurriculumRepository.getUnitByNodeId({ db, nodeId })),
 

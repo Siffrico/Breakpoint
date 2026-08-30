@@ -74,7 +74,7 @@ const makeDeps = () => {
           : null,
       ),
     ),
-    getActivePlan: vi.fn(() => Promise.resolve(plan)),
+    getBuildPlan: vi.fn(() => Promise.resolve(plan)),
     hasUnitContent: vi.fn((nodeId) => Promise.resolve(nodeId === firstUnitId)),
     claimRun: vi.fn(() =>
       Promise.resolve({

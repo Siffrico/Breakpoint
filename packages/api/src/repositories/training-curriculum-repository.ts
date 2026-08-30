@@ -205,14 +205,16 @@ export const trainingCurriculumRepository = {
     return plan ?? null;
   },
 
-  getActivePlanWithNodes: async ({
+  getPlanWithNodes: async ({
     db,
     sessionId,
     userId,
+    requireActive,
   }: {
     db: Database;
     sessionId: string;
     userId?: string;
+    requireActive: boolean;
   }): Promise<ActivePlanState | null> => {
     const plan = userId
       ? (
@@ -238,9 +240,12 @@ export const trainingCurriculumRepository = {
           where: eq(TrainingCurriculumPlan.onboardingSessionId, sessionId),
         });
 
-    // A "generating" shell has no profile version linked yet — it is not a
-    // loadable active plan, so the orchestrator's idempotency check sees null.
-    if (!plan?.profileVersionId) {
+    // A plan is readable only after its identity profile has been persisted.
+    // Learner-facing reads additionally require the final active status.
+    if (
+      !plan?.profileVersionId ||
+      (requireActive && plan.status !== "active")
+    ) {
       return null;
     }
 
@@ -292,10 +297,11 @@ export const trainingCurriculumRepository = {
     db: Database;
     sessionId: string;
   }): Promise<CurriculumPlan | null> => {
-    const planState = await trainingCurriculumRepository.getActivePlanWithNodes(
+    const planState = await trainingCurriculumRepository.getPlanWithNodes(
       {
         db,
         sessionId,
+        requireActive: true,
       },
     );
 
@@ -304,6 +310,21 @@ export const trainingCurriculumRepository = {
     }
 
     return toCurriculumPlan(planState);
+  },
+
+  getBuildPlan: async ({
+    db,
+    sessionId,
+  }: {
+    db: Database;
+    sessionId: string;
+  }): Promise<CurriculumPlan | null> => {
+    const planState = await trainingCurriculumRepository.getPlanWithNodes({
+      db,
+      sessionId,
+      requireActive: false,
+    });
+    return planState ? toCurriculumPlan(planState) : null;
   },
 
   getOwnedActivePlan: async ({
@@ -315,9 +336,12 @@ export const trainingCurriculumRepository = {
     sessionId: string;
     userId: string;
   }): Promise<CurriculumPlan | null> => {
-    const planState = await trainingCurriculumRepository.getActivePlanWithNodes(
-      { db, sessionId, userId },
-    );
+    const planState = await trainingCurriculumRepository.getPlanWithNodes({
+      db,
+      sessionId,
+      userId,
+      requireActive: true,
+    });
     return planState ? toCurriculumPlan(planState) : null;
   },
 

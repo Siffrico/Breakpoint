@@ -189,7 +189,7 @@ export interface BuildProjectDeps {
     profileVersionId: string | null;
   } | null>;
   /** Full read for the final/complete snapshot. */
-  getActivePlan: (sessionId: string) => Promise<CurriculumPlan | null>;
+  getBuildPlan: (sessionId: string) => Promise<CurriculumPlan | null>;
   hasUnitContent: (nodeId: string) => Promise<boolean>;
   claimRun: (input: {
     sessionId: string;
@@ -627,7 +627,7 @@ export const buildProjectFromOnboarding = async ({
   );
   const planRow = await deps.getPlanRow(sessionId);
   if (planRow?.status === "active" && !hasUnfinishedArtifact) {
-    const existingPlan = await deps.getActivePlan(sessionId);
+    const existingPlan = await deps.getBuildPlan(sessionId);
     if (
       existingPlan?.nextUnitId &&
       (await deps.hasUnitContent(existingPlan.nextUnitId))
@@ -777,7 +777,7 @@ export const buildProjectFromOnboarding = async ({
   }
   let launchPlan: CurriculumPlan | null;
   try {
-    launchPlan = await deps.getActivePlan(sessionId);
+    launchPlan = await deps.getBuildPlan(sessionId);
     if (
       launchPlan?.nextUnitId &&
       (await deps.hasUnitContent(launchPlan.nextUnitId))
@@ -864,14 +864,14 @@ export const buildProjectFromOnboarding = async ({
     });
   } catch {
     // finalize failed: only trust an *already-active* plan (a prior attempt may
-    // have flipped it). getActivePlan returns a profile-linked shell even while
+    // have flipped it). getBuildPlan returns a profile-linked shell even while
     // its status is still "generating", so gate on the live status — otherwise a
     // failed finalize reports success on a half-built plan that never goes
     // active. On a still-generating shell we fail and let a resume re-run finalize.
     plan = await deps
       .getPlanRow(sessionId)
       .then((row) =>
-        row?.status === "active" ? deps.getActivePlan(sessionId) : null,
+        row?.status === "active" ? deps.getBuildPlan(sessionId) : null,
       )
       .catch(() => null);
   }
