@@ -88,6 +88,7 @@ export const advanceCompletedUnitWorkflow = async ({
 }): Promise<
   Result<
     | { advanced: true; nextReadyNode: CurriculumNode | null }
+    | { advanced: false; progressionPending: true }
     | {
         advanced: false;
         missionRequired: true;
@@ -285,5 +286,7 @@ export const advanceCompletedUnitWorkflow = async ({
     }
   }
 
-  return ok({ advanced: true, nextReadyNode });
+  return completeAfterBackground
+    ? ok({ advanced: false, progressionPending: true })
+    : ok({ advanced: true, nextReadyNode });
 };

@@ -172,7 +172,7 @@ describe("advanceCompletedUnitWorkflow", () => {
 
     expect(result).toEqual({
       success: true,
-      data: { advanced: true, nextReadyNode: null },
+      data: { advanced: false, progressionPending: true },
     });
     expect(createUnit).toHaveBeenCalledWith({
       skillNodeId: "cluster-1",
@@ -230,7 +230,7 @@ describe("advanceCompletedUnitWorkflow", () => {
     await vi.waitFor(() => expect(createUnit).toHaveBeenCalledOnce());
     expect(result).toEqual({
       success: true,
-      data: { advanced: true, nextReadyNode: null },
+      data: { advanced: false, progressionPending: true },
     });
     expect(completeNode).not.toHaveBeenCalled();
   });
