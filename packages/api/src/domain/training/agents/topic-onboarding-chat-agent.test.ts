@@ -20,6 +20,11 @@ const input = {
     build: "Reach the target SAT Math score.",
     goodMeans: ["accurate", "efficient"],
     currentGap: "Unfamiliar forms cause avoidable errors.",
+    evidence: {
+      currentBaseline: ["Solves routine linear equations."],
+      hardMoments: ["Misses familiar algebra in unfamiliar forms."],
+      constraints: [],
+    },
   },
 };
 

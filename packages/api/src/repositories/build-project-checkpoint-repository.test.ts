@@ -23,6 +23,11 @@ const run: ProjectBuildRunPayload = {
       build: "Build an AI research harness.",
       goodMeans: ["reliable"],
       currentGap: "Evaluation results are hard to trust.",
+      evidence: {
+        currentBaseline: ["Has built small evaluation scripts."],
+        hardMoments: ["Cannot explain inconsistent evaluation results."],
+        constraints: [],
+      },
     },
   },
   state: {

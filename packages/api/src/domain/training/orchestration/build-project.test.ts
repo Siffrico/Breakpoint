@@ -32,6 +32,11 @@ const input: CreateProjectInput = {
     goodMeans: ["accurate", "efficient", "consistent"],
     currentGap:
       "Loses points when familiar algebra appears in unfamiliar forms.",
+    evidence: {
+      currentBaseline: ["Finishes routine questions without help."],
+      hardMoments: ["Freezes when the same algebra is phrased as a story."],
+      constraints: ["Can practice for thirty minutes on weekdays."],
+    },
   },
 };
 
@@ -163,7 +168,6 @@ const run = (
   buildProjectFromOnboarding({
     sessionId: "session-1",
     userId: "user-1",
-    transcript: [],
     input: projectInput,
     deps,
     onProgress: vi.fn(),
@@ -203,6 +207,7 @@ describe("buildProjectFromOnboarding", () => {
           "well-supported",
         ],
         currentGap: "loses points on unfamiliar algebra forms",
+        evidence: input.understanding.evidence,
       },
     });
 
@@ -221,6 +226,16 @@ describe("buildProjectFromOnboarding", () => {
       "Produces work that is consistent.",
       "Works toward reach the target SAT Math score.",
       "Corrects loses points on unfamiliar algebra forms.",
+    ]);
+    expect(persistedReport?.currentBaseline).toBe(
+      "Already solves routine linear equations. Finishes routine questions without help.",
+    );
+    expect(persistedReport?.hardMoments).toEqual([
+      "loses points on unfamiliar algebra forms",
+      "Freezes when the same algebra is phrased as a story.",
+    ]);
+    expect(persistedReport?.constraints).toEqual([
+      "Can practice for thirty minutes on weekdays.",
     ]);
   });
 

@@ -13,7 +13,6 @@ import type {
   CurriculumBlueprint,
   CurriculumPlan,
   IdentityReport,
-  OnboardingTranscriptMessage,
 } from "../types/training.types";
 import type { ArtifactFailureKind } from "./agent-runtime";
 import type { ProjectBuildArtifactPreviewInput } from "./project-build-preview";
@@ -346,7 +345,11 @@ const getProjectBuildSourceKey = (
           tier: input.startingPoint.tier,
           reason: input.startingPoint.reason.trim(),
         },
+    understanding: input.understanding,
   });
+
+const uniqueEvidence = (values: string[]): string[] =>
+  [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 
 const buildIdentityReport = (input: CreateProjectInput): IdentityReport => {
   const qualityStandards = input.understanding.goodMeans.map((quality) =>
@@ -364,9 +367,15 @@ const buildIdentityReport = (input: CreateProjectInput): IdentityReport => {
     targetIdentity: input.targetIdentity.trim(),
     headline: input.summary.trim(),
     motivation: input.understanding.build.trim(),
-    currentBaseline: `${input.startingPoint.reason.trim()} ${input.understanding.currentGap.trim()}`,
-    hardMoments: [input.understanding.currentGap.trim()],
-    constraints: [],
+    currentBaseline: uniqueEvidence([
+      input.startingPoint.reason,
+      ...input.understanding.evidence.currentBaseline,
+    ]).join(" "),
+    hardMoments: uniqueEvidence([
+      input.understanding.currentGap,
+      ...input.understanding.evidence.hardMoments,
+    ]),
+    constraints: uniqueEvidence(input.understanding.evidence.constraints),
     proofOfProgress: input.outcomes.map((outcome) => outcome.result).join(" "),
     qualityStandards,
     behaviorSignals,
@@ -432,7 +441,6 @@ const seedFor = (record?: ProjectBuildArtifactRecord): unknown =>
 export const buildProjectFromOnboarding = async ({
   sessionId,
   userId,
-  transcript: _transcript,
   input,
   deps,
   onProgress,
@@ -441,7 +449,6 @@ export const buildProjectFromOnboarding = async ({
 }: {
   sessionId: string;
   userId: string | null;
-  transcript: OnboardingTranscriptMessage[];
   input: CreateProjectInput;
   deps: BuildProjectDeps;
   onProgress: (state: ProjectBuildState) => void;

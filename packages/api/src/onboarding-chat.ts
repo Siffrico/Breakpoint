@@ -315,11 +315,6 @@ export const streamProjectBuildResume = async ({
     });
   }
 
-  const transcript = await trainingOnboardingRepository.listMessages({
-    db,
-    sessionId,
-  });
-
   // Honor the learner's model preference for the agents the build runs.
   return withAiModelPreference(modelName, () => {
     const stream = createUIMessageStream<OnboardingChatUIMessage>({
@@ -329,7 +324,6 @@ export const streamProjectBuildResume = async ({
           await buildProjectFromOnboarding({
             sessionId,
             userId: session.userId,
-            transcript,
             input: run.input,
             deps: createBuildProjectDeps(db),
             scheduleBackgroundTask,
@@ -568,7 +562,6 @@ const runOnboardingChat = async ({
           result = await buildProjectFromOnboarding({
             sessionId,
             userId: session.userId,
-            transcript,
             input,
             deps: createBuildProjectDeps(db),
             scheduleBackgroundTask,
