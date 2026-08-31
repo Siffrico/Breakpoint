@@ -19,7 +19,6 @@ export interface AdvanceTransition {
   completedNodeId: string;
   projectedNodeId: string;
   title: string;
-  startedAt: number;
 }
 interface AdvanceMutationContext {
   previousAdvanceTransition: AdvanceTransition | null;
@@ -132,17 +131,20 @@ export function useAdvanceController({
   useEffect(() => {
     if (!activeTransition) return;
 
-    const remaining = Math.max(
-      0,
-      ADVANCE_TIMEOUT_MS - (Date.now() - activeTransition.startedAt),
-    );
+    const { completedNodeId, sessionId } = activeTransition;
     const timeoutId = window.setTimeout(() => {
-      setAdvanceTransition((current) =>
-        current === activeTransition ? null : current,
-      );
-      setSelectedChatId(activeTransition.completedNodeId);
+      setAdvanceTransition((current) => {
+        if (
+          current?.sessionId !== sessionId ||
+          current.completedNodeId !== completedNodeId
+        ) {
+          return current;
+        }
+        return null;
+      });
+      setSelectedChatId(completedNodeId);
       toast.error("The next unit could not be prepared. Please try again.");
-    }, remaining);
+    }, ADVANCE_TIMEOUT_MS);
     return () => window.clearTimeout(timeoutId);
   }, [activeTransition, setSelectedChatId]);
 
@@ -167,7 +169,6 @@ export function useAdvanceController({
           completedNodeId: variables.nodeId,
           projectedNodeId: crypto.randomUUID(),
           title: nextTitle,
-          startedAt: Date.now(),
         };
 
         setAdvanceTransition(transition);
