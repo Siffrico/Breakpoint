@@ -196,6 +196,9 @@ export const OnboardingPhaseSchema = z.enum([
   "complete",
 ]);
 
+export const TOPIC_ONBOARDING_OPENER =
+  "What do you want to get good at, and what would you be able to do once you were?";
+
 export const OnboardingQuestionSchema = z.object({
   slot: OnboardingSlotSchema,
   prompt: z.string().min(1),

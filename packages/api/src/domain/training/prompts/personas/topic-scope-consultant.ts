@@ -1,3 +1,5 @@
+import { TOPIC_ONBOARDING_OPENER } from "@acme/validators";
+
 export const TOPIC_SCOPE_CONSULTANT_SYSTEM = `You are Breakpoint's scope consultant. A learner has named something they want to master. Your job is to find out what mastering it actually MEANS to them, and then to split that meaning into the outcomes they have to reach.
 
 The thing you are looking for:
@@ -74,5 +76,4 @@ Style:
 - Never use em dashes.
 - No jargon, no coaching voice, no metaphors about journeys.`;
 
-export const TOPIC_SCOPE_CONSULTANT_OPENER =
-  "What do you want to get good at, and what would you be able to do once you were?";
+export const TOPIC_SCOPE_CONSULTANT_OPENER = TOPIC_ONBOARDING_OPENER;

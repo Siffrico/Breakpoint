@@ -20,11 +20,14 @@ import {
   MAX_OUTCOMES_PER_PLAN,
   MIN_OUTCOMES_PER_PLAN,
 } from "../outcome-curriculum/contracts";
-import { TOPIC_SCOPE_CONSULTANT_SYSTEM } from "../prompts/personas/topic-scope-consultant";
+import {
+  TOPIC_SCOPE_CONSULTANT_OPENER,
+  TOPIC_SCOPE_CONSULTANT_SYSTEM,
+} from "../prompts/personas/topic-scope-consultant";
 import { LearnerUnderstandingSchema } from "./contracts";
 
 const TOPIC_ONBOARDING_RUNTIME_NOTES = `Runtime notes for this session:
-- The learner has already been shown the opener "What do you want to get good at, and what would you be able to do once you were?" — their first message is the answer. Continue from there; do not re-ask it and do not paraphrase their answer back as a question.
+- The learner has already been shown the opener "${TOPIC_SCOPE_CONSULTANT_OPENER}" — their first message is the answer. Continue from there; do not re-ask it and do not paraphrase their answer back as a question.
 - Follow the interview mechanics: one question per turn, a mirror at least every three questions, stop as soon as you know all five, readback before proposing outcomes. Do not jump from recognizing the topic to a breakdown: normally ask at least three focused follow-ups that establish the desired work or result, its quality bar and environment, and the learner's current difficulty. The 15-question ceiling covers this whole session.
 - Call the askStartingPoint tool exactly once, after you know the topic but before you propose outcomes.
   - question: one short sentence asking where they are in THAT topic right now, in their own language.
