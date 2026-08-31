@@ -1,5 +1,5 @@
 import type { db as databaseClient } from "@acme/db/client";
-import type { StartingPointTier } from "@acme/validators";
+import type { OnboardingPhase, StartingPointTier } from "@acme/validators";
 import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from "@acme/db";
 import {
   TrainingIdentityProfile,
@@ -684,7 +684,7 @@ export const trainingOnboardingRepository = {
   }: {
     db: Database;
     sessionId: string;
-    status?: string;
+    status?: OnboardingPhase;
     questionCount?: number;
     completedAt?: Date | null;
   }) => {
@@ -698,6 +698,31 @@ export const trainingOnboardingRepository = {
       .where(eq(TrainingOnboardingSession.id, sessionId))
       .returning();
 
+    return session ?? null;
+  },
+
+  updateSessionStatusIf: async ({
+    db,
+    sessionId,
+    expectedStatuses,
+    status,
+  }: {
+    db: Database;
+    sessionId: string;
+    expectedStatuses: OnboardingPhase[];
+    status: OnboardingPhase;
+  }) => {
+    if (expectedStatuses.length === 0) return null;
+    const [session] = await db
+      .update(TrainingOnboardingSession)
+      .set({ status })
+      .where(
+        and(
+          eq(TrainingOnboardingSession.id, sessionId),
+          inArray(TrainingOnboardingSession.status, expectedStatuses),
+        ),
+      )
+      .returning();
     return session ?? null;
   },
 
@@ -900,13 +925,18 @@ export const trainingOnboardingRepository = {
 
     return {
       sessionId,
-      phase:
-        session.status === "ready_for_generation" ||
-        session.status === "complete"
-          ? "ready_for_generation"
-          : session.status === "questioning"
-            ? "questioning"
-            : "intro",
+      phase: (() => {
+        switch (session.status) {
+          case "intro":
+          case "questioning":
+          case "ready_for_generation":
+          case "generating":
+          case "complete":
+            return session.status;
+          default:
+            return "intro";
+        }
+      })(),
       transcript,
       activeQuestion,
       projectBuild: projectBuildRun?.state ?? null,

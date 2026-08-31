@@ -146,7 +146,12 @@ export interface CurriculumBlueprint {
 
 export interface OnboardingSessionState {
   sessionId: string;
-  phase: "intro" | "questioning" | "ready_for_generation";
+  phase:
+    | "intro"
+    | "questioning"
+    | "ready_for_generation"
+    | "generating"
+    | "complete";
   transcript: OnboardingTranscriptMessage[];
   activeQuestion: OnboardingQuestion | null;
   projectBuild?: ProjectBuildState | null;

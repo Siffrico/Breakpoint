@@ -1,3 +1,5 @@
+import type { OnboardingPhase } from "@acme/validators";
+
 import type { Result } from "../../../lib/result";
 import type { IdentityReport } from "../types/training.types";
 import { err, ok } from "../../../lib/result";
@@ -11,7 +13,7 @@ interface CreateLearningProjectDependencies {
   }) => Promise<{ version: { id: string } } | null>;
   updateSession: (input: {
     sessionId: string;
-    status?: string;
+    status?: OnboardingPhase;
     completedAt?: Date | null;
   }) => Promise<unknown>;
 }

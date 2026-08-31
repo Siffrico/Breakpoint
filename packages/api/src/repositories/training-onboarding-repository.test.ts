@@ -51,6 +51,45 @@ describe("trainingOnboardingRepository.getLatestOnboardingSession", () => {
   });
 });
 
+describe("trainingOnboardingRepository.getOnboardingState", () => {
+  it.each([
+    "intro",
+    "questioning",
+    "ready_for_generation",
+    "generating",
+    "complete",
+  ] as const)("returns the persisted %s phase", async (status) => {
+    const db = {
+      query: {
+        TrainingOnboardingSession: {
+          findFirst: () =>
+            Promise.resolve({
+              id: "session-1",
+              status,
+              startingPointTier: null,
+            }),
+        },
+        TrainingOnboardingMessage: {
+          findMany: () => Promise.resolve([]),
+          findFirst: () => Promise.resolve(null),
+        },
+        TrainingProjectBuildCheckpoint: {
+          findFirst: () => Promise.resolve(null),
+        },
+      },
+    } as unknown as Parameters<
+      typeof trainingOnboardingRepository.getOnboardingState
+    >[0]["db"];
+
+    const state = await trainingOnboardingRepository.getOnboardingState({
+      db,
+      sessionId: "session-1",
+    });
+
+    expect(state?.phase).toBe(status);
+  });
+});
+
 describe("trainingOnboardingRepository.setStartingPoint", () => {
   const createSetDb = (returnedRows: unknown[]) => {
     const returning = vi.fn(() => Promise.resolve(returnedRows));

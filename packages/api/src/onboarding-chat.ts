@@ -321,7 +321,12 @@ export const streamProjectBuildResume = async ({
       onError: () => "The project build hit an error.",
       execute: async ({ writer }) => {
         try {
-          await buildProjectFromOnboarding({
+          await trainingOnboardingRepository.updateSession({
+            db,
+            sessionId,
+            status: "generating",
+          });
+          const result = await buildProjectFromOnboarding({
             sessionId,
             userId: session.userId,
             input: run.input,
@@ -340,6 +345,16 @@ export const streamProjectBuildResume = async ({
               });
             },
           });
+          await trainingOnboardingRepository.updateSession({
+            db,
+            sessionId,
+            status:
+              result.success && result.data.status === "complete"
+                ? "complete"
+                : result.success
+                  ? "generating"
+                  : "ready_for_generation",
+          });
         } catch (cause) {
           const error =
             cause instanceof Error
@@ -357,6 +372,11 @@ export const streamProjectBuildResume = async ({
               data: failed.state,
             });
           }
+          await trainingOnboardingRepository.updateSession({
+            db,
+            sessionId,
+            status: "ready_for_generation",
+          });
         }
       },
     });
@@ -465,6 +485,12 @@ const runOnboardingChat = async ({
             turnId,
           });
         if (!userMessage) throw new Error("Onboarding answer was not saved.");
+        await trainingOnboardingRepository.updateSessionStatusIf({
+          db,
+          sessionId,
+          expectedStatuses: ["intro"],
+          status: "questioning",
+        });
         userMessageId = userMessage.id;
         const transcriptMessage = transcript.find(
           (message) => message.sequence === userMessage.sequence,
@@ -559,6 +585,11 @@ const runOnboardingChat = async ({
       ): Promise<CreateProjectResult> => {
         let result: Awaited<ReturnType<typeof buildProjectFromOnboarding>>;
         try {
+          await trainingOnboardingRepository.updateSession({
+            db,
+            sessionId,
+            status: "generating",
+          });
           result = await buildProjectFromOnboarding({
             sessionId,
             userId: session.userId,
@@ -590,8 +621,24 @@ const runOnboardingChat = async ({
               data: failed.state,
             });
           }
+          await trainingOnboardingRepository.updateSession({
+            db,
+            sessionId,
+            status: "ready_for_generation",
+          });
           return { ok: false, reason: error };
         }
+
+        await trainingOnboardingRepository.updateSession({
+          db,
+          sessionId,
+          status:
+            result.success && result.data.status === "complete"
+              ? "complete"
+              : result.success
+                ? "generating"
+                : "ready_for_generation",
+        });
 
         return result.success
           ? {
@@ -689,6 +736,12 @@ ${startingPointNote}`,
               }
               const proposal = proposals.at(-1);
               if (proposal) {
+                await trainingOnboardingRepository.updateSessionStatusIf({
+                  db: txDb,
+                  sessionId,
+                  expectedStatuses: ["intro", "questioning"],
+                  status: "ready_for_generation",
+                });
                 await trainingOnboardingRepository.upsertMessageByTurnRole({
                   db: txDb,
                   sessionId,
