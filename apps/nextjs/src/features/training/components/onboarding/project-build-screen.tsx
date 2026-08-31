@@ -28,6 +28,7 @@ export function ProjectBuildScreen({
 }) {
   const isComplete = state.phase === "complete";
   const isError = state.phase === "error";
+  const overviewMissing = isComplete && state.gaps?.includes("overview");
 
   const canStart = isComplete && Boolean(state.sessionId && state.firstUnitId);
 
@@ -59,16 +60,31 @@ export function ProjectBuildScreen({
               </Button>
             ) : null}
           </div>
-        ) : canStart ? (
-          <Button
-            type="button"
-            disabled={preview || startPending}
-            onClick={onStartLearning}
-            className="animate-in fade-in slide-in-from-bottom-1 border-[#2563eb] bg-[#2563eb] text-white duration-500 hover:bg-[#1d4ed8]"
-          >
-            {startPending ? "Preparing first unit" : "Start"}
-            <ArrowRight size={14} weight="bold" />
-          </Button>
+        ) : isComplete ? (
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            {canStart ? (
+              <Button
+                type="button"
+                disabled={preview || startPending}
+                onClick={onStartLearning}
+                className="animate-in fade-in slide-in-from-bottom-1 border-[#2563eb] bg-[#2563eb] text-white duration-500 hover:bg-[#1d4ed8]"
+              >
+                {startPending ? "Preparing first unit" : "Start"}
+                <ArrowRight size={14} weight="bold" />
+              </Button>
+            ) : null}
+            {overviewMissing && onRetry ? (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={preview || retryDisabled}
+                onClick={onRetry}
+                className="border-white/20 bg-transparent text-white hover:border-white/35 hover:bg-white/10 hover:text-white"
+              >
+                Retry overview
+              </Button>
+            ) : null}
+          </div>
         ) : null}
       </div>
 
