@@ -32,6 +32,16 @@ const request = (body: unknown) =>
     headers: { "content-type": "application/json" },
   });
 
+const requestWithDeclaredLength = (body: unknown, contentLength: number) =>
+  new NextRequest("http://localhost/api/performance/web-vital", {
+    method: "POST",
+    body: JSON.stringify(body),
+    headers: {
+      "content-length": String(contentLength),
+      "content-type": "application/json",
+    },
+  });
+
 describe("web vital route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -64,6 +74,15 @@ describe("web vital route", () => {
     );
 
     expect(response.status).toBe(400);
+    expect(mocks.recordWebVitalPerformance).not.toHaveBeenCalled();
+  });
+
+  it("rejects an oversized body when content-length understates it", async () => {
+    const response = await POST(
+      requestWithDeclaredLength({ padding: "x".repeat(2_048) }, 1),
+    );
+
+    expect(response.status).toBe(413);
     expect(mocks.recordWebVitalPerformance).not.toHaveBeenCalled();
   });
 });

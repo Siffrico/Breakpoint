@@ -5,20 +5,24 @@ import { db } from "@acme/db/client";
 import { RecordWebVitalSchema } from "@acme/validators";
 
 import { requireSession } from "~/app/api/_lib/require-session";
+import { readJsonBody } from "../../_lib/read-json-body";
 
 const MAX_BODY_BYTES = 2_048;
 
 export const POST = async (req: NextRequest) => {
-  const declaredLength = Number(req.headers.get("content-length"));
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
+  const [session, bodyResult] = await Promise.all([
+    requireSession(req),
+    readJsonBody(req, MAX_BODY_BYTES),
+  ]);
+  if (!session) return new Response(null, { status: 401 });
+  if (bodyResult.status === "too_large") {
     return new Response(null, { status: 413 });
   }
+  if (bodyResult.status === "invalid") {
+    return new Response(null, { status: 400 });
+  }
 
-  const bodyPromise = (req.json() as Promise<unknown>).catch(() => null);
-  const [session, body] = await Promise.all([requireSession(req), bodyPromise]);
-  if (!session) return new Response(null, { status: 401 });
-
-  const parsed = RecordWebVitalSchema.safeParse(body);
+  const parsed = RecordWebVitalSchema.safeParse(bodyResult.body);
   if (!parsed.success) return new Response(null, { status: 400 });
 
   try {
