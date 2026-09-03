@@ -195,7 +195,9 @@ describe("advanceCompletedUnitWorkflow", () => {
   it("leaves the completed run retryable when successor creation fails", async () => {
     const completeNode = vi.fn(() => Promise.resolve());
     const createUnit = vi.fn(() =>
-      Effect.fail(new KnowledgeTargetsMissingError({ skillNodeId: "cluster-1" })),
+      Effect.fail(
+        new KnowledgeTargetsMissingError({ skillNodeId: "cluster-1" }),
+      ),
     );
 
     const result = await advanceCompletedUnitWorkflow({

@@ -297,13 +297,11 @@ export const trainingCurriculumRepository = {
     db: Database;
     sessionId: string;
   }): Promise<CurriculumPlan | null> => {
-    const planState = await trainingCurriculumRepository.getPlanWithNodes(
-      {
-        db,
-        sessionId,
-        requireActive: true,
-      },
-    );
+    const planState = await trainingCurriculumRepository.getPlanWithNodes({
+      db,
+      sessionId,
+      requireActive: true,
+    });
 
     if (!planState) {
       return null;

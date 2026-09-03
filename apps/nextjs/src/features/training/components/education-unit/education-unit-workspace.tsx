@@ -485,8 +485,7 @@ function EducationUnitWorkspaceComponent({
     experimental_throttle: 50,
     onFinish: (finishState) => {
       const committed = shouldClearSubmittedDraft(finishState);
-      const openingFailed =
-        openingUnitTurnRef.current !== null && !committed;
+      const openingFailed = openingUnitTurnRef.current !== null && !committed;
       finishRetryableTurn(openingUnitTurnRef, committed);
       finishRetryableTurn(passAdvanceTurnRef, committed);
       if (openingFailed) {

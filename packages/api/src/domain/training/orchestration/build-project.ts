@@ -348,8 +348,9 @@ const getProjectBuildSourceKey = (
     understanding: input.understanding,
   });
 
-const uniqueEvidence = (values: string[]): string[] =>
-  [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+const uniqueEvidence = (values: string[]): string[] => [
+  ...new Set(values.map((value) => value.trim()).filter(Boolean)),
+];
 
 const buildIdentityReport = (
   input: CreateProjectInput,

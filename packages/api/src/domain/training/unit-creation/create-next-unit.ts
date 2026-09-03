@@ -122,11 +122,7 @@ export const createNextUnitNode = <TNode extends { id: string }>({
   CreateNextUnitError
 > =>
   Effect.gen(function* () {
-    const skill = yield* deps.loadSkill(
-      skillNodeId,
-      status,
-      excludeUnitNodeId,
-    );
+    const skill = yield* deps.loadSkill(skillNodeId, status, excludeUnitNodeId);
     if (!skill) {
       return yield* new SkillClusterNotFoundError({ skillNodeId });
     }

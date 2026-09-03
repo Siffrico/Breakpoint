@@ -77,8 +77,7 @@ describe("createNextUnit", () => {
               directive: { targetItemRating: 1200 } as never,
               promptBlock: "",
             }),
-          appendUnit: () =>
-            Effect.succeed({ node: successor, created: true }),
+          appendUnit: () => Effect.succeed({ node: successor, created: true }),
           hasUnitContent: () => Effect.succeed(true),
           prepareUnitEffect: () => Effect.void,
         },
@@ -91,11 +90,7 @@ describe("createNextUnit", () => {
       "ready",
       openUnit.id,
     );
-    expect(loadSkill).toHaveBeenCalledWith(
-      "cluster-1",
-      "ready",
-      openUnit.id,
-    );
+    expect(loadSkill).toHaveBeenCalledWith("cluster-1", "ready", openUnit.id);
   });
 
   it("resumes missing content without generating knowledge for an open unit", async () => {
