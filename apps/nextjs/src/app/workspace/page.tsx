@@ -9,6 +9,7 @@ import {
   getChatHistory,
   getWorkspaceShell,
 } from "~/features/training/server/training-queries";
+import { recoverTRPCError } from "~/trpc/errors";
 import { TRPCReactProvider } from "~/trpc/react";
 import { HydrateClient, prefetch, trpc } from "~/trpc/server";
 
@@ -73,10 +74,14 @@ export default async function WorkspacePage(props: {
   // that from aiWorkspace and swaps the transcript back to the live view.
   const chatHistory =
     chat && chat !== shell.plan.nextUnitId
-      ? await getChatHistory({
-          nodeId: chat,
-          sessionId: shell.sessionId,
-        }).catch(() => null)
+      ? await recoverTRPCError({
+          promise: getChatHistory({
+            nodeId: chat,
+            sessionId: shell.sessionId,
+          }),
+          codes: ["BAD_REQUEST", "NOT_FOUND", "FORBIDDEN"],
+          fallback: null,
+        })
       : null;
 
   // History views render a static transcript: the unit query stays disabled

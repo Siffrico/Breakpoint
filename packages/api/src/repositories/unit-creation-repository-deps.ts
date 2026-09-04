@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 
 import type { db as databaseClient } from "@acme/db/client";
-import { and, asc, desc, eq, gt } from "@acme/db";
+import { and, asc, desc, eq, gt, ne } from "@acme/db";
 import {
   TrainingCurriculumNode,
   TrainingCurriculumPlan,
@@ -255,7 +255,7 @@ export const createUnitCreationRepositoryDeps = ({
       queryWithClient(db, "ensureOutcomeCurriculum", () =>
         ensureOutcomeCurriculum({ db, outcomeNodeId: skillNodeId }),
       ),
-    loadOpenUnit: (skillNodeId, unitStatus) =>
+    loadOpenUnit: (skillNodeId, unitStatus, excludeUnitNodeId) =>
       queryWithClient(
         db,
         "loadOpenUnitForUnitCreation",
@@ -265,11 +265,14 @@ export const createUnitCreationRepositoryDeps = ({
               eq(TrainingCurriculumNode.parentNodeId, skillNodeId),
               eq(TrainingCurriculumNode.kind, "unit"),
               eq(TrainingCurriculumNode.status, unitStatus),
+              excludeUnitNodeId
+                ? ne(TrainingCurriculumNode.id, excludeUnitNodeId)
+                : undefined,
             ),
             orderBy: [desc(TrainingCurriculumNode.orderIndex)],
           })) ?? null,
       ),
-    loadSkill: (skillNodeId, unitStatus) =>
+    loadSkill: (skillNodeId, unitStatus, excludeUnitNodeId) =>
       queryWithClient(db, "loadSkillForUnitCreation", async () => {
         const node = await db.query.TrainingCurriculumNode.findFirst({
           where: eq(TrainingCurriculumNode.id, skillNodeId),
@@ -305,6 +308,9 @@ export const createUnitCreationRepositoryDeps = ({
             eq(TrainingCurriculumNode.parentNodeId, skillNodeId),
             eq(TrainingCurriculumNode.kind, "unit"),
             eq(TrainingCurriculumNode.status, unitStatus),
+            excludeUnitNodeId
+              ? ne(TrainingCurriculumNode.id, excludeUnitNodeId)
+              : undefined,
           ),
           orderBy: [desc(TrainingCurriculumNode.orderIndex)],
         });

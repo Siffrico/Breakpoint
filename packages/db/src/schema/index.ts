@@ -1,6 +1,7 @@
 export * from "../auth-schema";
 export * from "./memory";
 export * from "./post";
+export * from "./performance";
 export * from "./training/curriculum";
 export * from "./training/onboarding";
 export * from "./training/profile";

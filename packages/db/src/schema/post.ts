@@ -2,8 +2,11 @@ import { pgTable } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
+import { user } from "../auth-schema";
+
 export const Post = pgTable("post", (t) => ({
   id: t.uuid().notNull().primaryKey().defaultRandom(),
+  userId: t.text("user_id").references(() => user.id, { onDelete: "set null" }),
   title: t.varchar({ length: 256 }).notNull(),
   content: t.text().notNull(),
   createdAt: t.timestamp().defaultNow().notNull(),
@@ -17,6 +20,7 @@ export const CreatePostSchema = createInsertSchema(Post, {
   content: z.string().max(256),
 }).omit({
   id: true,
+  userId: true,
   createdAt: true,
   updatedAt: true,
 });

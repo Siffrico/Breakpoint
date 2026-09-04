@@ -6,6 +6,11 @@ export const LearnerUnderstandingSchema = z.object({
   build: z.string().min(1),
   goodMeans: z.array(z.string().min(1)).min(1).max(5),
   currentGap: z.string().min(1),
+  evidence: z.object({
+    currentBaseline: z.array(z.string().min(1)).min(1).max(5),
+    hardMoments: z.array(z.string().min(1)).min(1).max(5),
+    constraints: z.array(z.string().min(1)).max(5),
+  }),
 });
 
 export const ProjectOverviewOutputSchema = ProjectOverviewSchema.omit({

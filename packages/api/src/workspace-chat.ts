@@ -13,6 +13,11 @@ import type {
   WorkspaceAiEducationStage,
   WorkspaceAiState,
 } from "./domain/training/workspace-ai/types";
+import {
+  createWorkspaceTurnPerformanceTimer,
+  getErrorTag,
+  withWorkspaceTurnPerformanceTimer,
+} from "./domain/performance/workspace-turn-timing";
 import { withAiModelPreference } from "./domain/training/engine/model-router";
 import { WorkspaceUserError } from "./domain/training/errors";
 import { createNextUnitNode } from "./domain/training/unit-creation/create-next-unit";
@@ -22,6 +27,7 @@ import { resolveWorkspaceTurn } from "./domain/training/workspace-ai/workspace-t
 import { translateWorkspaceTurnErrors } from "./domain/training/workspace-ai/workspace-turn-edge";
 import { runEducationUnitTurn } from "./domain/training/workspace-ai/workspace-turn-orchestration";
 import { queryWithClient } from "./effect/db";
+import { recordWorkspaceTurnPerformanceBestEffort } from "./performance";
 import { trainingCurriculumRepository } from "./repositories/training-curriculum-repository";
 import { trainingUnitRunRepository } from "./repositories/training-unit-run-repository";
 import {
@@ -132,6 +138,7 @@ export const streamWorkspaceChat = async ({
   message,
   turnId,
   modelName,
+  requestStartedAt = Date.now(),
   signal,
   scheduleBackgroundTask,
 }: {
@@ -143,6 +150,7 @@ export const streamWorkspaceChat = async ({
   message: string;
   turnId: string;
   modelName?: string | null;
+  requestStartedAt?: number;
   signal?: AbortSignal;
   scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }): Promise<Response> =>
@@ -155,6 +163,7 @@ export const streamWorkspaceChat = async ({
       interactionId,
       message,
       turnId,
+      requestStartedAt,
       signal,
       scheduleBackgroundTask,
     }),
@@ -168,6 +177,7 @@ const streamWorkspaceChatWithModelPreference = ({
   interactionId,
   message,
   turnId,
+  requestStartedAt,
   signal,
   scheduleBackgroundTask,
 }: {
@@ -178,12 +188,17 @@ const streamWorkspaceChatWithModelPreference = ({
   interactionId: string;
   message: string;
   turnId: string;
+  requestStartedAt: number;
   signal?: AbortSignal;
   scheduleBackgroundTask?: (task: () => Promise<void>) => void;
 }) => {
   const trimmedMessage = message.trim();
   const effectiveLeaseId = randomUUID();
-  if (action === "submit_answer" && trimmedMessage.length < 2) {
+  if (
+    action === "submit_answer" &&
+    trimmedMessage.length < 2 &&
+    !/^[A-D]$/i.test(trimmedMessage)
+  ) {
     return Promise.resolve(
       new Response("Write a fuller message so the AI can respond usefully.", {
         status: 400,
@@ -197,11 +212,43 @@ const streamWorkspaceChatWithModelPreference = ({
     userId,
   });
 
+  const performanceTimer = createWorkspaceTurnPerformanceTimer({
+    sessionId,
+    turnId,
+    action,
+    requestStartedAt,
+  });
+  let performanceSaved = false;
+  const savePerformance = (
+    outcome: "success" | "error" | "aborted",
+    error?: unknown,
+  ) => {
+    if (performanceSaved) return;
+    performanceSaved = true;
+    const metric = performanceTimer.finish({
+      outcome,
+      errorTag: error === undefined ? null : getErrorTag(error),
+    });
+    const saveMetric = () =>
+      recordWorkspaceTurnPerformanceBestEffort(db, metric);
+    if (!scheduleBackgroundTask) {
+      void saveMetric();
+      return;
+    }
+    try {
+      scheduleBackgroundTask(saveMetric);
+    } catch {
+      void saveMetric();
+    }
+  };
+
   const stream = createUIMessageStream<WorkspaceChatUIMessage>({
-    onError: (error) =>
-      error instanceof WorkspaceUserError || error instanceof TRPCError
+    onError: (error) => {
+      savePerformance(signal?.aborted ? "aborted" : "error", error);
+      return error instanceof WorkspaceUserError || error instanceof TRPCError
         ? error.message
-        : "AI feedback could not be prepared.",
+        : "AI feedback could not be prepared.";
+    },
     execute: async ({ writer }) => {
       writer.write({ type: "start" });
 
@@ -222,6 +269,7 @@ const streamWorkspaceChatWithModelPreference = ({
         partId: WORKSPACE_ASSISTANT_TEXT_PART_ID,
       });
       const plan = await planPromise;
+      performanceTimer.markPlanLoaded();
       if (!plan) {
         throw new WorkspaceUserError("Learning project not found.");
       }
@@ -345,6 +393,7 @@ const streamWorkspaceChatWithModelPreference = ({
       });
 
       const educationStage = turn.state.educationStage;
+      performanceTimer.markTurnReady(educationStage);
       const isRecallTurn = turn.state.recallUnitId !== null;
       writeStatus(
         "thinking",
@@ -356,35 +405,42 @@ const streamWorkspaceChatWithModelPreference = ({
       // produced by either unit agent, so this transition is truthful: the
       // model is done reading and is now writing.
       let startedWriting = false;
-      const result = await runEffect(
-        translateWorkspaceTurnErrors(
-          runEducationUnitTurn({
-            sessionId,
-            userId,
-            turnId,
-            turnLeaseId: effectiveLeaseId,
-            interactionId,
-            action,
-            message: trimmedMessage,
-            turn,
-            deps: turnDeps,
-            onAssistantMessage: (content) => {
-              assistantText.finalize(content);
-            },
-            onPartialAssistantMessage: (content) => {
-              if (!startedWriting) {
-                startedWriting = true;
-                writeStatus(
-                  "thinking",
-                  getEducationWritingLabel(educationStage, isRecallTurn),
-                );
-              }
-              assistantText.pushPartial(content);
-            },
-          }).pipe(Effect.provide(workspaceTurnRepoLayer(db))),
-        ),
-        { signal },
+      const result = await withWorkspaceTurnPerformanceTimer(
+        performanceTimer,
+        () =>
+          runEffect(
+            translateWorkspaceTurnErrors(
+              runEducationUnitTurn({
+                sessionId,
+                userId,
+                turnId,
+                turnLeaseId: effectiveLeaseId,
+                interactionId,
+                action,
+                message: trimmedMessage,
+                turn,
+                deps: turnDeps,
+                onAssistantMessage: (content) => {
+                  if (content.length > 0) performanceTimer.markFirstVisible();
+                  assistantText.finalize(content);
+                },
+                onPartialAssistantMessage: (content) => {
+                  if (content.length > 0) performanceTimer.markFirstVisible();
+                  if (!startedWriting) {
+                    startedWriting = true;
+                    writeStatus(
+                      "thinking",
+                      getEducationWritingLabel(educationStage, isRecallTurn),
+                    );
+                  }
+                  assistantText.pushPartial(content);
+                },
+              }).pipe(Effect.provide(workspaceTurnRepoLayer(db))),
+            ),
+            { signal },
+          ),
       );
+      performanceTimer.markCommitted();
       assistantText.close();
       writer.write({
         type: "data-workspace-turn-state",
@@ -397,6 +453,7 @@ const streamWorkspaceChatWithModelPreference = ({
       });
       writeStatus("complete", "Complete");
       writer.write({ type: "finish", finishReason: "stop" });
+      savePerformance("success");
     },
   });
 

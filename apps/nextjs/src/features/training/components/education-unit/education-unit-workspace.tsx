@@ -441,13 +441,6 @@ function EducationUnitWorkspaceComponent({
 }) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
-  const missionEligibility = useQuery({
-    ...trpc.missions.eligibility.queryOptions({
-      unitContentId: unit.id,
-      sessionId,
-    }),
-    enabled: !preview && unit.activeStage === "complete",
-  });
   const [isExpanded, setIsExpanded] = useState(false);
   const [previewIsRunning, setPreviewIsRunning] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -492,8 +485,7 @@ function EducationUnitWorkspaceComponent({
     experimental_throttle: 50,
     onFinish: (finishState) => {
       const committed = shouldClearSubmittedDraft(finishState);
-      const openingFailed =
-        openingUnitTurnRef.current !== null && !committed;
+      const openingFailed = openingUnitTurnRef.current !== null && !committed;
       finishRetryableTurn(openingUnitTurnRef, committed);
       finishRetryableTurn(passAdvanceTurnRef, committed);
       if (openingFailed) {
@@ -633,6 +625,13 @@ function EducationUnitWorkspaceComponent({
     return null;
   }, [chatMessages]);
   const streamState = latestTurnState?.state ?? aiWorkspace?.state ?? null;
+  const missionEligibility = useQuery({
+    ...trpc.missions.eligibility.queryOptions({
+      unitContentId: unit.id,
+      sessionId,
+    }),
+    enabled: !preview && streamState?.educationStage === "complete",
+  });
 
   // One refetch per unit, at the moment the stream reports it mastered: the
   // shell's Next Unit gate lives in the aiWorkspace query, which is otherwise

@@ -345,7 +345,7 @@ describe("workspace read preparation boundary", () => {
   });
 });
 
-describe("durable recall projection", () => {
+describe.skip("durable recall projection while recall is disabled", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-06T00:00:00Z"));
@@ -701,7 +701,34 @@ describe("workspace view reads", () => {
     expect(listUnitMessages).toHaveBeenCalledWith("session-1", readyNode.id);
   });
 
-  it("surfaces an in-flight recall with its transcript and intro", async () => {
+  it("loads a live-mentor unit without legacy teaching content", async () => {
+    const unitWithoutLegacyTeaching = {
+      ...activeUnit,
+      buildContent: null,
+    } as UnitContent;
+
+    const result = await getAiWorkspaceWorkflow({
+      sessionId: "session-1",
+      deps: {
+        getActivePlan: () => Promise.resolve(recallPlan),
+        listUnitMessages: () => Promise.resolve([]),
+        getPhaseResponses: () => Promise.resolve([]),
+        getUnitRun: () => Promise.resolve(null),
+        getInFlightRecallRun: () => Promise.resolve(null),
+        retireInFlightRecallRun: () => Promise.resolve(),
+        getUnitByNodeId: () => Promise.resolve(unitWithoutLegacyTeaching),
+        ...noRecallProjectionDeps,
+      },
+    });
+
+    const view = readyView(result);
+    expect(view.unit?.challenge).toMatchObject({
+      prompt: unitWithoutLegacyTeaching.seedPrompt,
+      helper: unitWithoutLegacyTeaching.seedHint,
+    });
+  });
+
+  it.skip("surfaces an in-flight recall with its transcript and intro", async () => {
     const listUnitMessages = vi
       .fn()
       .mockImplementation((_sessionId: string, unitId: string) =>
@@ -750,7 +777,7 @@ describe("workspace view reads", () => {
     expect(getMostOverdueRecallCandidate).not.toHaveBeenCalled();
   });
 
-  it("locks unit advancement while a due recall is live", async () => {
+  it("ignores due recall and keeps completed-unit advancement enabled", async () => {
     const activeMasteredRun = {
       ...createUnitRun({
         unitId: activeUnit.id,
@@ -788,16 +815,16 @@ describe("workspace view reads", () => {
 
     const view = readyView(result);
     expect(view.state).toMatchObject({
-      recallUnitId: completedNode.id,
-      activeUnitId: null,
+      recallUnitId: null,
+      activeUnitId: readyNode.id,
     });
-    expect(view.unitAdvanceGate).toEqual({ status: "locked" });
-    expect(getMostOverdueRecallCandidate).toHaveBeenCalledOnce();
-    expect(getRecallCompanionCandidate).toHaveBeenCalledWith(
-      recallCandidate.skillNodeId,
-      recallCandidate,
-      expect.any(Date),
-    );
+    expect(view.unitAdvanceGate).toEqual({
+      status: "enabled",
+      unitId: readyNode.id,
+      nextTitle: null,
+    });
+    expect(getMostOverdueRecallCandidate).not.toHaveBeenCalled();
+    expect(getRecallCompanionCandidate).not.toHaveBeenCalled();
   });
 
   it("does not repair stale recall state from the read workflow", async () => {

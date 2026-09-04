@@ -14,11 +14,14 @@ import type {
 import type { UnitAgentError } from "./agent-errors";
 import type { EducationExperienceDefinition } from "./experience";
 import {
+  getFeedbackPresentationIssue,
+  getGradePresentationIssue,
   PASSING_COMPOSITE,
   PASSING_DIMENSION,
   reviewFeedbackSchema,
   reviewGradeSchema,
 } from "./agent-contracts";
+import { LEARNER_FACING_FORMAT } from "./learner-facing-format";
 import { runUnitAgent } from "./run-unit-agent";
 
 const CRITIC_SYSTEM = `You are Breakpoint's independent critic. You grade, but grading is the smaller half of the job: you exist to show a learner the exact place their mental model diverged from an expert's, in words they can feel.
@@ -31,14 +34,18 @@ Reconstruct the move sequence an expert would actually run for this scenario, us
 Almost every miss is one missing high-level idea, not a missing fact. Name it as a statement about how they are thinking, in plain language: "you're treating the benchmark as the goal when it's a proxy the system can learn to attack." Not "you failed to consider reward hacking." The learner should read one sentence and recognize themselves in it.
 
 ## How you write it
-Lead with the divergence, in their own frame. Quote their actual words back so the finding is anchored, then show the expert's move at that same fork and why it follows. Keep it short and concrete — insight per sentence is the metric, not coverage. Never enumerate a rubric, never list every dimension, never narrate what they got right at length. No scores, no rubrics, no dimension names, no mention of passes, agents, contracts, or Goldilocks.
+Lead with the divergence, in their own frame. Quote their actual words back so the finding is anchored, then show the expert's move at that same fork and why it follows. Keep it short and concrete — insight per sentence is the metric, not coverage. Never narrate what they got right at length. No scores, no rubrics, no dimension names, no mention of passes, agents, contracts, or Goldilocks.
+
+"No rubrics" is about content, not layout: never walk the learner through your criteria or scores. It does not forbid structure. When a turn names the sections to write, use those exact bold labels — they are the required shape, not a rubric.
 
 When the scores show no real gap, do not manufacture one. Close cleanly and say what now holds.
 
 ## Evidence
 Every criterion's evidence field must be a verbatim quote from the learner's latest answer — their characters, not your paraphrase. Fluent language without the mechanism is a failure signal, not a passing one. Difficulty comes from realistic constraints, ambiguity, and competing plausible alternatives; never from trivia, withheld information a practitioner would have, or contrived rules.
 
-Return exactly the requested structured object with assistantMessage first.`;
+Return exactly the requested structured object with assistantMessage first.
+
+${LEARNER_FACING_FORMAT}`;
 
 const gradeTurnInstruction = (
   interactiveFeedback: boolean,
@@ -99,13 +106,17 @@ export const runReviewGradeAgent = ({
   runUnitAgent({
     agent: "reviewer",
     purpose: "evaluation",
-    reasoning: "medium",
+    reasoning: "high",
     system: `${CRITIC_SYSTEM}\n\n${cognitiveDiagnosisPolicy(shape.interactiveFeedback)}\n\n## Customized behavior\n${experience.reviewer.instructions}`,
     messages,
     context: `${context}\n\n## Immutable active challenge and private verifier\n${JSON.stringify(activeChallenge)}\n\n${gradeTurnInstruction(shape.interactiveFeedback)}`,
     schema: reviewGradeSchema(shape),
     schemaName: "unit_review_grade",
-    maxOutputTokens: 3_000,
+    checkPresentation: (output) =>
+      getGradePresentationIssue(output, shape.interactiveFeedback),
+    maxOutputTokens: 15_000,
+    reasoningBudgetTokens: 3_000,
+    temperature: 0.2,
     errorMessage: "Failed to grade the adversarial review.",
     onPartialAssistantMessage,
   });
@@ -130,13 +141,16 @@ export const runReviewFeedbackAgent = ({
   runUnitAgent({
     agent: "reviewer",
     purpose: "evaluation",
-    reasoning: "low",
+    reasoning: "high",
     system: `${CRITIC_SYSTEM}\n\n## Customized behavior\n${experience.reviewer.instructions}`,
     messages,
     context: `${context}\n\n## Frozen scenario diagnosis\n${JSON.stringify({ errorCodes, dimensionResults })}\n\n${feedbackTurnInstruction(promptRound)}`,
     schema: reviewFeedbackSchema(promptRound),
     schemaName: "unit_review_feedback",
-    maxOutputTokens: 1_200,
+    checkPresentation: getFeedbackPresentationIssue,
+    maxOutputTokens: 15_000,
+    reasoningBudgetTokens: 1_400,
+    temperature: 0.2,
     errorMessage: "Failed to continue the learner feedback.",
     onPartialAssistantMessage,
   });

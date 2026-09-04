@@ -47,10 +47,11 @@ describe("mentor prompt modules", () => {
     );
 
     const call = runUnitAgentMock.mock.calls.at(-1)?.[0] as
-      | { system: string }
+      | { system: string; temperature: number }
       | undefined;
     expect(call?.system).toContain("## Teach");
-    expect(call?.system).toContain("## Scenario");
+    expect(call?.system).toContain("## Scenario handoff");
+    expect(call?.system).toContain("inside preparedScenario");
   });
 
   it("gives later scenario turns only the Scenario module", async () => {
@@ -64,9 +65,15 @@ describe("mentor prompt modules", () => {
     );
 
     const call = runUnitAgentMock.mock.calls.at(-1)?.[0] as
-      | { system: string }
+      | { system: string; temperature: number }
       | undefined;
     expect(call?.system).not.toContain("## Teach");
     expect(call?.system).toContain("## Scenario");
+    expect(call?.system).toContain("object is the scenario itself");
+    expect(call?.system).not.toContain("inside preparedScenario");
+    expect(call?.system).toContain("that material goes in stimulus");
+    expect(call?.system).toContain("idiomatic English");
+    expect(call?.system).toContain("all-caps emphasis");
+    expect(call?.temperature).toBe(0.2);
   });
 });

@@ -22,6 +22,10 @@
     "./unit-coach": {
       "types": "./dist/unit-coach.d.ts",
       "default": "./src/unit-coach.ts"
+    },
+    "./performance": {
+      "types": "./dist/performance.d.ts",
+      "default": "./src/performance.ts"
     }
   },
   "license": "MIT",

@@ -4,6 +4,7 @@ import { z } from "zod/v4";
 import { getSession } from "~/auth/server";
 import { MissionCanvas } from "~/features/training/components/mission/mission-canvas";
 import { getMissionForUnitRun } from "~/features/training/server/mission-queries";
+import { recoverTRPCError } from "~/trpc/errors";
 
 export default async function MissionPage({
   searchParams,
@@ -17,7 +18,11 @@ export default async function MissionPage({
   if (!session?.user) redirect("/");
   if (!unitRunId || !z.string().uuid().safeParse(unitRunId).success)
     redirect("/workspace");
-  const mission = await getMissionForUnitRun(unitRunId).catch(() => undefined);
+  const mission = await recoverTRPCError({
+    promise: getMissionForUnitRun(unitRunId),
+    codes: ["NOT_FOUND", "FORBIDDEN"],
+    fallback: undefined,
+  });
   if (mission === undefined) redirect("/workspace");
   return <MissionCanvas unitRunId={unitRunId} initialMission={mission} />;
 }

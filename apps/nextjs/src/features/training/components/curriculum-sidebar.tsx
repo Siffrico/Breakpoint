@@ -9,6 +9,7 @@ import {
   FolderSimple,
   Gear,
   MagnifyingGlass,
+  Play,
   Plus,
   SidebarSimple,
   Storefront,
@@ -353,12 +354,32 @@ function ProjectRow({
               ? `Continue ${project.title}`
               : "Curriculum is still being prepared"
           }
-          className="text-foreground/40 hover:text-foreground/85 hover:bg-foreground/[0.05] flex size-6 shrink-0 items-center justify-center rounded-[5px] transition-[color,background-color,opacity] outline-none focus:outline-none focus-visible:outline-none disabled:pointer-events-none disabled:opacity-25"
+          className={[
+            "group/continue flex size-6 shrink-0 items-center justify-center rounded-[5px] outline-none focus:outline-none focus-visible:outline-none disabled:pointer-events-none disabled:opacity-25",
+            isCurrent
+              ? ""
+              : "pointer-events-none group-hover/project:pointer-events-auto focus-visible:pointer-events-auto",
+          ].join(" ")}
         >
           {isContinuing ? (
             <DotmTriangle1 size={13} dotSize={1} />
           ) : (
-            <Plus size={15} weight="regular" />
+            // Continue only persists on the open project; elsewhere it surfaces
+            // under the pointer. The reveal is deliberately asymmetric — CSS
+            // transitions read timing from the state being entered, so hover
+            // supplies the 150ms fade-in and the base state the 75ms fade-out.
+            // Sweeping the list therefore collapses the trail behind the cursor
+            // instead of leaving five buttons dissolving at once.
+            <span
+              className={[
+                "bg-primary text-primary-foreground flex size-[17px] items-center justify-center rounded-full",
+                isCurrent
+                  ? ""
+                  : "opacity-0 transition-opacity duration-75 ease-linear group-hover/project:opacity-100 group-hover/project:duration-150 group-hover/project:ease-out group-focus-visible/continue:opacity-100 motion-reduce:transition-none",
+              ].join(" ")}
+            >
+              <Play size={7} weight="fill" />
+            </span>
           )}
         </button>
       </div>

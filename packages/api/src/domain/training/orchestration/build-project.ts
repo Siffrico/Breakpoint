@@ -13,7 +13,6 @@ import type {
   CurriculumBlueprint,
   CurriculumPlan,
   IdentityReport,
-  OnboardingTranscriptMessage,
 } from "../types/training.types";
 import type { ArtifactFailureKind } from "./agent-runtime";
 import type { ProjectBuildArtifactPreviewInput } from "./project-build-preview";
@@ -189,7 +188,7 @@ export interface BuildProjectDeps {
     profileVersionId: string | null;
   } | null>;
   /** Full read for the final/complete snapshot. */
-  getActivePlan: (sessionId: string) => Promise<CurriculumPlan | null>;
+  getBuildPlan: (sessionId: string) => Promise<CurriculumPlan | null>;
   hasUnitContent: (nodeId: string) => Promise<boolean>;
   claimRun: (input: {
     sessionId: string;
@@ -346,9 +345,17 @@ const getProjectBuildSourceKey = (
           tier: input.startingPoint.tier,
           reason: input.startingPoint.reason.trim(),
         },
+    understanding: input.understanding,
   });
 
-const buildIdentityReport = (input: CreateProjectInput): IdentityReport => {
+const uniqueEvidence = (values: string[]): string[] => [
+  ...new Set(values.map((value) => value.trim()).filter(Boolean)),
+];
+
+const buildIdentityReport = (
+  input: CreateProjectInput,
+  startingPointReason: string,
+): IdentityReport => {
   const qualityStandards = input.understanding.goodMeans.map((quality) =>
     quality.trim(),
   );
@@ -364,9 +371,15 @@ const buildIdentityReport = (input: CreateProjectInput): IdentityReport => {
     targetIdentity: input.targetIdentity.trim(),
     headline: input.summary.trim(),
     motivation: input.understanding.build.trim(),
-    currentBaseline: `${input.startingPoint.reason.trim()} ${input.understanding.currentGap.trim()}`,
-    hardMoments: [input.understanding.currentGap.trim()],
-    constraints: [],
+    currentBaseline: uniqueEvidence([
+      startingPointReason,
+      ...input.understanding.evidence.currentBaseline,
+    ]).join(" "),
+    hardMoments: uniqueEvidence([
+      input.understanding.currentGap,
+      ...input.understanding.evidence.hardMoments,
+    ]),
+    constraints: uniqueEvidence(input.understanding.evidence.constraints),
     proofOfProgress: input.outcomes.map((outcome) => outcome.result).join(" "),
     qualityStandards,
     behaviorSignals,
@@ -432,7 +445,6 @@ const seedFor = (record?: ProjectBuildArtifactRecord): unknown =>
 export const buildProjectFromOnboarding = async ({
   sessionId,
   userId,
-  transcript: _transcript,
   input,
   deps,
   onProgress,
@@ -441,7 +453,6 @@ export const buildProjectFromOnboarding = async ({
 }: {
   sessionId: string;
   userId: string | null;
-  transcript: OnboardingTranscriptMessage[];
   input: CreateProjectInput;
   deps: BuildProjectDeps;
   onProgress: (state: ProjectBuildState) => void;
@@ -468,9 +479,17 @@ export const buildProjectFromOnboarding = async ({
   const startedAt = Date.now();
   const remainingMs = () => BUILD_BUDGET_MS - (Date.now() - startedAt);
   const projectName = normalizeLearningTrackName(input.projectName);
-  const persistedStartingPoint = await deps
-    .getStartingPoint(sessionId)
-    .catch(() => null);
+  let persistedStartingPoint: Awaited<
+    ReturnType<BuildProjectDeps["getStartingPoint"]>
+  >;
+  try {
+    persistedStartingPoint = await deps.getStartingPoint(sessionId);
+  } catch {
+    return {
+      success: false,
+      error: "I couldn't load your starting point. Want to try again?",
+    };
+  }
   const sourceKey = getProjectBuildSourceKey(input, persistedStartingPoint);
   const steps = initialSteps();
   const state: ProjectBuildState = {
@@ -619,7 +638,7 @@ export const buildProjectFromOnboarding = async ({
   );
   const planRow = await deps.getPlanRow(sessionId);
   if (planRow?.status === "active" && !hasUnfinishedArtifact) {
-    const existingPlan = await deps.getActivePlan(sessionId);
+    const existingPlan = await deps.getBuildPlan(sessionId);
     if (
       existingPlan?.nextUnitId &&
       (await deps.hasUnitContent(existingPlan.nextUnitId))
@@ -702,7 +721,10 @@ export const buildProjectFromOnboarding = async ({
   setStep("name", "done");
   emit();
 
-  const report = buildIdentityReport(input);
+  const report = buildIdentityReport(
+    input,
+    persistedStartingPoint?.label ?? input.startingPoint.reason,
+  );
   const blueprint: CurriculumBlueprint = {
     title: projectName,
     summary: input.summary.trim(),
@@ -769,7 +791,7 @@ export const buildProjectFromOnboarding = async ({
   }
   let launchPlan: CurriculumPlan | null;
   try {
-    launchPlan = await deps.getActivePlan(sessionId);
+    launchPlan = await deps.getBuildPlan(sessionId);
     if (
       launchPlan?.nextUnitId &&
       (await deps.hasUnitContent(launchPlan.nextUnitId))
@@ -856,14 +878,14 @@ export const buildProjectFromOnboarding = async ({
     });
   } catch {
     // finalize failed: only trust an *already-active* plan (a prior attempt may
-    // have flipped it). getActivePlan returns a profile-linked shell even while
+    // have flipped it). getBuildPlan returns a profile-linked shell even while
     // its status is still "generating", so gate on the live status — otherwise a
     // failed finalize reports success on a half-built plan that never goes
     // active. On a still-generating shell we fail and let a resume re-run finalize.
     plan = await deps
       .getPlanRow(sessionId)
       .then((row) =>
-        row?.status === "active" ? deps.getActivePlan(sessionId) : null,
+        row?.status === "active" ? deps.getBuildPlan(sessionId) : null,
       )
       .catch(() => null);
   }

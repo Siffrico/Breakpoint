@@ -45,10 +45,6 @@ export type UnitAgentError =
   | UnitAgentFirstVisibleTimeoutError
   | UnitAgentWallClockTimeoutError;
 
-export const isRetryableUnitAgentError = (error: UnitAgentError): boolean =>
-  error._tag === "UnitAgentTimeoutError" ||
-  error._tag === "UnitAgentTransientProviderError";
-
 const failureMessage = (error: unknown, depth = 0): string => {
   if (!(error instanceof Error) || depth > 5) return "";
 
@@ -68,6 +64,57 @@ const compactFailureMessage = (message: string): string => {
   return `${message.slice(0, half)} … ${message.slice(-half)}`;
 };
 
+/**
+ * A schema violation arrives wrapped in the provider's error, so the generic
+ * classifier reads it as a rejected call. It is not: the model answered, the
+ * answer failed our contract, and that is the one failure a repair round can
+ * actually fix.
+ */
+const isValidationFailure = (error: unknown, depth = 0): boolean => {
+  if (!(error instanceof Error) || depth > 5) return false;
+  return (
+    /^(?:AI_)?(?:Zod|TypeValidation)Error$/.test(error.name) ||
+    isValidationFailure(error.cause, depth + 1)
+  );
+};
+
+/**
+ * The broken contract rules, as short `path: message` lines. Zod serializes its
+ * issues into the error message, so the detail is already there — it just never
+ * reaches anywhere durable. Returns null for non-validation failures.
+ */
+interface SerializedZodIssue {
+  readonly path?: readonly (string | number)[];
+  readonly message?: string;
+}
+
+/** Zod puts its issue array in the message as JSON; nothing else parses it. */
+const parseZodIssues = (message: string): SerializedZodIssue[] => {
+  const start = message.indexOf("[");
+  const end = message.lastIndexOf("]");
+  if (start === -1 || end < start) return [];
+  try {
+    const parsed: unknown = JSON.parse(message.slice(start, end + 1));
+    return Array.isArray(parsed) ? (parsed as SerializedZodIssue[]) : [];
+  } catch {
+    return [];
+  }
+};
+
+export const describeSchemaIssues = (error: unknown): string[] | null => {
+  const issues: string[] = [];
+  let current: unknown = error;
+  for (let depth = 0; depth < 6 && current instanceof Error; depth += 1) {
+    for (const issue of parseZodIssues(current.message)) {
+      if (typeof issue.message !== "string") continue;
+      const where = issue.path?.length ? issue.path.join(".") : "-";
+      issues.push(`${where}: ${issue.message}`.slice(0, 200));
+    }
+    current = current.cause;
+  }
+  return issues.length > 0 ? issues.slice(0, 12) : null;
+};
+
 export const classifyUnitAgentFailure = (error: unknown): UnitAgentError => {
   if (error instanceof UnitAgentFirstVisibleTimeoutError) return error;
   if (error instanceof UnitAgentWallClockTimeoutError) return error;
@@ -75,6 +122,9 @@ export const classifyUnitAgentFailure = (error: unknown): UnitAgentError => {
   const message = compactFailureMessage(
     failureMessage(error) || "Education unit agent call failed.",
   );
+  if (isValidationFailure(error)) {
+    return new UnitAgentSchemaError({ message, cause: error });
+  }
   const kind = classifyFailure(error, false);
 
   switch (kind) {

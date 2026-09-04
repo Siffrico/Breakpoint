@@ -95,6 +95,42 @@ const latestUserText = (transcript: readonly ModelMessage[]): string | null => {
 const selectedResponse = (run: PersistedUnitRun) =>
   run.difficultySnapshot?.format?.kind === "mcq";
 
+const exactSelectedResponseGrade = ({
+  run,
+  learnerAnswer,
+}: {
+  run: PersistedUnitRun;
+  learnerAnswer: string;
+}) => {
+  if (!selectedResponse(run) || run.cursor.step.kind !== "scenario") {
+    return null;
+  }
+  const challenge = run.cursor.step.challenge;
+  if (challenge === null) return null;
+  const verifier = challenge.contract.verifier;
+  if (verifier?.type !== "fixed_answer" || verifier.answer === null) {
+    return null;
+  }
+  const selectedLabel = /^\(?([A-D])\)?[.)]?$/i
+    .exec(learnerAnswer.trim())?.[1]
+    ?.toUpperCase();
+  if (selectedLabel !== verifier.answer.trim().toUpperCase()) return null;
+
+  return {
+    assistantMessage: `Correct. Option ${selectedLabel} satisfies the scenario without adding an unsupported claim.`,
+    errorCodes: [],
+    scratchpad: "The selected response matches the fixed answer exactly.",
+    dimensionResults: challenge.contract.testedCriterionIds.map(
+      (dimensionId) => ({
+        dimensionId,
+        score: 100,
+        evidence: learnerAnswer.trim(),
+        missing: null,
+      }),
+    ),
+  };
+};
+
 const openScenario = ({
   run,
   experience,
@@ -184,18 +220,20 @@ const gradeScenario = ({
       );
     }
     const ratingEligible = isRatingEligibleScenario(run);
-    const output = (yield* deps.runReviewGrade({
-      messages: [{ role: "user", content: learnerAnswer }],
-      context: contexts.critique.judgeAnswer,
-      activeChallenge: step.challenge,
-      experience,
-      shape: {
-        testedDimensionIds: step.challenge.contract.testedCriterionIds,
-        learnerAnswer,
-        interactiveFeedback: run.kind === "education",
-      },
-      onPartialAssistantMessage,
-    })).object;
+    const output =
+      exactSelectedResponseGrade({ run, learnerAnswer }) ??
+      (yield* deps.runReviewGrade({
+        messages: [{ role: "user", content: learnerAnswer }],
+        context: contexts.critique.judgeAnswer,
+        activeChallenge: step.challenge,
+        experience,
+        shape: {
+          testedDimensionIds: step.challenge.contract.testedCriterionIds,
+          learnerAnswer,
+          interactiveFeedback: run.kind === "education",
+        },
+        onPartialAssistantMessage,
+      })).object;
     const evidenceIds = evidencedTargets(run, output.dimensionResults);
     const allTargetsEvidenced = run.unitContext.targets.every((target) =>
       evidenceIds.includes(target.id),

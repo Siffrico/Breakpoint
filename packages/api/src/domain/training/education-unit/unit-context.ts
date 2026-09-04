@@ -86,6 +86,12 @@ const joinSections = (sections: readonly (string | null)[]) =>
     .filter((section): section is string => section !== null)
     .join("\n\n");
 
+const challengeSurfaceSummary = (prompt: string): string =>
+  prompt
+    .split(/\n\s*\n/)
+    .find((part) => part.trim().length > 0)
+    ?.trim() ?? prompt.trim();
+
 export const createMentorContext = ({
   unitContext,
   difficulty,
@@ -128,13 +134,11 @@ export const createMentorScenarioContext = ({
 }): string =>
   joinSections([
     targetSection(unitContext),
-    workflowSection(unitContext),
-    expertiseSection(unitContext),
     testingSection(unitContext),
     judgmentSection(unitContext),
     reviewGoldilocksSection(difficulty),
     previousChallengePrompts.length > 0
-      ? `## Previously used challenge surfaces\nCreate a genuinely fresh surface; do not repeat these prompts:\n${bulletList(previousChallengePrompts)}`
+      ? `## Previously used challenge surfaces\nCreate a genuinely fresh surface; do not repeat these prompts:\n${bulletList(previousChallengePrompts.map(challengeSurfaceSummary))}`
       : null,
     repair
       ? `## Repair target\nPrior error codes: ${repair.errorCodes.join(", ")}\nWeak dimensions:\n${bulletList(

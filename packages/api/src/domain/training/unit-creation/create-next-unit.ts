@@ -48,10 +48,12 @@ export interface CreateNextUnitDependencies<TNode> {
   loadOpenUnit: (
     skillNodeId: string,
     unitStatus: "planned" | "ready",
+    excludeUnitNodeId?: string,
   ) => Effect.Effect<TNode | null, DbError>;
   loadSkill: (
     skillNodeId: string,
     unitStatus: "planned" | "ready",
+    excludeUnitNodeId?: string,
   ) => Effect.Effect<
     {
       title: string;
@@ -107,18 +109,20 @@ export const createNextUnitNode = <TNode extends { id: string }>({
   skillNodeId,
   complexityBudget = 2,
   status = "ready",
+  excludeUnitNodeId,
   deps,
 }: {
   skillNodeId: string;
   complexityBudget?: 1 | 2 | 3;
   status?: "planned" | "ready";
+  excludeUnitNodeId?: string;
   deps: CreateNextUnitDependencies<TNode>;
 }): Effect.Effect<
   { node: TNode; needsContent: boolean },
   CreateNextUnitError
 > =>
   Effect.gen(function* () {
-    const skill = yield* deps.loadSkill(skillNodeId, status);
+    const skill = yield* deps.loadSkill(skillNodeId, status, excludeUnitNodeId);
     if (!skill) {
       return yield* new SkillClusterNotFoundError({ skillNodeId });
     }
@@ -155,15 +159,21 @@ export const createNextUnit = <TNode extends { id: string }>({
   skillNodeId,
   complexityBudget = 2,
   status = "ready",
+  excludeUnitNodeId,
   deps,
 }: {
   skillNodeId: string;
   complexityBudget?: 1 | 2 | 3;
   status?: "planned" | "ready";
+  excludeUnitNodeId?: string;
   deps: CreateNextUnitDependencies<TNode>;
 }): Effect.Effect<TNode | null, CreateNextUnitError> =>
   Effect.gen(function* () {
-    const openUnit = yield* deps.loadOpenUnit(skillNodeId, status);
+    const openUnit = yield* deps.loadOpenUnit(
+      skillNodeId,
+      status,
+      excludeUnitNodeId,
+    );
     if (openUnit) {
       const hasContent = yield* deps.hasUnitContent(openUnit.id);
       if (!hasContent) yield* deps.prepareUnitEffect(openUnit);
@@ -175,6 +185,7 @@ export const createNextUnit = <TNode extends { id: string }>({
       skillNodeId,
       complexityBudget,
       status,
+      excludeUnitNodeId,
       deps,
     });
     if (created.needsContent) yield* deps.prepareUnitEffect(created.node);

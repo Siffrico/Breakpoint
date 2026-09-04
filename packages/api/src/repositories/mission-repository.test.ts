@@ -467,6 +467,63 @@ describe("MissionRepoLive", () => {
   );
 
   it.skipIf(!process.env.POSTGRES_URL)(
+    "keeps an old evaluation reserved while its owner is heartbeating",
+    async () => {
+      const seed = await seedUnitRun({
+        parentKind: "outcome",
+        mode: "complete",
+      });
+      const { db } = await import("@acme/db/client");
+      const [mission] = await db
+        .insert(TrainingMission)
+        .values({
+          userId: seed.userId,
+          unitRunId: seed.unitRunId,
+          status: "active",
+          spec: SPEC,
+          plan: PLAN,
+        })
+        .returning({ id: TrainingMission.id });
+      if (!mission) throw new Error("Expected a mission.");
+      const old = new Date(Date.now() - 10 * 60 * 1_000);
+      const [attempt] = await db
+        .insert(TrainingMissionEvaluation)
+        .values({
+          missionId: mission.id,
+          attemptNumber: 1,
+          proof: PROOF,
+          createdAt: old,
+          updatedAt: old,
+        })
+        .returning({ id: TrainingMissionEvaluation.id });
+      if (!attempt) throw new Error("Expected an evaluation attempt.");
+
+      const heartbeat = await runRepo(
+        Effect.gen(function* () {
+          const repo = yield* MissionRepo;
+          return yield* repo.heartbeatEvaluation(attempt.id);
+        }),
+      );
+      expect(expectSuccess(heartbeat)).toBe(true);
+
+      const reservation = await runRepo(
+        Effect.gen(function* () {
+          const repo = yield* MissionRepo;
+          return yield* repo.reserveEvaluation({
+            userId: seed.userId,
+            unitRunId: seed.unitRunId,
+            proof: PROOF,
+          });
+        }),
+      );
+      expect(failureTag(reservation)).toMatchObject({
+        _tag: "MissionConflictError",
+        reason: "evaluation_in_flight",
+      });
+    },
+  );
+
+  it.skipIf(!process.env.POSTGRES_URL)(
     "gives exactly one of two concurrent evaluations the reservation",
     async () => {
       const seed = await seedUnitRun({

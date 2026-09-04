@@ -38,6 +38,7 @@ import {
   TextShimmer,
 } from "@acme/ui/chat";
 import { toast } from "@acme/ui/toast";
+import { TOPIC_ONBOARDING_OPENER } from "@acme/validators";
 
 import type { OnboardingState } from "./onboarding-transcript";
 import {
@@ -539,7 +540,9 @@ export function OnboardingShell({
           boxShadow:
             "inset 0 1px 0 rgba(255,255,255,0.035), 0 18px 40px rgba(0,0,0,0.38), 0 3px 8px rgba(0,0,0,0.35)",
         }}
-        placeholder={!sessionReady ? "Starting…" : "i want the skills of:"}
+        placeholder={
+          !sessionReady ? "Starting…" : "I want to get good at… so I can…"
+        }
         leftSlot={
           <button
             type="button"
@@ -590,7 +593,7 @@ export function OnboardingShell({
             {/* Hero prompt: sets the learner's task in a single line. Sized on a
                 30px / mb-8 rhythm so the heading + composer read as one block. */}
             <h1 className="mb-8 text-center [font-family:var(--font-ai)] text-[30px] font-medium tracking-[-0.02em]">
-              What skill do you want to Master?
+              {TOPIC_ONBOARDING_OPENER}
             </h1>
 
             {/* Composer fills the 680px column — wider than the heading so the
@@ -600,19 +603,21 @@ export function OnboardingShell({
             {/* Example chips to kill blank-page paralysis: tapping one submits
                 it as the learner's first answer. Presentational otherwise. */}
             <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
-              {["an ML engineer", "a systems programmer", "a quant"].map(
-                (example) => (
-                  <button
-                    key={example}
-                    type="button"
-                    disabled={!sessionReady || effectiveIsStreaming}
-                    onClick={() => submitText(example)}
-                    className="rounded-full border border-white/[0.08] bg-white/[0.02] px-3 py-1.5 text-[12.5px] text-[#9a9a9a] transition-colors hover:border-white/[0.16] hover:bg-white/[0.05] hover:text-[#d0d0d0] disabled:opacity-50"
-                  >
-                    {example}
-                  </button>
-                ),
-              )}
+              {[
+                "ML engineering — ship reliable models",
+                "systems programming — build fast, safe infrastructure",
+                "quant research — test defensible strategies",
+              ].map((example) => (
+                <button
+                  key={example}
+                  type="button"
+                  disabled={!sessionReady || effectiveIsStreaming}
+                  onClick={() => submitText(example)}
+                  className="rounded-full border border-white/[0.08] bg-white/[0.02] px-3 py-1.5 text-[12.5px] text-[#9a9a9a] transition-colors hover:border-white/[0.16] hover:bg-white/[0.05] hover:text-[#d0d0d0] disabled:opacity-50"
+                >
+                  {example}
+                </button>
+              ))}
             </div>
           </div>
         </div>

@@ -16,7 +16,7 @@ export default async function SettingsLayout({
     redirect("/");
   }
 
-  const topics = await listTopicNavItems().catch(() => []);
+  const topics = await listTopicNavItems();
 
   return (
     <TRPCReactProvider>

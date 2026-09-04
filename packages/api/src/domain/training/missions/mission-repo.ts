@@ -144,6 +144,10 @@ export interface MissionRepoShape {
     readonly evaluation: MissionEvaluation;
   }) => Effect.Effect<void, DbError | MissionConflictError>;
 
+  readonly heartbeatEvaluation: (
+    attemptId: string,
+  ) => Effect.Effect<boolean, DbError>;
+
   readonly cancelEvaluation: (
     attemptId: string,
   ) => Effect.Effect<void, DbError>;

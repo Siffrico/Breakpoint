@@ -30,6 +30,7 @@ interface AdvanceMutationContext {
 // so while a transition is pending the controller polls for the server-side
 // advance it is waiting to reconcile against.
 const ADVANCE_POLL_INTERVAL_MS = 30_000;
+const ADVANCE_TIMEOUT_MS = 2 * 60_000;
 
 /**
  * Owns the "Next unit" flow end to end: the optimistic transition shown while
@@ -127,6 +128,26 @@ export function useAdvanceController({
     trpc.training.aiWorkspace,
   ]);
 
+  useEffect(() => {
+    if (!activeTransition) return;
+
+    const { completedNodeId, sessionId } = activeTransition;
+    const timeoutId = window.setTimeout(() => {
+      setAdvanceTransition((current) => {
+        if (
+          current?.sessionId !== sessionId ||
+          current.completedNodeId !== completedNodeId
+        ) {
+          return current;
+        }
+        return null;
+      });
+      setSelectedChatId(completedNodeId);
+      toast.error("The next unit could not be prepared. Please try again.");
+    }, ADVANCE_TIMEOUT_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [activeTransition, setSelectedChatId]);
+
   const restoreAdvanceTransition = useCallback(
     (context: AdvanceMutationContext | undefined) => {
       setAdvanceTransition(context?.previousAdvanceTransition ?? null);
@@ -166,13 +187,14 @@ export function useAdvanceController({
         const workspaceKey = trpc.training.aiWorkspace.queryKey(sessionInput);
         const projectsKey = trpc.training.listLearningProjects.queryKey();
 
-        if (!result.advanced) {
+        if (!result.advanced && "missionRequired" in result) {
           restoreAdvanceTransition(context);
           router.push(
             `/workspace/mission?unitRunId=${encodeURIComponent(result.unitRunId)}`,
           );
           return;
         }
+        if (!result.advanced) return;
         if (result.nextChat) {
           const { nodeId, title } = result.nextChat;
           setAdvanceTransition((current) =>

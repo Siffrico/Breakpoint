@@ -11,6 +11,7 @@ import {
   getActivePlan,
   listLearningProjects,
 } from "~/features/training/server/training-queries";
+import { recoverTRPCError } from "~/trpc/errors";
 
 export const metadata: Metadata = {
   title: "Currcicm",
@@ -158,7 +159,7 @@ async function SavedCurriculumPlan() {
     redirect("/");
   }
 
-  const projects = await listLearningProjects().catch(() => []);
+  const projects = await listLearningProjects();
   const cookieSessionId = cookieStore.get(LAST_SESSION_COOKIE)?.value;
   const resolvedSessionId = cookieSessionId ?? projects[0]?.sessionId ?? null;
 
@@ -166,7 +167,11 @@ async function SavedCurriculumPlan() {
     redirect("/onboarding");
   }
 
-  const plan = await getActivePlan(resolvedSessionId).catch(() => null);
+  const plan = await recoverTRPCError({
+    promise: getActivePlan(resolvedSessionId),
+    codes: ["NOT_FOUND", "FORBIDDEN"],
+    fallback: null,
+  });
 
   if (!plan) {
     redirect("/workspace");

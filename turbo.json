@@ -60,7 +60,9 @@
     "AUTH_REDIRECT_PROXY_URL",
     "AUTH_SECRET",
     "PORT",
-    "PROMPT_OBSERVABILITY"
+    "PROMPT_OBSERVABILITY",
+    "VERCEL_GIT_COMMIT_SHA",
+    "GIT_COMMIT_SHA"
   ],
   "globalPassThroughEnv": [
     "NODE_ENV",

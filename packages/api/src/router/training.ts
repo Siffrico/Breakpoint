@@ -43,7 +43,7 @@ import {
 import { createUnitPreparationRepositoryDeps } from "../repositories/unit-preparation-repository-deps";
 import { createWorkspaceTurnRepositoryDeps } from "../repositories/workspace-turn-repository-deps";
 import { protectedProcedure } from "../trpc";
-import { runMission } from "./run-effect";
+import { runEffect, runMission } from "./run-effect";
 
 const SessionIdSchema = z.object({
   sessionId: z.string().uuid(),
@@ -83,45 +83,20 @@ type Database = Parameters<
   typeof trainingCurriculumRepository.getNodeById
 >[0]["db"];
 
-const getErrorCode = (message: string) => {
-  if (message.includes("does not exist") || message.includes("not found")) {
-    return "NOT_FOUND" as const;
-  }
-
-  if (
-    message.includes("more specific") ||
-    message.includes("fuller") ||
-    message.includes("before") ||
-    message.includes("limit") ||
-    message.includes("unlock") ||
-    message.includes("complete yet") ||
-    message.includes("not active")
-  ) {
-    return "BAD_REQUEST" as const;
-  }
-
-  if (
-    message.includes("OPENAI_API_KEY") ||
-    message.includes("GOOGLE_GENERATIVE_AI_API_KEY") ||
-    message.includes("Failed to generate")
-  ) {
-    return "BAD_REQUEST" as const;
-  }
-
-  return "INTERNAL_SERVER_ERROR" as const;
-};
-
-const throwOnFailure = <T>(result: {
-  success: boolean;
-  data?: T;
-  error?: string;
-}) => {
+const throwOnFailure = <T>(
+  result: {
+    success: boolean;
+    data?: T;
+    error?: string;
+  },
+  code: "BAD_REQUEST" | "NOT_FOUND" | "INTERNAL_SERVER_ERROR",
+) => {
   if (result.success) {
     return result.data as T;
   }
 
   throw new TRPCError({
-    code: getErrorCode(result.error ?? "Unknown error."),
+    code,
     message: result.error ?? "Unknown error.",
   });
 };
@@ -221,6 +196,7 @@ export const trainingRouter = {
                 }),
             },
           }),
+          "INTERNAL_SERVER_ERROR",
         );
       }),
     ),
@@ -243,6 +219,7 @@ export const trainingRouter = {
             }),
         },
       }),
+      "INTERNAL_SERVER_ERROR",
     ),
   ),
 
@@ -383,6 +360,7 @@ export const trainingRouter = {
               }),
           },
         }),
+        "NOT_FOUND",
       ),
     ),
 
@@ -512,6 +490,7 @@ export const trainingRouter = {
               }),
           },
         }),
+        "NOT_FOUND",
       );
     }),
 
@@ -564,6 +543,7 @@ export const trainingRouter = {
               }),
           },
         }),
+        "NOT_FOUND",
       );
     }),
 
@@ -576,6 +556,7 @@ export const trainingRouter = {
           sessionId: input.sessionId,
           deps: createWorkspaceTurnRepositoryDeps(ctx.db, ctx.session.user.id),
         }),
+        "BAD_REQUEST",
       );
     }),
 
@@ -602,6 +583,7 @@ export const trainingRouter = {
               ),
           },
         }),
+        "BAD_REQUEST",
       );
     }),
 
@@ -616,6 +598,7 @@ export const trainingRouter = {
           sessionId: input.sessionId,
           deps: createPrepareUnitDependencies(ctx.db),
         }),
+        "BAD_REQUEST",
       );
     }),
 
@@ -663,9 +646,15 @@ export const trainingRouter = {
                     }),
                 });
               }),
-            createUnit: ({ skillNodeId, sessionId, userId }) =>
+            createUnit: ({
+              skillNodeId,
+              sessionId,
+              userId,
+              excludeUnitNodeId,
+            }) =>
               createNextUnit({
                 skillNodeId,
+                excludeUnitNodeId,
                 deps: createUnitCreationRepositoryDeps({
                   db: ctx.db,
                   sessionId,
@@ -673,13 +662,15 @@ export const trainingRouter = {
                 }),
               }),
             getProgressionState: ({ skillNodeId, userId, includeUnitNodeId }) =>
-              queryWithClient(ctx.db, "loadProgressionState", () =>
-                loadProgressionState({
-                  db: ctx.db,
-                  skillNodeId,
-                  userId,
-                  includeUnitNodeId,
-                }),
+              runEffect(
+                queryWithClient(ctx.db, "loadProgressionState", () =>
+                  loadProgressionState({
+                    db: ctx.db,
+                    skillNodeId,
+                    userId,
+                    includeUnitNodeId,
+                  }),
+                ),
               ),
             getMissionStatus: ({ sessionId, unitContentId, userId }) =>
               runMission(
@@ -699,9 +690,11 @@ export const trainingRouter = {
                   userId,
                 }),
               ),
+            runProgressionEffect: runEffect,
             scheduleBackgroundTask: ctx.scheduleBackgroundTask,
           },
         }),
+        "BAD_REQUEST",
       );
       if (!result.advanced) return result;
       return {
@@ -726,6 +719,7 @@ export const trainingRouter = {
           sessionId: input.sessionId,
           deps: createGetUnitDependencies(ctx.db),
         }),
+        "NOT_FOUND",
       );
     }),
 
@@ -790,6 +784,7 @@ export const trainingRouter = {
               }),
           },
         }),
+        "BAD_REQUEST",
       );
     }),
 
@@ -825,6 +820,7 @@ export const trainingRouter = {
             },
           },
         }),
+        "BAD_REQUEST",
       );
     }),
 } satisfies TRPCRouterRecord;

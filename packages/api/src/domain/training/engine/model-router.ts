@@ -18,6 +18,8 @@ type AiProvider = "google" | "openai" | "openrouter";
 interface ModelStack {
   provider: AiProvider;
   models: Record<ModelTier, string>;
+  structuredProviderOrder?: readonly string[];
+  structuredReasoningEffort?: "high";
 }
 
 /**
@@ -37,6 +39,8 @@ const PREFERENCE_STACKS: Record<AiModelPreference, ModelStack> = {
       critical: "deepseek/deepseek-v4-flash-0731",
       standard: "deepseek/deepseek-v4-flash-0731",
     },
+    structuredProviderOrder: ["atlas-cloud"],
+    structuredReasoningEffort: "high",
   },
   "deepseek-v4-pro-0813": {
     provider: "openrouter",
@@ -84,6 +88,12 @@ const getSelectedProvider = (): AiProvider => getActiveStack().provider;
 
 const resolveModelName = (tier: ModelTier): string =>
   getActiveStack().models[tier];
+
+export const getAiModelMetadataForPurpose = (purpose: AiModelPurpose) => ({
+  provider: getSelectedProvider(),
+  model: resolveModelName(getModelTierForPurpose(purpose)),
+  structuredReasoningEffort: getActiveStack().structuredReasoningEffort,
+});
 
 const PROVIDER_API_KEY_ENV: Record<AiProvider, string> = {
   google: "GOOGLE_GENERATIVE_AI_API_KEY",
@@ -191,26 +201,34 @@ export const getSearchToolsForStructuredOutput = (
  * injection) rather than as a tool, because the plugin coexists with
  * json_schema response formats while the web_search server tool breaks them
  * (verified against glm-5.2: plugin call returned url citations AND a
- * schema-valid object). Non-search purposes and other providers resolve
- * exactly as requireAiModelForPurpose.
+ * schema-valid object). OpenRouter calls also carry the selected model's
+ * structured-output routing policy.
  */
 export const requireStructuredAiModelForPurpose = (
   purpose: AiModelPurpose,
   context: string,
 ): LanguageModel => {
   const provider = getSelectedProvider();
-  const searchWanted =
-    getRunProfile(purpose).search && !isEnabled("AI_DISABLE_SEARCH_TOOLS");
-  if (provider !== "openrouter" || !searchWanted) {
+  if (provider !== "openrouter") {
     return requireAiModelForPurpose(purpose, context);
   }
   const apiKey = getProviderApiKey("openrouter");
   if (!apiKey) {
     throw new Error(getProviderMissingKeyMessage("openrouter", context));
   }
+  const searchWanted =
+    getRunProfile(purpose).search && !isEnabled("AI_DISABLE_SEARCH_TOOLS");
+  const order = getActiveStack().structuredProviderOrder;
   return createOpenRouter({ apiKey })(
     resolveModelName(getModelTierForPurpose(purpose)),
-    { plugins: [{ id: "web", max_results: 5 }] },
+    {
+      provider: {
+        ...(order ? { order: [...order] } : {}),
+        allow_fallbacks: order ? false : true,
+        require_parameters: true,
+      },
+      ...(searchWanted ? { plugins: [{ id: "web", max_results: 5 }] } : {}),
+    },
   );
 };
 

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { UIMessage } from "ai";
 import {
   convertToModelMessages,
@@ -36,6 +37,7 @@ import {
   withAiModelPreference,
 } from "./domain/training/engine/model-router";
 import { buildProjectFromOnboarding } from "./domain/training/orchestration/build-project";
+import { WORKSPACE_LEASE_HEARTBEAT_MS } from "./domain/training/workspace-ai/workspace-lease";
 import { buildProjectCheckpointRepository } from "./repositories/build-project-checkpoint-repository";
 import { createBuildProjectDeps } from "./repositories/build-project-repository-deps";
 import { trainingOnboardingRepository } from "./repositories/training-onboarding-repository";
@@ -69,6 +71,7 @@ export type OnboardingChatUIMessage = UIMessage<unknown, ProjectBuildData>;
 
 const MAX_ONBOARDING_MESSAGE_CHARS = 4_000;
 const MAX_ONBOARDING_HISTORY_CHARS = 32_000;
+const MAX_ONBOARDING_TURN_ID_CHARS = 80;
 
 const extractText = (message: UIMessage): string =>
   message.parts
@@ -140,7 +143,75 @@ export const validateOnboardingMessages = async (messages: unknown) => {
     }
   }
 
+  const lastMessage = result.data.at(-1);
+  if (
+    !lastMessage?.id ||
+    lastMessage.id.length > MAX_ONBOARDING_TURN_ID_CHARS
+  ) {
+    return {
+      success: false as const,
+      error: new Error("Onboarding message id is invalid."),
+    };
+  }
+
   return result;
+};
+
+type CompletedOnboardingTurn = Extract<
+  Awaited<ReturnType<typeof trainingOnboardingRepository.claimWorkspaceTurn>>,
+  { status: "completed" }
+>;
+
+const replayCompletedOnboardingTurn = ({
+  turnId,
+  completed,
+}: {
+  turnId: string;
+  completed: CompletedOnboardingTurn;
+}): Response => {
+  const stream = createUIMessageStream<OnboardingChatUIMessage>({
+    execute: ({ writer }) => {
+      const message = completed.assistantMessage;
+      const startingPointQuestion = message.metadata?.startingPointQuestion;
+      const projectProposal = message.metadata?.projectProposal;
+      writer.write({ type: "start", messageId: `replay-${turnId}` });
+
+      if (startingPointQuestion) {
+        writer.write({
+          type: "tool-input-available",
+          toolCallId: `replay-starting-point-${turnId}`,
+          toolName: "askStartingPoint",
+          input: startingPointQuestion,
+        });
+      } else if (projectProposal) {
+        const toolCallId = `replay-project-${turnId}`;
+        writer.write({
+          type: "tool-input-available",
+          toolCallId,
+          toolName: "createProject",
+          input: projectProposal,
+        });
+        writer.write({
+          type: "tool-approval-request",
+          approvalId: `replay-project-approval-${turnId}`,
+          toolCallId,
+        });
+      } else {
+        const textPartId = `replay-text-${turnId}`;
+        writer.write({ type: "text-start", id: textPartId });
+        writer.write({
+          type: "text-delta",
+          id: textPartId,
+          delta: message.content,
+        });
+        writer.write({ type: "text-end", id: textPartId });
+      }
+
+      writer.write({ type: "finish", finishReason: "stop" });
+    },
+  });
+
+  return createUIMessageStreamResponse({ stream });
 };
 
 /**
@@ -244,21 +315,20 @@ export const streamProjectBuildResume = async ({
     });
   }
 
-  const transcript = await trainingOnboardingRepository.listMessages({
-    db,
-    sessionId,
-  });
-
   // Honor the learner's model preference for the agents the build runs.
   return withAiModelPreference(modelName, () => {
     const stream = createUIMessageStream<OnboardingChatUIMessage>({
       onError: () => "The project build hit an error.",
       execute: async ({ writer }) => {
         try {
-          await buildProjectFromOnboarding({
+          await trainingOnboardingRepository.updateSession({
+            db,
+            sessionId,
+            status: "generating",
+          });
+          const result = await buildProjectFromOnboarding({
             sessionId,
             userId: session.userId,
-            transcript,
             input: run.input,
             deps: createBuildProjectDeps(db),
             scheduleBackgroundTask,
@@ -274,6 +344,16 @@ export const streamProjectBuildResume = async ({
                 data: build,
               });
             },
+          });
+          await trainingOnboardingRepository.updateSession({
+            db,
+            sessionId,
+            status:
+              result.success && result.data.status === "complete"
+                ? "complete"
+                : result.success
+                  ? "generating"
+                  : "ready_for_generation",
           });
         } catch (cause) {
           const error =
@@ -292,6 +372,11 @@ export const streamProjectBuildResume = async ({
               data: failed.state,
             });
           }
+          await trainingOnboardingRepository.updateSession({
+            db,
+            sessionId,
+            status: "ready_for_generation",
+          });
         }
       },
     });
@@ -324,6 +409,11 @@ const runOnboardingChat = async ({
     return new Response("Forbidden.", { status: 403 });
   }
 
+  const last = messages.at(-1);
+  if (!last) {
+    return new Response("Invalid onboarding conversation.", { status: 400 });
+  }
+
   const model = getAiModelForPurpose("onboarding");
   if (!model) {
     return new Response(getMissingAiKeyMessage("onboarding chat"), {
@@ -331,57 +421,123 @@ const runOnboardingChat = async ({
     });
   }
 
-  const transcript = await trainingOnboardingRepository.listMessages({
+  const turnId = `onboarding:${last.id}`;
+  const leaseId = randomUUID();
+  const claim = await trainingOnboardingRepository.claimWorkspaceTurn({
     db,
     sessionId,
+    action: "onboarding_chat",
+    content: extractText(last) || "[tool interaction]",
+    slot: "chat",
+    turnId,
+    leaseId,
   });
-
-  // Persist the learner's latest answer. On an approval-resumed turn the last
-  // message is the assistant's (carrying the approval response), so we skip it.
-  // Idempotency guard: a retried request (network error, reload + recovery
-  // regenerate) re-sends a message that is already the transcript tail —
-  // re-appending it would duplicate rows, inflate the readiness char counts,
-  // and pollute the transcript every downstream agent reads.
-  const last = messages[messages.length - 1];
-  if (last?.role === "user") {
-    const text = extractText(last);
-    const tail = transcript[transcript.length - 1];
-    const alreadyPersisted = tail?.role === "user" && tail.content === text;
-    if (text.length > 0 && !alreadyPersisted) {
-      await trainingOnboardingRepository.appendMessage({
-        db,
-        sessionId,
-        role: "user",
-        content: text,
-        slot: "chat",
-      });
-      transcript.push({
-        role: "user",
-        content: text,
-        sequence: (tail?.sequence ?? -1) + 1,
-        slot: null,
-      });
-    }
+  if (claim.status === "processing") {
+    return new Response("This onboarding turn is already processing.", {
+      status: 409,
+    });
   }
-  const [persistedModelMessages, toolInteractionMessages] = await Promise.all([
-    transcriptToModelMessages(transcript),
-    convertToModelMessages(getToolInteractionMessages(messages), {
-      ignoreIncompleteToolCalls: true,
-    }),
-  ]);
-  const modelMessages = [...persistedModelMessages, ...toolInteractionMessages];
+  if (claim.status === "completed") {
+    return replayCompletedOnboardingTurn({ turnId, completed: claim });
+  }
 
-  // The learner's tapped starting point rides an execute-less tool result. It
-  // initializes the persisted value atomically; later manual overrides remain
-  // authoritative when this old tool result is replayed on approval.
-  const startingPointAnswer = findLatestStartingPointAnswer(messages);
-  if (startingPointAnswer) {
-    await trainingOnboardingRepository.setInitialStartingPoint({
+  const failTurn = (error: unknown) =>
+    trainingOnboardingRepository.failOnboardingTurn({
       db,
       sessionId,
-      tier: startingPointAnswer.tier,
-      label: startingPointAnswer.label,
+      turnId,
+      leaseId,
+      reason:
+        error instanceof Error ? error.message : "Onboarding turn failed.",
     });
+  const failTurnBestEffort = async (error: unknown) => {
+    try {
+      await failTurn(error);
+    } catch (releaseError) {
+      console.error("Onboarding turn lease release failed.", {
+        error: releaseError,
+        sessionId,
+        turnId,
+      });
+    }
+  };
+
+  let transcript: Awaited<
+    ReturnType<typeof trainingOnboardingRepository.listMessages>
+  >;
+  let userMessageId: string | null = null;
+  try {
+    transcript = await trainingOnboardingRepository.listMessages({
+      db,
+      sessionId,
+    });
+
+    if (last.role === "user") {
+      const text = extractText(last);
+      if (text.length > 0) {
+        const userMessage =
+          await trainingOnboardingRepository.upsertMessageByTurnRole({
+            db,
+            sessionId,
+            role: "user",
+            content: text,
+            slot: "chat",
+            turnId,
+          });
+        if (!userMessage) throw new Error("Onboarding answer was not saved.");
+        await trainingOnboardingRepository.updateSessionStatusIf({
+          db,
+          sessionId,
+          expectedStatuses: ["intro"],
+          status: "questioning",
+        });
+        userMessageId = userMessage.id;
+        const transcriptMessage = transcript.find(
+          (message) => message.sequence === userMessage.sequence,
+        );
+        if (transcriptMessage) transcriptMessage.content = text;
+        else {
+          transcript.push({
+            role: "user",
+            content: text,
+            sequence: userMessage.sequence,
+            slot: null,
+          });
+        }
+      }
+    }
+  } catch (error) {
+    await failTurnBestEffort(error);
+    throw error;
+  }
+  let modelMessages: Awaited<ReturnType<typeof convertToModelMessages>>;
+  let startingPointAnswer: ReturnType<typeof findLatestStartingPointAnswer>;
+  try {
+    const [persistedModelMessages, toolInteractionMessages] = await Promise.all(
+      [
+        transcriptToModelMessages(transcript),
+        convertToModelMessages(getToolInteractionMessages(messages), {
+          ignoreIncompleteToolCalls: true,
+        }),
+      ],
+    );
+    modelMessages = [...persistedModelMessages, ...toolInteractionMessages];
+
+    // The learner's tapped starting point rides an execute-less tool result. It
+    // initializes the persisted value atomically; later manual overrides remain
+    // authoritative when this old tool result is replayed on approval.
+    startingPointAnswer = findLatestStartingPointAnswer(messages);
+    if (startingPointAnswer) {
+      await trainingOnboardingRepository.setInitialStartingPoint({
+        db,
+        sessionId,
+        tier: startingPointAnswer.tier,
+        label: startingPointAnswer.label,
+      });
+    }
+  } catch (error) {
+    await failTurnBestEffort(error);
+    throw error;
   }
   const storedTier = session.startingPointTier ?? startingPointAnswer?.tier;
   const storedLabel = session.startingPointLabel ?? startingPointAnswer?.label;
@@ -390,9 +546,38 @@ const runOnboardingChat = async ({
       ? `Learner starting point: ${storedTier} ("${storedLabel}").`
       : "Starting point not yet asked — call askStartingPoint once the field is known, before suggesting projects.";
 
+  let heartbeat: ReturnType<typeof setInterval> | null = null;
+  const stopHeartbeat = () => {
+    if (!heartbeat) return;
+    clearInterval(heartbeat);
+    heartbeat = null;
+  };
+  const startHeartbeat = () => {
+    heartbeat = setInterval(() => {
+      void trainingOnboardingRepository
+        .renewOnboardingTurnLease({ db, sessionId, turnId, leaseId })
+        .then((held) => {
+          if (!held) stopHeartbeat();
+        })
+        .catch((error: unknown) => {
+          stopHeartbeat();
+          console.error("Onboarding turn lease heartbeat failed.", {
+            error,
+            sessionId,
+            turnId,
+          });
+        });
+    }, WORKSPACE_LEASE_HEARTBEAT_MS);
+  };
+
   const stream = createUIMessageStream<OnboardingChatUIMessage>({
-    onError: () => "The onboarding chat hit an error.",
+    onError: (error) => {
+      stopHeartbeat();
+      void failTurnBestEffort(error);
+      return "The onboarding chat hit an error.";
+    },
     execute: ({ writer }) => {
+      startHeartbeat();
       // Runs the full project build, streaming each step to the build card and
       // persisting atomically. Only invoked after the learner approves.
       const buildProject = async (
@@ -400,10 +585,14 @@ const runOnboardingChat = async ({
       ): Promise<CreateProjectResult> => {
         let result: Awaited<ReturnType<typeof buildProjectFromOnboarding>>;
         try {
+          await trainingOnboardingRepository.updateSession({
+            db,
+            sessionId,
+            status: "generating",
+          });
           result = await buildProjectFromOnboarding({
             sessionId,
             userId: session.userId,
-            transcript,
             input,
             deps: createBuildProjectDeps(db),
             scheduleBackgroundTask,
@@ -432,8 +621,24 @@ const runOnboardingChat = async ({
               data: failed.state,
             });
           }
+          await trainingOnboardingRepository.updateSession({
+            db,
+            sessionId,
+            status: "ready_for_generation",
+          });
           return { ok: false, reason: error };
         }
+
+        await trainingOnboardingRepository.updateSession({
+          db,
+          sessionId,
+          status:
+            result.success && result.data.status === "complete"
+              ? "complete"
+              : result.success
+                ? "generating"
+                : "ready_for_generation",
+        });
 
         return result.success
           ? {
@@ -473,13 +678,16 @@ ${startingPointNote}`,
           chunking: "word",
         }),
         stopWhen: [hasToolCall("createProject"), stepCountIs(5)],
+        onError: ({ error }) => {
+          stopHeartbeat();
+          void failTurnBestEffort(error);
+        },
         onFinish: async ({ text, steps }) => {
           // Persist the whole assistant turn, including the tool interactions
           // the rebuilt transcript would otherwise lose on reload: the
           // starting-point question and the proposed project both live only in
           // ephemeral tool parts, so a refresh mid-card would erase them from
           // every future model turn and from the build agents' transcript.
-          const rows = new Set<string>();
           const proposals: CreateProjectInput[] = [];
           const startingPointQuestions: ReturnType<
             typeof AskStartingPointInputSchema.parse
@@ -499,52 +707,101 @@ ${startingPointNote}`,
               }
             }
           }
-          if (trimmed.length > 0) {
-            if (proposals.length > 0) {
-              await trainingOnboardingRepository.upsertMessageByTurnRole({
-                db,
-                sessionId,
-                role: "assistant",
-                content: trimmed,
-                slot: "project_build_status",
-                turnId: PROJECT_BUILD_STATUS_TURN_ID,
-              });
-            } else {
-              rows.add(trimmed);
-            }
-          }
-          for (const content of rows) {
-            await trainingOnboardingRepository.appendMessage({
-              db,
-              sessionId,
-              role: "assistant",
-              content,
-              slot: "chat",
+          try {
+            await db.transaction(async (tx) => {
+              const txDb = tx as unknown as Database;
+              if (trimmed.length > 0) {
+                if (proposals.length > 0) {
+                  await trainingOnboardingRepository.upsertMessageByTurnRole({
+                    db: txDb,
+                    sessionId,
+                    role: "assistant",
+                    content: trimmed,
+                    slot: "project_build_status",
+                    turnId: PROJECT_BUILD_STATUS_TURN_ID,
+                  });
+                }
+              }
+              const startingPointQuestion = startingPointQuestions.at(-1);
+              if (startingPointQuestion) {
+                await trainingOnboardingRepository.upsertMessageByTurnRole({
+                  db: txDb,
+                  sessionId,
+                  role: "assistant",
+                  content: startingPointQuestion.question,
+                  slot: "chat",
+                  turnId: STARTING_POINT_TURN_ID,
+                  metadata: { startingPointQuestion },
+                });
+              }
+              const proposal = proposals.at(-1);
+              if (proposal) {
+                await trainingOnboardingRepository.updateSessionStatusIf({
+                  db: txDb,
+                  sessionId,
+                  expectedStatuses: ["intro", "questioning"],
+                  status: "ready_for_generation",
+                });
+                await trainingOnboardingRepository.upsertMessageByTurnRole({
+                  db: txDb,
+                  sessionId,
+                  role: "assistant",
+                  content: `Proposed project "${proposal.projectName}" (${proposal.targetIdentity}): ${proposal.summary} Waiting for the learner's confirmation.`,
+                  slot: "project_proposal",
+                  turnId: PROJECT_PROPOSAL_TURN_ID,
+                  metadata: { projectProposal: proposal },
+                });
+              }
+
+              const canonicalContent =
+                proposal != null
+                  ? `Proposed project "${proposal.projectName}" (${proposal.targetIdentity}): ${proposal.summary} Waiting for the learner's confirmation.`
+                  : (startingPointQuestion?.question ?? trimmed);
+              if (!canonicalContent) {
+                throw new Error(
+                  "Onboarding assistant produced no durable reply.",
+                );
+              }
+              const assistantMessage =
+                await trainingOnboardingRepository.upsertMessageByTurnRole({
+                  db: txDb,
+                  sessionId,
+                  role: "assistant",
+                  content: canonicalContent,
+                  slot: proposal ? "project_proposal" : "chat",
+                  turnId,
+                  metadata:
+                    proposal || startingPointQuestion
+                      ? {
+                          hiddenFromTranscript: true,
+                          ...(proposal ? { projectProposal: proposal } : {}),
+                          ...(startingPointQuestion
+                            ? { startingPointQuestion }
+                            : {}),
+                        }
+                      : undefined,
+                });
+              if (!assistantMessage) {
+                throw new Error("Onboarding assistant reply was not saved.");
+              }
+              const completed =
+                await trainingOnboardingRepository.completeOnboardingTurn({
+                  db: txDb,
+                  sessionId,
+                  turnId,
+                  leaseId,
+                  userMessageId,
+                  assistantMessageId: assistantMessage.id,
+                });
+              if (!completed) {
+                throw new Error("Onboarding turn lease is no longer valid.");
+              }
             });
-          }
-          const startingPointQuestion = startingPointQuestions.at(-1);
-          if (startingPointQuestion) {
-            await trainingOnboardingRepository.upsertMessageByTurnRole({
-              db,
-              sessionId,
-              role: "assistant",
-              content: startingPointQuestion.question,
-              slot: "chat",
-              turnId: STARTING_POINT_TURN_ID,
-              metadata: { startingPointQuestion },
-            });
-          }
-          const proposal = proposals.at(-1);
-          if (proposal) {
-            await trainingOnboardingRepository.upsertMessageByTurnRole({
-              db,
-              sessionId,
-              role: "assistant",
-              content: `Proposed project "${proposal.projectName}" (${proposal.targetIdentity}): ${proposal.summary} Waiting for the learner's confirmation.`,
-              slot: "project_proposal",
-              turnId: PROJECT_PROPOSAL_TURN_ID,
-              metadata: { projectProposal: proposal },
-            });
+          } catch (error) {
+            await failTurnBestEffort(error);
+            throw error;
+          } finally {
+            stopHeartbeat();
           }
         },
       });

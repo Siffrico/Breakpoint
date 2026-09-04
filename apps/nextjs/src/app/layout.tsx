@@ -12,6 +12,7 @@ import { cn } from "@acme/ui";
 import { ThemeProvider, ThemeToggle } from "@acme/ui/theme";
 import { Toaster } from "@acme/ui/toast";
 
+import { WebVitalsReporter } from "~/app/_components/web-vitals-reporter";
 import { env } from "~/env";
 
 import "katex/dist/katex.min.css";
@@ -95,6 +96,7 @@ export default function RootLayout(props: { children: React.ReactNode }) {
         )}
       >
         <ThemeProvider>
+          <WebVitalsReporter />
           {props.children}
           <div className="absolute right-4 bottom-4">
             <ThemeToggle />

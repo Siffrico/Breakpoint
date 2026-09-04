@@ -229,22 +229,21 @@ describe("runUnitTurn mentor and critique boundaries", () => {
       ),
     );
     const onPartialAssistantMessage = vi.fn();
-    const runMentorScenario = vi.fn<
-      UnitTurnDependencies["runMentorScenario"]
-    >((request) =>
-      Effect.sync(() => {
-        request.onPartialAssistantMessage?.("A different production limit");
-        request.onPartialAssistantMessage?.(
-          "A different production limit changes.",
-        );
-        return {
-          object: {
-            assistantMessage:
-              "A different production limit changes. Choose the next move and defend it.",
-            verifier,
-          },
-        };
-      }),
+    const runMentorScenario = vi.fn<UnitTurnDependencies["runMentorScenario"]>(
+      (request) =>
+        Effect.sync(() => {
+          request.onPartialAssistantMessage?.("A different production limit");
+          request.onPartialAssistantMessage?.(
+            "A different production limit changes.",
+          );
+          return {
+            object: {
+              assistantMessage:
+                "A different production limit changes. Choose the next move and defend it.",
+              verifier,
+            },
+          };
+        }),
     );
     const secondScenario = await Effect.runPromise(
       runPassAdvanceTurn(
@@ -352,5 +351,66 @@ describe("runUnitTurn mentor and critique boundaries", () => {
       outcome: "pass",
     });
     expect(complete.ratingWrite).toEqual({ score: 95, errorCodes: [] });
+  });
+
+  it("grades an exact correct selected response without a model call", async () => {
+    const firstScenario = await openFirstScenario();
+    const step = firstScenario.nextRun.cursor.step;
+    if (step.kind !== "scenario" || step.challenge === null) {
+      throw new Error("Expected an active scenario.");
+    }
+    const difficultySnapshot = firstScenario.nextRun.difficultySnapshot;
+    if (difficultySnapshot === null) {
+      throw new Error("Expected a difficulty snapshot.");
+    }
+    const selectedRun: PersistedUnitRun = {
+      ...firstScenario.nextRun,
+      difficultySnapshot: {
+        ...difficultySnapshot,
+        format: {
+          id: "selected-response",
+          label: "Selected response",
+          kind: "mcq",
+          description: "Choose one option.",
+        },
+      },
+      cursor: {
+        ...firstScenario.nextRun.cursor,
+        step: {
+          ...step,
+          challenge: {
+            ...step.challenge,
+            contract: {
+              ...step.challenge.contract,
+              verifier: {
+                type: "fixed_answer",
+                answer: "C",
+                checkerSpec: null,
+                scratchpad: "C is the only supported option.",
+              },
+            },
+          },
+        },
+      },
+    };
+    const runReviewGrade = vi.fn(deps().runReviewGrade);
+
+    const result = await Effect.runPromise(
+      runUnitTurn(
+        {
+          ...input(selectedRun),
+          transcript: [{ role: "user", content: "C" }],
+        },
+        deps({ runReviewGrade }),
+      ),
+    );
+
+    expect(runReviewGrade).not.toHaveBeenCalled();
+    expect(result.assistantMessage).toContain("Option C");
+    expect(result.reviewGrade).toMatchObject({ score: 100, passed: true });
+    expect(result.nextRun.cursor.step).toMatchObject({
+      kind: "pass_result",
+      outcome: "pass",
+    });
   });
 });

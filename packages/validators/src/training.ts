@@ -4,6 +4,10 @@ export const WORKSPACE_CHAT_MESSAGE_MAX_CHARS = 12_000;
 export const WORKSPACE_CHAT_BODY_MAX_BYTES = 64 * 1024;
 export const ONBOARDING_CHAT_BODY_MAX_BYTES = 64 * 1024;
 export const ONBOARDING_CHAT_MAX_MESSAGES = 32;
+export const MISSION_CHAT_BODY_MAX_BYTES = 64 * 1024;
+export const MISSION_CHAT_MAX_MESSAGES = 32;
+export const MISSION_CHAT_MESSAGE_MAX_CHARS = 12_000;
+export const MISSION_CHAT_HISTORY_MAX_CHARS = 32_000;
 
 const WorkspaceChatMessageSchema = z.looseObject({
   role: z.enum(["system", "user", "assistant"]),
@@ -98,6 +102,48 @@ export const MissionProofSchema = z
     },
   );
 
+const MissionChatMessageSchema = z.looseObject({
+  id: z.string().min(1).max(128),
+  role: z.enum(["user", "assistant"]),
+  parts: z
+    .array(
+      z.looseObject({
+        type: z.string().max(64),
+        text: z.string().max(MISSION_CHAT_MESSAGE_MAX_CHARS).optional(),
+      }),
+    )
+    .max(100),
+});
+
+export const MissionChatRequestSchema = z
+  .object({
+    unitRunId: z.string().uuid(),
+    messages: z
+      .array(MissionChatMessageSchema)
+      .min(1)
+      .max(MISSION_CHAT_MAX_MESSAGES),
+    proof: MissionProofSchema.optional(),
+    model: z.string().max(120).optional(),
+  })
+  .superRefine((body, context) => {
+    const textLength = body.messages.reduce(
+      (messageTotal, message) =>
+        messageTotal +
+        message.parts.reduce(
+          (partTotal, part) => partTotal + (part.text?.length ?? 0),
+          0,
+        ),
+      0,
+    );
+    if (textLength > MISSION_CHAT_HISTORY_MAX_CHARS) {
+      context.addIssue({
+        code: "custom",
+        path: ["messages"],
+        message: "Mission chat history is too large.",
+      });
+    }
+  });
+
 export const MissionEvaluationCriterionSchema = z.object({
   key: z.enum(["execution", "evidence", "judgment"]),
   score: z.number().int().min(0),
@@ -149,6 +195,9 @@ export const OnboardingPhaseSchema = z.enum([
   "generating",
   "complete",
 ]);
+
+export const TOPIC_ONBOARDING_OPENER =
+  "What do you want to get good at, and what would you be able to do once you were?";
 
 export const OnboardingQuestionSchema = z.object({
   slot: OnboardingSlotSchema,
@@ -719,7 +768,14 @@ export const ScenarioVerifierSchema = z
     type: z.enum(["fixed_answer", "checker", "judge_rubric"]),
     answer: z.string().min(1).nullable(),
     checkerSpec: z.string().min(1).nullable(),
-    scratchpad: z.string().trim().min(24).max(600),
+    scratchpad: z
+      .string()
+      .trim()
+      .min(24)
+      .max(600)
+      .describe(
+        "A concise private solution check, 24 to 600 characters. Do not repeat the full prompt or checker instructions.",
+      ),
   })
   .superRefine((verifier, ctx) => {
     if (verifier.type === "fixed_answer" && !verifier.answer) {

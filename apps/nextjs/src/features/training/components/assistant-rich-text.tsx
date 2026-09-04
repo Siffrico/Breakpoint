@@ -7,7 +7,6 @@ import { createMermaidPlugin } from "@streamdown/mermaid";
 import { createAnimatePlugin, Streamdown } from "streamdown";
 
 import { assistantCodeThemes } from "./assistant-code-theme";
-import { normalizeAssistantMarkdown } from "./assistant-markdown";
 
 const mathPlugin = createMathPlugin({
   singleDollarTextMath: true,
@@ -49,7 +48,7 @@ export function AssistantRichText({
   /** Live turn: reveal incoming words with the focus animation. */
   streaming?: boolean;
 }) {
-  const trimmedContent = normalizeAssistantMarkdown(content);
+  const trimmedContent = content.trim();
 
   // The animate plugin carries per-message cursor state (how many characters
   // were already visible), so every message needs its own instance.

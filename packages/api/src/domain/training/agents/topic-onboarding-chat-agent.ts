@@ -20,11 +20,14 @@ import {
   MAX_OUTCOMES_PER_PLAN,
   MIN_OUTCOMES_PER_PLAN,
 } from "../outcome-curriculum/contracts";
-import { TOPIC_SCOPE_CONSULTANT_SYSTEM } from "../prompts/personas/topic-scope-consultant";
+import {
+  TOPIC_SCOPE_CONSULTANT_OPENER,
+  TOPIC_SCOPE_CONSULTANT_SYSTEM,
+} from "../prompts/personas/topic-scope-consultant";
 import { LearnerUnderstandingSchema } from "./contracts";
 
 const TOPIC_ONBOARDING_RUNTIME_NOTES = `Runtime notes for this session:
-- The learner has already been shown the opener "What do you want to get good at, and what would you be able to do once you were?" — their first message is the answer. Continue from there; do not re-ask it and do not paraphrase their answer back as a question.
+- The learner has already been shown the opener "${TOPIC_SCOPE_CONSULTANT_OPENER}" — their first message is the answer. Continue from there; do not re-ask it and do not paraphrase their answer back as a question.
 - Follow the interview mechanics: one question per turn, a mirror at least every three questions, stop as soon as you know all five, readback before proposing outcomes. Do not jump from recognizing the topic to a breakdown: normally ask at least three focused follow-ups that establish the desired work or result, its quality bar and environment, and the learner's current difficulty. The 15-question ceiling covers this whole session.
 - Call the askStartingPoint tool exactly once, after you know the topic but before you propose outcomes.
   - question: one short sentence asking where they are in THAT topic right now, in their own language.
@@ -37,7 +40,7 @@ const TOPIC_ONBOARDING_RUNTIME_NOTES = `Runtime notes for this session:
   - summary: one line describing what mastering this means for them, in their words.
   - outcomes: the exact ${MIN_OUTCOMES_PER_PLAN}–${MAX_OUTCOMES_PER_PLAN} title-and-result pairs the learner confirmed. The title uses the domain's real language. The result states the observable performance this outcome produces. Preserve both exactly and keep their confirmed order.
   - startingPoint: { tier, reason } — the tier they settled on, and a reason paraphrasing something they actually said or tapped.
-  - understanding: { build, goodMeans, currentGap } — your reading of them, shown on the confirm card as the last thing they see before the build. Say what you concluded, not what they typed: "I keep overcomplicating things" becomes a goodMeans of "simple". Only claim what the interview supports; if one of the three would be a guess, ask about it before calling this.
+  - understanding: { build, goodMeans, currentGap, evidence } — your reading of them, shown on the confirm card as the last thing they see before the build. Say what you concluded, not what they typed: "I keep overcomplicating things" becomes a goodMeans of "simple". Evidence preserves short learner-grounded facts about their current baseline, hard moments, and explicit constraints; use an empty constraints list when none were stated. Only claim what the interview supports; if a required field would be a guess, ask about it before calling this.
 - createProject pauses for the learner to confirm with a button — do not announce it, do not ask permission in text, just call it. After it returns ok:true, write one short closing line.
 - If it returns ok:false because more signal is needed, continue with one short question. For other failures, apologize briefly and ask if they want to retry.
 - Never call createProject before the learner has confirmed every outcome title and result. Show each as “Title — observable result.” If they edit the list, show the revised pairs and get confirmation of that exact list first.

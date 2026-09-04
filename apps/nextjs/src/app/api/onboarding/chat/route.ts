@@ -13,6 +13,7 @@ import {
 } from "@acme/validators";
 
 import { auth } from "~/auth/server";
+import { readJsonBody } from "../../_lib/read-json-body";
 
 export const runtime = "nodejs";
 // Caps a live project build. The stale-run reclaim window in
@@ -32,50 +33,10 @@ const resolveModelPreference = (req: NextRequest, model?: string) => {
   return parsed.success ? parsed.data : null;
 };
 
-const readJsonBody = async (req: NextRequest) => {
-  const declaredLength = Number(req.headers.get("content-length"));
-  if (
-    Number.isFinite(declaredLength) &&
-    declaredLength > ONBOARDING_CHAT_BODY_MAX_BYTES
-  ) {
-    return { status: "too_large" as const };
-  }
-
-  if (!req.body) return { status: "invalid" as const };
-  const reader = req.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > ONBOARDING_CHAT_BODY_MAX_BYTES) {
-      await reader.cancel();
-      return { status: "too_large" as const };
-    }
-    chunks.push(value);
-  }
-
-  try {
-    const bytes = new Uint8Array(size);
-    let offset = 0;
-    for (const chunk of chunks) {
-      bytes.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
-    return {
-      status: "ok" as const,
-      body: JSON.parse(new TextDecoder().decode(bytes)) as unknown,
-    };
-  } catch {
-    return { status: "invalid" as const };
-  }
-};
-
 export const POST = async (req: NextRequest) => {
   const [session, bodyResult] = await Promise.all([
     auth.api.getSession({ headers: req.headers }),
-    readJsonBody(req),
+    readJsonBody(req, ONBOARDING_CHAT_BODY_MAX_BYTES),
   ]);
   const userId = session?.user.id;
   if (!userId) {

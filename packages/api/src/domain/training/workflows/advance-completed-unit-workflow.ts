@@ -34,6 +34,7 @@ interface AdvanceCompletedUnitDependencies {
     skillNodeId: string;
     sessionId: string;
     userId: string;
+    excludeUnitNodeId?: string;
   }) => Effect.Effect<unknown, CreateNextUnitError>;
   /** Resolves null when the parent has no skill map (legacy/imported plans). */
   getProgressionState: (input: {
@@ -41,7 +42,7 @@ interface AdvanceCompletedUnitDependencies {
     userId: string;
     /** The mastered unit being advanced, before its node status is committed. */
     includeUnitNodeId?: string;
-  }) => Effect.Effect<MasteryProgressionState | null, DbError>;
+  }) => Promise<MasteryProgressionState | null>;
   getMissionStatus: (input: {
     sessionId: string;
     unitContentId: string;
@@ -56,6 +57,9 @@ interface AdvanceCompletedUnitDependencies {
     sessionId: string;
     userId: string;
   }) => Effect.Effect<unknown, DbError>;
+  runProgressionEffect: (
+    effect: Effect.Effect<void, DbError | CreateNextUnitError>,
+  ) => Promise<void>;
   /**
    * Keeps the serverless function alive until the task settles (Next.js
    * `after`). Without it the runtime freezes the instance once the response
@@ -72,6 +76,11 @@ const isTransientUnitCreationFailure = (
   (error._tag === "UnitScaffoldError" &&
     (error.kind === "provider" || error.kind === "timeout"));
 
+const failureMessage = (error: unknown, fallback: string): string =>
+  error instanceof Error && error.message.trim().length > 0
+    ? error.message
+    : fallback;
+
 /**
  * Takes a mastered unit, produces the node made ready by its atomic curriculum
  * advance, and fails only when the unit cannot advance or persistence fails.
@@ -87,6 +96,7 @@ export const advanceCompletedUnitWorkflow = async ({
 }): Promise<
   Result<
     | { advanced: true; nextReadyNode: CurriculumNode | null }
+    | { advanced: false; progressionPending: true }
     | {
         advanced: false;
         missionRequired: true;
@@ -134,13 +144,18 @@ export const advanceCompletedUnitWorkflow = async ({
   ) {
     const skillNodeId = completed.node.parentNodeId;
     const userId = completed.run.userId;
-    const state = await Effect.runPromise(
-      deps.getProgressionState({
+    let state: MasteryProgressionState | null;
+    try {
+      state = await deps.getProgressionState({
         skillNodeId,
         userId,
         includeUnitNodeId: completed.node.id,
-      }),
-    );
+      });
+    } catch (error) {
+      return err(
+        failureMessage(error, "Progression state could not be loaded."),
+      );
+    }
     if (state) {
       const decision = decideMasteryProgression(state);
       if (
@@ -250,6 +265,7 @@ export const advanceCompletedUnitWorkflow = async ({
           skillNodeId,
           sessionId,
           userId,
+          excludeUnitNodeId: promoted ? undefined : nodeId,
         });
       } else {
         // The outcome is mastered — advance to the next outcome.
@@ -272,16 +288,25 @@ export const advanceCompletedUnitWorkflow = async ({
       ),
     );
 
-    // Failures are already logged via tapCause; ignore them here so the
-    // background runner never rejects.
-    const runUnitCreation = () =>
-      Effect.runPromise(Effect.ignore(createNextUnitTask));
+    const runUnitCreation = () => deps.runProgressionEffect(createNextUnitTask);
     if (deps.scheduleBackgroundTask) {
-      deps.scheduleBackgroundTask(runUnitCreation);
+      try {
+        deps.scheduleBackgroundTask(runUnitCreation);
+      } catch (error) {
+        return err(
+          failureMessage(error, "Unit progression could not be scheduled."),
+        );
+      }
     } else {
-      void runUnitCreation();
+      try {
+        await runUnitCreation();
+      } catch (error) {
+        return err(failureMessage(error, "Unit progression failed."));
+      }
     }
   }
 
-  return ok({ advanced: true, nextReadyNode });
+  return completeAfterBackground
+    ? ok({ advanced: false, progressionPending: true })
+    : ok({ advanced: true, nextReadyNode });
 };

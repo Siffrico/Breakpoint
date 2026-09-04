@@ -32,6 +32,11 @@ const input: CreateProjectInput = {
     goodMeans: ["accurate", "efficient", "consistent"],
     currentGap:
       "Loses points when familiar algebra appears in unfamiliar forms.",
+    evidence: {
+      currentBaseline: ["Finishes routine questions without help."],
+      hardMoments: ["Freezes when the same algebra is phrased as a story."],
+      constraints: ["Can practice for thirty minutes on weekdays."],
+    },
   },
 };
 
@@ -74,7 +79,7 @@ const makeDeps = () => {
           : null,
       ),
     ),
-    getActivePlan: vi.fn(() => Promise.resolve(plan)),
+    getBuildPlan: vi.fn(() => Promise.resolve(plan)),
     hasUnitContent: vi.fn((nodeId) => Promise.resolve(nodeId === firstUnitId)),
     claimRun: vi.fn(() =>
       Promise.resolve({
@@ -163,7 +168,6 @@ const run = (
   buildProjectFromOnboarding({
     sessionId: "session-1",
     userId: "user-1",
-    transcript: [],
     input: projectInput,
     deps,
     onProgress: vi.fn(),
@@ -171,6 +175,22 @@ const run = (
   });
 
 describe("buildProjectFromOnboarding", () => {
+  it("stops before claiming a build when the authoritative starting point cannot be read", async () => {
+    const { deps } = makeDeps();
+    vi.mocked(deps.getStartingPoint).mockRejectedValue(
+      new Error("database unavailable"),
+    );
+
+    const result = await run(deps);
+
+    expect(result).toEqual({
+      success: false,
+      error: "I couldn't load your starting point. Want to try again?",
+    });
+    expect(deps.claimRun).not.toHaveBeenCalled();
+    expect(deps.ensureShell).not.toHaveBeenCalled();
+  });
+
   it("reserves behavior signal capacity for the learner's goal and gap", async () => {
     const { deps } = makeDeps();
 
@@ -187,6 +207,7 @@ describe("buildProjectFromOnboarding", () => {
           "well-supported",
         ],
         currentGap: "loses points on unfamiliar algebra forms",
+        evidence: input.understanding.evidence,
       },
     });
 
@@ -206,6 +227,35 @@ describe("buildProjectFromOnboarding", () => {
       "Works toward reach the target SAT Math score.",
       "Corrects loses points on unfamiliar algebra forms.",
     ]);
+    expect(persistedReport?.currentBaseline).toBe(
+      "Already solves routine linear equations. Finishes routine questions without help.",
+    );
+    expect(persistedReport?.hardMoments).toEqual([
+      "loses points on unfamiliar algebra forms",
+      "Freezes when the same algebra is phrased as a story.",
+    ]);
+    expect(persistedReport?.constraints).toEqual([
+      "Can practice for thirty minutes on weekdays.",
+    ]);
+  });
+
+  it("uses the persisted starting-point override in the learner baseline", async () => {
+    const { deps } = makeDeps();
+    vi.mocked(deps.getStartingPoint).mockResolvedValue({
+      tier: "fundamentals",
+      label: "Has only watched introductory lessons.",
+    });
+
+    await run(deps);
+
+    const persistedReport = vi.mocked(deps.persistCurriculum).mock.calls[0]?.[0]
+      .report;
+    expect(persistedReport?.currentBaseline).toBe(
+      "Has only watched introductory lessons. Finishes routine questions without help.",
+    );
+    expect(persistedReport?.currentBaseline).not.toContain(
+      input.startingPoint.reason,
+    );
   });
 
   it("saves the confirmed outcomes without a second curriculum model call", async () => {

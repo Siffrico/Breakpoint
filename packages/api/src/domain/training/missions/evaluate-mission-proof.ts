@@ -5,7 +5,8 @@ import type { MissionPlan, MissionProof, MissionSpec } from "@acme/validators";
 
 import type { MissionEvaluationDraft } from "./mission-evaluation-policy";
 import { invokeStructuredModel } from "../engine/invoke-structured-model";
-import { requireAiModelForPurpose } from "../engine/model-router";
+import { requireStructuredAiModelForPurpose } from "../engine/model-router";
+import { getRunProfile } from "../engine/run-profiles";
 import { MissionEvaluationError } from "./mission-errors";
 
 const MissionEvaluationDraftSchema = z.object({
@@ -42,8 +43,10 @@ export const evaluateMissionProof = ({
 }): Effect.Effect<MissionEvaluationDraft, MissionEvaluationError> =>
   Effect.tryPromise({
     try: async () => {
-      const model = requireAiModelForPurpose(
-        "mission",
+      const purpose = "evaluation";
+      const profile = getRunProfile(purpose);
+      const model = requireStructuredAiModelForPurpose(
+        purpose,
         "Mission evaluation is unavailable.",
       );
       const result = invokeStructuredModel({
@@ -52,7 +55,8 @@ export const evaluateMissionProof = ({
         schemaName: "mission_evaluation",
         system: MISSION_EVALUATOR_PROMPT,
         prompt: `MISSION\n${JSON.stringify(spec)}\n\nPLAN\n${JSON.stringify(plan)}\n\nPROOF\n${JSON.stringify(proof)}`,
-        maxSteps: 1,
+        maxSteps: profile.maxSteps,
+        profile,
       });
       return await result.output;
     },

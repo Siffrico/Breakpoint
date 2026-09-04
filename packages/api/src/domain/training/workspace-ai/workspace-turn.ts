@@ -230,7 +230,7 @@ const resolvePersistedRecall = ({
   return node?.status === "completed" ? { target, node, run } : null;
 };
 
-export const loadPlannedRecall = ({
+export const loadPlannedRecallWhenEnabled = ({
   sessionId,
   plan,
   active,
@@ -320,6 +320,12 @@ export const loadPlannedRecall = ({
       run: null,
     };
   });
+
+// Recall is intentionally turned off for now. Both workspace reads and sends
+// use this boundary, so completed units continue through normal progression.
+export const loadPlannedRecall = (
+  _input: Parameters<typeof loadPlannedRecallWhenEnabled>[0],
+): ReturnType<typeof loadPlannedRecallWhenEnabled> => Effect.succeed(null);
 
 /**
  * Produces a run projection without materializing it. Lease acquisition

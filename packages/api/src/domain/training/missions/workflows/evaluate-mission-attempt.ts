@@ -1,10 +1,39 @@
+import type { Scope } from "effect";
 import { Effect } from "effect";
 
 import type { MissionProof } from "@acme/validators";
 
+import type { MissionRepoShape } from "../mission-repo";
 import { evaluateMissionProof } from "../evaluate-mission-proof";
+import { MISSION_EVALUATION_HEARTBEAT_MS } from "../mission-evaluation-lease";
 import { decideMissionEvaluation } from "../mission-evaluation-policy";
 import { MissionRepo } from "../mission-repo";
+
+const heartbeatEvaluation = ({
+  attemptId,
+  repo,
+}: {
+  attemptId: string;
+  repo: MissionRepoShape;
+}): Effect.Effect<void, never, Scope.Scope> =>
+  Effect.forkScoped(
+    Effect.forever(
+      Effect.sleep(MISSION_EVALUATION_HEARTBEAT_MS).pipe(
+        Effect.andThen(repo.heartbeatEvaluation(attemptId)),
+        Effect.flatMap((held) =>
+          held ? Effect.void : Effect.fail("released"),
+        ),
+      ),
+    ).pipe(
+      Effect.tapCause((cause) =>
+        Effect.logWarning("Mission evaluation heartbeat stopped.", {
+          cause,
+          attemptId,
+        }),
+      ),
+      Effect.ignore,
+    ),
+  ).pipe(Effect.asVoid);
 
 /**
  * Reserve → grade → decide → commit, with the reservation released on any exit
@@ -34,33 +63,42 @@ export const evaluateMissionAttemptWorkflow = ({
       proof,
     });
 
-    return yield* Effect.gen(function* () {
-      const draft = yield* evaluateMissionProof({
-        spec: reservation.mission.spec,
-        plan: reservation.mission.plan,
-        proof,
-      });
-      const evaluation = decideMissionEvaluation({
-        draft,
-        attemptNumber: reservation.attemptNumber,
-        firstScore: reservation.firstScore,
-      });
-      yield* repo.finishEvaluation({
-        missionId: reservation.mission.id,
-        attemptId: reservation.attemptId,
-        proof,
-        evaluation,
-      });
-      return evaluation;
-    }).pipe(
-      Effect.onError(() =>
-        repo.cancelEvaluation(reservation.attemptId).pipe(
-          Effect.catch((error) =>
-            Effect.logError("Mission evaluation reservation release failed.", {
-              tag: error._tag,
-              operation: error.operation,
-              attemptId: reservation.attemptId,
-            }),
+    return yield* Effect.scoped(
+      Effect.gen(function* () {
+        yield* heartbeatEvaluation({
+          attemptId: reservation.attemptId,
+          repo,
+        });
+        const draft = yield* evaluateMissionProof({
+          spec: reservation.mission.spec,
+          plan: reservation.mission.plan,
+          proof,
+        });
+        const evaluation = decideMissionEvaluation({
+          draft,
+          attemptNumber: reservation.attemptNumber,
+          firstScore: reservation.firstScore,
+        });
+        yield* repo.finishEvaluation({
+          missionId: reservation.mission.id,
+          attemptId: reservation.attemptId,
+          proof,
+          evaluation,
+        });
+        return evaluation;
+      }).pipe(
+        Effect.onError(() =>
+          repo.cancelEvaluation(reservation.attemptId).pipe(
+            Effect.catch((error) =>
+              Effect.logError(
+                "Mission evaluation reservation release failed.",
+                {
+                  tag: error._tag,
+                  operation: error.operation,
+                  attemptId: reservation.attemptId,
+                },
+              ),
+            ),
           ),
         ),
       ),
