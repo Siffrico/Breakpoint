@@ -42,7 +42,7 @@ interface AdvanceCompletedUnitDependencies {
     userId: string;
     /** The mastered unit being advanced, before its node status is committed. */
     includeUnitNodeId?: string;
-  }) => Effect.Effect<MasteryProgressionState | null, DbError>;
+  }) => Promise<MasteryProgressionState | null>;
   getMissionStatus: (input: {
     sessionId: string;
     unitContentId: string;
@@ -57,6 +57,9 @@ interface AdvanceCompletedUnitDependencies {
     sessionId: string;
     userId: string;
   }) => Effect.Effect<unknown, DbError>;
+  runProgressionEffect: (
+    effect: Effect.Effect<void, DbError | CreateNextUnitError>,
+  ) => Promise<void>;
   /**
    * Keeps the serverless function alive until the task settles (Next.js
    * `after`). Without it the runtime freezes the instance once the response
@@ -72,6 +75,11 @@ const isTransientUnitCreationFailure = (
   error._tag === "UnitPersistError" ||
   (error._tag === "UnitScaffoldError" &&
     (error.kind === "provider" || error.kind === "timeout"));
+
+const failureMessage = (error: unknown, fallback: string): string =>
+  error instanceof Error && error.message.trim().length > 0
+    ? error.message
+    : fallback;
 
 /**
  * Takes a mastered unit, produces the node made ready by its atomic curriculum
@@ -136,13 +144,18 @@ export const advanceCompletedUnitWorkflow = async ({
   ) {
     const skillNodeId = completed.node.parentNodeId;
     const userId = completed.run.userId;
-    const state = await Effect.runPromise(
-      deps.getProgressionState({
+    let state: MasteryProgressionState | null;
+    try {
+      state = await deps.getProgressionState({
         skillNodeId,
         userId,
         includeUnitNodeId: completed.node.id,
-      }),
-    );
+      });
+    } catch (error) {
+      return err(
+        failureMessage(error, "Progression state could not be loaded."),
+      );
+    }
     if (state) {
       const decision = decideMasteryProgression(state);
       if (
@@ -275,14 +288,21 @@ export const advanceCompletedUnitWorkflow = async ({
       ),
     );
 
-    // Failures are already logged via tapCause; ignore them here so the
-    // background runner never rejects.
-    const runUnitCreation = () =>
-      Effect.runPromise(Effect.ignore(createNextUnitTask));
+    const runUnitCreation = () => deps.runProgressionEffect(createNextUnitTask);
     if (deps.scheduleBackgroundTask) {
-      deps.scheduleBackgroundTask(runUnitCreation);
+      try {
+        deps.scheduleBackgroundTask(runUnitCreation);
+      } catch (error) {
+        return err(
+          failureMessage(error, "Unit progression could not be scheduled."),
+        );
+      }
     } else {
-      void runUnitCreation();
+      try {
+        await runUnitCreation();
+      } catch (error) {
+        return err(failureMessage(error, "Unit progression failed."));
+      }
     }
   }
 

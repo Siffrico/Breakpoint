@@ -43,7 +43,7 @@ import {
 import { createUnitPreparationRepositoryDeps } from "../repositories/unit-preparation-repository-deps";
 import { createWorkspaceTurnRepositoryDeps } from "../repositories/workspace-turn-repository-deps";
 import { protectedProcedure } from "../trpc";
-import { runMission } from "./run-effect";
+import { runEffect, runMission } from "./run-effect";
 
 const SessionIdSchema = z.object({
   sessionId: z.string().uuid(),
@@ -662,13 +662,15 @@ export const trainingRouter = {
                 }),
               }),
             getProgressionState: ({ skillNodeId, userId, includeUnitNodeId }) =>
-              queryWithClient(ctx.db, "loadProgressionState", () =>
-                loadProgressionState({
-                  db: ctx.db,
-                  skillNodeId,
-                  userId,
-                  includeUnitNodeId,
-                }),
+              runEffect(
+                queryWithClient(ctx.db, "loadProgressionState", () =>
+                  loadProgressionState({
+                    db: ctx.db,
+                    skillNodeId,
+                    userId,
+                    includeUnitNodeId,
+                  }),
+                ),
               ),
             getMissionStatus: ({ sessionId, unitContentId, userId }) =>
               runMission(
@@ -688,6 +690,7 @@ export const trainingRouter = {
                   userId,
                 }),
               ),
+            runProgressionEffect: runEffect,
             scheduleBackgroundTask: ctx.scheduleBackgroundTask,
           },
         }),

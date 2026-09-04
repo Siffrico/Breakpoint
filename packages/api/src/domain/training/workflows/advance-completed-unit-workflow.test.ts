@@ -6,6 +6,7 @@ import type {
   CurriculumPlan,
   UnitContent,
 } from "../types/training.types";
+import { DbError } from "../../../effect/errors";
 import { DEFAULT_EDUCATION_EXPERIENCE } from "../education-unit/experience";
 import { makeUnitContext } from "../education-unit/unit-context.fixture";
 import { createUnitRun } from "../education-unit/unit-state";
@@ -63,12 +64,15 @@ const masteredRun = {
   mode: "complete" as const,
 };
 
+const runProgressionEffect = <E>(effect: Effect.Effect<void, E>) =>
+  Effect.runPromise(effect);
+
 describe("advanceCompletedUnitWorkflow", () => {
   it("routes a mastered outcome unit to its required mission without completing it", async () => {
     const completeNode = vi.fn(() => Promise.resolve());
     const advanceSkillMapNode = vi.fn(() => Effect.void);
     const getProgressionState = vi.fn(() =>
-      Effect.succeed({
+      Promise.resolve({
         regime: "main_outcome" as const,
         unpracticedSkillCount: 0,
         skillCount: 1,
@@ -100,6 +104,7 @@ describe("advanceCompletedUnitWorkflow", () => {
         getMissionStatus: () =>
           Promise.resolve({ unitRunId: "run-1", status: "active" }),
         advanceSkillMapNode,
+        runProgressionEffect,
       },
     });
 
@@ -117,6 +122,42 @@ describe("advanceCompletedUnitWorkflow", () => {
       skillNodeId: abilityNode.id,
       userId: "user-1",
       includeUnitNodeId: abilityUnit.id,
+    });
+  });
+
+  it("returns a failed result when progression state cannot be loaded", async () => {
+    const result = await advanceCompletedUnitWorkflow({
+      sessionId: "session-1",
+      nodeId: currentNode.id,
+      deps: {
+        withTransaction: (run) =>
+          run({
+            getActivePlan: () =>
+              Promise.resolve({ nodes: [currentNode] } as CurriculumPlan),
+            getUnitByNodeId: () => Promise.resolve(unit),
+            getUnitRun: () => Promise.resolve(masteredRun),
+            completeNode: () => Promise.resolve(),
+            markNodeReady: () => Promise.resolve(),
+            touchSession: () => Promise.resolve(),
+          }),
+        createUnit: () => Effect.void,
+        getProgressionState: () =>
+          Promise.reject(
+            new DbError({
+              operation: "loadProgressionState",
+              kind: "connection",
+              message: "Progression state is temporarily unavailable.",
+            }),
+          ),
+        getMissionStatus: () => Promise.resolve(null),
+        advanceSkillMapNode: () => Effect.void,
+        runProgressionEffect,
+      },
+    });
+
+    expect(result).toEqual({
+      success: false,
+      error: "Progression state is temporarily unavailable.",
     });
   });
 
@@ -153,7 +194,7 @@ describe("advanceCompletedUnitWorkflow", () => {
         },
         createUnit,
         getProgressionState: () =>
-          Effect.succeed({
+          Promise.resolve({
             regime: "main_outcome" as const,
             unpracticedSkillCount: 1,
             skillCount: 2,
@@ -163,6 +204,7 @@ describe("advanceCompletedUnitWorkflow", () => {
           }),
         getMissionStatus: () => Promise.resolve(null),
         advanceSkillMapNode: () => Effect.void,
+        runProgressionEffect,
       },
     });
 
@@ -216,7 +258,7 @@ describe("advanceCompletedUnitWorkflow", () => {
           }),
         createUnit,
         getProgressionState: () =>
-          Effect.succeed({
+          Promise.resolve({
             regime: "main_outcome" as const,
             unpracticedSkillCount: 1,
             skillCount: 2,
@@ -226,14 +268,15 @@ describe("advanceCompletedUnitWorkflow", () => {
           }),
         getMissionStatus: () => Promise.resolve(null),
         advanceSkillMapNode: () => Effect.void,
+        runProgressionEffect,
       },
     });
 
-    await vi.waitFor(() => expect(createUnit).toHaveBeenCalledOnce());
     expect(result).toEqual({
-      success: true,
-      data: { advanced: false, progressionPending: true },
+      success: false,
+      error: "Unit progression failed.",
     });
+    expect(createUnit).toHaveBeenCalledOnce();
     expect(completeNode).not.toHaveBeenCalled();
   });
 
@@ -261,9 +304,10 @@ describe("advanceCompletedUnitWorkflow", () => {
             touchSession: () => Promise.resolve(),
           }),
         createUnit,
-        getProgressionState: () => Effect.succeed(null),
+        getProgressionState: () => Promise.resolve(null),
         getMissionStatus: () => Promise.resolve(null),
         advanceSkillMapNode,
+        runProgressionEffect,
       },
     });
 
@@ -307,7 +351,7 @@ describe("advanceCompletedUnitWorkflow", () => {
           }),
         createUnit,
         getProgressionState: () =>
-          Effect.succeed({
+          Promise.resolve({
             regime: "main_outcome" as const,
             unpracticedSkillCount: 1,
             skillCount: 1,
@@ -317,6 +361,7 @@ describe("advanceCompletedUnitWorkflow", () => {
           }),
         getMissionStatus: () => Promise.resolve(null),
         advanceSkillMapNode: () => Effect.void,
+        runProgressionEffect,
       },
     });
 
@@ -358,7 +403,7 @@ describe("advanceCompletedUnitWorkflow", () => {
           }),
         createUnit,
         getProgressionState: () =>
-          Effect.succeed({
+          Promise.resolve({
             regime: "main_outcome" as const,
             unpracticedSkillCount: 1,
             skillCount: 1,
@@ -368,6 +413,7 @@ describe("advanceCompletedUnitWorkflow", () => {
           }),
         getMissionStatus: () => Promise.resolve(null),
         advanceSkillMapNode: () => Effect.void,
+        runProgressionEffect,
       },
     });
 
