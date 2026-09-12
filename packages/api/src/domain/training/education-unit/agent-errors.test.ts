@@ -15,9 +15,7 @@ describe("classifyUnitAgentFailure", () => {
     const classified = classifyUnitAgentFailure(error);
 
     expect(classified._tag).toBe("UnitAgentSchemaError");
-    expect(classified.message).toContain(
-      "preparedScenario: expected object",
-    );
+    expect(classified.message).toContain("preparedScenario: expected object");
   });
 
   it("keeps message and cause when attaching the schema name", () => {
@@ -27,10 +25,7 @@ describe("classifyUnitAgentFailure", () => {
       cause,
     });
 
-    const named = nameUnitAgentSchemaError(
-      original,
-      "unit_mentor_scenario",
-    );
+    const named = nameUnitAgentSchemaError(original, "unit_mentor_scenario");
 
     expect(named.message).toBe("Review presentation failed validation.");
     expect(named.cause).toBe(cause);

@@ -6,12 +6,22 @@
  *   active ──(targeted by a repair scenario + clean pass)──► addressed
  *   addressed ──(clean pass on a second targeted scenario)──► resolved
  *   addressed/resolved ──(error code reappears)──► active (occurrences++)
+ *   active ──(targeted scenario failed under a different code)──► refuted
  *
  * The two-step resolution is deliberate: one good answer after remediation is
  * evidence, two is a pattern.
+ *
+ * `refuted` is the case the ledger used to have no answer for. A scenario
+ * built to break one idea, failed for an unrelated reason, is evidence that
+ * the idea was never the learner's problem. Leaving it active makes it the
+ * highest-occurrence entry and the system repairs it forever.
  */
 
-export type MisconceptionStatus = "active" | "addressed" | "resolved";
+export type MisconceptionStatus =
+  | "active"
+  | "addressed"
+  | "resolved"
+  | "refuted";
 
 export interface MisconceptionState {
   /** Code from the closed error taxonomy. */
@@ -52,18 +62,23 @@ export const reduceMisconceptions = (
         lastSeenAt: evidence.occurredAt,
       };
     }
-    if (
-      state.code === evidence.targetedCode &&
-      evidence.cleanPass &&
-      state.status !== "resolved"
-    ) {
-      return {
-        ...state,
-        status: state.status === "active" ? "addressed" : "resolved",
-        lastSeenAt: evidence.occurredAt,
-      };
+    if (state.code !== evidence.targetedCode) return state;
+    if (evidence.cleanPass) {
+      return state.status === "resolved"
+        ? state
+        : {
+            ...state,
+            status: state.status === "active" ? "addressed" : "resolved",
+            lastSeenAt: evidence.occurredAt,
+          };
     }
-    return state;
+    // The scenario was built to expose this code and the learner failed it for
+    // some other reason. The guess was wrong, so stop targeting it.
+    return {
+      ...state,
+      status: "refuted",
+      lastSeenAt: evidence.occurredAt,
+    };
   });
 
   const known = new Set(current.map((state) => state.code));

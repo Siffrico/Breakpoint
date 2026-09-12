@@ -38,7 +38,7 @@ interface JobRatingState {
 
 interface MisconceptionState {
   code: string;
-  status: "active" | "addressed" | "resolved";
+  status: "active" | "addressed" | "resolved" | "refuted";
   occurrences: number;
   lastSeenAt: Date;
 }

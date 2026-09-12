@@ -818,6 +818,42 @@ export const EvaluationDimensionResultSchema = z.object({
 
 const PreparedUnitScenarioSchema = UnitReviewChallengeSchema.nullable();
 
+/**
+ * Why the learner's answer diverged, in the three kinds that need different
+ * next moves: a rule applied where it does not hold, a constraint in this
+ * scenario they never took into account, and a prerequisite they were never
+ * taught. Only the last one sends the learner back to teaching.
+ */
+export const UnitDiagnosisCauseSchema = z.enum([
+  "wrong-rule",
+  "missed-limit",
+  "never-learned-it",
+]);
+
+export const UnitErrorCodeSchema = z
+  .string()
+  .trim()
+  .min(3)
+  .max(40)
+  .regex(
+    /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
+    "error codes are lowercase kebab-case so the same mistake keys the same ledger row",
+  );
+
+const passResultStepShape = {
+  kind: z.literal("pass_result"),
+  attempt: UnitReviewPassSchema,
+  outcome: z.enum(["pass", "fail"]),
+  errorCodes: z.array(z.string().min(1).max(40)).max(3),
+  /** Null on a pass. On a fail, why the critic thinks the answer diverged. */
+  causeType: UnitDiagnosisCauseSchema.nullable().default(null),
+  /** Null on a pass. On a fail, the one sentence the learner just read. */
+  hypothesis: z.string().min(1).max(400).nullable().default(null),
+  evidence: z.array(EvaluationDimensionResultSchema).max(5),
+  evidencedTargetIds: z.array(z.string().min(1)).max(4),
+  preparedScenario: PreparedUnitScenarioSchema,
+};
+
 export const UnitCursorStepSchema = z.discriminatedUnion("kind", [
   z
     .object({
@@ -832,27 +868,7 @@ export const UnitCursorStepSchema = z.discriminatedUnion("kind", [
       challenge: PreparedUnitScenarioSchema,
     })
     .strict(),
-  z
-    .object({
-      kind: z.literal("feedback"),
-      attempt: UnitReviewPassSchema,
-      promptRound: z.number().int().min(1).max(3),
-      errorCodes: z.array(z.string().min(1)).max(3),
-      dimensionResults: z.array(EvaluationDimensionResultSchema).max(5),
-      evidencedTargetIds: z.array(z.string().min(1)).max(4),
-    })
-    .strict(),
-  z
-    .object({
-      kind: z.literal("pass_result"),
-      attempt: UnitReviewPassSchema,
-      outcome: z.enum(["pass", "fail"]),
-      errorCodes: z.array(z.string().min(1)).max(3),
-      evidence: z.array(EvaluationDimensionResultSchema).max(5),
-      evidencedTargetIds: z.array(z.string().min(1)).max(4),
-      preparedScenario: PreparedUnitScenarioSchema,
-    })
-    .strict(),
+  z.object(passResultStepShape).strict(),
   z
     .object({
       kind: z.literal("complete"),
@@ -864,12 +880,52 @@ export const UnitCursorStepSchema = z.discriminatedUnion("kind", [
     .strict(),
 ]);
 
+/**
+ * Runs persisted before the feedback exchange was removed can still be mid
+ * unit, and their stored step is a shape this union no longer accepts. A
+ * stored `feedback` step held a finished grade waiting on chat replies, so it
+ * folds onto the failed `pass_result` it would have reached anyway. Without
+ * this, every in-flight learner loses their run at the next parse.
+ */
+const foldLegacyFeedbackStep = (step: unknown): unknown => {
+  if (
+    typeof step !== "object" ||
+    step === null ||
+    (step as { kind?: unknown }).kind !== "feedback"
+  ) {
+    return step;
+  }
+  const legacy = step as Record<string, unknown>;
+  return {
+    kind: "pass_result",
+    attempt: legacy.attempt,
+    outcome: "fail",
+    errorCodes: legacy.errorCodes,
+    causeType: null,
+    hypothesis: null,
+    evidence: legacy.dimensionResults,
+    evidencedTargetIds: legacy.evidencedTargetIds,
+    preparedScenario: null,
+  };
+};
+
+const StoredUnitCursorStepSchema = z.preprocess(
+  foldLegacyFeedbackStep,
+  UnitCursorStepSchema,
+);
+
 /** The one durable authority for which learner interaction may happen next. */
 export const UnitCursorSchema = z
   .object({
     interactionId: z.string().min(1).max(160),
     scenarioPrompts: z.array(z.string().min(24)),
-    step: UnitCursorStepSchema,
+    /**
+     * Every error code this run has produced, oldest first. The critic reads
+     * it so the same mistake keeps the same code instead of picking up a new
+     * synonym each pass, which is what splits one ledger row into three.
+     */
+    errorCodeHistory: z.array(z.string().min(1).max(40)).max(24).default([]),
+    step: StoredUnitCursorStepSchema,
   })
   .strict();
 
@@ -1232,6 +1288,7 @@ export type EducationExperienceCustomization = z.infer<
   typeof EducationExperienceCustomizationSchema
 >;
 export type UnitCursor = z.infer<typeof UnitCursorSchema>;
+export type UnitDiagnosisCause = z.infer<typeof UnitDiagnosisCauseSchema>;
 export type UnitCursorStep = z.infer<typeof UnitCursorStepSchema>;
 export type UnitRunMode = z.infer<typeof UnitRunModeSchema>;
 export type UnitRunKind = z.infer<typeof UnitRunKindSchema>;

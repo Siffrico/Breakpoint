@@ -41,6 +41,13 @@ interface RunUnitAgentInput<TSchema extends z.ZodTypeAny> {
   readonly reasoning: ReasoningEffort;
   readonly onPartialAssistantMessage?: (content: string) => void;
   /**
+   * Learner-visible text inside a half-finished object. Most schemas carry it
+   * in one `assistantMessage` field, which is the default. A schema that
+   * assembles the visible reply from several fields must supply its own, or
+   * the turn streams nothing and trips the first-visible timeout.
+   */
+  readonly renderPartial?: (partial: unknown) => string | undefined;
+  /**
    * Presentation rules, kept out of the schema on purpose. A reply whose data is
    * sound but whose shape is untidy is worth one more ask, never worth throwing
    * away — scores drive progression, and losing them to a missing bold label
@@ -169,10 +176,11 @@ const callModel = async <TSchema extends z.ZodTypeAny>(
     for await (const partial of result.partialOutputStream) {
       if (abortSignal.aborted) throw abortSignal.reason;
       armInactivityTimeout();
-      const assistantMessage =
-        typeof partial === "object" &&
-        partial !== null &&
-        "assistantMessage" in partial
+      const assistantMessage = input.renderPartial
+        ? input.renderPartial(partial)
+        : typeof partial === "object" &&
+            partial !== null &&
+            "assistantMessage" in partial
           ? partial.assistantMessage
           : undefined;
       if (typeof assistantMessage === "string") {

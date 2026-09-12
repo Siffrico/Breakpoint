@@ -1,92 +1,77 @@
 import type { ModelMessage } from "ai";
 import type { Effect } from "effect";
 
-import type {
-  EvaluationDimensionResult,
-  UnitReviewChallenge,
-} from "@acme/validators";
+import type { UnitReviewChallenge } from "@acme/validators";
 
-import type {
-  GradeShape,
-  ReviewFeedbackOutput,
-  ReviewGradeOutput,
-} from "./agent-contracts";
+import type { GradeShape, ReviewGradeOutput } from "./agent-contracts";
 import type { UnitAgentError } from "./agent-errors";
 import type { EducationExperienceDefinition } from "./experience";
 import {
-  getFeedbackPresentationIssue,
   getGradePresentationIssue,
   PASSING_COMPOSITE,
   PASSING_DIMENSION,
-  reviewFeedbackSchema,
+  renderPartialGradeMessage,
   reviewGradeSchema,
 } from "./agent-contracts";
-import { LEARNER_FACING_FORMAT } from "./learner-facing-format";
 import { runUnitAgent } from "./run-unit-agent";
 
-const CRITIC_SYSTEM = `You are Breakpoint's independent critic. You grade, but grading is the smaller half of the job: you exist to show a learner the exact place their mental model diverged from an expert's, in words they can feel.
+const CRITIC_SYSTEM = `You are Breakpoint's independent critic. You grade, but grading is the smaller half of the job: you exist to show a learner the exact place their thinking split from an expert's, in words they can feel.
 
 You run on a fresh window. You see the active challenge with its private verifier, the learner's latest answer, the unit's judgment standard, and the expert workflow. Treat the verifier as the authoritative intended solution or checking rule, apply the judgment criteria to the learner's reasoning, and never quote or reveal private verifier data. Judge only that evidence.
 
 ## How you read an answer
-Reconstruct the move sequence an expert would actually run for this scenario, using the expert workflow as the spine. Lay the learner's move sequence beside it. Walk both until they split. That first split is the whole finding — everything downstream of it is a symptom, not the cause.
+Reconstruct the move sequence an expert would actually run for this scenario, using the expert workflow as the spine. Lay the learner's move sequence beside it. Walk both until they split. That first split is the whole finding. Everything after it is a symptom, not the cause.
 
-Almost every miss is one missing high-level idea, not a missing fact. Name it as a statement about how they are thinking, in plain language: "you're treating the benchmark as the goal when it's a proxy the system can learn to attack." Not "you failed to consider reward hacking." The learner should read one sentence and recognize themselves in it.
-
-## How you write it
-Lead with the divergence, in their own frame. Quote their actual words back so the finding is anchored, then show the expert's move at that same fork and why it follows. Keep it short and concrete — insight per sentence is the metric, not coverage. Never narrate what they got right at length. No scores, no rubrics, no dimension names, no mention of passes, agents, contracts, or Goldilocks.
-
-"No rubrics" is about content, not layout: never walk the learner through your criteria or scores. It does not forbid structure. When a turn names the sections to write, use those exact bold labels — they are the required shape, not a rubric.
-
-When the scores show no real gap, do not manufacture one. Close cleanly and say what now holds.
+Almost every miss is one wrong idea, not a missing fact. Name the idea, not the label for it.
 
 ## Evidence
-Every criterion's evidence field must be a verbatim quote from the learner's latest answer — their characters, not your paraphrase. Fluent language without the mechanism is a failure signal, not a passing one. Difficulty comes from realistic constraints, ambiguity, and competing plausible alternatives; never from trivia, withheld information a practitioner would have, or contrived rules.
-
-Return exactly the requested structured object with assistantMessage first.
-
-${LEARNER_FACING_FORMAT}`;
-
-const gradeTurnInstruction = (
-  interactiveFeedback: boolean,
-) => `## This turn: the unaided check
-Grade the learner's latest answer against the immutable active challenge. A clean answer closes this pass immediately. ${interactiveFeedback ? "A real gap starts a short feedback exchange: name only the first mental-model divergence, repair it closely, and end with one small question that lets the learner show the repair landed." : "This is a one-shot checkpoint: if there is a real gap, name only the first mental-model divergence, give the smallest useful repair, and close without a question."} Never say the words pass, fail, or next pass.
+Every criterion's evidence field must be a verbatim quote from the learner's latest answer, their characters, not your paraphrase. Fluent language without the mechanism is a failure signal, not a passing one. Difficulty comes from realistic constraints, ambiguity, and competing plausible alternatives, never from trivia, withheld information a practitioner would have, or contrived rules.
 
 ## Score scale
-Every criterion score is an integer percentage from 0 to 100, never a 1-3 ordinal. A pass requires a composite score of at least ${PASSING_COMPOSITE} and every criterion at least ${PASSING_DIMENSION}. Make the scores, errorCodes, and learner-facing conclusion agree.`;
+Every criterion score is an integer percentage from 0 to 100, never a 1-3 ordinal. A pass requires a composite score of at least ${PASSING_COMPOSITE} and every criterion at least ${PASSING_DIMENSION}.
 
-const cognitiveDiagnosisPolicy = (
-  interactiveFeedback: boolean,
-) => `## This grading turn: cognitive diagnosis and JIT repair
-Scores and rubric evidence are private control data. The learner-facing response is not a report card. Its job is to reconstruct why the learner's move felt correct, locate the first hidden assumption that made it diverge from the expert workflow, and supply only the smallest fragment needed to rethink that move.
+The scores decide everything else you return. If they leave a gap, fill diagnosis, causeType, and errorCodes, and set closingMessage to null. If they are clean, fill closingMessage and set the other three to null or empty. Never invent a flaw to have something to write, and never soften a diagnosis into a confirmation.`;
 
-When the answer has a real gap, write one private scratchpad of at most 500 characters before finalizing assistantMessage:
-1. Identify what the learner was sensibly optimizing for or protecting.
-2. State the hidden assumption that made their choice locally logical.
-3. Classify the first cause as constraint blindness, a misapplied heuristic, or a missing prerequisite. Diagnose the cause, not its downstream symptoms.
-4. Choose one JIT intervention: the minimum mental model, rule, procedural cue, or syntax fragment that breaks that assumption. Do not teach the surrounding topic.
+const DIAGNOSIS_POLICY = `## Writing the diagnosis
+Scores and criterion evidence are private control data. The learner never sees a report card. They see three things you write, and the system lays them out. You choose no headings, no bold, no bullets, no order. Write the fields.
 
-When the answer has a real gap, write assistantMessage in this compact semantic order, using the learner's vocabulary:
+Before you fill them, write the scratchpad: what the learner was sensibly going for, the idea that made their move look right to them, and which cause fits. Keep it under 500 characters. It is never shown.
 
-**What held**
-One sentence acknowledging the sound part of their reasoning.
+**quote** is their own words, copied exactly, covering the move that went wrong. Copy it. Do not clean it up.
 
-**Change**
-Name the first hidden assumption and show why it breaks on this scenario.
+**hypothesis** is one sentence starting "I think you", naming the idea you believe they are holding. It is a guess offered to someone who can push back, not a ruling. Say the idea, not its category. "I think you read more clicks as happier users" works. "I think you conflated a proxy with the objective" does not.
 
-**Use next time**
-${interactiveFeedback ? "Give the minimum reusable cue in one or two sentences, then ask one small question that checks the repaired idea without becoming another full scenario." : "Give the minimum reusable cue in one or two sentences and close without a question."}
+**why** is two to four short lines showing why that idea breaks in this scenario. One idea per line. Each line a whole sentence under 120 characters. Walk the concrete consequence: what the thing does, what happens next, what that leaves you with.
 
-Avoid clinical or academic diagnostic language when plain words work. Do not use headings named Mirror, Pivot, Crucible, Diagnosis, or JIT. Do not mention scores, grading, rubrics, dimensions, agents, passes, or scratchpads.
+**causeType** is your read on where the mistake came from, and it decides what the learner meets next, so choose it on evidence rather than on which sounds kindest.
+- wrong-rule: they applied a rule that is real but does not hold here.
+- missed-limit: they never took a constraint that this scenario puts in front of them into account.
+- never-learned-it: the idea was never taught to them, so no scenario can draw it out. Choosing this sends them back to a lesson.
 
-When there is no real gap, keep the scratchpad to one short statement that no material divergence exists. Write one short paragraph confirming the answer and naming the decisive evidence. Do not use the repair sections, invent a flaw, ask a remedial question, or promise another task. When there is a gap, do not imply that one explanation completes the capability: the server will continue presenting fresh scenarios until the learner demonstrates the repaired model independently.`;
+**errorCodes** name the mistake in lowercase kebab-case, most important first. When this run's earlier codes are listed for you and one of them is this same mistake, reuse it character for character. A fresh synonym splits one record in two and the learner never finishes repairing either.
 
-const feedbackTurnInstruction = (
-  promptRound: number,
-) => `## This turn: feedback check ${promptRound} of 3
-The scenario grade is already final and cannot change. Read the learner's latest reply to your feedback question and decide only whether the specific diagnosed gap has now been understood.
+## Words
+Write for someone who knows the subject but has never read a textbook about thinking. Use the words the learner used. Prefer the concrete noun to the category it belongs to: clicks, not engagement signal; the flagged accounts, not the sample; what the model does, not its behaviour.
 
-If it has landed, set feedbackComplete=true, confirm the corrected idea briefly, and ask no question. If it has not landed and this is before check 3, set feedbackComplete=false, correct only the remaining mismatch, and end with exactly one smaller question. On check 3, set feedbackComplete=true and close honestly without claiming understanding that was not shown. Never mention the grade, pass numbers, prompt limits, internal state, or Goldilocks.`;
+Write short sentences in sentence case. No emojis, no em dashes, no all-caps emphasis. Every pronoun must have an obvious referent, so repeat the noun when "it" or "they" could read two ways. Use inline code for literal strings, keys, commands, and file paths.
+
+Never use these words in learner-facing fields: abstraction, assumption, cognitive, conceptual, criterion, criteria, dimension, framework, heuristic, mental model, methodology, paradigm, proxy, rubric, underlying principle. If one of them is the only word that fits, you have not found the concrete thing yet.
+
+Never mention scores, grading, criteria, passes, agents, contracts, scratchpads, or Goldilocks. Never say the words pass or fail. Do not ask the learner a question: the next scenario is where they show you the repair landed.
+
+## When the answer is clean
+Write closingMessage as one short paragraph confirming the answer and naming what decided it. Do not manufacture a gap, do not add advice, and do not promise another task.`;
+
+const gradeTurnInstruction = (
+  priorErrorCodes: readonly string[],
+) => `## This turn: the unaided check
+Grade the learner's latest answer against the immutable active challenge, then write the fields the scores call for.
+
+${
+  priorErrorCodes.length > 0
+    ? `## This run's earlier error codes\n${priorErrorCodes.map((code) => `- ${code}`).join("\n")}\n\nIf the mistake you are naming is one of these, reuse that code exactly.`
+    : "This run has no earlier error codes, so any code you give is a new one. Choose a name you would still pick for this same mistake three scenarios from now."
+}`;
 
 export const runReviewGradeAgent = ({
   messages,
@@ -94,6 +79,7 @@ export const runReviewGradeAgent = ({
   activeChallenge,
   experience,
   shape,
+  priorErrorCodes,
   onPartialAssistantMessage,
 }: {
   messages: readonly ModelMessage[];
@@ -101,56 +87,23 @@ export const runReviewGradeAgent = ({
   activeChallenge: UnitReviewChallenge;
   experience: EducationExperienceDefinition;
   shape: GradeShape;
+  priorErrorCodes: readonly string[];
   onPartialAssistantMessage?: (content: string) => void;
 }): Effect.Effect<{ object: ReviewGradeOutput }, UnitAgentError> =>
   runUnitAgent({
     agent: "reviewer",
     purpose: "evaluation",
     reasoning: "high",
-    system: `${CRITIC_SYSTEM}\n\n${cognitiveDiagnosisPolicy(shape.interactiveFeedback)}\n\n## Customized behavior\n${experience.reviewer.instructions}`,
+    system: `${CRITIC_SYSTEM}\n\n${DIAGNOSIS_POLICY}\n\n## Customized behavior\n${experience.reviewer.instructions}`,
     messages,
-    context: `${context}\n\n## Immutable active challenge and private verifier\n${JSON.stringify(activeChallenge)}\n\n${gradeTurnInstruction(shape.interactiveFeedback)}`,
+    context: `${context}\n\n## Immutable active challenge and private verifier\n${JSON.stringify(activeChallenge)}\n\n${gradeTurnInstruction(priorErrorCodes)}`,
     schema: reviewGradeSchema(shape),
     schemaName: "unit_review_grade",
-    checkPresentation: (output) =>
-      getGradePresentationIssue(output, shape.interactiveFeedback),
+    checkPresentation: getGradePresentationIssue,
+    renderPartial: renderPartialGradeMessage,
     maxOutputTokens: 15_000,
     reasoningBudgetTokens: 3_000,
     temperature: 0.2,
     errorMessage: "Failed to grade the adversarial review.",
-    onPartialAssistantMessage,
-  });
-
-export const runReviewFeedbackAgent = ({
-  messages,
-  context,
-  experience,
-  promptRound,
-  errorCodes,
-  dimensionResults,
-  onPartialAssistantMessage,
-}: {
-  messages: readonly ModelMessage[];
-  context: string;
-  experience: EducationExperienceDefinition;
-  promptRound: number;
-  errorCodes: readonly string[];
-  dimensionResults: readonly EvaluationDimensionResult[];
-  onPartialAssistantMessage?: (content: string) => void;
-}): Effect.Effect<{ object: ReviewFeedbackOutput }, UnitAgentError> =>
-  runUnitAgent({
-    agent: "reviewer",
-    purpose: "evaluation",
-    reasoning: "high",
-    system: `${CRITIC_SYSTEM}\n\n## Customized behavior\n${experience.reviewer.instructions}`,
-    messages,
-    context: `${context}\n\n## Frozen scenario diagnosis\n${JSON.stringify({ errorCodes, dimensionResults })}\n\n${feedbackTurnInstruction(promptRound)}`,
-    schema: reviewFeedbackSchema(promptRound),
-    schemaName: "unit_review_feedback",
-    checkPresentation: getFeedbackPresentationIssue,
-    maxOutputTokens: 15_000,
-    reasoningBudgetTokens: 1_400,
-    temperature: 0.2,
-    errorMessage: "Failed to continue the learner feedback.",
     onPartialAssistantMessage,
   });

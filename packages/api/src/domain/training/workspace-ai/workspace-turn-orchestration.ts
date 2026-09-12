@@ -544,18 +544,32 @@ export const runEducationUnitTurn = ({
         }
       : { kind: "education" as const };
     const previousChallengePrompts = unitRun.cursor.scenarioPrompts;
+    // What the last failed scenario found, so the next lesson or scenario aims
+    // at that idea instead of restating the unit. Null on a pass and at the
+    // start of a run, which is when there is nothing to repair.
+    const repairStep = unitRun.cursor.step;
+    const repair =
+      repairStep.kind === "pass_result" && repairStep.outcome === "fail"
+        ? {
+            errorCodes: repairStep.errorCodes,
+            hypothesis: repairStep.hypothesis,
+            dimensionResults: repairStep.evidence,
+          }
+        : null;
     const contexts = {
       mentor: createMentorContext({
         unitContext: unitRun.unitContext,
         difficulty: difficultySnapshot,
         memories,
         focus,
+        repair,
       }),
       mentorScenario: createMentorScenarioContext({
         unitContext: unitRun.unitContext,
         difficulty: difficultySnapshot,
         focus,
         previousChallengePrompts,
+        repair,
       }),
       critique: {
         judgeAnswer: createCritiqueContext({
@@ -712,11 +726,18 @@ export const runEducationUnitTurn = ({
     });
 
     const savePendingChallenge = deps.savePendingChallenge;
+    const passResult = turnResult.nextRun.cursor.step;
+    // A `never-learned-it` diagnosis sends the next turn back to the mentor,
+    // who writes its own scenario off the back of the lesson. Pre-generating
+    // one here would attach first and silently skip the re-teach.
+    const awaitingReteach =
+      passResult.kind === "pass_result" &&
+      passResult.causeType === "never-learned-it";
     if (
       turnResult.nextRun.mode === "awaiting_next_pass" &&
-      savePendingChallenge
+      savePendingChallenge &&
+      !awaitingReteach
     ) {
-      const passResult = turnResult.nextRun.cursor.step;
       const runPassPregeneration = () =>
         Effect.runPromise(
           prefillScenario({
@@ -732,6 +753,7 @@ export const runEducationUnitTurn = ({
                       turnResult.nextRun.cursor.scenarioPrompts,
                     repair: {
                       errorCodes: passResult.errorCodes,
+                      hypothesis: passResult.hypothesis,
                       dimensionResults: passResult.evidence,
                     },
                   })

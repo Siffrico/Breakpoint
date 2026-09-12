@@ -6,6 +6,7 @@ import type {
   EvaluationDimensionResult,
   UnitContext,
   UnitCursor,
+  UnitDiagnosisCause,
   UnitDifficultySnapshot,
   UnitReviewChallenge,
   UnitReviewPass,
@@ -43,7 +44,6 @@ const modeFor = (cursor: UnitCursor): UnitRunMode => {
     case "teaching":
       return "learning";
     case "scenario":
-    case "feedback":
       return "review";
     case "pass_result":
       return "awaiting_next_pass";
@@ -106,6 +106,7 @@ export const createUnitRun = ({
     cursor: {
       interactionId: initialInteractionId({ kind, sessionId, unitId }),
       scenarioPrompts: [],
+      errorCodeHistory: [],
       step:
         kind === "education"
           ? { kind: "teaching", preparedScenario: null }
@@ -140,9 +141,7 @@ export const preparedScenario = (
       : null;
 };
 
-export const isRatingEligibleScenario = (
-  run: PersistedUnitRun,
-): boolean => {
+export const isRatingEligibleScenario = (run: PersistedUnitRun): boolean => {
   const step = run.cursor.step;
   return (
     step.kind === "scenario" &&
@@ -224,6 +223,7 @@ export const presentScenario = ({
   }
   return Effect.succeed(
     replaceCursor(run, {
+      ...run.cursor,
       interactionId: randomUUID(),
       scenarioPrompts: [...run.cursor.scenarioPrompts, challenge.prompt],
       step: { kind: "scenario", attempt, challenge },
@@ -235,12 +235,16 @@ export const settleScenario = ({
   run,
   passed,
   errorCodes,
+  causeType,
+  hypothesis,
   dimensionResults,
   evidencedTargetIds,
 }: {
   run: PersistedUnitRun;
   passed: boolean;
   errorCodes: readonly string[];
+  causeType: UnitDiagnosisCause | null;
+  hypothesis: string | null;
   dimensionResults: readonly EvaluationDimensionResult[];
   evidencedTargetIds: readonly string[];
 }): Effect.Effect<PersistedUnitRun, UnitStateContractError> => {
@@ -275,72 +279,27 @@ export const settleScenario = ({
           evidence: [...dimensionResults],
           evidencedTargetIds: [...evidencedTargetIds],
         }
-      : passed
-        ? {
-            kind: "pass_result",
-            attempt: step.attempt,
-            outcome: "pass",
-            errorCodes: [],
-            evidence: [...dimensionResults],
-            evidencedTargetIds: [...evidencedTargetIds],
-            preparedScenario: null,
-          }
-        : {
-            kind: "feedback",
-            attempt: step.attempt,
-            promptRound: 1,
-            errorCodes: [...errorCodes],
-            dimensionResults: [...dimensionResults],
-            evidencedTargetIds: [...evidencedTargetIds],
-          };
+      : {
+          kind: "pass_result",
+          attempt: step.attempt,
+          outcome: passed ? "pass" : "fail",
+          errorCodes: passed ? [] : [...errorCodes],
+          causeType: passed ? null : causeType,
+          hypothesis: passed ? null : hypothesis,
+          evidence: [...dimensionResults],
+          evidencedTargetIds: [...evidencedTargetIds],
+          preparedScenario: null,
+        };
   return Effect.succeed(
     replaceCursor(run, {
       ...run.cursor,
       interactionId: randomUUID(),
+      // Codes accumulate across the whole run so the critic can reuse the name
+      // it already gave a mistake instead of coining a synonym for it.
+      errorCodeHistory: [
+        ...new Set([...run.cursor.errorCodeHistory, ...errorCodes]),
+      ].slice(-24),
       step: nextStep,
-    }),
-  );
-};
-
-export const continueFeedback = (
-  run: PersistedUnitRun,
-): Effect.Effect<PersistedUnitRun, UnitStateContractError> => {
-  const step = run.cursor.step;
-  if (step.kind !== "feedback") {
-    return contractFailure("This unit is not waiting for a feedback answer.");
-  }
-  if (step.promptRound >= 3) {
-    return contractFailure("The feedback prompt limit has been reached.");
-  }
-  return Effect.succeed(
-    replaceCursor(run, {
-      ...run.cursor,
-      interactionId: randomUUID(),
-      step: { ...step, promptRound: step.promptRound + 1 },
-    }),
-  );
-};
-
-export const completeFeedback = (
-  run: PersistedUnitRun,
-): Effect.Effect<PersistedUnitRun, UnitStateContractError> => {
-  const step = run.cursor.step;
-  if (step.kind !== "feedback") {
-    return contractFailure("This unit has no feedback turn to complete.");
-  }
-  return Effect.succeed(
-    replaceCursor(run, {
-      ...run.cursor,
-      interactionId: randomUUID(),
-      step: {
-        kind: "pass_result",
-        attempt: step.attempt,
-        outcome: "fail",
-        errorCodes: step.errorCodes,
-        evidence: step.dimensionResults,
-        evidencedTargetIds: step.evidencedTargetIds,
-        preparedScenario: null,
-      },
     }),
   );
 };

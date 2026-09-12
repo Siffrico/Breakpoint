@@ -14,6 +14,7 @@ import {
   hasModelGap,
   PASSING_COMPOSITE,
   PASSING_DIMENSION,
+  renderGradeMessage,
 } from "./agent-contracts";
 import { runMentorScenarioAgent, runMentorTeachingAgent } from "./mentor-agent";
 import {
@@ -21,12 +22,10 @@ import {
   scenarioFromPresentation,
   UnitTurnContractError,
 } from "./prefill";
-import { runReviewFeedbackAgent, runReviewGradeAgent } from "./review-agent";
+import { runReviewGradeAgent } from "./review-agent";
 import {
   assertInteractionId,
   attachPreparedScenario,
-  completeFeedback,
-  continueFeedback,
   isRatingEligibleScenario,
   preparedScenario,
   presentScenario,
@@ -65,14 +64,12 @@ export interface UnitTurnDependencies {
   readonly runMentorTeaching: typeof runMentorTeachingAgent;
   readonly runMentorScenario: typeof runMentorScenarioAgent;
   readonly runReviewGrade: typeof runReviewGradeAgent;
-  readonly runReviewFeedback: typeof runReviewFeedbackAgent;
 }
 
 const LIVE_DEPENDENCIES: UnitTurnDependencies = {
   runMentorTeaching: runMentorTeachingAgent,
   runMentorScenario: runMentorScenarioAgent,
   runReviewGrade: runReviewGradeAgent,
-  runReviewFeedback: runReviewFeedbackAgent,
 };
 
 const contractFailure = (message: string) =>
@@ -117,7 +114,9 @@ const exactSelectedResponseGrade = ({
   if (selectedLabel !== verifier.answer.trim().toUpperCase()) return null;
 
   return {
-    assistantMessage: `Correct. Option ${selectedLabel} satisfies the scenario without adding an unsupported claim.`,
+    closingMessage: `Correct. Option ${selectedLabel} satisfies the scenario without adding an unsupported claim.`,
+    diagnosis: null,
+    causeType: null,
     errorCodes: [],
     scratchpad: "The selected response matches the fixed answer exactly.",
     dimensionResults: challenge.contract.testedCriterionIds.map(
@@ -220,6 +219,17 @@ const gradeScenario = ({
       );
     }
     const ratingEligible = isRatingEligibleScenario(run);
+    // One definition of "is there a gap", shared by the schema and this turn.
+    // Two would let the critic write a clean confirmation for an answer the
+    // runner then records as a failure.
+    const evidencesAllTargets = (
+      results: readonly EvaluationDimensionResult[],
+    ): boolean => {
+      const evidenced = evidencedTargets(run, results);
+      return run.unitContext.targets.every((target) =>
+        evidenced.includes(target.id),
+      );
+    };
     const output =
       exactSelectedResponseGrade({ run, learnerAnswer }) ??
       (yield* deps.runReviewGrade({
@@ -230,37 +240,46 @@ const gradeScenario = ({
         shape: {
           testedDimensionIds: step.challenge.contract.testedCriterionIds,
           learnerAnswer,
-          interactiveFeedback: run.kind === "education",
+          evidencesAllTargets,
         },
+        priorErrorCodes: run.cursor.errorCodeHistory,
         onPartialAssistantMessage,
       })).object;
     const evidenceIds = evidencedTargets(run, output.dimensionResults);
-    const allTargetsEvidenced = run.unitContext.targets.every((target) =>
-      evidenceIds.includes(target.id),
-    );
-    const gap = hasModelGap(output.dimensionResults) || !allTargetsEvidenced;
+    const gap =
+      hasModelGap(output.dimensionResults) ||
+      !evidencesAllTargets(output.dimensionResults);
+    // The schema already requires a code whenever the scores leave a gap. This
+    // only covers the exact-match fast path, which never reaches that schema.
+    // Target ids have no length bound, so these are cut to the width the
+    // cursor stores: an over-long code would fail the next cursor parse and
+    // take the turn down with it.
     const errorCodes = gap
       ? output.errorCodes.length > 0
         ? output.errorCodes
         : [
             ...output.dimensionResults
               .filter((dimension) => dimension.score < PASSING_COMPOSITE)
-              .map((dimension) => `gap:${dimension.dimensionId}`),
+              .map((dimension) => `gap-${dimension.dimensionId}`),
             ...run.unitContext.targets
               .filter((target) => !evidenceIds.includes(target.id))
-              .map((target) => `unevidenced:${target.id}`),
-          ].slice(0, 3)
+              .map((target) => `unevidenced-${target.id}`),
+          ]
+            .slice(0, 3)
+            .map((code) => code.slice(0, 40))
       : [];
     const score = compositeScore(output.dimensionResults);
     const nextRun = yield* settleScenario({
       run,
       passed: !gap,
       errorCodes,
+      causeType: gap ? output.causeType : null,
+      hypothesis: gap ? (output.diagnosis?.hypothesis ?? null) : null,
       dimensionResults: output.dimensionResults,
       evidencedTargetIds: evidenceIds,
     }).pipe(asTurnError);
     return {
-      assistantMessage: output.assistantMessage,
+      assistantMessage: renderGradeMessage(output),
       nextRun,
       actor: "reviewer" as const,
       reviewGrade: {
@@ -275,7 +294,13 @@ const gradeScenario = ({
     };
   });
 
-const continueFeedbackTurn = ({
+/**
+ * Teach, then hand straight into the scenario that checks the teaching. Used
+ * both to open a unit and to re-teach after a `never-learned-it` diagnosis:
+ * an idea the learner was never given cannot be drawn out by another scenario,
+ * so that one cause routes here instead of to the next challenge.
+ */
+const teachThenOpenScenario = ({
   run,
   transcript,
   experience,
@@ -291,35 +316,38 @@ const continueFeedbackTurn = ({
   deps: UnitTurnDependencies;
 }): Effect.Effect<UnitTurnResult, UnitAgentError | UnitTurnContractError> =>
   Effect.gen(function* () {
-    const step = run.cursor.step;
-    if (step.kind !== "feedback") {
-      return yield* contractFailure("There is no feedback answer to assess.");
-    }
-    const learnerAnswer = latestUserText(transcript);
-    if (!learnerAnswer) {
-      return yield* contractFailure(
-        "Feedback requires the learner's latest answer.",
-      );
-    }
-    const output = (yield* deps.runReviewFeedback({
+    const mentor = yield* deps.runMentorTeaching({
       messages: transcript,
-      context: contexts.critique.judgeAnswer,
+      context: contexts.mentor,
       experience,
-      promptRound: step.promptRound,
-      errorCodes: step.errorCodes,
-      dimensionResults: step.dimensionResults,
+      createScenario: true,
+      selectedResponse: selectedResponse(run),
       onPartialAssistantMessage,
-    })).object;
-    const nextRun = yield* (
-      output.feedbackComplete ? completeFeedback(run) : continueFeedback(run)
-    ).pipe(asTurnError);
+    });
+    if (!mentor.object.preparedScenario) {
+      return yield* contractFailure("The mentor did not prepare the scenario.");
+    }
+    const challenge = yield* scenarioFromPresentation({
+      run,
+      presentation: mentor.object.preparedScenario,
+    });
+    const preparedRun = yield* attachPreparedScenario({
+      run,
+      challenge,
+    }).pipe(asTurnError);
+    const handoff = `${mentor.object.assistantMessage}\n\n`;
+    const opened = yield* openScenario({
+      run: preparedRun,
+      experience,
+      contexts,
+      onPartialAssistantMessage: onPartialAssistantMessage
+        ? (scenario) => onPartialAssistantMessage(`${handoff}${scenario}`)
+        : undefined,
+      deps,
+    });
     return {
-      assistantMessage: output.assistantMessage,
-      nextRun,
-      actor: "reviewer" as const,
-      reviewGrade: null,
-      ratingWrite: null,
-      presentedReviewChallenge: false,
+      ...opened,
+      assistantMessage: `${handoff}${opened.assistantMessage}`,
     };
   });
 
@@ -327,12 +355,14 @@ export const runPassAdvanceTurn = (
   {
     run,
     interactionId,
+    transcript,
     experience,
     contexts,
     onPartialAssistantMessage,
   }: {
     run: PersistedUnitRun;
     interactionId: string;
+    transcript: readonly ModelMessage[];
     experience: EducationExperienceDefinition;
     contexts: UnitAgentContexts;
     onPartialAssistantMessage?: (content: string) => void;
@@ -341,16 +371,26 @@ export const runPassAdvanceTurn = (
 ): Effect.Effect<UnitTurnResult, UnitAgentError | UnitTurnContractError> =>
   Effect.gen(function* () {
     yield* assertInteractionId(run, interactionId).pipe(asTurnError);
-    if (run.cursor.step.kind !== "pass_result") {
-      return yield* contractFailure("There is no feedback waiting to advance.");
+    const step = run.cursor.step;
+    if (step.kind !== "pass_result") {
+      return yield* contractFailure("There is no result waiting to advance.");
     }
-    return yield* openScenario({
-      run,
-      experience,
-      contexts,
-      onPartialAssistantMessage,
-      deps,
-    });
+    return step.causeType === "never-learned-it" && !step.preparedScenario
+      ? yield* teachThenOpenScenario({
+          run,
+          transcript,
+          experience,
+          contexts,
+          onPartialAssistantMessage,
+          deps,
+        })
+      : yield* openScenario({
+          run,
+          experience,
+          contexts,
+          onPartialAssistantMessage,
+          deps,
+        });
   });
 
 export const runUnitTurn = (
@@ -381,16 +421,6 @@ export const runUnitTurn = (
     }
     if (step.kind === "pass_result") {
       return yield* contractFailure("Press Enter to continue after this pass.");
-    }
-    if (step.kind === "feedback") {
-      return yield* continueFeedbackTurn({
-        run,
-        transcript,
-        experience,
-        contexts,
-        onPartialAssistantMessage,
-        deps,
-      });
     }
     if (step.kind === "scenario") {
       return step.challenge
@@ -439,37 +469,12 @@ export const runUnitTurn = (
     if (!learnerAnswer) {
       return yield* contractFailure("Teaching requires the learner's answer.");
     }
-    const mentor = yield* deps.runMentorTeaching({
-      messages: transcript,
-      context: contexts.mentor,
-      experience,
-      createScenario: true,
-      selectedResponse: selectedResponse(run),
-      onPartialAssistantMessage,
-    });
-    if (!mentor.object.preparedScenario) {
-      return yield* contractFailure("The mentor did not prepare the scenario.");
-    }
-    const challenge = yield* scenarioFromPresentation({
+    return yield* teachThenOpenScenario({
       run,
-      presentation: mentor.object.preparedScenario,
-    });
-    const preparedRun = yield* attachPreparedScenario({
-      run,
-      challenge,
-    }).pipe(asTurnError);
-    const handoff = `${mentor.object.assistantMessage}\n\n`;
-    const opened = yield* openScenario({
-      run: preparedRun,
+      transcript,
       experience,
       contexts,
-      onPartialAssistantMessage: onPartialAssistantMessage
-        ? (scenario) => onPartialAssistantMessage(`${handoff}${scenario}`)
-        : undefined,
+      onPartialAssistantMessage,
       deps,
     });
-    return {
-      ...opened,
-      assistantMessage: `${handoff}${opened.assistantMessage}`,
-    };
   });

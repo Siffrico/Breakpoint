@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod/v4";
 
 import {
+  getGradePresentationIssue,
   mentorTeachingOutputSchema,
-  reviewFeedbackSchema,
+  renderGradeMessage,
+  renderPartialGradeMessage,
   reviewGradeSchema,
   reviewPresentationSchema,
 } from "./agent-contracts";
@@ -194,7 +196,7 @@ const gradeShape = {
   testedDimensionIds: ["constraint-tradeoff"],
   learnerAnswer:
     "I would keep the original procedure because it is simpler and already proven.",
-  interactiveFeedback: true,
+  evidencesAllTargets: () => true,
 } as const;
 
 const weakDimensionResult = {
@@ -204,200 +206,212 @@ const weakDimensionResult = {
   missing: "A re-derivation from the changed constraint.",
 };
 
-describe("reviewGradeSchema cognitive scratchpad", () => {
-  it("accepts one concise private scratchpad and organized gap feedback", () => {
-    const result = reviewGradeSchema(gradeShape).safeParse({
-      assistantMessage: `**What held**
-Keeping the proven procedure protects simplicity while its safety conditions hold.
+const cleanDimensionResult = {
+  ...weakDimensionResult,
+  score: 96,
+  missing: null,
+};
 
-**Change**
-You assumed the new constraint does not change the controlling failure mode.
+const diagnosis = {
+  quote: "keep the original procedure because it is simpler",
+  hypothesis:
+    "I think you read the old procedure being proven as it still being safe.",
+  why: [
+    "The procedure was safe because the coolant held above 40 degrees.",
+    "The new line runs at 30 degrees, so that no longer holds.",
+    "Reusing the steps now skips the check that kept them safe.",
+  ],
+};
 
-**Use next time**
-Re-derive a heuristic when the constraint that made it safe changes. Which constraint must you inspect first?`,
-      errorCodes: ["missed-controlling-constraint"],
-      scratchpad:
-        "Optimized for simplicity. Assumed the old safety condition still holds. Cause: constraint blindness. JIT: re-derive when its controlling constraint changes.",
-      dimensionResults: [weakDimensionResult],
-    });
+const gappedGrade = {
+  closingMessage: null,
+  diagnosis,
+  causeType: "missed-limit" as const,
+  errorCodes: ["missed-controlling-constraint"],
+  scratchpad:
+    "Optimized for simplicity. Read proven as safe. Cause: the changed coolant limit was never taken into account.",
+  dimensionResults: [weakDimensionResult],
+};
 
-    expect(result.success).toBe(true);
+const cleanGrade = {
+  closingMessage:
+    "Right: you re-derived the procedure from the coolant limit instead of reusing it, which is what the changed line needed.",
+  diagnosis: null,
+  causeType: null,
+  errorCodes: [],
+  scratchpad:
+    "No material divergence: the learner re-derived from the controlling constraint.",
+  dimensionResults: [cleanDimensionResult],
+};
+
+describe("reviewGradeSchema", () => {
+  it("accepts a diagnosis written as fields", () => {
+    expect(reviewGradeSchema(gradeShape).safeParse(gappedGrade).success).toBe(
+      true,
+    );
   });
 
-  it("accepts selected-response evidence without requiring a verbatim quote", () => {
-    const result = reviewGradeSchema({
-      ...gradeShape,
-      learnerAnswer: "B",
-    }).safeParse({
-      assistantMessage: "Option B misses the changed constraint.",
-      errorCodes: ["missed-controlling-constraint"],
-      scratchpad: "The selected option applies the old constraint.",
-      dimensionResults: [
-        { ...weakDimensionResult, evidence: "The wording of option B" },
-      ],
-    });
-
-    expect(result.success).toBe(true);
+  it("accepts a clean grade that closes without a diagnosis", () => {
+    expect(reviewGradeSchema(gradeShape).safeParse(cleanGrade).success).toBe(
+      true,
+    );
   });
 
-  it("rejects an oversized cognitive scratchpad", () => {
+  it("requires a hypothesis the learner can push back on", () => {
     const result = reviewGradeSchema(gradeShape).safeParse({
-      assistantMessage:
-        "The old procedure protects simplicity, but the new constraint changes its safety condition. Which step becomes unsafe first?",
-      errorCodes: ["missed-controlling-constraint"],
-      scratchpad: "x".repeat(601),
-      dimensionResults: [weakDimensionResult],
+      ...gappedGrade,
+      diagnosis: {
+        ...diagnosis,
+        hypothesis:
+          "You conflated the proven procedure with a safe one, which is wrong.",
+      },
     });
 
     expect(result.success).toBe(false);
   });
 
-  it("accepts one-shot feedback without enforcing punctuation in the schema", () => {
-    const oneShotShape = { ...gradeShape, interactiveFeedback: false };
-    const result = reviewGradeSchema(oneShotShape).safeParse({
-      assistantMessage: `**What held**
-Keeping the proven procedure protects simplicity while its conditions hold.
-
-**Change**
-The changed constraint invalidates the old safety condition.
-
-**Use next time**
-Re-derive the move from the controlling constraint.`,
-      errorCodes: ["missed-controlling-constraint"],
-      scratchpad:
-        "The learner preserved simplicity but missed the changed safety condition.",
-      dimensionResults: [weakDimensionResult],
+  it("keeps every why line short enough to read in one pass", () => {
+    const result = reviewGradeSchema(gradeShape).safeParse({
+      ...gappedGrade,
+      diagnosis: { ...diagnosis, why: ["x".repeat(121), "A second line."] },
     });
-    expect(result.success).toBe(true);
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects a gap that names nothing", () => {
+    for (const missing of [
+      { diagnosis: null },
+      { causeType: null },
+      { errorCodes: [] },
+      { closingMessage: "Nice work." },
+    ]) {
+      expect(
+        reviewGradeSchema(gradeShape).safeParse({ ...gappedGrade, ...missing })
+          .success,
+      ).toBe(false);
+    }
+  });
+
+  it("rejects a flaw invented on a clean answer", () => {
+    for (const residue of [
+      { diagnosis },
+      { causeType: "wrong-rule" as const },
+      { errorCodes: ["stale-diagnosis"] },
+      { closingMessage: null },
+    ]) {
+      expect(
+        reviewGradeSchema(gradeShape).safeParse({ ...cleanGrade, ...residue })
+          .success,
+      ).toBe(false);
+    }
+  });
+
+  it("treats an unevidenced target as a gap, like the turn does", () => {
+    const shape = { ...gradeShape, evidencesAllTargets: () => false };
+
+    expect(reviewGradeSchema(shape).safeParse(cleanGrade).success).toBe(false);
     expect(
-      reviewGradeSchema(oneShotShape).safeParse({
-        ...(result.success ? result.data : {}),
-        assistantMessage: "Which constraint controls the move?",
+      reviewGradeSchema(shape).safeParse({
+        ...gappedGrade,
+        dimensionResults: [cleanDimensionResult],
       }).success,
     ).toBe(true);
   });
 
-  it("accepts learner-facing Markdown without policing section names", () => {
-    const result = reviewGradeSchema(gradeShape).safeParse({
-      assistantMessage:
-        "The Mirror: you chose simplicity. The Pivot: reconsider the constraint. The Crucible: which step changes?",
-      errorCodes: ["missed-controlling-constraint"],
-      scratchpad:
-        "Optimized for simplicity. Hidden assumption: the old safety condition still holds. JIT: re-derive the heuristic.",
-      dimensionResults: [weakDimensionResult],
-    });
-
-    expect(result.success).toBe(true);
+  it("rejects error codes that would key a second ledger row", () => {
+    expect(
+      reviewGradeSchema(gradeShape).safeParse({
+        ...gappedGrade,
+        errorCodes: ["Missed Controlling Constraint"],
+      }).success,
+    ).toBe(false);
   });
 
-  it("accepts concise clean feedback without repair sections", () => {
-    const result = reviewGradeSchema(gradeShape).safeParse({
-      assistantMessage:
-        "Exactly right: the changed constraint invalidates the old safety condition, so you re-derived the procedure at the correct fork.",
-      errorCodes: [],
-      scratchpad:
-        "No material divergence: the learner re-derived from the controlling constraint.",
-      dimensionResults: [
-        {
-          ...weakDimensionResult,
-          score: 96,
-          missing: null,
-        },
-      ],
-    });
-
-    expect(result.success).toBe(true);
+  it("rejects an oversized private scratchpad", () => {
+    expect(
+      reviewGradeSchema(gradeShape).safeParse({
+        ...gappedGrade,
+        scratchpad: "x".repeat(601),
+      }).success,
+    ).toBe(false);
   });
 
-  it("does not reject a valid clean grade because of its prose layout", () => {
-    const result = reviewGradeSchema(gradeShape).safeParse({
-      assistantMessage:
-        "**What held** Your reasoning was correct. **Change** Nothing. **Use next time** Keep going.",
-      errorCodes: [],
-      scratchpad:
-        "No material divergence: the learner re-derived from the controlling constraint.",
-      dimensionResults: [
-        {
-          ...weakDimensionResult,
-          score: 96,
-          missing: null,
-        },
-      ],
-    });
-
-    expect(result.success).toBe(true);
-  });
-
-  it("lets the workflow derive missing diagnostic codes from scores", () => {
-    const result = reviewGradeSchema(gradeShape).safeParse({
-      assistantMessage: `**What held**
-The familiar procedure protects simplicity.
-
-**Change**
-The changed constraint invalidates its safety condition.
-
-**Use next time**
-Re-derive the move from the controlling constraint.`,
-      errorCodes: [],
-      scratchpad:
-        "The learner preserved simplicity but missed the changed safety condition.",
-      dimensionResults: [{ ...weakDimensionResult, missing: null }],
-    });
-
-    expect(result.success).toBe(true);
-  });
-
-  it("lets the workflow discard diagnostic residue on a clean answer", () => {
-    const result = reviewGradeSchema(gradeShape).safeParse({
-      assistantMessage:
-        "Exactly right: the changed constraint invalidates the old safety condition.",
-      errorCodes: ["stale-diagnosis"],
-      scratchpad:
-        "No material divergence: the learner re-derived from the controlling constraint.",
-      dimensionResults: [{ ...weakDimensionResult, score: 96, missing: null }],
-    });
-
-    expect(result.success).toBe(true);
+  it("never lets private authoring data reach the learner", () => {
+    expect(
+      reviewGradeSchema(gradeShape).safeParse({
+        ...cleanGrade,
+        closingMessage: "Right: the verifier.answer confirms option B.",
+      }).success,
+    ).toBe(false);
   });
 });
 
-describe("reviewFeedbackSchema", () => {
-  it("keeps feedback state independent of prose punctuation", () => {
-    expect(
-      reviewFeedbackSchema(1).safeParse({
-        assistantMessage:
-          "The old procedure still controls your answer. Which changed limit makes it unsafe?",
-        feedbackComplete: false,
-        scratchpad: "The learner still relies on the old procedure.",
-      }).success,
-    ).toBe(true);
-    expect(
-      reviewFeedbackSchema(1).safeParse({
-        assistantMessage: "The old procedure still controls your answer.",
-        feedbackComplete: false,
-        scratchpad: "The learner still relies on the old procedure.",
-      }).success,
-    ).toBe(true);
+describe("renderGradeMessage", () => {
+  it("lays the diagnosis out so the critic never chooses a shape", () => {
+    expect(renderGradeMessage(gappedGrade)).toBe(
+      `> keep the original procedure because it is simpler
+
+I think you read the old procedure being proven as it still being safe.
+
+The procedure was safe because the coolant held above 40 degrees.
+
+The new line runs at 30 degrees, so that no longer holds.
+
+Reusing the steps now skips the check that kept them safe.`,
+    );
   });
 
-  it("forces the third feedback answer closed as a state invariant", () => {
-    const result = reviewFeedbackSchema(3).safeParse({
-      assistantMessage: "Which changed limit controls the move?",
-      feedbackComplete: false,
-      scratchpad: "The gap remains after the third answer.",
+  it("shows the closing message on its own when there is no gap", () => {
+    expect(renderGradeMessage(cleanGrade)).toBe(cleanGrade.closingMessage);
+  });
+});
+
+describe("renderPartialGradeMessage", () => {
+  it("streams the diagnosis as its fields arrive", () => {
+    expect(renderPartialGradeMessage({})).toBeUndefined();
+    expect(
+      renderPartialGradeMessage({ diagnosis: { quote: "keep the orig" } }),
+    ).toBe("> keep the orig");
+    expect(
+      renderPartialGradeMessage({
+        diagnosis: { ...diagnosis, why: [diagnosis.why[0]] },
+      }),
+    ).toBe(
+      `> keep the original procedure because it is simpler
+
+I think you read the old procedure being proven as it still being safe.
+
+The procedure was safe because the coolant held above 40 degrees.`,
+    );
+  });
+
+  it("streams a clean answer's closing message", () => {
+    expect(renderPartialGradeMessage({ closingMessage: "Right: you re" })).toBe(
+      "Right: you re",
+    );
+  });
+});
+
+describe("getGradePresentationIssue", () => {
+  it("passes a diagnosis written in concrete words", () => {
+    expect(getGradePresentationIssue(gappedGrade)).toBeNull();
+  });
+
+  it("asks again when the learner would have to translate first", () => {
+    const issue = getGradePresentationIssue({
+      ...gappedGrade,
+      diagnosis: {
+        ...diagnosis,
+        why: [
+          "Your assumption about the heuristic does not hold.",
+          "The second criterion is unmet.",
+        ],
+      },
     });
 
-    expect(result).toMatchObject({
-      success: true,
-      data: { feedbackComplete: true },
-    });
-    expect(
-      reviewFeedbackSchema(3).safeParse({
-        assistantMessage:
-          "Focus on the changed limit before reusing the familiar procedure.",
-        feedbackComplete: true,
-        scratchpad: "Close at the bounded feedback limit.",
-      }).success,
-    ).toBe(true);
+    expect(issue).toContain("assumption");
+    expect(issue).toContain("heuristic");
+    expect(issue).toContain("criterion");
   });
 });

@@ -78,6 +78,36 @@ const teachingHandoff = {
   preparedScenario: scenario,
 };
 
+const gappedGrade = (
+  causeType:
+    | "wrong-rule"
+    | "missed-limit"
+    | "never-learned-it" = "missed-limit",
+) => ({
+  closingMessage: null,
+  diagnosis: {
+    quote: "I use the old move",
+    hypothesis:
+      "I think you read the old move working before as it working here.",
+    why: [
+      "The old move was safe because the line ran above 40 degrees.",
+      "This line runs at 30 degrees, so that no longer holds.",
+    ],
+  },
+  causeType,
+  errorCodes: ["constraint-blindness"],
+  scratchpad:
+    "The learner reused a move without re-deriving from the changed limit.",
+  dimensionResults: [
+    {
+      dimensionId: "derive-under-pressure",
+      score: 55,
+      evidence: "old move",
+      missing: "A move derived from the changed constraint.",
+    },
+  ],
+});
+
 const deps = (
   overrides: Partial<UnitTurnDependencies> = {},
 ): UnitTurnDependencies => ({
@@ -93,33 +123,7 @@ const deps = (
         verifier,
       },
     }),
-  runReviewGrade: () =>
-    Effect.succeed({
-      object: {
-        assistantMessage:
-          "You protected the familiar procedure, but the changed limit makes it unsafe. Which limit must control the move?",
-        errorCodes: ["constraint_blindness"],
-        scratchpad:
-          "The learner reused a move without re-deriving from the changed limit.",
-        dimensionResults: [
-          {
-            dimensionId: "derive-under-pressure",
-            score: 55,
-            evidence: "old move",
-            missing: "A move derived from the changed constraint.",
-          },
-        ],
-      },
-    }),
-  runReviewFeedback: () =>
-    Effect.succeed({
-      object: {
-        assistantMessage:
-          "Yes. The changed limit must control the move, even when the old procedure is familiar.",
-        feedbackComplete: true,
-        scratchpad: "The learner now identified the controlling constraint.",
-      },
-    }),
+  runReviewGrade: () => Effect.succeed({ object: gappedGrade() }),
   ...overrides,
 });
 
@@ -206,24 +210,13 @@ describe("runUnitTurn mentor and critique boundaries", () => {
     expect(result.assistantMessage).toContain(scenario.assistantMessage);
   });
 
-  it("keeps critique on grading and feedback, then uses mentor for Pass 2", async () => {
+  it("settles a failed scenario straight to the next pass, with no chat round", async () => {
     const firstScenario = await openFirstScenario();
     const graded = await Effect.runPromise(
       runUnitTurn(
         {
           ...input(firstScenario.nextRun),
           transcript: [{ role: "user", content: "I use the old move." }],
-        },
-        deps(),
-      ),
-    );
-    const feedback = await Effect.runPromise(
-      runUnitTurn(
-        {
-          ...input(graded.nextRun),
-          transcript: [
-            { role: "user", content: "The changed limit controls it." },
-          ],
         },
         deps(),
       ),
@@ -248,8 +241,9 @@ describe("runUnitTurn mentor and critique boundaries", () => {
     const secondScenario = await Effect.runPromise(
       runPassAdvanceTurn(
         {
-          run: feedback.nextRun,
-          interactionId: feedback.nextRun.cursor.interactionId,
+          run: graded.nextRun,
+          interactionId: graded.nextRun.cursor.interactionId,
+          transcript: [],
           experience: DEFAULT_EDUCATION_EXPERIENCE,
           contexts,
           onPartialAssistantMessage,
@@ -259,10 +253,20 @@ describe("runUnitTurn mentor and critique boundaries", () => {
     );
 
     expect(graded.ratingWrite).toBeNull();
-    expect(feedback.nextRun.cursor.step).toMatchObject({
+    expect(graded.nextRun.cursor.step).toMatchObject({
       kind: "pass_result",
       outcome: "fail",
+      causeType: "missed-limit",
     });
+    expect(graded.assistantMessage).toBe(
+      `> I use the old move
+
+I think you read the old move working before as it working here.
+
+The old move was safe because the line ran above 40 degrees.
+
+This line runs at 30 degrees, so that no longer holds.`,
+    );
     expect(runMentorScenario).toHaveBeenCalledWith(
       expect.objectContaining({
         pass: 2,
@@ -285,12 +289,56 @@ describe("runUnitTurn mentor and critique boundaries", () => {
     });
   });
 
-  it("skips feedback after a correct scenario and completes on a correct Pass 2", async () => {
+  it("re-teaches instead of retesting when the idea was never taught", async () => {
+    const runMentorTeaching = vi.fn(deps().runMentorTeaching);
+    const runMentorScenario = vi.fn(deps().runMentorScenario);
+    const firstScenario = await openFirstScenario();
+    const graded = await Effect.runPromise(
+      runUnitTurn(
+        {
+          ...input(firstScenario.nextRun),
+          transcript: [{ role: "user", content: "I use the old move." }],
+        },
+        deps({
+          runReviewGrade: () =>
+            Effect.succeed({ object: gappedGrade("never-learned-it") }),
+        }),
+      ),
+    );
+    const advanced = await Effect.runPromise(
+      runPassAdvanceTurn(
+        {
+          run: graded.nextRun,
+          interactionId: graded.nextRun.cursor.interactionId,
+          transcript: [],
+          experience: DEFAULT_EDUCATION_EXPERIENCE,
+          contexts,
+        },
+        deps({ runMentorTeaching, runMentorScenario }),
+      ),
+    );
+
+    expect(runMentorTeaching).toHaveBeenCalledWith(
+      expect.objectContaining({ createScenario: true }),
+    );
+    expect(runMentorScenario).not.toHaveBeenCalled();
+    expect(advanced.assistantMessage).toContain(
+      teachingHandoff.assistantMessage,
+    );
+    expect(advanced.nextRun.cursor.step).toMatchObject({
+      kind: "scenario",
+      attempt: 2,
+    });
+  });
+
+  it("completes on a correct Pass 2", async () => {
     const cleanGrade = () =>
       Effect.succeed({
         object: {
-          assistantMessage:
+          closingMessage:
             "Exactly right: the changed constraint controls the safe move.",
+          diagnosis: null,
+          causeType: null,
           errorCodes: [],
           scratchpad: "No material divergence.",
           dimensionResults: [
@@ -303,7 +351,6 @@ describe("runUnitTurn mentor and critique boundaries", () => {
           ],
         },
       });
-    const runReviewFeedback = vi.fn(deps().runReviewFeedback);
     const firstScenario = await openFirstScenario();
     const firstResult = await Effect.runPromise(
       runUnitTurn(
@@ -313,7 +360,7 @@ describe("runUnitTurn mentor and critique boundaries", () => {
             { role: "user", content: "The changed constraint controls it." },
           ],
         },
-        deps({ runReviewGrade: cleanGrade, runReviewFeedback }),
+        deps({ runReviewGrade: cleanGrade }),
       ),
     );
     expect(firstResult.nextRun.cursor.step).toMatchObject({
@@ -321,13 +368,13 @@ describe("runUnitTurn mentor and critique boundaries", () => {
       attempt: 1,
       outcome: "pass",
     });
-    expect(runReviewFeedback).not.toHaveBeenCalled();
 
     const secondScenario = await Effect.runPromise(
       runPassAdvanceTurn(
         {
           run: firstResult.nextRun,
           interactionId: firstResult.nextRun.cursor.interactionId,
+          transcript: [],
           experience: DEFAULT_EDUCATION_EXPERIENCE,
           contexts,
         },

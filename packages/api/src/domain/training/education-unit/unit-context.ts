@@ -92,16 +92,49 @@ const challengeSurfaceSummary = (prompt: string): string =>
     .find((part) => part.trim().length > 0)
     ?.trim() ?? prompt.trim();
 
+/**
+ * What the last failed scenario found. The mentor reads it so a re-teach
+ * covers the one idea the learner is missing rather than the whole unit
+ * again, and so a repair scenario is built to break that exact idea rather
+ * than the label filed next to it.
+ */
+export interface UnitRepairTarget {
+  readonly errorCodes: readonly string[];
+  readonly hypothesis: string | null;
+  readonly dimensionResults: readonly EvaluationDimensionResult[];
+}
+
+const repairSection = (repair: UnitRepairTarget | null): string | null => {
+  if (!repair) return null;
+  const weak = repair.dimensionResults.filter((result) => result.score < 70);
+  return joinSections([
+    "## Repair target",
+    repair.hypothesis
+      ? `The learner was just told: "${repair.hypothesis}"`
+      : null,
+    repair.errorCodes.length > 0
+      ? `Prior error codes: ${repair.errorCodes.join(", ")}`
+      : null,
+    weak.length > 0
+      ? `Weak criteria:\n${bulletList(
+          weak.map((result) => `${result.dimensionId}: ${result.missing}`),
+        )}`
+      : null,
+  ]);
+};
+
 export const createMentorContext = ({
   unitContext,
   difficulty,
   memories,
   focus,
+  repair = null,
 }: {
   unitContext: UnitContext;
   difficulty: UnitDifficultySnapshot;
   memories: readonly Memory[];
   focus: UnitAgentFocus;
+  repair?: UnitRepairTarget | null;
 }): string =>
   joinSections([
     targetSection(unitContext),
@@ -110,6 +143,7 @@ export const createMentorContext = ({
     testingSection(unitContext),
     judgmentSection(unitContext),
     goldilocksSection(difficulty),
+    repairSection(repair),
     memories.length > 0
       ? `## Learner memory\n${bulletList(memories.map((memory) => memory.content))}`
       : null,
@@ -127,10 +161,7 @@ export const createMentorScenarioContext = ({
   difficulty: UnitDifficultySnapshot;
   focus: UnitAgentFocus;
   previousChallengePrompts?: readonly string[];
-  repair?: {
-    errorCodes: readonly string[];
-    dimensionResults: readonly EvaluationDimensionResult[];
-  } | null;
+  repair?: UnitRepairTarget | null;
 }): string =>
   joinSections([
     targetSection(unitContext),
@@ -140,13 +171,7 @@ export const createMentorScenarioContext = ({
     previousChallengePrompts.length > 0
       ? `## Previously used challenge surfaces\nCreate a genuinely fresh surface; do not repeat these prompts:\n${bulletList(previousChallengePrompts.map(challengeSurfaceSummary))}`
       : null,
-    repair
-      ? `## Repair target\nPrior error codes: ${repair.errorCodes.join(", ")}\nWeak dimensions:\n${bulletList(
-          repair.dimensionResults
-            .filter((result) => result.score < 70)
-            .map((result) => `${result.dimensionId}: ${result.missing}`),
-        )}`
-      : null,
+    repairSection(repair),
     focusSection(focus),
   ]);
 

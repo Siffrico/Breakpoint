@@ -61,8 +61,9 @@ describe("runReviewGradeAgent", () => {
         shape: {
           testedDimensionIds: ["criterion-1"],
           learnerAnswer: "I would choose B because...",
-          interactiveFeedback: true,
+          evidencesAllTargets: () => true,
         },
+        priorErrorCodes: ["constraint-blindness"],
       }),
     );
 
@@ -74,5 +75,6 @@ describe("runReviewGradeAgent", () => {
     );
     expect(call?.context).toContain('"answer":"B"');
     expect(call?.context).toContain("B follows the changed constraint");
+    expect(call?.context).toContain("constraint-blindness");
   });
 });

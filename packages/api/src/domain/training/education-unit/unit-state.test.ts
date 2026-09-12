@@ -9,8 +9,6 @@ import { makeUnitContext } from "./unit-context.fixture";
 import {
   assertInteractionId,
   attachPreparedScenario,
-  completeFeedback,
-  continueFeedback,
   createUnitRun,
   isRatingEligibleScenario,
   presentScenario,
@@ -109,11 +107,14 @@ describe("unit cursor", () => {
     const scenario = await Effect.runPromise(
       presentScenario({ run: makeRun(), challenge }),
     );
-    const feedback = await Effect.runPromise(
+    const failed = await Effect.runPromise(
       settleScenario({
         run: scenario,
         passed: false,
-        errorCodes: ["constraint_blindness"],
+        errorCodes: ["constraint-blindness"],
+        causeType: "missed-limit",
+        hypothesis:
+          "I think you read the old move working before as it working here.",
         dimensionResults: [
           {
             dimensionId: "derive-under-pressure",
@@ -125,13 +126,16 @@ describe("unit cursor", () => {
         evidencedTargetIds: [],
       }),
     );
-    expect(feedback.cursor.step).toMatchObject({
-      kind: "feedback",
+    expect(failed.cursor.step).toMatchObject({
+      kind: "pass_result",
       attempt: 1,
-      promptRound: 1,
-      errorCodes: ["constraint_blindness"],
+      outcome: "fail",
+      errorCodes: ["constraint-blindness"],
+      causeType: "missed-limit",
+      evidence: [{ score: 55 }],
     });
-    expect(feedback.mode).toBe("review");
+    expect(failed.cursor.errorCodeHistory).toEqual(["constraint-blindness"]);
+    expect(failed.mode).toBe("awaiting_next_pass");
   });
 
   it("settles a correct first scenario without opening feedback", async () => {
@@ -143,6 +147,8 @@ describe("unit cursor", () => {
         run: scenario,
         passed: true,
         errorCodes: [],
+        causeType: null,
+        hypothesis: null,
         dimensionResults: [
           {
             dimensionId: "derive-under-pressure",
@@ -172,6 +178,8 @@ describe("unit cursor", () => {
         run: firstScenario,
         passed: true,
         errorCodes: [],
+        causeType: null,
+        hypothesis: null,
         dimensionResults: [
           {
             dimensionId: "derive-under-pressure",
@@ -193,6 +201,8 @@ describe("unit cursor", () => {
         run: secondScenario,
         passed: true,
         errorCodes: [],
+        causeType: null,
+        hypothesis: null,
         dimensionResults: [
           {
             dimensionId: "derive-under-pressure",
@@ -224,15 +234,18 @@ describe("unit cursor", () => {
     expect(isRatingEligibleScenario(scenario)).toBe(true);
   });
 
-  it("keeps the failed scenario grade immutable through at most three feedback answers", async () => {
+  it("carries the diagnosis into the failed pass so the next scenario can aim at it", async () => {
     const scenario = await Effect.runPromise(
       presentScenario({ run: makeRun(), challenge }),
     );
-    const feedback = await Effect.runPromise(
+    const failed = await Effect.runPromise(
       settleScenario({
         run: scenario,
         passed: false,
-        errorCodes: ["constraint_blindness"],
+        errorCodes: ["constraint-blindness"],
+        causeType: "never-learned-it",
+        hypothesis:
+          "I think you read the old move working before as it working here.",
         dimensionResults: [
           {
             dimensionId: "derive-under-pressure",
@@ -244,28 +257,42 @@ describe("unit cursor", () => {
         evidencedTargetIds: [],
       }),
     );
-    const secondPrompt = await Effect.runPromise(continueFeedback(feedback));
-    const thirdPrompt = await Effect.runPromise(continueFeedback(secondPrompt));
-    const fourthPrompt = await Effect.runPromiseExit(
-      continueFeedback(thirdPrompt),
-    );
-    expect(thirdPrompt.cursor.step).toMatchObject({
-      kind: "feedback",
-      promptRound: 3,
-      errorCodes: ["constraint_blindness"],
-      dimensionResults: [{ score: 55 }],
-    });
-    expect(Exit.isFailure(fourthPrompt)).toBe(true);
-
-    const settled = await Effect.runPromise(completeFeedback(thirdPrompt));
-    expect(settled.cursor.step).toMatchObject({
+    expect(failed.cursor.step).toMatchObject({
       kind: "pass_result",
-      attempt: 1,
       outcome: "fail",
-      errorCodes: ["constraint_blindness"],
-      evidence: [{ score: 55 }],
+      causeType: "never-learned-it",
+      hypothesis:
+        "I think you read the old move working before as it working here.",
     });
-    expect(settled.mode).toBe("awaiting_next_pass");
+  });
+
+  it("keeps one code for a mistake the learner repeats", async () => {
+    let run = await Effect.runPromise(
+      presentScenario({ run: makeRun(), challenge }),
+    );
+    const fail = (target: typeof run) =>
+      settleScenario({
+        run: target,
+        passed: false,
+        errorCodes: ["constraint-blindness"],
+        causeType: "missed-limit",
+        hypothesis:
+          "I think you read the old move working before as it working here.",
+        dimensionResults: [
+          {
+            dimensionId: "derive-under-pressure",
+            score: 55,
+            evidence: "repeat the old move",
+            missing: "A derivation from the changed constraint.",
+          },
+        ],
+        evidencedTargetIds: [],
+      });
+    run = await Effect.runPromise(fail(run));
+    run = await Effect.runPromise(presentScenario({ run, challenge }));
+    run = await Effect.runPromise(fail(run));
+
+    expect(run.cursor.errorCodeHistory).toEqual(["constraint-blindness"]);
   });
 
   it("refuses a passing completion without evidence for every target", async () => {
@@ -277,6 +304,8 @@ describe("unit cursor", () => {
         run: scenario,
         passed: true,
         errorCodes: [],
+        causeType: null,
+        hypothesis: null,
         dimensionResults: [
           {
             dimensionId: "derive-under-pressure",
@@ -300,6 +329,8 @@ describe("unit cursor", () => {
         run: scenario,
         passed: false,
         errorCodes: [],
+        causeType: null,
+        hypothesis: null,
         dimensionResults: [],
         evidencedTargetIds: [],
       }),

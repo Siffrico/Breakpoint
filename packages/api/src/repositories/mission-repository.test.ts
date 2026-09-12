@@ -290,6 +290,7 @@ const seedUnitRun = async ({
       cursorJson: {
         interactionId: randomUUID(),
         scenarioPrompts: [],
+        errorCodeHistory: [],
         step:
           mode === "complete"
             ? {
