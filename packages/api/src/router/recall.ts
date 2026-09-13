@@ -7,7 +7,10 @@ import { RecallTaskActionInputSchema } from "@acme/validators";
 import { deferRecallWorkflow } from "../domain/training/recall/workflows/defer-recall";
 import { getRecallOfferWorkflow } from "../domain/training/recall/workflows/get-recall-offer";
 import { pauseRecallWorkflow } from "../domain/training/recall/workflows/pause-recall";
-import { prepareRecallWorkflow } from "../domain/training/recall/workflows/prepare-recall";
+import {
+  prepareRecallWorkflow,
+  prepareReservedRecallWorkflow,
+} from "../domain/training/recall/workflows/prepare-recall";
 import { startRecallWorkflow } from "../domain/training/recall/workflows/start-recall";
 import { trainingCurriculumRepository } from "../repositories/training-curriculum-repository";
 import { protectedProcedure } from "../trpc";
@@ -53,7 +56,7 @@ export const recallRouter = {
         input.sessionId,
         userId,
       );
-      return runRecall(
+      const { offer, reservation } = await runRecall(
         ctx.db,
         getRecallOfferWorkflow({
           userId,
@@ -62,6 +65,21 @@ export const recallRouter = {
           boundaryNodeId: input.boundaryNodeId,
         }),
       );
+      if (reservation) {
+        const prepare = () =>
+          runRecall(ctx.db, prepareReservedRecallWorkflow(reservation))
+            .then(() => undefined)
+            .catch((error: unknown) => {
+              console.error("Recall preparation failed", {
+                sessionId: input.sessionId,
+                planId: plan.id,
+                error,
+              });
+            });
+        if (ctx.scheduleBackgroundTask) ctx.scheduleBackgroundTask(prepare);
+        else void prepare();
+      }
+      return offer;
     }),
 
   prepare: protectedProcedure

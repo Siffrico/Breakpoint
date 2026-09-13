@@ -65,7 +65,7 @@ export interface RecallRepoShape {
     scenario: RecallScenario;
     interactionId: string;
   }) => Effect.Effect<boolean, DbError>;
-  readonly getOfferableTask: (input: {
+  readonly getActiveTask: (input: {
     userId: string;
     sessionId: string;
     planId: string;

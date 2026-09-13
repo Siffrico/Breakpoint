@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { RecallRepoShape, RecallTaskRecord } from "../recall-repo";
 import { RecallRepo } from "../recall-repo";
+import { getRecallOfferWorkflow } from "./get-recall-offer";
 import { prepareRecallWorkflow } from "./prepare-recall";
 
 const generation = vi.hoisted(() => vi.fn());
@@ -31,7 +32,11 @@ const task: RecallTaskRecord = {
   pausedAt: null,
 };
 
-const makeRepo = (reserved: boolean, saveResult = true) => {
+const makeRepo = (
+  reserved: boolean,
+  saveResult = true,
+  activeTask: RecallTaskRecord | null = null,
+) => {
   const savePreparedScenario = vi.fn(() => Effect.succeed(saveResult));
   const repo: RecallRepoShape = {
     reserveDueTask: () =>
@@ -45,7 +50,7 @@ const makeRepo = (reserved: boolean, saveResult = true) => {
           : null,
       ),
     savePreparedScenario,
-    getOfferableTask: () => Effect.succeed(null),
+    getActiveTask: () => Effect.succeed(activeTask),
     startTask: () => Effect.succeed(task),
     pauseTask: () => Effect.succeed(task),
     deferTask: () => Effect.succeed(task),
@@ -64,6 +69,19 @@ const run = (repo: RecallRepoShape) =>
       planId: task.planId,
       now: new Date("2026-09-12T12:00:00.000Z"),
     }).pipe(Effect.provideService(RecallRepo, repo)),
+  );
+
+const getOffer = (repo: RecallRepoShape) =>
+  Effect.runPromise(
+    getRecallOfferWorkflow({
+      userId: task.userId,
+      sessionId: task.sessionId,
+      planId: task.planId,
+      boundaryNodeId: null,
+    }).pipe(
+      Effect.map((result) => result.offer),
+      Effect.provideService(RecallRepo, repo),
+    ),
   );
 
 describe("prepare recall", () => {
@@ -110,5 +128,35 @@ describe("prepare recall", () => {
     );
     const state = makeRepo(true, false);
     await expect(run(state.repo)).resolves.toEqual({ status: "lease_lost" });
+  });
+});
+
+describe("recall availability", () => {
+  it("distinguishes no recall from a recall being prepared", async () => {
+    await expect(getOffer(makeRepo(false).repo)).resolves.toEqual({
+      status: "none",
+    });
+    await expect(getOffer(makeRepo(false, true, task).repo)).resolves.toEqual({
+      status: "preparing",
+    });
+  });
+
+  it("returns the task only after preparation", async () => {
+    const readyTask: RecallTaskRecord = {
+      ...task,
+      state: "ready",
+      scenario: {
+        challenge: "Resolve the interrupted write.",
+        verifier: {
+          idealReasoning: "Commit atomically.",
+          disqualifyingErrors: [],
+        },
+      },
+      interactionId: "60000000-0000-4000-8000-000000000002",
+      currentQuestion: "Resolve the interrupted write.",
+    };
+    await expect(
+      getOffer(makeRepo(false, true, readyTask).repo),
+    ).resolves.toMatchObject({ status: "ready", task: { id: task.id } });
   });
 });

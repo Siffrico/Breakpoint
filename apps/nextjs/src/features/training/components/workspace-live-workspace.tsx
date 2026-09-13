@@ -17,7 +17,10 @@ import type {
 import { PreparingPanel } from "./preparing-panel";
 import { RecallWorkspace } from "./recall-workspace";
 
-type RecallTask = NonNullable<RouterOutputs["recall"]["offer"]>;
+type RecallTask = Extract<
+  RouterOutputs["recall"]["offer"],
+  { status: "ready" }
+>["task"];
 
 const EducationUnitWorkspace = dynamic(() =>
   import("./education-unit/education-unit-workspace").then(

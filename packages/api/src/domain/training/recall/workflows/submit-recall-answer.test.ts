@@ -62,7 +62,7 @@ const makeRepo = (claimedTask: RecallTaskRecord = task) => {
   const repo: RecallRepoShape = {
     reserveDueTask: () => Effect.succeed(null),
     savePreparedScenario: () => Effect.succeed(false),
-    getOfferableTask: () => Effect.succeed(null),
+    getActiveTask: () => Effect.succeed(null),
     startTask: () => Effect.succeed(task),
     pauseTask: () => Effect.succeed(task),
     deferTask: () => Effect.succeed(task),

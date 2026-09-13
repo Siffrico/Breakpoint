@@ -324,15 +324,14 @@ export const RecallRepoLive = Layer.effect(
           return Boolean(saved);
         }),
 
-      getOfferableTask: ({ userId, sessionId, planId, boundaryNodeId }) =>
-        query("getOfferableRecallTask", async (database) => {
+      getActiveTask: ({ userId, sessionId, planId, boundaryNodeId }) =>
+        query("getActiveRecallTask", async (database) => {
           const task = await database.query.TrainingRecallTask.findFirst({
             where: and(
               eq(TrainingRecallTask.userId, userId),
                 activePlanForTask,
               eq(TrainingRecallTask.sessionId, sessionId),
               eq(TrainingRecallTask.planId, planId),
-              ne(TrainingRecallTask.state, "preparing"),
               ne(TrainingRecallTask.state, "complete"),
               boundaryNodeId
                 ? or(

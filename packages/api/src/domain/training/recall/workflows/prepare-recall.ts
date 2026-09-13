@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Effect } from "effect";
 
+import type { ReservedRecallTask } from "../recall-repo";
 import { generateRecallScenario } from "../model";
 import { RecallRepo } from "../recall-repo";
 
@@ -18,6 +19,12 @@ export const prepareRecallWorkflow = (input: {
     });
     if (!reserved) return { status: "not_needed" as const };
 
+    return yield* prepareReservedRecallWorkflow(reserved);
+  });
+
+export const prepareReservedRecallWorkflow = (reserved: ReservedRecallTask) =>
+  Effect.gen(function* () {
+    const repo = yield* RecallRepo;
     const scenario = yield* generateRecallScenario({
       snapshot: reserved.task.knowledgeSnapshot,
       previousChallenges: reserved.previousChallenges,

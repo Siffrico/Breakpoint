@@ -27,7 +27,10 @@ import { ScenarioPeek, useScenarioPeek } from "./education-unit/scenario-peek";
 import { SelectionAskCoach } from "./education-unit/selection-ask-coach";
 import { WorkspaceComposerInput } from "./education-unit/workspace-composer-input";
 
-type RecallTask = NonNullable<RouterOutputs["recall"]["offer"]>;
+type RecallTask = Extract<
+  RouterOutputs["recall"]["offer"],
+  { status: "ready" }
+>["task"];
 
 interface VisibleExchange {
   answer: string;
@@ -100,7 +103,7 @@ export function RecallWorkspace({
   const queryClient = useQueryClient();
   const offerKey = trpc.recall.offer.queryKey({ sessionId, boundaryNodeId });
   const leaveRecall = async () => {
-    queryClient.setQueryData(offerKey, null);
+    queryClient.setQueryData(offerKey, { status: "none" });
     await Promise.all([
       queryClient.invalidateQueries({
         queryKey: offerKey,
@@ -208,7 +211,10 @@ export function RecallWorkspace({
       onSuccess: (resumedTask) => {
         setTask(resumedTask);
         setExchanges(savedExchanges(resumedTask));
-        queryClient.setQueryData(offerKey, resumedTask);
+        queryClient.setQueryData(offerKey, {
+          status: "ready",
+          task: resumedTask,
+        });
       },
     }),
   );

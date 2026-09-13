@@ -292,6 +292,8 @@ export function useWorkspaceSession({
         staleTime: 0,
         refetchOnWindowFocus: false,
         retry: false,
+        refetchInterval: (query) =>
+          query.state.data?.status === "preparing" ? 3_000 : false,
       },
     ),
   );
@@ -319,7 +321,10 @@ export function useWorkspaceSession({
     workspaceLoadError,
     retryWorkspaceLoad,
     recallBoundaryNodeId,
-    recallTask: canOfferRecall ? recallOfferQuery.data ?? null : null,
+    recallTask:
+      canOfferRecall && recallOfferQuery.data?.status === "ready"
+        ? recallOfferQuery.data.task
+        : null,
     workspaceShellQuery,
   };
 }
