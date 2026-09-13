@@ -12,7 +12,6 @@ import { EducationExperienceCustomizationSchema } from "@acme/validators";
 
 import type { PersistedUnitRun } from "../domain/training/education-unit/unit-state";
 import type { JobRatingState } from "../domain/training/engine/rating";
-import type { RecallCandidate } from "../domain/training/policies/recall-decay";
 import type { DifficultyBand } from "../domain/training/types/training.types";
 import type { WorkspaceAiMessage } from "../domain/training/workspace-ai/types";
 import type { WorkspaceTurnOrchestrationDependencies } from "../domain/training/workspace-ai/workspace-turn-orchestration";
@@ -451,15 +450,6 @@ const commitEducationTurn = async ({
       });
     }
 
-    if (input.knowledgeReinforcement) {
-      await skillKnowledgeRepository.applyReinforcement({
-        db: txDb,
-        knowledgeIds: input.knowledgeReinforcement.knowledgeIds,
-        passed: input.knowledgeReinforcement.passed,
-        occurredAt: new Date(),
-      });
-    }
-
     if (input.skillPractice) {
       await skillKnowledgeRepository.incrementSkillPractice({
         db: txDb,
@@ -596,45 +586,8 @@ export const createWorkspaceTurnRepositoryDeps = (
       }),
     savePendingChallenge: (input) =>
       trainingUnitRunRepository.setPendingChallenge({ db, ...input }),
-    getInFlightRecallRun: (sessionId: string) =>
-      trainingUnitRunRepository.getInFlightRecallRun({ db, sessionId }),
-    retireInFlightRecallRun: (sessionId: string, unitContentId: string) =>
-      trainingUnitRunRepository.retireInFlightRecallRun({
-        db,
-        sessionId,
-        unitContentId,
-      }),
     getUnitByNodeId: (nodeId: string) =>
       trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),
-    getRecallCandidatesByIds: (
-      planId: string,
-      knowledgeIds: readonly string[],
-    ) =>
-      skillKnowledgeRepository.getRecallCandidatesByIds({
-        db,
-        planId,
-        knowledgeIds,
-      }),
-    getMostOverdueRecallCandidate: (planId: string, now: Date) =>
-      skillKnowledgeRepository.getMostOverdueRecallCandidate({
-        db,
-        planId,
-        now,
-      }),
-    getRecallCompanionCandidate: (
-      skillNodeId: string,
-      primary: Pick<
-        RecallCandidate,
-        "id" | "questionId" | "questionOrderIndex" | "orderIndex"
-      >,
-      now: Date,
-    ) =>
-      skillKnowledgeRepository.getRecallCompanionCandidate({
-        db,
-        skillNodeId,
-        primary,
-        now,
-      }),
     markWorkspaceTurnFailed: (input) =>
       markWorkspaceTurnFailed({ db, ...input }),
     listMemories: async (userId: string) => {

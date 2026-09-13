@@ -4,6 +4,7 @@ import type { DatabaseClient } from "./db";
 import { MissionRepoLive } from "../repositories/mission-repository";
 import { PerformanceRepoLive } from "../repositories/performance-repository";
 import { ProfileRepoLive } from "../repositories/profile-repository";
+import { RecallRepoLive } from "../repositories/recall-repository";
 import { Db } from "./db";
 
 /** Compose the profile adapter with the current request or transaction client. */
@@ -16,3 +17,6 @@ export const missionLayer = (client: DatabaseClient) =>
 
 export const performanceLayer = (client: DatabaseClient) =>
   PerformanceRepoLive.pipe(Layer.provide(Layer.succeed(Db, { client })));
+
+export const recallLayer = (client: DatabaseClient) =>
+  RecallRepoLive.pipe(Layer.provide(Layer.succeed(Db, { client })));

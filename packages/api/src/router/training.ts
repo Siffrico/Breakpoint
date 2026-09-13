@@ -10,6 +10,7 @@ import {
 } from "@acme/validators";
 
 import { getMissionStatusWorkflow } from "../domain/training/missions/workflows/get-mission-status";
+import { prepareRecallWorkflow } from "../domain/training/recall/workflows/prepare-recall";
 import { createNextUnit } from "../domain/training/unit-creation/create-next-unit";
 import { ADVANCE_COMPLETED_UNIT_LOCK_KEY } from "../domain/training/unit-creation/pregenerate-next-unit";
 import { advanceCompletedUnitWorkflow } from "../domain/training/workflows/advance-completed-unit-workflow";
@@ -43,7 +44,7 @@ import {
 import { createUnitPreparationRepositoryDeps } from "../repositories/unit-preparation-repository-deps";
 import { createWorkspaceTurnRepositoryDeps } from "../repositories/workspace-turn-repository-deps";
 import { protectedProcedure } from "../trpc";
-import { runEffect, runMission } from "./run-effect";
+import { runEffect, runMission, runRecall } from "./run-effect";
 
 const SessionIdSchema = z.object({
   sessionId: z.string().uuid(),
@@ -551,13 +552,33 @@ export const trainingRouter = {
     .input(SessionIdSchema)
     .query(async ({ ctx, input }) => {
       await requireSessionOwner({ ctx, sessionId: input.sessionId });
-      return throwOnFailure(
+      const workspace = throwOnFailure(
         await getAiWorkspaceWorkflow({
           sessionId: input.sessionId,
           deps: createWorkspaceTurnRepositoryDeps(ctx.db, ctx.session.user.id),
         }),
         "BAD_REQUEST",
       );
+      if (workspace.kind === "ready") {
+        const prepareRecall = () =>
+          runRecall(
+            ctx.db,
+            prepareRecallWorkflow({
+              userId: ctx.session.user.id,
+              sessionId: input.sessionId,
+              planId: workspace.workspace.plan.id,
+              now: new Date(),
+            }),
+          )
+            .then(() => undefined)
+            .catch(() => undefined);
+        if (ctx.scheduleBackgroundTask) {
+          ctx.scheduleBackgroundTask(prepareRecall);
+        } else {
+          void prepareRecall();
+        }
+      }
+      return workspace;
     }),
 
   continueLearningProject: protectedProcedure

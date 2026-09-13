@@ -20,6 +20,7 @@ import {
 } from "./domain/performance/workspace-turn-timing";
 import { withAiModelPreference } from "./domain/training/engine/model-router";
 import { WorkspaceUserError } from "./domain/training/errors";
+import { prepareRecallWorkflow } from "./domain/training/recall/workflows/prepare-recall";
 import { createNextUnitNode } from "./domain/training/unit-creation/create-next-unit";
 import { pregenerateNextUnit } from "./domain/training/unit-creation/pregenerate-next-unit";
 import { createAssistantTextStreamer } from "./domain/training/workspace-ai/assistant-text-streamer";
@@ -40,7 +41,7 @@ import {
   createWorkspaceTurnRepositoryDeps,
   workspaceTurnRepoLayer,
 } from "./repositories/workspace-turn-repository-deps";
-import { runEffect } from "./router/run-effect";
+import { runEffect, runRecall } from "./router/run-effect";
 
 type Database = typeof databaseClient;
 
@@ -441,6 +442,22 @@ const streamWorkspaceChatWithModelPreference = ({
           ),
       );
       performanceTimer.markCommitted();
+      if (action === "start_unit") {
+        const prepareRecall = () =>
+          runRecall(
+            db,
+            prepareRecallWorkflow({
+              userId,
+              sessionId,
+              planId: plan.id,
+              now: new Date(),
+            }),
+          )
+            .then(() => undefined)
+            .catch(() => undefined);
+        if (scheduleBackgroundTask) scheduleBackgroundTask(prepareRecall);
+        else void prepareRecall();
+      }
       assistantText.close();
       writer.write({
         type: "data-workspace-turn-state",

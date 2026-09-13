@@ -15,6 +15,10 @@
       "types": "./dist/workspace-chat.d.ts",
       "default": "./src/workspace-chat.ts"
     },
+    "./recall-chat": {
+      "types": "./dist/recall-chat.d.ts",
+      "default": "./src/recall-chat.ts"
+    },
     "./mission-chat": {
       "types": "./dist/mission-chat.d.ts",
       "default": "./src/mission-chat.ts"

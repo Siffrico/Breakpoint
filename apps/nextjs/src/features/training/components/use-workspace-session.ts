@@ -277,6 +277,24 @@ export function useWorkspaceSession({
 
   const unitAdvanceGate =
     aiWorkspace?.unitAdvanceGate ?? LOCKED_UNIT_ADVANCE_GATE;
+  const recallBoundaryNodeId =
+    unitAdvanceGate.status === "enabled" ? unitAdvanceGate.unitId : null;
+  const canOfferRecall = !preview && !isHistorySelected &&
+    (unitAdvanceGate.status === "enabled" || aiWorkspace?.projectComplete === true);
+  const recallOfferQuery = useQuery(
+    trpc.recall.offer.queryOptions(
+      {
+        sessionId: selectedSessionId,
+        boundaryNodeId: recallBoundaryNodeId,
+      },
+      {
+        enabled: canOfferRecall,
+        staleTime: 0,
+        refetchOnWindowFocus: false,
+        retry: false,
+      },
+    ),
+  );
   return {
     aiWorkspace,
     activeNode,
@@ -300,6 +318,8 @@ export function useWorkspaceSession({
     unitPreparing,
     workspaceLoadError,
     retryWorkspaceLoad,
+    recallBoundaryNodeId,
+    recallTask: canOfferRecall ? recallOfferQuery.data ?? null : null,
     workspaceShellQuery,
   };
 }

@@ -1,23 +1,17 @@
-import { Effect, Layer } from "effect";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { PersistedUnitRun } from "../education-unit/unit-state";
-import type { RecallCandidate } from "../policies/recall-decay";
 import type {
   CurriculumNode,
   CurriculumPlan,
-  PhaseResponseRecord,
   UnitContent,
 } from "../types/training.types";
-import type { WorkspaceTurnOrchestrationDependencies } from "./workspace-turn-orchestration";
 import { DEFAULT_EDUCATION_EXPERIENCE } from "../education-unit/experience";
 import { makeUnitContext } from "../education-unit/unit-context.fixture";
 import { createUnitRun } from "../education-unit/unit-state";
 import { UnitNotReadyError } from "../unit-preparation/errors";
 import { getAiWorkspaceWorkflow } from "../workflows/get-ai-workspace-workflow";
 import { resolveWorkspaceTurn } from "./workspace-turn";
-import { runEducationUnitTurn } from "./workspace-turn-orchestration";
-import { WorkspaceTurnRepo } from "./workspace-turn-repo";
 
 const readyNode = {
   id: "node-1",
@@ -84,78 +78,6 @@ const activeUnit = {
   nodeId: readyNode.id,
   unitContext,
 } as UnitContent;
-const recallRun = createUnitRun({
-  unitId: recallUnit.id,
-  sessionId: "session-1",
-  userId: "user-1",
-  kind: "recall",
-  unitContext,
-  experience: DEFAULT_EDUCATION_EXPERIENCE,
-});
-const recallCandidate = {
-  id: "entry-1",
-  questionId: "question-1",
-  skillNodeId: "cluster-1",
-  questionOrderIndex: 0,
-  label: "Stable boundaries",
-  content: "Keep responsibility at the canonical boundary.",
-  checkedAt: new Date("2026-01-01T00:00:00Z"),
-  strength: 0,
-  // A failed verdict just reset the decay clock, so this is deliberately not due.
-  lastReinforcedAt: new Date("2026-07-05T00:00:00Z"),
-  evidenceNodeId: completedNode.id,
-  orderIndex: 0,
-} satisfies RecallCandidate;
-const recallPresentation = {
-  id: "response-1",
-  unitContentId: recallUnit.id,
-  sessionId: "session-1",
-  userId: "user-1",
-  phase: "ai_recall" as const,
-  sequence: 0,
-  userResponse: "Start checkpoint",
-  aiResponse: "Scenario",
-  passed: false,
-  score: null,
-  metadata: {
-    aiEducationStage: "review" as const,
-    recallEntryIds: [recallCandidate.id],
-  },
-  createdAt: new Date("2026-07-05T00:00:00Z"),
-};
-
-const noRecallProjectionDeps = {
-  getRecallCandidatesByIds: () => Promise.resolve([]),
-  getMostOverdueRecallCandidate: () => Promise.resolve(null),
-  getRecallCompanionCandidate: () => Promise.resolve(null),
-};
-
-const recallDeps = (knowledgeIds: string[] = [recallCandidate.id]) => ({
-  getActivePlan: () => Promise.resolve(recallPlan),
-  getPhaseResponses: (unitContentId: string) =>
-    Promise.resolve(
-      unitContentId === recallUnit.id
-        ? [
-            {
-              ...recallPresentation,
-              metadata: {
-                ...recallPresentation.metadata,
-                recallEntryIds: knowledgeIds,
-              },
-            },
-          ]
-        : [],
-    ),
-  getUnitRun: () => Promise.resolve(null),
-  getInFlightRecallRun: () => Promise.resolve(recallRun),
-  retireInFlightRecallRun: vi.fn().mockResolvedValue(undefined),
-  getUnitByNodeId: (nodeId: string) =>
-    Promise.resolve(nodeId === completedNode.id ? recallUnit : activeUnit),
-  getRecallCandidatesByIds: () => Promise.resolve([recallCandidate]),
-  getMostOverdueRecallCandidate: () => Promise.resolve(null),
-  getRecallCompanionCandidate: () => Promise.resolve(null),
-});
-
 describe("workspace read preparation boundary", () => {
   it("getAiWorkspaceWorkflow reports a missing unit without preparing it", async () => {
     const prepareUnit = vi.fn().mockResolvedValue(undefined);
@@ -173,10 +95,7 @@ describe("workspace read preparation boundary", () => {
         listUnitMessages: () => Promise.resolve([]),
         getPhaseResponses: () => Promise.resolve([]),
         getUnitRun: () => Promise.resolve(null),
-        getInFlightRecallRun: () => Promise.resolve(null),
-        retireInFlightRecallRun: () => Promise.resolve(),
         getUnitByNodeId: () => Promise.resolve(null),
-        ...noRecallProjectionDeps,
         // Deliberately pass the former capabilities to guard against a
         // regression even if callers retain stale dependency objects.
         ...stalePreparationDeps,
@@ -207,11 +126,8 @@ describe("workspace read preparation boundary", () => {
           getActivePlan: () => Promise.resolve(plan),
           getPhaseResponses: () => Promise.resolve([]),
           getUnitRun: () => Promise.resolve(null),
-          getInFlightRecallRun: () => Promise.resolve(null),
-          retireInFlightRecallRun: () => Promise.resolve(),
           getUnitByNodeId: () => Promise.resolve(null),
-          ...noRecallProjectionDeps,
-          ...stalePreparationDeps,
+            ...stalePreparationDeps,
         },
       }),
     ).rejects.toBeInstanceOf(UnitNotReadyError);
@@ -237,11 +153,8 @@ describe("workspace read preparation boundary", () => {
           getActivePlan: () => Promise.resolve(plan),
           getPhaseResponses: () => Promise.resolve([]),
           getUnitRun: () => Promise.resolve(null),
-          getInFlightRecallRun: () => Promise.resolve(null),
-          retireInFlightRecallRun: () => Promise.resolve(),
           getUnitByNodeId: () => Promise.resolve(staleUnit),
-          ...noRecallProjectionDeps,
-        },
+          },
       }),
     ).rejects.toBeInstanceOf(UnitNotReadyError);
   });
@@ -260,10 +173,7 @@ describe("workspace read preparation boundary", () => {
         getActivePlan: () => Promise.resolve(plan),
         getPhaseResponses: () => Promise.resolve([]),
         getUnitRun: () => Promise.resolve(null),
-        getInFlightRecallRun: () => Promise.resolve(null),
-        retireInFlightRecallRun: () => Promise.resolve(),
         getUnitByNodeId: () => Promise.resolve(unit),
-        ...noRecallProjectionDeps,
         ...{ upsertUnitRun },
       },
     });
@@ -304,10 +214,7 @@ describe("workspace read preparation boundary", () => {
         getActivePlan: () => Promise.resolve(plan),
         getPhaseResponses: () => Promise.resolve([]),
         getUnitRun: () => Promise.resolve(null),
-        getInFlightRecallRun: () => Promise.resolve(null),
-        retireInFlightRecallRun: () => Promise.resolve(),
         getUnitByNodeId: () => Promise.resolve(unit),
-        ...noRecallProjectionDeps,
       },
     });
 
@@ -334,308 +241,11 @@ describe("workspace read preparation boundary", () => {
         getActivePlan,
         getPhaseResponses: () => Promise.resolve([]),
         getUnitRun: () => Promise.resolve(null),
-        getInFlightRecallRun: () => Promise.resolve(null),
-        retireInFlightRecallRun: () => Promise.resolve(),
         getUnitByNodeId: () => Promise.resolve(unit),
-        ...noRecallProjectionDeps,
       },
     });
 
     expect(getActivePlan).not.toHaveBeenCalled();
-  });
-});
-
-describe.skip("durable recall projection while recall is disabled", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-07-06T00:00:00Z"));
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it("resumes a failed recall even after its decay clock was reset", async () => {
-    const turn = await resolveWorkspaceTurn({
-      sessionId: "session-1",
-      deps: recallDeps(),
-    });
-
-    expect(turn.state).toMatchObject({
-      promptKind: "recall",
-      recallUnitId: completedNode.id,
-      activeUnitId: null,
-      workflowId: "breakpoint-mentor@2",
-      educationStage: "review",
-    });
-    expect(turn.unitRun).toBe(recallRun);
-    expect(turn.recallFocus?.primary.id).toBe(recallCandidate.id);
-  });
-
-  it("returns a cached turn even when speculative context loading fails", async () => {
-    const turn = await resolveWorkspaceTurn({
-      sessionId: "session-1",
-      deps: recallDeps(),
-    });
-    const assistantMessage = {
-      role: "assistant" as const,
-      content: "Cached feedback",
-      sequence: 1,
-      slot: "education_unit",
-      unitId: completedNode.id,
-      turnId: "turn-cached",
-      metadata: null,
-    };
-    const onAssistantMessage = vi.fn();
-    const deps: WorkspaceTurnOrchestrationDependencies = {
-      ...recallDeps(),
-      claimWorkspaceTurn: () =>
-        Promise.resolve({ status: "completed" as const, assistantMessage }),
-      appendMessage: () => Promise.resolve(null),
-      listUnitMessages: () => Promise.resolve([assistantMessage]),
-      markWorkspaceTurnFailed: () => Promise.resolve(),
-      claimWorkspaceUnitLease: () => Promise.resolve(true),
-      releaseWorkspaceUnitLease: () => Promise.resolve(),
-      listMemories: () => Promise.reject(new Error("memory read failed")),
-      resolveDifficultyDirective: () =>
-        Promise.reject(new Error("rating read failed")),
-    };
-
-    const result = await Effect.runPromise(
-      runEducationUnitTurn({
-        sessionId: "session-1",
-        userId: "user-1",
-        turnId: "turn-cached",
-        turnLeaseId: "lease-cached",
-        interactionId: turn.unitRun.cursor.interactionId,
-        message: "Repeated answer",
-        turn,
-        deps,
-        onAssistantMessage,
-      }).pipe(
-        Effect.provide(
-          Layer.succeed(WorkspaceTurnRepo, {
-            commitEducationTurn: () => Effect.die("must not commit"),
-          }),
-        ),
-      ),
-    );
-
-    expect(result.assistantMessage).toBe(assistantMessage);
-    expect(onAssistantMessage).toHaveBeenCalledWith("Cached feedback");
-  });
-
-  it("persists and resumes the fresh recall target after presenting its review", async () => {
-    const phaseResponses: PhaseResponseRecord[] = [];
-    let inFlightRecallRun: PersistedUnitRun | null = null;
-    const activeRun = {
-      ...createUnitRun({
-        unitId: activeUnit.id,
-        sessionId: "session-1",
-        userId: "user-1",
-        kind: "education",
-        unitContext,
-        experience: DEFAULT_EDUCATION_EXPERIENCE,
-      }),
-      mode: "complete" as const,
-    };
-    const deps: WorkspaceTurnOrchestrationDependencies = {
-      getActivePlan: () => Promise.resolve(recallPlan),
-      getPhaseResponses: (unitContentId: string) =>
-        Promise.resolve(unitContentId === recallUnit.id ? phaseResponses : []),
-      getUnitRun: (_sessionId: string, unitContentId: string) =>
-        Promise.resolve(unitContentId === activeUnit.id ? activeRun : null),
-      getInFlightRecallRun: () => Promise.resolve(inFlightRecallRun),
-      retireInFlightRecallRun: () => Promise.resolve(),
-      getUnitByNodeId: (nodeId: string) =>
-        Promise.resolve(nodeId === completedNode.id ? recallUnit : activeUnit),
-      getRecallCandidatesByIds: () => Promise.resolve([recallCandidate]),
-      getMostOverdueRecallCandidate: () =>
-        Promise.resolve(inFlightRecallRun ? null : recallCandidate),
-      getRecallCompanionCandidate: () => Promise.resolve(null),
-      claimWorkspaceTurn: () =>
-        Promise.resolve({ status: "claimed" as const, claimedAt: new Date() }),
-      appendMessage: () => Promise.resolve(null),
-      listUnitMessages: () => Promise.resolve([]),
-      markWorkspaceTurnFailed: () => Promise.resolve(),
-      claimWorkspaceUnitLease: () => Promise.resolve(true),
-      releaseWorkspaceUnitLease: () => Promise.resolve(),
-      listMemories: () => Promise.resolve([]),
-      resolveDifficultyDirective: () =>
-        Promise.resolve({
-          directive: {
-            intent: "probe",
-            bandOrder: 0,
-            supportLevel: "none",
-            targetItemRating: 1200,
-            targetMisconceptionCode: null,
-            reason: "Probe durable recall.",
-            nextProgress: { bandOrder: 0, supportLevel: "none" },
-          },
-          promptBlock: "Probe durable recall.",
-          ratingSnapshot: "rating snapshot",
-          learnerRating: 1200,
-          format: {
-            id: "frq",
-            label: "Free response",
-            kind: "frq",
-            description: "Explain the decision.",
-          },
-          dialPreset: {
-            steps: [3, 3],
-            withheldGivens: [1, 1],
-            alternatives: [2, 2],
-          },
-        }),
-      runUnitTurn: ({ run }) =>
-        Effect.succeed({
-          assistantMessage: "Defend the canonical boundary under pressure.",
-          nextRun: {
-            ...run,
-            activeReviewChallenge: {
-              prompt: "Defend the canonical boundary under pressure.",
-              difficultyVector: {
-                formatId: "frq",
-                reasoningPathSteps: 3,
-                withheldGivens: 1,
-                embeddedAlternatives: 2,
-              },
-              contract: {
-                version: 1 as const,
-                runKind: "recall",
-                scenarioPromptSummary: "Choose and defend the next move.",
-                testedCriterionIds: ["criterion-1"],
-              },
-            },
-          },
-          actor: "reviewer" as const,
-          reviewGrade: null,
-          ratingWrite: null,
-          presentedReviewChallenge: true,
-        }),
-    };
-
-    const freshTurn = await resolveWorkspaceTurn({
-      sessionId: "session-1",
-      deps,
-    });
-    expect(freshTurn.recallFocus?.primary.id).toBe(recallCandidate.id);
-
-    await Effect.runPromise(
-      runEducationUnitTurn({
-        sessionId: "session-1",
-        userId: "user-1",
-        turnId: "turn-1",
-        turnLeaseId: "lease-1",
-        interactionId: freshTurn.unitRun.cursor.interactionId,
-        message: "Start recall",
-        turn: freshTurn,
-        deps,
-      }).pipe(
-        Effect.provide(
-          Layer.succeed(WorkspaceTurnRepo, {
-            commitEducationTurn: (input) =>
-              Effect.sync(() => {
-                if (!input.phaseResponse) {
-                  throw new Error("Expected a learner phase response.");
-                }
-                inFlightRecallRun = input.nextRun;
-                phaseResponses.push({
-                  id: "response-1",
-                  unitContentId: input.phaseResponse.unitContentId,
-                  sessionId: input.phaseResponse.sessionId,
-                  userId: input.phaseResponse.userId,
-                  phase: input.phaseResponse.phase,
-                  sequence: input.phaseResponse.sequence ?? 0,
-                  userResponse: input.phaseResponse.userResponse,
-                  aiResponse: input.phaseResponse.aiResponse ?? null,
-                  passed: input.phaseResponse.passed ?? null,
-                  score: input.phaseResponse.score ?? null,
-                  metadata: input.phaseResponse.metadata ?? null,
-                  createdAt: new Date(),
-                });
-                return {
-                  assistantMessage: {
-                    role: "assistant",
-                    content: input.assistantMessage.content,
-                    sequence: 1,
-                    slot: "education_unit",
-                    unitId: completedNode.id,
-                    turnId: "turn-1",
-                    metadata: null,
-                  },
-                };
-              }),
-          }),
-        ),
-      ),
-    );
-
-    const resumedTurn = await resolveWorkspaceTurn({
-      sessionId: "session-1",
-      deps,
-    });
-    expect(phaseResponses[0]?.metadata?.recallEntryIds).toEqual([
-      recallCandidate.id,
-    ]);
-    expect(resumedTurn.recallFocus?.primary.id).toBe(recallCandidate.id);
-    expect(resumedTurn.unitRun.activeReviewChallenge?.prompt).toBe(
-      "Defend the canonical boundary under pressure.",
-    );
-  });
-
-  it("resolves the unfinished recall after a committed turn", async () => {
-    const { getActivePlan: _getActivePlan, ...deps } = recallDeps();
-    const turn = await resolveWorkspaceTurn({
-      sessionId: "session-1",
-      authorizedPlan: recallPlan,
-      deps: {
-        ...deps,
-        getActivePlan: () => Promise.resolve(recallPlan),
-      },
-    });
-
-    expect(turn.state).toMatchObject({
-      recallUnitId: completedNode.id,
-      activeUnitId: null,
-    });
-  });
-
-  it("falls through when a stale recall target cannot be reconstructed", async () => {
-    const deps = recallDeps(["deleted-entry"]);
-    const turn = await resolveWorkspaceTurn({
-      sessionId: "session-1",
-      deps,
-    });
-
-    expect(turn.state).toMatchObject({
-      activeUnitId: readyNode.id,
-      recallUnitId: null,
-      workflowId: "breakpoint-mentor@2",
-    });
-    expect(deps.retireInFlightRecallRun).toHaveBeenCalledWith(
-      "session-1",
-      recallRun.unitId,
-    );
-  });
-
-  it("still falls through when retiring the stale recall fails", async () => {
-    const deps = {
-      ...recallDeps(["deleted-entry"]),
-      retireInFlightRecallRun: vi
-        .fn()
-        .mockRejectedValue(new Error("db unavailable")),
-    };
-    const turn = await resolveWorkspaceTurn({
-      sessionId: "session-1",
-      deps,
-    });
-
-    expect(turn.state).toMatchObject({
-      activeUnitId: readyNode.id,
-      recallUnitId: null,
-      workflowId: "breakpoint-mentor@2",
-    });
   });
 });
 
@@ -674,11 +284,7 @@ describe("workspace view reads", () => {
         listUnitMessages,
         getPhaseResponses: () => Promise.resolve([]),
         getUnitRun: () => Promise.resolve(null),
-        getInFlightRecallRun: () => Promise.resolve(null),
-        retireInFlightRecallRun: () => Promise.resolve(),
         getUnitByNodeId: () => Promise.resolve(activeUnit),
-        // Nothing decayed: the active unit is the live chat.
-        ...noRecallProjectionDeps,
       },
     });
 
@@ -714,10 +320,7 @@ describe("workspace view reads", () => {
         listUnitMessages: () => Promise.resolve([]),
         getPhaseResponses: () => Promise.resolve([]),
         getUnitRun: () => Promise.resolve(null),
-        getInFlightRecallRun: () => Promise.resolve(null),
-        retireInFlightRecallRun: () => Promise.resolve(),
         getUnitByNodeId: () => Promise.resolve(unitWithoutLegacyTeaching),
-        ...noRecallProjectionDeps,
       },
     });
 
@@ -728,56 +331,7 @@ describe("workspace view reads", () => {
     });
   });
 
-  it.skip("surfaces an in-flight recall with its transcript and intro", async () => {
-    const listUnitMessages = vi
-      .fn()
-      .mockImplementation((_sessionId: string, unitId: string) =>
-        Promise.resolve([unitMessage(unitId, `Chat for ${unitId}`)]),
-      );
-    const getRecallCandidatesByIds = vi
-      .fn()
-      .mockResolvedValue([recallCandidate]);
-    const getMostOverdueRecallCandidate = vi.fn().mockResolvedValue(null);
-
-    const result = await getAiWorkspaceWorkflow({
-      sessionId: "session-1",
-      deps: {
-        ...recallDeps(),
-        getRecallCandidatesByIds,
-        getMostOverdueRecallCandidate,
-        listUnitMessages,
-      },
-    });
-
-    const view = readyView(result);
-    expect(view.state).toMatchObject({
-      promptKind: "recall",
-      recallUnitId: completedNode.id,
-      activeUnitId: null,
-      workflowId: "breakpoint-mentor@2",
-      educationStage: "review",
-    });
-    expect(view.messages).toEqual([
-      unitMessage(completedNode.id, `Chat for ${completedNode.id}`),
-    ]);
-    expect(view.unit).toMatchObject({
-      id: recallUnit.id,
-      nodeId: completedNode.id,
-      activeStage: "challenge",
-    });
-    expect(view.introMessage).toMatchObject({ helper: "Recall" });
-    // A recall interlude has no scenario plan of its own.
-    expect(listUnitMessages).toHaveBeenCalledWith(
-      "session-1",
-      completedNode.id,
-    );
-    expect(getRecallCandidatesByIds).toHaveBeenCalledWith("plan-1", [
-      recallCandidate.id,
-    ]);
-    expect(getMostOverdueRecallCandidate).not.toHaveBeenCalled();
-  });
-
-  it("ignores due recall and keeps completed-unit advancement enabled", async () => {
+  it("keeps completed-unit advancement enabled", async () => {
     const activeMasteredRun = {
       ...createUnitRun({
         unitId: activeUnit.id,
@@ -789,27 +343,17 @@ describe("workspace view reads", () => {
       }),
       mode: "complete" as const,
     } satisfies PersistedUnitRun;
-    const getMostOverdueRecallCandidate = vi
-      .fn()
-      .mockResolvedValue(recallCandidate);
-    const getRecallCompanionCandidate = vi.fn().mockResolvedValue(null);
-
     const result = await getAiWorkspaceWorkflow({
       sessionId: "session-1",
       deps: {
         getActivePlan: () => Promise.resolve(recallPlan),
         listUnitMessages: () => Promise.resolve([]),
-        getPhaseResponses: () => Promise.resolve([recallPresentation]),
+        getPhaseResponses: () => Promise.resolve([]),
         getUnitRun: () => Promise.resolve(activeMasteredRun),
-        getInFlightRecallRun: () => Promise.resolve(null),
-        retireInFlightRecallRun: () => Promise.resolve(),
         getUnitByNodeId: (nodeId: string) =>
           Promise.resolve(
             nodeId === completedNode.id ? recallUnit : activeUnit,
           ),
-        getRecallCandidatesByIds: () => Promise.resolve([]),
-        getMostOverdueRecallCandidate,
-        getRecallCompanionCandidate,
       },
     });
 
@@ -823,28 +367,6 @@ describe("workspace view reads", () => {
       unitId: readyNode.id,
       nextTitle: null,
     });
-    expect(getMostOverdueRecallCandidate).not.toHaveBeenCalled();
-    expect(getRecallCompanionCandidate).not.toHaveBeenCalled();
-  });
-
-  it("does not repair stale recall state from the read workflow", async () => {
-    const deps = {
-      ...recallDeps(["deleted-entry"]),
-      getRecallCandidatesByIds: () => Promise.resolve([]),
-      listUnitMessages: () => Promise.resolve([]),
-    };
-
-    const result = await getAiWorkspaceWorkflow({
-      sessionId: "session-1",
-      deps,
-    });
-
-    const view = readyView(result);
-    expect(view.state).toMatchObject({
-      activeUnitId: readyNode.id,
-      recallUnitId: null,
-    });
-    expect(deps.retireInFlightRecallRun).not.toHaveBeenCalled();
   });
 
   it("does not hydrate a transcript when no turn is runnable", async () => {
@@ -861,10 +383,7 @@ describe("workspace view reads", () => {
         listUnitMessages,
         getPhaseResponses: () => Promise.resolve([]),
         getUnitRun: () => Promise.resolve(null),
-        getInFlightRecallRun: () => Promise.resolve(null),
-        retireInFlightRecallRun: () => Promise.resolve(),
         getUnitByNodeId: () => Promise.resolve(null),
-        ...noRecallProjectionDeps,
       },
     });
 

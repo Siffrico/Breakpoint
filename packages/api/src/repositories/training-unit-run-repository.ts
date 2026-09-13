@@ -1,6 +1,6 @@
 import type { db as databaseClient } from "@acme/db/client";
 import type { UnitReviewChallenge } from "@acme/validators";
-import { and, desc, eq, isNull, sql } from "@acme/db";
+import { and, eq, isNull, sql } from "@acme/db";
 import { TrainingUnitRun } from "@acme/db/schema";
 import {
   EducationExperienceSnapshotSchema,
@@ -10,10 +10,7 @@ import {
 } from "@acme/validators";
 
 import type { PersistedUnitRun } from "../domain/training/education-unit/unit-state";
-import {
-  projectUnitRun,
-  retireRun,
-} from "../domain/training/education-unit/unit-state";
+import { projectUnitRun } from "../domain/training/education-unit/unit-state";
 
 type Database = typeof databaseClient;
 
@@ -82,55 +79,6 @@ export const trainingUnitRunRepository = {
       ),
     });
     return row ? tryMapUnitRun(row) : null;
-  },
-
-  getInFlightRecallRun: async ({
-    db,
-    sessionId,
-  }: {
-    db: Database;
-    sessionId: string;
-  }): Promise<PersistedUnitRun | null> => {
-    const row = await db.query.TrainingUnitRun.findFirst({
-      where: and(
-        eq(TrainingUnitRun.sessionId, sessionId),
-        eq(TrainingUnitRun.kind, "recall"),
-        sql`${TrainingUnitRun.cursorJson}->'step'->>'kind' <> 'complete'`,
-      ),
-      orderBy: [desc(TrainingUnitRun.updatedAt)],
-    });
-    return row ? tryMapUnitRun(row) : null;
-  },
-
-  retireInFlightRecallRun: async ({
-    db,
-    sessionId,
-    unitContentId,
-  }: {
-    db: Database;
-    sessionId: string;
-    unitContentId: string;
-  }): Promise<void> => {
-    const row = await db.query.TrainingUnitRun.findFirst({
-      where: and(
-        eq(TrainingUnitRun.sessionId, sessionId),
-        eq(TrainingUnitRun.unitContentId, unitContentId),
-        eq(TrainingUnitRun.kind, "recall"),
-      ),
-    });
-    if (!row) return;
-    const run = tryMapUnitRun(row);
-    if (!run || run.cursor.step.kind === "complete") return;
-    await db
-      .update(TrainingUnitRun)
-      .set({ cursorJson: retireRun(run).cursor })
-      .where(
-        and(
-          eq(TrainingUnitRun.id, row.id),
-          eq(TrainingUnitRun.cursorJson, row.cursorJson),
-          isNull(TrainingUnitRun.turnLeaseId),
-        ),
-      );
   },
 
   setPendingChallenge: async ({

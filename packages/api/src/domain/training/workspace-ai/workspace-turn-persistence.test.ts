@@ -26,17 +26,17 @@ const unitContext = makeUnitContext({
 });
 
 const difficultySnapshot = {
-  nodeId: "node-recall",
+  nodeId: "node-unit",
   directive: {
     intent: "probe",
     bandOrder: 0,
     supportLevel: "none",
     targetItemRating: 1200,
     targetMisconceptionCode: null,
-    reason: "Probe durable recall.",
+    reason: "Apply the trained judgment.",
     nextProgress: { bandOrder: 0, supportLevel: "none" },
   },
-  promptBlock: "Probe durable recall.",
+  promptBlock: "Apply the trained judgment.",
   ratingSnapshot: "rating snapshot",
   learnerRating: 1200,
   format: {
@@ -57,14 +57,14 @@ const challenge = {
   },
   contract: {
     version: 1,
-    runKind: "recall",
+    runKind: "education",
     scenarioPromptSummary: "Choose under the changed constraint.",
     testedCriterionIds: ["stable-boundaries"],
   },
 } satisfies UnitReviewChallenge;
 
-const recallNode = {
-  id: "node-recall",
+const unitNode = {
+  id: "node-unit",
   parentNodeId: "skill-1",
   kind: "unit",
   title: "Completed unit",
@@ -80,7 +80,7 @@ const recallNode = {
 } satisfies CurriculumNode;
 
 const activeNode = {
-  ...recallNode,
+  ...unitNode,
   id: "node-active",
   title: "Next unit",
   orderIndex: 1,
@@ -101,10 +101,10 @@ const unitStateFields = {
   scenario: { title: "A changed boundary", focusAreas: ["ownership"] },
 };
 
-const recallUnit = {
+const unit = {
   ...unitStateFields,
-  id: "unit-recall",
-  nodeId: recallNode.id,
+  id: "unit-content",
+  nodeId: unitNode.id,
   unitContext,
 } as UnitContent;
 
@@ -115,31 +115,18 @@ const activeUnit = {
   unitContext,
 } as UnitContent;
 
-const recallCandidate = {
-  id: "knowledge-1",
-  questionId: "question-1",
-  skillNodeId: "skill-1",
-  questionOrderIndex: 0,
-  label: "Stable boundaries",
-  content: "Keep responsibility at the canonical boundary.",
-  checkedAt: new Date("2026-01-01T00:00:00Z"),
-  strength: 0,
-  lastReinforcedAt: new Date("2026-01-01T00:00:00Z"),
-  evidenceNodeId: recallNode.id,
-  orderIndex: 0,
-};
-
 describe("saveUnitTurnResult", () => {
-  it("persists recall metadata without resuming recall while it is disabled", async () => {
-    const recallRun = {
+  it("commits education feedback and completion to the active unit", async () => {
+    const unitRun = {
       ...createUnitRun({
-        unitId: recallUnit.id,
+        unitId: unit.id,
         sessionId: "session-1",
         userId: "user-1",
-        kind: "recall",
+        kind: "education",
         unitContext,
         experience: DEFAULT_EDUCATION_EXPERIENCE,
       }),
+      mode: "complete" as const,
       difficultySnapshot,
       activeReviewChallenge: challenge,
     };
@@ -161,7 +148,7 @@ describe("saveUnitTurnResult", () => {
       content: challenge.prompt,
       sequence: 1,
       slot: "education_unit",
-      unitId: recallNode.id,
+      unitId: unitNode.id,
       turnId: "turn-1",
       metadata: null,
     };
@@ -170,15 +157,15 @@ describe("saveUnitTurnResult", () => {
       saveUnitTurnResult({
         sessionId: "session-1",
         userId: "user-1",
-        message: "Start recall",
-        unit: recallUnit,
+        message: "Here is my reasoning.",
+        unit: unit,
         plan: {
           id: "plan-1",
-          nodes: [recallNode, activeNode],
+          nodes: [unitNode, activeNode],
         } as CurriculumPlan,
         turnResult: {
           assistantMessage: challenge.prompt,
-          nextRun: recallRun,
+          nextRun: unitRun,
           actor: "reviewer",
           reviewGrade: null,
           ratingWrite: null,
@@ -186,7 +173,6 @@ describe("saveUnitTurnResult", () => {
         },
         ratingEvaluation: null,
         tracksRating: true,
-        recallEntryIds: [recallCandidate.id],
         difficultySnapshot,
         turnId: "turn-1",
         turnLeaseId: "lease-1",
@@ -205,17 +191,12 @@ describe("saveUnitTurnResult", () => {
           releaseWorkspaceUnitLease: () => Promise.resolve(),
           getPhaseResponses: (unitContentId) =>
             Promise.resolve(
-              unitContentId === recallUnit.id ? phaseResponses : [],
+              unitContentId === unit.id ? phaseResponses : [],
             ),
           getUnitRun: (_sessionId, unitContentId) =>
             Promise.resolve(unitContentId === activeUnit.id ? activeRun : null),
-          getInFlightRecallRun: () => Promise.resolve(recallRun),
-          retireInFlightRecallRun: () => Promise.resolve(),
           getUnitByNodeId: (nodeId) =>
-            Promise.resolve(nodeId === recallNode.id ? recallUnit : activeUnit),
-          getRecallCandidatesByIds: () => Promise.resolve([recallCandidate]),
-          getMostOverdueRecallCandidate: () => Promise.resolve(null),
-          getRecallCompanionCandidate: () => Promise.resolve(null),
+            Promise.resolve(nodeId === unitNode.id ? unit : activeUnit),
         },
       }).pipe(
         Effect.provide(
@@ -247,9 +228,13 @@ describe("saveUnitTurnResult", () => {
       ),
     );
 
-    expect(commits[0]?.phaseResponse?.metadata?.recallEntryIds).toEqual([
-      recallCandidate.id,
-    ]);
+    expect(commits[0]?.phaseResponse).toMatchObject({
+      phase: "ai_education",
+      unitContentId: unit.id,
+      passed: true,
+      metadata: { promptKind: "education_unit" },
+    });
+    expect(commits[0]?.completion?.nodeId).toBe(unit.nodeId);
     expect(result.state).toMatchObject({
       promptKind: "education_unit",
       recallUnitId: null,

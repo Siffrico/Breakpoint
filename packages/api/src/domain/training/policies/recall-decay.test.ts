@@ -90,6 +90,12 @@ describe("selectRecallTarget", () => {
     );
   });
 
+  it("uses the knowledge id as a stable tie-breaker", () => {
+    const laterId = entry({ id: "b", checkedAt: daysAgo(4) });
+    const earlierId = entry({ id: "a", checkedAt: daysAgo(4) });
+    expect(selectRecallTarget([laterId, earlierId], NOW)?.primary.id).toBe("a");
+  });
+
   it("skips due entries with no evidence unit", () => {
     const orphan = entry({
       id: "a",

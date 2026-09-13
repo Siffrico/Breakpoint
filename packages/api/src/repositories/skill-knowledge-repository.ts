@@ -4,18 +4,14 @@ import type {
   PracticeContract,
   SkillMap,
 } from "@acme/validators";
-import { and, asc, desc, eq, gte, inArray, isNotNull, ne, sql } from "@acme/db";
+import { and, asc, eq, inArray, sql } from "@acme/db";
 import {
   TrainingCurriculumNode,
   TrainingKnowledgeItem,
   TrainingKnowledgeQuestion,
 } from "@acme/db/schema";
 
-import type { RecallCandidate } from "../domain/training/policies/recall-decay";
-import {
-  RECALL_COMPANION_MIN_STRENGTH,
-  recallIntervalDaysFor,
-} from "../domain/training/policies/recall-decay";
+import { recallDueAt } from "../domain/training/recall/scheduling";
 
 type Database = typeof databaseClient;
 
@@ -72,56 +68,6 @@ const listKnowledge = async ({
       asc(TrainingKnowledgeQuestion.orderIndex),
       asc(TrainingKnowledgeItem.orderIndex),
     );
-
-const recallCandidateSelection = {
-  id: TrainingKnowledgeItem.id,
-  questionId: TrainingKnowledgeQuestion.id,
-  skillNodeId: TrainingKnowledgeQuestion.skillNodeId,
-  questionOrderIndex: TrainingKnowledgeQuestion.orderIndex,
-  orderIndex: TrainingKnowledgeItem.orderIndex,
-  label: TrainingKnowledgeItem.label,
-  content: TrainingKnowledgeItem.content,
-  checkedAt: TrainingKnowledgeItem.checkedAt,
-  strength: TrainingKnowledgeItem.strength,
-  lastReinforcedAt: TrainingKnowledgeItem.lastReinforcedAt,
-  evidenceNodeId: TrainingKnowledgeItem.evidenceNodeId,
-};
-
-interface RecallCandidateRow {
-  id: string;
-  questionId: string;
-  skillNodeId: string;
-  questionOrderIndex: number;
-  orderIndex: number;
-  label: string;
-  content: string;
-  checkedAt: Date | null;
-  strength: number;
-  lastReinforcedAt: Date | null;
-  evidenceNodeId: string | null;
-}
-
-const mapRecallCandidate = (row: RecallCandidateRow): RecallCandidate | null =>
-  row.checkedAt
-    ? {
-        ...row,
-        checkedAt: row.checkedAt,
-      }
-    : null;
-
-// These SQL expressions must stay equivalent to recall-decay.ts: ordering in
-// the database is what keeps candidate transfer bounded to one primary row.
-const recallAnchor = sql`coalesce(${TrainingKnowledgeItem.lastReinforcedAt}, ${TrainingKnowledgeItem.checkedAt})`;
-const recallSeconds = (strength: 0 | 1 | 2 | 3) =>
-  sql.raw(String(recallIntervalDaysFor(strength) * 86_400));
-const recallIntervalSeconds = sql<number>`case
-  when ${TrainingKnowledgeItem.strength} <= 0 then ${recallSeconds(0)}
-  when ${TrainingKnowledgeItem.strength} = 1 then ${recallSeconds(1)}
-  when ${TrainingKnowledgeItem.strength} = 2 then ${recallSeconds(2)}
-  else ${recallSeconds(3)}
-end`;
-const recallOverdueRatio = (now: Date) =>
-  sql<number>`extract(epoch from (${now.toISOString()}::timestamptz - ${recallAnchor})) / ${recallIntervalSeconds}`;
 
 export const skillKnowledgeRepository = {
   ensureOutcomeCurriculum: async ({
@@ -238,6 +184,7 @@ export const skillKnowledgeRepository = {
     });
     return db.transaction(async (tx) => {
       const transactionDb = tx as unknown as Database;
+      const checkedAt = new Date();
       const checked =
         acceptedIds.length === 0
           ? []
@@ -245,7 +192,10 @@ export const skillKnowledgeRepository = {
               .update(TrainingKnowledgeItem)
               .set({
                 status: "checked",
-                checkedAt: new Date(),
+                checkedAt,
+                strength: 0,
+                lastReinforcedAt: null,
+                reviewDueAt: recallDueAt(0, checkedAt),
                 evidenceNodeId,
               })
               .where(inArray(TrainingKnowledgeItem.id, acceptedIds))
@@ -266,127 +216,6 @@ export const skillKnowledgeRepository = {
       }
       return { checked: checkedIds, deferred: [...deferred, ...missing] };
     });
-  },
-
-  getRecallCandidatesByIds: async ({
-    db,
-    planId,
-    knowledgeIds,
-  }: {
-    db: Database;
-    planId: string;
-    knowledgeIds: readonly string[];
-  }): Promise<RecallCandidate[]> => {
-    if (knowledgeIds.length === 0) return [];
-    const rows = await db
-      .select(recallCandidateSelection)
-      .from(TrainingKnowledgeItem)
-      .innerJoin(
-        TrainingKnowledgeQuestion,
-        eq(TrainingKnowledgeQuestion.id, TrainingKnowledgeItem.questionId),
-      )
-      .innerJoin(
-        TrainingCurriculumNode,
-        eq(TrainingCurriculumNode.id, TrainingKnowledgeQuestion.skillNodeId),
-      )
-      .where(
-        and(
-          eq(TrainingCurriculumNode.planId, planId),
-          eq(TrainingKnowledgeItem.status, "checked"),
-          inArray(TrainingKnowledgeItem.id, [...knowledgeIds]),
-        ),
-      );
-
-    return rows.flatMap((row) => {
-      const candidate = mapRecallCandidate(row);
-      return candidate ? [candidate] : [];
-    });
-  },
-
-  getMostOverdueRecallCandidate: async ({
-    db,
-    planId,
-    now,
-  }: {
-    db: Database;
-    planId: string;
-    now: Date;
-  }): Promise<RecallCandidate | null> => {
-    const overdueRatio = recallOverdueRatio(now);
-    const [row] = await db
-      .select(recallCandidateSelection)
-      .from(TrainingKnowledgeItem)
-      .innerJoin(
-        TrainingKnowledgeQuestion,
-        eq(TrainingKnowledgeQuestion.id, TrainingKnowledgeItem.questionId),
-      )
-      .innerJoin(
-        TrainingCurriculumNode,
-        eq(TrainingCurriculumNode.id, TrainingKnowledgeQuestion.skillNodeId),
-      )
-      .where(
-        and(
-          eq(TrainingCurriculumNode.planId, planId),
-          eq(TrainingKnowledgeItem.status, "checked"),
-          isNotNull(TrainingKnowledgeItem.checkedAt),
-          isNotNull(TrainingKnowledgeItem.evidenceNodeId),
-          sql`${overdueRatio} >= 1`,
-        ),
-      )
-      .orderBy(desc(overdueRatio))
-      .limit(1);
-
-    return row ? mapRecallCandidate(row) : null;
-  },
-
-  getRecallCompanionCandidate: async ({
-    db,
-    skillNodeId,
-    primary,
-    now,
-  }: {
-    db: Database;
-    skillNodeId: string;
-    primary: Pick<
-      RecallCandidate,
-      "id" | "questionId" | "questionOrderIndex" | "orderIndex"
-    >;
-    now: Date;
-  }): Promise<RecallCandidate | null> => {
-    const overdueRatio = recallOverdueRatio(now);
-    const chainOrdering = [
-      sql`case when ${TrainingKnowledgeQuestion.id} = ${primary.questionId} then 0 else 1 end`,
-      sql`abs(${TrainingKnowledgeQuestion.orderIndex} - ${primary.questionOrderIndex})`,
-      sql`abs(${TrainingKnowledgeItem.orderIndex} - ${primary.orderIndex})`,
-      sql`case
-        when ${TrainingKnowledgeQuestion.id} = ${primary.questionId}
-          and ${TrainingKnowledgeItem.orderIndex} > ${primary.orderIndex} then 1
-        when ${TrainingKnowledgeQuestion.id} <> ${primary.questionId}
-          and ${TrainingKnowledgeQuestion.orderIndex} > ${primary.questionOrderIndex} then 1
-        else 0
-      end`,
-    ];
-    const [row] = await db
-      .select(recallCandidateSelection)
-      .from(TrainingKnowledgeItem)
-      .innerJoin(
-        TrainingKnowledgeQuestion,
-        eq(TrainingKnowledgeQuestion.id, TrainingKnowledgeItem.questionId),
-      )
-      .where(
-        and(
-          eq(TrainingKnowledgeQuestion.skillNodeId, skillNodeId),
-          ne(TrainingKnowledgeItem.id, primary.id),
-          eq(TrainingKnowledgeItem.status, "checked"),
-          gte(TrainingKnowledgeItem.strength, RECALL_COMPANION_MIN_STRENGTH),
-          isNotNull(TrainingKnowledgeItem.checkedAt),
-          sql`${overdueRatio} < 1`,
-        ),
-      )
-      .orderBy(...chainOrdering, desc(recallAnchor))
-      .limit(1);
-
-    return row ? mapRecallCandidate(row) : null;
   },
 
   incrementSkillPractice: async ({
@@ -412,33 +241,5 @@ export const skillKnowledgeRepository = {
         practiceCount: sql`${TrainingKnowledgeQuestion.practiceCount} + 1`,
       })
       .where(eq(TrainingKnowledgeQuestion.id, skill.id));
-  },
-
-  /**
-   * Applies one scored recall verdict to the composed entries: pass climbs a
-   * strength rung, fail drops one (floored at zero). Stamps the anchor either
-   * way so the spacing clock restarts from this verdict.
-   */
-  applyReinforcement: async ({
-    db,
-    knowledgeIds,
-    passed,
-    occurredAt,
-  }: {
-    db: Database;
-    knowledgeIds: string[];
-    passed: boolean;
-    occurredAt: Date;
-  }) => {
-    if (knowledgeIds.length === 0) return;
-    await db
-      .update(TrainingKnowledgeItem)
-      .set({
-        strength: passed
-          ? sql`${TrainingKnowledgeItem.strength} + 1`
-          : sql`greatest(${TrainingKnowledgeItem.strength} - 1, 0)`,
-        lastReinforcedAt: occurredAt,
-      })
-      .where(inArray(TrainingKnowledgeItem.id, knowledgeIds));
   },
 };

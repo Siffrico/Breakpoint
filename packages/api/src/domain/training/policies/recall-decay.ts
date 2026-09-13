@@ -135,7 +135,11 @@ export const selectRecallTarget = (
 ): RecallTarget | null => {
   const due = entries
     .filter((entry) => entry.evidenceNodeId !== null && isEntryDue(entry, now))
-    .sort((left, right) => overdueRatio(right, now) - overdueRatio(left, now));
+    .sort(
+      (left, right) =>
+        overdueRatio(right, now) - overdueRatio(left, now) ||
+        left.id.localeCompare(right.id),
+    );
 
   const primary = due[0];
   if (!primary?.evidenceNodeId) return null;

@@ -147,7 +147,7 @@ const openScenario = ({
     const prepared = preparedScenario(run);
     const challenge =
       prepared ??
-      (run.cursor.step.kind === "pass_result" || run.kind === "recall"
+      (run.cursor.step.kind === "pass_result"
         ? yield* prefillScenario(
             {
               run,

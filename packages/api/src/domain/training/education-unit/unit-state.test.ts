@@ -222,18 +222,6 @@ describe("unit cursor", () => {
     });
   });
 
-  it("rates a recall scenario on its first attempt", async () => {
-    const recallChallenge = {
-      ...challenge,
-      contract: { ...challenge.contract, runKind: "recall" as const },
-    };
-    const scenario = await Effect.runPromise(
-      presentScenario({ run: makeRun("recall"), challenge: recallChallenge }),
-    );
-
-    expect(isRatingEligibleScenario(scenario)).toBe(true);
-  });
-
   it("carries the diagnosis into the failed pass so the next scenario can aim at it", async () => {
     const scenario = await Effect.runPromise(
       presentScenario({ run: makeRun(), challenge }),

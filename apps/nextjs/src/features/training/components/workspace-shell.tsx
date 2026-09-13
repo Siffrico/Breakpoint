@@ -1,7 +1,7 @@
 "use client";
 
 import type { MouseEvent } from "react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import type {
@@ -46,6 +46,10 @@ export function WorkspaceShell({
   chatHistory?: ChatHistory | null;
 }) {
   const router = useRouter();
+  const recallAdvanceRef = useRef<(() => void) | null>(null);
+  const onRecallAdvanceReady = useCallback((next: (() => void) | null) => {
+    recallAdvanceRef.current = next;
+  }, []);
   const [isSessionRunning, setIsSessionRunning] = useState(false);
   const [onboardingTurnState, setOnboardingTurnState] = useState({
     count: 0,
@@ -157,8 +161,9 @@ export function WorkspaceShell({
         ? "/ui/profile"
         : `/settings/topics?session=${encodeURIComponent(nav.selectedSessionId)}`
       : null;
-  const shellTitle =
-    vm.mode === "history"
+  const shellTitle = vm.recallTask
+    ? "Recall"
+    : vm.mode === "history"
       ? (vm.resolvedChatHistory?.node.title ??
         vm.selectedProject?.lessonPreview.find(
           (lesson) => lesson.id === nav.selectedChatId,
@@ -224,7 +229,10 @@ export function WorkspaceShell({
           onToggleSidebar={nav.toggleSidebar}
           onExitOnboarding={handleExitOnboarding}
           onToggleCoach={coach.toggle}
-          onAdvanceUnit={advance.advance}
+          onAdvanceUnit={() => {
+            if (vm.recallTask) recallAdvanceRef.current?.();
+            else advance.advance();
+          }}
         />
         <WorkspaceLiveWorkspace
           mode={vm.mode}
@@ -245,6 +253,9 @@ export function WorkspaceShell({
           unitPreparationRetryPending={vm.unitPreparationRetryPending}
           preview={preview}
           advancePending={advance.activeTransition != null}
+          recallTask={vm.recallTask}
+          recallBoundaryNodeId={vm.recallBoundaryNodeId}
+          onRecallAdvanceReady={onRecallAdvanceReady}
           coach={coach}
           onBackToCurrentChat={handleBackToCurrentChat}
           onRetryWorkspace={vm.retryWorkspaceLoad}

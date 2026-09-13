@@ -38,7 +38,6 @@ import {
 } from "../education-unit/unit-context";
 import { boundTranscript } from "../engine/compaction";
 import { resolveRatingScope } from "../orchestration/rating-scope";
-import { companionRelation } from "../policies/recall-decay";
 import { deriveServerAttemptTiming } from "./attempt-timing";
 import {
   RatingEvidenceError,
@@ -511,7 +510,6 @@ export const runEducationUnitTurn = ({
           }),
       ),
     );
-    const recallFocus = turn.recallFocus;
     const difficultySnapshot: UnitDifficultySnapshot =
       unitRun.difficultySnapshot ??
       (resolvedDifficulty
@@ -528,22 +526,7 @@ export const runEducationUnitTurn = ({
             message: "Goldilocks did not resolve a unit difficulty snapshot.",
           }));
 
-    const focus = recallFocus
-      ? {
-          kind: "recall" as const,
-          primary: recallFocus.primary,
-          companion: recallFocus.companion
-            ? {
-                ...recallFocus.companion,
-                relation: companionRelation(
-                  recallFocus.primary,
-                  recallFocus.companion,
-                ),
-              }
-            : null,
-        }
-      : { kind: "education" as const };
-    const previousChallengePrompts = unitRun.cursor.scenarioPrompts;
+        const previousChallengePrompts = unitRun.cursor.scenarioPrompts;
     // What the last failed scenario found, so the next lesson or scenario aims
     // at that idea instead of restating the unit. Null on a pass and at the
     // start of a run, which is when there is nothing to repair.
@@ -561,20 +544,17 @@ export const runEducationUnitTurn = ({
         unitContext: unitRun.unitContext,
         difficulty: difficultySnapshot,
         memories,
-        focus,
         repair,
       }),
       mentorScenario: createMentorScenarioContext({
         unitContext: unitRun.unitContext,
         difficulty: difficultySnapshot,
-        focus,
         previousChallengePrompts,
         repair,
       }),
       critique: {
         judgeAnswer: createCritiqueContext({
           unitContext: unitRun.unitContext,
-          focus,
         }),
       },
     };
@@ -595,7 +575,7 @@ export const runEducationUnitTurn = ({
     const scenarioAttemptId = findLatestPhaseResponse(
       unitResponses,
       (response) =>
-        (response.phase === "ai_education" || response.phase === "ai_recall") &&
+        response.phase === "ai_education" &&
         response.metadata?.scenarioAttemptId !== undefined,
     )?.metadata?.scenarioAttemptId;
     let ratingEvaluation: WorkspaceRatingEvaluationCommit | null = null;
@@ -667,29 +647,11 @@ export const runEducationUnitTurn = ({
             evidenceNodeId: unit.nodeId,
           }
         : null;
-    const presentedRecallEntryIds = findLatestPhaseResponse(
-      unitResponses,
-      (response) => response.metadata?.recallEntryIds !== undefined,
-    )?.metadata?.recallEntryIds;
-    const composedEntryIds = recallFocus
-      ? [
-          recallFocus.primary.id,
-          ...(recallFocus.companion ? [recallFocus.companion.id] : []),
-        ]
-      : [];
-    const knowledgeReinforcement =
-      recallFocus && ratingEvaluation && turnResult.reviewGrade
-        ? {
-            knowledgeIds: presentedRecallEntryIds ?? composedEntryIds,
-            passed: turnResult.reviewGrade.passed,
-          }
-        : null;
-    const skillPractice =
-      completed && !recallFocus
-        ? {
-            knowledgeIds: evidencedTargetIds,
-          }
-        : null;
+    const skillPractice = completed
+      ? {
+          knowledgeIds: evidencedTargetIds,
+        }
+      : null;
 
     const result = yield* saveUnitTurnResult({
       sessionId,
@@ -700,15 +662,8 @@ export const runEducationUnitTurn = ({
       turnResult,
       ratingEvaluation,
       knowledgeCheckOff,
-      knowledgeReinforcement,
       skillPractice,
       tracksRating: true,
-      recallEntryIds:
-        recallFocus &&
-        unitRun.activeReviewChallenge === null &&
-        turnResult.presentedReviewChallenge
-          ? composedEntryIds
-          : null,
       difficultySnapshot,
       difficultyDirectiveReason:
         opensRetry && !completed
@@ -719,8 +674,7 @@ export const runEducationUnitTurn = ({
       persistUserMessage: loadedTranscript.claimedDurableTurn,
       persistPhaseResponse: action !== "start_unit",
       responseSequence: unitResponses.filter(
-        (response) =>
-          response.phase === "ai_education" || response.phase === "ai_recall",
+        (response) => response.phase === "ai_education",
       ).length,
       deps,
     });
@@ -748,7 +702,6 @@ export const runEducationUnitTurn = ({
                 ? createMentorScenarioContext({
                     unitContext: turnResult.nextRun.unitContext,
                     difficulty: difficultySnapshot,
-                    focus,
                     previousChallengePrompts:
                       turnResult.nextRun.cursor.scenarioPrompts,
                     repair: {

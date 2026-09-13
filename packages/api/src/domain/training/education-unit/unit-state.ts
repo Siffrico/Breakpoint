@@ -144,9 +144,7 @@ export const preparedScenario = (
 export const isRatingEligibleScenario = (run: PersistedUnitRun): boolean => {
   const step = run.cursor.step;
   return (
-    step.kind === "scenario" &&
-    step.challenge !== null &&
-    (run.kind === "recall" || step.attempt >= 2)
+    step.kind === "scenario" && step.challenge !== null && step.attempt >= 2
   );
 };
 
@@ -271,11 +269,11 @@ export const settleScenario = ({
     );
   }
   const nextStep: UnitCursor["step"] =
-    run.kind === "recall" || (passed && step.attempt >= 2)
+    passed && step.attempt >= 2
       ? {
           kind: "complete",
           attempt: step.attempt,
-          outcome: passed ? "pass" : "fail",
+          outcome: "pass",
           evidence: [...dimensionResults],
           evidencedTargetIds: [...evidencedTargetIds],
         }

@@ -132,7 +132,6 @@ export interface WorkspaceEducationTurnCommit {
   phaseResponse: WorkspacePhaseResponseCommit | null;
   ratingEvaluation: WorkspaceRatingEvaluationCommit | null;
   knowledgeCheckOff: WorkspaceKnowledgeCheckOffCommit | null;
-  knowledgeReinforcement?: { knowledgeIds: string[]; passed: boolean } | null;
   skillPractice?: { knowledgeIds: string[] } | null;
   scenarioPresentation: {
     userId: string;
@@ -201,10 +200,8 @@ export const saveUnitTurnResult = ({
   turnResult,
   ratingEvaluation,
   knowledgeCheckOff = null,
-  knowledgeReinforcement = null,
   skillPractice = null,
   tracksRating,
-  recallEntryIds = null,
   difficultySnapshot,
   difficultyDirectiveReason,
   turnId,
@@ -222,10 +219,8 @@ export const saveUnitTurnResult = ({
   turnResult: UnitTurnResult;
   ratingEvaluation: WorkspaceRatingEvaluationCommit | null;
   knowledgeCheckOff?: WorkspaceKnowledgeCheckOffCommit | null;
-  knowledgeReinforcement?: { knowledgeIds: string[]; passed: boolean } | null;
   skillPractice?: { knowledgeIds: string[] } | null;
   tracksRating: boolean;
-  recallEntryIds?: string[] | null;
   difficultySnapshot: UnitDifficultySnapshot;
   difficultyDirectiveReason?: string | null;
   turnId: string;
@@ -270,7 +265,7 @@ export const saveUnitTurnResult = ({
             unitContentId: unit.id,
             sessionId,
             userId,
-            phase: nextRun.kind === "recall" ? "ai_recall" : "ai_education",
+            phase: "ai_education",
             sequence: responseSequence,
             userResponse: message,
             aiResponse: turnResult.assistantMessage,
@@ -278,8 +273,7 @@ export const saveUnitTurnResult = ({
             score: turnResult.reviewGrade?.score ?? null,
             metadata: {
               aiEducationStage: nextRun.mode,
-              promptKind:
-                nextRun.kind === "recall" ? "recall" : "education_unit",
+              promptKind: "education_unit",
               modelPurpose:
                 turnResult.actor === "reviewer" ? "evaluation" : "education",
               verdict: verdictLabel(turnResult),
@@ -289,26 +283,24 @@ export const saveUnitTurnResult = ({
                 : undefined,
               difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
               goldilocksUpdated: ratingEvaluation ? true : undefined,
-              recallEntryIds: recallEntryIds ?? undefined,
               feedback: turnResult.assistantMessage,
             },
           }
         : null;
-    const completion =
-      complete && nextRun.kind === "education"
-        ? {
-            nodeId: unit.nodeId,
-            attempt: {
-              sessionId,
-              userId,
-              unitId: unit.id,
-              response: message,
-              debrief: buildUnitCompletionDebrief(turnResult),
-              finalArticulation: message,
-              growthDimensions: [] as string[],
-            },
-          }
-        : null;
+    const completion = complete
+      ? {
+          nodeId: unit.nodeId,
+          attempt: {
+            sessionId,
+            userId,
+            unitId: unit.id,
+            response: message,
+            debrief: buildUnitCompletionDebrief(turnResult),
+            finalArticulation: message,
+            growthDimensions: [] as string[],
+          },
+        }
+      : null;
 
     const workspaceTurnRepo = yield* WorkspaceTurnRepo;
     const { assistantMessage } = yield* workspaceTurnRepo.commitEducationTurn({
@@ -347,7 +339,6 @@ export const saveUnitTurnResult = ({
       phaseResponse,
       ratingEvaluation,
       knowledgeCheckOff,
-      knowledgeReinforcement,
       skillPractice,
       scenarioPresentation,
       solvePresentation,
@@ -362,7 +353,6 @@ export const saveUnitTurnResult = ({
           await resolveWorkspaceTurn({
             sessionId,
             authorizedPlan: plan,
-            repairStaleRun: false,
             deps: {
               ...deps,
               getActivePlan: () => Promise.resolve(plan),

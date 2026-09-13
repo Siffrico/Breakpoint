@@ -4,7 +4,6 @@ import { Cause, Effect, Exit } from "effect";
 import type { DbError } from "../../../effect/errors";
 import type { Result } from "../../../lib/result";
 import type { ScenarioBrief } from "../education-unit/scenario-brief";
-import type { PersistedUnitRun } from "../education-unit/unit-state";
 import type {
   CurriculumPlan,
   EducationUnitState,
@@ -31,8 +30,6 @@ import {
 import {
   getUnitAdvanceGate,
   loadNextReadyUnitProjection,
-  loadPlannedRecall,
-  resolveRecallRunProjection,
 } from "../workspace-ai/workspace-turn";
 
 interface GetAiWorkspaceDependencies
@@ -94,47 +91,24 @@ export const getAiWorkspaceWorkflowEffect = ({
       });
     }
 
-    const [active, inFlightRun] = yield* Effect.all(
-      [
-        loadNextReadyUnitProjection({ sessionId, nodes: plan.nodes }),
-        projectionReader.getInFlightRecallRun(sessionId),
-      ],
-      { concurrency: 2 },
-    );
+    const active = yield* loadNextReadyUnitProjection({
+      sessionId,
+      nodes: plan.nodes,
+    });
     if (active.node && !active.unit) {
       return { kind: "preparing", nodeId: active.node.id } as const;
     }
 
-    // The active unit's transcript is fetched speculatively: it is the live
-    // transcript unless a due recall wins below, and waiting for the recall
-    // decision would serialize the common case behind it.
-    const [plannedRecall, activeUnitMessages] = yield* Effect.all(
-      [
-        loadPlannedRecall({
-          sessionId,
-          plan,
-          active,
-          inFlightRun,
-          repairStaleRun: false,
-        }),
-        active.node
-          ? displayReader.listUnitMessages(sessionId, active.node.id)
-          : Effect.succeed<WorkspaceAiMessage[]>([]),
-      ],
-      { concurrency: 2 },
-    );
+    const activeUnitMessages = active.node
+      ? yield* displayReader.listUnitMessages(sessionId, active.node.id)
+      : [];
 
     const state = planWorkspaceTurn({
       nodes: plan.nodes,
       activeUnitResponses: active.responses,
       activeUnitRun: active.run,
       hasPersistedActiveUnitRun: active.hasPersistedRun,
-      recallTarget: plannedRecall
-        ? {
-            unitNodeId: plannedRecall.node.id,
-            unitTitle: plannedRecall.node.title,
-          }
-        : null,
+      recallTarget: null,
     });
     const terminalNodes = plan.nodes.filter((node) => node.kind === "outcome");
     const projectComplete =
@@ -142,71 +116,25 @@ export const getAiWorkspaceWorkflowEffect = ({
       terminalNodes.length > 0 &&
       terminalNodes.every((node) => node.status === "completed");
 
-    // A recall interlude resumes the source unit's durable run cursor, exactly
-    // as the send path resolves it — the view must report the same stage the
-    // next submit will run.
     let resolvedState = state;
-    // The run whose scenario is live: a recall interlude runs its own source
-    // unit's cursor, so the active unit's run is not the one on screen.
-    let resolvedRun: PersistedUnitRun | null = active.run;
-    let resolvedUnit = active.unit;
-    let resolvedResponses = active.responses;
-    if (state?.recallUnitId) {
-      const recallNode = plan.nodes.find(
-        (node) => node.id === state.recallUnitId,
-      );
-      const recallUnit = recallNode
-        ? yield* projectionReader.getUnitByNodeId(recallNode.id)
-        : null;
-      if (!recallUnit) {
-        return { kind: "preparing", nodeId: recallNode?.id ?? null } as const;
-      }
-      const [recallResponses, experience] = yield* Effect.all(
-        [
-          projectionReader.getPhaseResponses(recallUnit.id, sessionId),
-          plannedRecall?.run
-            ? Effect.succeed(undefined)
-            : projectionReader.getEducationExperience(),
-        ],
-        { concurrency: 2 },
-      );
-      const recallRun = resolveRecallRunProjection({
-        sessionId,
-        unit: recallUnit,
-        existing: plannedRecall?.run ?? null,
-        experience,
-      });
-      resolvedRun = recallRun;
-      resolvedUnit = recallUnit;
-      resolvedResponses = recallResponses;
-      resolvedState = {
-        ...state,
-        educationStage: recallRun.mode,
-        workflowId: `${recallRun.experience.id}@${recallRun.experience.version}`,
-      };
-    } else if (resolvedState && active.run) {
+    const resolvedRun = active.run;
+    const resolvedUnit = active.unit;
+    const resolvedResponses = active.responses;
+    if (resolvedState && active.run) {
       // Without this the stage is only ever delivered mid-stream, so a reload
       // during a settled pass left the learner with a locked composer and an
       // Enter that did nothing. The run's own list is the authority.
       resolvedState = { ...resolvedState, educationStage: active.run.mode };
     }
 
-    // Each unit is its own chat: show only the live unit's transcript (the
-    // recall interlude, or the active unit). Earlier units live in the sidebar
+    // Each unit is its own chat. Earlier units live in the sidebar
     // as read-only history, not in the live scroll. Same precedence
     // findWorkspaceTurnNode uses to pick the unit messages are written under
     // (exactly one of the two is ever set — see orchestrator.ts), so this
     // matches the transcript the live turn appends to. With no runnable turn
     // there is no live chat to hydrate.
-    const liveUnitId = resolvedState
-      ? (resolvedState.activeUnitId ?? resolvedState.recallUnitId)
-      : null;
-    const messages =
-      liveUnitId == null
-        ? []
-        : liveUnitId === active.node?.id
-          ? activeUnitMessages
-          : yield* displayReader.listUnitMessages(sessionId, liveUnitId);
+    const liveUnitId = resolvedState?.activeUnitId ?? null;
+    const messages = liveUnitId == null ? [] : activeUnitMessages;
 
     const activeNode = active.node;
     const nextLearningNode =

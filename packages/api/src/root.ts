@@ -3,6 +3,7 @@ import { memoryRouter } from "./router/memory";
 import { missionsRouter } from "./router/missions";
 import { postRouter } from "./router/post";
 import { profileRouter } from "./router/profile";
+import { recallRouter } from "./router/recall";
 import { trainingRouter } from "./router/training";
 import { createTRPCRouter } from "./trpc";
 
@@ -14,6 +15,7 @@ export const appRouter = createTRPCRouter({
   memory: memoryRouter,
   post: postRouter,
   profile: profileRouter,
+  recall: recallRouter,
   missions: missionsRouter,
 });
 

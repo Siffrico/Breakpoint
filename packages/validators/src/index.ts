@@ -12,3 +12,4 @@ export * from "./memory";
 export * from "./profile";
 export * from "./ai-model";
 export * from "./performance";
+export * from "./recall";

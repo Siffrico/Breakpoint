@@ -6,18 +6,6 @@ import type {
 
 import type { Memory } from "../../memory/types";
 
-export type UnitAgentFocus =
-  | { readonly kind: "education" }
-  | {
-      readonly kind: "recall";
-      readonly primary: { readonly label: string; readonly content: string };
-      readonly companion: {
-        readonly label: string;
-        readonly content: string;
-        readonly relation: string;
-      } | null;
-    };
-
 const bulletList = (values: readonly string[]) =>
   values.map((value) => `- ${value}`).join("\n");
 
@@ -72,15 +60,6 @@ const reviewGoldilocksSection = (difficulty: UnitDifficultySnapshot) =>
     .filter((line) => !line.startsWith("- Support:"))
     .join("\n")}`;
 
-const focusSection = (focus: UnitAgentFocus): string | null =>
-  focus.kind === "education"
-    ? null
-    : `## Recall assignment\nIndependently stress-test retrieval and use of: ${focus.primary.label} — ${focus.primary.content}${
-        focus.companion
-          ? `\nCompose it with ${focus.companion.label} — ${focus.companion.content} (${focus.companion.relation} relation).`
-          : ""
-      }\nThis is spaced review, not a fresh lesson.`;
-
 const joinSections = (sections: readonly (string | null)[]) =>
   sections
     .filter((section): section is string => section !== null)
@@ -127,13 +106,11 @@ export const createMentorContext = ({
   unitContext,
   difficulty,
   memories,
-  focus,
   repair = null,
 }: {
   unitContext: UnitContext;
   difficulty: UnitDifficultySnapshot;
   memories: readonly Memory[];
-  focus: UnitAgentFocus;
   repair?: UnitRepairTarget | null;
 }): string =>
   joinSections([
@@ -147,19 +124,16 @@ export const createMentorContext = ({
     memories.length > 0
       ? `## Learner memory\n${bulletList(memories.map((memory) => memory.content))}`
       : null,
-    focusSection(focus),
   ]);
 
 export const createMentorScenarioContext = ({
   unitContext,
   difficulty,
-  focus,
   previousChallengePrompts = [],
   repair = null,
 }: {
   unitContext: UnitContext;
   difficulty: UnitDifficultySnapshot;
-  focus: UnitAgentFocus;
   previousChallengePrompts?: readonly string[];
   repair?: UnitRepairTarget | null;
 }): string =>
@@ -172,20 +146,16 @@ export const createMentorScenarioContext = ({
       ? `## Previously used challenge surfaces\nCreate a genuinely fresh surface; do not repeat these prompts:\n${bulletList(previousChallengePrompts.map(challengeSurfaceSummary))}`
       : null,
     repairSection(repair),
-    focusSection(focus),
   ]);
 
 export const createCritiqueContext = ({
   unitContext,
-  focus,
 }: {
   unitContext: UnitContext;
-  focus: UnitAgentFocus;
 }): string =>
   joinSections([
     targetSection(unitContext),
     workflowSection(unitContext),
     expertiseSection(unitContext),
     judgmentSection(unitContext),
-    focusSection(focus),
   ]);

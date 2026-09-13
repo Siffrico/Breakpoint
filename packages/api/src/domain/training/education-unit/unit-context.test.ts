@@ -25,7 +25,6 @@ const difficulty = {
   ratingSnapshot: "rating snapshot",
   learnerRating: 1260,
 } satisfies UnitDifficultySnapshot;
-const focus = { kind: "education" as const };
 
 describe("unit agent context projections", () => {
   it("gives the mentor the assignment, workflow, Goldilocks, and learner memory", () => {
@@ -42,7 +41,6 @@ describe("unit agent context projections", () => {
           updatedAt: null,
         },
       ],
-      focus,
     });
 
     expect(result).toContain("## Unit assignment");
@@ -57,7 +55,6 @@ describe("unit agent context projections", () => {
     const result = createMentorScenarioContext({
       unitContext,
       difficulty,
-      focus,
       previousChallengePrompts: [
         "The earlier production scenario.\n\nA) Repeated option text.",
       ],
@@ -83,7 +80,6 @@ describe("unit agent context projections", () => {
 - Support: Begin with a fully worked example, then pose the scenario.
 - Approach: Standard training scenario.`,
       },
-      focus,
     });
 
     expect(result).toContain("- Format: Selected response");
@@ -95,7 +91,6 @@ describe("unit agent context projections", () => {
   it("keeps grading independent from difficulty, memory, and prior challenges", () => {
     const result = createCritiqueContext({
       unitContext,
-      focus,
     });
 
     expect(result).toContain("## Unit assignment");

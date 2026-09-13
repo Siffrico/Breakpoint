@@ -55,6 +55,7 @@ export const RUN_PROFILES = {
     reasoningBudgetTokens: 4_096,
   },
   tutor: STANDARD_PROFILE,
+  recall: STANDARD_PROFILE,
   projectOverview: {
     ...STANDARD_PROFILE,
     reasoningBudgetTokens: 2_048,

@@ -4,7 +4,6 @@ import { Context, Effect as Fx } from "effect";
 import type { DbError } from "../../../effect/errors";
 import type { EducationExperienceDefinition } from "../education-unit/experience";
 import type { PersistedUnitRun } from "../education-unit/unit-state";
-import type { RecallCandidate } from "../policies/recall-decay";
 import type {
   CurriculumPlan,
   PhaseResponseRecord,
@@ -31,30 +30,7 @@ export interface WorkspaceProjectionReaderSource {
     sessionId: string,
     unitContentId: string,
   ) => Promise<PersistedUnitRun | null>;
-  readonly getInFlightRecallRun: (
-    sessionId: string,
-  ) => Promise<PersistedUnitRun | null>;
-  readonly retireInFlightRecallRun: (
-    sessionId: string,
-    unitContentId: string,
-  ) => Promise<void>;
   readonly getUnitByNodeId: (nodeId: string) => Promise<UnitContent | null>;
-  readonly getRecallCandidatesByIds: (
-    planId: string,
-    knowledgeIds: readonly string[],
-  ) => Promise<RecallCandidate[]>;
-  readonly getMostOverdueRecallCandidate: (
-    planId: string,
-    now: Date,
-  ) => Promise<RecallCandidate | null>;
-  readonly getRecallCompanionCandidate: (
-    skillNodeId: string,
-    primary: Pick<
-      RecallCandidate,
-      "id" | "questionId" | "questionOrderIndex" | "orderIndex"
-    >,
-    now: Date,
-  ) => Promise<RecallCandidate | null>;
 }
 
 export interface WorkspaceProjectionReaderShape {
@@ -73,32 +49,9 @@ export interface WorkspaceProjectionReaderShape {
     sessionId: string,
     unitContentId: string,
   ) => Effect.Effect<PersistedUnitRun | null, DbError>;
-  readonly getInFlightRecallRun: (
-    sessionId: string,
-  ) => Effect.Effect<PersistedUnitRun | null, DbError>;
-  readonly retireInFlightRecallRun: (
-    sessionId: string,
-    unitContentId: string,
-  ) => Effect.Effect<void, DbError>;
   readonly getUnitByNodeId: (
     nodeId: string,
   ) => Effect.Effect<UnitContent | null, DbError>;
-  readonly getRecallCandidatesByIds: (
-    planId: string,
-    knowledgeIds: readonly string[],
-  ) => Effect.Effect<RecallCandidate[], DbError>;
-  readonly getMostOverdueRecallCandidate: (
-    planId: string,
-    now: Date,
-  ) => Effect.Effect<RecallCandidate | null, DbError>;
-  readonly getRecallCompanionCandidate: (
-    skillNodeId: string,
-    primary: Pick<
-      RecallCandidate,
-      "id" | "questionId" | "questionOrderIndex" | "orderIndex"
-    >,
-    now: Date,
-  ) => Effect.Effect<RecallCandidate | null, DbError>;
 }
 
 export class WorkspaceProjectionReader extends Context.Service<
@@ -121,26 +74,8 @@ export const makeWorkspaceProjectionReader = (
     ),
   getUnitRun: (sessionId, unitContentId) =>
     read("getUnitRun", () => source.getUnitRun(sessionId, unitContentId)),
-  getInFlightRecallRun: (sessionId) =>
-    read("getInFlightRecallRun", () => source.getInFlightRecallRun(sessionId)),
-  retireInFlightRecallRun: (sessionId, unitContentId) =>
-    read("retireInFlightRecallRun", () =>
-      source.retireInFlightRecallRun(sessionId, unitContentId),
-    ),
   getUnitByNodeId: (nodeId) =>
     read("getUnitByNodeId", () => source.getUnitByNodeId(nodeId)),
-  getRecallCandidatesByIds: (planId, knowledgeIds) =>
-    read("getRecallCandidatesByIds", () =>
-      source.getRecallCandidatesByIds(planId, knowledgeIds),
-    ),
-  getMostOverdueRecallCandidate: (planId, now) =>
-    read("getMostOverdueRecallCandidate", () =>
-      source.getMostOverdueRecallCandidate(planId, now),
-    ),
-  getRecallCompanionCandidate: (skillNodeId, primary, now) =>
-    read("getRecallCompanionCandidate", () =>
-      source.getRecallCompanionCandidate(skillNodeId, primary, now),
-    ),
 });
 
 export interface AiWorkspaceReaderSource {

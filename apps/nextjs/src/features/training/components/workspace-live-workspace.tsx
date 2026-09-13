@@ -4,6 +4,8 @@ import type { MouseEvent } from "react";
 import { memo } from "react";
 import dynamic from "next/dynamic";
 
+import type { RouterOutputs } from "@acme/api";
+
 import type { UnitCoachController } from "./use-unit-coach-controller";
 import type {
   AiWorkspace,
@@ -13,6 +15,9 @@ import type {
   WorkspaceMode,
 } from "./use-workspace-session";
 import { PreparingPanel } from "./preparing-panel";
+import { RecallWorkspace } from "./recall-workspace";
+
+type RecallTask = NonNullable<RouterOutputs["recall"]["offer"]>;
 
 const EducationUnitWorkspace = dynamic(() =>
   import("./education-unit/education-unit-workspace").then(
@@ -44,6 +49,9 @@ interface WorkspaceLiveWorkspaceProps {
   unitPreparationRetryPending: boolean;
   preview: boolean;
   advancePending: boolean;
+  recallTask: RecallTask | null;
+  recallBoundaryNodeId: string | null;
+  onRecallAdvanceReady: (advance: (() => void) | null) => void;
   coach: UnitCoachController;
   onBackToCurrentChat: (event: MouseEvent<HTMLAnchorElement>) => void;
   onRetryWorkspace: () => void;
@@ -69,6 +77,9 @@ function WorkspaceLiveWorkspaceComponent({
   unitPreparationRetryPending,
   preview,
   advancePending,
+  recallTask,
+  recallBoundaryNodeId,
+  onRecallAdvanceReady,
   coach,
   onBackToCurrentChat,
   onRetryWorkspace,
@@ -88,14 +99,14 @@ function WorkspaceLiveWorkspaceComponent({
                 "relative flex min-w-0 flex-1 flex-col",
                 mode === "onboarding"
                   ? "min-h-0 overflow-hidden"
-                  : mode === "unit"
+                  : mode === "unit" || recallTask
                     ? "min-h-0 overflow-hidden px-6 sm:px-10"
                     : "overflow-y-auto px-6 pt-1 pb-2 sm:px-10 sm:pt-2",
               ].join(" ")}
             >
               <div
                 className={
-                  mode === "onboarding" || mode === "unit"
+                  mode === "onboarding" || mode === "unit" || recallTask
                     ? "flex min-h-0 w-full flex-1 flex-col"
                     : mode === "history"
                       ? "flex min-h-full flex-col"
@@ -129,7 +140,20 @@ function WorkspaceLiveWorkspaceComponent({
                     onTurnCountChange={onTurnCountChange}
                   />
                 ) : null}
-                {mode === "unit" && liveUnit ? (
+                {(mode === "unit" || mode === "complete") && recallTask ? (
+                  <RecallWorkspace
+                    key={recallTask.id}
+                    initialTask={recallTask}
+                    sessionId={selectedSessionId}
+                    boundaryNodeId={recallBoundaryNodeId}
+                    canContinueLearning={mode === "unit"}
+                    onContinueLearning={onAdvanceUnit}
+                    onRunningChange={onRunningChange}
+                    coach={coach}
+                    onAdvanceReady={onRecallAdvanceReady}
+                  />
+                ) : null}
+                {mode === "unit" && liveUnit && !recallTask ? (
                   <EducationUnitWorkspace
                     key={`${selectedSessionId}:${liveUnit.nodeId}`}
                     unit={liveUnit}
@@ -146,7 +170,7 @@ function WorkspaceLiveWorkspaceComponent({
                     onAskCoachAboutSelection={coach.askAboutSelection}
                   />
                 ) : null}
-                {mode === "complete" ? (
+                {mode === "complete" && !recallTask ? (
                   <div className="flex min-h-[60vh] flex-col justify-center">
                     <PreparingPanel
                       label="Learning project complete"

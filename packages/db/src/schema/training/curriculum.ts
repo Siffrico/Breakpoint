@@ -177,6 +177,7 @@ export const TrainingKnowledgeItem = pgTable(
     // the anchor until the first reinforcement. See policies/recall-decay.ts.
     strength: t.integer().notNull().default(0),
     lastReinforcedAt: t.timestamp({ mode: "date", withTimezone: true }),
+    reviewDueAt: t.timestamp({ mode: "date", withTimezone: true }),
     evidenceNodeId: t
       .uuid()
       .references(() => TrainingCurriculumNode.id, { onDelete: "set null" }),

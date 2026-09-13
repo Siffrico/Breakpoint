@@ -4,11 +4,14 @@ import type { ProfileNotFoundError } from "../domain/profile/errors";
 import type { ProfileRepo } from "../domain/profile/profile-repo";
 import type { MissionError } from "../domain/training/missions/mission-errors";
 import type { MissionRepo } from "../domain/training/missions/mission-repo";
+import type { RecallDomainError } from "../domain/training/recall/errors";
+import type { RecallRepo } from "../domain/training/recall/recall-repo";
 import type { DatabaseClient } from "../effect/db";
 import type { DbError } from "../effect/errors";
 import { translateMissionErrors } from "../effect/mission-edge";
 import { translateProfileErrors } from "../effect/profile-edge";
-import { missionLayer, profileLayer } from "../effect/runtime";
+import { translateRecallErrors } from "../effect/recall-edge";
+import { missionLayer, profileLayer, recallLayer } from "../effect/runtime";
 
 /**
  * The one way a tRPC procedure enters Effect's runtime.
@@ -52,4 +55,14 @@ export const runProfile = <A>(
 ): Promise<A> =>
   runEffect(
     translateProfileErrors(effect.pipe(Effect.provide(profileLayer(client)))),
+  );
+
+export const runRecall = <A>(
+  client: DatabaseClient,
+  effect: Effect.Effect<A, DbError | RecallDomainError, RecallRepo>,
+  options?: { readonly signal?: AbortSignal },
+): Promise<A> =>
+  runEffect(
+    translateRecallErrors(effect.pipe(Effect.provide(recallLayer(client)))),
+    options,
   );
