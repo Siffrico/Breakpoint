@@ -252,7 +252,7 @@ const diagnosisSchema = z
     quote: z
       .string()
       .trim()
-      .min(3)
+      .min(1)
       .max(400)
       .describe(
         "The learner's own words, copied exactly from their latest answer, covering the move that went wrong. Never your paraphrase.",
@@ -260,22 +260,14 @@ const diagnosisSchema = z
     hypothesis: z
       .string()
       .trim()
-      .min(12)
-      .max(240)
-      .regex(
-        /^I think you\b/,
-        'the hypothesis must start with "I think you", because it is a guess the learner can push back on, not a verdict',
-      )
+      .min(1)
+      .max(400)
       .describe(
-        'One sentence starting "I think you", naming the idea you believe they are holding. Use the plainest words that carry it.',
+        "A tentative statement of the idea you believe the learner is holding, written so they can push back on it.",
       ),
-    why: z
-      .array(z.string().trim().min(3).max(120))
-      .min(2)
-      .max(4)
-      .describe(
-        "Two to four short lines showing why that idea breaks here. One idea per line, each a complete sentence, each under 120 characters. Concrete nouns only: name things the learner could point at or count.",
-      ),
+    explanation: LearnerFacingMessageSchema.max(1_200).describe(
+      "A concise explanation of the concrete consequence that makes that idea break in this scenario.",
+    ),
   })
   .strict();
 
@@ -302,7 +294,7 @@ export const renderGradeMessage = (output: {
   return [
     quoteBlock(diagnosis.quote),
     diagnosis.hypothesis.trim(),
-    ...diagnosis.why.map((line) => line.trim()),
+    diagnosis.explanation.trim(),
   ].join("\n\n");
 };
 
@@ -321,17 +313,15 @@ export const renderPartialGradeMessage = (
   };
   if (typeof closingMessage === "string") return closingMessage;
   if (typeof diagnosis !== "object" || diagnosis === null) return undefined;
-  const { quote, hypothesis, why } = diagnosis as {
+  const { quote, hypothesis, explanation } = diagnosis as {
     quote?: unknown;
     hypothesis?: unknown;
-    why?: unknown;
+    explanation?: unknown;
   };
   const parts = [
     typeof quote === "string" && quote.trim() ? quoteBlock(quote) : null,
     typeof hypothesis === "string" ? hypothesis.trim() : null,
-    ...(Array.isArray(why) ? why : []).map((line) =>
-      typeof line === "string" ? line.trim() : null,
-    ),
+    typeof explanation === "string" ? explanation.trim() : null,
   ].filter((part): part is string => Boolean(part));
   return parts.length > 0 ? parts.join("\n\n") : undefined;
 };
@@ -371,7 +361,7 @@ export const reviewGradeSchema = ({
       scratchpad: z
         .string()
         .trim()
-        .min(24)
+        .min(1)
         .max(600)
         .describe(
           "Private. Never shown to the learner. What they were sensibly going for, the idea that made it look right, and why you chose this cause.",
@@ -435,67 +425,6 @@ export const reviewGradeSchema = ({
       require(output.errorCodes.length ===
         0, "errorCodes", "These scores are clean, so leave errorCodes empty.");
     });
-
-// ---------------------------------------------------------------------------
-// Presentation rules
-//
-// Deliberately not schema rules. These describe the wording of learner-facing
-// text, and wording must never invalidate a grade: the scores and evidence
-// drive rating and mastery, so discarding them costs the learner a turn to fix
-// something cosmetic. The runner asks once for a better reply and keeps the
-// original either way.
-//
-// There is only one rule left. Layout used to live here as five checks for
-// bold labels and closing questions; `renderGradeMessage` now owns layout, so
-// those checks have nothing to police.
-// ---------------------------------------------------------------------------
-
-/**
- * Words that describe the learner's thinking from the outside. Each one has a
- * plainer version that says the same thing, and the learner has to translate
- * before they can act on any sentence built from these.
- */
-const ABSTRACT_WORDS = [
-  "abstraction",
-  "assumption",
-  "cognitive",
-  "conceptual",
-  "criteri(?:on|a)",
-  "dimension",
-  "framework",
-  "heuristic",
-  "mental model",
-  "methodology",
-  "paradigm",
-  "proxy",
-  "rubric",
-  "underlying principle",
-] as const;
-
-const ABSTRACT_WORD_PATTERN = new RegExp(
-  `\\b(?:${ABSTRACT_WORDS.join("|")})\\b`,
-  "gi",
-);
-
-export const getGradePresentationIssue = (
-  output: Pick<ReviewGradeOutput, "closingMessage" | "diagnosis">,
-): string | null => {
-  const learnerText = [
-    output.closingMessage ?? "",
-    output.diagnosis?.hypothesis ?? "",
-    ...(output.diagnosis?.why ?? []),
-  ].join("\n");
-  const found = [
-    ...new Set(
-      (learnerText.match(ABSTRACT_WORD_PATTERN) ?? []).map((word) =>
-        word.toLowerCase(),
-      ),
-    ),
-  ];
-  return found.length === 0
-    ? null
-    : `Rewrite without these words, naming the concrete thing instead: ${found.join(", ")}. Every noun should be something the learner could point at or count.`;
-};
 
 export interface MentorTeachingOutput {
   readonly assistantMessage: string;

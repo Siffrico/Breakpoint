@@ -76,5 +76,6 @@ describe("runReviewGradeAgent", () => {
     expect(call?.context).toContain('"answer":"B"');
     expect(call?.context).toContain("B follows the changed constraint");
     expect(call?.context).toContain("constraint-blindness");
+    expect(call).not.toHaveProperty("checkPresentation");
   });
 });

@@ -7,7 +7,6 @@ import type { GradeShape, ReviewGradeOutput } from "./agent-contracts";
 import type { UnitAgentError } from "./agent-errors";
 import type { EducationExperienceDefinition } from "./experience";
 import {
-  getGradePresentationIssue,
   PASSING_COMPOSITE,
   PASSING_DIMENSION,
   renderPartialGradeMessage,
@@ -39,9 +38,9 @@ Before you fill them, write the scratchpad: what the learner was sensibly going 
 
 **quote** is their own words, copied exactly, covering the move that went wrong. Copy it. Do not clean it up.
 
-**hypothesis** is one sentence starting "I think you", naming the idea you believe they are holding. It is a guess offered to someone who can push back, not a ruling. Say the idea, not its category. "I think you read more clicks as happier users" works. "I think you conflated a proxy with the objective" does not.
+**hypothesis** names the idea you believe the learner is holding. State it as a tentative interpretation they could push back on, not a ruling.
 
-**why** is two to four short lines showing why that idea breaks in this scenario. One idea per line. Each line a whole sentence under 120 characters. Walk the concrete consequence: what the thing does, what happens next, what that leaves you with.
+**explanation** briefly shows why that idea breaks in this scenario. Walk the concrete consequence: what the thing does, what happens next, and what that leaves the learner with.
 
 **causeType** is your read on where the mistake came from, and it decides what the learner meets next, so choose it on evidence rather than on which sounds kindest.
 - wrong-rule: they applied a rule that is real but does not hold here.
@@ -51,11 +50,7 @@ Before you fill them, write the scratchpad: what the learner was sensibly going 
 **errorCodes** name the mistake in lowercase kebab-case, most important first. When this run's earlier codes are listed for you and one of them is this same mistake, reuse it character for character. A fresh synonym splits one record in two and the learner never finishes repairing either.
 
 ## Words
-Write for someone who knows the subject but has never read a textbook about thinking. Use the words the learner used. Prefer the concrete noun to the category it belongs to: clicks, not engagement signal; the flagged accounts, not the sample; what the model does, not its behaviour.
-
-Write short sentences in sentence case. No emojis, no em dashes, no all-caps emphasis. Every pronoun must have an obvious referent, so repeat the noun when "it" or "they" could read two ways. Use inline code for literal strings, keys, commands, and file paths.
-
-Never use these words in learner-facing fields: abstraction, assumption, cognitive, conceptual, criterion, criteria, dimension, framework, heuristic, mental model, methodology, paradigm, proxy, rubric, underlying principle. If one of them is the only word that fits, you have not found the concrete thing yet.
+Write plainly and concretely in the learner's vocabulary. Prefer a concrete noun when it makes the causal break easier to see, but use the precise domain term when it is the clearest wording.
 
 Never mention scores, grading, criteria, passes, agents, contracts, scratchpads, or Goldilocks. Never say the words pass or fail. Do not ask the learner a question: the next scenario is where they show you the repair landed.
 
@@ -99,7 +94,6 @@ export const runReviewGradeAgent = ({
     context: `${context}\n\n## Immutable active challenge and private verifier\n${JSON.stringify(activeChallenge)}\n\n${gradeTurnInstruction(priorErrorCodes)}`,
     schema: reviewGradeSchema(shape),
     schemaName: "unit_review_grade",
-    checkPresentation: getGradePresentationIssue,
     renderPartial: renderPartialGradeMessage,
     maxOutputTokens: 15_000,
     reasoningBudgetTokens: 3_000,

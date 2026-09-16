@@ -89,10 +89,8 @@ const gappedGrade = (
     quote: "I use the old move",
     hypothesis:
       "I think you read the old move working before as it working here.",
-    why: [
-      "The old move was safe because the line ran above 40 degrees.",
-      "This line runs at 30 degrees, so that no longer holds.",
-    ],
+    explanation:
+      "The old move was safe because the line ran above 40 degrees. This line runs at 30 degrees, so that no longer holds.",
   },
   causeType,
   errorCodes: ["constraint-blindness"],
@@ -263,9 +261,7 @@ describe("runUnitTurn mentor and critique boundaries", () => {
 
 I think you read the old move working before as it working here.
 
-The old move was safe because the line ran above 40 degrees.
-
-This line runs at 30 degrees, so that no longer holds.`,
+The old move was safe because the line ran above 40 degrees. This line runs at 30 degrees, so that no longer holds.`,
     );
     expect(runMentorScenario).toHaveBeenCalledWith(
       expect.objectContaining({

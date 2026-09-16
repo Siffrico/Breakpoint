@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod/v4";
 
 import {
-  getGradePresentationIssue,
   mentorTeachingOutputSchema,
   renderGradeMessage,
   renderPartialGradeMessage,
@@ -216,11 +215,8 @@ const diagnosis = {
   quote: "keep the original procedure because it is simpler",
   hypothesis:
     "I think you read the old procedure being proven as it still being safe.",
-  why: [
-    "The procedure was safe because the coolant held above 40 degrees.",
-    "The new line runs at 30 degrees, so that no longer holds.",
-    "Reusing the steps now skips the check that kept them safe.",
-  ],
+  explanation:
+    "The procedure was safe because the coolant held above 40 degrees. The new line runs at 30 degrees, so that no longer holds. Reusing the steps now skips the check that kept them safe.",
 };
 
 const gappedGrade = {
@@ -257,26 +253,35 @@ describe("reviewGradeSchema", () => {
     );
   });
 
-  it("requires a hypothesis the learner can push back on", () => {
+  it("accepts tentative wording without requiring an exact opening", () => {
     const result = reviewGradeSchema(gradeShape).safeParse({
       ...gappedGrade,
       diagnosis: {
         ...diagnosis,
         hypothesis:
-          "You conflated the proven procedure with a safe one, which is wrong.",
+          "My read is that you treated the proven procedure as still safe.",
       },
     });
 
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
   });
 
-  it("keeps every why line short enough to read in one pass", () => {
+  it("accepts a one-character answer as an exact diagnostic quote", () => {
     const result = reviewGradeSchema(gradeShape).safeParse({
       ...gappedGrade,
-      diagnosis: { ...diagnosis, why: ["x".repeat(121), "A second line."] },
+      diagnosis: { ...diagnosis, quote: "A" },
     });
 
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
+  });
+
+  it("does not require a minimum amount of private reasoning prose", () => {
+    const result = reviewGradeSchema(gradeShape).safeParse({
+      ...gappedGrade,
+      scratchpad: "Enough.",
+    });
+
+    expect(result.success).toBe(true);
   });
 
   it("rejects a gap that names nothing", () => {
@@ -354,11 +359,7 @@ describe("renderGradeMessage", () => {
 
 I think you read the old procedure being proven as it still being safe.
 
-The procedure was safe because the coolant held above 40 degrees.
-
-The new line runs at 30 degrees, so that no longer holds.
-
-Reusing the steps now skips the check that kept them safe.`,
+The procedure was safe because the coolant held above 40 degrees. The new line runs at 30 degrees, so that no longer holds. Reusing the steps now skips the check that kept them safe.`,
     );
   });
 
@@ -375,14 +376,14 @@ describe("renderPartialGradeMessage", () => {
     ).toBe("> keep the orig");
     expect(
       renderPartialGradeMessage({
-        diagnosis: { ...diagnosis, why: [diagnosis.why[0]] },
+        diagnosis,
       }),
     ).toBe(
       `> keep the original procedure because it is simpler
 
 I think you read the old procedure being proven as it still being safe.
 
-The procedure was safe because the coolant held above 40 degrees.`,
+The procedure was safe because the coolant held above 40 degrees. The new line runs at 30 degrees, so that no longer holds. Reusing the steps now skips the check that kept them safe.`,
     );
   });
 
@@ -390,28 +391,5 @@ The procedure was safe because the coolant held above 40 degrees.`,
     expect(renderPartialGradeMessage({ closingMessage: "Right: you re" })).toBe(
       "Right: you re",
     );
-  });
-});
-
-describe("getGradePresentationIssue", () => {
-  it("passes a diagnosis written in concrete words", () => {
-    expect(getGradePresentationIssue(gappedGrade)).toBeNull();
-  });
-
-  it("asks again when the learner would have to translate first", () => {
-    const issue = getGradePresentationIssue({
-      ...gappedGrade,
-      diagnosis: {
-        ...diagnosis,
-        why: [
-          "Your assumption about the heuristic does not hold.",
-          "The second criterion is unmet.",
-        ],
-      },
-    });
-
-    expect(issue).toContain("assumption");
-    expect(issue).toContain("heuristic");
-    expect(issue).toContain("criterion");
   });
 });
