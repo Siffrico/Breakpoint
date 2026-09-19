@@ -266,7 +266,6 @@ export interface GradeShape {
   readonly testedDimensionIds: readonly string[];
   /** The learner's latest answer, included in the critic prompt. */
   readonly learnerAnswer: string;
-  readonly decidedMet: boolean | null;
 }
 
 /**
@@ -283,26 +282,24 @@ const quoteSchema = z
     "The learner's own words, copied exactly from their latest answer, covering the move that went wrong. Never your paraphrase.",
   );
 
-// A decided verdict (a wrong option letter) has no prose to quote.
-const diagnosisSchema = (quoteRequired: boolean) =>
-  z
-    .object({
-      quote: quoteRequired ? quoteSchema : quoteSchema.nullable(),
-      hypothesis: z
-        .string()
-        .trim()
-        .min(1)
-        .max(400)
-        .describe(
-          "A tentative statement of the idea you believe the learner is holding, written so they can push back on it.",
-        ),
-      explanation: LearnerFacingMessageSchema.max(1_200).describe(
-        "A concise explanation of the concrete consequence that makes that idea break in this scenario.",
+const diagnosisSchema = z
+  .object({
+    quote: quoteSchema,
+    hypothesis: z
+      .string()
+      .trim()
+      .min(1)
+      .max(400)
+      .describe(
+        "A tentative statement of the idea you believe the learner is holding, written so they can push back on it.",
       ),
-    })
-    .strict();
+    explanation: LearnerFacingMessageSchema.max(1_200).describe(
+      "A concise explanation of the concrete consequence that makes that idea break in this scenario.",
+    ),
+  })
+  .strict();
 
-export type UnitDiagnosis = z.infer<ReturnType<typeof diagnosisSchema>>;
+export type UnitDiagnosis = z.infer<typeof diagnosisSchema>;
 
 const quoteBlock = (quote: string): string =>
   quote
@@ -323,12 +320,10 @@ export const renderGradeMessage = (output: {
   const { diagnosis } = output;
   if (!diagnosis) return output.closingMessage ?? "";
   return [
-    diagnosis.quote === null ? null : quoteBlock(diagnosis.quote),
+    quoteBlock(diagnosis.quote),
     diagnosis.hypothesis.trim(),
     diagnosis.explanation.trim(),
-  ]
-    .filter((part): part is string => part !== null)
-    .join("\n\n");
+  ].join("\n\n");
 };
 
 /**
@@ -362,7 +357,6 @@ export const renderPartialGradeMessage = (
 export const reviewGradeSchema = ({
   testedDimensionIds,
   learnerAnswer,
-  decidedMet,
 }: GradeShape) =>
   z
     .object({
@@ -371,7 +365,7 @@ export const reviewGradeSchema = ({
         .describe(
           "Only when the answer is clean: one short paragraph confirming it and naming the evidence that decided it. Null whenever there is a gap.",
         ),
-      diagnosis: diagnosisSchema(decidedMet === null)
+      diagnosis: diagnosisSchema
         .nullable()
         .describe(
           "Only when the answer has a gap. Null whenever the answer is clean.",
@@ -404,50 +398,33 @@ export const reviewGradeSchema = ({
             })
             .strict(),
         )
-        .length(testedDimensionIds.length)
-        .nullable(),
+        .length(testedDimensionIds.length),
     })
     .strict()
     .superRefine((output, ctx) => {
-      const dimensionResults = output.dimensionResults ?? [];
+      const dimensionResults = output.dimensionResults;
       const gradedIds = dimensionResults.map((result) => result.dimensionId);
-      if (decidedMet === null) {
-        if (!output.dimensionResults) {
-          ctx.addIssue({
-            code: "custom",
-            path: ["dimensionResults"],
-            message: "Grade every tested dimension.",
-          });
-        }
-        if (new Set(gradedIds).size !== gradedIds.length) {
-          ctx.addIssue({
-            code: "custom",
-            path: ["dimensionResults"],
-            message: "Grade each tested dimension exactly once.",
-          });
-        }
-        dimensionResults.forEach((result, index) => {
-          if (
-            !learnerAnswer
-              .replace(/\s+/g, " ")
-              .trim()
-              .includes(result.evidence.replace(/\s+/g, " ").trim())
-          ) {
-            ctx.addIssue({
-              code: "custom",
-              path: ["dimensionResults", index, "evidence"],
-              message: "Evidence must quote the learner's answer.",
-            });
-          }
-        });
-      } else if (output.dimensionResults !== null) {
+      if (new Set(gradedIds).size !== gradedIds.length) {
         ctx.addIssue({
           code: "custom",
           path: ["dimensionResults"],
-          message:
-            "Set dimension results to null when the verdict is already decided.",
+          message: "Grade each tested dimension exactly once.",
         });
       }
+      dimensionResults.forEach((result, index) => {
+        if (
+          !learnerAnswer
+            .replace(/\s+/g, " ")
+            .trim()
+            .includes(result.evidence.replace(/\s+/g, " ").trim())
+        ) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["dimensionResults", index, "evidence"],
+            message: "Evidence must quote the learner's answer.",
+          });
+        }
+      });
       if (
         output.diagnosis?.quote &&
         !learnerAnswer
@@ -461,8 +438,7 @@ export const reviewGradeSchema = ({
           message: "Diagnosis quote must quote the learner's answer.",
         });
       }
-      const gap =
-        decidedMet === null ? hasModelGap(dimensionResults) : !decidedMet;
+      const gap = hasModelGap(dimensionResults);
       const require = (
         condition: boolean,
         path: string,

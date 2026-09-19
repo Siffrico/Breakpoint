@@ -229,7 +229,6 @@ const gradeShape = {
   testedDimensionIds: ["constraint-tradeoff"],
   learnerAnswer:
     "I would keep the original procedure because it is simpler and already proven.",
-  decidedMet: null,
 } as const;
 
 const weakDimensionResult = {
@@ -275,15 +274,10 @@ const cleanGrade = {
 };
 
 describe("reviewGradeSchema", () => {
-  it.each([null, false, true])(
-    "requires every tool property when the verdict is %s",
-    (decidedMet) => {
-      const json = z.toJSONSchema(
-        reviewGradeSchema({ ...gradeShape, decidedMet }),
-      );
-      expect(json.required).toEqual(Object.keys(json.properties ?? {}));
-    },
-  );
+  it("requires every tool property", () => {
+    const json = z.toJSONSchema(reviewGradeSchema(gradeShape));
+    expect(json.required).toEqual(Object.keys(json.properties ?? {}));
+  });
 
   it("requires results for an undecided verdict", () => {
     expect(
@@ -378,22 +372,6 @@ describe("reviewGradeSchema", () => {
         ],
       }).success,
     ).toBe(false);
-  });
-
-  it("requires null check results when the verifier already decided the verdict", () => {
-    const decidedShape = { ...gradeShape, decidedMet: false };
-    const { dimensionResults: _dimensionResults, ...diagnosisOnly } =
-      gappedGrade;
-
-    expect(
-      reviewGradeSchema(decidedShape).safeParse({
-        ...diagnosisOnly,
-        dimensionResults: null,
-      }).success,
-    ).toBe(true);
-    expect(reviewGradeSchema(decidedShape).safeParse(gappedGrade).success).toBe(
-      false,
-    );
   });
 
   it("rejects error codes that would key a second ledger row", () => {

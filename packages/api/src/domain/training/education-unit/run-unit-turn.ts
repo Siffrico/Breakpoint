@@ -88,30 +88,6 @@ const latestUserText = (transcript: readonly ModelMessage[]): string | null => {
 const selectedResponse = (run: PersistedUnitRun) =>
   run.difficultySnapshot?.format?.kind === "mcq";
 
-const exactSelectedResponseGrade = ({
-  run,
-  learnerAnswer,
-}: {
-  run: PersistedUnitRun;
-  learnerAnswer: string;
-}) => {
-  if (!selectedResponse(run) || run.cursor.step.kind !== "scenario") {
-    return null;
-  }
-  const challenge = run.cursor.step.challenge;
-  if (challenge === null) return null;
-  const verifier = challenge.contract.verifier;
-  if (verifier?.kind !== "fixed_answer") {
-    return null;
-  }
-  // The option letter may open a longer answer ("B, because ...").
-  const label = /^\(?([A-D])(?![A-Za-z])/i
-    .exec(learnerAnswer.trim())?.[1]
-    ?.toUpperCase();
-  if (!label) return null;
-  return { label, met: label === verifier.answer };
-};
-
 const openScenario = ({
   run,
   experience,
@@ -201,52 +177,19 @@ const gradeScenario = ({
       );
     }
     const ratingEligible = isRatingEligibleScenario(run);
-    const decided = exactSelectedResponseGrade({ run, learnerAnswer });
-    const decidedMet = decided?.met ?? null;
-    const output =
-      decided?.met
-        ? {
-            closingMessage: `Correct. Option ${decided.label} satisfies the scenario without adding an unsupported claim.`,
-            diagnosis: null,
-            causeType: null,
-            errorCodes: [],
-            scratchpad: "The selected response matches the fixed answer exactly.",
-          }
-        : (yield* deps.runReviewGrade({
-            messages: [{ role: "user", content: learnerAnswer }],
-            context: contexts.critique.judgeAnswer,
-            activeChallenge: step.challenge,
-            experience,
-            shape: {
-              testedDimensionIds: step.challenge.contract.testedCriterionIds,
-              learnerAnswer,
-              decidedMet,
-            },
-            priorErrorCodes: run.cursor.errorCodeHistory,
-            onPartialAssistantMessage,
-          })).object;
-    const criticResults =
-      "dimensionResults" in output ? output.dimensionResults : undefined;
-    let dimensionResults: readonly EvaluationDimensionResult[];
-    if (decidedMet === null) {
-      if (!criticResults) {
-        return yield* contractFailure(
-          "The critic did not return every scenario check.",
-        );
-      }
-      dimensionResults = criticResults;
-    } else {
-      dimensionResults = step.challenge.contract.testedCriterionIds.map(
-        (dimensionId) => ({
-            dimensionId,
-            met: decidedMet,
-            evidence: learnerAnswer.trim(),
-            missing: decidedMet
-              ? null
-              : "The selected response does not match the fixed answer.",
-        }),
-      );
-    }
+    const { object: output } = yield* deps.runReviewGrade({
+      messages: [{ role: "user", content: learnerAnswer }],
+      context: contexts.critique.judgeAnswer,
+      activeChallenge: step.challenge,
+      experience,
+      shape: {
+        testedDimensionIds: step.challenge.contract.testedCriterionIds,
+        learnerAnswer,
+      },
+      priorErrorCodes: run.cursor.errorCodeHistory,
+      onPartialAssistantMessage,
+    });
+    const dimensionResults = output.dimensionResults;
     const evidenceIds = evidencedTargets(run, dimensionResults);
     const gap = hasModelGap(dimensionResults);
     const errorCodes = gap

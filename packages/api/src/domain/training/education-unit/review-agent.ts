@@ -14,7 +14,7 @@ import { runUnitAgent } from "./run-unit-agent";
 
 const CRITIC_SYSTEM = `You are Breakpoint's independent critic. You grade, but grading is the smaller half of the job: you exist to show a learner the exact place their thinking split from an expert's, in words they can feel.
 
-You run on a fresh window. You see the active challenge with its private verifier, the learner's latest answer, the unit's judgment standard, and the expert workflow. Treat the verifier's concrete checks as authoritative, apply each check to the learner's reasoning, and never quote or reveal private verifier data. Judge only that evidence.
+You run on a fresh window. You see the active challenge with its private verifier, the learner's latest answer, the unit's judgment standard, and the expert workflow. Treat the verifier as authoritative: use its fixed answer for selected-response scenarios and its concrete checks for open responses. Read the learner's whole answer, including corrections and reasoning; mentioning an option is not choosing it. Apply the judgment criteria to that answer, and never quote or reveal private verifier data. Judge only that evidence.
 
 ## How you read an answer
 Reconstruct the move sequence an expert would actually run for this scenario, using the expert workflow as the spine. Lay the learner's move sequence beside it. Walk both until they split. That first split is the whole finding. Everything after it is a symptom, not the cause.
@@ -25,7 +25,7 @@ Almost every miss is one wrong idea, not a missing fact. Name the idea, not the 
 Every criterion's evidence field must be a verbatim quote from the learner's latest answer, their characters, not your paraphrase. Fluent language without the mechanism is a failure signal, not a passing one. Difficulty comes from realistic constraints, ambiguity, and competing plausible alternatives, never from trivia, withheld information a practitioner would have, or contrived rules.
 
 ## Checks
-For every tested criterion, answer met or not met. Mark it met only when the learner's answer concretely does what that criterion's private check requires. Copy the exact characters from the learner's answer that decided the result into evidence.
+For every tested criterion, answer met or not met. Mark it met only when the learner's answer meets the private verifier and that criterion. Copy the exact characters from the learner's answer that decided the result into evidence.
 
 The checks decide everything else you return. If any check is not met, fill diagnosis, causeType, and errorCodes, and set closingMessage to null. If every check is met, fill closingMessage and set the other three to null or empty. Never invent a flaw to have something to write, and never soften a diagnosis into a confirmation.`;
 
@@ -57,15 +57,8 @@ Write closingMessage as one short paragraph confirming the answer and naming wha
 
 const gradeTurnInstruction = (
   priorErrorCodes: readonly string[],
-  decidedMet: boolean | null,
 ) => `## This turn: the unaided check
-${
-  decidedMet === null
-    ? "Apply every private check to the learner's latest answer, then write the fields those results call for."
-    : decidedMet
-      ? "The verdict is already decided: every check is met. Write the closing fields and set dimensionResults to null; do not grade it again."
-      : "The verdict is already decided: the answer does not meet the fixed-answer verifier. Write the diagnosis fields and set dimensionResults to null; do not grade it again."
-}
+Apply the private verifier and every tested criterion to the learner's latest answer, then write the fields those results call for.
 
 ${
   priorErrorCodes.length > 0
@@ -96,7 +89,7 @@ export const runReviewGradeAgent = ({
     reasoning: "high",
     system: `${CRITIC_SYSTEM}\n\n${DIAGNOSIS_POLICY}\n\n## Customized behavior\n${experience.reviewer.instructions}`,
     messages,
-    context: `${context}\n\n## Immutable active challenge and private verifier\n${JSON.stringify(activeChallenge)}\n\n${gradeTurnInstruction(priorErrorCodes, shape.decidedMet)}`,
+    context: `${context}\n\n## Immutable active challenge and private verifier\n${JSON.stringify(activeChallenge)}\n\n${gradeTurnInstruction(priorErrorCodes)}`,
     schema: reviewGradeSchema(shape),
     schemaName: "unit_review_grade",
     renderPartial: renderPartialGradeMessage,

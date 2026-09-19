@@ -404,142 +404,123 @@ The old move was safe because the line ran above 40 degrees. This line runs at 3
     });
   });
 
-  it("grades an exact correct selected response without a model call", async () => {
-    const firstScenario = await openFirstScenario();
-    const step = firstScenario.nextRun.cursor.step;
-    if (step.kind !== "scenario" || step.challenge === null) {
-      throw new Error("Expected an active scenario.");
-    }
-    const difficultySnapshot = firstScenario.nextRun.difficultySnapshot;
-    if (difficultySnapshot === null) {
-      throw new Error("Expected a difficulty snapshot.");
-    }
-    const selectedRun: PersistedUnitRun = {
-      ...firstScenario.nextRun,
-      difficultySnapshot: {
-        ...difficultySnapshot,
-        format: {
-          id: "selected-response",
-          label: "Selected response",
-          kind: "mcq",
-          description: "Choose one option.",
+  it.each([
+    { answer: "C", met: true },
+    { answer: "A timeout is the issue; I choose C.", met: true },
+    { answer: "C is wrong; my answer is B.", met: false },
+    { answer: "C, because we can ignore the changed constraint.", met: false },
+    { answer: "A", met: false },
+  ])(
+    "lets the critic read the whole selected response: $answer",
+    async ({ answer, met }) => {
+      const firstScenario = await openFirstScenario();
+      const step = firstScenario.nextRun.cursor.step;
+      if (step.kind !== "scenario" || step.challenge === null) {
+        throw new Error("Expected an active scenario.");
+      }
+      const difficultySnapshot = firstScenario.nextRun.difficultySnapshot;
+      if (difficultySnapshot === null) {
+        throw new Error("Expected a difficulty snapshot.");
+      }
+      const selectedRun: PersistedUnitRun = {
+        ...firstScenario.nextRun,
+        difficultySnapshot: {
+          ...difficultySnapshot,
+          format: {
+            id: "selected-response",
+            label: "Selected response",
+            kind: "mcq",
+            description: "Choose one option.",
+          },
         },
-      },
-      cursor: {
-        ...firstScenario.nextRun.cursor,
-        step: {
-          ...step,
-          challenge: {
-            ...step.challenge,
-            contract: {
-              ...step.challenge.contract,
-              verifier: {
-                kind: "fixed_answer",
-                answer: "C",
-                scratchpad: "C is the only supported option.",
+        cursor: {
+          ...firstScenario.nextRun.cursor,
+          step: {
+            ...step,
+            attempt: 2,
+            challenge: {
+              ...step.challenge,
+              contract: {
+                ...step.challenge.contract,
+                verifier: {
+                  kind: "fixed_answer",
+                  answer: "C",
+                  scratchpad: "C is the only supported option.",
+                },
               },
             },
           },
         },
-      },
-    };
-    const runReviewGrade = vi.fn(deps().runReviewGrade);
-
-    const result = await Effect.runPromise(
-      runUnitTurn(
-        {
-          ...input(selectedRun),
-          transcript: [{ role: "user", content: "C" }],
-        },
-        deps({ runReviewGrade }),
-      ),
-    );
-
-    expect(runReviewGrade).not.toHaveBeenCalled();
-    expect(result.assistantMessage).toContain("Option C");
-    expect(result.reviewGrade).toMatchObject({
-      checksMet: 1,
-      checksTotal: 1,
-      passed: true,
-    });
-    expect(result.nextRun.cursor.step).toMatchObject({
-      kind: "pass_result",
-      outcome: "pass",
-    });
-  });
-
-  it("treats a wrong selected response as a deterministic fail", async () => {
-    const firstScenario = await openFirstScenario();
-    const step = firstScenario.nextRun.cursor.step;
-    const difficultySnapshot = firstScenario.nextRun.difficultySnapshot;
-    if (
-      step.kind !== "scenario" ||
-      step.challenge === null ||
-      difficultySnapshot === null
-    ) {
-      throw new Error("Expected an active selected-response scenario.");
-    }
-    const selectedRun: PersistedUnitRun = {
-      ...firstScenario.nextRun,
-      difficultySnapshot: {
-        ...difficultySnapshot,
-        format: {
-          id: "selected-response",
-          label: "Selected response",
-          kind: "mcq",
-          description: "Choose one option.",
-        },
-      },
-      cursor: {
-        ...firstScenario.nextRun.cursor,
-        step: {
-          ...step,
-          challenge: {
-            ...step.challenge,
-            contract: {
-              ...step.challenge.contract,
-              verifier: {
-                kind: "fixed_answer",
-                answer: "C",
-                scratchpad: "C is the only supported option.",
-              },
+      };
+      const onPartialAssistantMessage = vi.fn();
+      const grade = {
+        closingMessage: met
+          ? "Your choice follows the controlling constraint."
+          : null,
+        diagnosis: met
+          ? null
+          : {
+              quote: answer,
+              hypothesis: "I think you chose the familiar move.",
+              explanation: "That move violates the changed constraint.",
             },
+        causeType: met ? null : ("missed-limit" as const),
+        errorCodes: met ? [] : ["wrong-option"],
+        scratchpad: "Read the whole answer against the private verifier.",
+        dimensionResults: [
+          {
+            dimensionId: "derive-under-pressure",
+            met,
+            evidence: answer,
+            missing: met
+              ? null
+              : "A move that respects the changed constraint.",
           },
-        },
-      },
-    };
-    const runReviewGrade = vi.fn<UnitTurnDependencies["runReviewGrade"]>(() =>
-      Effect.succeed({
-        object: {
-          closingMessage: null,
-          diagnosis: {
-            quote: "A",
-            hypothesis: "I think you chose the familiar move.",
-            explanation: "That move violates the changed constraint.",
+        ],
+      };
+      const runReviewGrade = vi.fn<UnitTurnDependencies["runReviewGrade"]>(
+        (request) =>
+          Effect.sync(() => {
+            request.onPartialAssistantMessage?.("Your choice");
+            return { object: grade };
+          }),
+      );
+      const result = await Effect.runPromise(
+        runUnitTurn(
+          {
+            ...input(selectedRun),
+            transcript: [{ role: "user", content: answer }],
+            onPartialAssistantMessage,
           },
-          causeType: "missed-limit",
-          errorCodes: ["wrong-option"],
-          scratchpad: "The fixed-answer verifier already decided the result.",
-          dimensionResults: null,
-        },
-      }),
-    );
+          deps({ runReviewGrade }),
+        ),
+      );
 
-    const result = await Effect.runPromise(
-      runUnitTurn(
-        {
-          ...input(selectedRun),
-          transcript: [{ role: "user", content: "A" }],
-        },
-        deps({ runReviewGrade }),
-      ),
-    );
-
-    expect(runReviewGrade.mock.calls[0]?.[0].shape.decidedMet).toBe(false);
-    expect(result.reviewGrade).toMatchObject({
-      checksMet: 0,
-      checksTotal: 1,
-      passed: false,
-    });
-  });
+      expect(runReviewGrade).toHaveBeenCalledOnce();
+      const request = runReviewGrade.mock.calls[0]?.[0];
+      expect(request?.messages).toEqual([{ role: "user", content: answer }]);
+      expect(request?.activeChallenge.contract.verifier).toMatchObject({
+        kind: "fixed_answer",
+        answer: "C",
+      });
+      expect(request?.shape).toEqual({
+        testedDimensionIds: ["derive-under-pressure"],
+        learnerAnswer: answer,
+      });
+      expect(onPartialAssistantMessage).toHaveBeenCalledWith("Your choice");
+      expect(result.reviewGrade).toMatchObject({
+        checksMet: met ? 1 : 0,
+        checksTotal: 1,
+        passed: met,
+      });
+      expect(result.ratingWrite).toMatchObject({
+        checksMet: met ? 1 : 0,
+        checksTotal: 1,
+      });
+      expect(result.nextRun.cursor.step).toMatchObject({
+        kind: met ? "complete" : "pass_result",
+        outcome: met ? "pass" : "fail",
+      });
+    },
+  );
 });
