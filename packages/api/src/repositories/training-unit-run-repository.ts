@@ -1,6 +1,9 @@
 import type { db as databaseClient } from "@acme/db/client";
-import type { UnitReviewChallenge } from "@acme/validators";
-import { and, eq, isNull, sql } from "@acme/db";
+import type {
+  UnitDifficultySnapshot,
+  UnitReviewChallenge,
+} from "@acme/validators";
+import { and, eq, isNull } from "@acme/db";
 import { TrainingUnitRun } from "@acme/db/schema";
 import {
   EducationExperienceSnapshotSchema,
@@ -13,19 +16,6 @@ import type { PersistedUnitRun } from "../domain/training/education-unit/unit-st
 import { projectUnitRun } from "../domain/training/education-unit/unit-state";
 
 type Database = typeof databaseClient;
-
-const canonicalJson = (value: unknown): string => {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
-  if (value && typeof value === "object") {
-    const entries = Object.entries(value).sort(([left], [right]) =>
-      left.localeCompare(right),
-    );
-    return `{${entries
-      .map(([key, entry]) => `${JSON.stringify(key)}:${canonicalJson(entry)}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
-};
 
 const mapUnitRun = (
   row: typeof TrainingUnitRun.$inferSelect,
@@ -88,6 +78,7 @@ export const trainingUnitRunRepository = {
     kind,
     pass,
     challenge,
+    difficultySnapshot,
   }: {
     db: Database;
     sessionId: string;
@@ -95,6 +86,7 @@ export const trainingUnitRunRepository = {
     kind: string;
     pass: number;
     challenge: UnitReviewChallenge;
+    difficultySnapshot: UnitDifficultySnapshot;
   }): Promise<void> => {
     const row = await db.query.TrainingUnitRun.findFirst({
       where: and(
@@ -117,6 +109,7 @@ export const trainingUnitRunRepository = {
     await db
       .update(TrainingUnitRun)
       .set({
+        difficultySnapshotJson: difficultySnapshot,
         cursorJson: {
           ...run.cursor,
           step: { ...step, preparedScenario: challenge },
@@ -166,18 +159,11 @@ export const trainingUnitRunRepository = {
           experienceJson: values.experienceJson,
           unitContextJson: values.unitContextJson,
           cursorJson: values.cursorJson,
-          difficultySnapshotJson: sql`case when ${TrainingUnitRun.experienceId} = excluded.experience_id and ${TrainingUnitRun.experienceVersion} = excluded.experience_version and ${TrainingUnitRun.cursorJson}->'step'->>'kind' <> 'complete' then coalesce(${TrainingUnitRun.difficultySnapshotJson}, excluded.difficulty_snapshot_json) else excluded.difficulty_snapshot_json end`,
+          difficultySnapshotJson: values.difficultySnapshotJson,
         },
       })
       .returning();
     if (!row) throw new Error("Unit run could not be saved.");
-    if (
-      run.difficultySnapshot &&
-      canonicalJson(row.difficultySnapshotJson) !==
-        canonicalJson(run.difficultySnapshot)
-    ) {
-      throw new Error("A unit run's difficulty snapshot cannot be replaced.");
-    }
     return mapUnitRun(row);
   },
 };

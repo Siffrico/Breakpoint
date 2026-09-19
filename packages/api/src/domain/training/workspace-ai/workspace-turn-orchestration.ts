@@ -93,6 +93,7 @@ export interface WorkspaceTurnOrchestrationDependencies
     kind: string;
     pass: UnitReviewPass;
     challenge: UnitReviewChallenge;
+    difficultySnapshot: UnitDifficultySnapshot;
   }) => Promise<void>;
   pregenerateNextUnit?: (input: {
     sessionId: string;
@@ -526,7 +527,7 @@ export const runEducationUnitTurn = ({
             message: "Goldilocks did not resolve a unit difficulty snapshot.",
           }));
 
-        const previousChallengePrompts = unitRun.cursor.scenarioPrompts;
+    const previousChallengePrompts = unitRun.cursor.scenarioPrompts;
     // What the last failed scenario found, so the next lesson or scenario aims
     // at that idea instead of restating the unit. Null on a pass and at the
     // start of a run, which is when there is nothing to repair.
@@ -695,35 +696,53 @@ export const runEducationUnitTurn = ({
     ) {
       const runPassPregeneration = () =>
         Effect.runPromise(
-          prefillScenario({
-            run: turnResult.nextRun,
-            experience,
-            context:
-              passResult.kind === "pass_result" && passResult.outcome === "fail"
-                ? createMentorScenarioContext({
-                    unitContext: turnResult.nextRun.unitContext,
-                    difficulty: difficultySnapshot,
-                    previousChallengePrompts:
-                      turnResult.nextRun.cursor.scenarioPrompts,
-                    repair: {
-                      errorCodes: passResult.errorCodes,
-                      hypothesis: passResult.hypothesis,
-                      dimensionResults: passResult.evidence,
-                    },
-                  })
-                : contexts.mentorScenario,
+          Effect.gen(function* () {
+            const nextDifficulty: UnitDifficultySnapshot = ratingEvaluation
+              ? {
+                  nodeId: ratingScope.nodeId,
+                  ...(yield* ratingPromise("resolveDifficultyDirective", () =>
+                    deps.resolveDifficultyDirective({
+                      userId,
+                      nodeId: ratingScope.nodeId,
+                      now: new Date(),
+                      bands: ratingScope.bands,
+                    }),
+                  )),
+                }
+              : difficultySnapshot;
+            const challenge = yield* prefillScenario({
+              run: {
+                ...turnResult.nextRun,
+                difficultySnapshot: nextDifficulty,
+              },
+              experience,
+              context: createMentorScenarioContext({
+                unitContext: turnResult.nextRun.unitContext,
+                difficulty: nextDifficulty,
+                previousChallengePrompts:
+                  turnResult.nextRun.cursor.scenarioPrompts,
+                repair:
+                  passResult.kind === "pass_result" &&
+                  passResult.outcome === "fail"
+                    ? {
+                        errorCodes: passResult.errorCodes,
+                        hypothesis: passResult.hypothesis,
+                        dimensionResults: passResult.evidence,
+                      }
+                    : null,
+              }),
+            });
+            yield* persistPromise("savePendingChallenge", () =>
+              savePendingChallenge({
+                sessionId,
+                unitContentId: unit.id,
+                kind: turnResult.nextRun.kind,
+                pass: turnResult.nextRun.reviewPass + 1,
+                challenge,
+                difficultySnapshot: nextDifficulty,
+              }),
+            );
           }).pipe(
-            Effect.flatMap((challenge) =>
-              Effect.tryPromise(() =>
-                savePendingChallenge({
-                  sessionId,
-                  unitContentId: unit.id,
-                  kind: turnResult.nextRun.kind,
-                  pass: turnResult.nextRun.reviewPass + 1,
-                  challenge,
-                }),
-              ),
-            ),
             Effect.tapCause((cause) =>
               Effect.logError("next pass pre-generation failed", {
                 sessionId,

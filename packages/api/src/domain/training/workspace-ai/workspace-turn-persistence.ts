@@ -238,7 +238,10 @@ export const saveUnitTurnResult = ({
       ...turnResult.nextRun,
       sessionId,
       userId,
-      difficultySnapshot,
+      difficultySnapshot:
+        ratingEvaluation && turnResult.nextRun.mode === "awaiting_next_pass"
+          ? null
+          : difficultySnapshot,
     };
     const complete = nextRun.mode === "complete";
     // The rating attempt opens only on a scenario whose mark can end the unit.
