@@ -1,5 +1,5 @@
 import type { RatingPolicy, SupportLevel } from "./policy";
-import { scoreToOutcome } from "./glicko";
+import { checksToOutcome } from "./glicko";
 import { DEFAULT_RATING_POLICY, SUPPORT_LEVELS } from "./policy";
 
 /**
@@ -7,8 +7,8 @@ import { DEFAULT_RATING_POLICY, SUPPORT_LEVELS } from "./policy";
  *
  * There is no hint mechanism (deliberately: hints bred reliance), so observed
  * difficulty comes from exactly four low-friction channels:
- *  1. the rubric score (primary)
- *  2. the eval's error codes (the *reason* for the score)
+ *  1. the scenario checks (primary)
+ *  2. the eval's error codes (the reason a check was not met)
  *  3. sidechat ask count during the attempt (revealed support-seeking)
  *  4. attempt timing (already tracked as attemptTiming in workspace turns)
  */
@@ -16,8 +16,8 @@ import { DEFAULT_RATING_POLICY, SUPPORT_LEVELS } from "./policy";
 export interface AttemptEvidence {
   /** Difficulty band the scenario was generated from. */
   readonly bandOrder: number;
-  /** Rubric score 0–100 from the evaluator. */
-  readonly score: number;
+  readonly checksMet: number;
+  readonly checksTotal: number;
   /** Support level the scenario itself was generated with. */
   readonly offeredSupport: SupportLevel;
   /** Questions asked in the ask-sidechat while this attempt was open. */
@@ -39,12 +39,11 @@ export interface AttemptRecord {
   readonly offeredSupport: SupportLevel;
   /** Item rating the scenario claimed/generated at. */
   readonly itemRating: number;
-  /** Raw rubric score from the evaluator, retained for audit/calibration. */
-  readonly score: number;
+  readonly checksMet?: number;
+  readonly checksTotal?: number;
   /**
-   * Glicko outcome in [0,1]: the score as partial credit, discounted for
-   * revealed support (sidechat reliance) and time overrun, so an assisted 90
-   * updates the rating like a solid solo attempt rather than mastery.
+   * Glicko outcome in [0,1]: checks met as partial credit, discounted for
+   * revealed support and time overrun.
    */
   readonly outcome: number;
   /**
@@ -54,11 +53,11 @@ export interface AttemptRecord {
    * leaning on the sidechat is not an unsupported pass.
    */
   readonly effectiveSupport: SupportLevel;
-  /** Pass at/above `passScore`, within the sidechat allowance, on time. */
+  /** Every check met, within the sidechat allowance, on time. */
   readonly cleanPass: boolean;
-  /** Score >= passScore regardless of support — used by the fade gate. */
+  /** Every check met regardless of support — used by the fade gate. */
   readonly pass: boolean;
-  /** Score < backOffScore — two of these in a row trigger a back-off. */
+  /** No checks met — two of these in a row trigger a back-off. */
   readonly hardFail: boolean;
   /** When the attempt was evaluated. */
   readonly occurredAt: Date;
@@ -86,9 +85,9 @@ export const isLowSupport = (level: SupportLevel): boolean => level === "none";
 
 /**
  * Grade one attempt's evidence into the quality signals the estimator and the
- * decision ladder consume. Throws only when the score is outside [0,100]
- * (propagated from `scoreToOutcome`); all other inputs are clamped, since a
- * weird sidechat count should soften the outcome, not crash the turn.
+ * decision ladder consume. Invalid check counts throw before state is written;
+ * all other inputs are clamped, since a weird sidechat count should soften the
+ * outcome, not crash the turn.
  */
 export const assessAttempt = (
   evidence: AttemptEvidence,
@@ -106,9 +105,12 @@ export const assessAttempt = (
   }
   supportIndex(evidence.offeredSupport);
 
-  const uncorrectedOutcome = scoreToOutcome(evidence.score);
+  const uncorrectedOutcome = checksToOutcome(
+    evidence.checksMet,
+    evidence.checksTotal,
+  );
   const guessChance =
-    typeof evidence.guessChance === "number" &&
+    evidence.guessChance !== undefined &&
     evidence.guessChance >= 0 &&
     evidence.guessChance < 1
       ? evidence.guessChance
@@ -132,17 +134,18 @@ export const assessAttempt = (
       ? raiseSupport(evidence.offeredSupport)
       : evidence.offeredSupport;
 
-  const pass = evidence.score >= policy.passScore;
+  const pass = evidence.checksMet === evidence.checksTotal;
   return {
     bandOrder: evidence.bandOrder,
     offeredSupport: evidence.offeredSupport,
     itemRating: evidence.itemRating,
-    score: evidence.score,
+    checksMet: evidence.checksMet,
+    checksTotal: evidence.checksTotal,
     outcome,
     effectiveSupport,
     pass,
     cleanPass: pass && extraAsks === 0 && !evidence.wasOverTime,
-    hardFail: evidence.score < policy.backOffScore,
+    hardFail: evidence.checksMet === 0,
     occurredAt: evidence.occurredAt,
   };
 };

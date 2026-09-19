@@ -46,7 +46,8 @@ export interface CompileOutcomeInput {
   };
   priorPerformance?: readonly {
     title: string;
-    score: number;
+    checksMet: number | null;
+    checksTotal: number | null;
     failureTags: string[];
   }[];
   options?: ArtifactResumeOptions<OutcomeCompilationOutput>;
@@ -85,7 +86,11 @@ const formatPriorPerformance = (
     : `Recent performance:\n${records
         .map(
           (record) =>
-            `- ${record.title}: ${record.score}${
+            `- ${record.title}: ${
+              record.checksMet === null || record.checksTotal === null
+                ? "check evidence unavailable"
+                : `${record.checksMet} of ${record.checksTotal} checks met`
+            }${
               record.failureTags.length > 0
                 ? `; failures: ${record.failureTags.join(", ")}`
                 : ""

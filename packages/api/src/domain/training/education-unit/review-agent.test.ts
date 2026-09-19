@@ -11,7 +11,7 @@ const gradeOutput = {
   dimensionResults: [
     {
       dimensionId: "criterion-1",
-      score: 92,
+      met: true,
       evidence: "I would choose B",
       missing: null,
     },
@@ -49,9 +49,8 @@ describe("runReviewGradeAgent", () => {
             scenarioPromptSummary: "Choose and defend A or B.",
             testedCriterionIds: ["criterion-1"],
             verifier: {
-              type: "fixed_answer",
+              kind: "fixed_answer",
               answer: "B",
-              checkerSpec: null,
               scratchpad:
                 "Solution: B follows the changed constraint. A preserves the old constraint. Audit: self-contained and answer hidden.",
             },
@@ -61,7 +60,7 @@ describe("runReviewGradeAgent", () => {
         shape: {
           testedDimensionIds: ["criterion-1"],
           learnerAnswer: "I would choose B because...",
-          evidencesAllTargets: () => true,
+          decidedMet: null,
         },
         priorErrorCodes: ["constraint-blindness"],
       }),

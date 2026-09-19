@@ -375,7 +375,7 @@ const claimTurnAndLoadTranscript = ({
     // The learner's message is committed with the turn, not before it, so the
     // model's view of this turn has to be assembled here. An `advance_pass`
     // carries no answer at all — appending an empty user turn would put a blank
-    // learner message in the transcript for the next grade to score.
+    // learner message in the transcript for the next review.
     const messages =
       action !== "submit_answer"
         ? persistedMessages
@@ -623,7 +623,8 @@ export const runEducationUnitTurn = ({
         scenarioAttemptId,
         userId,
         nodeId: difficultySnapshot.nodeId,
-        score: turnResult.ratingWrite.score,
+        checksMet: turnResult.ratingWrite.checksMet,
+        checksTotal: turnResult.ratingWrite.checksTotal,
         errorCodes: turnResult.ratingWrite.errorCodes,
         wasOverTime: timing.wasOverTime,
         occurredAt: new Date(),

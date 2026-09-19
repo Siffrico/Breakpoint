@@ -5,7 +5,6 @@ type PlanNodes = RouterOutputs["training"]["activePlan"]["nodes"];
 
 export function buildTree(
   nodes: PlanNodes,
-  nodeScores?: Record<string, number>,
 ): TreeNode[] {
   const childrenMap = new Map<string | null, PlanNodes>();
 
@@ -20,15 +19,9 @@ export function buildTree(
 
   function convert(node: PlanNodes[number]): TreeNode {
     const children = childrenMap.get(node.id) ?? [];
-    const score = nodeScores?.[node.id];
-    const label =
-      score != null && node.status === "completed"
-        ? `${node.title} · ${score}`
-        : node.title;
-
     return {
       id: node.id,
-      label,
+      label: node.title,
       variant: "default",
       status: node.status as TreeNode["status"],
       children:

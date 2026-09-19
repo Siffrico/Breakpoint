@@ -55,9 +55,9 @@ export interface ApplyEvaluationResult {
 /**
  * Fold one evaluated attempt into learner state. Takes the stored rating
  * state, the misconception ledger and the evaluation; produces all updated
- * state plus the prediction record. Throws only when the score is outside
- * [0,100] or the item rating is missing/non-finite — both mean an upstream
- * contract broke and the rating must not be corrupted.
+ * state plus the prediction record. Throws when check counts are invalid or
+ * the item rating is missing/non-finite — both mean an upstream contract broke
+ * and the rating must not be corrupted.
  */
 export const applyEvaluation = (input: {
   ratingState: JobRatingState;

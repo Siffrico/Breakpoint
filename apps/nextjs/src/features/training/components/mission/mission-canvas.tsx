@@ -258,14 +258,8 @@ export function MissionCanvas({
                       >
                         <div className="flex items-baseline justify-between gap-4">
                           <p className="text-[14px] font-medium text-[var(--site-fg)]">
-                            {latestEvaluation.score >= 55
-                              ? "Almost there"
-                              : "Needs another pass"}
-                            {" · "}
-                            {latestEvaluation.score}/100
-                          </p>
-                          <p className="font-mono text-[11px] text-[var(--site-text-3)]">
-                            Standard: 70
+                            Needs another pass · {latestEvaluation.checksMet} of{" "}
+                            {latestEvaluation.checksTotal} checks
                           </p>
                         </div>
                         <p className="mt-2 text-[14px] leading-relaxed text-[var(--site-text-2)]">

@@ -300,7 +300,7 @@ const seedUnitRun = async ({
                 evidence: [
                   {
                     dimensionId: "perform-workflow",
-                    score: 90,
+                    met: true,
                     evidence: "Derived the move from the changed constraint.",
                     missing: null,
                   },

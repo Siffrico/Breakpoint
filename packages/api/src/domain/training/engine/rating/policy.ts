@@ -9,8 +9,8 @@
  *
  * Evidence constraints this policy encodes: there is no hint mechanism, so
  * "support" means how scaffolded the scenario itself is (worked example →
- * guided → none), and the only low-friction difficulty signals are the rubric
- * score, the eval's error codes, sidechat ask count during the attempt, and
+ * guided → none), and the only low-friction difficulty signals are the check
+ * results, the eval's error codes, sidechat ask count during the attempt, and
  * attempt timing.
  */
 
@@ -83,12 +83,6 @@ export interface RatingPolicy {
    */
   readonly decayMeanReversionPerPeriod: number;
 
-  /** Rubric score (0–100) at or above which an attempt counts as a pass. */
-  readonly passScore: number;
-
-  /** Score below which two consecutive attempts trigger a back-off. */
-  readonly backOffScore: number;
-
   /**
    * Sidechat asks during an attempt that are "free" before the attempt stops
    * counting as clean. Asking one clarifying question is normal; leaning on
@@ -98,8 +92,8 @@ export interface RatingPolicy {
 
   /**
    * Multiplicative discount on the Glicko outcome per sidechat ask beyond the
-   * free allowance. A heavily-assisted 90 should update the rating like a
-   * solid-but-not-stellar solo attempt, not like mastery.
+   * free allowance. A heavily assisted attempt should update the rating less
+   * than an unsupported attempt with the same checks met.
    */
   readonly sidechatDiscountPerExtraAsk: number;
 
@@ -135,7 +129,7 @@ export interface RatingPolicy {
   /** Consecutive passes at the current support level required to fade support. */
   readonly fadePassCount: number;
 
-  /** Consecutive sub-`backOffScore` attempts that trigger a back-off. */
+  /** Consecutive attempts with no checks met that trigger a back-off. */
   readonly backOffFailCount: number;
 
   /** Deviation must be at or below this for the job to count as mastered. */
@@ -155,8 +149,6 @@ export const DEFAULT_RATING_POLICY: RatingPolicy = {
   decayGraceDays: 7,
   decayDeviationPerPeriod: 30,
   decayMeanReversionPerPeriod: 0.05,
-  passScore: 75,
-  backOffScore: 40,
   cleanPassMaxSidechatAsks: 1,
   sidechatDiscountPerExtraAsk: 0.07,
   maxSidechatDiscount: 0.2,

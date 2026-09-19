@@ -10,6 +10,7 @@ import {
 } from "./agent-contracts";
 
 describe("mentorTeachingOutputSchema", () => {
+  const testedCriterionIds = ["constraint-tradeoff"] as const;
   const opening = {
     assistantMessage: `Name what a sentence does in the argument, then use the next sentence to verify that role.
 
@@ -24,9 +25,13 @@ A claim is followed by Nevertheless and an opposing result. What function does t
     assistantMessage:
       "A production constraint changed. Choose the safe move and explain the controlling reason.",
     verifier: {
-      type: "judge_rubric" as const,
-      answer: null,
-      checkerSpec: null,
+      kind: "checks" as const,
+      checks: [
+        {
+          criterionId: "constraint-tradeoff",
+          check: "The answer must derive the move from the changed constraint.",
+        },
+      ],
       scratchpad:
         "The safe move follows the changed constraint; the trap reuses the old procedure.",
     },
@@ -34,12 +39,12 @@ A claim is followed by Nevertheless and an opposing result. What function does t
 
   it("teaches first without creating the scenario", () => {
     expect(
-      mentorTeachingOutputSchema(false, false).safeParse({
+      mentorTeachingOutputSchema(false, false, testedCriterionIds).safeParse({
         ...opening,
       }).success,
     ).toBe(true);
     expect(
-      mentorTeachingOutputSchema(false, false).safeParse({
+      mentorTeachingOutputSchema(false, false, testedCriterionIds).safeParse({
         ...opening,
         preparedScenario,
       }).success,
@@ -48,7 +53,7 @@ A claim is followed by Nevertheless and an opposing result. What function does t
 
   it("lets the mentor organize the lesson as Markdown without punctuation validation", () => {
     expect(
-      mentorTeachingOutputSchema(false, false).safeParse({
+      mentorTeachingOutputSchema(false, false, testedCriterionIds).safeParse({
         ...opening,
         assistantMessage: `**Try this**
 
@@ -60,7 +65,7 @@ A claim is followed by Nevertheless and an opposing result. What function does t
 
   it("does not expose the unused scenario object in the opening JSON schema", () => {
     const openingJsonSchema = z.toJSONSchema(
-      mentorTeachingOutputSchema(true, false),
+      mentorTeachingOutputSchema(true, false, testedCriterionIds),
     );
 
     expect(JSON.stringify(openingJsonSchema)).not.toContain("verifier");
@@ -71,14 +76,14 @@ A claim is followed by Nevertheless and an opposing result. What function does t
 
   it("creates the scenario after one answer without validating prose layout", () => {
     expect(
-      mentorTeachingOutputSchema(false, true).safeParse({
+      mentorTeachingOutputSchema(false, true, testedCriterionIds).safeParse({
         assistantMessage:
           "The changed constraint must control the move, not the familiar procedure.",
         preparedScenario,
       }).success,
     ).toBe(true);
     expect(
-      mentorTeachingOutputSchema(false, true).safeParse({
+      mentorTeachingOutputSchema(false, true, testedCriterionIds).safeParse({
         assistantMessage: "Which constraint controls the move?",
         preparedScenario,
       }).success,
@@ -87,9 +92,8 @@ A claim is followed by Nevertheless and an opposing result. What function does t
 });
 
 const verifier = {
-  type: "fixed_answer" as const,
+  kind: "fixed_answer" as const,
   answer: "B",
-  checkerSpec: null,
   scratchpad:
     "Solution: B preserves both constraints. Trap A protects the visible metric but breaks consistency. Audit: one answer; self-contained.",
 };
@@ -109,14 +113,30 @@ const selectScenario = {
 } as const;
 
 describe("reviewPresentationSchema", () => {
+  const testedCriterionIds = ["constraint-tradeoff"] as const;
+  const checksVerifier = {
+    kind: "checks" as const,
+    checks: [
+      {
+        criterionId: "constraint-tradeoff",
+        check: "The answer must explain why only idempotent requests are safe to retry.",
+      },
+    ],
+    scratchpad:
+      "The safe move retries only idempotent requests and ties that choice to duplicate-write risk.",
+  };
+
   it("keeps a validated private verifier beside learner-facing scenario text", () => {
-    const result = reviewPresentationSchema(true).safeParse(selectScenario);
+    const result = reviewPresentationSchema(
+      true,
+      testedCriterionIds,
+    ).safeParse(selectScenario);
 
     expect(result.success).toBe(true);
   });
 
   it("caps private scenario planning so it cannot become an internal essay", () => {
-    const result = reviewPresentationSchema(true).safeParse({
+    const result = reviewPresentationSchema(true, testedCriterionIds).safeParse({
       ...selectScenario,
       verifier: {
         ...verifier,
@@ -128,7 +148,7 @@ describe("reviewPresentationSchema", () => {
   });
 
   it("rejects a stem that instructs without asking anything", () => {
-    const result = reviewPresentationSchema(true).safeParse({
+    const result = reviewPresentationSchema(true, testedCriterionIds).safeParse({
       ...selectScenario,
       assistantMessage:
         "Read the passage above, then run a qualifier audit and be ready to cite the phrase that confirms your choice.",
@@ -138,17 +158,17 @@ describe("reviewPresentationSchema", () => {
   });
 
   it("rejects private authoring fields leaked into the scenario", () => {
-    const result = reviewPresentationSchema(false).safeParse({
+    const result = reviewPresentationSchema(false, testedCriterionIds).safeParse({
       assistantMessage:
         "The checkerSpec selects option B. Explain why it preserves both constraints.",
-      verifier,
+      verifier: checksVerifier,
     });
 
     expect(result.success).toBe(false);
   });
 
   it("rejects a worked example instead of an unsolved challenge", () => {
-    const result = reviewPresentationSchema(false).safeParse({
+    const result = reviewPresentationSchema(false, testedCriterionIds).safeParse({
       assistantMessage: `## Worked Example
 
 Which policy should the team ship?
@@ -159,14 +179,14 @@ C. Never retry
 D. Retry writes without a key
 
 Answer: B`,
-      verifier,
+      verifier: checksVerifier,
     });
 
     expect(result.success).toBe(false);
   });
 
   it("rejects drafting debris in learner-visible options", () => {
-    const result = reviewPresentationSchema(true).safeParse({
+    const result = reviewPresentationSchema(true, testedCriterionIds).safeParse({
       ...selectScenario,
       options: [
         options[0],
@@ -185,7 +205,10 @@ Answer: B`,
 
   it("rejects a selected-response verifier without learner-visible options", () => {
     const { options: _options, ...withoutOptions } = selectScenario;
-    const result = reviewPresentationSchema(true).safeParse(withoutOptions);
+    const result = reviewPresentationSchema(
+      true,
+      testedCriterionIds,
+    ).safeParse(withoutOptions);
 
     expect(result.success).toBe(false);
   });
@@ -195,19 +218,19 @@ const gradeShape = {
   testedDimensionIds: ["constraint-tradeoff"],
   learnerAnswer:
     "I would keep the original procedure because it is simpler and already proven.",
-  evidencesAllTargets: () => true,
+  decidedMet: null,
 } as const;
 
 const weakDimensionResult = {
   dimensionId: "constraint-tradeoff",
-  score: 58,
+  met: false,
   evidence: "keep the original procedure",
   missing: "A re-derivation from the changed constraint.",
 };
 
 const cleanDimensionResult = {
   ...weakDimensionResult,
-  score: 96,
+  met: true,
   missing: null,
 };
 
@@ -266,13 +289,13 @@ describe("reviewGradeSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("accepts a one-character answer as an exact diagnostic quote", () => {
+  it("rejects a diagnosis quote that is not in the learner answer", () => {
     const result = reviewGradeSchema(gradeShape).safeParse({
       ...gappedGrade,
       diagnosis: { ...diagnosis, quote: "A" },
     });
 
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
   });
 
   it("does not require a minimum amount of private reasoning prose", () => {
@@ -312,16 +335,27 @@ describe("reviewGradeSchema", () => {
     }
   });
 
-  it("treats an unevidenced target as a gap, like the turn does", () => {
-    const shape = { ...gradeShape, evidencesAllTargets: () => false };
-
-    expect(reviewGradeSchema(shape).safeParse(cleanGrade).success).toBe(false);
+  it("rejects criterion evidence that is not in the learner answer", () => {
     expect(
-      reviewGradeSchema(shape).safeParse({
+      reviewGradeSchema(gradeShape).safeParse({
         ...gappedGrade,
-        dimensionResults: [cleanDimensionResult],
+        dimensionResults: [
+          { ...weakDimensionResult, evidence: "a sentence never written" },
+        ],
       }).success,
+    ).toBe(false);
+  });
+
+  it("omits check results when the verifier already decided the verdict", () => {
+    const decidedShape = { ...gradeShape, decidedMet: false };
+    const { dimensionResults: _dimensionResults, ...diagnosisOnly } = gappedGrade;
+
+    expect(
+      reviewGradeSchema(decidedShape).safeParse(diagnosisOnly).success,
     ).toBe(true);
+    expect(reviewGradeSchema(decidedShape).safeParse(gappedGrade).success).toBe(
+      false,
+    );
   });
 
   it("rejects error codes that would key a second ledger row", () => {

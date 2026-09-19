@@ -20,11 +20,11 @@ vi.mock("../engine/model-router", () => ({
 describe("evaluateMissionProof", () => {
   it("uses the critical structured evaluation contract", async () => {
     const draft = {
-      executionScore: 30,
+      executionMet: true,
       executionFeedback: "The action was completed.",
-      evidenceScore: 25,
+      evidenceMet: true,
       evidenceFeedback: "The proof is specific.",
-      judgmentScore: 20,
+      judgmentMet: true,
       judgmentFeedback: "The decisions are explained.",
       summary: "Credible execution with one evidence gap.",
       nextStep: "Attach the final artifact.",

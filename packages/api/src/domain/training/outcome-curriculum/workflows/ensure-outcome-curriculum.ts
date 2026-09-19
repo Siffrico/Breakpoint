@@ -66,7 +66,8 @@ interface ProfileRecord {
 
 interface PriorPerformanceRecord {
   readonly title: string;
-  readonly score: number;
+  readonly checksMet: number | null;
+  readonly checksTotal: number | null;
   readonly failureTags: string[];
 }
 

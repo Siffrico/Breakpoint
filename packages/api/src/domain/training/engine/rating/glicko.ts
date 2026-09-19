@@ -7,7 +7,7 @@ import { DEFAULT_RATING_POLICY } from "./policy";
  *
  * Implementation follows Glickman's published Glicko-2 paper, with two
  * adaptations for a learning (rather than chess) context:
- *  - outcomes are fractional in [0,1] (rubric partial credit), not win/loss
+ *  - outcomes are fractional in [0,1] (checks met), not win/loss
  *  - decay inflates deviation and gently mean-reverts the rating, modelling
  *    forgetting; an untouched job becomes uncertain again
  */
@@ -102,16 +102,14 @@ export const targetItemRating = (
   );
 };
 
-/**
- * Map a rubric score (0–100) to a Glicko outcome in [0,1]. Throws when the
- * score is out of range — a bad score means an upstream schema failed and
- * must not silently corrupt the rating.
- */
-export const scoreToOutcome = (score: number): number => {
-  if (!Number.isFinite(score) || score < 0 || score > 100) {
-    throw new RangeError(`rubric score must be in [0,100], got ${score}`);
+export const checksToOutcome = (met: number, total: number): number => {
+  if (!Number.isInteger(total) || total < 1) {
+    throw new RangeError(`total checks must be a positive integer, got ${total}`);
   }
-  return score / 100;
+  if (!Number.isInteger(met) || met < 0 || met > total) {
+    throw new RangeError(`met checks must be in [0,total], got ${met}`);
+  }
+  return met / total;
 };
 
 const MS_PER_DAY = 86_400_000;

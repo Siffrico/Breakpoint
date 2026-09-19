@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef } from "react";
+import type React from "react";
+import { useCallback, useEffect, useRef } from "react";
 import gsap from "gsap";
 
 import "./cubes.css";
@@ -12,6 +13,11 @@ interface Gap {
 interface Duration {
   enter: number;
   leave: number;
+}
+interface CubeStyle extends React.CSSProperties {
+  "--cube-face-border": string;
+  "--cube-face-bg": string;
+  "--cube-face-shadow": string;
 }
 
 export interface CubesProps {
@@ -62,14 +68,14 @@ const Cubes: React.FC<CubesProps> = ({
   const colGap =
     typeof cellGap === "number"
       ? `${cellGap}px`
-      : (cellGap as Gap)?.col !== undefined
-        ? `${(cellGap as Gap).col}px`
+      : cellGap?.col !== undefined
+        ? `${cellGap.col}px`
         : "5%";
   const rowGap =
     typeof cellGap === "number"
       ? `${cellGap}px`
-      : (cellGap as Gap)?.row !== undefined
-        ? `${(cellGap as Gap).row}px`
+      : cellGap?.row !== undefined
+        ? `${cellGap.row}px`
         : "5%";
 
   const cols = colsProp ?? gridSize;
@@ -84,8 +90,8 @@ const Cubes: React.FC<CubesProps> = ({
       sceneRef.current
         .querySelectorAll<HTMLDivElement>(".cube")
         .forEach((cube) => {
-          const r = +cube.dataset.row!;
-          const c = +cube.dataset.col!;
+          const r = Number(cube.dataset.row);
+          const c = Number(cube.dataset.col);
           const dist = Math.hypot(r - rowCenter, c - colCenter);
           if (dist <= radius) {
             const pct = 1 - dist / radius;
@@ -125,7 +131,9 @@ const Cubes: React.FC<CubesProps> = ({
       userActiveRef.current = true;
       if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
 
-      const rect = sceneRef.current!.getBoundingClientRect();
+      const scene = sceneRef.current;
+      if (!scene) return;
+      const rect = scene.getBoundingClientRect();
       const cellW = rect.width / cols;
       const cellH = rect.height / rows;
       const colCenter = (e.clientX - rect.left) / cellW;
@@ -145,14 +153,16 @@ const Cubes: React.FC<CubesProps> = ({
 
   const resetAll = useCallback(() => {
     if (!sceneRef.current) return;
-    sceneRef.current.querySelectorAll<HTMLDivElement>(".cube").forEach((cube) =>
-      gsap.to(cube, {
+    sceneRef.current
+      .querySelectorAll<HTMLDivElement>(".cube")
+      .forEach((cube) => {
+        gsap.to(cube, {
         duration: leaveDur,
         rotateX: 0,
         rotateY: 0,
         ease: "power3.out",
-      }),
-    );
+        });
+      });
   }, [leaveDur]);
 
   const onTouchMove = useCallback(
@@ -161,7 +171,9 @@ const Cubes: React.FC<CubesProps> = ({
       userActiveRef.current = true;
       if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
 
-      const rect = sceneRef.current!.getBoundingClientRect();
+      const scene = sceneRef.current;
+      if (!scene) return;
+      const rect = scene.getBoundingClientRect();
       const cellW = rect.width / cols;
       const cellH = rect.height / rows;
 
@@ -218,12 +230,12 @@ const Cubes: React.FC<CubesProps> = ({
       sceneRef.current
         .querySelectorAll<HTMLDivElement>(".cube")
         .forEach((cube) => {
-          const r = +cube.dataset.row!;
-          const c = +cube.dataset.col!;
+          const r = Number(cube.dataset.row);
+          const c = Number(cube.dataset.col);
           const dist = Math.hypot(r - rowHit, c - colHit);
           const ring = Math.round(dist);
-          if (!rings[ring]) rings[ring] = [];
-          rings[ring].push(cube);
+          const ringCubes = (rings[ring] ??= []);
+          ringCubes.push(cube);
         });
 
       Object.keys(rings)
@@ -309,8 +321,8 @@ const Cubes: React.FC<CubesProps> = ({
       el.removeEventListener("touchstart", onTouchStart);
       el.removeEventListener("touchend", onTouchEnd);
 
-      rafRef.current != null && cancelAnimationFrame(rafRef.current);
-      idleTimerRef.current && clearTimeout(idleTimerRef.current);
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+      if (idleTimerRef.current !== null) clearTimeout(idleTimerRef.current);
     };
   }, [onPointerMove, resetAll, onClick, onTouchMove, onTouchStart, onTouchEnd]);
 
@@ -326,7 +338,7 @@ const Cubes: React.FC<CubesProps> = ({
     columnGap: colGap,
     rowGap: rowGap,
   };
-  const wrapperStyle = {
+  const wrapperStyle: CubeStyle = {
     "--cube-face-border": borderStyle,
     "--cube-face-bg": faceColor,
     "--cube-face-shadow":
@@ -337,7 +349,7 @@ const Cubes: React.FC<CubesProps> = ({
           height: `${rows * cubeSize}px`,
         }
       : {}),
-  } as React.CSSProperties;
+  };
 
   return (
     <div className="default-animation" style={wrapperStyle}>

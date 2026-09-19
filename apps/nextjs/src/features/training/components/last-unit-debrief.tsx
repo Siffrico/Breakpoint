@@ -20,11 +20,13 @@ export function LastUnitDebrief({
             {lastCompletedUnit.title}
           </div>
         </div>
-        {lastCompletedUnit.score != null && (
+        {lastCompletedUnit.checksMet != null &&
+          lastCompletedUnit.checksTotal != null && (
           <div className="text-foreground/60 shrink-0 font-mono text-lg">
-            {lastCompletedUnit.score}
+            {lastCompletedUnit.checksMet} of {lastCompletedUnit.checksTotal}{" "}
+            checks
           </div>
-        )}
+          )}
       </div>
       {primaryWeakness && (
         <div className="text-muted-foreground mt-2 text-xs">

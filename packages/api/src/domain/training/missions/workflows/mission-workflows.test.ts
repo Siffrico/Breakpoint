@@ -144,7 +144,6 @@ describe("mission workflows", () => {
   const RESERVATION = {
     attemptId: "attempt-1",
     attemptNumber: 1,
-    firstScore: null,
     mission: { id: "mission-1", spec: SPEC, plan: PLAN },
   };
 

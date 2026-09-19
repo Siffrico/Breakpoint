@@ -234,7 +234,8 @@ export const recordEvaluation = async ({
   scenarioAttemptId,
   userId,
   nodeId,
-  score,
+  checksMet,
+  checksTotal,
   errorCodes,
   sidechatAskCount = 0,
   wasOverTime = false,
@@ -246,7 +247,8 @@ export const recordEvaluation = async ({
   scenarioAttemptId: string;
   userId: string;
   nodeId: string;
-  score: number;
+  checksMet: number;
+  checksTotal: number;
   errorCodes: readonly string[];
   sidechatAskCount?: number;
   wasOverTime?: boolean;
@@ -275,7 +277,8 @@ export const recordEvaluation = async ({
   const directive = scenario.directiveJson;
   const evaluation: EvaluatedAttempt = {
     bandOrder: directive.bandOrder,
-    score,
+    checksMet,
+    checksTotal,
     offeredSupport: directive.supportLevel,
     sidechatAskCount,
     wasOverTime,

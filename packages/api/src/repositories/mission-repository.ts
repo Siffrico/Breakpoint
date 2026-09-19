@@ -34,7 +34,6 @@ type ReservationOutcome =
       readonly kind: "reserved";
       readonly attemptId: string;
       readonly attemptNumber: number;
-      readonly firstScore: number | null;
       readonly mission: {
         readonly id: string;
         readonly spec: MissionSpec;
@@ -311,7 +310,6 @@ export const MissionRepoLive = Layer.effect(
                   kind: "reserved",
                   attemptId: attempt.id,
                   attemptNumber,
-                  firstScore: evaluatedAttempts[0]?.evaluation?.score ?? null,
                   mission: {
                     id: mission.id,
                     spec: mission.spec,
@@ -332,7 +330,6 @@ export const MissionRepoLive = Layer.effect(
           return {
             attemptId: outcome.attemptId,
             attemptNumber: outcome.attemptNumber,
-            firstScore: outcome.firstScore,
             mission: outcome.mission,
           };
         }),

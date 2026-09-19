@@ -40,7 +40,8 @@ export const trainingAttemptRepository = {
         userId: userId ?? null,
         unitContentId: unitId,
         response,
-        score: debrief.score,
+        checksMet: debrief.checksMet,
+        checksTotal: debrief.checksTotal,
         readiness: debrief.readiness,
         strengths: debrief.strengths,
         improvements: debrief.improvements,
@@ -113,7 +114,8 @@ export const trainingAttemptRepository = {
 
     return attempts.map((attempt) => ({
       title: titlesById.get(attempt.unitContentId) ?? "Completed unit",
-      score: attempt.score,
+      checksMet: attempt.checksMet,
+      checksTotal: attempt.checksTotal,
       readiness: attempt.readiness,
       finalArticulation: attempt.finalArticulation,
       growthDimensions: attempt.growthDimensions,
@@ -158,7 +160,6 @@ export const trainingAttemptRepository = {
       )
       .map((attempt) => ({
         unitContentId: attempt.unitContentId,
-        score: attempt.score,
         seedResponse: attempt.seedResponse,
         readiness: attempt.readiness,
         finalArticulation: attempt.finalArticulation,
@@ -215,38 +216,4 @@ export const trainingAttemptRepository = {
     };
   },
 
-  listNodeScoresBySession: async ({
-    db,
-    sessionId,
-  }: {
-    db: Database;
-    sessionId: string;
-  }): Promise<Record<string, number>> => {
-    const attempts = await db.query.TrainingUnitAttempt.findMany({
-      where: eq(TrainingUnitAttempt.onboardingSessionId, sessionId),
-      orderBy: [desc(TrainingUnitAttempt.createdAt)],
-    });
-
-    const latestByContent = new Map<string, number>();
-    for (const attempt of attempts) {
-      if (!latestByContent.has(attempt.unitContentId)) {
-        latestByContent.set(attempt.unitContentId, attempt.score);
-      }
-    }
-
-    if (latestByContent.size === 0) return {};
-
-    const contents = await db.query.TrainingUnitContent.findMany({
-      where: inArray(TrainingUnitContent.id, [...latestByContent.keys()]),
-    });
-
-    const result: Record<string, number> = {};
-    for (const content of contents) {
-      const score = latestByContent.get(content.id);
-      if (score != null) {
-        result[content.nodeId] = score;
-      }
-    }
-    return result;
-  },
 };

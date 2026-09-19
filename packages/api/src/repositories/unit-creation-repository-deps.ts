@@ -97,7 +97,8 @@ const listRecentPriorPerformance = async ({
     })
   ).map((attempt) => ({
     title: attempt.title,
-    score: attempt.score,
+    checksMet: attempt.checksMet,
+    checksTotal: attempt.checksTotal,
     failureTags: attempt.failureTags,
   }));
 

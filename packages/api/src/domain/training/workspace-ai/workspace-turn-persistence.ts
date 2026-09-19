@@ -161,7 +161,8 @@ export interface WorkspaceRatingEvaluationCommit {
   scenarioAttemptId: string;
   userId: string;
   nodeId: string;
-  score: number;
+  checksMet: number;
+  checksTotal: number;
   errorCodes: readonly string[];
   wasOverTime: boolean;
   occurredAt: Date;
@@ -172,12 +173,10 @@ const buildUnitCompletionDebrief = (result: UnitTurnResult): Debrief => ({
   seedResponse: "",
   finalArticulation: result.assistantMessage,
   growthDimensions: ["Completed mentor practice and adversarial review."],
-  score: result.reviewGrade?.score ?? 100,
+  checksMet: result.reviewGrade?.checksMet ?? null,
+  checksTotal: result.reviewGrade?.checksTotal ?? null,
   readiness: "ready_for_next_unit",
-  strengths: [
-    result.reviewGrade?.reasoning ??
-      "Demonstrated every capability under independent pressure.",
-  ],
+  strengths: result.reviewGrade ? [result.reviewGrade.reasoning] : [],
   improvements: ["Keep transferring this judgment into real work."],
   failureTags: [],
   nextStep: "Continue to the next training unit.",
@@ -270,7 +269,7 @@ export const saveUnitTurnResult = ({
             userResponse: message,
             aiResponse: turnResult.assistantMessage,
             passed: complete,
-            score: turnResult.reviewGrade?.score ?? null,
+            score: null,
             metadata: {
               aiEducationStage: nextRun.mode,
               promptKind: "education_unit",
@@ -278,6 +277,8 @@ export const saveUnitTurnResult = ({
                 turnResult.actor === "reviewer" ? "evaluation" : "education",
               verdict: verdictLabel(turnResult),
               evaluationSummary: turnResult.reviewGrade?.reasoning,
+              checksMet: turnResult.reviewGrade?.checksMet,
+              checksTotal: turnResult.reviewGrade?.checksTotal,
               dimensionResults: turnResult.reviewGrade
                 ? [...turnResult.reviewGrade.dimensionResults]
                 : undefined,

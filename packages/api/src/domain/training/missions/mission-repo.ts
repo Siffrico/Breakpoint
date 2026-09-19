@@ -70,7 +70,6 @@ export interface MissionAccess {
 export interface MissionEvaluationReservation {
   readonly attemptId: string;
   readonly attemptNumber: number;
-  readonly firstScore: number | null;
   readonly mission: {
     readonly id: string;
     readonly spec: MissionSpec;

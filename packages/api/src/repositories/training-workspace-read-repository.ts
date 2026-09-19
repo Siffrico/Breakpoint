@@ -134,13 +134,12 @@ export const trainingWorkspaceReadRepository = {
     db: Database;
     sessionId: string;
   }) => {
-    const [profile, plan, summary, attemptHistory, nodeScores] =
+    const [profile, plan, summary, attemptHistory] =
       await Promise.all([
         trainingOnboardingRepository.getProfileBySession({ db, sessionId }),
         trainingCurriculumRepository.getActivePlan({ db, sessionId }),
         trainingAttemptRepository.getHomeSummary({ db, sessionId }),
         trainingAttemptRepository.listAttemptHistory({ db, sessionId }),
-        trainingAttemptRepository.listNodeScoresBySession({ db, sessionId }),
       ]);
     if (!profile || !plan || !summary) return null;
 
@@ -181,12 +180,12 @@ export const trainingWorkspaceReadRepository = {
       lastCompletedUnit: lastAttempt
         ? {
             title: lastAttempt.title,
-            score: lastAttempt.score,
+            checksMet: lastAttempt.checksMet,
+            checksTotal: lastAttempt.checksTotal,
             failureTags: lastAttempt.failureTags,
           }
         : null,
       demonstratedCapabilities,
-      nodeScores,
     };
   },
 };

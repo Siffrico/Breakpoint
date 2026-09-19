@@ -77,7 +77,6 @@ export const evaluateMissionAttemptWorkflow = ({
         const evaluation = decideMissionEvaluation({
           draft,
           attemptNumber: reservation.attemptNumber,
-          firstScore: reservation.firstScore,
         });
         yield* repo.finishEvaluation({
           missionId: reservation.mission.id,

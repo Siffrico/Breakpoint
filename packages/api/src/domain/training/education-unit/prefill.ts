@@ -115,6 +115,9 @@ export const prefillScenario = (
           ? run.cursor.step.attempt + 1
           : run.reviewPass,
       selectedResponse: run.difficultySnapshot?.format?.kind === "mcq",
+      testedCriterionIds: run.unitContext.judgment.criteria.map(
+        (criterion) => criterion.id,
+      ),
       onPartialAssistantMessage,
     });
     const challenge = yield* scenarioFromPresentation({

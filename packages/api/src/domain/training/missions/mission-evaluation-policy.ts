@@ -1,16 +1,13 @@
 import type { MissionEvaluation } from "@acme/validators";
 
-export const MISSION_STANDARD_SCORE = 70;
-export const MISSION_GROWTH_SCORE = 55;
-export const MISSION_GROWTH_DELTA = 10;
 export const MISSION_GUIDED_ATTEMPTS = 4;
 
 export interface MissionEvaluationDraft {
-  executionScore: number;
+  executionMet: boolean;
   executionFeedback: string;
-  evidenceScore: number;
+  evidenceMet: boolean;
   evidenceFeedback: string;
-  judgmentScore: number;
+  judgmentMet: boolean;
   judgmentFeedback: string;
   summary: string;
   nextStep: string;
@@ -20,49 +17,35 @@ export interface MissionEvaluationDraft {
 export const decideMissionEvaluation = ({
   draft,
   attemptNumber,
-  firstScore,
 }: {
   draft: MissionEvaluationDraft;
   attemptNumber: number;
-  firstScore: number | null;
 }): MissionEvaluation => {
-  const score =
-    draft.executionScore + draft.evidenceScore + draft.judgmentScore;
-  const hasEvidenceAcrossCriteria =
-    draft.executionScore > 0 &&
-    draft.evidenceScore > 0 &&
-    draft.judgmentScore > 0;
-  const standardPass = score >= MISSION_STANDARD_SCORE;
-  const growthPass =
-    !standardPass &&
-    attemptNumber >= MISSION_GUIDED_ATTEMPTS &&
-    firstScore !== null &&
-    score >= MISSION_GROWTH_SCORE &&
-    score - firstScore >= MISSION_GROWTH_DELTA &&
-    hasEvidenceAcrossCriteria;
-  const passed = standardPass || growthPass;
+  const checks = [draft.executionMet, draft.evidenceMet, draft.judgmentMet];
+  const checksMet = checks.filter(Boolean).length;
+  const passed = checksMet === checks.length;
 
   return {
-    score,
+    checksMet,
+    checksTotal: checks.length,
     passed,
-    growthPass,
     attemptNumber,
     summary: draft.summary,
     nextStep: passed ? null : draft.nextStep,
     criteria: [
       {
         key: "execution",
-        score: draft.executionScore,
+        met: draft.executionMet,
         feedback: draft.executionFeedback,
       },
       {
         key: "evidence",
-        score: draft.evidenceScore,
+        met: draft.evidenceMet,
         feedback: draft.evidenceFeedback,
       },
       {
         key: "judgment",
-        score: draft.judgmentScore,
+        met: draft.judgmentMet,
         feedback: draft.judgmentFeedback,
       },
     ],

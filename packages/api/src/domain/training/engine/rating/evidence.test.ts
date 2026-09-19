@@ -1,10 +1,12 @@
 import { expect, test } from "vitest";
 
 import { assessAttempt } from "./evidence";
+import { checksToOutcome } from "./glicko";
 
 const evidence = {
   bandOrder: 0,
-  score: 25,
+  checksMet: 1,
+  checksTotal: 4,
   offeredSupport: "none" as const,
   sidechatAskCount: 0,
   wasOverTime: false,
@@ -18,4 +20,9 @@ test("chance-corrects a four-option MCQ", () => {
 
 test("leaves FRQ outcomes unchanged", () => {
   expect(assessAttempt(evidence).outcome).toBe(0.25);
+});
+
+test("rejects invalid check counts before rating", () => {
+  expect(() => checksToOutcome(0, 0)).toThrow(RangeError);
+  expect(() => checksToOutcome(3, 2)).toThrow(RangeError);
 });

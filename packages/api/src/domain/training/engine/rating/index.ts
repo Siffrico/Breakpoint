@@ -27,9 +27,9 @@ export {
 export type { JobRatingState, RatedOutcome } from "./glicko";
 export {
   createInitialRatingState,
+  checksToOutcome,
   decayRatingState,
   expectedScore,
-  scoreToOutcome,
   targetItemRating,
   updateRatingState,
 } from "./glicko";

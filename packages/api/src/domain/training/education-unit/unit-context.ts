@@ -85,7 +85,7 @@ export interface UnitRepairTarget {
 
 const repairSection = (repair: UnitRepairTarget | null): string | null => {
   if (!repair) return null;
-  const weak = repair.dimensionResults.filter((result) => result.score < 70);
+  const weak = repair.dimensionResults.filter((result) => !result.met);
   return joinSections([
     "## Repair target",
     repair.hypothesis

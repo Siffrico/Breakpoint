@@ -63,7 +63,8 @@ export const createInitialEducationUnitState = ({
     revisedBuildResponse: null,
     assessmentStatus: null,
     assessmentFeedback: null,
-    score: null,
+    checksMet: null,
+    checksTotal: null,
     strengths: [],
     improvements: [],
     nextStep: null,
@@ -109,7 +110,8 @@ export const buildEducationDebrief = ({
     state.strengths.length > 0
       ? state.strengths
       : ["conceptual clarity", "transfer", "implementation precision"],
-  score: state.score ?? (state.assessmentStatus === "pass" ? 86 : 64),
+  checksMet: state.checksMet,
+  checksTotal: state.checksTotal,
   readiness:
     state.assessmentStatus === "pass"
       ? ("ready_for_next_unit" as const)

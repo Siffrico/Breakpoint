@@ -9,13 +9,7 @@ import type {
 import type { UnitAgentError } from "./agent-errors";
 import type { EducationExperienceDefinition } from "./experience";
 import type { PersistedUnitRun } from "./unit-state";
-import {
-  compositeScore,
-  hasModelGap,
-  PASSING_COMPOSITE,
-  PASSING_DIMENSION,
-  renderGradeMessage,
-} from "./agent-contracts";
+import { hasModelGap, renderGradeMessage } from "./agent-contracts";
 import { runMentorScenarioAgent, runMentorTeachingAgent } from "./mentor-agent";
 import {
   prefillScenario,
@@ -47,14 +41,16 @@ export interface UnitTurnResult {
   readonly nextRun: PersistedUnitRun;
   readonly actor: "mentor" | "reviewer";
   readonly reviewGrade: {
-    readonly score: number;
+    readonly checksMet: number;
+    readonly checksTotal: number;
     readonly errorCodes: readonly string[];
     readonly reasoning: string;
     readonly dimensionResults: readonly EvaluationDimensionResult[];
     readonly passed: boolean;
   } | null;
   readonly ratingWrite: {
-    readonly score: number;
+    readonly checksMet: number;
+    readonly checksTotal: number;
     readonly errorCodes: readonly string[];
   } | null;
   readonly presentedReviewChallenge: boolean;
@@ -105,29 +101,15 @@ const exactSelectedResponseGrade = ({
   const challenge = run.cursor.step.challenge;
   if (challenge === null) return null;
   const verifier = challenge.contract.verifier;
-  if (verifier?.type !== "fixed_answer" || verifier.answer === null) {
+  if (verifier?.kind !== "fixed_answer") {
     return null;
   }
-  const selectedLabel = /^\(?([A-D])\)?[.)]?$/i
+  // The option letter may open a longer answer ("B, because ...").
+  const label = /^\(?([A-D])(?![A-Za-z])/i
     .exec(learnerAnswer.trim())?.[1]
     ?.toUpperCase();
-  if (selectedLabel !== verifier.answer.trim().toUpperCase()) return null;
-
-  return {
-    closingMessage: `Correct. Option ${selectedLabel} satisfies the scenario without adding an unsupported claim.`,
-    diagnosis: null,
-    causeType: null,
-    errorCodes: [],
-    scratchpad: "The selected response matches the fixed answer exactly.",
-    dimensionResults: challenge.contract.testedCriterionIds.map(
-      (dimensionId) => ({
-        dimensionId,
-        score: 100,
-        evidence: learnerAnswer.trim(),
-        missing: null,
-      }),
-    ),
-  };
+  if (!label) return null;
+  return { label, met: label === verifier.answer };
 };
 
 const openScenario = ({
@@ -180,7 +162,7 @@ const evidencedTargets = (
 ): string[] => {
   const passingSkills = new Set(
     results.flatMap((result) =>
-      result.score < PASSING_DIMENSION
+      !result.met
         ? []
         : (run.unitContext.judgment.criteria.find(
             (criterion) => criterion.id === result.dimensionId,
@@ -219,47 +201,60 @@ const gradeScenario = ({
       );
     }
     const ratingEligible = isRatingEligibleScenario(run);
-    // One definition of "is there a gap", shared by the schema and this turn.
-    // Two would let the critic write a clean confirmation for an answer the
-    // runner then records as a failure.
-    const evidencesAllTargets = (
-      results: readonly EvaluationDimensionResult[],
-    ): boolean => {
-      const evidenced = evidencedTargets(run, results);
-      return run.unitContext.targets.every((target) =>
-        evidenced.includes(target.id),
-      );
-    };
+    const decided = exactSelectedResponseGrade({ run, learnerAnswer });
+    const decidedMet = decided?.met ?? null;
     const output =
-      exactSelectedResponseGrade({ run, learnerAnswer }) ??
-      (yield* deps.runReviewGrade({
-        messages: [{ role: "user", content: learnerAnswer }],
-        context: contexts.critique.judgeAnswer,
-        activeChallenge: step.challenge,
-        experience,
-        shape: {
-          testedDimensionIds: step.challenge.contract.testedCriterionIds,
-          learnerAnswer,
-          evidencesAllTargets,
-        },
-        priorErrorCodes: run.cursor.errorCodeHistory,
-        onPartialAssistantMessage,
-      })).object;
-    const evidenceIds = evidencedTargets(run, output.dimensionResults);
-    const gap =
-      hasModelGap(output.dimensionResults) ||
-      !evidencesAllTargets(output.dimensionResults);
-    // The schema already requires a code whenever the scores leave a gap. This
-    // only covers the exact-match fast path, which never reaches that schema.
-    // Target ids have no length bound, so these are cut to the width the
-    // cursor stores: an over-long code would fail the next cursor parse and
-    // take the turn down with it.
+      decided?.met
+        ? {
+            closingMessage: `Correct. Option ${decided.label} satisfies the scenario without adding an unsupported claim.`,
+            diagnosis: null,
+            causeType: null,
+            errorCodes: [],
+            scratchpad: "The selected response matches the fixed answer exactly.",
+          }
+        : (yield* deps.runReviewGrade({
+            messages: [{ role: "user", content: learnerAnswer }],
+            context: contexts.critique.judgeAnswer,
+            activeChallenge: step.challenge,
+            experience,
+            shape: {
+              testedDimensionIds: step.challenge.contract.testedCriterionIds,
+              learnerAnswer,
+              decidedMet,
+            },
+            priorErrorCodes: run.cursor.errorCodeHistory,
+            onPartialAssistantMessage,
+          })).object;
+    const criticResults =
+      "dimensionResults" in output ? output.dimensionResults : undefined;
+    let dimensionResults: readonly EvaluationDimensionResult[];
+    if (decidedMet === null) {
+      if (!criticResults) {
+        return yield* contractFailure(
+          "The critic did not return every scenario check.",
+        );
+      }
+      dimensionResults = criticResults;
+    } else {
+      dimensionResults = step.challenge.contract.testedCriterionIds.map(
+        (dimensionId) => ({
+            dimensionId,
+            met: decidedMet,
+            evidence: learnerAnswer.trim(),
+            missing: decidedMet
+              ? null
+              : "The selected response does not match the fixed answer.",
+        }),
+      );
+    }
+    const evidenceIds = evidencedTargets(run, dimensionResults);
+    const gap = hasModelGap(dimensionResults);
     const errorCodes = gap
       ? output.errorCodes.length > 0
         ? output.errorCodes
         : [
-            ...output.dimensionResults
-              .filter((dimension) => dimension.score < PASSING_COMPOSITE)
+            ...dimensionResults
+              .filter((dimension) => !dimension.met)
               .map((dimension) => `gap-${dimension.dimensionId}`),
             ...run.unitContext.targets
               .filter((target) => !evidenceIds.includes(target.id))
@@ -268,14 +263,15 @@ const gradeScenario = ({
             .slice(0, 3)
             .map((code) => code.slice(0, 40))
       : [];
-    const score = compositeScore(output.dimensionResults);
+    const checksMet = dimensionResults.filter((result) => result.met).length;
+    const checksTotal = dimensionResults.length;
     const nextRun = yield* settleScenario({
       run,
       passed: !gap,
       errorCodes,
       causeType: gap ? output.causeType : null,
       hypothesis: gap ? (output.diagnosis?.hypothesis ?? null) : null,
-      dimensionResults: output.dimensionResults,
+      dimensionResults,
       evidencedTargetIds: evidenceIds,
     }).pipe(asTurnError);
     return {
@@ -283,13 +279,16 @@ const gradeScenario = ({
       nextRun,
       actor: "reviewer" as const,
       reviewGrade: {
-        score,
+        checksMet,
+        checksTotal,
         errorCodes,
         reasoning: output.scratchpad,
-        dimensionResults: output.dimensionResults,
+        dimensionResults,
         passed: !gap,
       },
-      ratingWrite: ratingEligible ? { score, errorCodes } : null,
+      ratingWrite: ratingEligible
+        ? { checksMet, checksTotal, errorCodes }
+        : null,
       presentedReviewChallenge: false,
     };
   });
@@ -322,6 +321,9 @@ const teachThenOpenScenario = ({
       experience,
       createScenario: true,
       selectedResponse: selectedResponse(run),
+      testedCriterionIds: run.unitContext.judgment.criteria.map(
+        (criterion) => criterion.id,
+      ),
       onPartialAssistantMessage,
     });
     if (!mentor.object.preparedScenario) {
@@ -453,6 +455,9 @@ export const runUnitTurn = (
         experience,
         createScenario: false,
         selectedResponse: selectedResponse(run),
+        testedCriterionIds: run.unitContext.judgment.criteria.map(
+          (criterion) => criterion.id,
+        ),
         onPartialAssistantMessage,
       });
       return {

@@ -27,13 +27,15 @@ export interface UnitPreviewState {
 }
 
 export interface RetrievalPreviewResult {
-  score: number;
+  checksMet: number;
+  checksTotal: number;
   passed: boolean;
   feedback: string[];
 }
 
 export interface DebriefPreviewResult {
-  score: number;
+  checksMet: number;
+  checksTotal: number;
   readiness: "needs_repair" | "developing" | "ready_for_next_unit";
   strengths: string[];
   improvements: string[];
@@ -226,7 +228,8 @@ export const previewHomeState: HomeState = {
   ],
   lastCompletedUnit: {
     title: "Leader election failure modes",
-    score: 82,
+    checksMet: 3,
+    checksTotal: 4,
     failureTags: ["term_confusion", "timeout_reasoning"],
   },
   demonstratedCapabilities: [
@@ -234,10 +237,6 @@ export const previewHomeState: HomeState = {
     "write durability tradeoff framing",
     "failure timeline reconstruction",
   ],
-  nodeScores: {
-    "node-cluster-1": 88,
-    "00000000-0000-4000-8000-000000000101": 82,
-  },
 };
 
 export const previewProfileState: ProfileState = {
@@ -510,7 +509,8 @@ export const previewUnitState: UnitPreviewState = {
 };
 
 export const previewRetrievalResult: RetrievalPreviewResult = {
-  score: 86,
+  checksMet: 3,
+  checksTotal: 3,
   passed: true,
   feedback: [
     "You separated urgency from importance instead of treating every signal as equal.",
@@ -520,7 +520,8 @@ export const previewRetrievalResult: RetrievalPreviewResult = {
 };
 
 export const previewDebriefResult: DebriefPreviewResult = {
-  score: 91,
+  checksMet: 3,
+  checksTotal: 4,
   readiness: "ready_for_next_unit",
   strengths: [
     "You named the blast radius early and gave containment priority.",

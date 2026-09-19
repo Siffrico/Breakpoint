@@ -2,7 +2,10 @@ import { Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
 
 import type { UnitReviewChallenge } from "@acme/validators";
-import { UnitContextSchema } from "@acme/validators";
+import {
+  EvaluationDimensionResultSchema,
+  UnitContextSchema,
+} from "@acme/validators";
 
 import { DEFAULT_EDUCATION_EXPERIENCE } from "./experience";
 import { makeUnitContext } from "./unit-context.fixture";
@@ -118,7 +121,7 @@ describe("unit cursor", () => {
         dimensionResults: [
           {
             dimensionId: "derive-under-pressure",
-            score: 55,
+            met: false,
             evidence: "repeat the old move",
             missing: "A derivation from the changed constraint.",
           },
@@ -132,7 +135,7 @@ describe("unit cursor", () => {
       outcome: "fail",
       errorCodes: ["constraint-blindness"],
       causeType: "missed-limit",
-      evidence: [{ score: 55 }],
+      evidence: [{ met: false }],
     });
     expect(failed.cursor.errorCodeHistory).toEqual(["constraint-blindness"]);
     expect(failed.mode).toBe("awaiting_next_pass");
@@ -152,7 +155,7 @@ describe("unit cursor", () => {
         dimensionResults: [
           {
             dimensionId: "derive-under-pressure",
-            score: 92,
+            met: true,
             evidence: "derive from the changed constraint",
             missing: null,
           },
@@ -183,7 +186,7 @@ describe("unit cursor", () => {
         dimensionResults: [
           {
             dimensionId: "derive-under-pressure",
-            score: 92,
+            met: true,
             evidence: "derive from the changed constraint",
             missing: null,
           },
@@ -206,7 +209,7 @@ describe("unit cursor", () => {
         dimensionResults: [
           {
             dimensionId: "derive-under-pressure",
-            score: 94,
+            met: true,
             evidence: "derive from the changed constraint",
             missing: null,
           },
@@ -237,7 +240,7 @@ describe("unit cursor", () => {
         dimensionResults: [
           {
             dimensionId: "derive-under-pressure",
-            score: 55,
+            met: false,
             evidence: "repeat the old move",
             missing: "A derivation from the changed constraint.",
           },
@@ -269,7 +272,7 @@ describe("unit cursor", () => {
         dimensionResults: [
           {
             dimensionId: "derive-under-pressure",
-            score: 55,
+            met: false,
             evidence: "repeat the old move",
             missing: "A derivation from the changed constraint.",
           },
@@ -297,7 +300,7 @@ describe("unit cursor", () => {
         dimensionResults: [
           {
             dimensionId: "derive-under-pressure",
-            score: 92,
+            met: true,
             evidence: "derive from the changed constraint",
             missing: null,
           },
@@ -328,6 +331,22 @@ describe("unit cursor", () => {
 });
 
 describe("unit context coverage", () => {
+  it("reads legacy score evidence as a boolean check result", () => {
+    expect(
+      EvaluationDimensionResultSchema.parse({
+        dimensionId: "derive-under-pressure",
+        score: 70,
+        evidence: "The changed constraint controls the move.",
+        missing: null,
+      }),
+    ).toEqual({
+      dimensionId: "derive-under-pressure",
+      met: true,
+      evidence: "The changed constraint controls the move.",
+      missing: null,
+    });
+  });
+
   it("accepts a target that is both practiced and judged", () => {
     expect(UnitContextSchema.safeParse(makeUnitContext()).success).toBe(true);
   });

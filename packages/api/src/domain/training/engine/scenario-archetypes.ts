@@ -51,15 +51,17 @@ export const ARCHETYPE_FORMATS: Record<ScenarioArchetype, ScenarioFormat> = {
 const ARCHETYPE_DIRECTIVE_LINES: Record<ScenarioArchetype, readonly string[]> =
   {
     select: [
-      "- Review presentation (select archetype): pose a multiple-choice pressure test. Output options as plain Markdown lines lettered A-D, exactly one correct, and require the learner's reasoning. Store the correct answer and misconception represented by each distractor only in the private verifier contract.",
+      "- Review presentation (select archetype): pose a multiple-choice pressure test. Output options as plain Markdown lines lettered A-D, exactly one correct, and require the learner's reasoning. Store the correct answer only in the private verifier contract.",
       "- Dial axes for select: reasoning steps = hops required before the options discriminate; withheld givens = values or assumptions the stem forces the learner to derive rather than states; embedded alternatives = near-miss distractors (proximity to the key is the difficulty, count them as the distractors you engineer).",
     ],
     transform: [
       "- Review presentation (transform archetype): ask the learner to produce the path or artifact that carries state A to state B.",
-      "- Dial axes for transform: reasoning steps = length of the A→B path; withheld givens = missing constraints AND the specificity of state B itself (withholding B's success criteria turns the check into a terse directive like 'make it far faster' — then the canonical answer must first state the expert success criteria, and the rubric must grade criteria-setting as well as the path); embedded alternatives = tempting wrong approaches woven into the world.",
+      "- For every tested criterion, write one concrete private check phrased so a reader could point at the sentence in an answer that satisfies it.",
+      "- Dial axes for transform: reasoning steps = length of the A→B path; withheld givens = missing constraints AND the specificity of state B itself (withholding B's success criteria turns the check into a terse directive like 'make it far faster' — then a passing answer must first state the expert success criteria as well as the path); embedded alternatives = tempting wrong approaches woven into the world.",
     ],
     judge: [
       "- Review presentation (judge archetype): present one or more concrete candidate artifacts, plans, or a running system with symptoms — each plausibly claimed to cross A to B — and ask what breaks, or which candidate survives and why. The verdict must be justified from the causal mechanism, never from taste.",
+      "- For every tested criterion, write one concrete private check phrased so a reader could point at the sentence in an answer that satisfies it.",
       "- Dial axes for judge: reasoning steps = depth of the causal chain from symptom or flaw to root mechanism; withheld givens = evidence not handed over (a strong answer names what it would need to confirm); embedded alternatives = the candidate artifacts and red-herring flaws themselves (defensible-but-wrong candidates, seeded non-flaws).",
     ],
   };

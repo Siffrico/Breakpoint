@@ -1,4 +1,4 @@
-import type { ScenarioArchetype } from "@acme/validators";
+import type { ScenarioArchetype, ScenarioVerifier } from "@acme/validators";
 import { UnitContextSchema } from "@acme/validators";
 
 import type { UnitContent } from "../types/training.types";
@@ -54,24 +54,16 @@ export const getReviewPresentationReadinessIssue = ({
   verifier,
 }: {
   assistantMessage: string;
-  verifier: {
-    type: "fixed_answer" | "checker" | "judge_rubric";
-    answer: string | null;
-    checkerSpec: string | null;
-    scratchpad: string;
-  };
+  verifier: ScenarioVerifier;
 }): string | null => {
-  if (verifier.type !== "fixed_answer") return null;
-
-  if (!verifier.answer || !/^[A-D]$/i.test(verifier.answer.trim())) {
-    return "Selected-response verifier answer must be one label from A-D.";
-  }
   if (EXPOSED_FIXED_ANSWER_PATTERN.test(assistantMessage)) {
-    return "Selected-response challenge must not contain a worked solution or expose its answer.";
+    return "Scenario must not contain a worked solution or expose its answer.";
   }
   if (AUTHORING_DEBRIS_PATTERN.test(assistantMessage)) {
-    return "Selected-response challenge must not contain drafting notes or filenames.";
+    return "Scenario must not contain drafting notes or filenames.";
   }
+  if (verifier.kind !== "fixed_answer") return null;
+
   const optionIssue = getSeedTaskReadinessIssue({
     seedPrompt: assistantMessage,
     responseMode: "select",

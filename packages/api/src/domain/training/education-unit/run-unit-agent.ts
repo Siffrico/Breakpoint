@@ -50,7 +50,7 @@ interface RunUnitAgentInput<TSchema extends z.ZodTypeAny> {
   /**
    * Presentation rules, kept out of the schema on purpose. A reply whose data is
    * sound but whose shape is untidy is worth one more ask, never worth throwing
-   * away — scores drive progression, and losing them to a missing bold label
+   * away — check results drive progression, and losing them to a missing bold label
    * costs the learner the whole turn. Return null when the shape is fine.
    */
   readonly checkPresentation?: (object: z.infer<TSchema>) => string | null;

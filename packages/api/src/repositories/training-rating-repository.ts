@@ -47,7 +47,8 @@ interface AttemptRecord {
   bandOrder: number;
   offeredSupport: SupportLevel;
   itemRating: number;
-  score: number;
+  checksMet?: number;
+  checksTotal?: number;
   outcome: number;
   effectiveSupport: SupportLevel;
   cleanPass: boolean;
@@ -86,7 +87,8 @@ const toAttemptRecord = (attempt: {
   bandOrder: number;
   offeredSupport: SupportLevel;
   itemRating: number;
-  score: number;
+  checksMet?: number;
+  checksTotal?: number;
   outcome: number;
   effectiveSupport: SupportLevel;
   cleanPass: boolean;
@@ -94,7 +96,16 @@ const toAttemptRecord = (attempt: {
   hardFail: boolean;
   occurredAt: string;
 }): AttemptRecord => ({
-  ...attempt,
+  bandOrder: attempt.bandOrder,
+  offeredSupport: attempt.offeredSupport,
+  itemRating: attempt.itemRating,
+  checksMet: attempt.checksMet,
+  checksTotal: attempt.checksTotal,
+  outcome: attempt.outcome,
+  effectiveSupport: attempt.effectiveSupport,
+  cleanPass: attempt.cleanPass,
+  pass: attempt.pass,
+  hardFail: attempt.hardFail,
   occurredAt: new Date(attempt.occurredAt),
 });
 

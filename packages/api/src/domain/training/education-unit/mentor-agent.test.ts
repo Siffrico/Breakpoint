@@ -25,6 +25,7 @@ describe("mentor prompt modules", () => {
         experience: DEFAULT_EDUCATION_EXPERIENCE,
         createScenario: false,
         selectedResponse: false,
+        testedCriterionIds: ["criterion-1"],
       }),
     );
 
@@ -43,6 +44,7 @@ describe("mentor prompt modules", () => {
         experience: DEFAULT_EDUCATION_EXPERIENCE,
         createScenario: true,
         selectedResponse: false,
+        testedCriterionIds: ["criterion-1"],
       }),
     );
 
@@ -61,6 +63,7 @@ describe("mentor prompt modules", () => {
         experience: DEFAULT_EDUCATION_EXPERIENCE,
         pass: 2,
         selectedResponse: false,
+        testedCriterionIds: ["criterion-1"],
       }),
     );
 

@@ -52,9 +52,13 @@ const contexts = {
 };
 
 const verifier = {
-  type: "judge_rubric" as const,
-  answer: null,
-  checkerSpec: null,
+  kind: "checks" as const,
+  checks: [
+    {
+      criterionId: "derive-under-pressure",
+      check: "The answer must derive the move from the changed constraint.",
+    },
+  ],
   scratchpad:
     "Expert move follows the changed constraint. The familiar move ignores it.",
 };
@@ -99,7 +103,7 @@ const gappedGrade = (
   dimensionResults: [
     {
       dimensionId: "derive-under-pressure",
-      score: 55,
+      met: false,
       evidence: "old move",
       missing: "A move derived from the changed constraint.",
     },
@@ -340,7 +344,7 @@ The old move was safe because the line ran above 40 degrees. This line runs at 3
           dimensionResults: [
             {
               dimensionId: "derive-under-pressure" as const,
-              score: 95,
+              met: true,
               evidence: "changed constraint",
               missing: null,
             },
@@ -393,7 +397,11 @@ The old move was safe because the line ran above 40 degrees. This line runs at 3
       attempt: 2,
       outcome: "pass",
     });
-    expect(complete.ratingWrite).toEqual({ score: 95, errorCodes: [] });
+    expect(complete.ratingWrite).toEqual({
+      checksMet: 1,
+      checksTotal: 1,
+      errorCodes: [],
+    });
   });
 
   it("grades an exact correct selected response without a model call", async () => {
@@ -426,9 +434,8 @@ The old move was safe because the line ran above 40 degrees. This line runs at 3
             contract: {
               ...step.challenge.contract,
               verifier: {
-                type: "fixed_answer",
+                kind: "fixed_answer",
                 answer: "C",
-                checkerSpec: null,
                 scratchpad: "C is the only supported option.",
               },
             },
@@ -450,10 +457,90 @@ The old move was safe because the line ran above 40 degrees. This line runs at 3
 
     expect(runReviewGrade).not.toHaveBeenCalled();
     expect(result.assistantMessage).toContain("Option C");
-    expect(result.reviewGrade).toMatchObject({ score: 100, passed: true });
+    expect(result.reviewGrade).toMatchObject({
+      checksMet: 1,
+      checksTotal: 1,
+      passed: true,
+    });
     expect(result.nextRun.cursor.step).toMatchObject({
       kind: "pass_result",
       outcome: "pass",
+    });
+  });
+
+  it("treats a wrong selected response as a deterministic fail", async () => {
+    const firstScenario = await openFirstScenario();
+    const step = firstScenario.nextRun.cursor.step;
+    const difficultySnapshot = firstScenario.nextRun.difficultySnapshot;
+    if (
+      step.kind !== "scenario" ||
+      step.challenge === null ||
+      difficultySnapshot === null
+    ) {
+      throw new Error("Expected an active selected-response scenario.");
+    }
+    const selectedRun: PersistedUnitRun = {
+      ...firstScenario.nextRun,
+      difficultySnapshot: {
+        ...difficultySnapshot,
+        format: {
+          id: "selected-response",
+          label: "Selected response",
+          kind: "mcq",
+          description: "Choose one option.",
+        },
+      },
+      cursor: {
+        ...firstScenario.nextRun.cursor,
+        step: {
+          ...step,
+          challenge: {
+            ...step.challenge,
+            contract: {
+              ...step.challenge.contract,
+              verifier: {
+                kind: "fixed_answer",
+                answer: "C",
+                scratchpad: "C is the only supported option.",
+              },
+            },
+          },
+        },
+      },
+    };
+    const runReviewGrade = vi.fn<UnitTurnDependencies["runReviewGrade"]>(
+      () =>
+        Effect.succeed({
+          object: {
+            closingMessage: null,
+            diagnosis: {
+              quote: "A",
+              hypothesis: "I think you chose the familiar move.",
+              explanation: "That move violates the changed constraint.",
+            },
+            causeType: "missed-limit",
+            errorCodes: ["wrong-option"],
+            scratchpad:
+              "The fixed-answer verifier already decided the result.",
+          },
+        }),
+    );
+
+    const result = await Effect.runPromise(
+      runUnitTurn(
+        {
+          ...input(selectedRun),
+          transcript: [{ role: "user", content: "A" }],
+        },
+        deps({ runReviewGrade }),
+      ),
+    );
+
+    expect(runReviewGrade.mock.calls[0]?.[0].shape.decidedMet).toBe(false);
+    expect(result.reviewGrade).toMatchObject({
+      checksMet: 0,
+      checksTotal: 1,
+      passed: false,
     });
   });
 });

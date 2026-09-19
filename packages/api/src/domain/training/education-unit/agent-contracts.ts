@@ -1,9 +1,10 @@
 import { z } from "zod/v4";
 
-import type { EvaluationDimensionResult } from "@acme/validators";
+import type {
+  EvaluationDimensionResult,
+  ScenarioVerifier,
+} from "@acme/validators";
 import {
-  EvaluationDimensionResultSchema,
-  ScenarioVerifierSchema,
   UnitDiagnosisCauseSchema,
   UnitErrorCodeSchema,
 } from "@acme/validators";
@@ -49,16 +50,14 @@ const reviewOptionSchema = z
 
 const reviewPresentationBase = {
   assistantMessage: LearnerFacingMessageSchema,
-  verifier: ScenarioVerifierSchema,
 };
 
 const selectedReviewVerifierSchema = z
   .object({
-    type: z.literal("fixed_answer"),
+    kind: z.literal("fixed_answer"),
     answer: z
       .enum(["A", "B", "C", "D"])
       .describe("The one correct option label."),
-    checkerSpec: z.null(),
     scratchpad: z
       .string()
       .trim()
@@ -69,6 +68,51 @@ const selectedReviewVerifierSchema = z
       ),
   })
   .strict();
+
+const checksReviewVerifierSchema = (testedCriterionIds: readonly string[]) =>
+  z
+    .object({
+      kind: z.literal("checks"),
+      checks: z
+        .array(
+          z
+            .object({
+              criterionId: z.enum(testedCriterionIds),
+              check: z
+                .string()
+                .trim()
+                .min(1)
+                .max(500)
+                .describe(
+                  "One sentence stating what a passing answer must do for this criterion, concrete enough that a reader can point to the satisfying sentence.",
+                ),
+            })
+            .strict(),
+        )
+        .length(testedCriterionIds.length),
+      scratchpad: z
+        .string()
+        .trim()
+        .min(24)
+        .max(600)
+        .describe(
+          "A concise private check, 24 to 600 characters, of the required reasoning. Do not repeat the prompt. This is never shown to the learner.",
+        ),
+    })
+    .strict()
+    .superRefine((verifier, ctx) => {
+      const ids = verifier.checks.map((check) => check.criterionId);
+      if (
+        new Set(ids).size !== ids.length ||
+        testedCriterionIds.some((criterionId) => !ids.includes(criterionId))
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["checks"],
+          message: "Provide exactly one check for every tested criterion.",
+        });
+      }
+    });
 
 interface ReviewOption {
   readonly label: "A" | "B" | "C" | "D";
@@ -95,7 +139,7 @@ const refineReviewPresentation = (
     readonly stimulus?: string | null;
     readonly assistantMessage: string;
     readonly options?: readonly ReviewOption[];
-    readonly verifier: z.infer<typeof ScenarioVerifierSchema>;
+    readonly verifier: ScenarioVerifier;
   },
   ctx: z.RefinementCtx,
 ) => {
@@ -157,15 +201,22 @@ const selectedReviewPresentationSchema = z
   .strict()
   .superRefine(refineReviewPresentation);
 
-const openReviewPresentationSchema = z
-  .object(reviewPresentationBase)
-  .strict()
-  .superRefine(refineReviewPresentation);
+const openReviewPresentationSchema = (testedCriterionIds: readonly string[]) =>
+  z
+    .object({
+      ...reviewPresentationBase,
+      verifier: checksReviewVerifierSchema(testedCriterionIds),
+    })
+    .strict()
+    .superRefine(refineReviewPresentation);
 
-export const reviewPresentationSchema = (selectedResponse: boolean) =>
+export const reviewPresentationSchema = (
+  selectedResponse: boolean,
+  testedCriterionIds: readonly string[],
+) =>
   selectedResponse
     ? selectedReviewPresentationSchema
-    : openReviewPresentationSchema;
+    : openReviewPresentationSchema(testedCriterionIds);
 
 const mentorTeachingBase = {
   assistantMessage: LearnerFacingMessageSchema,
@@ -183,12 +234,16 @@ export const mentorOpeningOutputSchema = z
 export const mentorTeachingOutputSchema = (
   selectedResponse: boolean,
   createScenario: boolean,
+  testedCriterionIds: readonly string[],
 ) =>
   createScenario
-    ? mentorHandoffOutputSchema(selectedResponse)
+    ? mentorHandoffOutputSchema(selectedResponse, testedCriterionIds)
     : mentorOpeningOutputSchema;
 
-export const mentorHandoffOutputSchema = (selectedResponse: boolean) =>
+export const mentorHandoffOutputSchema = (
+  selectedResponse: boolean,
+  testedCriterionIds: readonly string[],
+) =>
   (selectedResponse
     ? z.object({
         ...mentorTeachingBase,
@@ -196,33 +251,13 @@ export const mentorHandoffOutputSchema = (selectedResponse: boolean) =>
       })
     : z.object({
         ...mentorTeachingBase,
-        preparedScenario: openReviewPresentationSchema,
+        preparedScenario: openReviewPresentationSchema(testedCriterionIds),
       })
   ).strict();
 
-export const PASSING_COMPOSITE = 80;
-export const PASSING_DIMENSION = 70;
-
-export const compositeScore = (
-  results: readonly Pick<EvaluationDimensionResult, "score">[],
-): number =>
-  results.length === 0
-    ? 0
-    : Math.round(
-        results.reduce((total, result) => total + result.score, 0) /
-          results.length,
-      );
-
-/**
- * Whether the answer left a gap worth repairing. Derived from the dimension
- * scores the critic already committed to, so "should there be a targeted
- * exercise" is never a second, separately-fallible judgement call.
- */
 export const hasModelGap = (
-  results: readonly Pick<EvaluationDimensionResult, "score">[],
-): boolean =>
-  compositeScore(results) < PASSING_COMPOSITE ||
-  results.some((result) => result.score < PASSING_DIMENSION);
+  results: readonly Pick<EvaluationDimensionResult, "met">[],
+): boolean => results.some((result) => !result.met);
 
 const evidenceSchema = z.string().trim().min(1);
 
@@ -231,15 +266,7 @@ export interface GradeShape {
   readonly testedDimensionIds: readonly string[];
   /** The learner's latest answer, included in the critic prompt. */
   readonly learnerAnswer: string;
-  /**
-   * Whether these scores cover every target in the unit contract. The turn
-   * treats an uncovered target as a gap, so the schema has to use the same
-   * definition or the critic can hand back a clean confirmation for an answer
-   * the runner then records as a failure.
-   */
-  readonly evidencesAllTargets: (
-    results: readonly EvaluationDimensionResult[],
-  ) => boolean;
+  readonly decidedMet: boolean | null;
 }
 
 /**
@@ -247,17 +274,21 @@ export interface GradeShape {
  * and `renderGradeMessage` lays it out, which is why there are no formatting
  * rules here: the model cannot get the shape wrong if it never chooses it.
  */
-const diagnosisSchema = z
-  .object({
-    quote: z
-      .string()
-      .trim()
-      .min(1)
-      .max(400)
-      .describe(
-        "The learner's own words, copied exactly from their latest answer, covering the move that went wrong. Never your paraphrase.",
-      ),
-    hypothesis: z
+const quoteSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(400)
+  .describe(
+    "The learner's own words, copied exactly from their latest answer, covering the move that went wrong. Never your paraphrase.",
+  );
+
+// A decided verdict (a wrong option letter) has no prose to quote.
+const diagnosisSchema = (quoteRequired: boolean) =>
+  z
+    .object({
+      quote: quoteRequired ? quoteSchema : quoteSchema.nullable(),
+      hypothesis: z
       .string()
       .trim()
       .min(1)
@@ -271,7 +302,7 @@ const diagnosisSchema = z
   })
   .strict();
 
-export type UnitDiagnosis = z.infer<typeof diagnosisSchema>;
+export type UnitDiagnosis = z.infer<ReturnType<typeof diagnosisSchema>>;
 
 const quoteBlock = (quote: string): string =>
   quote
@@ -292,10 +323,12 @@ export const renderGradeMessage = (output: {
   const { diagnosis } = output;
   if (!diagnosis) return output.closingMessage ?? "";
   return [
-    quoteBlock(diagnosis.quote),
+    diagnosis.quote === null ? null : quoteBlock(diagnosis.quote),
     diagnosis.hypothesis.trim(),
     diagnosis.explanation.trim(),
-  ].join("\n\n");
+  ]
+    .filter((part): part is string => part !== null)
+    .join("\n\n");
 };
 
 /**
@@ -326,16 +359,10 @@ export const renderPartialGradeMessage = (
   return parts.length > 0 ? parts.join("\n\n") : undefined;
 };
 
-/**
- * Grade plus diagnosis. There is no verdict field: pass or fail is derived from
- * the scores the critic already committed to, so "did they get it" is never a
- * second, separately-fallible judgement call. The diagnosis is derived the same
- * way, by requiring it exactly when those scores say there is something to
- * repair.
- */
 export const reviewGradeSchema = ({
   testedDimensionIds,
-  evidencesAllTargets,
+  learnerAnswer,
+  decidedMet,
 }: GradeShape) =>
   z
     .object({
@@ -344,7 +371,7 @@ export const reviewGradeSchema = ({
         .describe(
           "Only when the answer is clean: one short paragraph confirming it and naming the evidence that decided it. Null whenever there is a gap.",
         ),
-      diagnosis: diagnosisSchema
+      diagnosis: diagnosisSchema(decidedMet === null)
         .nullable()
         .describe(
           "Only when the answer has a gap. Null whenever the answer is clean.",
@@ -368,36 +395,73 @@ export const reviewGradeSchema = ({
         ),
       dimensionResults: z
         .array(
-          EvaluationDimensionResultSchema.extend({
-            dimensionId: z.enum(testedDimensionIds),
-            score: z
-              .number()
-              .int()
-              .min(0)
-              .max(100)
-              .describe(
-                "A percentage score from 0 to 100, never a 1-3 ordinal.",
-              ),
-            evidence: evidenceSchema,
-          }),
+          z
+            .object({
+              dimensionId: z.enum(testedDimensionIds),
+              met: z.boolean(),
+              evidence: evidenceSchema,
+              missing: z.string().trim().min(1).nullable(),
+            })
+            .strict(),
         )
-        .length(testedDimensionIds.length),
+        .length(testedDimensionIds.length)
+        .optional(),
     })
     .strict()
     .superRefine((output, ctx) => {
-      const gradedIds = output.dimensionResults.map(
-        (result) => result.dimensionId,
-      );
-      if (new Set(gradedIds).size !== gradedIds.length) {
+      const dimensionResults = output.dimensionResults ?? [];
+      const gradedIds = dimensionResults.map((result) => result.dimensionId);
+      if (decidedMet === null) {
+        if (!output.dimensionResults) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["dimensionResults"],
+            message: "Grade every tested dimension.",
+          });
+        }
+        if (new Set(gradedIds).size !== gradedIds.length) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["dimensionResults"],
+            message: "Grade each tested dimension exactly once.",
+          });
+        }
+        dimensionResults.forEach((result, index) => {
+          if (
+            !learnerAnswer
+              .replace(/\s+/g, " ")
+              .trim()
+              .includes(result.evidence.replace(/\s+/g, " ").trim())
+          ) {
+            ctx.addIssue({
+              code: "custom",
+              path: ["dimensionResults", index, "evidence"],
+              message: "Evidence must quote the learner's answer.",
+            });
+          }
+        });
+      } else if (output.dimensionResults !== undefined) {
         ctx.addIssue({
           code: "custom",
           path: ["dimensionResults"],
-          message: "Grade each tested dimension exactly once.",
+          message: "Omit dimension results when the verdict is already decided.",
+        });
+      }
+      if (
+        output.diagnosis?.quote &&
+        !learnerAnswer
+          .replace(/\s+/g, " ")
+          .trim()
+          .includes(output.diagnosis.quote.replace(/\s+/g, " ").trim())
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["diagnosis", "quote"],
+          message: "Diagnosis quote must quote the learner's answer.",
         });
       }
       const gap =
-        hasModelGap(output.dimensionResults) ||
-        !evidencesAllTargets(output.dimensionResults);
+        decidedMet === null ? hasModelGap(dimensionResults) : !decidedMet;
       const require = (
         condition: boolean,
         path: string,
@@ -407,23 +471,23 @@ export const reviewGradeSchema = ({
       };
       if (gap) {
         require(output.diagnosis !==
-          null, "diagnosis", "These scores leave a gap, so name it: write the diagnosis and set closingMessage to null.");
+          null, "diagnosis", "The answer leaves a gap, so name it: write the diagnosis and set closingMessage to null.");
         require(output.causeType !==
-          null, "causeType", "These scores leave a gap, so classify what caused it.");
+          null, "causeType", "The answer leaves a gap, so classify what caused it.");
         require(output.errorCodes.length >
-          0, "errorCodes", "These scores leave a gap, so give at least one error code for it.");
+          0, "errorCodes", "The answer leaves a gap, so give at least one error code for it.");
         require(output.closingMessage ===
-          null, "closingMessage", "These scores leave a gap, so there is nothing to close on: set closingMessage to null.");
+          null, "closingMessage", "The answer leaves a gap, so there is nothing to close on: set closingMessage to null.");
         return;
       }
       require(output.closingMessage !==
-        null, "closingMessage", "These scores are clean, so confirm the answer in closingMessage.");
+        null, "closingMessage", "Every check is met, so confirm the answer in closingMessage.");
       require(output.diagnosis ===
-        null, "diagnosis", "These scores are clean, so there is no gap to name: set diagnosis to null rather than inventing a flaw.");
+        null, "diagnosis", "Every check is met, so set diagnosis to null rather than inventing a flaw.");
       require(output.causeType ===
-        null, "causeType", "These scores are clean, so set causeType to null.");
+        null, "causeType", "Every check is met, so set causeType to null.");
       require(output.errorCodes.length ===
-        0, "errorCodes", "These scores are clean, so leave errorCodes empty.");
+        0, "errorCodes", "Every check is met, so leave errorCodes empty.");
     });
 
 export interface MentorTeachingOutput {

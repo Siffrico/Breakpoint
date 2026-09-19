@@ -151,9 +151,11 @@ export const TrainingUnitPhaseResponse = pgTable(
       verdict?: string;
       evaluationSummary?: string;
       failedDimensions?: string[];
+      checksMet?: number;
+      checksTotal?: number;
       dimensionResults?: {
         dimensionId: string;
-        score: number;
+        met: boolean;
         evidence: string;
         missing: string | null;
       }[];
@@ -257,7 +259,8 @@ export const TrainingUnitAttempt = pgTable("becoming_unit_attempt", (t) => ({
     .references(() => TrainingOnboardingSession.id, { onDelete: "cascade" }),
   userId: t.text().references(() => user.id, { onDelete: "set null" }),
   response: t.text().notNull(),
-  score: t.integer().notNull(),
+  checksMet: t.integer(),
+  checksTotal: t.integer(),
   readiness: t.varchar({ length: 32 }).notNull(),
   strengths: t.jsonb().$type<string[]>().notNull(),
   improvements: t.jsonb().$type<string[]>().notNull(),

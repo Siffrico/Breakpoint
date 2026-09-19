@@ -27,9 +27,8 @@ B. Retry only idempotent requests
 C. Never retry
 D. Retry writes without a key`,
         verifier: {
-          type: "fixed_answer",
+          kind: "fixed_answer",
           answer: "B",
-          checkerSpec: null,
           scratchpad:
             "Solution: B preserves both constraints. The other options duplicate effects or sacrifice recovery. Self-contained.",
         },
@@ -51,36 +50,15 @@ D. late
 
 Answer: A`,
         verifier: {
-          type: "fixed_answer",
+          kind: "fixed_answer",
           answer: "C",
-          checkerSpec: null,
           scratchpad:
             "Solution: C fits the unseen intended passage. The other choices miss its tone. Self-contained.",
         },
       }),
     ).toBe(
-      "Selected-response challenge must not contain a worked solution or expose its answer.",
+      "Scenario must not contain a worked solution or expose its answer.",
     );
-  });
-
-  it("rejects a selected-response verifier without an A-D key", () => {
-    expect(
-      getReviewPresentationReadinessIssue({
-        assistantMessage: `Choose one.
-
-A. first
-B. second
-C. third
-D. fourth`,
-        verifier: {
-          type: "fixed_answer",
-          answer: "the second option",
-          checkerSpec: null,
-          scratchpad:
-            "The second option is correct because it preserves the constraint. The alternatives do not. Self-contained.",
-        },
-      }),
-    ).toBe("Selected-response verifier answer must be one label from A-D.");
   });
 
   it("accepts a selected-response task with four labeled choices", () => {

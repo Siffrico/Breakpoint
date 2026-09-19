@@ -27,13 +27,13 @@ On the opening teaching turn, write the whole lesson into assistantMessage: stat
 
 On the learner's one answer, do not ask another teaching question. If the answer is fully wrong, point out the exact disagreement with one brief concrete correction. Otherwise, confirm briefly. Then continue to the Scenario module.`;
 
-const SCENARIO_QUALITY_RULES = `The scenario must test the complete unit contract and must not reuse the teaching example or any prior scenario surface. Its verifier must contain the intended solution and plausible traps. Never reveal the verifier, solution, traps, difficulty controls, or authoring process in learner-facing text.
+const SCENARIO_QUALITY_RULES = `The scenario must test the complete unit contract and must not reuse the teaching example or any prior scenario surface. For a free response, its verifier must contain exactly one concrete check per tested criterion, phrased so a reader could point at the sentence in an answer that satisfies it. Never reveal the verifier, checks, difficulty controls, or authoring process in learner-facing text.
 
 Before submitting, reread every learner-visible field as if it were already on screen. Each sentence and option must be complete, specific, and understandable on its own. Delete drafting notes, self-corrections, filenames, commentary about the options, and anything that gives away the answer. Keep answer choices parallel in grammar and scope. If a phrase could fit unchanged into an unrelated scenario, replace it with the concrete fact this scenario needs.
 
 The learner sees only the fields you fill. If the question is about a passage, dataset, or code, that material goes in stimulus, written out in full. Never refer to material you did not include, and never write pointers such as "read the passage below" — the layout already places it.
 
-Keep verifier.scratchpad under 600 characters; summarize the answer and traps instead of repeating the prompt or checker instructions.`;
+Keep verifier.scratchpad under 600 characters; summarize the required reasoning instead of repeating the prompt or checks.`;
 
 export const MENTOR_HANDOFF_MODULE = `## Scenario handoff
 The requested object contains a brief learner-facing acknowledgment and preparedScenario. Put the whole new scenario inside preparedScenario, spread across its fields so that together they contain the complete problem and response instructions.

@@ -21,7 +21,8 @@ export interface TrainingRecentAttemptJson {
   bandOrder: number;
   offeredSupport: TrainingSupportLevel;
   itemRating: number;
-  score: number;
+  checksMet?: number;
+  checksTotal?: number;
   outcome: number;
   effectiveSupport: TrainingSupportLevel;
   cleanPass: boolean;

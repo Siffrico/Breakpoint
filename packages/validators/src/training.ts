@@ -146,14 +146,14 @@ export const MissionChatRequestSchema = z
 
 export const MissionEvaluationCriterionSchema = z.object({
   key: z.enum(["execution", "evidence", "judgment"]),
-  score: z.number().int().min(0),
+  met: z.boolean(),
   feedback: z.string().min(1).max(500),
 });
 
 export const MissionEvaluationSchema = z.object({
-  score: z.number().int().min(0).max(100),
+  checksMet: z.number().int().min(0),
+  checksTotal: z.number().int().positive(),
   passed: z.boolean(),
-  growthPass: z.boolean(),
   attemptNumber: z.number().int().min(1).max(99),
   summary: z.string().min(1).max(1_000),
   nextStep: z.string().min(1).max(500).nullable(),
@@ -763,37 +763,46 @@ export const WorkspaceEducationStageSchema = z.enum(
 
 const WorkspaceScenarioRunKindSchema = UnitRunKindSchema;
 
-export const ScenarioVerifierSchema = z
-  .object({
-    type: z.enum(["fixed_answer", "checker", "judge_rubric"]),
-    answer: z.string().min(1).nullable(),
-    checkerSpec: z.string().min(1).nullable(),
-    scratchpad: z
-      .string()
-      .trim()
-      .min(24)
-      .max(600)
-      .describe(
-        "A concise private solution check, 24 to 600 characters. Do not repeat the full prompt or checker instructions.",
-      ),
-  })
-  .superRefine((verifier, ctx) => {
-    if (verifier.type === "fixed_answer" && !verifier.answer) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["answer"],
-        message: "fixed_answer verifier requires answer.",
-      });
-    }
-
-    if (verifier.type === "checker" && !verifier.checkerSpec) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["checkerSpec"],
-        message: "checker verifier requires checkerSpec.",
-      });
-    }
-  });
+export const ScenarioVerifierSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("fixed_answer"),
+      answer: z.enum(["A", "B", "C", "D"]),
+      scratchpad: z
+        .string()
+        .trim()
+        .min(24)
+        .max(600)
+        .describe(
+          "A concise private solution check, 24 to 600 characters. Do not repeat the full prompt or checker instructions.",
+        ),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("checks"),
+      checks: z
+        .array(
+          z
+            .object({
+              criterionId: ContractDimensionIdSchema,
+              check: z.string().trim().min(1).max(500),
+            })
+            .strict(),
+        )
+        .min(1)
+        .max(5),
+      scratchpad: z
+        .string()
+        .trim()
+        .min(24)
+        .max(600)
+        .describe(
+          "A concise private solution check, 24 to 600 characters. Do not repeat the full prompt or checker instructions.",
+        ),
+    })
+    .strict(),
+]);
 
 export const ScenarioEvaluationContractSchema = z.object({
   version: z.literal(1),
@@ -809,12 +818,27 @@ export const UnitReviewChallengeSchema = z.object({
   contract: ScenarioEvaluationContractSchema,
 });
 
-export const EvaluationDimensionResultSchema = z.object({
-  dimensionId: ContractDimensionIdSchema,
-  score: z.number().int().min(0).max(100),
-  evidence: z.string().min(1),
-  missing: z.string().min(1).nullable(),
-});
+export const EvaluationDimensionResultSchema = z
+  .object({
+    dimensionId: ContractDimensionIdSchema,
+    met: z.boolean(),
+    evidence: z.string().min(1),
+    missing: z.string().min(1).nullable(),
+  })
+  // Read-only shim for cursor rows written before checks replaced scores.
+  .or(
+    z
+      .object({
+        dimensionId: ContractDimensionIdSchema,
+        score: z.number().int().min(0).max(100),
+        evidence: z.string().min(1),
+        missing: z.string().min(1).nullable(),
+      })
+      .transform(({ score, ...result }) => ({
+        ...result,
+        met: score >= 70,
+      })),
+  );
 
 const PreparedUnitScenarioSchema = UnitReviewChallengeSchema.nullable();
 
@@ -1142,7 +1166,8 @@ export const EducationUnitStateSchema = z.object({
   revisedBuildResponse: EducationUnitResponseRecordSchema.nullable(),
   assessmentStatus: EducationUnitAssessmentStatusSchema.nullable(),
   assessmentFeedback: z.string().nullable(),
-  score: z.number().int().min(0).max(100).nullable(),
+  checksMet: z.number().int().min(0).nullable(),
+  checksTotal: z.number().int().positive().nullable(),
   strengths: z.array(z.string().min(1)),
   improvements: z.array(z.string().min(1)),
   nextStep: z.string().nullable(),
@@ -1164,7 +1189,14 @@ export const SubmitEducationUnitStepSchema = z.object({
 });
 
 export const UnitContentSchema = ForgeUnitContentSchema;
-export const DebriefSchema = ForgeDebriefSchema;
+export const DebriefSchema = ForgeDebriefSchema.omit({
+  score: true,
+  strengths: true,
+}).extend({
+  checksMet: z.number().int().min(0).nullable(),
+  checksTotal: z.number().int().positive().nullable(),
+  strengths: z.array(z.string().min(1)),
+});
 
 export const BuildContentMoveSchema = z.enum([
   "anchor",
@@ -1375,6 +1407,7 @@ export type UnitContext = z.infer<typeof UnitContextSchema>;
 export type ScenarioEvaluationContract = z.infer<
   typeof ScenarioEvaluationContractSchema
 >;
+export type ScenarioVerifier = z.infer<typeof ScenarioVerifierSchema>;
 export type EvaluationDimensionResult = z.infer<
   typeof EvaluationDimensionResultSchema
 >;

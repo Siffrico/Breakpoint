@@ -47,6 +47,7 @@ export const runMentorTeachingAgent = ({
   experience,
   createScenario,
   selectedResponse,
+  testedCriterionIds,
   onPartialAssistantMessage,
 }: {
   messages: readonly ModelMessage[];
@@ -54,6 +55,7 @@ export const runMentorTeachingAgent = ({
   experience: EducationExperienceDefinition;
   createScenario: boolean;
   selectedResponse: boolean;
+  testedCriterionIds: readonly string[];
   onPartialAssistantMessage?: (content: string) => void;
 }): Effect.Effect<{ object: MentorTeachingOutput }, UnitAgentError> => {
   const base = {
@@ -75,7 +77,10 @@ export const runMentorTeachingAgent = ({
   return createScenario
     ? runUnitAgent({
         ...base,
-        schema: mentorHandoffOutputSchema(selectedResponse),
+        schema: mentorHandoffOutputSchema(
+          selectedResponse,
+          testedCriterionIds,
+        ),
         maxOutputTokens: 15_000,
       })
     : runUnitAgent({
@@ -90,12 +95,14 @@ export const runMentorScenarioAgent = ({
   experience,
   pass,
   selectedResponse,
+  testedCriterionIds,
   onPartialAssistantMessage,
 }: {
   context: string;
   experience: EducationExperienceDefinition;
   pass: number;
   selectedResponse: boolean;
+  testedCriterionIds: readonly string[];
   onPartialAssistantMessage?: (content: string) => void;
 }): Effect.Effect<{ object: ReviewPresentationOutput }, UnitAgentError> =>
   runUnitAgent({
@@ -105,7 +112,7 @@ export const runMentorScenarioAgent = ({
     system: mentorSystem({ experience, teach: false, scenario: "direct" }),
     messages: [],
     context: `${context}\n\n${mentorScenarioInstruction(pass)}`,
-    schema: reviewPresentationSchema(selectedResponse),
+    schema: reviewPresentationSchema(selectedResponse, testedCriterionIds),
     schemaName: "unit_mentor_scenario",
     maxOutputTokens: 15_000,
     reasoningBudgetTokens: 2_400,

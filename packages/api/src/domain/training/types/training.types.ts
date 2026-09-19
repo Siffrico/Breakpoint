@@ -174,11 +174,11 @@ export interface HomeState {
   blockingSignals: string[];
   lastCompletedUnit: {
     title: string;
-    score: number | null;
+    checksMet: number | null;
+    checksTotal: number | null;
     failureTags: string[];
   } | null;
   demonstratedCapabilities: string[];
-  nodeScores: Record<string, number>;
 }
 
 export interface ProfileState {
@@ -221,6 +221,8 @@ export interface PhaseResponseMetadata {
   evaluationSummary?: string;
   failedDimensions?: string[];
   dimensionResults?: EvaluationDimensionResult[];
+  checksMet?: number;
+  checksTotal?: number;
   scenarioAttemptId?: string;
   // Syllabus entries composed into a recall presentation; the verdict turn
   // reinforces exactly these, immune to the decay target shifting mid-interlude.

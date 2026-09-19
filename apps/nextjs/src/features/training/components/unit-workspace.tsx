@@ -100,7 +100,8 @@ export function UnitWorkspace({
 
             {retrievalResult ? (
               <div className="text-sm text-white/60">
-                Score {retrievalResult.score} /{" "}
+                {retrievalResult.checksMet} of {retrievalResult.checksTotal}{" "}
+                checks /{" "}
                 {retrievalResult.passed
                   ? "Scenario unlocked"
                   : "Retry required"}
@@ -173,7 +174,7 @@ export function UnitWorkspace({
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div>
                 <h2 className="font-display mt-3 text-4xl tracking-[-0.05em]">
-                  {debrief.score}
+                  {debrief.checksMet} of {debrief.checksTotal} checks
                 </h2>
               </div>
               <div className="text-sm text-white/55">
