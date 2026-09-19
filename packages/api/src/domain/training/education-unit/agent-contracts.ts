@@ -289,18 +289,18 @@ const diagnosisSchema = (quoteRequired: boolean) =>
     .object({
       quote: quoteRequired ? quoteSchema : quoteSchema.nullable(),
       hypothesis: z
-      .string()
-      .trim()
-      .min(1)
-      .max(400)
-      .describe(
-        "A tentative statement of the idea you believe the learner is holding, written so they can push back on it.",
+        .string()
+        .trim()
+        .min(1)
+        .max(400)
+        .describe(
+          "A tentative statement of the idea you believe the learner is holding, written so they can push back on it.",
+        ),
+      explanation: LearnerFacingMessageSchema.max(1_200).describe(
+        "A concise explanation of the concrete consequence that makes that idea break in this scenario.",
       ),
-    explanation: LearnerFacingMessageSchema.max(1_200).describe(
-      "A concise explanation of the concrete consequence that makes that idea break in this scenario.",
-    ),
-  })
-  .strict();
+    })
+    .strict();
 
 export type UnitDiagnosis = z.infer<ReturnType<typeof diagnosisSchema>>;
 
@@ -405,7 +405,7 @@ export const reviewGradeSchema = ({
             .strict(),
         )
         .length(testedDimensionIds.length)
-        .optional(),
+        .nullable(),
     })
     .strict()
     .superRefine((output, ctx) => {
@@ -440,11 +440,12 @@ export const reviewGradeSchema = ({
             });
           }
         });
-      } else if (output.dimensionResults !== undefined) {
+      } else if (output.dimensionResults !== null) {
         ctx.addIssue({
           code: "custom",
           path: ["dimensionResults"],
-          message: "Omit dimension results when the verdict is already decided.",
+          message:
+            "Set dimension results to null when the verdict is already decided.",
         });
       }
       if (

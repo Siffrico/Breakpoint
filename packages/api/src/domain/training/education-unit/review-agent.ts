@@ -63,8 +63,8 @@ ${
   decidedMet === null
     ? "Apply every private check to the learner's latest answer, then write the fields those results call for."
     : decidedMet
-      ? "The verdict is already decided: every check is met. Write only the closing fields; do not grade it again."
-      : "The verdict is already decided: the answer does not meet the fixed-answer verifier. Write only the diagnosis fields; do not grade it again."
+      ? "The verdict is already decided: every check is met. Write the closing fields and set dimensionResults to null; do not grade it again."
+      : "The verdict is already decided: the answer does not meet the fixed-answer verifier. Write the diagnosis fields and set dimensionResults to null; do not grade it again."
 }
 
 ${

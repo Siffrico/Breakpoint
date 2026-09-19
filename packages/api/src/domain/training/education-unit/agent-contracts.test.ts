@@ -119,7 +119,8 @@ describe("reviewPresentationSchema", () => {
     checks: [
       {
         criterionId: "constraint-tradeoff",
-        check: "The answer must explain why only idempotent requests are safe to retry.",
+        check:
+          "The answer must explain why only idempotent requests are safe to retry.",
       },
     ],
     scratchpad:
@@ -127,38 +128,44 @@ describe("reviewPresentationSchema", () => {
   };
 
   it("keeps a validated private verifier beside learner-facing scenario text", () => {
-    const result = reviewPresentationSchema(
-      true,
-      testedCriterionIds,
-    ).safeParse(selectScenario);
+    const result = reviewPresentationSchema(true, testedCriterionIds).safeParse(
+      selectScenario,
+    );
 
     expect(result.success).toBe(true);
   });
 
   it("caps private scenario planning so it cannot become an internal essay", () => {
-    const result = reviewPresentationSchema(true, testedCriterionIds).safeParse({
-      ...selectScenario,
-      verifier: {
-        ...verifier,
-        scratchpad: "x".repeat(601),
+    const result = reviewPresentationSchema(true, testedCriterionIds).safeParse(
+      {
+        ...selectScenario,
+        verifier: {
+          ...verifier,
+          scratchpad: "x".repeat(601),
+        },
       },
-    });
+    );
 
     expect(result.success).toBe(false);
   });
 
   it("rejects a stem that instructs without asking anything", () => {
-    const result = reviewPresentationSchema(true, testedCriterionIds).safeParse({
-      ...selectScenario,
-      assistantMessage:
-        "Read the passage above, then run a qualifier audit and be ready to cite the phrase that confirms your choice.",
-    });
+    const result = reviewPresentationSchema(true, testedCriterionIds).safeParse(
+      {
+        ...selectScenario,
+        assistantMessage:
+          "Read the passage above, then run a qualifier audit and be ready to cite the phrase that confirms your choice.",
+      },
+    );
 
     expect(result.success).toBe(false);
   });
 
   it("rejects private authoring fields leaked into the scenario", () => {
-    const result = reviewPresentationSchema(false, testedCriterionIds).safeParse({
+    const result = reviewPresentationSchema(
+      false,
+      testedCriterionIds,
+    ).safeParse({
       assistantMessage:
         "The checkerSpec selects option B. Explain why it preserves both constraints.",
       verifier: checksVerifier,
@@ -168,7 +175,10 @@ describe("reviewPresentationSchema", () => {
   });
 
   it("rejects a worked example instead of an unsolved challenge", () => {
-    const result = reviewPresentationSchema(false, testedCriterionIds).safeParse({
+    const result = reviewPresentationSchema(
+      false,
+      testedCriterionIds,
+    ).safeParse({
       assistantMessage: `## Worked Example
 
 Which policy should the team ship?
@@ -186,29 +196,30 @@ Answer: B`,
   });
 
   it("rejects drafting debris in learner-visible options", () => {
-    const result = reviewPresentationSchema(true, testedCriterionIds).safeParse({
-      ...selectScenario,
-      options: [
-        options[0],
-        {
-          label: "B",
-          text: "Retry idempotent requests. Hmm, this is the intended trap.",
-        },
-        options[2],
-        options[3],
-      ],
-      verifier,
-    });
+    const result = reviewPresentationSchema(true, testedCriterionIds).safeParse(
+      {
+        ...selectScenario,
+        options: [
+          options[0],
+          {
+            label: "B",
+            text: "Retry idempotent requests. Hmm, this is the intended trap.",
+          },
+          options[2],
+          options[3],
+        ],
+        verifier,
+      },
+    );
 
     expect(result.success).toBe(false);
   });
 
   it("rejects a selected-response verifier without learner-visible options", () => {
     const { options: _options, ...withoutOptions } = selectScenario;
-    const result = reviewPresentationSchema(
-      true,
-      testedCriterionIds,
-    ).safeParse(withoutOptions);
+    const result = reviewPresentationSchema(true, testedCriterionIds).safeParse(
+      withoutOptions,
+    );
 
     expect(result.success).toBe(false);
   });
@@ -264,6 +275,29 @@ const cleanGrade = {
 };
 
 describe("reviewGradeSchema", () => {
+  it.each([null, false, true])(
+    "requires every tool property when the verdict is %s",
+    (decidedMet) => {
+      const json = z.toJSONSchema(
+        reviewGradeSchema({ ...gradeShape, decidedMet }),
+      );
+      expect(json.required).toEqual(Object.keys(json.properties ?? {}));
+    },
+  );
+
+  it("requires results for an undecided verdict", () => {
+    expect(
+      reviewGradeSchema(gradeShape).safeParse({
+        ...gappedGrade,
+        dimensionResults: null,
+      }).success,
+    ).toBe(false);
+    const { dimensionResults: _results, ...withoutResults } = gappedGrade;
+    expect(
+      reviewGradeSchema(gradeShape).safeParse(withoutResults).success,
+    ).toBe(false);
+  });
+
   it("accepts a diagnosis written as fields", () => {
     expect(reviewGradeSchema(gradeShape).safeParse(gappedGrade).success).toBe(
       true,
@@ -346,12 +380,16 @@ describe("reviewGradeSchema", () => {
     ).toBe(false);
   });
 
-  it("omits check results when the verifier already decided the verdict", () => {
+  it("requires null check results when the verifier already decided the verdict", () => {
     const decidedShape = { ...gradeShape, decidedMet: false };
-    const { dimensionResults: _dimensionResults, ...diagnosisOnly } = gappedGrade;
+    const { dimensionResults: _dimensionResults, ...diagnosisOnly } =
+      gappedGrade;
 
     expect(
-      reviewGradeSchema(decidedShape).safeParse(diagnosisOnly).success,
+      reviewGradeSchema(decidedShape).safeParse({
+        ...diagnosisOnly,
+        dimensionResults: null,
+      }).success,
     ).toBe(true);
     expect(reviewGradeSchema(decidedShape).safeParse(gappedGrade).success).toBe(
       false,

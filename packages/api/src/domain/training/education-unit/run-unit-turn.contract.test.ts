@@ -508,22 +508,21 @@ The old move was safe because the line ran above 40 degrees. This line runs at 3
         },
       },
     };
-    const runReviewGrade = vi.fn<UnitTurnDependencies["runReviewGrade"]>(
-      () =>
-        Effect.succeed({
-          object: {
-            closingMessage: null,
-            diagnosis: {
-              quote: "A",
-              hypothesis: "I think you chose the familiar move.",
-              explanation: "That move violates the changed constraint.",
-            },
-            causeType: "missed-limit",
-            errorCodes: ["wrong-option"],
-            scratchpad:
-              "The fixed-answer verifier already decided the result.",
+    const runReviewGrade = vi.fn<UnitTurnDependencies["runReviewGrade"]>(() =>
+      Effect.succeed({
+        object: {
+          closingMessage: null,
+          diagnosis: {
+            quote: "A",
+            hypothesis: "I think you chose the familiar move.",
+            explanation: "That move violates the changed constraint.",
           },
-        }),
+          causeType: "missed-limit",
+          errorCodes: ["wrong-option"],
+          scratchpad: "The fixed-answer verifier already decided the result.",
+          dimensionResults: null,
+        },
+      }),
     );
 
     const result = await Effect.runPromise(
