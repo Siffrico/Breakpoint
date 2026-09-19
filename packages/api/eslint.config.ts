@@ -45,16 +45,13 @@ const effectRuntimeEntryRestriction = {
     "Effect's runtime may only be entered at a transport boundary (src/router/**, src/*-chat.ts) or an external-call boundary (the model layer, the lease scope). Sequential business logic over the database is plain async — an internal runPromise erases typed errors, context, and interruption.",
 };
 
-/**
- * The external-call boundary: where the model-turn Effect region is entered.
- * Below this line Effect is load-bearing — `run-unit-turn` races the mentor
- * against a speculative prefill, `run-unit-agent` owns retry, schema repair,
- * and three stream-aware timeouts, and interruption propagates from the
- * client's abort signal down into the provider fetch. Above it, the turn is
- * sequential work over the database and stays plain async.
- */
+// Promise callbacks that start a model task or own a build lease are runtime
+// boundaries even when their adapters live below the HTTP transport.
 const effectRuntimeEntryFiles = [
   "src/domain/training/education-unit/run-unit-turn.ts",
+  "src/domain/training/workspace-ai/workspace-turn-orchestration.ts",
+  "src/domain/training/unit-preparation/prepare-unit-content.ts",
+  "src/repositories/build-project-repository-deps.ts",
 ];
 
 export default defineConfig(
@@ -68,20 +65,14 @@ export default defineConfig(
       // Transport boundaries: a request ends here, so the runtime starts here.
       "src/router/**",
       "src/*-chat.ts",
+      "src/domain/training/unit-preparation/prepare-unit-edge.ts",
       // External-call boundaries: retry, timeout, interruption, finalizers.
       ...effectRuntimeEntryFiles,
       // Tests drive effects directly; they are their own boundary.
       "src/**/*.test.ts",
     ],
     rules: {
-      // `warn`, not `error`, and deliberately so: ten call sites still violate
-      // this, all of them in the turn path and the `*-repository-deps.ts`
-      // factories, and converting those is a single large change rather than
-      // ten small ones. Making it an error today would only buy ten
-      // `eslint-disable` comments. Flip to `error` the moment that count
-      // reaches zero — the rule is the drift detector, so it must not be able
-      // to go quietly stale.
-      "no-restricted-syntax": ["warn", effectRuntimeEntryRestriction],
+      "no-restricted-syntax": ["error", effectRuntimeEntryRestriction],
     },
   },
   {

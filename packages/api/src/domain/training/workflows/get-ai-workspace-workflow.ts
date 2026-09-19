@@ -1,7 +1,3 @@
-import type { Effect as EffectType } from "effect";
-import { Cause, Effect, Exit } from "effect";
-
-import type { DbError } from "../../../effect/errors";
 import type { Result } from "../../../lib/result";
 import type { ScenarioBrief } from "../education-unit/scenario-brief";
 import type {
@@ -20,12 +16,9 @@ import { err, ok } from "../../../lib/result";
 import { projectScenarioBrief } from "../education-unit/scenario-brief";
 import { getEducationUnitState } from "../policies/education-unit-state-policy";
 import { planWorkspaceTurn } from "../workspace-ai/orchestrator";
-import { CurriculumNotReadyError } from "../workspace-ai/workspace-errors";
 import {
-  AiWorkspaceReader,
   makeAiWorkspaceReader,
   makeWorkspaceProjectionReader,
-  WorkspaceProjectionReader,
 } from "../workspace-ai/workspace-reader";
 import {
   getUnitAdvanceGate,
@@ -71,111 +64,6 @@ export type AiWorkspaceResult =
  * run. Every read is bounded: the plan, the active unit's rows, the recall
  * candidates, and one unit's transcript — never the whole session history.
  */
-export const getAiWorkspaceWorkflowEffect = ({
-  sessionId,
-}: {
-  sessionId: string;
-}): EffectType.Effect<
-  AiWorkspaceResult,
-  DbError | CurriculumNotReadyError,
-  WorkspaceProjectionReader | AiWorkspaceReader
-> =>
-  Effect.gen(function* () {
-    const projectionReader = yield* WorkspaceProjectionReader;
-    const displayReader = yield* AiWorkspaceReader;
-
-    const plan = yield* projectionReader.getActivePlan(sessionId);
-    if (!plan) {
-      return yield* new CurriculumNotReadyError({
-        message: "Curriculum is not ready yet.",
-      });
-    }
-
-    const active = yield* loadNextReadyUnitProjection({
-      sessionId,
-      nodes: plan.nodes,
-    });
-    if (active.node && !active.unit) {
-      return { kind: "preparing", nodeId: active.node.id } as const;
-    }
-
-    const activeUnitMessages = active.node
-      ? yield* displayReader.listUnitMessages(sessionId, active.node.id)
-      : [];
-
-    const state = planWorkspaceTurn({
-      nodes: plan.nodes,
-      activeUnitResponses: active.responses,
-      activeUnitRun: active.run,
-      hasPersistedActiveUnitRun: active.hasPersistedRun,
-      recallTarget: null,
-    });
-    const terminalNodes = plan.nodes.filter((node) => node.kind === "outcome");
-    const projectComplete =
-      state === null &&
-      terminalNodes.length > 0 &&
-      terminalNodes.every((node) => node.status === "completed");
-
-    let resolvedState = state;
-    const resolvedRun = active.run;
-    const resolvedUnit = active.unit;
-    const resolvedResponses = active.responses;
-    if (resolvedState && active.run) {
-      // Without this the stage is only ever delivered mid-stream, so a reload
-      // during a settled pass left the learner with a locked composer and an
-      // Enter that did nothing. The run's own list is the authority.
-      resolvedState = { ...resolvedState, educationStage: active.run.mode };
-    }
-
-    // Each unit is its own chat. Earlier units live in the sidebar
-    // as read-only history, not in the live scroll. Same precedence
-    // findWorkspaceTurnNode uses to pick the unit messages are written under
-    // (exactly one of the two is ever set — see orchestrator.ts), so this
-    // matches the transcript the live turn appends to. With no runnable turn
-    // there is no live chat to hydrate.
-    const liveUnitId = resolvedState?.activeUnitId ?? null;
-    const messages = liveUnitId == null ? [] : activeUnitMessages;
-
-    const activeNode = active.node;
-    const nextLearningNode =
-      activeNode == null
-        ? null
-        : (plan.nodes.find(
-            (node) =>
-              node.kind === "unit" && node.orderIndex > activeNode.orderIndex,
-          ) ?? null);
-
-    return {
-      kind: "ready",
-      workspace: {
-        plan,
-        projectComplete,
-        unit:
-          resolvedState && resolvedUnit
-            ? getEducationUnitState({
-                unit: resolvedUnit,
-                responses: resolvedResponses,
-              })
-            : null,
-        state: resolvedState,
-        messages,
-        unitAdvanceGate:
-          resolvedState?.recallUnitId != null
-            ? { status: "locked" }
-            : getUnitAdvanceGate({
-                node: active.node,
-                run: active.run,
-                nextNode: nextLearningNode,
-              }),
-        introMessage: buildWorkspaceIntroMessage({
-          plan,
-          state: resolvedState,
-        }),
-        scenario: projectScenarioBrief(resolvedRun),
-      },
-    } as const;
-  });
-
 export const getAiWorkspaceWorkflow = async ({
   sessionId,
   deps,
@@ -183,23 +71,98 @@ export const getAiWorkspaceWorkflow = async ({
   sessionId: string;
   deps: GetAiWorkspaceDependencies;
 }): Promise<Result<AiWorkspaceResult, string>> => {
-  const exit = await Effect.runPromiseExit(
-    getAiWorkspaceWorkflowEffect({ sessionId }).pipe(
-      Effect.provideService(
-        WorkspaceProjectionReader,
-        makeWorkspaceProjectionReader(deps),
-      ),
-      Effect.provideService(AiWorkspaceReader, makeAiWorkspaceReader(deps)),
-    ),
-  );
+  const projectionReader = makeWorkspaceProjectionReader(deps);
+  const displayReader = makeAiWorkspaceReader(deps);
 
-  if (Exit.isSuccess(exit)) return ok(exit.value);
-
-  const failure = Cause.squash(exit.cause);
-  if (failure instanceof CurriculumNotReadyError) {
-    return err(failure.message);
+  const plan = await projectionReader.getActivePlan(sessionId);
+  if (!plan) {
+    return err("Curriculum is not ready yet.");
   }
-  throw failure;
+
+  const active = await loadNextReadyUnitProjection({
+    sessionId,
+    nodes: plan.nodes,
+    deps,
+  });
+  if (active.node && !active.unit) {
+    return ok({ kind: "preparing", nodeId: active.node.id });
+  }
+
+  const activeUnitMessages = active.node
+    ? await displayReader.listUnitMessages(sessionId, active.node.id)
+    : [];
+
+  const state = planWorkspaceTurn({
+    nodes: plan.nodes,
+    activeUnitResponses: active.responses,
+    activeUnitRun: active.run,
+    hasPersistedActiveUnitRun: active.hasPersistedRun,
+    recallTarget: null,
+  });
+  const terminalNodes = plan.nodes.filter((node) => node.kind === "outcome");
+  const projectComplete =
+    state === null &&
+    terminalNodes.length > 0 &&
+    terminalNodes.every((node) => node.status === "completed");
+
+  let resolvedState = state;
+  const resolvedRun = active.run;
+  const resolvedUnit = active.unit;
+  const resolvedResponses = active.responses;
+  if (resolvedState && active.run) {
+    // Without this the stage is only ever delivered mid-stream, so a reload
+    // during a settled pass left the learner with a locked composer and an
+    // Enter that did nothing. The run's own list is the authority.
+    resolvedState = { ...resolvedState, educationStage: active.run.mode };
+  }
+
+  // Each unit is its own chat. Earlier units live in the sidebar
+  // as read-only history, not in the live scroll. Same precedence
+  // findWorkspaceTurnNode uses to pick the unit messages are written under
+  // (exactly one of the two is ever set — see orchestrator.ts), so this
+  // matches the transcript the live turn appends to. With no runnable turn
+  // there is no live chat to hydrate.
+  const liveUnitId = resolvedState?.activeUnitId ?? null;
+  const messages = liveUnitId == null ? [] : activeUnitMessages;
+
+  const activeNode = active.node;
+  const nextLearningNode =
+    activeNode == null
+      ? null
+      : (plan.nodes.find(
+          (node) =>
+            node.kind === "unit" && node.orderIndex > activeNode.orderIndex,
+        ) ?? null);
+
+  return ok({
+    kind: "ready",
+    workspace: {
+      plan,
+      projectComplete,
+      unit:
+        resolvedState && resolvedUnit
+          ? getEducationUnitState({
+              unit: resolvedUnit,
+              responses: resolvedResponses,
+            })
+          : null,
+      state: resolvedState,
+      messages,
+      unitAdvanceGate:
+        resolvedState?.recallUnitId != null
+          ? { status: "locked" }
+          : getUnitAdvanceGate({
+              node: active.node,
+              run: active.run,
+              nextNode: nextLearningNode,
+            }),
+      introMessage: buildWorkspaceIntroMessage({
+        plan,
+        state: resolvedState,
+      }),
+      scenario: projectScenarioBrief(resolvedRun),
+    },
+  });
 };
 
 export const buildWorkspaceIntroMessage = ({
