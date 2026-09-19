@@ -786,7 +786,7 @@ export const ScenarioVerifierSchema = z.discriminatedUnion("kind", [
           z
             .object({
               criterionId: ContractDimensionIdSchema,
-              check: z.string().trim().min(1).max(500),
+              check: z.string().trim().min(1),
             })
             .strict(),
         )
