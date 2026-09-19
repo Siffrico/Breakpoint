@@ -313,7 +313,7 @@ export const recordEvaluation = async ({
     nodeId,
     scenarioAttemptId,
     result,
-    nextProgress: nextDirective.nextProgress,
+    nextProgress: directive.nextProgress,
     masteredAt,
   });
 };

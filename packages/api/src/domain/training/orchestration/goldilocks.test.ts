@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "vitest";
 
 import type { ScenarioDirective } from "../engine/rating";
+import type { ResolveScenarioDirectiveDependencies } from "./goldilocks";
 import { createInitialRatingState } from "../engine/rating";
 import {
   deriveDefaultBands,
@@ -176,4 +177,88 @@ void test("rating evaluation addresses the exact scenario attempt", async () => 
   });
 
   assert.equal(savedScenarioAttemptId, "scenario-1");
+});
+
+void test("evaluation and repeated resolution apply only one back-off per new attempt", async () => {
+  const now = new Date("2026-01-01T00:01:00.000Z");
+  let loaded: Awaited<
+    ReturnType<ResolveScenarioDirectiveDependencies["loadJobProgress"]>
+  > = {
+    ...jobProgress(),
+    ratingState: {
+      ...createInitialRatingState(),
+      rating: 1200,
+      ratingDeviation: 80,
+    },
+    progress: { bandOrder: 1, supportLevel: "guided" },
+  };
+  let directive: ScenarioDirective = {
+    intent: "challenge",
+    bandOrder: 1,
+    supportLevel: "guided",
+    targetItemRating: 1100,
+    targetMisconceptionCode: null,
+    reason: "Practice with guidance.",
+    nextProgress: loaded.progress,
+  };
+  const resolve = () =>
+    resolveScenarioDirective({
+      userId: "user-1",
+      nodeId: "cluster-1",
+      now,
+      bands: deriveDefaultBands(),
+      scenarioFormat,
+      deps: {
+        loadJobProgress: () => Promise.resolve(loaded),
+        listRecentPredictions: () => Promise.resolve([]),
+      },
+    });
+  const fail = () =>
+    recordEvaluation({
+      scenarioAttemptId: "scenario-1",
+      userId: "user-1",
+      nodeId: "cluster-1",
+      checksMet: 0,
+      checksTotal: 1,
+      errorCodes: [],
+      occurredAt: now,
+      bands: deriveDefaultBands(),
+      deps: {
+        getScenarioAttempt: () =>
+          Promise.resolve({
+            id: "scenario-1",
+            directiveJson: directive,
+            itemRating: directive.targetItemRating,
+          }),
+        loadJobProgress: () => Promise.resolve(loaded),
+        saveEvaluationResult: ({ result, nextProgress, masteredAt }) => {
+          loaded = {
+            ratingState: result.ratingState,
+            progress: nextProgress,
+            misconceptions: result.misconceptions,
+            recentAttempts: [...loaded.recentAttempts, result.attempt],
+            masteredAt,
+          };
+          return Promise.resolve();
+        },
+      },
+    });
+
+  await fail();
+  directive = (await resolve()).directive;
+  assert.equal(directive.supportLevel, "guided");
+  await fail();
+  const next = (await resolve()).directive;
+  assert.equal(next.intent, "back_off");
+  assert.equal(next.bandOrder, 1);
+  assert.equal(next.supportLevel, "worked_example");
+  assert.deepEqual((await resolve()).directive, next);
+
+  directive = next;
+  await fail();
+  const afterFullSupport = (await resolve()).directive;
+  assert.equal(afterFullSupport.intent, "back_off");
+  assert.equal(afterFullSupport.bandOrder, 0);
+  assert.equal(afterFullSupport.supportLevel, "guided");
+  assert.deepEqual((await resolve()).directive, afterFullSupport);
 });
