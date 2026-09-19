@@ -415,7 +415,7 @@ export const loadProgressionState = async ({
  * in one transaction so a failure can never complete the mastered node while
  * leaving its successor locked.
  */
-export const advanceSkillMapNode = ({
+export const advanceSkillMapNode = async ({
   db,
   nodeId,
   sessionId,
@@ -426,42 +426,44 @@ export const advanceSkillMapNode = ({
   sessionId: string;
   userId: string;
 }) =>
-  advanceSkillMapNodeWorkflow({
-    nodeId,
-    deps: {
-      loadPlanNodes: (masteredNodeId) =>
-        queryWithClient(db, "loadPlanNodesForAdvancement", async () => {
-          const node = await db.query.TrainingCurriculumNode.findFirst({
-            where: eq(TrainingCurriculumNode.id, masteredNodeId),
-          });
-          if (!node) return null;
-          const planNodes = await db.query.TrainingCurriculumNode.findMany({
-            where: eq(TrainingCurriculumNode.planId, node.planId),
-          });
-          return planNodes.map((row) => ({
-            id: row.id,
-            parentNodeId: row.parentNodeId,
-            kind: row.kind as ProgressionNode["kind"],
-            status: row.status as ProgressionNode["status"],
-            orderIndex: row.orderIndex,
-          }));
-        }),
-      applyAdvancement: ({ changes }) =>
-        queryWithClient(db, "applyAdvancementChanges", () =>
-          db.transaction(async (tx) => {
-            const transactionDb = tx as unknown as Database;
-            for (const change of changes) {
-              await transactionDb
-                .update(TrainingCurriculumNode)
-                .set({ status: change.status })
-                .where(eq(TrainingCurriculumNode.id, change.nodeId));
-            }
+  Effect.runPromise(
+    advanceSkillMapNodeWorkflow({
+      nodeId,
+      deps: {
+        loadPlanNodes: (masteredNodeId) =>
+          queryWithClient(db, "loadPlanNodesForAdvancement", async () => {
+            const node = await db.query.TrainingCurriculumNode.findFirst({
+              where: eq(TrainingCurriculumNode.id, masteredNodeId),
+            });
+            if (!node) return null;
+            const planNodes = await db.query.TrainingCurriculumNode.findMany({
+              where: eq(TrainingCurriculumNode.planId, node.planId),
+            });
+            return planNodes.map((row) => ({
+              id: row.id,
+              parentNodeId: row.parentNodeId,
+              kind: row.kind as ProgressionNode["kind"],
+              status: row.status as ProgressionNode["status"],
+              orderIndex: row.orderIndex,
+            }));
           }),
-        ),
-      createNextUnit: (parentNodeId) =>
-        createNextUnit({
-          skillNodeId: parentNodeId,
-          deps: createUnitCreationRepositoryDeps({ db, sessionId, userId }),
-        }),
-    },
-  });
+        applyAdvancement: ({ changes }) =>
+          queryWithClient(db, "applyAdvancementChanges", () =>
+            db.transaction(async (tx) => {
+              const transactionDb = tx as unknown as Database;
+              for (const change of changes) {
+                await transactionDb
+                  .update(TrainingCurriculumNode)
+                  .set({ status: change.status })
+                  .where(eq(TrainingCurriculumNode.id, change.nodeId));
+              }
+            }),
+          ),
+        createNextUnit: (parentNodeId) =>
+          createNextUnit({
+            skillNodeId: parentNodeId,
+            deps: createUnitCreationRepositoryDeps({ db, sessionId, userId }),
+          }),
+      },
+    }),
+  );

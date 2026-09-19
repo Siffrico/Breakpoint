@@ -1,3 +1,7 @@
+import type { Effect } from "effect";
+import { Context, Effect as Fx } from "effect";
+
+import type { DbError } from "../../../effect/errors";
 import type { EducationExperienceDefinition } from "../education-unit/experience";
 import type { PersistedUnitRun } from "../education-unit/unit-state";
 import type {
@@ -9,16 +13,11 @@ import type { WorkspaceAiMessage } from "./types";
 import { makeDbError } from "../../../effect/db";
 import { DEFAULT_EDUCATION_EXPERIENCE } from "../education-unit/experience";
 
-const read = async <A>(
-  operation: string,
-  run: () => Promise<A>,
-): Promise<A> => {
-  try {
-    return await run();
-  } catch (cause) {
-    throw makeDbError(operation, cause);
-  }
-};
+const read = <A>(operation: string, run: () => Promise<A>) =>
+  Fx.tryPromise({
+    try: run,
+    catch: (cause) => makeDbError(operation, cause),
+  });
 
 export interface WorkspaceProjectionReaderSource {
   readonly getEducationExperience?: () => Promise<EducationExperienceDefinition>;
@@ -34,13 +33,39 @@ export interface WorkspaceProjectionReaderSource {
   readonly getUnitByNodeId: (nodeId: string) => Promise<UnitContent | null>;
 }
 
+export interface WorkspaceProjectionReaderShape {
+  readonly getEducationExperience: () => Effect.Effect<
+    EducationExperienceDefinition,
+    DbError
+  >;
+  readonly getActivePlan: (
+    sessionId: string,
+  ) => Effect.Effect<CurriculumPlan | null, DbError>;
+  readonly getPhaseResponses: (
+    unitContentId: string,
+    sessionId: string,
+  ) => Effect.Effect<PhaseResponseRecord[], DbError>;
+  readonly getUnitRun: (
+    sessionId: string,
+    unitContentId: string,
+  ) => Effect.Effect<PersistedUnitRun | null, DbError>;
+  readonly getUnitByNodeId: (
+    nodeId: string,
+  ) => Effect.Effect<UnitContent | null, DbError>;
+}
+
+export class WorkspaceProjectionReader extends Context.Service<
+  WorkspaceProjectionReader,
+  WorkspaceProjectionReaderShape
+>()("training/WorkspaceProjectionReader") {}
+
 export const makeWorkspaceProjectionReader = (
   source: WorkspaceProjectionReaderSource,
-): Required<WorkspaceProjectionReaderSource> => ({
+): WorkspaceProjectionReaderShape => ({
   getEducationExperience: () =>
     source.getEducationExperience
       ? read("getEducationExperience", source.getEducationExperience)
-      : Promise.resolve(DEFAULT_EDUCATION_EXPERIENCE),
+      : Fx.succeed(DEFAULT_EDUCATION_EXPERIENCE),
   getActivePlan: (sessionId) =>
     read("getActivePlan", () => source.getActivePlan(sessionId)),
   getPhaseResponses: (unitContentId, sessionId) =>
@@ -60,9 +85,21 @@ export interface AiWorkspaceReaderSource {
   ) => Promise<WorkspaceAiMessage[]>;
 }
 
+export interface AiWorkspaceReaderShape {
+  readonly listUnitMessages: (
+    sessionId: string,
+    unitId: string,
+  ) => Effect.Effect<WorkspaceAiMessage[], DbError>;
+}
+
+export class AiWorkspaceReader extends Context.Service<
+  AiWorkspaceReader,
+  AiWorkspaceReaderShape
+>()("training/AiWorkspaceReader") {}
+
 export const makeAiWorkspaceReader = (
   source: AiWorkspaceReaderSource,
-): AiWorkspaceReaderSource => ({
+): AiWorkspaceReaderShape => ({
   listUnitMessages: (sessionId, unitId) =>
     read("listUnitMessages", () => source.listUnitMessages(sessionId, unitId)),
 });

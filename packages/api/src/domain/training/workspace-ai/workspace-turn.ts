@@ -1,5 +1,9 @@
+import type { Effect as EffectType } from "effect";
+import { Cause, Effect, Exit } from "effect";
+
 import { UnitContextSchema } from "@acme/validators";
 
+import type { DbError } from "../../../effect/errors";
 import type { EducationExperienceDefinition } from "../education-unit/experience";
 import type { PersistedUnitRun } from "../education-unit/unit-state";
 import type {
@@ -19,7 +23,10 @@ import {
   CurriculumNotReadyError,
   NoRunnableWorkspaceTurnError,
 } from "./workspace-errors";
-import { makeWorkspaceProjectionReader } from "./workspace-reader";
+import {
+  makeWorkspaceProjectionReader,
+  WorkspaceProjectionReader,
+} from "./workspace-reader";
 
 export type WorkspaceTurnDependencies = WorkspaceProjectionReaderSource;
 
@@ -179,53 +186,153 @@ export interface NextReadyUnitProjection {
  * node's unit, phase responses, and in-memory run projection. A missing unit
  * is not a failure here because each caller owns that decision.
  */
-export const loadNextReadyUnitProjection = async ({
+export const loadNextReadyUnitProjection = ({
   sessionId,
   nodes,
-  deps,
 }: {
   sessionId: string;
   nodes: CurriculumNode[];
-  deps: WorkspaceProjectionReaderSource;
-}): Promise<NextReadyUnitProjection> => {
-  const reader = makeWorkspaceProjectionReader(deps);
-  const node = getNextReadyLearningNode(nodes);
-  const unit = node ? await reader.getUnitByNodeId(node.id) : null;
-  if (!unit || getUnitReadinessIssue(unit) !== null) {
+}): EffectType.Effect<
+  NextReadyUnitProjection,
+  DbError,
+  WorkspaceProjectionReader
+> =>
+  Effect.gen(function* () {
+    const reader = yield* WorkspaceProjectionReader;
+    const node = getNextReadyLearningNode(nodes);
+    const unit = node ? yield* reader.getUnitByNodeId(node.id) : null;
+    if (!unit || getUnitReadinessIssue(unit) !== null) {
+      return {
+        node,
+        unit: null,
+        responses: [],
+        run: null,
+        hasPersistedRun: false,
+      };
+    }
+    const [responses, existingRun] = yield* Effect.all(
+      [
+        reader.getPhaseResponses(unit.id, sessionId),
+        reader.getUnitRun(sessionId, unit.id),
+      ],
+      { concurrency: 2 },
+    );
+    const experience = existingRun
+      ? DEFAULT_EDUCATION_EXPERIENCE
+      : yield* reader.getEducationExperience();
     return {
       node,
-      unit: null,
-      responses: [],
-      run: null,
-      hasPersistedRun: false,
-    };
-  }
-  const [responses, existingRun] = await Promise.all([
-    reader.getPhaseResponses(unit.id, sessionId),
-    reader.getUnitRun(sessionId, unit.id),
-  ]);
-  const experience = existingRun
-    ? DEFAULT_EDUCATION_EXPERIENCE
-    : await reader.getEducationExperience();
-  return {
-    node,
-    unit,
-    responses,
-    hasPersistedRun: existingRun !== null,
-    run: resolveUnitRunProjection({
-      sessionId,
       unit,
-      existing: existingRun,
-      experience,
-    }),
-  };
-};
+      responses,
+      hasPersistedRun: existingRun !== null,
+      run: resolveUnitRunProjection({
+        sessionId,
+        unit,
+        existing: existingRun,
+        experience,
+      }),
+    };
+  });
 
 /**
  * Takes a workspace session id and curriculum accessors, produces the runnable
  * turn with its unit and response history, and fails only when the curriculum
  * is missing, no turn is runnable, or the active unit is not ready.
  */
+export const resolveWorkspaceTurnEffect = ({
+  sessionId,
+  authorizedPlan,
+}: {
+  sessionId: string;
+  authorizedPlan?: CurriculumPlan;
+}): EffectType.Effect<
+  ResolvedWorkspaceTurn,
+  | DbError
+  | CurriculumNotReadyError
+  | NoRunnableWorkspaceTurnError
+  | UnitNotReadyError,
+  WorkspaceProjectionReader
+> =>
+  Effect.gen(function* () {
+    const reader = yield* WorkspaceProjectionReader;
+    const plan = authorizedPlan ?? (yield* reader.getActivePlan(sessionId));
+
+    if (!plan) {
+      return yield* new CurriculumNotReadyError({
+        message: "Curriculum is not ready yet.",
+      });
+    }
+
+    const active = yield* loadNextReadyUnitProjection({
+      sessionId,
+      nodes: plan.nodes,
+    });
+    if (active.node && !active.unit) {
+      return yield* new UnitNotReadyError({
+        message: "UNIT_PREPARING",
+        nodeId: active.node.id,
+      });
+    }
+
+    const state = planWorkspaceTurn({
+      nodes: plan.nodes,
+      activeUnitResponses: active.responses,
+      activeUnitRun: active.run,
+      hasPersistedActiveUnitRun: active.hasPersistedRun,
+      recallTarget: null,
+    });
+
+    if (!state) {
+      return yield* new NoRunnableWorkspaceTurnError({
+        message: "There is no runnable workspace turn.",
+      });
+    }
+
+    const node = findWorkspaceTurnNode({ nodes: plan.nodes, state });
+    const unit = node?.id === active.node?.id ? active.unit : null;
+
+    if (
+      !unit ||
+      !node ||
+      !UnitContextSchema.safeParse(unit.unitContext).success
+    ) {
+      return yield* new UnitNotReadyError({
+        message: "UNIT_PREPARING",
+        nodeId: node?.id,
+      });
+    }
+
+    const unitResponses = active.responses;
+    const existingRun = active.run;
+    const experience = existingRun
+      ? DEFAULT_EDUCATION_EXPERIENCE
+      : yield* reader.getEducationExperience();
+    const unitRun =
+      existingRun ??
+      resolveUnitRunProjection({
+        sessionId,
+        unit,
+        existing: null,
+        experience,
+      });
+
+    const resolvedState = {
+      ...state,
+      educationStage: unitRun.mode,
+      interactionId: unitRun.cursor.interactionId,
+      workflowId: `${unitRun.experience.id}@${unitRun.experience.version}`,
+    };
+
+    return {
+      plan,
+      state: resolvedState,
+      node,
+      unit,
+      unitRun,
+      unitResponses,
+    };
+  });
+
 export const resolveWorkspaceTurn = async ({
   sessionId,
   authorizedPlan,
@@ -235,82 +342,18 @@ export const resolveWorkspaceTurn = async ({
   authorizedPlan?: CurriculumPlan;
   deps: WorkspaceProjectionReaderSource;
 }): Promise<ResolvedWorkspaceTurn> => {
-  const reader = makeWorkspaceProjectionReader(deps);
-  const plan = authorizedPlan ?? (await reader.getActivePlan(sessionId));
-
-  if (!plan) {
-    throw new CurriculumNotReadyError({
-      message: "Curriculum is not ready yet.",
-    });
-  }
-
-  const active = await loadNextReadyUnitProjection({
-    sessionId,
-    nodes: plan.nodes,
-    deps,
-  });
-  if (active.node && !active.unit) {
-    throw new UnitNotReadyError({
-      message: "UNIT_PREPARING",
-      nodeId: active.node.id,
-    });
-  }
-
-  const state = planWorkspaceTurn({
-    nodes: plan.nodes,
-    activeUnitResponses: active.responses,
-    activeUnitRun: active.run,
-    hasPersistedActiveUnitRun: active.hasPersistedRun,
-    recallTarget: null,
-  });
-
-  if (!state) {
-    throw new NoRunnableWorkspaceTurnError({
-      message: "There is no runnable workspace turn.",
-    });
-  }
-
-  const node = findWorkspaceTurnNode({ nodes: plan.nodes, state });
-  const unit = node?.id === active.node?.id ? active.unit : null;
-
-  if (
-    !unit ||
-    !node ||
-    !UnitContextSchema.safeParse(unit.unitContext).success
-  ) {
-    throw new UnitNotReadyError({
-      message: "UNIT_PREPARING",
-      nodeId: node?.id,
-    });
-  }
-
-  const unitResponses = active.responses;
-  const existingRun = active.run;
-  const experience = existingRun
-    ? DEFAULT_EDUCATION_EXPERIENCE
-    : await reader.getEducationExperience();
-  const unitRun =
-    existingRun ??
-    resolveUnitRunProjection({
+  const exit = await Effect.runPromiseExit(
+    resolveWorkspaceTurnEffect({
       sessionId,
-      unit,
-      existing: null,
-      experience,
-    });
+      authorizedPlan,
+        }).pipe(
+      Effect.provideService(
+        WorkspaceProjectionReader,
+        makeWorkspaceProjectionReader(deps),
+      ),
+    ),
+  );
 
-  const resolvedState = {
-    ...state,
-    educationStage: unitRun.mode,
-    interactionId: unitRun.cursor.interactionId,
-    workflowId: `${unitRun.experience.id}@${unitRun.experience.version}`,
-  };
-
-  return {
-    plan,
-    state: resolvedState,
-    node,
-    unit,
-    unitRun,
-    unitResponses,
-  };
+  if (Exit.isSuccess(exit)) return exit.value;
+  throw Cause.squash(exit.cause);
 };

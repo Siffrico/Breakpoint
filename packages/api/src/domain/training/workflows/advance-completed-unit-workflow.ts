@@ -56,7 +56,7 @@ interface AdvanceCompletedUnitDependencies {
     skillNodeId: string;
     sessionId: string;
     userId: string;
-  }) => Effect.Effect<unknown, DbError | CreateNextUnitError>;
+  }) => Effect.Effect<unknown, DbError>;
   runProgressionEffect: (
     effect: Effect.Effect<void, DbError | CreateNextUnitError>,
   ) => Promise<void>;

@@ -703,12 +703,14 @@ export const trainingRouter = {
                 }),
               ),
             advanceSkillMapNode: ({ skillNodeId, sessionId, userId }) =>
-              advanceSkillMapNode({
-                db: ctx.db,
-                nodeId: skillNodeId,
-                sessionId,
-                userId,
-              }),
+              queryWithClient(ctx.db, "advanceSkillMapNode", () =>
+                advanceSkillMapNode({
+                  db: ctx.db,
+                  nodeId: skillNodeId,
+                  sessionId,
+                  userId,
+                }),
+              ),
             runProgressionEffect: runEffect,
             scheduleBackgroundTask: ctx.scheduleBackgroundTask,
           },
