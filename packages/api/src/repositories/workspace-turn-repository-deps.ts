@@ -37,7 +37,10 @@ import { trainingCurriculumRepository } from "./training-curriculum-repository";
 import { trainingOnboardingRepository } from "./training-onboarding-repository";
 import { createTrainingRatingGoldilocksDeps } from "./training-rating-goldilocks-deps";
 import { trainingRatingRepository } from "./training-rating-repository";
-import { trainingUnitRunRepository } from "./training-unit-run-repository";
+import {
+  mapUnitRun,
+  trainingUnitRunRepository,
+} from "./training-unit-run-repository";
 
 type Database = typeof databaseClient;
 
@@ -87,9 +90,9 @@ const claimWorkspaceUnitLease = async ({
         lt(TrainingUnitRun.turnLeaseExpiresAt, now),
       ),
     })
-    .returning({ id: TrainingUnitRun.id });
+    .returning();
 
-  return Boolean(leasedRun);
+  return leasedRun ? mapUnitRun(leasedRun) : null;
 };
 
 /**

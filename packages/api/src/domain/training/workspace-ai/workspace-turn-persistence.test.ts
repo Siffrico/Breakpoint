@@ -184,7 +184,7 @@ describe("saveUnitTurnResult", () => {
           appendMessage: () => Promise.resolve(assistantMessage),
           listUnitMessages: () => Promise.resolve([assistantMessage]),
           markWorkspaceTurnFailed: () => Promise.resolve(),
-          claimWorkspaceUnitLease: () => Promise.resolve(true),
+          claimWorkspaceUnitLease: ({ run }) => Promise.resolve(run),
           releaseWorkspaceUnitLease: () => Promise.resolve(),
           getPhaseResponses: (unitContentId) =>
             Promise.resolve(unitContentId === unit.id ? phaseResponses : []),

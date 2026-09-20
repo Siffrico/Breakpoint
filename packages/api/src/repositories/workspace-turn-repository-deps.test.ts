@@ -25,7 +25,23 @@ const freshRun = createUnitRun({
 
 describe("workspace unit lease acquisition", () => {
   it("materializes a missing projected run while claiming its lease", async () => {
-    const returning = vi.fn(() => Promise.resolve([{ id: "unit-run" }]));
+    const returning = vi.fn(() =>
+      Promise.resolve([
+        {
+          id: "unit-run",
+          sessionId: freshRun.sessionId,
+          unitContentId: freshRun.unitId,
+          userId: freshRun.userId,
+          kind: freshRun.kind,
+          experienceId: freshRun.experience.id,
+          experienceVersion: freshRun.experience.version,
+          experienceJson: freshRun.experience,
+          unitContextJson: freshRun.unitContext,
+          cursorJson: freshRun.cursor,
+          difficultySnapshotJson: freshRun.difficultySnapshot,
+        },
+      ]),
+    );
     const onConflictDoUpdate = vi.fn(
       (_input: {
         target: unknown[];
@@ -50,7 +66,7 @@ describe("workspace unit lease acquisition", () => {
       run: freshRun,
     });
 
-    expect(claimed).toBe(true);
+    expect(claimed).toEqual(freshRun);
     const inserted = values.mock.calls[0]?.[0];
     expect(inserted).toMatchObject({
       sessionId: freshRun.sessionId,
@@ -92,7 +108,7 @@ describe("workspace unit lease acquisition", () => {
       run: freshRun,
     });
 
-    expect(claimed).toBe(false);
+    expect(claimed).toBeNull();
   });
 });
 

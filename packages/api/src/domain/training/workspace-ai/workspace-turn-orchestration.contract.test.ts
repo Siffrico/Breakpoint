@@ -226,7 +226,7 @@ const harness = () => {
     appendMessage: () => Promise.resolve(null),
     claimWorkspaceTurn: () =>
       Promise.resolve({ status: "claimed", claimedAt: new Date() }),
-    claimWorkspaceUnitLease: () => Promise.resolve(true),
+    claimWorkspaceUnitLease: () => Promise.resolve(run),
     markWorkspaceTurnFailed: vi.fn(() => Promise.resolve()),
     releaseWorkspaceUnitLease: vi.fn(() => Promise.resolve()),
     resolveDifficultyDirective,
@@ -325,6 +325,7 @@ const harness = () => {
   };
   return {
     turn,
+    layer,
     deps,
     commits,
     background,
@@ -375,6 +376,75 @@ beforeEach(() => {
 });
 
 describe("Goldilocks retry contract", () => {
+  it("rejects a delayed distinct request after another answer advances the cursor", async () => {
+    const h = harness();
+    const staleTurn = await resolveWorkspaceTurn({
+      sessionId: "session-1",
+      deps: h.deps,
+    });
+    await h.turn("submit_answer");
+    const committedRun = h.getRun();
+    const committedRating = h.getRating();
+    vi.mocked(runReviewGradeAgent).mockClear();
+
+    await expect(
+      Effect.runPromise(
+        runEducationUnitTurn({
+          sessionId: "session-1",
+          userId: "user-1",
+          turnId: "delayed-answer",
+          turnLeaseId: "delayed-lease",
+          interactionId: staleTurn.unitRun.cursor.interactionId,
+          action: "submit_answer",
+          message: "An answer to the old question.",
+          turn: staleTurn,
+          deps: h.deps,
+        }).pipe(Effect.provide(h.layer)),
+      ),
+    ).rejects.toMatchObject({
+      _tag: "WorkspaceInputError",
+    });
+
+    expect(runReviewGradeAgent).not.toHaveBeenCalled();
+    expect(h.commits).toHaveLength(1);
+    expect(h.getRun()).toEqual(committedRun);
+    expect(h.getRating()).toEqual(committedRating);
+    expect(h.deps.releaseWorkspaceUnitLease).toHaveBeenCalledWith({
+      sessionId: "session-1",
+      unitContentId: unit.id,
+      leaseId: "delayed-lease",
+    });
+  });
+
+  it("uses a scenario prepared after resolution but before the unit lease", async () => {
+    const h = harness();
+    await h.turn("submit_answer");
+    const resolved = await resolveWorkspaceTurn({
+      sessionId: "session-1",
+      deps: h.deps,
+    });
+    await h.background[0]?.();
+    vi.mocked(runMentorScenarioAgent).mockClear();
+
+    const result = await Effect.runPromise(
+      runEducationUnitTurn({
+        sessionId: "session-1",
+        userId: "user-1",
+        turnId: "prepared-advance",
+        turnLeaseId: "prepared-lease",
+        interactionId: resolved.unitRun.cursor.interactionId,
+        action: "advance_pass",
+        message: "",
+        turn: resolved,
+        deps: h.deps,
+      }).pipe(Effect.provide(h.layer)),
+    );
+
+    expect(runMentorScenarioAgent).not.toHaveBeenCalled();
+    expect(result.assistantMessage.content).toBe(presentation.assistantMessage);
+    expect(h.getRun().cursor.step.kind).toBe("scenario");
+  });
+
   it("refreshes after each rated failure and grades against the presented directive", async () => {
     const h = harness();
     await h.turn("submit_answer");

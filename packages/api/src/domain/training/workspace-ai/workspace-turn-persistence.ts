@@ -63,7 +63,7 @@ export interface WorkspaceTurnPersistenceDependencies
     unitContentId: string;
     leaseId: string;
     run: PersistedUnitRun;
-  }) => Promise<boolean>;
+  }) => Promise<PersistedUnitRun | null>;
   renewWorkspaceLeases?: (input: {
     sessionId: string;
     unitContentId: string;

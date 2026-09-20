@@ -17,7 +17,7 @@ import { projectUnitRun } from "../domain/training/education-unit/unit-state";
 
 type Database = typeof databaseClient;
 
-const mapUnitRun = (
+export const mapUnitRun = (
   row: typeof TrainingUnitRun.$inferSelect,
 ): PersistedUnitRun => {
   const experience = EducationExperienceSnapshotSchema.parse(

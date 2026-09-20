@@ -121,6 +121,8 @@ type LoadedTurnTranscript =
     }
   | {
       kind: "claimed";
+      unitRun: ResolvedWorkspaceTurn["unitRun"];
+      unitResponses: ResolvedWorkspaceTurn["unitResponses"];
       messages: WorkspaceAiMessage[];
       transcript: WorkspaceAiMessage[];
       claimedDurableTurn: boolean;
@@ -289,36 +291,22 @@ const claimTurnAndLoadTranscript = ({
   Scope.Scope
 > =>
   Effect.gen(function* () {
-    // The claim and the message history do not depend on each other, and the
-    // path that matters — a fresh answer — needs both. Reading them together
-    // takes a round trip off the latency the learner actually waits through.
-    const [claim, persistedMessages] = yield* Effect.all(
-      [
-        persistPromise("claimWorkspaceTurn", () =>
-          deps.claimWorkspaceTurn({
-            sessionId,
-            action,
-            content: message,
-            slot: SLOT,
-            unitId,
-            turnId,
-            leaseId: turnLeaseId,
-          }),
-        ),
-        persistPromise("listWorkspaceMessages", () =>
-          deps.listUnitMessages(sessionId, unitId),
-        ),
-      ],
-      { concurrency: 2 },
+    const claim = yield* persistPromise("claimWorkspaceTurn", () =>
+      deps.claimWorkspaceTurn({
+        sessionId,
+        action,
+        content: message,
+        slot: SLOT,
+        unitId,
+        turnId,
+        leaseId: turnLeaseId,
+      }),
     );
 
     if (claim.status === "completed") {
       return {
         kind: "cached",
         assistantMessage: claim.assistantMessage,
-        // Re-read rather than reuse: the concurrent history read may have
-        // raced the commit that produced this very reply, so it can be
-        // missing the message being returned alongside it.
         messages: yield* persistPromise("listWorkspaceMessages", () =>
           deps.listUnitMessages(sessionId, unitId),
         ),
@@ -369,6 +357,18 @@ const claimTurnAndLoadTranscript = ({
       deps,
     });
 
+    const [persistedMessages, unitResponses] = yield* Effect.all(
+      [
+        persistPromise("listWorkspaceMessages", () =>
+          deps.listUnitMessages(sessionId, unitId),
+        ),
+        persistPromise("getPhaseResponses", () =>
+          deps.getPhaseResponses(unitContentId, sessionId),
+        ),
+      ],
+      { concurrency: 2 },
+    );
+
     // Each unit is its own chat. The durable cursor keeps scenario evidence
     // outside the verbatim window, so bounding a long adaptive loop cannot
     // erase progress or require a summarization model on the hot path.
@@ -399,6 +399,8 @@ const claimTurnAndLoadTranscript = ({
 
     return {
       kind: "claimed",
+      unitRun: claimedUnit,
+      unitResponses,
       messages,
       transcript: boundTranscript(messages),
       claimedDurableTurn: action === "submit_answer",
@@ -440,7 +442,34 @@ export const runEducationUnitTurn = ({
   WorkspaceTurnRepo
 > =>
   Effect.gen(function* () {
-    const { plan, state, node, unit, unitRun, unitResponses } = turn;
+    const { plan, state, node, unit } = turn;
+    const loadedTranscript = yield* claimTurnAndLoadTranscript({
+      sessionId,
+      unitId: unit.nodeId,
+      unitContentId: unit.id,
+      turnId,
+      turnLeaseId,
+      unitRun: turn.unitRun,
+      action,
+      message,
+      deps,
+    });
+    if (loadedTranscript.kind === "cached") {
+      onAssistantMessage?.(loadedTranscript.assistantMessage.content);
+      return {
+        passNumber: turn.unitRun.reviewPass,
+        state,
+        scenario: projectScenarioBrief(turn.unitRun),
+        messages: loadedTranscript.messages,
+        assistantMessage: loadedTranscript.assistantMessage,
+      };
+    }
+    const { unitRun, unitResponses } = loadedTranscript;
+    if (unitRun.cursor.interactionId !== interactionId) {
+      return yield* new WorkspaceInputError({
+        message: "This interaction has changed. Refresh to continue.",
+      });
+    }
     if (isUnitAwaitingAdvance({ node, run: unitRun })) {
       return yield* new WorkspaceInputError({
         message: "This unit is complete. Press Next Unit to continue.",
@@ -453,7 +482,7 @@ export const runEducationUnitTurn = ({
       });
     }
     const ratingScope = resolveRatingScope({ unit, planNodes: plan.nodes });
-    const loadTurnContext = Effect.all(
+    const [memories, resolvedDifficulty] = yield* Effect.all(
       [
         persistPromise("listMemories", () => deps.listMemories(userId)),
         unitRun.difficultySnapshot
@@ -469,37 +498,6 @@ export const runEducationUnitTurn = ({
       ],
       { concurrency: 2 },
     );
-    const [loadedTranscript, turnContextExit] = yield* Effect.all(
-      [
-        claimTurnAndLoadTranscript({
-          sessionId,
-          unitId: unit.nodeId,
-          unitContentId: unit.id,
-          turnId,
-          turnLeaseId,
-          unitRun,
-          action,
-          message,
-          deps,
-        }),
-        Effect.exit(loadTurnContext),
-      ],
-      { concurrency: 2 },
-    );
-    if (loadedTranscript.kind === "cached") {
-      onAssistantMessage?.(loadedTranscript.assistantMessage.content);
-      return {
-        passNumber: unitRun.reviewPass,
-        state,
-        scenario: projectScenarioBrief(unitRun),
-        messages: loadedTranscript.messages,
-        assistantMessage: loadedTranscript.assistantMessage,
-      };
-    }
-    if (!Exit.isSuccess(turnContextExit)) {
-      return yield* Effect.failCause(turnContextExit.cause);
-    }
-    const [memories, resolvedDifficulty] = turnContextExit.value;
 
     const experience = yield* resolveEducationExperience(
       unitRun.experience,
