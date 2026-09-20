@@ -1,13 +1,9 @@
 import type { db as databaseClient } from "@acme/db/client";
-import { eq } from "@acme/db";
-import { TrainingCurriculumPlan } from "@acme/db/schema";
 
 import type { UnitPreparationDependencies } from "../domain/training/unit-preparation/prepare-unit-content";
 import type { NodeBuildLeaseGuard } from "./node-build-lifecycle";
-import { resolveClusterDirective } from "./resolve-cluster-directive";
 import { skillKnowledgeRepository } from "./skill-knowledge-repository";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
-import { trainingOnboardingRepository } from "./training-onboarding-repository";
 import { withUnitBuildLock } from "./unit-build-lock";
 
 type Database = typeof databaseClient;
@@ -20,36 +16,6 @@ export const createUnitPreparationRepositoryDeps = (
     trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),
   getPlanNodesBySession: (sessionId) =>
     trainingCurriculumRepository.getPlanNodesBySession({ db, sessionId }),
-  getTargetIdentity: async (sessionId) => {
-    const profile = await trainingOnboardingRepository.getProfileBySession({
-      db,
-      sessionId,
-    });
-    return profile?.version.targetIdentity ?? null;
-  },
-  getUnitDifficulty: async (unitNodeId) => {
-    const unit = await trainingCurriculumRepository.getNodeById({
-      db,
-      nodeId: unitNodeId,
-    });
-    if (!unit?.parentNodeId) return null;
-    const plan = await db.query.TrainingCurriculumPlan.findFirst({
-      where: eq(TrainingCurriculumPlan.id, unit.planId),
-    });
-    const session = plan
-      ? await trainingOnboardingRepository.getSession({
-          db,
-          sessionId: plan.onboardingSessionId,
-        })
-      : null;
-    if (!session?.userId) return null;
-    const { promptBlock, directive } = await resolveClusterDirective({
-      db,
-      userId: session.userId,
-      clusterNodeId: unit.parentNodeId,
-    });
-    return { promptBlock, bandOrder: directive.bandOrder };
-  },
   getUnitKnowledgeContext: (unitNodeId) =>
     skillKnowledgeRepository.getUnitContext({ db, unitNodeId }),
   createUnitContentIfAbsent: (payload) =>

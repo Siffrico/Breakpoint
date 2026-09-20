@@ -34,6 +34,7 @@ import {
   recordEvaluation,
   resolveScenarioDirective,
 } from "../orchestration/goldilocks";
+import { unit as preparedUnit } from "../unit-preparation/preparation.fixture";
 import { resolveWorkspaceTurn } from "./workspace-turn";
 import { runEducationUnitTurn } from "./workspace-turn-orchestration";
 import { WorkspaceTurnRepo } from "./workspace-turn-repo";
@@ -134,10 +135,10 @@ const plan: CurriculumPlan = {
   ],
 };
 const unit = {
+  ...preparedUnit,
   id: "unit-1",
   nodeId: unitNode.id,
   title: "Practice",
-  seedPrompt: challenge.prompt,
   unitContext,
   difficultyBands: null,
 } as UnitContent;

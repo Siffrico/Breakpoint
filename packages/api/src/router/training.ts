@@ -13,6 +13,7 @@ import { getMissionStatusWorkflow } from "../domain/training/missions/workflows/
 import { prepareRecallWorkflow } from "../domain/training/recall/workflows/prepare-recall";
 import { createNextUnit } from "../domain/training/unit-creation/create-next-unit";
 import { ADVANCE_COMPLETED_UNIT_LOCK_KEY } from "../domain/training/unit-creation/pregenerate-next-unit";
+import { translateUnitPreparationErrors } from "../domain/training/unit-preparation/prepare-unit-edge";
 import { advanceCompletedUnitWorkflow } from "../domain/training/workflows/advance-completed-unit-workflow";
 import { continueLearningProjectWorkflow } from "../domain/training/workflows/continue-learning-project-workflow";
 import { createLearningProjectWorkflow } from "../domain/training/workflows/create-learning-project-workflow";
@@ -559,14 +560,18 @@ export const trainingRouter = {
         }),
         "BAD_REQUEST",
       );
-      if (workspace.kind === "ready") {
+      if (workspace.kind !== "preparing") {
+        const plan =
+          workspace.kind === "ready"
+            ? workspace.workspace.plan
+            : workspace.plan;
         const prepareRecall = () =>
           runRecall(
             ctx.db,
             prepareRecallWorkflow({
               userId: ctx.session.user.id,
               sessionId: input.sessionId,
-              planId: workspace.workspace.plan.id,
+              planId: plan.id,
               now: new Date(),
             }),
           )
@@ -595,13 +600,6 @@ export const trainingRouter = {
                 db: ctx.db,
                 sessionId,
               }),
-            hasUnitContent: async (nodeId) =>
-              Boolean(
-                await trainingCurriculumRepository.getUnitByNodeId({
-                  db: ctx.db,
-                  nodeId,
-                }),
-              ),
           },
         }),
         "BAD_REQUEST",
@@ -613,13 +611,14 @@ export const trainingRouter = {
     .mutation(async ({ ctx, input }) => {
       await requireSessionOwner({ ctx, sessionId: input.sessionId });
 
-      return throwOnFailure(
-        await prepareUnitWorkflow({
-          nodeId: input.nodeId,
-          sessionId: input.sessionId,
-          deps: createPrepareUnitDependencies(ctx.db),
-        }),
-        "BAD_REQUEST",
+      return runEffect(
+        translateUnitPreparationErrors(
+          prepareUnitWorkflow({
+            nodeId: input.nodeId,
+            sessionId: input.sessionId,
+            deps: createPrepareUnitDependencies(ctx.db),
+          }),
+        ),
       );
     }),
 

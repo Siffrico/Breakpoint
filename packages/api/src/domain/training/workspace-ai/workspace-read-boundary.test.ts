@@ -11,6 +11,7 @@ import { makeUnitContext } from "../education-unit/unit-context.fixture";
 import { createUnitRun } from "../education-unit/unit-state";
 import { UnitNotReadyError } from "../unit-preparation/errors";
 import { getAiWorkspaceWorkflow } from "../workflows/get-ai-workspace-workflow";
+import { NoRunnableWorkspaceTurnError } from "./workspace-errors";
 import { resolveWorkspaceTurn } from "./workspace-turn";
 
 const readyNode = {
@@ -51,14 +52,11 @@ const recallPlan = {
 } as CurriculumPlan;
 const unitContext = makeUnitContext();
 const unitStateFields = {
+  difficultyBands: null,
   title: "Stable boundaries",
   summary: "Keep one canonical boundary.",
   whyItMatters: "Duplicated ownership creates divergent behavior.",
   learningGoal: "Choose and defend the canonical boundary.",
-  buildContent:
-    "**Heuristic** Choose one canonical owner. **Worked example** **Read** Two services write the same state. **Predict** They can diverge. **Compare** Shared ownership hides authority; one owner makes recovery explicit. **Decide** Put the transition at the durable boundary. How would you explain this heuristic in your own words?",
-  seedPrompt: "Where should this responsibility live?",
-  seedHint: "Choose one boundary and defend it.",
   clusterArcFrame: null,
   clusterBriefing: null,
   scenario: {
@@ -127,7 +125,7 @@ describe("workspace read preparation boundary", () => {
           getPhaseResponses: () => Promise.resolve([]),
           getUnitRun: () => Promise.resolve(null),
           getUnitByNodeId: () => Promise.resolve(null),
-            ...stalePreparationDeps,
+          ...stalePreparationDeps,
         },
       }),
     ).rejects.toBeInstanceOf(UnitNotReadyError);
@@ -154,7 +152,7 @@ describe("workspace read preparation boundary", () => {
           getPhaseResponses: () => Promise.resolve([]),
           getUnitRun: () => Promise.resolve(null),
           getUnitByNodeId: () => Promise.resolve(staleUnit),
-          },
+        },
       }),
     ).rejects.toBeInstanceOf(UnitNotReadyError);
   });
@@ -273,23 +271,43 @@ describe("workspace view reads", () => {
   });
 
   it("reads only the active unit's transcript, never the whole session", async () => {
+    const laterReadyNode = {
+      ...readyNode,
+      id: "node-2",
+      orderIndex: 2,
+      title: "Later unit",
+    } satisfies CurriculumNode;
+    const unsortedPlan = {
+      ...recallPlan,
+      nodes: [outcomeNode, laterReadyNode, completedNode, readyNode],
+    };
     const listUnitMessages = vi
       .fn()
       .mockResolvedValue([unitMessage(readyNode.id, "Scenario prompt")]);
+    const getUnitByNodeId = vi.fn((nodeId: string) =>
+      Promise.resolve(
+        nodeId === readyNode.id
+          ? activeUnit
+          : ({
+              ...activeUnit,
+              id: "unit-content-later",
+              nodeId,
+            } as UnitContent),
+      ),
+    );
 
     const result = await getAiWorkspaceWorkflow({
       sessionId: "session-1",
       deps: {
-        getActivePlan: () => Promise.resolve(recallPlan),
+        getActivePlan: () => Promise.resolve(unsortedPlan),
         listUnitMessages,
         getPhaseResponses: () => Promise.resolve([]),
         getUnitRun: () => Promise.resolve(null),
-        getUnitByNodeId: () => Promise.resolve(activeUnit),
+        getUnitByNodeId,
       },
     });
 
     const view = readyView(result);
-    expect(view.projectComplete).toBe(false);
     expect(view.state).toMatchObject({
       activeUnitId: readyNode.id,
       recallUnitId: null,
@@ -304,13 +322,13 @@ describe("workspace view reads", () => {
       activeStage: "challenge",
     });
     expect(view.introMessage).toBeNull();
+    expect(getUnitByNodeId).toHaveBeenCalledWith(readyNode.id);
     expect(listUnitMessages).toHaveBeenCalledWith("session-1", readyNode.id);
   });
 
   it("loads a live-mentor unit without legacy teaching content", async () => {
     const unitWithoutLegacyTeaching = {
       ...activeUnit,
-      buildContent: null,
     } as UnitContent;
 
     const result = await getAiWorkspaceWorkflow({
@@ -325,9 +343,9 @@ describe("workspace view reads", () => {
     });
 
     const view = readyView(result);
-    expect(view.unit?.challenge).toMatchObject({
-      prompt: unitWithoutLegacyTeaching.seedPrompt,
-      helper: unitWithoutLegacyTeaching.seedHint,
+    expect(view.unit.challenge).toMatchObject({
+      prompt: "Your lesson is ready to start.",
+      helper: null,
     });
   });
 
@@ -387,11 +405,70 @@ describe("workspace view reads", () => {
       },
     });
 
-    const view = readyView(result);
-    expect(view.state).toBeNull();
-    expect(view.projectComplete).toBe(true);
-    expect(view.unit).toBeNull();
-    expect(view.messages).toEqual([]);
+    expect(result).toEqual({
+      success: true,
+      data: { kind: "complete", plan: completedOnlyPlan },
+    });
     expect(listUnitMessages).not.toHaveBeenCalled();
+  });
+
+  /*
+   * The learner finished the last unit of an outcome. `advanceCompletedUnit`
+   * marks the next planned sibling ready in the same transaction, so the
+   * within-outcome gap is atomic — but the *between-outcome* gap is not: the
+   * next outcome is still planned and owns no unit nodes yet. That window is
+   * reachable in normal play, so it is preparation, not a broken curriculum.
+   */
+  it("reports preparing between outcomes, when the next outcome owns no units yet", async () => {
+    const betweenOutcomesPlan = {
+      id: "plan-1",
+      nodes: [
+        { ...outcomeNode, status: "completed" as const },
+        completedNode,
+        {
+          ...outcomeNode,
+          id: "outcome-2",
+          title: "Next outcome",
+          orderIndex: 2,
+          status: "planned" as const,
+        },
+      ],
+    } as CurriculumPlan;
+
+    const result = await getAiWorkspaceWorkflow({
+      sessionId: "session-1",
+      deps: {
+        getActivePlan: () => Promise.resolve(betweenOutcomesPlan),
+        listUnitMessages: () => Promise.resolve([]),
+        getPhaseResponses: () => Promise.resolve([]),
+        getUnitRun: () => Promise.resolve(null),
+        getUnitByNodeId: () => Promise.resolve(null),
+      },
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toEqual({ kind: "preparing", nodeId: null });
+    }
+  });
+
+  it("rejects a curriculum that owns no outcomes at all", async () => {
+    const outcomelessPlan = {
+      id: "plan-1",
+      nodes: [completedNode],
+    } as CurriculumPlan;
+
+    await expect(
+      getAiWorkspaceWorkflow({
+        sessionId: "session-1",
+        deps: {
+          getActivePlan: () => Promise.resolve(outcomelessPlan),
+          listUnitMessages: () => Promise.resolve([]),
+          getPhaseResponses: () => Promise.resolve([]),
+          getUnitRun: () => Promise.resolve(null),
+          getUnitByNodeId: () => Promise.resolve(null),
+        },
+      }),
+    ).rejects.toBeInstanceOf(NoRunnableWorkspaceTurnError);
   });
 });

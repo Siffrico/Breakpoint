@@ -70,11 +70,7 @@ interface AdvanceCompletedUnitDependencies {
 
 const isTransientUnitCreationFailure = (
   error: DbError | CreateNextUnitError,
-): boolean =>
-  error._tag === "DbError" ||
-  error._tag === "UnitPersistError" ||
-  (error._tag === "UnitScaffoldError" &&
-    (error.kind === "provider" || error.kind === "timeout"));
+): boolean => error._tag === "DbError" || error._tag === "UnitPersistError";
 
 const failureMessage = (error: unknown, fallback: string): string =>
   error instanceof Error && error.message.trim().length > 0

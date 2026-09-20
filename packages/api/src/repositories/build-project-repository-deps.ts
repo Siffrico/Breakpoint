@@ -33,13 +33,11 @@ export const ensureOutcomeUnit = async ({
   outcomeNodeId,
   sessionId,
   userId,
-  abortSignal,
 }: {
   db: Database;
   outcomeNodeId: string;
   sessionId: string;
   userId: string;
-  abortSignal?: AbortSignal;
 }) =>
   withNodeBuildLifecycle({
     db,
@@ -52,7 +50,6 @@ export const ensureOutcomeUnit = async ({
           db: readyDb,
           sessionId,
           userId,
-          abortSignal,
         }).loadOpenUnit(outcomeNodeId, "ready"),
       ),
     build: (lockDb, withLease) =>
@@ -63,7 +60,6 @@ export const ensureOutcomeUnit = async ({
             db: lockDb,
             sessionId,
             userId,
-            abortSignal,
             withLease,
           }),
         }),
@@ -245,12 +241,11 @@ export const createBuildProjectDeps = (db: Database): BuildProjectDeps => ({
     }),
 
   ensureOutcomeCurriculum: (input) => ensureOutcomeCurriculum({ db, ...input }),
-  createOutcomeUnit: ({ outcomeNodeId, sessionId, userId, abortSignal }) =>
+  createOutcomeUnit: ({ outcomeNodeId, sessionId, userId }) =>
     ensureOutcomeUnit({
       db,
       outcomeNodeId,
       sessionId,
       userId,
-      abortSignal,
     }),
 });

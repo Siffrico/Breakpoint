@@ -142,7 +142,6 @@ export const previewAiWorkspace: ReadyAiWorkspace = {
   kind: "ready",
   workspace: {
     plan: previewPlanState,
-    projectComplete: false,
     unit: previewEducationUnit,
     state: {
       mode: "education_unit",

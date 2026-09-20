@@ -281,7 +281,6 @@ export interface BuildProjectDeps {
     outcomeNodeId: string;
     sessionId: string;
     userId: string;
-    abortSignal?: AbortSignal;
   }) => Promise<{ id: string } | null>;
 }
 
@@ -842,7 +841,6 @@ export const buildProjectFromOnboarding = async ({
           outcomeNodeId: firstFrontier.id,
           sessionId,
           userId,
-          abortSignal: unitAbortSignal,
         });
       } catch (error) {
         if (unitAbortSignal.aborted) return yieldForResume();

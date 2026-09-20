@@ -1,15 +1,5 @@
 import { Data } from "effect";
 
-import type { ArtifactFailureKind } from "../orchestration/agent-runtime";
-import { classifyFailure } from "../orchestration/agent-runtime";
-
-export class UnitScaffoldError extends Data.TaggedError("UnitScaffoldError")<{
-  readonly message: string;
-  readonly cause?: unknown;
-}> {
-  readonly kind: ArtifactFailureKind = classifyFailure(this.cause, false);
-}
-
 export class UnitContextMissingError extends Data.TaggedError(
   "UnitContextMissingError",
 )<{
@@ -17,7 +7,7 @@ export class UnitContextMissingError extends Data.TaggedError(
   readonly cause?: unknown;
 }> {}
 
-/** Storage read or write around the scaffold failed; never the model's fault. */
+/** Storage read or write during unit preparation failed. */
 export class UnitPersistError extends Data.TaggedError("UnitPersistError")<{
   readonly message: string;
   readonly cause?: unknown;
@@ -34,24 +24,4 @@ export class UnitNotReadyError extends Data.TaggedError("UnitNotReadyError")<{
   readonly nodeId?: string;
 }> {}
 
-export type UnitPreparationError =
-  | UnitScaffoldError
-  | UnitContextMissingError
-  | UnitPersistError;
-
-export const isRetryable = (error: UnitPreparationError): boolean =>
-  error._tag === "UnitScaffoldError" &&
-  (error.kind === "provider" ||
-    error.kind === "timeout" ||
-    error.kind === "schema");
-
-export const classifyUnitScaffoldFailure = (
-  error: unknown,
-): UnitScaffoldError =>
-  new UnitScaffoldError({
-    message:
-      error instanceof Error && error.message
-        ? error.message
-        : "Failed to generate the unit scaffold.",
-    cause: error,
-  });
+export type UnitPreparationError = UnitContextMissingError | UnitPersistError;

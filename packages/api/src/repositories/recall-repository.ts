@@ -206,7 +206,6 @@ export const RecallRepoLive = Layer.effect(
                 question: TrainingKnowledgeQuestion.question,
                 evidenceNodeId: TrainingKnowledgeItem.evidenceNodeId,
                 strength: TrainingKnowledgeItem.strength,
-                buildContent: TrainingUnitContent.buildContent,
                 unitContextJson: TrainingUnitContent.unitContextJson,
               })
               .from(TrainingKnowledgeItem)
@@ -260,7 +259,6 @@ export const RecallRepoLive = Layer.effect(
               performance: context.data.performance,
               workflow: context.data.workflow,
               expertise: context.data.expertise,
-              source: candidate.buildContent,
             }).slice(0, 12_000);
             const knowledgeSnapshot = RecallKnowledgeSnapshotSchema.parse({
               label: candidate.label,
@@ -329,7 +327,7 @@ export const RecallRepoLive = Layer.effect(
           const task = await database.query.TrainingRecallTask.findFirst({
             where: and(
               eq(TrainingRecallTask.userId, userId),
-                activePlanForTask,
+              activePlanForTask,
               eq(TrainingRecallTask.sessionId, sessionId),
               eq(TrainingRecallTask.planId, planId),
               ne(TrainingRecallTask.state, "complete"),
@@ -408,12 +406,16 @@ export const RecallRepoLive = Layer.effect(
           const [updated] = yield* query("pauseRecallTask", (database) =>
             database
               .update(TrainingRecallTask)
-              .set({ pausedAt: now, turnLeaseId: null, turnLeaseExpiresAt: null })
+              .set({
+                pausedAt: now,
+                turnLeaseId: null,
+                turnLeaseExpiresAt: null,
+              })
               .where(
                 and(
                   eq(TrainingRecallTask.id, taskId),
                   eq(TrainingRecallTask.userId, userId),
-                activePlanForTask,
+                  activePlanForTask,
                   sql`${TrainingRecallTask.state} in ('retrieving', 'correcting')`,
                   or(
                     sql`${TrainingRecallTask.turnLeaseId} is null`,
@@ -455,7 +457,7 @@ export const RecallRepoLive = Layer.effect(
                 and(
                   eq(TrainingRecallTask.id, taskId),
                   eq(TrainingRecallTask.userId, userId),
-                activePlanForTask,
+                  activePlanForTask,
                   or(
                     eq(TrainingRecallTask.state, "ready"),
                     isNotNull(TrainingRecallTask.pausedAt),
@@ -496,7 +498,7 @@ export const RecallRepoLive = Layer.effect(
               where: and(
                 eq(TrainingRecallTask.id, input.taskId),
                 eq(TrainingRecallTask.userId, input.userId),
-                  activePlanForTask,
+                activePlanForTask,
               ),
             });
             if (!task) {
@@ -511,10 +513,11 @@ export const RecallRepoLive = Layer.effect(
                   eq(TrainingRecallSubmission.requestId, input.requestId),
                 ),
               });
-            if (byRequest && (
-              byRequest.answer !== input.answer ||
-              byRequest.interactionId !== input.interactionId
-            )) {
+            if (
+              byRequest &&
+              (byRequest.answer !== input.answer ||
+                byRequest.interactionId !== input.interactionId)
+            ) {
               throw new RecallConflictError({
                 message:
                   "A recall request id cannot be reused for another answer.",

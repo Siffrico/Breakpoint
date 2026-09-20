@@ -1,166 +1,68 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Effect } from "effect";
+import { describe, expect, it, vi } from "vitest";
 
-import type { UnitContent } from "../types/training.types";
-import { makeUnitContext } from "../education-unit/unit-context.fixture";
-import { getUnitWorkflow } from "./get-unit-workflow";
+import { runEffect } from "../../../router/run-effect";
+import { makeDeps, node, unit } from "../unit-preparation/preparation.fixture";
+import { translateUnitPreparationErrors } from "../unit-preparation/prepare-unit-edge";
+import { prepareUnitWorkflow } from "./prepare-unit-workflow";
 
-const runPrepareUnitMock = vi.fn<(input: unknown) => Promise<UnitContent>>();
-const generateClusterBriefingMock = vi.fn(() =>
-  Promise.resolve({
-    briefingArc: "A diagnostic sequence.",
-    briefingMap: [{ position: 1, role: "Isolate the causal signal." }],
-  }),
-);
-
-vi.mock("../generate-cluster-briefing", () => ({
-  generateClusterBriefing: () => generateClusterBriefingMock(),
-}));
-
-vi.mock("../unit-preparation/prepare-unit-edge", () => ({
-  runPrepareUnit: (input: unknown) => runPrepareUnitMock(input),
-}));
-
-const { prepareUnitWorkflow } = await import("./prepare-unit-workflow");
-
-const parentNode = {
-  id: "cluster-1",
-  parentNodeId: null,
-  kind: "skill",
-  title: "Diagnose incidents",
-  summary: "Find causes from evidence.",
-  whyItMatters: "Correct diagnosis prevents compounding failures.",
-  orderIndex: 0,
-  status: "ready",
-};
-
-const node = {
-  id: "node-1",
-  parentNodeId: parentNode.id,
-  kind: "unit",
-  title: "Diagnose the failure",
-  summary: "Use evidence before choosing a fix.",
-  whyItMatters: "Unfounded fixes compound incidents.",
-  orderIndex: 1,
-  status: "ready",
-};
-
-const unit = {
-  id: "unit-content-1",
+const input = () => ({
   nodeId: node.id,
-  title: node.title,
-  summary: node.summary,
-  whyItMatters: node.whyItMatters,
-  learningGoal: node.summary,
-  seedPrompt: "Which probe would distinguish the leading hypotheses?",
-  seedHint: "Name the signal each hypothesis predicts.",
-  clusterArcFrame: "Move from symptoms to causal evidence.",
-  clusterBriefing: null,
-  complexityBudget: 1,
-  buildContent:
-    "**Heuristic** Re-derive the move when the controlling constraint changes. **Worked example** **Read** A deploy slows after one configuration change. **Predict** The change may invalidate the usual fix. **Compare** Restarting hides the cause; isolating the changed input tests it. **Decide** Test the changed input first. How would you explain this heuristic in your own words?",
-  practicePrompts: null,
-  teachbackSetup: {
-    studentPersona: "A skeptical incident commander",
-    openingMisconception: "The newest change must be the cause.",
-    roundLadder: [
-      { round: 1, objection: "Why?", objective: "Test causality." },
-      { round: 2, objection: "What else?", objective: "Test alternatives." },
-      { round: 3, objection: "What next?", objective: "Sequence probes." },
-    ],
-    passSignals: ["Distinguishes hypotheses"],
-    failureModes: ["Guesses from timing"],
-  },
-  scenario: {
-    title: "The slow deployment",
-    focusAreas: ["causal isolation"],
-  },
-  unitContext: makeUnitContext(),
-  difficultyBands: null,
-} satisfies UnitContent;
+  sessionId: "session-1",
+  deps: Object.assign(makeDeps(), {
+    getPhaseResponses: vi.fn(() => Promise.resolve([])),
+  }),
+});
+const run = (args: ReturnType<typeof input>) =>
+  runEffect(translateUnitPreparationErrors(prepareUnitWorkflow(args)));
 
-describe("explicit unit preparation recovery", () => {
-  beforeEach(() => {
-    runPrepareUnitMock.mockReset();
-    generateClusterBriefingMock.mockClear();
+describe("unit preparation recovery", () => {
+  it("allows retry after a failed write without losing the error code", async () => {
+    const args = input();
+    vi.mocked(args.deps.createUnitContentIfAbsent)
+      .mockRejectedValueOnce(new Error("database unavailable"))
+      .mockResolvedValueOnce(unit);
+    await expect(run(args)).rejects.toMatchObject({
+      code: "INTERNAL_SERVER_ERROR",
+    });
+    await expect(run(args)).resolves.toMatchObject({
+      id: unit.id,
+      nodeId: node.id,
+    });
   });
-
-  it("keeps reads pure and allows an explicit command to recover a failed prewarm", async () => {
-    let storedUnit: UnitContent | null = null;
-    runPrepareUnitMock
-      .mockRejectedValueOnce(new Error("prewarm failed"))
-      .mockImplementationOnce(async (input) => {
-        const prepareClusterBriefing = (
-          input as { prepareClusterBriefing?: () => Promise<void> }
-        ).prepareClusterBriefing;
-        await prepareClusterBriefing?.();
-        storedUnit = unit;
-        return unit;
-      });
-    const saveNodeBriefing = vi.fn(() => Promise.resolve(null));
-
-    const deps: Parameters<typeof prepareUnitWorkflow>[0]["deps"] = {
-      getPlanNodesBySession: () => Promise.resolve([parentNode, node]),
-      getUnitByNodeId: () => Promise.resolve(storedUnit),
-      getPhaseResponses: () => Promise.resolve([]),
-      getTargetIdentity: () => Promise.resolve("Incident commander"),
-      getUnitDifficulty: () => Promise.resolve(null),
-      getUnitKnowledgeContext: () =>
-        Promise.resolve({
-          workflow: { name: "Diagnose an incident", steps: ["Choose a probe"] },
-          framing: null,
-          checked: [],
-          targets: [
-            {
-              id: "entry-1",
-              skill: "Diagnose incidents",
-              kind: "concept",
-              label: "Causal probe",
-              content:
-                "A probe that both hypotheses predict identically cannot separate them.",
-            },
-          ],
-        }),
-      createUnitContentIfAbsent: () => Promise.resolve(unit),
-      replaceUnitContent: () => Promise.resolve(unit),
-      saveNodeBriefing,
-      withUnitBuildLock: (_nodeId, build) => build(deps),
-    };
-
-    const failedPrewarm = await prepareUnitWorkflow({
-      nodeId: node.id,
-      sessionId: "session-1",
-      deps,
+  it.each([
+    "getPlanNodesBySession",
+    "getUnitByNodeId",
+    "getPhaseResponses",
+  ] as const)("preserves storage failure from %s", async (method) => {
+    const args = input();
+    vi.mocked(args.deps[method]).mockRejectedValue(
+      new Error("private database detail"),
+    );
+    await expect(run(args)).rejects.toMatchObject({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Your learning unit could not be prepared. Please try again.",
     });
-    expect(failedPrewarm).toEqual({
-      success: false,
-      error: "prewarm failed",
-    });
-
-    const readAfterFailure = await getUnitWorkflow({
-      nodeId: node.id,
-      sessionId: "session-1",
-      deps,
-    });
-    expect(readAfterFailure).toEqual({
-      success: false,
-      error: "UNIT_PREPARING",
-    });
-    expect(runPrepareUnitMock).toHaveBeenCalledTimes(1);
-
-    const recovered = await prepareUnitWorkflow({
-      nodeId: node.id,
-      sessionId: "session-1",
-      deps,
-    });
-    expect(recovered.success).toBe(true);
-    expect(generateClusterBriefingMock).toHaveBeenCalledOnce();
-
-    const readAfterRecovery = await getUnitWorkflow({
-      nodeId: node.id,
-      sessionId: "session-1",
-      deps,
-    });
-    expect(readAfterRecovery.success).toBe(true);
-    expect(runPrepareUnitMock).toHaveBeenCalledTimes(2);
+  });
+  it("rejects a node from another project before reading or writing its content", async () => {
+    const args = input();
+    args.nodeId = "foreign-node";
+    await expect(run(args)).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(args.deps.getUnitByNodeId).not.toHaveBeenCalled();
+    expect(args.deps.createUnitContentIfAbsent).not.toHaveBeenCalled();
+  });
+  it("distinguishes missing context from unavailable storage", async () => {
+    const args = input();
+    vi.mocked(args.deps.getUnitKnowledgeContext).mockResolvedValue(null);
+    await expect(run(args)).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+  it("reopens an assignment without reading the changing curriculum targets", async () => {
+    const args = input();
+    vi.mocked(args.deps.getUnitByNodeId).mockResolvedValue(unit);
+    await expect(
+      Effect.runPromise(prepareUnitWorkflow(args)),
+    ).resolves.toMatchObject({ id: unit.id });
+    expect(args.deps.getUnitKnowledgeContext).not.toHaveBeenCalled();
+    expect(args.deps.createUnitContentIfAbsent).not.toHaveBeenCalled();
   });
 });

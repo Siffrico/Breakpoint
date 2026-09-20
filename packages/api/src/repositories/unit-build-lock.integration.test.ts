@@ -93,24 +93,7 @@ describe("unit build lock concurrency", () => {
           const contentInput = {
             nodeId,
             title: "Stale content",
-            buildContent: "Stale teaching content",
-            seedPrompt: "Stale prompt",
-            seedHint: "Stale hint",
             clusterArcFrame: "Stale frame",
-            complexityBudget: 3 as const,
-            teachbackSetup: {
-              studentPersona: "Stale learner",
-              openingMisconception: "Stale misconception",
-              roundLadder: [
-                {
-                  round: 1,
-                  objection: "Stale objection",
-                  objective: "Stale objective",
-                },
-              ],
-              passSignals: ["Stale signal"],
-              failureModes: ["Stale failure"],
-            },
             scenario: {
               title: "Stale scenario",
               focusAreas: ["stale"],
@@ -120,14 +103,7 @@ describe("unit build lock concurrency", () => {
             await db.insert(TrainingUnitContent).values({
               nodeId,
               title: "Current owner content",
-              seedPrompt: "Current prompt",
-              seedHint: "Current hint",
               clusterArcFrame: "Current frame",
-              complexityBudget: 1,
-              teachbackSetup: {
-                studentPersona: "Current learner",
-                openingMisconception: "Current misconception",
-              },
               scenarioTitle: "Current scenario",
               scenarioFocusAreas: ["current"],
             });

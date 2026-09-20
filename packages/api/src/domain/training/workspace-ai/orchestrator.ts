@@ -13,11 +13,6 @@ type RuntimeNode = Pick<
 
 const isLearningUnit = (node: RuntimeNode) => node.kind === "unit";
 
-const getNextReadyUnit = (nodes: RuntimeNode[]) =>
-  nodes
-    .filter((node) => isLearningUnit(node) && node.status === "ready")
-    .sort((left, right) => left.orderIndex - right.orderIndex)[0] ?? null;
-
 /** The node the recall-decay policy chose, resolved to a plan node by the caller. */
 export interface PlannedRecallTarget {
   unitNodeId: string;
@@ -59,17 +54,17 @@ export const getCurrentEducationStage = (
 };
 
 /**
- * Takes the curriculum and response history; produces the next workspace turn
- * state; fails only by returning null when the curriculum has no runnable unit.
+ * Takes the server-resolved active unit and response history; produces the next
+ * workspace turn state; returns null when that unit is not runnable.
  */
 export const planWorkspaceTurn = ({
-  nodes,
+  activeUnit,
   activeUnitResponses,
   activeUnitRun,
   hasPersistedActiveUnitRun,
   recallTarget = null,
 }: {
-  nodes: RuntimeNode[];
+  activeUnit: RuntimeNode | null;
   activeUnitResponses: PhaseResponseRecord[];
   activeUnitRun?: PersistedUnitRun | null;
   hasPersistedActiveUnitRun: boolean;
@@ -96,8 +91,11 @@ export const planWorkspaceTurn = ({
     };
   }
 
-  const activeUnit = getNextReadyUnit(nodes);
-  if (!activeUnit) {
+  if (
+    !activeUnit ||
+    !isLearningUnit(activeUnit) ||
+    activeUnit.status !== "ready"
+  ) {
     return null;
   }
 

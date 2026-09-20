@@ -380,12 +380,12 @@ function EducationUnitWorkspaceComponent({
   const effectiveIsRunning = preview ? previewIsRunning : isRunning;
 
   useEffect(() => {
-    const interactionId = aiWorkspace?.state?.interactionId;
+    const interactionId = aiWorkspace?.state.interactionId;
     const shouldStart =
       !preview &&
       aiWorkspace != null &&
       chatMessages.length === 0 &&
-      aiWorkspace.state?.educationStage === "learning" &&
+      aiWorkspace.state.educationStage === "learning" &&
       interactionId != null &&
       !openingUnitFailed &&
       !effectiveIsRunning;
@@ -766,7 +766,7 @@ function EducationUnitWorkspaceComponent({
     !preview && streamState?.educationStage === "awaiting_next_pass";
   const awaitingNextUnitContent =
     advancePending ||
-    (aiWorkspace?.state?.activeUnitId != null &&
+    (aiWorkspace?.state.activeUnitId != null &&
       aiWorkspace.state.activeUnitId !== unit.nodeId &&
       aiWorkspace.state.recallUnitId == null &&
       aiWorkspace.messages.length === 0);
@@ -787,7 +787,12 @@ function EducationUnitWorkspaceComponent({
     chatMessages.length === 0 &&
     !introMessage &&
     unit.activeStage !== "challenge";
+  const openingLesson =
+    !preview &&
+    aiWorkspace?.state.educationStage === "learning" &&
+    (chatMessages.length === 0 || openingUnitFailed);
   const canCompose =
+    !openingLesson &&
     !workspaceUnavailable &&
     !missingTranscriptForResumedUnit &&
     !awaitingNextUnitContent &&
@@ -795,17 +800,21 @@ function EducationUnitWorkspaceComponent({
     (recallIsLive || (!awaitingUnitAdvance && fallbackTurn.canCompose));
   const composerPlaceholder = canCompose
     ? "Submit your answer."
-    : workspaceUnavailable
-      ? "Refresh the workspace before continuing."
-      : awaitingNextUnitContent
-        ? "Preparing the next unit…"
-        : missingTranscriptForResumedUnit
-          ? "Refresh to resume this unit safely."
-          : awaitingPassAdvance
-            ? "Press Enter to continue."
-            : awaitingUnitAdvance
-              ? "Press Next Unit to continue."
-              : "This unit is complete.";
+    : openingLesson
+      ? openingUnitFailed
+        ? "Retry opening the lesson to continue."
+        : "Preparing your lesson…"
+      : workspaceUnavailable
+        ? "Refresh the workspace before continuing."
+        : awaitingNextUnitContent
+          ? "Preparing the next unit…"
+          : missingTranscriptForResumedUnit
+            ? "Refresh to resume this unit safely."
+            : awaitingPassAdvance
+              ? "Press Enter to continue."
+              : awaitingUnitAdvance
+                ? "Press Next Unit to continue."
+                : "This unit is complete.";
 
   useEffect(() => {
     onRunningChange?.(effectiveIsRunning);
@@ -1063,18 +1072,14 @@ function EducationUnitWorkspaceComponent({
             prompt={
               openingUnitFailed
                 ? "The mentor couldn't open this lesson. Nothing was lost."
-                : !preview &&
-                    aiWorkspace != null &&
-                    aiWorkspace.state?.educationStage === "learning"
+                : !preview && aiWorkspace?.state.educationStage === "learning"
                   ? ""
                   : (introMessage?.prompt ?? fallbackTurn.prompt)
             }
             helper={
               openingUnitFailed
                 ? null
-                : !preview &&
-                    aiWorkspace != null &&
-                    aiWorkspace.state?.educationStage === "learning"
+                : !preview && aiWorkspace?.state.educationStage === "learning"
                   ? "Preparing your lesson…"
                   : (introMessage?.helper ?? fallbackTurn.helper)
             }

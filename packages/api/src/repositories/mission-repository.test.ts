@@ -258,11 +258,6 @@ const seedUnitRun = async ({
     .values({
       nodeId: unitNode.id,
       title: "Diagnose the failure",
-      seedPrompt: "Walk the evidence.",
-      teachbackSetup: {
-        studentPersona: "A new responder",
-        openingMisconception: "Restarting always fixes it.",
-      },
       scenarioTitle: "The pager fires",
       scenarioFocusAreas: ["evidence first", "blameless writeup"],
     })

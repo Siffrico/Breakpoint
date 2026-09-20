@@ -960,37 +960,11 @@ export const ForgeUnitContentSchema = z.object({
   summary: z.string().min(1),
   whyItMatters: z.string().min(1),
   learningGoal: z.string().min(1),
-  seedPrompt: z.string().min(1),
-  seedHint: z.string().min(1),
   clusterArcFrame: z.string().min(1).nullable(),
   clusterBriefing: ClusterBriefingSchema.nullable(),
-  complexityBudget: ComplexityBudgetSchema,
-  buildContent: z.string().min(1).nullable(),
-  practicePrompts: z.array(PracticePromptSchema).length(3).nullable(),
-  teachbackSetup: TeachbackSetupSchema,
   scenario: ForgeUnitScenarioSchema,
   unitContext: UnitContextSchema.nullable(),
   difficultyBands: z.array(DifficultyBandSchema).nullable(),
-});
-
-export const PreSeedUnitContentDraftSchema = ForgeUnitContentSchema.pick({
-  title: true,
-  seedPrompt: true,
-  seedHint: true,
-  clusterArcFrame: true,
-  complexityBudget: true,
-  teachbackSetup: true,
-  scenario: true,
-}).extend({
-  clusterArcFrame: z.string().min(1),
-});
-
-export const PostSeedUnitContentDraftSchema = ForgeUnitContentSchema.pick({
-  buildContent: true,
-  practicePrompts: true,
-}).extend({
-  buildContent: z.string().min(200),
-  practicePrompts: z.array(PracticePromptSchema).length(3),
 });
 
 export const SeedResponseSchema = z.object({
@@ -1345,12 +1319,7 @@ export type ForgeUnitScenario = z.infer<typeof ForgeUnitScenarioSchema>;
 export type ForgeUnitContent = z.infer<typeof ForgeUnitContentSchema>;
 export type BuildContentMove = z.infer<typeof BuildContentMoveSchema>;
 export type BuildContentSection = z.infer<typeof BuildContentSectionSchema>;
-export type PreSeedUnitContentDraft = z.infer<
-  typeof PreSeedUnitContentDraftSchema
->;
-export type PostSeedUnitContentDraft = z.infer<
-  typeof PostSeedUnitContentDraftSchema
->;
+
 export type SeedResponse = z.infer<typeof SeedResponseSchema>;
 export type PracticeSubmission = z.infer<typeof PracticeSubmissionSchema>;
 export type PracticeEvaluation = z.infer<typeof PracticeEvaluationSchema>;

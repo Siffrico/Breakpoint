@@ -37,13 +37,6 @@ export const RUN_PROFILES = {
     maxSteps: 10,
     search: true,
   },
-  buildContent: {
-    tier: "critical",
-    reasoningBudgetTokens: 8_192,
-    maxOutputTokens: 8_192,
-    maxSteps: 6,
-    search: true,
-  },
   education: {
     ...STANDARD_PROFILE,
     tier: "critical",

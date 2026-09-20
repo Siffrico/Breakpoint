@@ -101,7 +101,7 @@ void test("settled feedback remains in the current unit with Next Unit locked", 
   );
   assert.equal(
     planWorkspaceTurn({
-      nodes: [readyNode],
+      activeUnit: readyNode,
       activeUnitResponses: [],
       activeUnitRun: feedbackRun,
       hasPersistedActiveUnitRun: true,
@@ -113,7 +113,7 @@ void test("settled feedback remains in the current unit with Next Unit locked", 
 void test("a durable incomplete education run blocks recall without a phase response", () => {
   assert.deepEqual(
     planWorkspaceTurn({
-      nodes: [readyNode],
+      activeUnit: readyNode,
       activeUnitResponses: [],
       activeUnitRun: baseRun,
       hasPersistedActiveUnitRun: true,
@@ -141,7 +141,7 @@ void test("a completed education run allows recall at the unit boundary", () => 
 
   assert.deepEqual(
     planWorkspaceTurn({
-      nodes: [readyNode],
+      activeUnit: readyNode,
       activeUnitResponses: [],
       activeUnitRun: completedRun,
       hasPersistedActiveUnitRun: true,

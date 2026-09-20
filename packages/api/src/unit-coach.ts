@@ -142,8 +142,7 @@ Stage: ${state.educationStage ?? "recall"}
 ## Scenario
 Title: ${unit.scenario.title}
 Focus areas: ${unit.scenario.focusAreas.join("; ")}
-Seed prompt: ${unit.seedPrompt}
-Seed guidance: ${unit.seedHint}
+Assignment: ${JSON.stringify(unit.unitContext)}
 
 ## Recent turns from this unit
 ${formatWorkspaceTranscript(workspaceMessages)}`;

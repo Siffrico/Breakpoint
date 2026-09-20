@@ -231,13 +231,11 @@ export const createUnitCreationRepositoryDeps = ({
   db,
   sessionId,
   userId,
-  abortSignal,
   withLease,
 }: {
   db: Database;
   sessionId: string;
   userId: string;
-  abortSignal?: AbortSignal;
   withLease?: NodeBuildLeaseGuard;
 }): CreateNextUnitDependencies<NodeRow> => {
   // One seed lookup per node, cached for the life of this deps factory, so a
@@ -354,7 +352,6 @@ export const createUnitCreationRepositoryDeps = ({
       prepareUnitContent({
         node,
         sessionId,
-        abortSignal,
         deps: createUnitPreparationRepositoryDeps(db),
       }).pipe(Effect.asVoid),
   };

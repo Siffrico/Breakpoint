@@ -3,15 +3,15 @@ import { describe, expect, it } from "vitest";
 import { makeUnitContext } from "./unit-context.fixture";
 import {
   getReviewPresentationReadinessIssue,
-  getSeedTaskReadinessIssue,
+  getScenarioTaskReadinessIssue,
   getUnitReadinessIssue,
 } from "./unit-readiness";
 
 describe("unit learner readiness", () => {
   it("accepts free-response task modes without inventing format constraints", () => {
     expect(
-      getSeedTaskReadinessIssue({
-        seedPrompt: "Diagnose the failure and justify the next probe.",
+      getScenarioTaskReadinessIssue({
+        prompt: "Diagnose the failure and justify the next probe.",
         responseMode: "judge",
       }),
     ).toBeNull();
@@ -56,15 +56,13 @@ Answer: A`,
             "Solution: C fits the unseen intended passage. The other choices miss its tone. Self-contained.",
         },
       }),
-    ).toBe(
-      "Scenario must not contain a worked solution or expose its answer.",
-    );
+    ).toBe("Scenario must not contain a worked solution or expose its answer.");
   });
 
   it("accepts a selected-response task with four labeled choices", () => {
     expect(
-      getSeedTaskReadinessIssue({
-        seedPrompt: `Which choice best completes the text?
+      getScenarioTaskReadinessIssue({
+        prompt: `Which choice best completes the text?
 
 A. skeptical
 B. cautious
@@ -77,8 +75,8 @@ D. indifferent`,
 
   it("accepts complete inline choices for deterministic display formatting", () => {
     expect(
-      getSeedTaskReadinessIssue({
-        seedPrompt:
+      getScenarioTaskReadinessIssue({
+        prompt:
           "Which word fits? A) skeptical B) cautious C) elated D) indifferent",
         responseMode: "select",
       }),
@@ -87,8 +85,8 @@ D. indifferent`,
 
   it("rejects a selected-response task that refers to absent choices", () => {
     expect(
-      getSeedTaskReadinessIssue({
-        seedPrompt:
+      getScenarioTaskReadinessIssue({
+        prompt:
           "Read the sentence, predict a word, and then check the four choices below.",
         responseMode: "select",
       }),
@@ -99,15 +97,15 @@ D. indifferent`,
 
   it("rejects raw HTML and worked answers in learner tasks", () => {
     expect(
-      getSeedTaskReadinessIssue({
-        seedPrompt:
+      getScenarioTaskReadinessIssue({
+        prompt:
           "<p>Which claim fits?</p> A) first B) second C) third D) fourth",
         responseMode: "select",
       }),
     ).toBe("Learner task must use Markdown, not raw HTML.");
     expect(
-      getSeedTaskReadinessIssue({
-        seedPrompt:
+      getScenarioTaskReadinessIssue({
+        prompt:
           "Worked Example: Correct answer: B. A) first B) second C) third D) fourth",
         responseMode: "select",
       }),
@@ -119,17 +117,15 @@ D. indifferent`,
   it("rejects persisted content without authoritative context", () => {
     expect(
       getUnitReadinessIssue({
-        seedPrompt: "Choose one.",
         unitContext: null,
       }),
     ).toBe("Unit capability context is missing or invalid.");
   });
 
-  it("uses persisted unit context to validate the learner task", () => {
+  it("accepts a selected-response assignment before the mentor authors its scenario", () => {
     const unitContext = makeUnitContext();
     expect(
       getUnitReadinessIssue({
-        seedPrompt: "Choose from the four options below.",
         unitContext: {
           ...unitContext,
           testing: {
@@ -138,13 +134,12 @@ D. indifferent`,
           },
         },
       }),
-    ).toContain("options labeled A-D");
+    ).toBeNull();
   });
 
   it("does not require a persisted teaching card because the mentor writes it live", () => {
     expect(
       getUnitReadinessIssue({
-        seedPrompt: "Diagnose the failure.",
         unitContext: makeUnitContext(),
       }),
     ).toBeNull();

@@ -12,24 +12,24 @@ const EXPOSED_FIXED_ANSWER_PATTERN =
 const AUTHORING_DEBRIS_PATTERN =
   /\b(?:author(?:ing)? note|drafting note|internal note|hmm)\b|\b\S+\.png\b/i;
 
-export const getSeedTaskReadinessIssue = ({
-  seedPrompt,
+export const getScenarioTaskReadinessIssue = ({
+  prompt,
   responseMode,
 }: {
-  seedPrompt: string;
+  prompt: string;
   responseMode: ScenarioArchetype;
 }): string | null => {
-  if (HTML_TAG_PATTERN.test(seedPrompt)) {
+  if (HTML_TAG_PATTERN.test(prompt)) {
     return "Learner task must use Markdown, not raw HTML.";
   }
   if (responseMode !== "select") return null;
 
-  if (EXPOSED_FIXED_ANSWER_PATTERN.test(seedPrompt)) {
+  if (EXPOSED_FIXED_ANSWER_PATTERN.test(prompt)) {
     return "Selected-response task must be unsolved and must not expose an answer.";
   }
 
   const labels = new Set(
-    [...seedPrompt.matchAll(LABELED_OPTION_PATTERN)].map((match) =>
+    [...prompt.matchAll(LABELED_OPTION_PATTERN)].map((match) =>
       match[1]?.toUpperCase(),
     ),
   );
@@ -39,15 +39,11 @@ export const getSeedTaskReadinessIssue = ({
 };
 
 export const getUnitReadinessIssue = (
-  unit: Pick<UnitContent, "seedPrompt" | "unitContext">,
-): string | null => {
-  const context = UnitContextSchema.safeParse(unit.unitContext);
-  if (!context.success) return "Unit capability context is missing or invalid.";
-  return getSeedTaskReadinessIssue({
-    seedPrompt: unit.seedPrompt,
-    responseMode: context.data.testing.responseMode,
-  });
-};
+  unit: Pick<UnitContent, "unitContext">,
+): string | null =>
+  UnitContextSchema.safeParse(unit.unitContext).success
+    ? null
+    : "Unit capability context is missing or invalid.";
 
 export const getReviewPresentationReadinessIssue = ({
   assistantMessage,
@@ -64,8 +60,8 @@ export const getReviewPresentationReadinessIssue = ({
   }
   if (verifier.kind !== "fixed_answer") return null;
 
-  const optionIssue = getSeedTaskReadinessIssue({
-    seedPrompt: assistantMessage,
+  const optionIssue = getScenarioTaskReadinessIssue({
+    prompt: assistantMessage,
     responseMode: "select",
   });
   if (optionIssue) return optionIssue;

@@ -21,7 +21,6 @@ import type {
   CurriculumPlan,
   PhaseResponseRecord,
   UnitContent,
-  UpdateUnitContentInput,
 } from "../domain/training/types/training.types";
 import { planCompletion } from "../domain/training/engine/plan-progression";
 import { insertBlueprintNodes } from "./training-curriculum-node-writer";
@@ -37,9 +36,6 @@ const toIsoString = (value: Date | string | null | undefined) => {
 
   return date.toISOString();
 };
-
-const DEFAULT_SEED_HINT =
-  "Start with your best guess. Name the distinction, mechanism, or real example you think matters most, even if you're not fully sure yet.";
 
 interface ActivePlanState {
   plan: typeof TrainingCurriculumPlan.$inferSelect;
@@ -79,14 +75,8 @@ const mapUnitContent = ({
   whyItMatters: node.whyItMatters,
   learningGoal: node.summary,
   difficultyBands: node.difficultyBands as UnitContent["difficultyBands"],
-  seedPrompt: unit.seedPrompt,
-  seedHint: unit.seedHint ?? DEFAULT_SEED_HINT,
   clusterArcFrame: unit.clusterArcFrame,
   clusterBriefing,
-  complexityBudget: unit.complexityBudget as UnitContent["complexityBudget"],
-  buildContent: unit.buildContent,
-  practicePrompts: unit.practicePrompts as UnitContent["practicePrompts"],
-  teachbackSetup: unit.teachbackSetup as UnitContent["teachbackSetup"],
   scenario: {
     title: unit.scenarioTitle,
     focusAreas: unit.scenarioFocusAreas,
@@ -516,24 +506,14 @@ export const trainingCurriculumRepository = {
     db,
     nodeId,
     title,
-    buildContent,
-    seedPrompt,
-    seedHint,
     clusterArcFrame,
-    complexityBudget,
-    teachbackSetup,
     scenario,
     unitContext = null,
   }: {
     db: Database;
     nodeId: string;
     title: string;
-    buildContent: string;
-    seedPrompt: string;
-    seedHint: string;
     clusterArcFrame: string;
-    complexityBudget: UnitContent["complexityBudget"];
-    teachbackSetup: UnitContent["teachbackSetup"];
     scenario: UnitContent["scenario"];
     unitContext?: UnitContent["unitContext"];
   }): Promise<UnitContent | null> => {
@@ -548,14 +528,7 @@ export const trainingCurriculumRepository = {
         .values({
           nodeId,
           title,
-          seedPrompt,
-          seedHint,
           clusterArcFrame,
-          complexityBudget,
-          buildContent,
-          practicePrompts: null,
-          contentGeneratedAt: null,
-          teachbackSetup,
           scenarioTitle: scenario.title,
           scenarioFocusAreas: scenario.focusAreas,
           unitContextJson: unitContext,
@@ -573,24 +546,14 @@ export const trainingCurriculumRepository = {
     db,
     nodeId,
     title,
-    buildContent,
-    seedPrompt,
-    seedHint,
     clusterArcFrame,
-    complexityBudget,
-    teachbackSetup,
     scenario,
     unitContext = null,
   }: {
     db: Database;
     nodeId: string;
     title: string;
-    buildContent: string;
-    seedPrompt: string;
-    seedHint: string;
     clusterArcFrame: string;
-    complexityBudget: UnitContent["complexityBudget"];
-    teachbackSetup: UnitContent["teachbackSetup"];
     scenario: UnitContent["scenario"];
     unitContext?: UnitContent["unitContext"];
   }): Promise<UnitContent | null> => {
@@ -598,12 +561,7 @@ export const trainingCurriculumRepository = {
       .update(TrainingUnitContent)
       .set({
         title,
-        buildContent,
-        seedPrompt,
-        seedHint,
         clusterArcFrame,
-        complexityBudget,
-        teachbackSetup,
         scenarioTitle: scenario.title,
         scenarioFocusAreas: scenario.focusAreas,
         unitContextJson: unitContext,
@@ -638,56 +596,6 @@ export const trainingCurriculumRepository = {
       .returning();
 
     return (node?.briefing ?? null) as UnitContent["clusterBriefing"];
-  },
-
-  updateUnitContent: async ({
-    db,
-    unitContentId,
-    buildContent,
-    practicePrompts,
-    teachbackSetup,
-    contentGeneratedAt,
-  }: {
-    db: Database;
-  } & UpdateUnitContentInput): Promise<UnitContent | null> => {
-    const updatePayload = {
-      buildContent,
-      practicePrompts,
-      contentGeneratedAt,
-      updatedAt: new Date(),
-      ...(teachbackSetup ? { teachbackSetup } : {}),
-    };
-
-    const [unit] = await db
-      .update(TrainingUnitContent)
-      .set(updatePayload)
-      .where(eq(TrainingUnitContent.id, unitContentId))
-      .returning();
-
-    if (!unit) {
-      return null;
-    }
-
-    const node = await db.query.TrainingCurriculumNode.findFirst({
-      where: eq(TrainingCurriculumNode.id, unit.nodeId),
-    });
-
-    if (!node) {
-      return null;
-    }
-
-    const parentNode = node.parentNodeId
-      ? await db.query.TrainingCurriculumNode.findFirst({
-          where: eq(TrainingCurriculumNode.id, node.parentNodeId),
-        })
-      : null;
-
-    return mapUnitContent({
-      node,
-      unit,
-      clusterBriefing: (parentNode?.briefing ??
-        null) as UnitContent["clusterBriefing"],
-    });
   },
 
   savePhaseResponse: async ({

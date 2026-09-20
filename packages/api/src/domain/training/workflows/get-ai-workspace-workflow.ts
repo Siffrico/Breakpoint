@@ -20,7 +20,10 @@ import { err, ok } from "../../../lib/result";
 import { projectScenarioBrief } from "../education-unit/scenario-brief";
 import { getEducationUnitState } from "../policies/education-unit-state-policy";
 import { planWorkspaceTurn } from "../workspace-ai/orchestrator";
-import { CurriculumNotReadyError } from "../workspace-ai/workspace-errors";
+import {
+  CurriculumNotReadyError,
+  NoRunnableWorkspaceTurnError,
+} from "../workspace-ai/workspace-errors";
 import {
   AiWorkspaceReader,
   makeAiWorkspaceReader,
@@ -38,9 +41,8 @@ interface GetAiWorkspaceDependencies
 
 export interface AiWorkspaceView {
   plan: CurriculumPlan;
-  projectComplete: boolean;
-  unit: EducationUnitState | null;
-  state: WorkspaceAiState | null;
+  unit: EducationUnitState;
+  state: WorkspaceAiState;
   messages: WorkspaceAiMessage[];
   introMessage: {
     prompt: string;
@@ -58,13 +60,19 @@ export type { ScenarioBrief };
  * for genuine failures.
  */
 export type AiWorkspaceResult =
+  /**
+   * `nodeId` is null between outcomes: the next outcome is still planned and
+   * owns no unit node yet, so there is nothing for the client to poll by id.
+   */
   | { kind: "preparing"; nodeId: string | null }
-  | { kind: "ready"; workspace: AiWorkspaceView };
+  | { kind: "ready"; workspace: AiWorkspaceView }
+  | { kind: "complete"; plan: CurriculumPlan };
 
 /**
  * Takes a learning session id; produces the current AI workspace view, or a
- * "preparing" marker while the active unit is still building; fails only when
- * the curriculum does not exist.
+ * "preparing" marker while the active unit is still building, or a terminal
+ * completion marker. A plan with neither an active unit nor completed outcomes
+ * violates the progression invariant and fails instead of polling forever.
  *
  * Shares the send path's turn resolution (next-ready projection + planned
  * recall), so what the learner sees on load is exactly the turn a submit would
@@ -77,7 +85,7 @@ export const getAiWorkspaceWorkflowEffect = ({
   sessionId: string;
 }): EffectType.Effect<
   AiWorkspaceResult,
-  DbError | CurriculumNotReadyError,
+  DbError | CurriculumNotReadyError | NoRunnableWorkspaceTurnError,
   WorkspaceProjectionReader | AiWorkspaceReader
 > =>
   Effect.gen(function* () {
@@ -99,33 +107,42 @@ export const getAiWorkspaceWorkflowEffect = ({
       return { kind: "preparing", nodeId: active.node.id } as const;
     }
 
-    const activeUnitMessages = active.node
-      ? yield* displayReader.listUnitMessages(sessionId, active.node.id)
-      : [];
+    if (!active.node) {
+      const outcomeNodes = plan.nodes.filter((node) => node.kind === "outcome");
+      // A plan that owns no outcomes at all is malformed — there is nothing
+      // left to build and nothing to have completed.
+      if (outcomeNodes.length === 0) {
+        return yield* new NoRunnableWorkspaceTurnError({
+          message: "The curriculum has no active unit.",
+        });
+      }
+      return outcomeNodes.every((node) => node.status === "completed")
+        ? ({ kind: "complete", plan } as const)
+        : ({ kind: "preparing", nodeId: null } as const);
+    }
 
     const state = planWorkspaceTurn({
-      nodes: plan.nodes,
+      activeUnit: active.node,
       activeUnitResponses: active.responses,
       activeUnitRun: active.run,
       hasPersistedActiveUnitRun: active.hasPersistedRun,
       recallTarget: null,
     });
-    const terminalNodes = plan.nodes.filter((node) => node.kind === "outcome");
-    const projectComplete =
-      state === null &&
-      terminalNodes.length > 0 &&
-      terminalNodes.every((node) => node.status === "completed");
-
-    let resolvedState = state;
-    const resolvedRun = active.run;
-    const resolvedUnit = active.unit;
-    const resolvedResponses = active.responses;
-    if (resolvedState && active.run) {
-      // Without this the stage is only ever delivered mid-stream, so a reload
-      // during a settled pass left the learner with a locked composer and an
-      // Enter that did nothing. The run's own list is the authority.
-      resolvedState = { ...resolvedState, educationStage: active.run.mode };
+    if (!state || !active.unit || !active.run) {
+      return yield* new NoRunnableWorkspaceTurnError({
+        message: "The active unit could not be projected.",
+      });
     }
+
+    const activeUnitMessages = yield* displayReader.listUnitMessages(
+      sessionId,
+      active.node.id,
+    );
+
+    // Without this the stage is only ever delivered mid-stream, so a reload
+    // during a settled pass left the learner with a locked composer and an
+    // Enter that did nothing. The run's own list is the authority.
+    const resolvedState = { ...state, educationStage: active.run.mode };
 
     // Each unit is its own chat. Earlier units live in the sidebar
     // as read-only history, not in the live scroll. Same precedence
@@ -133,34 +150,30 @@ export const getAiWorkspaceWorkflowEffect = ({
     // (exactly one of the two is ever set — see orchestrator.ts), so this
     // matches the transcript the live turn appends to. With no runnable turn
     // there is no live chat to hydrate.
-    const liveUnitId = resolvedState?.activeUnitId ?? null;
+    const liveUnitId = resolvedState.activeUnitId;
     const messages = liveUnitId == null ? [] : activeUnitMessages;
 
     const activeNode = active.node;
     const nextLearningNode =
-      activeNode == null
-        ? null
-        : (plan.nodes.find(
-            (node) =>
-              node.kind === "unit" && node.orderIndex > activeNode.orderIndex,
-          ) ?? null);
+      plan.nodes
+        .filter(
+          (node) =>
+            node.kind === "unit" && node.orderIndex > activeNode.orderIndex,
+        )
+        .sort((left, right) => left.orderIndex - right.orderIndex)[0] ?? null;
 
     return {
       kind: "ready",
       workspace: {
         plan,
-        projectComplete,
-        unit:
-          resolvedState && resolvedUnit
-            ? getEducationUnitState({
-                unit: resolvedUnit,
-                responses: resolvedResponses,
-              })
-            : null,
+        unit: getEducationUnitState({
+          unit: active.unit,
+          responses: active.responses,
+        }),
         state: resolvedState,
         messages,
         unitAdvanceGate:
-          resolvedState?.recallUnitId != null
+          resolvedState.recallUnitId != null
             ? { status: "locked" }
             : getUnitAdvanceGate({
                 node: active.node,
@@ -171,7 +184,7 @@ export const getAiWorkspaceWorkflowEffect = ({
           plan,
           state: resolvedState,
         }),
-        scenario: projectScenarioBrief(resolvedRun),
+        scenario: projectScenarioBrief(active.run),
       },
     } as const;
   });

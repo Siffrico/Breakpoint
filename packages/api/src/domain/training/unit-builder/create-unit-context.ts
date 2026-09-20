@@ -1,6 +1,7 @@
+import type { UnitContext } from "@acme/validators";
 import { UnitContextSchema } from "@acme/validators";
 
-import type { UnitBuilderContext } from "./contracts";
+import type { OutcomeTaskContract } from "./contracts";
 
 const intersects = (
   values: readonly string[],
@@ -11,15 +12,13 @@ const intersects = (
  * Projects one unit's immutable teaching, testing, and judgment assignment
  * directly from the compiled outcome curriculum and selected frontier items.
  */
-export const createUnitContext = (context: UnitBuilderContext) => {
-  const contract = context.planContext.clusterContext?.taskContract;
-  const targets = context.knowledge?.targets;
-  if (!contract || !targets || targets.length === 0) {
-    throw new Error(
-      "A unit context requires an outcome contract and selected knowledge targets.",
-    );
-  }
-
+export const createUnitContext = ({
+  contract,
+  targets,
+}: {
+  contract: OutcomeTaskContract;
+  targets: UnitContext["targets"];
+}) => {
   const selectedSkills = new Set(targets.map((target) => target.skill));
   const taskTypes = contract.practiceContract.taskTypes.filter((task) =>
     intersects(task.skills, selectedSkills),

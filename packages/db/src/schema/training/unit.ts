@@ -27,25 +27,7 @@ export const TrainingUnitContent = pgTable(
       .notNull()
       .references(() => TrainingCurriculumNode.id, { onDelete: "cascade" }),
     title: t.varchar({ length: 240 }).notNull(),
-    seedPrompt: t.text().notNull(),
-    seedHint: t.text(),
     clusterArcFrame: t.text(),
-    complexityBudget: t.integer().notNull().default(1),
-    buildContent: t.text(),
-    practicePrompts: t.jsonb().$type<
-      {
-        prompt: string;
-        type: "identification" | "construction" | "debugging";
-      }[]
-    >(),
-    contentGeneratedAt: t.timestamp({ mode: "date", withTimezone: true }),
-    teachbackSetup: t
-      .jsonb()
-      .$type<{
-        studentPersona: string;
-        openingMisconception: string;
-      }>()
-      .notNull(),
     scenarioTitle: t.varchar({ length: 240 }).notNull(),
     scenarioFocusAreas: t.jsonb().$type<string[]>().notNull(),
     unitContextJson: t.jsonb().$type<UnitContext | null>(),

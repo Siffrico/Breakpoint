@@ -151,12 +151,6 @@ export const skillKnowledgeRepository = {
     const entries = await listKnowledge({ db, skillNodeId: cluster.id });
     const targeted = entries.filter((entry) => entry.status === "targeted");
     return {
-      skillNodeId: cluster.id,
-      workflow: cluster.practiceContract.workflow,
-      framing: null,
-      checked: entries
-        .filter((entry) => entry.status === "checked")
-        .map(({ label, content }) => ({ label, content })),
       targets: targeted.map(({ id, question, kind, label, content }) => ({
         id,
         skill: question,

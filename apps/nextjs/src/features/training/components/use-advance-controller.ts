@@ -73,7 +73,7 @@ export function useAdvanceController({
   useEffect(() => {
     if (!activeTransition) return;
 
-    const serverActiveNodeId = aiWorkspace?.state?.activeUnitId;
+    const serverActiveNodeId = aiWorkspace?.state.activeUnitId;
     const serverProject = serverProjects.find(
       (project) => project.sessionId === activeTransition.sessionId,
     );
@@ -94,7 +94,7 @@ export function useAdvanceController({
       });
     }
 
-    if (aiWorkspace?.projectComplete || serverAdvanced) {
+    if (mode === "complete" || serverAdvanced) {
       const frameId = window.requestAnimationFrame(() => {
         setAdvanceTransition((current) =>
           current === activeTransition ? null : current,
@@ -106,6 +106,7 @@ export function useAdvanceController({
     activeTransition,
     queryClient,
     aiWorkspace,
+    mode,
     serverProjects,
     trpc.training.listLearningProjects,
   ]);
@@ -221,7 +222,7 @@ export function useAdvanceController({
   const canAdvance =
     mode === "unit" &&
     activeTransition == null &&
-    aiWorkspace?.state?.recallUnitId == null &&
+    aiWorkspace?.state.recallUnitId == null &&
     unitAdvanceGate.status === "enabled";
 
   const advance = useCallback(() => {

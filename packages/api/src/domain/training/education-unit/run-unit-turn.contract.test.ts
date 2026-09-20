@@ -3,8 +3,16 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { UnitTurnDependencies } from "./run-unit-turn";
 import type { PersistedUnitRun } from "./unit-state";
+import {
+  makeDeps as makePreparationDeps,
+  node,
+  unit,
+} from "../unit-preparation/preparation.fixture";
+import { prepareUnitContent } from "../unit-preparation/prepare-unit-content";
+import { resolveUnitRunProjection } from "../workspace-ai/workspace-turn";
 import { DEFAULT_EDUCATION_EXPERIENCE } from "./experience";
 import { runPassAdvanceTurn, runUnitTurn } from "./run-unit-turn";
+import { createMentorContext } from "./unit-context";
 import { makeUnitContext } from "./unit-context.fixture";
 import { createUnitRun } from "./unit-state";
 
@@ -166,6 +174,60 @@ describe("runUnitTurn mentor and critique boundaries", () => {
       ),
     ).rejects.toThrow("no longer active");
     expect(runMentorTeaching).not.toHaveBeenCalled();
+  });
+
+  it("opens a freshly prepared assignment directly in the live mentor", async () => {
+    const preparationDeps = makePreparationDeps({
+      createUnitContentIfAbsent: (assignment) =>
+        Promise.resolve({ ...unit, ...assignment }),
+    });
+    const prepared = await Effect.runPromise(
+      prepareUnitContent({
+        node,
+        sessionId: "session-1",
+        deps: preparationDeps,
+      }),
+    );
+    const projected = resolveUnitRunProjection({
+      sessionId: "session-1",
+      unit: prepared,
+      existing: null,
+    });
+    const difficulty = makeRun().difficultySnapshot;
+    if (!difficulty) throw new Error("Expected calibrated difficulty.");
+    const mentorContext = createMentorContext({
+      unitContext: projected.unitContext,
+      difficulty,
+      memories: [],
+    });
+    const runMentorTeaching = vi.fn(deps().runMentorTeaching);
+    const result = await Effect.runPromise(
+      runUnitTurn(
+        {
+          ...input(
+            { ...projected, difficultySnapshot: difficulty },
+            "start_unit",
+          ),
+          contexts: { ...contexts, mentor: mentorContext },
+        },
+        deps({ runMentorTeaching }),
+      ),
+    );
+
+    expect(prepared).not.toHaveProperty("seedPrompt");
+    expect(mentorContext).toContain("Causal probe");
+    expect(result.assistantMessage).toBe(teachingOpening.assistantMessage);
+    expect(result.nextRun.unitContext).toEqual(prepared.unitContext);
+    expect(result.nextRun.cursor.step).toEqual({
+      kind: "teaching",
+      preparedScenario: null,
+    });
+    expect(runMentorTeaching).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: mentorContext,
+        createScenario: false,
+      }),
+    );
   });
 
   it("teaches first without generating a scenario", async () => {

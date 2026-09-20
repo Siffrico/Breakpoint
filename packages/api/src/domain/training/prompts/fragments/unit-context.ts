@@ -1,10 +1,3 @@
-import type { ForgeUnitContent } from "../../types/training.types";
-
-export const formatUnitContext = (unit: ForgeUnitContent): string =>
-  `Unit title: ${unit.title}
-Unit content:
-${unit.buildContent ?? "Build content missing."}`;
-
 export const formatUnitMeta = (meta: {
   title: string;
   summary: string;

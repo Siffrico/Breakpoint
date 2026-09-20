@@ -1,41 +1,28 @@
-import type { Result } from "../../../lib/result";
+import { Effect } from "effect";
+
 import type {
   EducationUnitState,
   PhaseResponseRecord,
 } from "../types/training.types";
+import type { UnitPreparationError } from "../unit-preparation/errors";
 import type { UnitPreparationDependencies } from "../unit-preparation/prepare-unit-content";
-import { err, ok } from "../../../lib/result";
 import { getUnitReadinessIssue } from "../education-unit/unit-readiness";
 import { generateClusterBriefing } from "../generate-cluster-briefing";
 import { getEducationUnitState } from "../policies/education-unit-state-policy";
-import { runPrepareUnit } from "../unit-preparation/prepare-unit-edge";
-
-interface PreparationPlanNode {
-  id: string;
-  parentNodeId: string | null;
-  kind: string;
-  title: string;
-  summary: string;
-  whyItMatters: string;
-  orderIndex: number;
-  status: string;
-}
+import {
+  UnitContextMissingError,
+  UnitPersistError,
+} from "../unit-preparation/errors";
+import { prepareUnitContent } from "../unit-preparation/prepare-unit-content";
 
 interface PrepareUnitDependencies extends UnitPreparationDependencies {
-  getPlanNodesBySession: (
-    sessionId: string,
-  ) => Promise<PreparationPlanNode[] | null>;
   getPhaseResponses: (
     unitContentId: string,
     sessionId: string,
   ) => Promise<PhaseResponseRecord[]>;
 }
 
-/**
- * Takes an owned ready unit, produces its canonical prepared state, and fails
- * only when ownership/readiness/context, generation, or persistence fails.
- */
-export const prepareUnitWorkflow = async ({
+export const prepareUnitWorkflow = ({
   nodeId,
   sessionId,
   deps,
@@ -43,68 +30,63 @@ export const prepareUnitWorkflow = async ({
   nodeId: string;
   sessionId: string;
   deps: PrepareUnitDependencies;
-}): Promise<Result<EducationUnitState>> => {
-  const planNodes = await deps.getPlanNodesBySession(sessionId);
-  if (!planNodes) return err("Curriculum plan does not exist yet.");
-
-  const node = planNodes.find((item) => item.id === nodeId);
-  if (!node) return err("Unit node does not exist in this learning project.");
-  if (node.kind !== "unit") {
-    return err("This node is not an education unit.");
-  }
-
-  const existingUnit = await deps.getUnitByNodeId(nodeId);
-  if (node.status !== "ready" && !existingUnit) {
-    return err("This unit is not ready yet.");
-  }
-
-  const existingResponses = existingUnit
-    ? await deps.getPhaseResponses(existingUnit.id, sessionId)
-    : [];
-  if (existingUnit && getUnitReadinessIssue(existingUnit) === null) {
-    return ok(
-      getEducationUnitState({
-        unit: existingUnit,
-        responses: existingResponses,
-      }),
-    );
-  }
-
-  const parentNode = node.parentNodeId
-    ? (planNodes.find((item) => item.id === node.parentNodeId) ?? null)
-    : null;
-  const siblingUnits = planNodes.filter(
-    (item) =>
-      item.parentNodeId === node.parentNodeId && item.kind === node.kind,
-  );
-  try {
-    const preparedUnit = await runPrepareUnit({
-      node,
-      sessionId,
-      deps,
-      forceRefresh: existingUnit !== null,
-      prepareClusterBriefing: parentNode
-        ? async () => ({
-            nodeId: parentNode.id,
-            briefing: await generateClusterBriefing({
-              slotKind: "unit",
-              totalSlots: siblingUnits.length || 1,
-              clusterContext: {
-                title: parentNode.title,
-                summary: parentNode.summary,
-                whyItMatters: parentNode.whyItMatters,
-              },
-            }),
-          })
-        : undefined,
+}): Effect.Effect<EducationUnitState, UnitPreparationError> =>
+  Effect.gen(function* () {
+    const planNodes = yield* Effect.tryPromise({
+      try: () => deps.getPlanNodesBySession(sessionId),
+      catch: (cause) =>
+        new UnitPersistError({ message: "Curriculum lookup failed.", cause }),
     });
-
-    const canonicalUnit = (await deps.getUnitByNodeId(nodeId)) ?? preparedUnit;
-    const responses = await deps.getPhaseResponses(canonicalUnit.id, sessionId);
-    return ok(getEducationUnitState({ unit: canonicalUnit, responses }));
-  } catch (error) {
-    return err(
-      error instanceof Error ? error.message : "Failed to generate unit setup.",
+    const node = planNodes?.find((item) => item.id === nodeId);
+    if (node?.kind !== "unit") {
+      return yield* new UnitContextMissingError({
+        message: "Unit node does not exist in this learning project.",
+      });
+    }
+    const existingUnit = yield* Effect.tryPromise({
+      try: () => deps.getUnitByNodeId(nodeId),
+      catch: (cause) =>
+        new UnitPersistError({ message: "Unit content lookup failed.", cause }),
+    });
+    if (node.status !== "ready" && !existingUnit) {
+      return yield* new UnitContextMissingError({
+        message: "This unit is not ready yet.",
+      });
+    }
+    const parentNode = planNodes?.find((item) => item.id === node.parentNodeId);
+    const siblingUnits = planNodes?.filter(
+      (item) => item.parentNodeId === node.parentNodeId && item.kind === "unit",
     );
-  }
-};
+    const unit =
+      existingUnit && getUnitReadinessIssue(existingUnit) === null
+        ? existingUnit
+        : yield* prepareUnitContent({
+            node,
+            sessionId,
+            deps,
+            forceRefresh: existingUnit !== null,
+            prepareClusterBriefing: parentNode
+              ? async () => ({
+                  nodeId: parentNode.id,
+                  briefing: await generateClusterBriefing({
+                    slotKind: "unit",
+                    totalSlots: siblingUnits?.length ?? 1,
+                    clusterContext: {
+                      title: parentNode.title,
+                      summary: parentNode.summary,
+                      whyItMatters: parentNode.whyItMatters,
+                    },
+                  }),
+                })
+              : undefined,
+          });
+    const responses = yield* Effect.tryPromise({
+      try: () => deps.getPhaseResponses(unit.id, sessionId),
+      catch: (cause) =>
+        new UnitPersistError({
+          message: "Unit progress lookup failed.",
+          cause,
+        }),
+    });
+    return getEducationUnitState({ unit, responses });
+  });

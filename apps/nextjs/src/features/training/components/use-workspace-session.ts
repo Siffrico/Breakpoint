@@ -104,7 +104,6 @@ export function useWorkspaceSession({
     workspaceShellQuery.data?.kind === "onboarding"
       ? workspaceShellQuery.data.onboardingState
       : null;
-  const fallbackActiveNodeId = resolvedPlan?.nextUnitId ?? null;
   const aiWorkspaceQuery = useQuery(
     trpc.training.aiWorkspace.queryOptions(
       { sessionId: selectedSessionId },
@@ -113,14 +112,14 @@ export function useWorkspaceSession({
         staleTime: Number.POSITIVE_INFINITY,
         refetchOnWindowFocus: false,
         retry: false,
-        refetchInterval: (query) => {
-          const result = query.state.data;
-          return result?.kind === "ready" &&
-            result.workspace.state === null &&
-            !result.workspace.projectComplete
+        // Between outcomes there is no unit node yet, so the by-id `awaitUnit`
+        // poll below cannot run. This query is the only thing that can notice
+        // the next outcome's first unit appearing.
+        refetchInterval: (query) =>
+          query.state.data?.kind === "preparing" &&
+          query.state.data.nodeId === null
             ? 3_000
-            : false;
-        },
+            : false,
       },
     ),
   );
@@ -128,15 +127,22 @@ export function useWorkspaceSession({
   const workspaceResult = aiWorkspaceQuery.data ?? null;
   const aiWorkspace =
     workspaceResult?.kind === "ready" ? workspaceResult.workspace : null;
+  const projectComplete = workspaceResult?.kind === "complete";
   const unitPreparing = workspaceResult?.kind === "preparing";
   const preparingNodeId =
     workspaceResult?.kind === "preparing" ? workspaceResult.nodeId : null;
   const activeNodeId =
-    aiWorkspace?.state?.recallUnitId ??
-    aiWorkspace?.state?.activeUnitId ??
-    fallbackActiveNodeId;
+    aiWorkspace?.state.recallUnitId ??
+    aiWorkspace?.state.activeUnitId ??
+    preparingNodeId;
+  const authoritativePlan =
+    aiWorkspace?.plan ??
+    (workspaceResult?.kind === "complete"
+      ? workspaceResult.plan
+      : resolvedPlan);
   const activeNode = activeNodeId
-    ? (resolvedPlan?.nodes.find((node) => node.id === activeNodeId) ?? null)
+    ? (authoritativePlan?.nodes.find((node) => node.id === activeNodeId) ??
+      null)
     : null;
   const isHistorySelected = Boolean(
     selectedChatId && selectedChatId !== activeNodeId,
@@ -269,7 +275,7 @@ export function useWorkspaceSession({
       ? "onboarding"
       : workspaceLoadError
         ? "idle"
-        : aiWorkspace?.projectComplete
+        : projectComplete
           ? "complete"
           : liveUnit
             ? "unit"
@@ -279,8 +285,10 @@ export function useWorkspaceSession({
     aiWorkspace?.unitAdvanceGate ?? LOCKED_UNIT_ADVANCE_GATE;
   const recallBoundaryNodeId =
     unitAdvanceGate.status === "enabled" ? unitAdvanceGate.unitId : null;
-  const canOfferRecall = !preview && !isHistorySelected &&
-    (unitAdvanceGate.status === "enabled" || aiWorkspace?.projectComplete === true);
+  const canOfferRecall =
+    !preview &&
+    !isHistorySelected &&
+    (unitAdvanceGate.status === "enabled" || projectComplete);
   const recallOfferQuery = useQuery(
     trpc.recall.offer.queryOptions(
       {

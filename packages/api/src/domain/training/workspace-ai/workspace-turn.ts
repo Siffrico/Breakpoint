@@ -51,7 +51,9 @@ export interface ResolvedWorkspaceTurn {
 }
 
 export const getNextReadyLearningNode = (nodes: CurriculumNode[]) =>
-  nodes.find((node) => node.kind === "unit" && node.status === "ready") ?? null;
+  nodes
+    .filter((node) => node.kind === "unit" && node.status === "ready")
+    .sort((left, right) => left.orderIndex - right.orderIndex)[0] ?? null;
 
 const isLearningUnit = <T extends Pick<CurriculumNode, "kind">>(
   node: T | null,
@@ -275,7 +277,7 @@ export const resolveWorkspaceTurnEffect = ({
     }
 
     const state = planWorkspaceTurn({
-      nodes: plan.nodes,
+      activeUnit: active.node,
       activeUnitResponses: active.responses,
       activeUnitRun: active.run,
       hasPersistedActiveUnitRun: active.hasPersistedRun,
@@ -346,7 +348,7 @@ export const resolveWorkspaceTurn = async ({
     resolveWorkspaceTurnEffect({
       sessionId,
       authorizedPlan,
-        }).pipe(
+    }).pipe(
       Effect.provideService(
         WorkspaceProjectionReader,
         makeWorkspaceProjectionReader(deps),

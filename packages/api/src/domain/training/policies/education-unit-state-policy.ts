@@ -45,8 +45,8 @@ export const createInitialEducationUnitState = ({
     retryCount: 0,
     challenge: {
       title: unit.scenario.title,
-      prompt: unit.seedPrompt,
-      helper: unit.seedHint,
+      prompt: "Your lesson is ready to start.",
+      helper: null,
       responseMode: "free_response",
       options: null,
     },

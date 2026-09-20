@@ -32,12 +32,10 @@ import type {
   OnboardingQuestion,
   OnboardingSlot,
   OnboardingTranscriptMessage,
-  PostSeedUnitContentDraft,
   PracticeContract,
   PracticeEvaluation,
   PracticePrompt,
   PracticeSubmission,
-  PreSeedUnitContentDraft,
   ProjectOverview,
   ScenarioEvaluationContract,
   SkillMap,
@@ -89,11 +87,9 @@ export type {
   OnboardingQuestion,
   OnboardingSlot,
   OnboardingTranscriptMessage,
-  PostSeedUnitContentDraft,
   PracticeEvaluation,
   PracticePrompt,
   PracticeSubmission,
-  PreSeedUnitContentDraft,
   ProjectOverview,
   ScenarioEvaluationContract,
   SubmitEducationUnitStep,
@@ -120,20 +116,6 @@ export interface CurriculumNodeBlueprint {
   outcomeResult: string | null;
   skillMap: SkillMap | null;
   practiceContract: PracticeContract | null;
-}
-
-export interface PostSeedGenerationResult {
-  captured: true;
-  buildContent: string;
-  practicePrompts: PracticePrompt[];
-}
-
-export interface UpdateUnitContentInput {
-  unitContentId: string;
-  buildContent: string;
-  practicePrompts: PracticePrompt[];
-  teachbackSetup?: TeachbackSetup;
-  contentGeneratedAt: Date;
 }
 
 export interface CurriculumBlueprint {
