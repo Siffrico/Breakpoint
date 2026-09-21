@@ -942,6 +942,13 @@ const StoredUnitCursorStepSchema = z.preprocess(
 export const UnitCursorSchema = z
   .object({
     interactionId: z.string().min(1).max(160),
+    preparedOpening: z
+      .object({
+        key: z.string().length(64),
+        assistantMessage: z.string().min(1),
+      })
+      .strict()
+      .optional(),
     scenarioPrompts: z.array(z.string().min(24)),
     /**
      * Every error code this run has produced, oldest first. The critic reads

@@ -36,6 +36,7 @@ import { trainingAttemptRepository } from "./training-attempt-repository";
 import { appendDynamicUnitNode } from "./training-curriculum-node-writer";
 import { trainingCurriculumRepository } from "./training-curriculum-repository";
 import { trainingRatingRepository } from "./training-rating-repository";
+import { warmUnitOpening } from "./unit-opening-repository";
 import { createUnitPreparationRepositoryDeps } from "./unit-preparation-repository-deps";
 
 type Database = typeof databaseClient;
@@ -353,7 +354,28 @@ export const createUnitCreationRepositoryDeps = ({
         node,
         sessionId,
         deps: createUnitPreparationRepositoryDeps(db),
-      }).pipe(Effect.asVoid),
+      }).pipe(
+        Effect.tap((unit) =>
+          node.parentNodeId
+            ? warmUnitOpening({
+                db,
+                unit,
+                parentNodeId: node.parentNodeId,
+                sessionId,
+                userId,
+              }).pipe(
+                Effect.tapCause((cause) =>
+                  Effect.logWarning("Unit introduction preparation failed", {
+                    nodeId: node.id,
+                    cause,
+                  }),
+                ),
+                Effect.ignore,
+              )
+            : Effect.void,
+        ),
+        Effect.asVoid,
+      ),
   };
 };
 

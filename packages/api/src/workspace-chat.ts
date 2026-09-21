@@ -37,6 +37,7 @@ import {
   findNextPlannedOutcome,
   loadProgressionState,
 } from "./repositories/unit-creation-repository-deps";
+import { prepareUnitOpening } from "./repositories/unit-opening-repository";
 import {
   createWorkspaceTurnRepositoryDeps,
   workspaceTurnRepoLayer,
@@ -277,6 +278,9 @@ const streamWorkspaceChatWithModelPreference = ({
 
       const turnDeps = {
         ...createWorkspaceTurnRepositoryDeps(db, userId),
+        prepareOpening: (
+          input: Omit<Parameters<typeof prepareUnitOpening>[0], "db">,
+        ) => prepareUnitOpening({ ...input, db }),
         scheduleBackgroundTask,
         pregenerateNextUnit: (input: {
           sessionId: string;

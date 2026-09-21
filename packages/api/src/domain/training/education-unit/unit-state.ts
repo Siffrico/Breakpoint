@@ -81,6 +81,15 @@ const initialInteractionId = ({
   unitId: string;
 }) => `${kind}:${sessionId}:${unitId}:initial`;
 
+export const isUnitUnopened = (run: PersistedUnitRun): boolean =>
+  run.cursor.step.kind === "teaching" &&
+  run.cursor.interactionId ===
+    initialInteractionId({
+      kind: run.kind,
+      sessionId: run.sessionId,
+      unitId: run.unitId,
+    });
+
 export const createUnitRun = ({
   unitId,
   sessionId,
@@ -180,6 +189,7 @@ export const repeatTeaching = (
     replaceCursor(run, {
       ...run.cursor,
       interactionId: randomUUID(),
+      preparedOpening: undefined,
     }),
   );
 };

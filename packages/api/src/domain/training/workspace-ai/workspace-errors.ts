@@ -3,6 +3,7 @@ import { Data } from "effect";
 import type { DbError } from "../../../effect/errors";
 import type { UnitAgentError } from "../education-unit/agent-errors";
 import type { UnitTurnContractError } from "../education-unit/prefill";
+import type { UnitOpeningError } from "../education-unit/prepare-opening";
 
 export class CurriculumNotReadyError extends Data.TaggedError(
   "CurriculumNotReadyError",
@@ -47,6 +48,7 @@ export class RatingEvidenceError extends Data.TaggedError(
 export type InteractiveUnitAgentError = UnitAgentError;
 
 export type WorkspaceEducationTurnError =
+  | UnitOpeningError
   | WorkspaceInputError
   | TurnLeaseConflictError
   | WorkspacePersistenceError

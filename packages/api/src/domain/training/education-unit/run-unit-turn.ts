@@ -348,7 +348,9 @@ export const runUnitTurn = (
     experience,
     contexts,
     onPartialAssistantMessage,
+    preparedOpening,
   }: {
+    preparedOpening?: string;
     run: PersistedUnitRun;
     interactionId: string;
     action?: WorkspaceTurnAction;
@@ -392,6 +394,17 @@ export const runUnitTurn = (
         return yield* contractFailure(
           "The mentor has already opened this unit.",
         );
+      }
+      if (preparedOpening) {
+        onPartialAssistantMessage?.(preparedOpening);
+        return {
+          assistantMessage: preparedOpening,
+          nextRun: yield* repeatTeaching(run).pipe(asTurnError),
+          actor: "mentor" as const,
+          reviewGrade: null,
+          ratingWrite: null,
+          presentedReviewChallenge: false,
+        };
       }
       const mentor = yield* deps.runMentorTeaching({
         messages: [],

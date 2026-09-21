@@ -6,6 +6,7 @@ import type {
   UnitReviewChallenge,
 } from "@acme/validators";
 
+import type { PersistedUnitRun } from "../education-unit/unit-state";
 import type { ResolveScenarioDirectiveDependencies } from "../orchestration/goldilocks";
 import type {
   CurriculumNode,
@@ -143,24 +144,26 @@ const unit = {
   difficultyBands: null,
 } as UnitContent;
 
-const harness = () => {
-  let run = projectUnitRun({
-    ...createUnitRun({
-      unitId: unit.id,
-      sessionId: "session-1",
-      userId: "user-1",
-      kind: "education",
-      unitContext,
-      experience: DEFAULT_EDUCATION_EXPERIENCE,
-    }),
-    difficultySnapshot: snapshot,
-    cursor: {
-      interactionId: "initial",
-      scenarioPrompts: [challenge.prompt],
-      errorCodeHistory: [],
-      step: { kind: "scenario", attempt: 2, challenge },
-    },
-  });
+const harness = (initialRun?: PersistedUnitRun) => {
+  let run =
+    initialRun ??
+    projectUnitRun({
+      ...createUnitRun({
+        unitId: unit.id,
+        sessionId: "session-1",
+        userId: "user-1",
+        kind: "education",
+        unitContext,
+        experience: DEFAULT_EDUCATION_EXPERIENCE,
+      }),
+      difficultySnapshot: snapshot,
+      cursor: {
+        interactionId: "initial",
+        scenarioPrompts: [challenge.prompt],
+        errorCodeHistory: [],
+        step: { kind: "scenario", attempt: 2, challenge },
+      },
+    });
   let rating: Awaited<
     ReturnType<ResolveScenarioDirectiveDependencies["loadJobProgress"]>
   > = {
@@ -304,7 +307,9 @@ const harness = () => {
         return { assistantMessage };
       }),
   });
-  const turn = async (action: "submit_answer" | "advance_pass") => {
+  const turn = async (
+    action: "submit_answer" | "advance_pass" | "start_unit",
+  ) => {
     const resolved = await resolveWorkspaceTurn({
       sessionId: "session-1",
       deps,
@@ -376,6 +381,34 @@ beforeEach(() => {
 });
 
 describe("Goldilocks retry contract", () => {
+  it("commits prepared opening teaching without another model call or practice evidence", async () => {
+    const initial = createUnitRun({
+      unitId: unit.id,
+      sessionId: "session-1",
+      userId: "user-1",
+      kind: "education",
+      unitContext,
+      experience: DEFAULT_EDUCATION_EXPERIENCE,
+    });
+    const h = harness(initial);
+    h.deps.prepareOpening = vi.fn(() =>
+      Effect.succeed("Prepared teaching about the changed limit."),
+    );
+    const result = await h.turn("start_unit");
+    expect(result.assistantMessage.content).toBe(
+      "Prepared teaching about the changed limit.",
+    );
+    expect(runMentorTeachingAgent).not.toHaveBeenCalled();
+    expect(runReviewGradeAgent).not.toHaveBeenCalled();
+    expect(h.commits).toHaveLength(1);
+    expect(h.commits[0]?.ratingEvaluation).toBeNull();
+    expect(h.commits[0]?.scenarioPresentation).toBeNull();
+    expect(h.commits[0]?.knowledgeCheckOff).toBeNull();
+    expect(h.getRun().mode).toBe("learning");
+    expect(h.getRun().cursor.interactionId).not.toBe(
+      initial.cursor.interactionId,
+    );
+  });
   it("rejects a delayed distinct request after another answer advances the cursor", async () => {
     const h = harness();
     const staleTurn = await resolveWorkspaceTurn({

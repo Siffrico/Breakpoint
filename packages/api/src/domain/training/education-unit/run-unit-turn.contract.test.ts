@@ -163,6 +163,30 @@ const openFirstScenario = async () => {
 };
 
 describe("runUnitTurn mentor and critique boundaries", () => {
+  it("opens prepared teaching without generation, grading, or a scenario timer", async () => {
+    const runMentorTeaching = vi.fn(deps().runMentorTeaching);
+    const run = makeRun();
+    const result = await Effect.runPromise(
+      runUnitTurn(
+        {
+          ...input(run, "start_unit"),
+          preparedOpening: "Prepared introduction with a teaching question.",
+        },
+        deps({ runMentorTeaching }),
+      ),
+    );
+    expect(result.assistantMessage).toBe(
+      "Prepared introduction with a teaching question.",
+    );
+    expect(result.nextRun.mode).toBe("learning");
+    expect(result.nextRun.cursor.interactionId).not.toBe(
+      run.cursor.interactionId,
+    );
+    expect(result.nextRun.cursor.preparedOpening).toBeUndefined();
+    expect(result.ratingWrite).toBeNull();
+    expect(result.presentedReviewChallenge).toBe(false);
+    expect(runMentorTeaching).not.toHaveBeenCalled();
+  });
   it("rejects a stale interaction before calling the mentor", async () => {
     const runMentorTeaching = vi.fn(deps().runMentorTeaching);
     await expect(

@@ -20,6 +20,8 @@ const logFields = (
     case "WorkspacePersistenceError":
     case "RatingEvidenceError":
       return { tag: error._tag, operation: error.operation };
+    case "UnitOpeningError":
+      return { tag: error._tag, kind: error.kind };
     case "WorkspaceInputError":
     case "TurnLeaseConflictError":
     case "UnitAgentFirstVisibleTimeoutError":
@@ -52,6 +54,8 @@ export const translateWorkspaceTurnErrors = <A, R>(
       Effect.logError("Workspace education turn failed.", logFields(error)),
     ),
     Effect.catchTags({
+      UnitOpeningError: (error) =>
+        trpcFailure(error, "INTERNAL_SERVER_ERROR", error.message),
       WorkspaceInputError: (error) =>
         trpcFailure(error, "BAD_REQUEST", error.message),
       TurnLeaseConflictError: (error) =>

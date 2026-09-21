@@ -12,7 +12,11 @@ type Database = typeof databaseClient;
  * filling it in. Both are needed: without the former, two concurrent callers
  * each append their own unit before either has a unit id to lock on.
  */
-type BuildKind = "skill_knowledge" | "unit_content" | "unit_creation";
+type BuildKind =
+  | "skill_knowledge"
+  | "unit_content"
+  | "unit_creation"
+  | "unit_opening";
 
 export type NodeBuildLeaseGuard = <T>(
   persist: (db: Database) => Promise<T>,

@@ -11,6 +11,11 @@ import type {
 } from "@acme/validators";
 
 import type { Memory } from "../../memory/types";
+import type {
+  OpeningTeachingInput,
+  UnitOpeningError,
+} from "../education-unit/prepare-opening";
+import type { PersistedUnitRun } from "../education-unit/unit-state";
 import type { DifficultyDialPreset, ScenarioDirective } from "../engine/rating";
 import type { DifficultyBand } from "../types/training.types";
 import type { WorkspaceAiMessage, WorkspaceAiTurnResult } from "./types";
@@ -72,6 +77,11 @@ interface OpenScenarioResult {
 export interface WorkspaceTurnOrchestrationDependencies
   extends WorkspaceTurnDependencies,
     WorkspaceTurnPersistenceDependencies {
+  prepareOpening?: (input: {
+    nodeId: string;
+    run: PersistedUnitRun;
+    teaching: OpeningTeachingInput;
+  }) => Effect.Effect<string | null, UnitOpeningError>;
   listMemories: (userId: string) => Promise<Memory[]>;
   resolveDifficultyDirective: (input: {
     userId: string;
@@ -558,7 +568,24 @@ export const runEducationUnitTurn = ({
       },
     };
 
+    const preparedOpening =
+      action === "start_unit" && deps.prepareOpening
+        ? yield* deps.prepareOpening({
+            nodeId: node.id,
+            run: { ...unitRun, difficultySnapshot },
+            teaching: {
+              context: contexts.mentor,
+              experience,
+              selectedResponse: difficultySnapshot.format?.kind === "mcq",
+              testedCriterionIds: unitRun.unitContext.judgment.criteria.map(
+                (criterion) => criterion.id,
+              ),
+              onPartialAssistantMessage,
+            },
+          })
+        : undefined;
     const turnInput = {
+      preparedOpening: preparedOpening ?? undefined,
       run: { ...unitRun, difficultySnapshot },
       interactionId,
       action,

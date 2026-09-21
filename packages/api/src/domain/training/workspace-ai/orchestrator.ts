@@ -4,6 +4,7 @@ import type {
   PhaseResponseRecord,
 } from "../types/training.types";
 import type { WorkspaceAiEducationStage, WorkspaceAiState } from "./types";
+import { isUnitUnopened } from "../education-unit/unit-state";
 import { WorkspaceAiEducationStageSchema } from "./types";
 
 type RuntimeNode = Pick<
@@ -33,7 +34,8 @@ export const isUnitMidFlight = ({
 }): boolean =>
   hasPersistedActiveUnitRun &&
   activeUnitRun != null &&
-  activeUnitRun.mode !== "complete";
+  activeUnitRun.mode !== "complete" &&
+  !isUnitUnopened(activeUnitRun);
 
 /**
  * Takes phase response history; produces the phase the unit last left off in;

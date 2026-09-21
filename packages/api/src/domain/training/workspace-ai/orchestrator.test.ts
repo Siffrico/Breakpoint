@@ -5,7 +5,7 @@ import type { CurriculumNode } from "../types/training.types";
 import { DEFAULT_EDUCATION_EXPERIENCE } from "../education-unit/experience";
 import { makeUnitContext } from "../education-unit/unit-context.fixture";
 import { createUnitRun } from "../education-unit/unit-state";
-import { planWorkspaceTurn } from "./orchestrator";
+import { isUnitMidFlight, planWorkspaceTurn } from "./orchestrator";
 import {
   assertUnitCanAdvance,
   getUnitAdvanceGate,
@@ -111,11 +111,15 @@ void test("settled feedback remains in the current unit with Next Unit locked", 
 });
 
 void test("a durable incomplete education run blocks recall without a phase response", () => {
+  const startedRun = {
+    ...baseRun,
+    cursor: { ...baseRun.cursor, interactionId: "started-teaching" },
+  };
   assert.deepEqual(
     planWorkspaceTurn({
       activeUnit: readyNode,
       activeUnitResponses: [],
-      activeUnitRun: baseRun,
+      activeUnitRun: startedRun,
       hasPersistedActiveUnitRun: true,
       recallTarget: {
         unitNodeId: "recall-node",
@@ -126,7 +130,7 @@ void test("a durable incomplete education run blocks recall without a phase resp
       mode: "education_unit",
       promptKind: "education_unit",
       educationStage: "learning",
-      interactionId: baseRun.cursor.interactionId,
+      interactionId: startedRun.cursor.interactionId,
       workflowId: `${baseRun.experience.id}@${baseRun.experience.version}`,
       activeUnitId: readyNode.id,
       activeUnitTitle: readyNode.title,
@@ -161,5 +165,25 @@ void test("a completed education run allows recall at the unit boundary", () => 
       recallUnitId: "recall-node",
       recallUnitTitle: "Due recall",
     },
+  );
+});
+
+void test("preparing an introduction does not start a unit or block boundary recall", () => {
+  const preparedRun = {
+    ...baseRun,
+    cursor: {
+      ...baseRun.cursor,
+      preparedOpening: {
+        key: "a".repeat(64),
+        assistantMessage: "Prepared teaching.",
+      },
+    },
+  };
+  assert.equal(
+    isUnitMidFlight({
+      activeUnitRun: preparedRun,
+      hasPersistedActiveUnitRun: true,
+    }),
+    false,
   );
 });
