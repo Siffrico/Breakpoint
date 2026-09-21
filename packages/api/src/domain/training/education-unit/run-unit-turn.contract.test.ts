@@ -551,7 +551,13 @@ The old move was safe because the line ran above 40 degrees. This line runs at 3
         runUnitTurn(
           {
             ...input(selectedRun),
-            transcript: [{ role: "user", content: answer }],
+            transcript: [
+              {
+                role: "assistant",
+                content: "Check the changed constraint first.",
+              },
+              { role: "user", content: answer },
+            ],
             onPartialAssistantMessage,
           },
           deps({ runReviewGrade }),
@@ -561,6 +567,9 @@ The old move was safe because the line ran above 40 degrees. This line runs at 3
       expect(runReviewGrade).toHaveBeenCalledOnce();
       const request = runReviewGrade.mock.calls[0]?.[0];
       expect(request?.messages).toEqual([{ role: "user", content: answer }]);
+      expect(request?.teachingHistory).toEqual([
+        { role: "assistant", content: "Check the changed constraint first." },
+      ]);
       expect(request?.activeChallenge.contract.verifier).toMatchObject({
         kind: "fixed_answer",
         answer: "C",

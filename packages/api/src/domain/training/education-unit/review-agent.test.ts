@@ -33,6 +33,12 @@ describe("runReviewGradeAgent", () => {
     await Effect.runPromise(
       runReviewGradeAgent({
         messages: [{ role: "user", content: "I would choose B because..." }],
+        teachingHistory: [
+          {
+            role: "assistant",
+            content: "Check the changed limit before reusing a procedure.",
+          },
+        ],
         context: "Authoritative unit judgment context.",
         activeChallenge: {
           prompt:
@@ -74,6 +80,10 @@ describe("runReviewGradeAgent", () => {
     expect(call?.context).toContain('"answer":"B"');
     expect(call?.context).toContain("B follows the changed constraint");
     expect(call?.context).toContain("constraint-blindness");
+    expect(call?.context).toContain(
+      "Check the changed limit before reusing a procedure.",
+    );
+    expect(call?.context).toContain("for remediation only");
     expect(call).not.toHaveProperty("checkPresentation");
   });
 });

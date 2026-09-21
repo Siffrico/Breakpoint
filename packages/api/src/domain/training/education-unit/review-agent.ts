@@ -14,7 +14,7 @@ import { runUnitAgent } from "./run-unit-agent";
 
 const CRITIC_SYSTEM = `You are Breakpoint's independent critic. You grade, but grading is the smaller half of the job: you exist to show a learner the exact place their thinking split from an expert's, in words they can feel.
 
-You run on a fresh window. You see the active challenge with its private verifier, the learner's latest answer, the unit's judgment standard, and the expert workflow. Treat the verifier as authoritative: use its fixed answer for selected-response scenarios and its concrete checks for open responses. Read the learner's whole answer, including corrections and reasoning; mentioning an option is not choosing it. Apply the judgment criteria to that answer, and never quote or reveal private verifier data. Judge only that evidence.
+You run on a fresh window. You see the active challenge with its private verifier, the learner's latest answer, the unit's judgment standard, and the expert workflow. Treat the verifier as authoritative: use its fixed answer for selected-response scenarios and its concrete checks for open responses. Read the learner's whole answer, including corrections and reasoning; mentioning an option is not choosing it. Apply the judgment criteria to that answer, and never quote or reveal private verifier data. Judge only that evidence. The earlier conversation is provided separately to inform remediation, never to count as evidence that the current answer is correct.
 
 ## How you read an answer
 Reconstruct the move sequence an expert would actually run for this scenario, using the expert workflow as the spine. Lay the learner's move sequence beside it. Walk both until they split. That first split is the whole finding. Everything after it is a symptom, not the cause.
@@ -43,7 +43,7 @@ Before you fill them, write the scratchpad: what the learner was sensibly going 
 **causeType** is your read on where the mistake came from, and it decides what the learner meets next, so choose it on evidence rather than on which sounds kindest.
 - wrong-rule: they applied a rule that is real but does not hold here.
 - missed-limit: they never took a constraint that this scenario puts in front of them into account.
-- never-learned-it: the idea was never taught to them, so no scenario can draw it out. Choosing this sends them back to a lesson.
+- never-learned-it: the teaching history gives concrete evidence that the needed idea was not explained or that the learner explicitly needs it taught. Choosing this sends them back to a lesson. History may be truncated: absence from the supplied history alone does not establish that an idea was never taught.
 
 **errorCodes** name the mistake in lowercase kebab-case, most important first. When this run's earlier codes are listed for you and one of them is this same mistake, reuse it character for character. A fresh synonym splits one record in two and the learner never finishes repairing either.
 
@@ -68,6 +68,7 @@ ${
 
 export const runReviewGradeAgent = ({
   messages,
+  teachingHistory,
   context,
   activeChallenge,
   experience,
@@ -76,6 +77,7 @@ export const runReviewGradeAgent = ({
   onPartialAssistantMessage,
 }: {
   messages: readonly ModelMessage[];
+  teachingHistory: readonly ModelMessage[];
   context: string;
   activeChallenge: UnitReviewChallenge;
   experience: EducationExperienceDefinition;
@@ -89,7 +91,7 @@ export const runReviewGradeAgent = ({
     reasoning: "high",
     system: `${CRITIC_SYSTEM}\n\n${DIAGNOSIS_POLICY}\n\n## Customized behavior\n${experience.reviewer.instructions}`,
     messages,
-    context: `${context}\n\n## Immutable active challenge and private verifier\n${JSON.stringify(activeChallenge)}\n\n${gradeTurnInstruction(priorErrorCodes)}`,
+    context: `${context}\n\n## Earlier teaching conversation, for remediation only\n${JSON.stringify(teachingHistory)}\n\n## Immutable active challenge and private verifier\n${JSON.stringify(activeChallenge)}\n\n${gradeTurnInstruction(priorErrorCodes)}`,
     schema: reviewGradeSchema(shape),
     schemaName: "unit_review_grade",
     renderPartial: renderPartialGradeMessage,

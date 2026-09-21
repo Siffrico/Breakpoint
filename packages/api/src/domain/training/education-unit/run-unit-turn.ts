@@ -179,6 +179,7 @@ const gradeScenario = ({
     const ratingEligible = isRatingEligibleScenario(run);
     const { object: output } = yield* deps.runReviewGrade({
       messages: [{ role: "user", content: learnerAnswer }],
+      teachingHistory: transcript.slice(0, -1),
       context: contexts.critique.judgeAnswer,
       activeChallenge: step.challenge,
       experience,
