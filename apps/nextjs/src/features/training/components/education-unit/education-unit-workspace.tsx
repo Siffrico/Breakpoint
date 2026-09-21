@@ -1076,11 +1076,16 @@ function EducationUnitWorkspaceComponent({
                   ? ""
                   : (introMessage?.prompt ?? fallbackTurn.prompt)
             }
+            statusLabel={
+              openingLesson && !openingUnitFailed
+                ? "Preparing your lesson…"
+                : null
+            }
             helper={
               openingUnitFailed
                 ? null
                 : !preview && aiWorkspace?.state.educationStage === "learning"
-                  ? "Preparing your lesson…"
+                  ? null
                   : (introMessage?.helper ?? fallbackTurn.helper)
             }
           />

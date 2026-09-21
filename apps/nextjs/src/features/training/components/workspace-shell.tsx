@@ -86,6 +86,7 @@ export function WorkspaceShell({
     isHistorySelected: vm.isHistorySelected,
     isSessionRunning,
     preview,
+    preparationError: vm.workspaceLoadError ?? vm.unitPreparationFailure,
   });
 
   const { setSidebarCollapsed } = nav;
@@ -252,7 +253,8 @@ export function WorkspaceShell({
           unitPreparing={vm.unitPreparing}
           unitPreparationRetryPending={vm.unitPreparationRetryPending}
           preview={preview}
-          advancePending={advance.activeTransition != null}
+          advanceTransition={advance.activeTransition}
+          onRetryAdvance={advance.retry}
           recallTask={vm.recallTask}
           recallBoundaryNodeId={vm.recallBoundaryNodeId}
           onRecallAdvanceReady={onRecallAdvanceReady}

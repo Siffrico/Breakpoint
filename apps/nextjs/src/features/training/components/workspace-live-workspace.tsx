@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 
 import type { RouterOutputs } from "@acme/api";
 
+import type { AdvanceTransition } from "./use-advance-controller";
 import type { UnitCoachController } from "./use-unit-coach-controller";
 import type {
   AiWorkspace,
@@ -14,6 +15,7 @@ import type {
   OnboardingState,
   WorkspaceMode,
 } from "./use-workspace-session";
+import { AdvanceChatScreen } from "./advance-chat-screen";
 import { PreparingPanel } from "./preparing-panel";
 import { RecallWorkspace } from "./recall-workspace";
 
@@ -22,10 +24,12 @@ type RecallTask = Extract<
   { status: "ready" }
 >["task"];
 
-const EducationUnitWorkspace = dynamic(() =>
-  import("./education-unit/education-unit-workspace").then(
-    (mod) => mod.EducationUnitWorkspace,
-  ),
+const EducationUnitWorkspace = dynamic(
+  () =>
+    import("./education-unit/education-unit-workspace").then(
+      (mod) => mod.EducationUnitWorkspace,
+    ),
+  { loading: () => <AdvanceChatScreen error={null} /> },
 );
 const OnboardingShell = dynamic(() =>
   import("./onboarding-shell").then((mod) => mod.OnboardingShell),
@@ -51,7 +55,8 @@ interface WorkspaceLiveWorkspaceProps {
   unitPreparing: boolean;
   unitPreparationRetryPending: boolean;
   preview: boolean;
-  advancePending: boolean;
+  advanceTransition: AdvanceTransition | null;
+  onRetryAdvance: () => void;
   recallTask: RecallTask | null;
   recallBoundaryNodeId: string | null;
   onRecallAdvanceReady: (advance: (() => void) | null) => void;
@@ -79,7 +84,8 @@ function WorkspaceLiveWorkspaceComponent({
   unitPreparing,
   unitPreparationRetryPending,
   preview,
-  advancePending,
+  advanceTransition,
+  onRetryAdvance,
   recallTask,
   recallBoundaryNodeId,
   onRecallAdvanceReady,
@@ -92,24 +98,35 @@ function WorkspaceLiveWorkspaceComponent({
   onUnitStateChange,
   onAdvanceUnit,
 }: WorkspaceLiveWorkspaceProps) {
+  const showAdvance = advanceTransition !== null && mode !== "history";
+  const advanceError =
+    advanceTransition?.error ?? workspaceLoadError ?? unitPreparationFailure;
+  const retryAdvance = workspaceLoadError
+    ? onRetryWorkspace
+    : unitPreparationFailure
+      ? onRetryUnitPreparation
+      : onRetryAdvance;
   return (
     <div className="relative flex min-h-0 flex-1">
       <div className="bg-background flex min-w-0 flex-1 flex-col overflow-hidden">
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          {!coach.focused ? (
+          {!coach.focused || showAdvance ? (
             <main
               className={[
                 "relative flex min-w-0 flex-1 flex-col",
                 mode === "onboarding"
                   ? "min-h-0 overflow-hidden"
-                  : mode === "unit" || recallTask
+                  : mode === "unit" || showAdvance || recallTask
                     ? "min-h-0 overflow-hidden px-6 sm:px-10"
                     : "overflow-y-auto px-6 pt-1 pb-2 sm:px-10 sm:pt-2",
               ].join(" ")}
             >
               <div
                 className={
-                  mode === "onboarding" || mode === "unit" || recallTask
+                  mode === "onboarding" ||
+                  mode === "unit" ||
+                  showAdvance ||
+                  recallTask
                     ? "flex min-h-0 w-full flex-1 flex-col"
                     : mode === "history"
                       ? "flex min-h-full flex-col"
@@ -143,7 +160,9 @@ function WorkspaceLiveWorkspaceComponent({
                     onTurnCountChange={onTurnCountChange}
                   />
                 ) : null}
-                {(mode === "unit" || mode === "complete") && recallTask ? (
+                {(mode === "unit" || mode === "complete") &&
+                recallTask &&
+                !showAdvance ? (
                   <RecallWorkspace
                     key={recallTask.id}
                     initialTask={recallTask}
@@ -156,7 +175,14 @@ function WorkspaceLiveWorkspaceComponent({
                     onAdvanceReady={onRecallAdvanceReady}
                   />
                 ) : null}
-                {mode === "unit" && liveUnit && !recallTask ? (
+                {showAdvance ? (
+                  <AdvanceChatScreen
+                    error={advanceError}
+                    onRetry={retryAdvance}
+                    retryPending={unitPreparationRetryPending}
+                  />
+                ) : null}
+                {mode === "unit" && liveUnit && !recallTask && !showAdvance ? (
                   <EducationUnitWorkspace
                     key={`${selectedSessionId}:${liveUnit.nodeId}`}
                     unit={liveUnit}
@@ -164,7 +190,6 @@ function WorkspaceLiveWorkspaceComponent({
                     preview={preview}
                     embedded
                     aiWorkspace={aiWorkspace}
-                    advancePending={advancePending}
                     onAdvanceUnit={onAdvanceUnit}
                     onStateChange={onUnitStateChange}
                     onRunningChange={onRunningChange}
@@ -173,7 +198,7 @@ function WorkspaceLiveWorkspaceComponent({
                     onAskCoachAboutSelection={coach.askAboutSelection}
                   />
                 ) : null}
-                {mode === "complete" && !recallTask ? (
+                {mode === "complete" && !recallTask && !showAdvance ? (
                   <div className="flex min-h-[60vh] flex-col justify-center">
                     <PreparingPanel
                       label="Learning project complete"
@@ -182,7 +207,7 @@ function WorkspaceLiveWorkspaceComponent({
                     />
                   </div>
                 ) : null}
-                {mode === "idle" ? (
+                {mode === "idle" && !showAdvance ? (
                   <div className="flex min-h-[60vh] flex-col justify-center">
                     <PreparingPanel
                       label={
@@ -232,7 +257,7 @@ function WorkspaceLiveWorkspaceComponent({
             </main>
           ) : null}
 
-          {coach.open && liveUnit ? (
+          {coach.open && liveUnit && !showAdvance ? (
             <div
               className={[
                 "min-w-0 transition-[width] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)]",

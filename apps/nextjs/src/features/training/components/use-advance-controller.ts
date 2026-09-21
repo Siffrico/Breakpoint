@@ -4,8 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { toast } from "@acme/ui/toast";
-
 import type {
   AiWorkspace,
   LearningProject,
@@ -19,6 +17,7 @@ export interface AdvanceTransition {
   completedNodeId: string;
   projectedNodeId: string;
   title: string;
+  error: string | null;
 }
 interface AdvanceMutationContext {
   previousAdvanceTransition: AdvanceTransition | null;
@@ -29,7 +28,7 @@ interface AdvanceMutationContext {
 // The aiWorkspace query is otherwise bootstrap-frozen (staleTime: Infinity),
 // so while a transition is pending the controller polls for the server-side
 // advance it is waiting to reconcile against.
-const ADVANCE_POLL_INTERVAL_MS = 30_000;
+const ADVANCE_POLL_INTERVAL_MS = 1_000;
 const ADVANCE_TIMEOUT_MS = 2 * 60_000;
 
 /**
@@ -48,6 +47,7 @@ export function useAdvanceController({
   isHistorySelected,
   isSessionRunning,
   preview,
+  preparationError,
 }: {
   selectedSessionId: string;
   selectedChatId: string | null;
@@ -59,6 +59,7 @@ export function useAdvanceController({
   isHistorySelected: boolean;
   isSessionRunning: boolean;
   preview: boolean;
+  preparationError: string | null;
 }) {
   const router = useRouter();
   const trpc = useTRPC();
@@ -112,25 +113,35 @@ export function useAdvanceController({
   ]);
 
   useEffect(() => {
-    if (!activeTransition || isHistorySelected) return;
+    if (
+      !activeTransition ||
+      activeTransition.error ||
+      preparationError ||
+      isHistorySelected
+    )
+      return;
 
     const intervalId = window.setInterval(() => {
-      void queryClient.invalidateQueries({
-        queryKey: trpc.training.aiWorkspace.queryKey({
-          sessionId: activeTransition.sessionId,
-        }),
-      });
+      void queryClient.invalidateQueries(
+        {
+          queryKey: trpc.training.aiWorkspace.queryKey({
+            sessionId: activeTransition.sessionId,
+          }),
+        },
+        { cancelRefetch: false },
+      );
     }, ADVANCE_POLL_INTERVAL_MS);
     return () => window.clearInterval(intervalId);
   }, [
     activeTransition,
     isHistorySelected,
+    preparationError,
     queryClient,
     trpc.training.aiWorkspace,
   ]);
 
   useEffect(() => {
-    if (!activeTransition) return;
+    if (!activeTransition || activeTransition.error || preparationError) return;
 
     const { completedNodeId, sessionId } = activeTransition;
     const timeoutId = window.setTimeout(() => {
@@ -141,13 +152,14 @@ export function useAdvanceController({
         ) {
           return current;
         }
-        return null;
+        return {
+          ...current,
+          error: "The next unit could not be prepared. Please try again.",
+        };
       });
-      setSelectedChatId(completedNodeId);
-      toast.error("The next unit could not be prepared. Please try again.");
     }, ADVANCE_TIMEOUT_MS);
     return () => window.clearTimeout(timeoutId);
-  }, [activeTransition, setSelectedChatId]);
+  }, [activeTransition, preparationError]);
 
   const restoreAdvanceTransition = useCallback(
     (context: AdvanceMutationContext | undefined) => {
@@ -168,8 +180,10 @@ export function useAdvanceController({
         const transition: AdvanceTransition = {
           sessionId: variables.sessionId,
           completedNodeId: variables.nodeId,
-          projectedNodeId: crypto.randomUUID(),
-          title: nextTitle,
+          projectedNodeId:
+            activeTransition?.projectedNodeId ?? crypto.randomUUID(),
+          title: activeTransition?.title ?? nextTitle,
+          error: null,
         };
 
         setAdvanceTransition(transition);
@@ -195,7 +209,17 @@ export function useAdvanceController({
           );
           return;
         }
-        if (!result.advanced) return;
+        if (!result.advanced) {
+          if ("progressionPending" in result) {
+            void queryClient.invalidateQueries(
+              { queryKey: workspaceKey },
+              { cancelRefetch: false },
+            );
+          } else {
+            restoreAdvanceTransition(context);
+          }
+          return;
+        }
         if (result.nextChat) {
           const { nodeId, title } = result.nextChat;
           setAdvanceTransition((current) =>
@@ -213,11 +237,22 @@ export function useAdvanceController({
         });
       },
       onError: (error, _variables, context) => {
-        restoreAdvanceTransition(context);
-        toast.error(error.message);
+        setAdvanceTransition((current) =>
+          current === context?.transition
+            ? { ...current, error: error.message }
+            : current,
+        );
       },
     }),
   );
+
+  const retry = useCallback(() => {
+    if (!activeTransition || advanceCompletedUnit.isPending) return;
+    advanceCompletedUnit.mutate({
+      sessionId: activeTransition.sessionId,
+      nodeId: activeTransition.completedNodeId,
+    });
+  }, [activeTransition, advanceCompletedUnit]);
 
   const canAdvance =
     mode === "unit" &&
@@ -283,9 +318,10 @@ export function useAdvanceController({
       canAdvance,
       isPending,
       advance,
+      retry,
       resolvedProjects,
     }),
-    [activeTransition, canAdvance, isPending, advance, resolvedProjects],
+    [activeTransition, canAdvance, isPending, advance, retry, resolvedProjects],
   );
 }
 

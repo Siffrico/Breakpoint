@@ -210,6 +210,7 @@ export function WorkspaceComposerInput({
         value={value}
         onValueChange={handleValueChange}
         textareaRef={textareaRef}
+        autoFocus
         ariaLabel="Response"
         placeholder={placeholder}
         // Workbench shape: a drafting surface with a small radius and a
