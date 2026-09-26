@@ -113,36 +113,6 @@ export function WorkspaceShell({
     [nav.selectedSessionId],
   );
 
-  // Cross-controller glue: whether a chat link points at the chat that is
-  // already live needs the view model's active node and the advance
-  // controller's projected node, so it composes here rather than in either.
-  const isLiveChatNode = useCallback(
-    (targetSessionId: string, nodeId: string) =>
-      targetSessionId === nav.selectedSessionId &&
-      (nodeId === vm.activeNodeId || nodeId === advance.pendingNodeId),
-    [advance.pendingNodeId, nav.selectedSessionId, vm.activeNodeId],
-  );
-  const prefetchChat = useCallback(
-    (nextSessionId: string, nodeId: string) => {
-      if (isLiveChatNode(nextSessionId, nodeId)) return;
-      nav.prefetchChatHistory(nextSessionId, nodeId);
-    },
-    [isLiveChatNode, nav],
-  );
-  const handleSelectChat = useCallback(
-    (
-      event: MouseEvent<HTMLAnchorElement>,
-      nextSessionId: string,
-      nodeId: string,
-    ) => {
-      nav.handleLink(
-        event,
-        nextSessionId,
-        isLiveChatNode(nextSessionId, nodeId) ? null : nodeId,
-      );
-    },
-    [isLiveChatNode, nav],
-  );
   const handleSelectProject = useCallback(
     (event: MouseEvent<HTMLAnchorElement>, nextSessionId: string) => {
       nav.handleLink(event, nextSessionId, null);
@@ -188,12 +158,6 @@ export function WorkspaceShell({
       <WorkspaceSidebar
         projects={advance.resolvedProjects}
         selectedSessionId={nav.selectedSessionId}
-        activeLessonId={
-          advance.pendingNodeId ??
-          vm.resolvedChatHistory?.node.id ??
-          vm.liveUnit?.nodeId ??
-          null
-        }
         preview={preview}
         collapsed={effectiveSidebarCollapsed}
         mobileOpen={nav.mobileSidebarOpen}
@@ -205,8 +169,6 @@ export function WorkspaceShell({
         onCloseMobile={nav.closeMobileSidebar}
         onSelectProject={handleSelectProject}
         onPrefetchProject={nav.prefetchProject}
-        onSelectChat={handleSelectChat}
-        onPrefetchChat={prefetchChat}
       />
 
       <div className="border-foreground/[0.08] flex min-w-0 flex-1 flex-col md:border-l">

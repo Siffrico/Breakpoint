@@ -15,6 +15,7 @@ export interface LearningProjectSummary {
     title: string;
     status: string;
   }[];
+  pinnedAt: Date | null;
   updatedAt: Date;
 }
 

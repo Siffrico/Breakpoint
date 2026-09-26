@@ -476,6 +476,28 @@ export const trainingRouter = {
       return { sessionId: deleted.id };
     }),
 
+  setLearningProjectPinned: protectedProcedure
+    .input(z.object({ sessionId: z.string().uuid(), pinned: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const session = await trainingOnboardingRepository.setSessionPinnedByUser(
+        {
+          db: ctx.db,
+          sessionId: input.sessionId,
+          userId: ctx.session.user.id,
+          pinned: input.pinned,
+        },
+      );
+
+      if (!session) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "This learning project could not be found.",
+        });
+      }
+
+      return { sessionId: session.id, pinnedAt: session.pinnedAt };
+    }),
+
   activePlan: protectedProcedure
     .input(SessionIdSchema)
     .query(async ({ ctx, input }) => {

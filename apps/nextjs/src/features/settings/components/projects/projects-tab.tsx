@@ -77,6 +77,7 @@ export function ProjectsTab({
             headline: `${title} learning project`,
             status: "onboarding",
             lessonPreview: [],
+            pinnedAt: null,
             updatedAt: new Date(),
           },
           ...current,

@@ -16,6 +16,9 @@ export const TrainingOnboardingSession = pgTable(
     // shown back on the confirm card. See @acme/validators StartingPointTier.
     startingPointTier: t.varchar({ length: 16 }),
     startingPointLabel: t.text(),
+    // Set when the learner pins the topic to the top of the sidebar; pinned
+    // topics are listed in pin order. Null means unpinned.
+    pinnedAt: t.timestamp({ mode: "date", withTimezone: true }),
     completedAt: t.timestamp({ mode: "date", withTimezone: true }),
     createdAt: t
       .timestamp({ mode: "date", withTimezone: true })

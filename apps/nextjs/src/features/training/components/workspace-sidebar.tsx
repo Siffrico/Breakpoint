@@ -14,7 +14,6 @@ export type WorkspaceTheme = "light" | "dark" | "warm";
 interface WorkspaceSidebarProps {
   projects: LearningProject[];
   selectedSessionId: string;
-  activeLessonId: string | null;
   preview: boolean;
   collapsed: boolean;
   mobileOpen: boolean;
@@ -29,18 +28,11 @@ interface WorkspaceSidebarProps {
     sessionId: string,
   ) => void;
   onPrefetchProject: (sessionId: string) => void;
-  onSelectChat: (
-    event: MouseEvent<HTMLAnchorElement>,
-    sessionId: string,
-    nodeId: string,
-  ) => void;
-  onPrefetchChat: (sessionId: string, nodeId: string) => void;
 }
 
 function WorkspaceSidebarComponent({
   projects,
   selectedSessionId,
-  activeLessonId,
   preview,
   collapsed,
   mobileOpen,
@@ -52,8 +44,6 @@ function WorkspaceSidebarComponent({
   onCloseMobile,
   onSelectProject,
   onPrefetchProject,
-  onSelectChat,
-  onPrefetchChat,
 }: WorkspaceSidebarProps) {
   const commonProps = {
     projects,
@@ -61,14 +51,11 @@ function WorkspaceSidebarComponent({
     preview,
     collapsed: false,
     userName,
-    activeLessonId,
     isSessionRunning,
     workspaceTheme,
     onWorkspaceThemeChange,
     onSelectProject,
     onPrefetchProject,
-    onSelectChat,
-    onPrefetchChat,
   };
 
   return (
@@ -77,10 +64,10 @@ function WorkspaceSidebarComponent({
         inert={collapsed ? true : undefined}
         className={[
           "hidden shrink-0 overflow-hidden transition-[width] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] md:block",
-          collapsed ? "w-0" : "bg-sidebar w-[220px]",
+          collapsed ? "w-0" : "bg-sidebar w-64",
         ].join(" ")}
       >
-        <div className="h-full w-[220px]">
+        <div className="h-full w-64">
           <CurriculumSidebar
             {...commonProps}
             onToggleCollapsed={onToggleCollapsed}

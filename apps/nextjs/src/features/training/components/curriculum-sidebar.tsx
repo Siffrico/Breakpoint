@@ -1,22 +1,23 @@
 "use client";
 
-import type { CSSProperties, MouseEvent, ReactNode } from "react";
-import { memo, useEffect, useRef, useState } from "react";
+import type { CSSProperties, MouseEvent, ReactNode, RefObject } from "react";
+import { memo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  FolderOpen,
-  FolderSimple,
   Gear,
   MagnifyingGlass,
+  NotePencil,
   Play,
   Plus,
+  PushPin,
   SidebarSimple,
   Storefront,
 } from "@phosphor-icons/react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import type { RouterOutputs } from "@acme/api";
+import { cn } from "@acme/ui";
 import { DotmTriangle1 } from "@acme/ui/dotm-triangle-1";
 import {
   Menu,
@@ -31,7 +32,6 @@ import {
 } from "@acme/ui/menu";
 import { toast } from "@acme/ui/toast";
 
-import { useLocalStorage } from "~/hooks/use-local-storage";
 import { useTRPC } from "~/trpc/react";
 import { useCommandPalette } from "../hooks/use-command-palette";
 import { WorkspaceCommandPalette } from "./workspace-command-palette";
@@ -40,6 +40,9 @@ type LearningProject =
   RouterOutputs["training"]["listLearningProjects"][number];
 
 const EMPTY_PROJECTS: LearningProject[] = [];
+
+/** Recent rows shown before "Show more"; pinned topics are never capped. */
+const RECENT_PREVIEW_LIMIT = 8;
 
 type WorkspaceTheme = "light" | "dark" | "warm";
 
@@ -73,29 +76,90 @@ const WORKSPACE_MAIN_COLORS: Record<
   },
 };
 
-const SIDEBAR_FADE_STYLE = {
-  WebkitMaskImage:
-    "linear-gradient(90deg, rgba(0,0,0,1) 0%, rgba(0,0,0,1) calc(100% - 18px), rgba(0,0,0,0) 100%)",
-  maskImage:
-    "linear-gradient(90deg, rgba(0,0,0,1) 0%, rgba(0,0,0,1) calc(100% - 18px), rgba(0,0,0,0) 100%)",
-} satisfies CSSProperties;
+// Shared row tokens, so nav rows, topic rows, and section labels read as one
+// system. Layout follows Synara's activity sidebar, ~12% taller.
+const ROW_FOCUS_CLASS =
+  "outline-none transition-colors focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-foreground/20";
+const ROW_HOVER_CLASS = "hover:bg-foreground/[0.04]";
+const ROW_ACTIVE_CLASS = "bg-foreground/[0.06]";
+const SECTION_LABEL_CLASS = "text-foreground/45 text-[13px] font-normal";
+const ROW_ACTION_CLASS =
+  "text-foreground/42 hover:text-foreground/85 hover:bg-foreground/[0.06] flex size-6 shrink-0 items-center justify-center rounded-[5px] transition-colors outline-none focus-visible:ring-1 focus-visible:ring-foreground/20";
 
-function FadeLabel({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <div
-      className={["overflow-hidden whitespace-nowrap", className]
-        .filter(Boolean)
-        .join(" ")}
-      style={SIDEBAR_FADE_STYLE}
-    >
-      {children}
-    </div>
+/**
+ * Pinned topics first, in the order they were pinned (so the list does not
+ * reshuffle under the learner); everything else stays in the server's
+ * most-recently-updated order.
+ */
+function partitionTopics(projects: LearningProject[]) {
+  const pinned = projects
+    .filter((project) => project.pinnedAt)
+    .sort(
+      (left, right) =>
+        (left.pinnedAt?.getTime() ?? 0) - (right.pinnedAt?.getTime() ?? 0),
+    );
+  const recent = projects.filter((project) => !project.pinnedAt);
+  return { pinned, recent };
+}
+
+/** The one line that says where the topic stands. */
+function describeTopicStatus(project: LearningProject) {
+  if (project.status === "onboarding") return "Interview in progress";
+  if (project.status === "building") return "Preparing curriculum…";
+  return project.lessonPreview[0]?.title ?? "Ready to start";
+}
+
+function formatLastActive(date: Date) {
+  const minutes = Math.max(
+    1,
+    Math.floor((Date.now() - date.getTime()) / 60_000),
+  );
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d`;
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+/**
+ * Pins or unpins a topic. The sidebar reads the listLearningProjects cache, so
+ * the row moves sections immediately; a failed write rolls the cache back and
+ * the settled refetch reconciles with the server either way.
+ */
+function useSetTopicPinned() {
+  const trpc = useTRPC();
+  const queryClient = useQueryClient();
+  const projectsKey = trpc.training.listLearningProjects.queryKey();
+
+  return useMutation(
+    trpc.training.setLearningProjectPinned.mutationOptions({
+      onMutate: async ({ sessionId, pinned }) => {
+        await queryClient.cancelQueries({ queryKey: projectsKey });
+        const previous = queryClient.getQueryData(projectsKey);
+        queryClient.setQueryData(projectsKey, (current) =>
+          current?.map((project) =>
+            project.sessionId === sessionId
+              ? {
+                  ...project,
+                  pinnedAt: pinned ? (project.pinnedAt ?? new Date()) : null,
+                }
+              : project,
+          ),
+        );
+        return { previous };
+      },
+      onError: (error, variables, context) => {
+        if (context?.previous) {
+          queryClient.setQueryData(projectsKey, context.previous);
+        }
+        toast.error(
+          error.message ||
+            `The topic could not be ${variables.pinned ? "pinned" : "unpinned"}.`,
+        );
+      },
+      onSettled: () => queryClient.invalidateQueries({ queryKey: projectsKey }),
+    }),
   );
 }
 
@@ -188,293 +252,222 @@ function SettingsQuickMenu({
   );
 }
 
-function ChatRow({
-  title,
-  status,
+function NavRow({
+  icon,
+  label,
+  shortcut,
   href,
-  isRunning = false,
-  isActive = false,
-  onNavigate,
-  onPrefetch,
+  onClick,
 }: {
-  title: string;
-  status?: string;
-  href: string;
-  isRunning?: boolean;
-  isActive?: boolean;
-  onNavigate?: (event: MouseEvent<HTMLAnchorElement>) => void;
-  onPrefetch?: () => void;
+  icon: ReactNode;
+  label: string;
+  shortcut?: string;
+  href?: string;
+  onClick?: () => void;
 }) {
-  const isReady = status === "ready";
-  const isCompleted = status === "completed";
-
-  return (
-    <Link
-      href={href}
-      onClick={onNavigate}
-      onMouseEnter={onPrefetch}
-      onFocus={onPrefetch}
-      aria-current={isActive ? "true" : undefined}
-      className={[
-        "group hover:bg-foreground/[0.035] flex w-full items-center gap-2 rounded-[6px] px-2 py-[6px] text-left text-[13px] transition-colors outline-none focus:outline-none focus-visible:outline-none",
-        isActive
-          ? "bg-foreground/[0.045] text-foreground/92"
-          : isReady
-            ? "text-foreground/86"
-            : isCompleted
-              ? "text-foreground/40"
-              : "text-foreground/56",
-      ].join(" ")}
-    >
-      <FadeLabel className="min-w-0 flex-1 leading-[18px]">{title}</FadeLabel>
-      {isRunning ? (
-        <span className="text-foreground/72 flex shrink-0 items-center">
-          <DotmTriangle1 size={13} dotSize={1} />
+  const className = cn(
+    "text-foreground/89 flex h-[30px] w-full min-w-0 items-center gap-2 rounded-md px-2 text-left text-[13px] font-normal",
+    ROW_FOCUS_CLASS,
+    ROW_HOVER_CLASS,
+  );
+  const content = (
+    <>
+      <span className="flex size-5 shrink-0 items-center justify-center">
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {shortcut ? (
+        <span className="text-foreground/30 shrink-0 font-mono text-[11px] tracking-tight">
+          {shortcut}
         </span>
       ) : null}
+    </>
+  );
+
+  return href ? (
+    <Link href={href} className={className}>
+      {content}
     </Link>
+  ) : (
+    <button type="button" onClick={onClick} className={className}>
+      {content}
+    </button>
   );
 }
 
-function ProjectRow({
+/**
+ * Row-level menu opened by double-clicking a topic. There is no visible
+ * trigger: the popup anchors to the row itself, so the row stays quiet at rest.
+ */
+function TopicActionsMenu({
+  anchor,
+  open,
+  onOpenChange,
+  isPinned,
+  overviewHref,
+  onTogglePinned,
+}: {
+  anchor: RefObject<HTMLDivElement | null>;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  isPinned: boolean;
+  overviewHref: string;
+  onTogglePinned: () => void;
+}) {
+  return (
+    <Menu open={open} onOpenChange={onOpenChange}>
+      <MenuPopup anchor={anchor} side="right" align="start" sideOffset={6}>
+        <MenuItem onClick={onTogglePinned}>
+          <PushPin weight={isPinned ? "fill" : "regular"} />
+          {isPinned ? "Unpin" : "Pin"}
+        </MenuItem>
+        <MenuItem render={<Link href={overviewHref} />}>
+          <Gear />
+          Topic settings
+        </MenuItem>
+      </MenuPopup>
+    </Menu>
+  );
+}
+
+/**
+ * Two-line topic row: title over status + last-active time. At rest the
+ * top-right slot shows only the running indicator; hover swaps in the play
+ * button. Pin and settings live in the double-click menu.
+ */
+function TopicRow({
   project,
   href,
   overviewHref,
   isCurrent,
-  isExpanded,
-  activeLessonId,
-  isSessionRunning,
-  onToggle,
-  onContinue,
+  isRunning,
+  isContinuing,
   onNavigate,
   onPrefetch,
-  onNavigateChat,
-  onPrefetchChat,
-  isContinuing,
-  preview = false,
+  onTogglePinned,
+  onContinue,
 }: {
   project: LearningProject;
   href: string;
   overviewHref: string;
   isCurrent: boolean;
-  isExpanded: boolean;
-  activeLessonId?: string | null;
-  isSessionRunning?: boolean;
-  onToggle: () => void;
-  onContinue: () => void;
+  isRunning: boolean;
+  isContinuing: boolean;
   onNavigate: (event: MouseEvent<HTMLAnchorElement>) => void;
   onPrefetch: () => void;
-  onNavigateChat: (
-    event: MouseEvent<HTMLAnchorElement>,
-    lessonId: string,
-  ) => void;
-  onPrefetchChat: (lessonId: string) => void;
-  isContinuing: boolean;
-  preview?: boolean;
+  onTogglePinned: () => void;
+  onContinue: () => void;
 }) {
-  // Server sends newest-first, capped at 10. Default to a 3-row window; the
-  // learner can widen it per project when more chats actually exist.
-  const [showAllChats, setShowAllChats] = useState(false);
-  // Transitions stay off until the row has settled at its initial state — the
-  // stored expansion map hydrates in an effect, and that first flip must not
-  // animate. Dropping the attribute imperatively keeps it to zero re-renders.
   const rowRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const frame = requestAnimationFrame(() =>
-      rowRef.current?.removeAttribute("data-static"),
-    );
-    return () => cancelAnimationFrame(frame);
-  }, []);
-  const lessons = showAllChats
-    ? project.lessonPreview
-    : project.lessonPreview.slice(0, 3);
-  const hasMoreChats = project.lessonPreview.length > 3;
+  const [menuOpen, setMenuOpen] = useState(false);
+  const canContinue = project.status === "active";
 
   return (
-    <div ref={rowRef} data-static="" className="group/row">
-      <div
-        className={[
-          "group/project hover:bg-foreground/[0.035] flex w-full items-center gap-2 rounded-[6px] px-1.5 transition-colors",
-          isCurrent ? "text-foreground/92" : "text-foreground/72",
-        ].join(" ")}
-      >
-        {/* Both folders stay mounted and stacked; toggling only crosses opacity
-            and scale, so the swap is compositor-only — no layout, no reflow. */}
-        <button
-          type="button"
-          onClick={(event) => {
-            event.currentTarget.blur();
-            onToggle();
-          }}
-          aria-expanded={isExpanded}
-          aria-label={`${isExpanded ? "Collapse" : "Expand"} ${project.title}`}
-          className="text-foreground/45 group-hover/project:text-foreground/70 relative flex size-[18px] shrink-0 items-center justify-center transition-colors outline-none focus:outline-none focus-visible:outline-none"
-        >
-          <FolderSimple
-            size={16}
-            weight="regular"
-            aria-hidden="true"
-            className={[
-              "absolute transition-[opacity,transform] duration-150 ease-out group-data-[static]/row:transition-none motion-reduce:transition-none",
-              isExpanded ? "scale-90 opacity-0" : "scale-100 opacity-100",
-            ].join(" ")}
-          />
-          <FolderOpen
-            size={16}
-            weight="regular"
-            aria-hidden="true"
-            className={[
-              "absolute transition-[opacity,transform] duration-150 ease-out group-data-[static]/row:transition-none motion-reduce:transition-none",
-              isExpanded ? "scale-100 opacity-100" : "scale-90 opacity-0",
-            ].join(" ")}
-          />
-        </button>
-
-        <Link
-          href={href}
-          onClick={onNavigate}
-          onMouseEnter={onPrefetch}
-          onFocus={onPrefetch}
-          className="hover:text-foreground/92 flex min-w-0 flex-1 py-[7px] text-left text-[13px] font-normal transition-colors outline-none focus:outline-none focus-visible:outline-none"
-        >
-          <FadeLabel className="min-w-0 flex-1 leading-[18px]">
-            {project.title}
-          </FadeLabel>
-        </Link>
-
-        <ProjectActionsMenu overviewHref={overviewHref} />
-
-        <button
-          type="button"
-          onClick={onContinue}
-          disabled={isContinuing || project.status !== "active"}
-          aria-label={`Continue ${project.title}`}
-          title={
-            project.status === "active"
-              ? `Continue ${project.title}`
-              : "Curriculum is still being prepared"
+    <div
+      ref={rowRef}
+      className="group/topic relative"
+      onDoubleClick={() => setMenuOpen(true)}
+    >
+      <Link
+        href={href}
+        onClick={(event) => {
+          // The second click of a double-click opens the menu; it must not
+          // navigate (and push a duplicate history entry) again.
+          if (event.detail > 1) {
+            event.preventDefault();
+            return;
           }
-          className={[
-            "group/continue flex size-6 shrink-0 items-center justify-center rounded-[5px] outline-none focus:outline-none focus-visible:outline-none disabled:pointer-events-none disabled:opacity-25",
-            isCurrent
-              ? ""
-              : "pointer-events-none group-hover/project:pointer-events-auto focus-visible:pointer-events-auto",
-          ].join(" ")}
-        >
-          {isContinuing ? (
-            <DotmTriangle1 size={13} dotSize={1} />
-          ) : (
-            // Continue only persists on the open project; elsewhere it surfaces
-            // under the pointer. The reveal is deliberately asymmetric — CSS
-            // transitions read timing from the state being entered, so hover
-            // supplies the 150ms fade-in and the base state the 75ms fade-out.
-            // Sweeping the list therefore collapses the trail behind the cursor
-            // instead of leaving five buttons dissolving at once.
-            <span
-              className={[
-                "bg-primary text-primary-foreground flex size-[17px] items-center justify-center rounded-full",
-                isCurrent
-                  ? ""
-                  : "opacity-0 transition-opacity duration-75 ease-linear group-hover/project:opacity-100 group-hover/project:duration-150 group-hover/project:ease-out group-focus-visible/continue:opacity-100 motion-reduce:transition-none",
-              ].join(" ")}
-            >
-              <Play size={7} weight="fill" />
-            </span>
-          )}
-        </button>
-      </div>
+          onNavigate(event);
+        }}
+        onMouseEnter={onPrefetch}
+        onFocus={onPrefetch}
+        aria-current={isCurrent ? "page" : undefined}
+        className={cn(
+          "flex w-full min-w-0 flex-col gap-1 rounded-lg px-2.5 py-[11.5px] text-left select-none",
+          ROW_FOCUS_CLASS,
+          isCurrent || menuOpen ? ROW_ACTIVE_CLASS : ROW_HOVER_CLASS,
+        )}
+      >
+        <span className="flex min-w-0 items-center pr-7">
+          <span
+            className={cn(
+              "min-w-0 truncate text-[13px] leading-5 font-normal",
+              isCurrent ? "text-foreground" : "text-foreground/90",
+            )}
+          >
+            {project.title}
+          </span>
+        </span>
+        <span className="flex min-w-0 items-center gap-2 text-[12px] leading-4">
+          <span className="text-foreground/50 min-w-0 truncate">
+            {describeTopicStatus(project)}
+          </span>
+          <span
+            // Relative to the viewer's clock, so the server render can be a
+            // minute off from the client's.
+            suppressHydrationWarning
+            className="text-foreground/38 ml-auto shrink-0 tabular-nums"
+          >
+            {formatLastActive(project.updatedAt)}
+          </span>
+        </span>
+      </Link>
 
-      {lessons.length > 0 ? (
-        // 0fr → 1fr animates to the content's natural height without measuring
-        // it in JS, so there is no read-back layout thrash on toggle.
-        <div
-          className={[
-            "grid transition-[grid-template-rows] duration-[220ms] ease-[cubic-bezier(0.32,0.72,0,1)] group-data-[static]/row:transition-none motion-reduce:transition-none",
-            isExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
-          ].join(" ")}
-        >
-          <div className="overflow-hidden">
-            <div
-              inert={isExpanded ? undefined : true}
-              className={[
-                "border-foreground/[0.06] mt-px ml-[15px] border-l pl-[10px] transition-[opacity,transform] duration-[220ms] ease-out group-data-[static]/row:transition-none motion-reduce:transition-none",
-                isExpanded
-                  ? "translate-y-0 opacity-100"
-                  : "-translate-y-1 opacity-0",
-              ].join(" ")}
-            >
-              {lessons.map((lesson) => (
-                <ChatRow
-                  key={lesson.id}
-                  title={lesson.title}
-                  status={lesson.status}
-                  // The workspace resolves the live chat back to the plain URL,
-                  // so deep-linking every row is safe: past chats open read-only
-                  // history, the live one opens the normal workspace.
-                  href={
-                    preview
-                      ? href
-                      : `${href}&chat=${encodeURIComponent(lesson.id)}`
-                  }
-                  isActive={isCurrent && lesson.id === activeLessonId}
-                  isRunning={
-                    Boolean(isSessionRunning && isCurrent) &&
-                    lesson.id === activeLessonId
-                  }
-                  onNavigate={(event) => onNavigateChat(event, lesson.id)}
-                  onPrefetch={() => onPrefetchChat(lesson.id)}
-                />
-              ))}
-              {hasMoreChats ? (
-                <button
-                  type="button"
-                  onClick={() => setShowAllChats((prev) => !prev)}
-                  className="text-foreground/36 hover:text-foreground/64 flex w-full items-center rounded-[6px] px-2 py-[5px] text-left text-[12px] transition-colors outline-none focus:outline-none focus-visible:outline-none"
-                >
-                  <FadeLabel className="min-w-0 flex-1 leading-[16px]">
-                    {showAllChats ? "Show less" : "Show more"}
-                  </FadeLabel>
-                </button>
-              ) : null}
-            </div>
-          </div>
-        </div>
+      {isRunning ? (
+        <span className="pointer-events-none absolute top-2.5 right-2 flex size-6 items-center justify-center transition-opacity group-focus-within/topic:opacity-0 group-hover/topic:opacity-0">
+          <DotmTriangle1 size={13} dotSize={1} />
+        </span>
       ) : null}
+
+      <button
+        type="button"
+        onClick={onContinue}
+        onDoubleClick={(event) => event.stopPropagation()}
+        disabled={isContinuing || !canContinue}
+        aria-label={`Continue ${project.title}`}
+        title={
+          canContinue
+            ? `Continue ${project.title}`
+            : "Curriculum is still being prepared"
+        }
+        className={cn(
+          ROW_ACTION_CLASS,
+          "pointer-events-none absolute top-2.5 right-2 opacity-0 transition-opacity group-focus-within/topic:pointer-events-auto group-focus-within/topic:opacity-100 group-hover/topic:pointer-events-auto group-hover/topic:opacity-100 disabled:!opacity-0",
+        )}
+      >
+        {isContinuing ? (
+          <DotmTriangle1 size={13} dotSize={1} />
+        ) : (
+          <Play size={12} weight="fill" />
+        )}
+      </button>
+
+      <TopicActionsMenu
+        anchor={rowRef}
+        open={menuOpen}
+        onOpenChange={setMenuOpen}
+        isPinned={project.pinnedAt !== null}
+        overviewHref={overviewHref}
+        onTogglePinned={onTogglePinned}
+      />
     </div>
   );
 }
 
-function ProjectActionsMenu({ overviewHref }: { overviewHref: string }) {
+function TopicSection({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
   return (
-    <Menu>
-      <MenuTrigger
-        openOnHover
-        delay={80}
-        closeDelay={320}
-        render={
-          <button
-            type="button"
-            aria-label="Project actions"
-            className="text-foreground/40 hover:text-foreground/85 hover:bg-foreground/[0.05] pointer-events-none flex size-6 shrink-0 items-center justify-center rounded-[5px] opacity-0 transition-[color,background-color,opacity] outline-none group-hover/project:pointer-events-auto group-hover/project:opacity-100 focus:outline-none focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none"
-          />
-        }
-      >
-        <Gear size={14} weight="regular" />
-      </MenuTrigger>
-      <MenuPopup
-        side="right"
-        align="start"
-        sideOffset={6}
-        className="border-foreground/[0.1] bg-background text-foreground w-auto min-w-0 rounded-xl p-1 shadow-[0_10px_30px_rgba(0,0,0,0.12)] before:rounded-xl"
-      >
-        <MenuItem
-          render={<Link href={overviewHref} />}
-          className="rounded-lg px-3 text-[13px]"
-        >
-          Overview
-        </MenuItem>
-      </MenuPopup>
-    </Menu>
+    <section>
+      <div className="mb-1.5 px-2">
+        <span className={SECTION_LABEL_CLASS}>{label}</span>
+      </div>
+      <div className="flex flex-col gap-0.5">{children}</div>
+    </section>
   );
 }
 
@@ -486,15 +479,12 @@ function CurriculumSidebarComponent({
   onToggleCollapsed,
   userName,
   userPlan = "Free Plan",
-  activeLessonId,
   isSessionRunning = false,
   workspaceTheme = "warm",
   onWorkspaceThemeChange,
   onNavigate,
   onSelectProject,
   onPrefetchProject,
-  onSelectChat,
-  onPrefetchChat,
 }: {
   projects?: LearningProject[];
   currentSessionId: string;
@@ -503,7 +493,6 @@ function CurriculumSidebarComponent({
   onToggleCollapsed?: () => void;
   userName?: string;
   userPlan?: string;
-  activeLessonId?: string | null;
   isSessionRunning?: boolean;
   workspaceTheme?: WorkspaceTheme;
   onWorkspaceThemeChange?: (theme: WorkspaceTheme) => void;
@@ -513,15 +502,10 @@ function CurriculumSidebarComponent({
     sessionId: string,
   ) => void;
   onPrefetchProject?: (sessionId: string) => void;
-  onSelectChat?: (
-    event: MouseEvent<HTMLAnchorElement>,
-    sessionId: string,
-    nodeId: string,
-  ) => void;
-  onPrefetchChat?: (sessionId: string, nodeId: string) => void;
 }) {
   const router = useRouter();
   const trpc = useTRPC();
+  const [showAllRecent, setShowAllRecent] = useState(false);
   const profileHref = preview
     ? "/ui/profile"
     : `/settings?session=${currentSessionId}`;
@@ -548,36 +532,11 @@ function CurriculumSidebarComponent({
       },
     }),
   );
+  const setTopicPinned = useSetTopicPinned();
 
   const { open: paletteOpen, setOpen: setPaletteOpen } = useCommandPalette({
     onNewTopic: handleNewProject,
   });
-
-  const [expanded, setExpanded] = useLocalStorage<Record<string, boolean>>(
-    "bp-sidebar-expanded",
-    {},
-  );
-
-  // Drop expansion state for projects that no longer exist so the stored map
-  // doesn't accumulate stale session ids forever.
-  useEffect(() => {
-    if (preview || projects.length === 0) return;
-    const liveIds = new Set(projects.map((project) => project.sessionId));
-    setExpanded((prev) => {
-      const staleKeys = Object.keys(prev).filter((key) => !liveIds.has(key));
-      if (staleKeys.length === 0) return prev;
-      const next = { ...prev };
-      for (const key of staleKeys) delete next[key];
-      return next;
-    });
-  }, [preview, projects, setExpanded]);
-
-  const toggleProject = (sessionId: string, currentDefault: boolean) => {
-    setExpanded((prev) => {
-      const isOpen = prev[sessionId] ?? currentDefault;
-      return { ...prev, [sessionId]: !isOpen };
-    });
-  };
 
   const displayName = userName ?? "You";
   const initial = displayName.trim().charAt(0).toUpperCase() || "·";
@@ -636,121 +595,123 @@ function CurriculumSidebarComponent({
     );
   }
 
+  const { pinned, recent } = partitionTopics(projects);
+  const visibleRecent = showAllRecent
+    ? recent
+    : recent.slice(0, RECENT_PREVIEW_LIMIT);
+  const hasHiddenRecent = recent.length > RECENT_PREVIEW_LIMIT;
+
+  const renderTopic = (project: LearningProject) => {
+    const isCurrent = project.sessionId === currentSessionId;
+    const href = preview
+      ? "/ui/workspace"
+      : `/workspace?session=${project.sessionId}`;
+    return (
+      <TopicRow
+        key={project.sessionId}
+        project={project}
+        href={href}
+        overviewHref={
+          preview
+            ? `/ui/profile/topics/${project.sessionId}`
+            : `/settings/topics/${project.sessionId}`
+        }
+        isCurrent={isCurrent}
+        isRunning={isSessionRunning && isCurrent}
+        isContinuing={
+          continueProject.isPending &&
+          continueProject.variables.sessionId === project.sessionId
+        }
+        onNavigate={(event) => onSelectProject?.(event, project.sessionId)}
+        onPrefetch={() => onPrefetchProject?.(project.sessionId)}
+        onTogglePinned={() => {
+          if (preview) return;
+          setTopicPinned.mutate({
+            sessionId: project.sessionId,
+            pinned: project.pinnedAt === null,
+          });
+        }}
+        onContinue={() => {
+          if (preview) {
+            router.push(href);
+            return;
+          }
+          continueProject.mutate({ sessionId: project.sessionId });
+        }}
+      />
+    );
+  };
+
   return (
     <aside className="bg-sidebar text-sidebar-foreground flex h-full flex-col">
-      {/* Top icon row */}
-      <div className="flex h-12 items-center justify-between px-2.5">
+      <div className="flex h-12 items-center justify-between pr-2.5 pl-4">
+        <span className="text-foreground/92 truncate text-[15px] font-semibold tracking-tight">
+          Breakpoint
+        </span>
         <div className="flex items-center gap-0.5">
-          <IconButton label="Collapse sidebar" onClick={onToggleCollapsed}>
-            <SidebarSimple size={14} />
-          </IconButton>
           <IconButton label="Search" onClick={() => setPaletteOpen(true)}>
             <MagnifyingGlass size={14} />
           </IconButton>
+          <IconButton label="Collapse sidebar" onClick={onToggleCollapsed}>
+            <SidebarSimple size={14} />
+          </IconButton>
         </div>
       </div>
 
-      {/* Quick actions */}
-      <div className="px-2">
-        <button
-          type="button"
+      <nav className="flex flex-col gap-px px-2">
+        <NavRow
+          icon={<NotePencil size={15} />}
+          label="New topic"
+          shortcut="⌘N"
           onClick={handleNewProject}
-          className="hover:bg-foreground/[0.04] flex w-full items-center gap-2.5 rounded-[6px] px-2 py-[7px] text-left transition-colors outline-none focus:outline-none focus-visible:outline-none disabled:opacity-50"
-        >
-          <Plus size={15} className="text-foreground/56 shrink-0" />
-          <FadeLabel className="text-foreground/86 min-w-0 flex-1 text-[13px] font-normal">
-            New topic
-          </FadeLabel>
-          <span className="text-foreground/30 shrink-0 font-mono text-[11px] tracking-tight">
-            ⌘N
-          </span>
-        </button>
-
-        <Link
+        />
+        <NavRow
+          icon={<Storefront size={15} />}
+          label="Courses"
           href="/courses"
-          className="hover:bg-foreground/[0.04] flex w-full items-center gap-2.5 rounded-[6px] px-2 py-[7px] text-left transition-colors outline-none focus:outline-none focus-visible:outline-none"
-        >
-          <Storefront size={15} className="text-foreground/40 shrink-0" />
-          <FadeLabel className="text-foreground/68 min-w-0 flex-1 text-[13px] font-normal">
-            Courses
-          </FadeLabel>
-        </Link>
-      </div>
+        />
+      </nav>
 
-      {/* Scrollable projects list (each project = a header with its chats under it) */}
-      <div className="flex-1 overflow-y-auto px-2 pt-4 pb-2">
-        {projects.length > 0 ? (
-          <div className="text-foreground/36 px-1.5 pb-1.5 text-[11px] font-normal tracking-[0.08em] uppercase">
-            Projects
-          </div>
-        ) : null}
-
+      <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-2 pt-5 pb-2">
         {projects.length === 0 ? (
-          <div className="text-foreground/34 px-2 pt-3 text-[12px] leading-[18px]">
-            No projects yet. Start a new one above.
+          <div className="text-foreground/40 px-2 text-[12px] leading-[18px]">
+            No topics yet. Start a new one above.
           </div>
         ) : null}
 
-        <div className="space-y-2">
-          {projects.map((project) => {
-            const isCurrent = project.sessionId === currentSessionId;
-            const isExpanded = expanded[project.sessionId] ?? isCurrent;
-            const href = preview
-              ? "/ui/workspace"
-              : `/workspace?session=${project.sessionId}`;
-            const overviewHref = preview
-              ? `/ui/profile/topics/${project.sessionId}`
-              : `/settings/topics/${project.sessionId}`;
-            return (
-              <ProjectRow
-                key={project.sessionId}
-                project={project}
-                href={href}
-                overviewHref={overviewHref}
-                isCurrent={isCurrent}
-                isExpanded={isExpanded}
-                activeLessonId={activeLessonId}
-                isSessionRunning={isSessionRunning}
-                onToggle={() => toggleProject(project.sessionId, isCurrent)}
-                onContinue={() => {
-                  if (preview) {
-                    router.push(href);
-                    return;
-                  }
-                  continueProject.mutate({ sessionId: project.sessionId });
-                }}
-                onNavigate={(event) =>
-                  onSelectProject?.(event, project.sessionId)
-                }
-                onPrefetch={() => onPrefetchProject?.(project.sessionId)}
-                onNavigateChat={(event, nodeId) =>
-                  onSelectChat?.(event, project.sessionId, nodeId)
-                }
-                onPrefetchChat={(nodeId) =>
-                  onPrefetchChat?.(project.sessionId, nodeId)
-                }
-                isContinuing={
-                  continueProject.isPending &&
-                  continueProject.variables.sessionId === project.sessionId
-                }
-                preview={preview}
-              />
-            );
-          })}
-        </div>
+        {pinned.length > 0 ? (
+          <TopicSection label="Pinned">{pinned.map(renderTopic)}</TopicSection>
+        ) : null}
+
+        {recent.length > 0 ? (
+          <TopicSection label="Recent">
+            {visibleRecent.map(renderTopic)}
+            {hasHiddenRecent ? (
+              <button
+                type="button"
+                onClick={() => setShowAllRecent((shown) => !shown)}
+                className={cn(
+                  "text-foreground/50 hover:text-foreground/85 h-7 rounded-lg px-2.5 text-left text-[13px]",
+                  ROW_FOCUS_CLASS,
+                )}
+              >
+                {showAllRecent ? "Show less" : "Show more"}
+              </button>
+            ) : null}
+          </TopicSection>
+        ) : null}
       </div>
 
-      {/* Footer: user */}
       <div className="flex items-center gap-1 p-2">
         <div className="hover:bg-foreground/[0.035] flex max-w-[calc(100%-2rem)] min-w-0 items-center gap-2.5 rounded-[6px] p-1.5 transition-colors">
           <div className="bg-primary/70 text-primary-foreground flex size-[22px] shrink-0 items-center justify-center rounded-full text-[11px] font-medium">
             {initial}
           </div>
-          <FadeLabel className="text-foreground/84 min-w-0 text-[13px] leading-[18px] font-normal">
+          <span className="text-foreground/84 min-w-0 truncate text-[13px] leading-[18px] font-normal">
             {displayName}
             <span className="text-foreground/30"> · </span>
             <span className="text-foreground/52">{userPlan}</span>
-          </FadeLabel>
+          </span>
         </div>
         <div className="flex-1" />
         <SettingsQuickMenu

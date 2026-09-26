@@ -121,6 +121,7 @@ export const trainingWorkspaceReadRepository = {
             profile?.headline ?? plan?.summary ?? "Interview in progress.",
           status,
           lessonPreview,
+          pinnedAt: session.pinnedAt,
           updatedAt: session.updatedAt ?? session.createdAt,
         },
       ];

@@ -1,7 +1,7 @@
 export default function WorkspaceLoading() {
   return (
     <div className="bg-background text-foreground flex h-dvh overflow-hidden">
-      <aside className="bg-sidebar hidden w-[220px] shrink-0 animate-pulse px-4 py-5 md:block">
+      <aside className="bg-sidebar hidden w-64 shrink-0 animate-pulse px-4 py-5 md:block">
         <div className="bg-foreground/10 h-5 w-24 rounded" />
         <div className="mt-8 space-y-3">
           <div className="bg-foreground/[0.08] h-8 rounded" />

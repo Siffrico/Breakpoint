@@ -392,6 +392,7 @@ export const previewLearningProjects: LearningProject[] = [
         status: "planned",
       },
     ],
+    pinnedAt: new Date("2026-04-09T12:00:00.000Z"),
     updatedAt: new Date("2026-04-10T23:40:00.000Z"),
   },
   {
@@ -422,6 +423,7 @@ export const previewLearningProjects: LearningProject[] = [
         status: "planned",
       },
     ],
+    pinnedAt: null,
     updatedAt: new Date("2026-04-10T20:10:00.000Z"),
   },
   {
@@ -447,6 +449,7 @@ export const previewLearningProjects: LearningProject[] = [
         status: "planned",
       },
     ],
+    pinnedAt: null,
     updatedAt: new Date("2026-04-09T14:30:00.000Z"),
   },
 ];

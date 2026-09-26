@@ -675,6 +675,43 @@ export const trainingOnboardingRepository = {
     return session ?? null;
   },
 
+  // Idempotent: callers send the desired state, not a toggle, so a retried or
+  // double-submitted request lands on the same row state. updatedAt is written
+  // back unchanged because it orders the sidebar's Recent list, and pinning is
+  // not activity.
+  setSessionPinnedByUser: async ({
+    db,
+    sessionId,
+    userId,
+    pinned,
+  }: {
+    db: Database;
+    sessionId: string;
+    userId: string;
+    pinned: boolean;
+  }) => {
+    const [session] = await db
+      .update(TrainingOnboardingSession)
+      .set({
+        pinnedAt: pinned
+          ? sql`coalesce(${TrainingOnboardingSession.pinnedAt}, now())`
+          : null,
+        updatedAt: sql`${TrainingOnboardingSession.updatedAt}`,
+      })
+      .where(
+        and(
+          eq(TrainingOnboardingSession.id, sessionId),
+          eq(TrainingOnboardingSession.userId, userId),
+        ),
+      )
+      .returning({
+        id: TrainingOnboardingSession.id,
+        pinnedAt: TrainingOnboardingSession.pinnedAt,
+      });
+
+    return session ?? null;
+  },
+
   updateSession: async ({
     db,
     sessionId,

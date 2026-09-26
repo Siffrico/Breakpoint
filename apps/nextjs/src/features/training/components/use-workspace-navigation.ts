@@ -106,18 +106,6 @@ export function useWorkspaceNavigation({
     [navigate],
   );
 
-  const prefetchChatHistory = useCallback(
-    (nextSessionId: string, nodeId: string) => {
-      void queryClient.prefetchQuery(
-        trpc.training.chatHistory.queryOptions(
-          { sessionId: nextSessionId, nodeId },
-          { staleTime: Number.POSITIVE_INFINITY },
-        ),
-      );
-    },
-    [queryClient, trpc],
-  );
-
   const prefetchProject = useCallback(
     (nextSessionId: string) => {
       if (nextSessionId === selectedSessionId) return;
@@ -153,7 +141,6 @@ export function useWorkspaceNavigation({
       closeMobileSidebar,
       navigate,
       handleLink,
-      prefetchChatHistory,
       prefetchProject,
     }),
     [
@@ -166,7 +153,6 @@ export function useWorkspaceNavigation({
       closeMobileSidebar,
       navigate,
       handleLink,
-      prefetchChatHistory,
       prefetchProject,
     ],
   );
