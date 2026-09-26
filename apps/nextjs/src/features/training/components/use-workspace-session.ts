@@ -305,8 +305,20 @@ export function useWorkspaceSession({
       },
     ),
   );
+  // Only a waiting recall task counts. A recall that is still preparing, or an
+  // offer that failed, never holds the learner back (same rule as the header's
+  // advance button).
+  const recallOfferStatus: "pending" | "ready" | "none" = !canOfferRecall
+    ? "none"
+    : recallOfferQuery.isPending
+      ? "pending"
+      : recallOfferQuery.data?.status === "ready"
+        ? "ready"
+        : "none";
   return {
     aiWorkspace,
+    aiWorkspaceStatus: aiWorkspaceQuery.status,
+    recallOfferStatus,
     activeNode,
     activeNodeId,
     chatHistoryQuery,

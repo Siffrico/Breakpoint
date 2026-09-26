@@ -5,10 +5,10 @@ import { memo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  ArrowRight,
   Gear,
   MagnifyingGlass,
   NotePencil,
-  Play,
   Plus,
   PushPin,
   SidebarSimple,
@@ -83,8 +83,6 @@ const ROW_FOCUS_CLASS =
 const ROW_HOVER_CLASS = "hover:bg-foreground/[0.04]";
 const ROW_ACTIVE_CLASS = "bg-foreground/[0.06]";
 const SECTION_LABEL_CLASS = "text-foreground/45 text-[13px] font-normal";
-const ROW_ACTION_CLASS =
-  "text-foreground/42 hover:text-foreground/85 hover:bg-foreground/[0.06] flex size-6 shrink-0 items-center justify-center rounded-[5px] transition-colors outline-none focus-visible:ring-1 focus-visible:ring-foreground/20";
 
 /**
  * Pinned topics first, in the order they were pinned (so the list does not
@@ -296,7 +294,7 @@ function NavRow({
 }
 
 /**
- * Row-level menu opened by double-clicking a topic. There is no visible
+ * Row-level menu opened by right-clicking a topic. There is no visible
  * trigger: the popup anchors to the row itself, so the row stays quiet at rest.
  */
 function TopicActionsMenu({
@@ -331,9 +329,10 @@ function TopicActionsMenu({
 }
 
 /**
- * Two-line topic row: title over status + last-active time. At rest the
- * top-right slot shows only the running indicator; hover swaps in the play
- * button. Pin and settings live in the double-click menu.
+ * Two-line topic row: title over status + last-active time. The whole row is
+ * the "take me to the next step" action; the arrow only appears on hover as
+ * its hint. Pin and settings live in the right-click menu. Press feedback is
+ * transform-only (scale + nudge), so it stays on the compositor.
  */
 function TopicRow({
   project,
@@ -341,38 +340,36 @@ function TopicRow({
   overviewHref,
   isCurrent,
   isRunning,
-  isContinuing,
   onNavigate,
   onPrefetch,
   onTogglePinned,
-  onContinue,
 }: {
   project: LearningProject;
   href: string;
   overviewHref: string;
   isCurrent: boolean;
   isRunning: boolean;
-  isContinuing: boolean;
   onNavigate: (event: MouseEvent<HTMLAnchorElement>) => void;
   onPrefetch: () => void;
   onTogglePinned: () => void;
-  onContinue: () => void;
 }) {
   const rowRef = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const canContinue = project.status === "active";
 
   return (
     <div
       ref={rowRef}
       className="group/topic relative"
-      onDoubleClick={() => setMenuOpen(true)}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        setMenuOpen(true);
+      }}
     >
       <Link
         href={href}
         onClick={(event) => {
-          // The second click of a double-click opens the menu; it must not
-          // navigate (and push a duplicate history entry) again.
+          // A double-click is one intent; the second click must not send a
+          // second resume request or push a duplicate history entry.
           if (event.detail > 1) {
             event.preventDefault();
             return;
@@ -384,19 +381,26 @@ function TopicRow({
         aria-current={isCurrent ? "page" : undefined}
         className={cn(
           "flex w-full min-w-0 flex-col gap-1 rounded-lg px-2.5 py-[11.5px] text-left select-none",
+          "transition-[background-color,scale] duration-150 ease-out active:scale-[0.985] motion-reduce:active:scale-100",
           ROW_FOCUS_CLASS,
           isCurrent || menuOpen ? ROW_ACTIVE_CLASS : ROW_HOVER_CLASS,
         )}
       >
-        <span className="flex min-w-0 items-center pr-7">
+        <span className="flex min-w-0 items-center gap-2">
           <span
             className={cn(
-              "min-w-0 truncate text-[13px] leading-5 font-normal",
+              "min-w-0 flex-1 truncate text-[13px] leading-5 font-normal",
               isCurrent ? "text-foreground" : "text-foreground/90",
             )}
           >
             {project.title}
           </span>
+          <ArrowRight
+            size={11}
+            weight="bold"
+            aria-hidden="true"
+            className="text-foreground/55 mr-0.5 shrink-0 scale-x-[1.18] opacity-0 transition-[opacity,translate] duration-150 ease-out group-hover/topic:opacity-100 group-active/topic:translate-x-[2px] group-has-[:focus-visible]/topic:opacity-100 motion-reduce:group-active/topic:translate-x-0"
+          />
         </span>
         <span className="flex min-w-0 items-center gap-2 text-[12px] leading-4">
           <span className="text-foreground/50 min-w-0 truncate">
@@ -414,33 +418,10 @@ function TopicRow({
       </Link>
 
       {isRunning ? (
-        <span className="pointer-events-none absolute top-2.5 right-2 flex size-6 items-center justify-center transition-opacity group-focus-within/topic:opacity-0 group-hover/topic:opacity-0">
+        <span className="pointer-events-none absolute top-[13px] right-2 flex size-5 items-center justify-center transition-opacity group-hover/topic:opacity-0">
           <DotmTriangle1 size={13} dotSize={1} />
         </span>
       ) : null}
-
-      <button
-        type="button"
-        onClick={onContinue}
-        onDoubleClick={(event) => event.stopPropagation()}
-        disabled={isContinuing || !canContinue}
-        aria-label={`Continue ${project.title}`}
-        title={
-          canContinue
-            ? `Continue ${project.title}`
-            : "Curriculum is still being prepared"
-        }
-        className={cn(
-          ROW_ACTION_CLASS,
-          "pointer-events-none absolute top-2.5 right-2 opacity-0 transition-opacity group-focus-within/topic:pointer-events-auto group-focus-within/topic:opacity-100 group-hover/topic:pointer-events-auto group-hover/topic:opacity-100 disabled:!opacity-0",
-        )}
-      >
-        {isContinuing ? (
-          <DotmTriangle1 size={13} dotSize={1} />
-        ) : (
-          <Play size={12} weight="fill" />
-        )}
-      </button>
 
       <TopicActionsMenu
         anchor={rowRef}
@@ -482,9 +463,9 @@ function CurriculumSidebarComponent({
   isSessionRunning = false,
   workspaceTheme = "warm",
   onWorkspaceThemeChange,
-  onNavigate,
   onSelectProject,
   onPrefetchProject,
+  onResumeProject,
 }: {
   projects?: LearningProject[];
   currentSessionId: string;
@@ -496,15 +477,14 @@ function CurriculumSidebarComponent({
   isSessionRunning?: boolean;
   workspaceTheme?: WorkspaceTheme;
   onWorkspaceThemeChange?: (theme: WorkspaceTheme) => void;
-  onNavigate?: () => void;
   onSelectProject?: (
     event: MouseEvent<HTMLAnchorElement>,
     sessionId: string,
   ) => void;
   onPrefetchProject?: (sessionId: string) => void;
+  onResumeProject?: (sessionId: string) => void;
 }) {
   const router = useRouter();
-  const trpc = useTRPC();
   const [showAllRecent, setShowAllRecent] = useState(false);
   const profileHref = preview
     ? "/ui/profile"
@@ -515,23 +495,6 @@ function CurriculumSidebarComponent({
     router.push("/onboarding");
   };
 
-  const continueProject = useMutation(
-    trpc.training.continueLearningProject.mutationOptions({
-      onSuccess: (destination) => {
-        onNavigate?.();
-        if (destination.sessionId === currentSessionId) {
-          router.refresh();
-          return;
-        }
-        router.push(destination.href);
-      },
-      onError: (error) => {
-        toast.error(
-          error.message || "The next scenario could not be prepared.",
-        );
-      },
-    }),
-  );
   const setTopicPinned = useSetTopicPinned();
 
   const { open: paletteOpen, setOpen: setPaletteOpen } = useCommandPalette({
@@ -547,7 +510,7 @@ function CurriculumSidebarComponent({
       onOpenChange={setPaletteOpen}
       onNewTopic={handleNewProject}
       onContinueProject={(sessionId) => {
-        if (!preview) continueProject.mutate({ sessionId });
+        if (!preview) onResumeProject?.(sessionId);
       }}
       workspaceTheme={workspaceTheme}
       preview={preview}
@@ -618,10 +581,6 @@ function CurriculumSidebarComponent({
         }
         isCurrent={isCurrent}
         isRunning={isSessionRunning && isCurrent}
-        isContinuing={
-          continueProject.isPending &&
-          continueProject.variables.sessionId === project.sessionId
-        }
         onNavigate={(event) => onSelectProject?.(event, project.sessionId)}
         onPrefetch={() => onPrefetchProject?.(project.sessionId)}
         onTogglePinned={() => {
@@ -630,13 +589,6 @@ function CurriculumSidebarComponent({
             sessionId: project.sessionId,
             pinned: project.pinnedAt === null,
           });
-        }}
-        onContinue={() => {
-          if (preview) {
-            router.push(href);
-            return;
-          }
-          continueProject.mutate({ sessionId: project.sessionId });
         }}
       />
     );

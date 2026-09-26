@@ -12,7 +12,10 @@ import type {
 } from "./use-workspace-session";
 import type { WorkspaceTheme } from "./workspace-sidebar";
 import { useLocalStorage } from "~/hooks/use-local-storage";
-import { useAdvanceController } from "./use-advance-controller";
+import {
+  resolveResumeDecision,
+  useAdvanceController,
+} from "./use-advance-controller";
 import { useUnitCoachController } from "./use-unit-coach-controller";
 import { useWorkspaceNavigation } from "./use-workspace-navigation";
 import { useWorkspaceSession } from "./use-workspace-session";
@@ -89,6 +92,48 @@ export function WorkspaceShell({
     preparationError: vm.workspaceLoadError ?? vm.unitPreparationFailure,
   });
 
+  // A topic click means "take me to the next step". Each request is handled
+  // exactly once, as soon as the data that decides it has loaded: stay in the
+  // open chat or recall, or advance a finished unit. The ref (not state) marks
+  // it handled, so no extra render is spent consuming it.
+  const handledResumeIdRef = useRef(0);
+  const { resumeRequest } = nav;
+  const {
+    advance: advanceUnit,
+    canAdvance,
+    isPending: advancePending,
+  } = advance;
+  useEffect(() => {
+    if (
+      !resumeRequest ||
+      resumeRequest.id === handledResumeIdRef.current ||
+      resumeRequest.sessionId !== nav.selectedSessionId
+    ) {
+      return;
+    }
+    const decision = resolveResumeDecision({
+      projectActive: vm.selectedProject?.status === "active",
+      workspaceStatus: vm.aiWorkspaceStatus,
+      canAdvance,
+      recallOfferStatus: vm.recallOfferStatus,
+      isSessionRunning,
+      advancePending,
+    });
+    if (decision === "wait") return;
+    handledResumeIdRef.current = resumeRequest.id;
+    if (decision === "advance") advanceUnit();
+  }, [
+    advanceUnit,
+    advancePending,
+    canAdvance,
+    isSessionRunning,
+    nav.selectedSessionId,
+    resumeRequest,
+    vm.aiWorkspaceStatus,
+    vm.recallOfferStatus,
+    vm.selectedProject?.status,
+  ]);
+
   const { setSidebarCollapsed } = nav;
   useEffect(() => {
     const frameId = window.requestAnimationFrame(() => {
@@ -115,7 +160,13 @@ export function WorkspaceShell({
 
   const handleSelectProject = useCallback(
     (event: MouseEvent<HTMLAnchorElement>, nextSessionId: string) => {
-      nav.handleLink(event, nextSessionId, null);
+      nav.handleLink(event, nextSessionId, null, { resume: true });
+    },
+    [nav],
+  );
+  const handleResumeProject = useCallback(
+    (nextSessionId: string) => {
+      nav.navigate(nextSessionId, null, { resume: true });
     },
     [nav],
   );
@@ -169,6 +220,7 @@ export function WorkspaceShell({
         onCloseMobile={nav.closeMobileSidebar}
         onSelectProject={handleSelectProject}
         onPrefetchProject={nav.prefetchProject}
+        onResumeProject={handleResumeProject}
       />
 
       <div className="border-foreground/[0.08] flex min-w-0 flex-1 flex-col md:border-l">

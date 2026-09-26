@@ -25,6 +25,37 @@ interface AdvanceMutationContext {
   transition: AdvanceTransition;
 }
 
+export type ResumeDecision = "wait" | "advance" | "stay";
+
+/**
+ * Where a "resume this topic" click lands once the topic's data is in:
+ * an unfinished chat or a waiting recall is already the next step (stay), a
+ * finished unit moves on (advance), and anything not yet known waits. Only an
+ * active project can advance; the server's advance lock is the final word.
+ */
+export function resolveResumeDecision({
+  projectActive,
+  workspaceStatus,
+  canAdvance,
+  recallOfferStatus,
+  isSessionRunning,
+  advancePending,
+}: {
+  projectActive: boolean;
+  workspaceStatus: "pending" | "error" | "success";
+  canAdvance: boolean;
+  recallOfferStatus: "pending" | "ready" | "none";
+  isSessionRunning: boolean;
+  advancePending: boolean;
+}): ResumeDecision {
+  if (!projectActive) return "stay";
+  if (workspaceStatus === "pending") return "wait";
+  if (!canAdvance) return "stay";
+  if (isSessionRunning || advancePending) return "wait";
+  if (recallOfferStatus === "pending") return "wait";
+  return recallOfferStatus === "ready" ? "stay" : "advance";
+}
+
 // The aiWorkspace query is otherwise bootstrap-frozen (staleTime: Infinity),
 // so while a transition is pending the controller polls for the server-side
 // advance it is waiting to reconcile against.

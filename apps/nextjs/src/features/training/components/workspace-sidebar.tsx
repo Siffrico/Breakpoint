@@ -28,6 +28,7 @@ interface WorkspaceSidebarProps {
     sessionId: string,
   ) => void;
   onPrefetchProject: (sessionId: string) => void;
+  onResumeProject: (sessionId: string) => void;
 }
 
 function WorkspaceSidebarComponent({
@@ -44,6 +45,7 @@ function WorkspaceSidebarComponent({
   onCloseMobile,
   onSelectProject,
   onPrefetchProject,
+  onResumeProject,
 }: WorkspaceSidebarProps) {
   const commonProps = {
     projects,
@@ -56,6 +58,7 @@ function WorkspaceSidebarComponent({
     onWorkspaceThemeChange,
     onSelectProject,
     onPrefetchProject,
+    onResumeProject,
   };
 
   return (
@@ -92,7 +95,6 @@ function WorkspaceSidebarComponent({
             <CurriculumSidebar
               {...commonProps}
               onToggleCollapsed={onCloseMobile}
-              onNavigate={onCloseMobile}
             />
           </div>
         </div>

@@ -3,7 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RouterOutputs } from "@acme/api";
 
 import type { AdvanceTransition } from "./use-advance-controller";
-import { useAdvanceController } from "./use-advance-controller";
+import {
+  resolveResumeDecision,
+  useAdvanceController,
+} from "./use-advance-controller";
 
 interface Variables {
   sessionId: string;
@@ -194,5 +197,70 @@ describe("next unit transition", () => {
     vi.advanceTimersByTime(120000);
     expect(harness.invalidateQueries).not.toHaveBeenCalled();
     cleanup();
+  });
+});
+
+describe("resolveResumeDecision", () => {
+  const settled = {
+    projectActive: true,
+    isSessionRunning: false,
+    advancePending: false,
+    workspaceStatus: "success" as const,
+    canAdvance: true,
+    recallOfferStatus: "none" as const,
+  };
+
+  it("advances a finished unit once nothing else is due", () => {
+    expect(resolveResumeDecision(settled)).toBe("advance");
+  });
+
+  it.each(["isSessionRunning", "advancePending"] as const)(
+    "waits while %s blocks advancing and advances when it clears",
+    (blocker) => {
+      expect(resolveResumeDecision({ ...settled, [blocker]: true })).toBe(
+        "wait",
+      );
+      expect(resolveResumeDecision(settled)).toBe("advance");
+    },
+  );
+
+  it("stays in an unfinished chat", () => {
+    expect(resolveResumeDecision({ ...settled, canAdvance: false })).toBe(
+      "stay",
+    );
+  });
+
+  it("stays on a waiting recall, which is the next step", () => {
+    expect(
+      resolveResumeDecision({ ...settled, recallOfferStatus: "ready" }),
+    ).toBe("stay");
+  });
+
+  it("waits for the topic's workspace before deciding", () => {
+    expect(
+      resolveResumeDecision({ ...settled, workspaceStatus: "pending" }),
+    ).toBe("wait");
+  });
+
+  it("waits for the recall offer before advancing past it", () => {
+    expect(
+      resolveResumeDecision({ ...settled, recallOfferStatus: "pending" }),
+    ).toBe("wait");
+  });
+
+  it("never advances a project that is not active yet", () => {
+    expect(resolveResumeDecision({ ...settled, projectActive: false })).toBe(
+      "stay",
+    );
+  });
+
+  it("stays when the workspace failed to load", () => {
+    expect(
+      resolveResumeDecision({
+        ...settled,
+        workspaceStatus: "error",
+        canAdvance: false,
+      }),
+    ).toBe("stay");
   });
 });

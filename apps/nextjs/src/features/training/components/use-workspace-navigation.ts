@@ -1,12 +1,21 @@
 "use client";
 
 import type { MouseEvent } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useTRPC } from "~/trpc/react";
 
 const LAST_SESSION_COOKIE = "bp-last-learning-session";
+
+/**
+ * A "take me to the next step" click on a topic. The id makes each click a
+ * distinct request, so the composition root can handle it exactly once.
+ */
+export interface ResumeRequest {
+  sessionId: string;
+  id: number;
+}
 
 /**
  * Owns where the learner is in the workspace — the selected session and chat,
@@ -30,6 +39,11 @@ export function useWorkspaceNavigation({
   );
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  // In memory only (never in the URL), so a reload can't replay an advance.
+  const resumeIdRef = useRef(0);
+  const [resumeRequest, setResumeRequest] = useState<ResumeRequest | null>(
+    null,
+  );
 
   const toggleSidebar = useCallback(() => {
     setSidebarCollapsed((collapsed) => !collapsed);
@@ -65,6 +79,7 @@ export function useWorkspaceNavigation({
       setSelectedSessionId(params.get("session") ?? initialSessionId);
       setSelectedChatId(params.get("chat"));
       setMobileSidebarOpen(false);
+      setResumeRequest(null);
     };
 
     window.addEventListener("popstate", syncSelectionFromUrl);
@@ -72,10 +87,19 @@ export function useWorkspaceNavigation({
   }, [initialSessionId]);
 
   const navigate = useCallback(
-    (nextSessionId: string, nextChatId: string | null) => {
+    (
+      nextSessionId: string,
+      nextChatId: string | null,
+      options?: { resume?: boolean },
+    ) => {
       setSelectedSessionId(nextSessionId);
       setSelectedChatId(nextChatId);
       setMobileSidebarOpen(false);
+      setResumeRequest(
+        options?.resume
+          ? { sessionId: nextSessionId, id: ++resumeIdRef.current }
+          : null,
+      );
 
       const params = new URLSearchParams({ session: nextSessionId });
       if (nextChatId) params.set("chat", nextChatId);
@@ -89,6 +113,7 @@ export function useWorkspaceNavigation({
       event: MouseEvent<HTMLAnchorElement>,
       nextSessionId: string,
       nextChatId: string | null,
+      options?: { resume?: boolean },
     ) => {
       if (
         event.button !== 0 ||
@@ -101,7 +126,7 @@ export function useWorkspaceNavigation({
       }
 
       event.preventDefault();
-      navigate(nextSessionId, nextChatId);
+      navigate(nextSessionId, nextChatId, options);
     },
     [navigate],
   );
@@ -136,6 +161,7 @@ export function useWorkspaceNavigation({
       sidebarCollapsed,
       setSidebarCollapsed,
       mobileSidebarOpen,
+      resumeRequest,
       toggleSidebar,
       openMobileSidebar,
       closeMobileSidebar,
@@ -148,6 +174,7 @@ export function useWorkspaceNavigation({
       selectedChatId,
       sidebarCollapsed,
       mobileSidebarOpen,
+      resumeRequest,
       toggleSidebar,
       openMobileSidebar,
       closeMobileSidebar,
