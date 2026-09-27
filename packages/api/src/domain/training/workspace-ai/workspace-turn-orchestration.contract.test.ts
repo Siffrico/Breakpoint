@@ -474,6 +474,55 @@ describe("Goldilocks rating contract", () => {
     expect(h.getRun().difficultySnapshot).toBeNull();
   });
 
+  it("releases every assigned target when the last exam shows nothing", async () => {
+    const [lesson, learn, exam] = examOnBoard;
+    const failedPart: UnitPart = {
+      ...part(false),
+      result: {
+        met: false,
+        criterionResults: [
+          { dimensionId: CRITERION, met: false, evidence: "old", missing: "limit" },
+        ],
+        feedback: "Not yet.",
+        hypothesis: "You ignored the new limit.",
+        causeType: "missed-limit",
+        errorCodes: ["constraint-blindness"],
+      },
+    };
+    if (exam?.kind !== "round" || !lesson || !learn) throw new Error("fixture");
+    const failedExam: UnitStep = {
+      ...exam,
+      parts: [failedPart, failedPart, failedPart],
+    };
+    const h = harness(
+      projectUnitRun({
+        ...createUnitRun({
+          unitId: unit.id,
+          sessionId: "session-1",
+          userId: "user-1",
+          kind: "education",
+          unitContext,
+          experience: DEFAULT_EDUCATION_EXPERIENCE,
+        }),
+        difficultySnapshot: snapshot,
+        cursor: {
+          interactionId: "initial",
+          steps: [lesson, learn, failedExam, learn, failedExam, learn, exam],
+          outcome: null,
+          errorCodeHistory: [],
+          prepared: null,
+        },
+      }),
+    );
+    await h.turn("submit_answer");
+    expect(h.getRun().cursor.outcome).toBe("not_mastered");
+    expect(h.commits[0]?.knowledgeCheckOff).toEqual({
+      requestedKnowledgeIds: [],
+      targetedKnowledgeIds: unitContext.targets.map((target) => target.id),
+      evidenceNodeId: unitNode.id,
+    });
+  });
+
   it("rejects a delayed distinct request after another answer advances the cursor", async () => {
     const h = harness();
     const staleTurn = await resolveWorkspaceTurn({

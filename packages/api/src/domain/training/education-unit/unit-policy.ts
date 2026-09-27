@@ -13,7 +13,8 @@ import type {
  *     exam passes            → complete, mastered
  *     exam misses            → Learn round on the missed criteria → Exam …
  *     "never learned it"     → Teach again first
- *     MAX_FAILED_EXAMS hit   → complete, not mastered (recall brings it back)
+ *     MAX_FAILED_EXAMS hit   → complete, not mastered (unshown targets return
+ *                              to the pool a later unit selects from)
  */
 
 export type UnitRoundStep = Extract<UnitStep, { kind: "round" }>;

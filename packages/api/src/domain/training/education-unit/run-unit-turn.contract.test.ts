@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Deferred, Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
 import type { WorkspaceTurnAction } from "@acme/validators";
@@ -13,6 +13,7 @@ import {
 } from "../unit-preparation/preparation.fixture";
 import { prepareUnitContent } from "../unit-preparation/prepare-unit-content";
 import { resolveUnitRunProjection } from "../workspace-ai/workspace-turn";
+import { createAssistantTextStreamer } from "../workspace-ai/assistant-text-streamer";
 import { DEFAULT_EDUCATION_EXPERIENCE } from "./experience";
 import { runUnitTurn } from "./run-unit-turn";
 import { makeUnitContext } from "./unit-context.fixture";
@@ -328,6 +329,68 @@ describe("runUnitTurn", () => {
       checksTotal: 3,
       partCount: 3,
     });
+  });
+
+  it("streams exam feedback in part order when critics finish out of order", async () => {
+    const learned = await finishLearnRound();
+    const exam = await turn(learned.nextRun, "continue");
+    const aDone = Effect.runSync(Deferred.make<void>());
+    const bDone = Effect.runSync(Deferred.make<void>());
+    const cStreamed = Effect.runSync(Deferred.make<void>());
+    // B streams and finishes first, C streams before A, A finishes before C.
+    const dependencies = deps({
+      runReviewGrade: ({ part, letter, onPartialAssistantMessage }) =>
+        Effect.gen(function* () {
+          const emit = () => onPartialAssistantMessage?.(`Feedback ${letter}.`);
+          if (letter === "b") emit();
+          if (letter === "c") {
+            yield* Deferred.await(bDone);
+            emit();
+            yield* Deferred.succeed(cStreamed, undefined);
+            yield* Deferred.await(aDone);
+          }
+          if (letter === "a") {
+            yield* Deferred.await(cStreamed);
+            emit();
+          }
+          return { object: cleanGrade(part.criterionIds) };
+        }).pipe(
+          Effect.tap(() =>
+            letter === "a"
+              ? Deferred.succeed(aDone, undefined)
+              : letter === "b"
+                ? Deferred.succeed(bDone, undefined)
+                : Effect.void,
+          ),
+        ),
+    });
+    const chunks: { type: string; delta?: string }[] = [];
+    const streamer = createAssistantTextStreamer({
+      writer: { write: (chunk) => chunks.push(chunk) },
+      partId: "part",
+    });
+    await Effect.runPromise(
+      runUnitTurn(
+        {
+          run: exam.nextRun,
+          interactionId: exam.nextRun.cursor.interactionId,
+          action: "submit_answer",
+          learnerMessage: "answers",
+          experience: DEFAULT_EDUCATION_EXPERIENCE,
+          memories: [],
+          onPartialAssistantMessage: streamer.pushPartial,
+        },
+        dependencies,
+      ),
+    );
+    const streamed = chunks.map((chunk) => chunk.delta ?? "").join("");
+    expect(streamed).toBe(
+      [
+        "**Part (a)**\n\nFeedback a.",
+        "**Part (b)**\n\nFeedback b.",
+        "**Part (c)**\n\nFeedback c.",
+      ].join("\n\n"),
+    );
   });
 
   it("gives partial exam credit and keeps the unit going", async () => {

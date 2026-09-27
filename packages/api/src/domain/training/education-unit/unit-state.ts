@@ -219,25 +219,33 @@ export const ratedRoundChallenge = (
   };
 };
 
-/** Targets whose skill the unit's final round showed. Empty before it ends. */
+/**
+ * Targets whose skill the unit's final round showed: some criterion carrying
+ * the skill was met and none was missed anywhere in the round. Empty before
+ * the unit ends.
+ */
 export const evidencedTargetIds = (run: PersistedUnitRun): string[] => {
   const round = findLastRound(run.cursor.steps);
   if (!run.cursor.outcome || !round) return [];
-  const metCriteria = new Set(
-    round.parts.flatMap(
-      (part) =>
-        part.result?.criterionResults
-          .filter((result) => result.met)
-          .map((result) => result.dimensionId) ?? [],
-    ),
+  const skillsOf = new Map(
+    run.unitContext.judgment.criteria.map((criterion) => [
+      criterion.id,
+      criterion.skills,
+    ]),
   );
-  const shownSkills = new Set(
-    run.unitContext.judgment.criteria
-      .filter((criterion) => metCriteria.has(criterion.id))
-      .flatMap((criterion) => criterion.skills),
-  );
+  const metSkills = new Set<string>();
+  const missedSkills = new Set<string>();
+  for (const part of round.parts) {
+    for (const result of part.result?.criterionResults ?? []) {
+      for (const skill of skillsOf.get(result.dimensionId) ?? []) {
+        (result.met ? metSkills : missedSkills).add(skill);
+      }
+    }
+  }
   return run.unitContext.targets
-    .filter((target) => shownSkills.has(target.skill))
+    .filter(
+      (target) => metSkills.has(target.skill) && !missedSkills.has(target.skill),
+    )
     .map((target) => target.id);
 };
 

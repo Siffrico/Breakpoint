@@ -209,6 +209,81 @@ describe("unit history", () => {
     expect(evidencedTargetIds(graded)).toEqual(["target-1"]);
   });
 
+  it("credits no target when a repeated criterion both passed and failed", () => {
+    let current = finishLearnRound(explained(), true);
+    for (let exam = 0; exam < 3; exam += 1) {
+      current = run(openRound(current, [draft(), draft(), draft()]));
+      current = run(
+        recordPartResults(current, [result(true), result(false), result(false)]),
+      );
+      if (exam < 2) current = finishLearnRound(current, true);
+    }
+    expect(current.cursor.outcome).toBe("not_mastered");
+    expect(evidencedTargetIds(current)).toEqual([]);
+  });
+
+  it("credits a skill only when every criterion carrying it was met", () => {
+    const base = makeUnitContext();
+    const skill = "Constraint-driven reasoning";
+    const other = "Consequence checking";
+    const criteria = ["c-1", "c-2", "c-3"];
+    const [target] = base.targets;
+    if (!target) throw new Error("fixture has a target");
+    const unitContext = {
+      ...base,
+      targets: [
+        { ...target, id: "target-1", skill },
+        { ...target, id: "target-2", skill: other },
+      ],
+      judgment: {
+        ...base.judgment,
+        criteria: [
+          { id: "c-1", criterion: "One.", skills: [skill] },
+          { id: "c-2", criterion: "Two.", skills: [skill] },
+          { id: "c-3", criterion: "Three.", skills: [other] },
+        ],
+      },
+    };
+    const graded = (met: Record<string, boolean>) => ({
+      met: Object.values(met).every(Boolean),
+      criterionResults: Object.entries(met).map(([dimensionId, isMet]) => ({
+        dimensionId,
+        met: isMet,
+        evidence: "e",
+        missing: isMet ? null : "m",
+      })),
+      feedback: "Feedback.",
+      hypothesis: null,
+      causeType: null,
+      errorCodes: [],
+    });
+    const completed: PersistedUnitRun = {
+      ...fresh(),
+      unitContext,
+      cursor: {
+        ...fresh().cursor,
+        outcome: "not_mastered",
+        steps: [
+          {
+            kind: "round",
+            spec: { ...openSpec(explained()), criterionIds: criteria },
+            narrative: "N",
+            difficultyVector: vector,
+            parts: [
+              { c1: true, c2: false, c3: true },
+              { c1: true, c2: true, c3: true },
+            ].map(({ c1, c2, c3 }) => ({
+              ...draft(criteria),
+              presentedAt: new Date(0).toISOString(),
+              result: graded({ "c-1": c1, "c-2": c2, "c-3": c3 }),
+            })),
+          },
+        ],
+      },
+    } as PersistedUnitRun;
+    expect(evidencedTargetIds(completed)).toEqual(["target-2"]);
+  });
+
   it("keeps a failed exam open for a relearn round", () => {
     const learned = finishLearnRound(explained(), true);
     const exam = run(openRound(learned, [draft(), draft(), draft()]));

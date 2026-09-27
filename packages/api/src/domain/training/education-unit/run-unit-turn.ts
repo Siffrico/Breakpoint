@@ -247,6 +247,20 @@ const gradeOpenParts = (
       steps: run.cursor.steps,
     });
     const streamed = parts.map(() => "");
+    const finished = parts.map(() => false);
+    // Streamed text can only be appended to, so the learner sees parts in
+    // order: every finished part, then the first unfinished one. A later part
+    // that grades first waits its turn.
+    const streamInOrder = () => {
+      const firstOpen = finished.indexOf(false);
+      onPartialAssistantMessage?.(
+        renderFeedback(
+          letters,
+          firstOpen === -1 ? streamed : streamed.slice(0, firstOpen + 1),
+          null,
+        ),
+      );
+    };
     // Each part is graded by its own critic so a strong answer to one part
     // cannot lift the grade of another. They run side by side, so the wait is
     // one grade long.
@@ -264,13 +278,19 @@ const gradeOpenParts = (
             onPartialAssistantMessage: onPartialAssistantMessage
               ? (content) => {
                   streamed[index] = content;
-                  onPartialAssistantMessage(
-                    renderFeedback(letters, streamed, null),
-                  );
+                  streamInOrder();
                 }
               : undefined,
           })
-          .pipe(Effect.map(({ object }) => object)),
+          .pipe(
+            Effect.map(({ object }) => object),
+            Effect.tap(() =>
+              Effect.sync(() => {
+                finished[index] = true;
+                streamInOrder();
+              }),
+            ),
+          ),
       ),
       { concurrency: "unbounded" },
     );

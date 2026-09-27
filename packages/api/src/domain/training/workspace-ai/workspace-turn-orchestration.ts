@@ -553,7 +553,11 @@ export const runEducationUnitTurn = ({
       completed && nextRun.kind === "education"
         ? {
             requestedKnowledgeIds: shownTargetIds,
-            targetedKnowledgeIds: shownTargetIds,
+            // Every assigned target, so the ones the unit did not show are
+            // released to unchecked and recall can bring them back.
+            targetedKnowledgeIds: nextRun.unitContext.targets.map(
+              (target) => target.id,
+            ),
             evidenceNodeId: unit.nodeId,
           }
         : null;
