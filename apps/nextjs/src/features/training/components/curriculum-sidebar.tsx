@@ -18,7 +18,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import type { RouterOutputs } from "@acme/api";
 import { cn } from "@acme/ui";
-import { DotmTriangle1 } from "@acme/ui/dotm-triangle-1";
 import {
   Menu,
   MenuGroup,
@@ -32,8 +31,10 @@ import {
 } from "@acme/ui/menu";
 import { toast } from "@acme/ui/toast";
 
+import type { TopicFaceMood } from "./topic-face";
 import { useTRPC } from "~/trpc/react";
 import { useCommandPalette } from "../hooks/use-command-palette";
+import { TopicFace } from "./topic-face";
 import { WorkspaceCommandPalette } from "./workspace-command-palette";
 
 type LearningProject =
@@ -78,6 +79,12 @@ const WORKSPACE_MAIN_COLORS: Record<
 
 // Shared row tokens, so nav rows, topic rows, and section labels read as one
 // system. Layout follows Synara's activity sidebar, ~12% taller.
+//
+// Alignment grid: every row insets 16px (list px-2 + row px-2), every leading
+// glyph sits in a 20px slot, and every label starts 8px after it. Icons, faces,
+// section labels, and the avatar share one left edge (16px); every label
+// shares the next (44px).
+const FACE_SIZE = 20;
 const ROW_FOCUS_CLASS =
   "outline-none transition-colors focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-foreground/20";
 const ROW_HOVER_CLASS = "hover:bg-foreground/[0.04]";
@@ -98,6 +105,15 @@ function partitionTopics(projects: LearningProject[]) {
     );
   const recent = projects.filter((project) => !project.pinnedAt);
   return { pinned, recent };
+}
+
+/** What the topic's face shows: the same states the status line names. */
+function resolveTopicMood(
+  project: LearningProject,
+  isRunning: boolean,
+): TopicFaceMood {
+  if (project.status !== "active") return "thinking";
+  return isRunning ? "streaming" : "idle";
 }
 
 /** The one line that says where the topic stands. */
@@ -329,7 +345,8 @@ function TopicActionsMenu({
 }
 
 /**
- * Two-line topic row: title over status + last-active time. The whole row is
+ * Two-line topic row: face, then title over status + last-active time. The
+ * face's expression carries the topic's state. The whole row is
  * the "take me to the next step" action; the arrow only appears on hover as
  * its hint. Pin and settings live in the right-click menu. Press feedback is
  * transform-only (scale + nudge), so it stays on the compositor.
@@ -380,48 +397,50 @@ function TopicRow({
         onFocus={onPrefetch}
         aria-current={isCurrent ? "page" : undefined}
         className={cn(
-          "flex w-full min-w-0 flex-col gap-1 rounded-lg px-2.5 py-[11.5px] text-left select-none",
+          "flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-[11.5px] text-left select-none",
           "transition-[background-color,scale] duration-150 ease-out active:scale-[0.985] motion-reduce:active:scale-100",
           ROW_FOCUS_CLASS,
           isCurrent || menuOpen ? ROW_ACTIVE_CLASS : ROW_HOVER_CLASS,
         )}
       >
-        <span className="flex min-w-0 items-center gap-2">
-          <span
-            className={cn(
-              "min-w-0 flex-1 truncate text-[13px] leading-5 font-normal",
-              isCurrent ? "text-foreground" : "text-foreground/90",
-            )}
-          >
-            {project.title}
+        <TopicFace
+          seed={project.sessionId}
+          mood={resolveTopicMood(project, isRunning)}
+          size={FACE_SIZE}
+          trackRef={rowRef}
+        />
+        <span className="flex min-w-0 flex-1 flex-col gap-1">
+          <span className="flex min-w-0 items-center gap-2">
+            <span
+              className={cn(
+                "min-w-0 flex-1 truncate text-[13px] leading-5 font-normal",
+                isCurrent ? "text-foreground" : "text-foreground/90",
+              )}
+            >
+              {project.title}
+            </span>
+            <ArrowRight
+              size={11}
+              weight="bold"
+              aria-hidden="true"
+              className="text-foreground/55 mr-0.5 shrink-0 scale-x-[1.18] opacity-0 transition-[opacity,translate] duration-150 ease-out group-hover/topic:opacity-100 group-active/topic:translate-x-[2px] group-has-[:focus-visible]/topic:opacity-100 motion-reduce:group-active/topic:translate-x-0"
+            />
           </span>
-          <ArrowRight
-            size={11}
-            weight="bold"
-            aria-hidden="true"
-            className="text-foreground/55 mr-0.5 shrink-0 scale-x-[1.18] opacity-0 transition-[opacity,translate] duration-150 ease-out group-hover/topic:opacity-100 group-active/topic:translate-x-[2px] group-has-[:focus-visible]/topic:opacity-100 motion-reduce:group-active/topic:translate-x-0"
-          />
-        </span>
-        <span className="flex min-w-0 items-center gap-2 text-[12px] leading-4">
-          <span className="text-foreground/50 min-w-0 truncate">
-            {describeTopicStatus(project)}
-          </span>
-          <span
-            // Relative to the viewer's clock, so the server render can be a
-            // minute off from the client's.
-            suppressHydrationWarning
-            className="text-foreground/38 ml-auto shrink-0 tabular-nums"
-          >
-            {formatLastActive(project.updatedAt)}
+          <span className="flex min-w-0 items-center gap-2 text-[12px] leading-4">
+            <span className="text-foreground/50 min-w-0 truncate">
+              {describeTopicStatus(project)}
+            </span>
+            <span
+              // Relative to the viewer's clock, so the server render can be a
+              // minute off from the client's.
+              suppressHydrationWarning
+              className="text-foreground/38 ml-auto shrink-0 tabular-nums"
+            >
+              {formatLastActive(project.updatedAt)}
+            </span>
           </span>
         </span>
       </Link>
-
-      {isRunning ? (
-        <span className="pointer-events-none absolute top-[13px] right-2 flex size-5 items-center justify-center transition-opacity group-hover/topic:opacity-0">
-          <DotmTriangle1 size={13} dotSize={1} />
-        </span>
-      ) : null}
 
       <TopicActionsMenu
         anchor={rowRef}
@@ -643,7 +662,7 @@ function CurriculumSidebarComponent({
                 type="button"
                 onClick={() => setShowAllRecent((shown) => !shown)}
                 className={cn(
-                  "text-foreground/50 hover:text-foreground/85 h-7 rounded-lg px-2.5 text-left text-[13px]",
+                  "text-foreground/50 hover:text-foreground/85 h-7 rounded-lg pr-2 pl-9 text-left text-[13px]",
                   ROW_FOCUS_CLASS,
                 )}
               >
@@ -655,8 +674,8 @@ function CurriculumSidebarComponent({
       </div>
 
       <div className="flex items-center gap-1 p-2">
-        <div className="hover:bg-foreground/[0.035] flex max-w-[calc(100%-2rem)] min-w-0 items-center gap-2.5 rounded-[6px] p-1.5 transition-colors">
-          <div className="bg-primary/70 text-primary-foreground flex size-[22px] shrink-0 items-center justify-center rounded-full text-[11px] font-medium">
+        <div className="hover:bg-foreground/[0.035] flex max-w-[calc(100%-2rem)] min-w-0 items-center gap-2 rounded-md px-2 py-1.5 transition-colors">
+          <div className="bg-primary/70 text-primary-foreground flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-medium">
             {initial}
           </div>
           <span className="text-foreground/84 min-w-0 truncate text-[13px] leading-[18px] font-normal">
