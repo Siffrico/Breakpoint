@@ -96,12 +96,12 @@ const getEducationWorkingLabel = (
 ): string => {
   if (isRecall) return "Designing a checkpoint";
   switch (stage) {
-    case "learning":
+    case "teach":
       return "Understanding your reasoning";
-    case "review":
+    case "answer":
       return "Stress-testing your answer";
-    case "awaiting_next_pass":
-      return "Opening the next challenge";
+    case "feedback":
+      return "Preparing what comes next";
     case "complete":
     case null:
       return "Reading your answer";
@@ -114,11 +114,11 @@ const getEducationWritingLabel = (
 ): string => {
   if (isRecall) return "Writing the checkpoint";
   switch (stage) {
-    case "learning":
+    case "teach":
       return "Writing your next challenge";
-    case "review":
-      return "Writing the pressure test";
-    case "awaiting_next_pass":
+    case "answer":
+      return "Writing your feedback";
+    case "feedback":
       return "Writing the next challenge";
     case "complete":
     case null:

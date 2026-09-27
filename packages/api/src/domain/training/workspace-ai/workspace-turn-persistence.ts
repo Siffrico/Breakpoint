@@ -2,6 +2,7 @@ import { Effect } from "effect";
 
 import type {
   UnitDifficultySnapshot,
+  UnitReviewChallenge,
   WorkspaceTurnAction,
 } from "@acme/validators";
 
@@ -19,7 +20,7 @@ import type { WorkspaceAiMessage, WorkspaceAiTurnResult } from "./types";
 import type { RatingEvidenceError } from "./workspace-errors";
 import type { WorkspaceTurnDependencies } from "./workspace-turn";
 import { projectScenarioBrief } from "../education-unit/scenario-brief";
-import { isRatingEligibleScenario } from "../education-unit/unit-state";
+import { ratedRoundChallenge } from "../education-unit/unit-state";
 import { WorkspacePersistenceError } from "./workspace-errors";
 import { resolveWorkspaceTurn } from "./workspace-turn";
 import { WorkspaceTurnRepo } from "./workspace-turn-repo";
@@ -138,6 +139,8 @@ export interface WorkspaceEducationTurnCommit {
     nodeId: string;
     snapshot: UnitDifficultySnapshot;
     presentedAt: Date;
+    /** The rated round on the board, as its rating attempt stores it. */
+    challenge: UnitReviewChallenge;
   } | null;
   solvePresentation: {
     scenarioAttemptId: string | null;
@@ -172,21 +175,21 @@ export interface WorkspaceRatingEvaluationCommit {
 const buildUnitCompletionDebrief = (result: UnitTurnResult): Debrief => ({
   seedResponse: "",
   finalArticulation: result.assistantMessage,
-  growthDimensions: ["Completed mentor practice and adversarial review."],
-  checksMet: result.reviewGrade?.checksMet ?? null,
-  checksTotal: result.reviewGrade?.checksTotal ?? null,
+  growthDimensions: ["Completed the unit's practice and exam rounds."],
+  checksMet: result.grade?.checksMet ?? null,
+  checksTotal: result.grade?.checksTotal ?? null,
   readiness: "ready_for_next_unit",
-  strengths: result.reviewGrade ? [result.reviewGrade.reasoning] : [],
+  strengths: result.grade ? [result.grade.reasoning] : [],
   improvements: ["Keep transferring this judgment into real work."],
   failureTags: [],
   nextStep: "Continue to the next training unit.",
 });
 
 const verdictLabel = (result: UnitTurnResult): string => {
-  if (result.reviewGrade) {
-    return result.reviewGrade.passed ? "review_passed" : "review_continues";
+  if (result.grade) {
+    return result.grade.passed ? "parts_met" : "parts_missed";
   }
-  if (result.presentedReviewChallenge) return "review_prompted";
+  if (result.presentedRatedRound) return "exam_presented";
   return "learning_continues";
 };
 
@@ -238,27 +241,30 @@ export const saveUnitTurnResult = ({
       ...turnResult.nextRun,
       sessionId,
       userId,
+      // A rated grade moved the learner's rating, so the next step resolves
+      // a fresh snapshot instead of reusing this one.
       difficultySnapshot:
-        ratingEvaluation && turnResult.nextRun.mode === "awaiting_next_pass"
+        ratingEvaluation && turnResult.nextRun.mode === "feedback"
           ? null
           : difficultySnapshot,
     };
     const complete = nextRun.mode === "complete";
-    // The rating attempt opens only on a scenario whose mark can end the unit.
-    const opensRatingAttempt =
-      tracksRating &&
-      turnResult.presentedReviewChallenge &&
-      isRatingEligibleScenario(nextRun);
+    // A rating attempt opens when a rated round goes on the board.
+    const ratedChallenge =
+      tracksRating && turnResult.presentedRatedRound
+        ? ratedRoundChallenge(nextRun, turnResult.assistantMessage)
+        : null;
     const presentedAt = new Date();
-    const scenarioPresentation = opensRatingAttempt
+    const scenarioPresentation = ratedChallenge
       ? {
           userId,
           nodeId: difficultySnapshot.nodeId,
           snapshot: difficultySnapshot,
           presentedAt,
+          challenge: ratedChallenge,
         }
       : null;
-    const solvePresentation = opensRatingAttempt
+    const solvePresentation = ratedChallenge
       ? { scenarioAttemptId: null, presentedAt }
       : null;
     const phaseResponse: WorkspacePhaseResponseCommit | null =
@@ -279,11 +285,11 @@ export const saveUnitTurnResult = ({
               modelPurpose:
                 turnResult.actor === "reviewer" ? "evaluation" : "education",
               verdict: verdictLabel(turnResult),
-              evaluationSummary: turnResult.reviewGrade?.reasoning,
-              checksMet: turnResult.reviewGrade?.checksMet,
-              checksTotal: turnResult.reviewGrade?.checksTotal,
-              dimensionResults: turnResult.reviewGrade
-                ? [...turnResult.reviewGrade.dimensionResults]
+              evaluationSummary: turnResult.grade?.reasoning,
+              checksMet: turnResult.grade?.checksMet,
+              checksTotal: turnResult.grade?.checksTotal,
+              dimensionResults: turnResult.grade
+                ? [...turnResult.grade.criterionResults]
                 : undefined,
               difficultyDirectiveReason: difficultyDirectiveReason ?? undefined,
               goldilocksUpdated: ratingEvaluation ? true : undefined,
@@ -331,7 +337,7 @@ export const saveUnitTurnResult = ({
         metadata:
           turnResult.actor === "reviewer"
             ? {
-                passNumber: nextRun.reviewPass,
+                passNumber: nextRun.roundNumber,
                 ...(difficultyDirectiveReason
                   ? { difficultyDirectiveReason }
                   : {}),
@@ -381,7 +387,7 @@ export const saveUnitTurnResult = ({
     });
 
     return {
-      passNumber: nextRun.reviewPass,
+      passNumber: nextRun.roundNumber,
       state: nextWorkspaceState,
       // Projected from the run this turn just wrote, so the brief the client
       // receives belongs to the pass now on the board — the client's workspace

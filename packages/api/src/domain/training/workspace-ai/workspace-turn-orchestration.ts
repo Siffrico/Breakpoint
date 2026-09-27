@@ -1,12 +1,10 @@
-import type { ModelMessage } from "ai";
 import type { Scope } from "effect";
 import { Cause, Effect, Exit } from "effect";
 
 import type {
   ScenarioFormat,
   UnitDifficultySnapshot,
-  UnitReviewChallenge,
-  UnitReviewPass,
+  UnitPreparedStep,
   WorkspaceTurnAction,
 } from "@acme/validators";
 
@@ -30,18 +28,14 @@ import type {
 } from "./workspace-turn-persistence";
 import type { WorkspaceTurnRepo } from "./workspace-turn-repo";
 import { resolveEducationExperience } from "../education-unit/experience";
-import { prefillScenario } from "../education-unit/prefill";
-import {
-  runPassAdvanceTurn,
-  runUnitTurn,
-} from "../education-unit/run-unit-turn";
+import { draftNextStep } from "../education-unit/draft-step";
+import { runUnitTurn } from "../education-unit/run-unit-turn";
 import { projectScenarioBrief } from "../education-unit/scenario-brief";
+import { createMentorContext } from "../education-unit/unit-context";
 import {
-  createCritiqueContext,
-  createMentorContext,
-  createMentorScenarioContext,
-} from "../education-unit/unit-context";
-import { boundTranscript } from "../engine/compaction";
+  evidencedTargetIds,
+  withPreparedDraft,
+} from "../education-unit/unit-state";
 import { resolveRatingScope } from "../orchestration/rating-scope";
 import { deriveServerAttemptTiming } from "./attempt-timing";
 import {
@@ -66,14 +60,6 @@ interface ResolvedDifficultyDirectiveResult {
   dialPreset: DifficultyDialPreset;
 }
 
-interface OpenScenarioResult {
-  id: string;
-  scenarioPrompt?: string | null;
-  itemRating?: number | null;
-  presentedAt?: Date | null;
-  solvePresentedAt?: Date | null;
-}
-
 export interface WorkspaceTurnOrchestrationDependencies
   extends WorkspaceTurnDependencies,
     WorkspaceTurnPersistenceDependencies {
@@ -89,20 +75,14 @@ export interface WorkspaceTurnOrchestrationDependencies
     now: Date;
     bands?: readonly DifficultyBand[] | null;
   }) => Promise<ResolvedDifficultyDirectiveResult>;
-  getScenarioAttempt?: (input: {
-    scenarioAttemptId: string;
-    userId: string;
-    nodeId: string;
-  }) => Promise<OpenScenarioResult | null>;
   /** Test seam for deterministic education-unit contract tests. */
   runUnitTurn?: typeof runUnitTurn;
-  runPassAdvanceTurn?: typeof runPassAdvanceTurn;
-  savePendingChallenge?: (input: {
+  /** Saves a step written ahead; a no-op if the unit moved on meanwhile. */
+  savePreparedStep?: (input: {
     sessionId: string;
     unitContentId: string;
     kind: string;
-    pass: UnitReviewPass;
-    challenge: UnitReviewChallenge;
+    prepared: UnitPreparedStep;
     difficultySnapshot: UnitDifficultySnapshot;
   }) => Promise<void>;
   pregenerateNextUnit?: (input: {
@@ -117,13 +97,7 @@ export interface WorkspaceTurnOrchestrationDependencies
 // Shared plumbing
 // ---------------------------------------------------------------------------
 
-const toModelMessages = (
-  messages: readonly WorkspaceAiMessage[],
-): ModelMessage[] =>
-  // WorkspaceAiMessage.role is already exactly "user" | "assistant".
-  messages.map((m) => ({ role: m.role, content: m.content }) as ModelMessage);
-
-type LoadedTurnTranscript =
+type ClaimedTurn =
   | {
       kind: "cached";
       assistantMessage: WorkspaceAiMessage;
@@ -133,8 +107,6 @@ type LoadedTurnTranscript =
       kind: "claimed";
       unitRun: ResolvedWorkspaceTurn["unitRun"];
       unitResponses: ResolvedWorkspaceTurn["unitResponses"];
-      messages: WorkspaceAiMessage[];
-      transcript: WorkspaceAiMessage[];
       claimedDurableTurn: boolean;
       /**
        * When the learner's message first reached the server (the durable turn
@@ -273,9 +245,12 @@ const SLOT = "education_unit" as const;
  * What the learner sees where a difficulty note normally sits when the first
  * solve exposes a gap. The transition reads as momentum, not internal state.
  */
-const RETRY_SCENARIO_NOTE = "Use the feedback in this fresh scenario.";
+const RETRY_SCENARIO_NOTE = "Use the feedback on the next part.";
 
-const claimTurnAndLoadTranscript = ({
+/** The answer window a rated round allows for each of its parts. */
+const RATED_SECONDS_PER_PART = 300;
+
+const claimTurn = ({
   sessionId,
   unitId,
   unitContentId,
@@ -296,7 +271,7 @@ const claimTurnAndLoadTranscript = ({
   message: string;
   deps: WorkspaceTurnOrchestrationDependencies;
 }): Effect.Effect<
-  LoadedTurnTranscript,
+  ClaimedTurn,
   TurnLeaseConflictError | WorkspacePersistenceError,
   Scope.Scope
 > =>
@@ -367,52 +342,14 @@ const claimTurnAndLoadTranscript = ({
       deps,
     });
 
-    const [persistedMessages, unitResponses] = yield* Effect.all(
-      [
-        persistPromise("listWorkspaceMessages", () =>
-          deps.listUnitMessages(sessionId, unitId),
-        ),
-        persistPromise("getPhaseResponses", () =>
-          deps.getPhaseResponses(unitContentId, sessionId),
-        ),
-      ],
-      { concurrency: 2 },
+    const unitResponses = yield* persistPromise("getPhaseResponses", () =>
+      deps.getPhaseResponses(unitContentId, sessionId),
     );
-
-    // Each unit is its own chat. The durable cursor keeps scenario evidence
-    // outside the verbatim window, so bounding a long adaptive loop cannot
-    // erase progress or require a summarization model on the hot path.
-    //
-    // The learner's message is committed with the turn, not before it, so the
-    // model's view of this turn has to be assembled here. An `advance_pass`
-    // carries no answer at all — appending an empty user turn would put a blank
-    // learner message in the transcript for the next review.
-    const messages =
-      action !== "submit_answer"
-        ? persistedMessages
-        : [
-            ...persistedMessages,
-            {
-              role: "user" as const,
-              content: message,
-              sequence:
-                Math.max(
-                  -1,
-                  ...persistedMessages.map((item) => item.sequence),
-                ) + 1,
-              slot: SLOT,
-              unitId,
-              turnId,
-              metadata: null,
-            },
-          ];
 
     return {
       kind: "claimed",
       unitRun: claimedUnit,
       unitResponses,
-      messages,
-      transcript: boundTranscript(messages),
       claimedDurableTurn: action === "submit_answer",
       claimedAt: claim.claimedAt,
     };
@@ -453,7 +390,7 @@ export const runEducationUnitTurn = ({
 > =>
   Effect.gen(function* () {
     const { plan, state, node, unit } = turn;
-    const loadedTranscript = yield* claimTurnAndLoadTranscript({
+    const loaded = yield* claimTurn({
       sessionId,
       unitId: unit.nodeId,
       unitContentId: unit.id,
@@ -464,17 +401,17 @@ export const runEducationUnitTurn = ({
       message,
       deps,
     });
-    if (loadedTranscript.kind === "cached") {
-      onAssistantMessage?.(loadedTranscript.assistantMessage.content);
+    if (loaded.kind === "cached") {
+      onAssistantMessage?.(loaded.assistantMessage.content);
       return {
-        passNumber: turn.unitRun.reviewPass,
+        passNumber: turn.unitRun.roundNumber,
         state,
         scenario: projectScenarioBrief(turn.unitRun),
-        messages: loadedTranscript.messages,
-        assistantMessage: loadedTranscript.assistantMessage,
+        messages: loaded.messages,
+        assistantMessage: loaded.assistantMessage,
       };
     }
-    const { unitRun, unitResponses } = loadedTranscript;
+    const { unitRun, unitResponses } = loaded;
     if (unitRun.cursor.interactionId !== interactionId) {
       return yield* new WorkspaceInputError({
         message: "This interaction has changed. Refresh to continue.",
@@ -485,10 +422,9 @@ export const runEducationUnitTurn = ({
         message: "This unit is complete. Press Next Unit to continue.",
       });
     }
-    const advancesPass = action === "advance_pass";
-    if (advancesPass && unitRun.mode !== "awaiting_next_pass") {
+    if (action === "continue" && unitRun.mode !== "feedback") {
       return yield* new WorkspaceInputError({
-        message: "There is no next challenge to open yet.",
+        message: "There is nothing to continue to yet.",
       });
     }
     const ratingScope = resolveRatingScope({ unit, planNodes: plan.nodes });
@@ -534,115 +470,66 @@ export const runEducationUnitTurn = ({
         : yield* new RatingEvidenceError({
             message: "Goldilocks did not resolve a unit difficulty snapshot.",
           }));
+    const calibratedRun = { ...unitRun, difficultySnapshot };
 
-    const previousChallengePrompts = unitRun.cursor.scenarioPrompts;
-    // What the last failed scenario found, so the next lesson or scenario aims
-    // at that idea instead of restating the unit. Null on a pass and at the
-    // start of a run, which is when there is nothing to repair.
-    const repairStep = unitRun.cursor.step;
-    const repair =
-      repairStep.kind === "pass_result" && repairStep.outcome === "fail"
-        ? {
-            errorCodes: repairStep.errorCodes,
-            hypothesis: repairStep.hypothesis,
-            dimensionResults: repairStep.evidence,
-          }
-        : null;
-    const contexts = {
-      mentor: createMentorContext({
-        unitContext: unitRun.unitContext,
-        difficulty: difficultySnapshot,
-        memories,
-        repair,
-      }),
-      mentorScenario: createMentorScenarioContext({
-        unitContext: unitRun.unitContext,
-        difficulty: difficultySnapshot,
-        previousChallengePrompts,
-        repair,
-      }),
-      critique: {
-        judgeAnswer: createCritiqueContext({
-          unitContext: unitRun.unitContext,
-        }),
-      },
-    };
-
-    const preparedOpening =
+    // The opening lesson is prepared ahead under its own lock; handing it to
+    // the runner as the prepared step means the runner has one path for it.
+    const openingLesson =
       action === "start_unit" && deps.prepareOpening
         ? yield* deps.prepareOpening({
             nodeId: node.id,
-            run: { ...unitRun, difficultySnapshot },
+            run: calibratedRun,
             teaching: {
-              context: contexts.mentor,
+              context: createMentorContext({
+                unitContext: unitRun.unitContext,
+                difficulty: difficultySnapshot,
+                memories,
+              }),
               experience,
-              selectedResponse: difficultySnapshot.format?.kind === "mcq",
-              testedCriterionIds: unitRun.unitContext.judgment.criteria.map(
-                (criterion) => criterion.id,
-              ),
               onPartialAssistantMessage,
             },
           })
-        : undefined;
-    const turnInput = {
-      preparedOpening: preparedOpening ?? undefined,
-      run: { ...unitRun, difficultySnapshot },
+        : null;
+    const run = openingLesson
+      ? withPreparedDraft(calibratedRun, {
+          kind: "lesson",
+          inputKey: null,
+          lesson: openingLesson,
+        })
+      : calibratedRun;
+
+    const turnResult = yield* (deps.runUnitTurn ?? runUnitTurn)({
+      run,
       interactionId,
       action,
-      transcript: toModelMessages(loadedTranscript.transcript),
+      learnerMessage: message,
       experience,
-      contexts,
+      memories,
       onPartialAssistantMessage,
-    };
-    const turnResult = advancesPass
-      ? yield* (deps.runPassAdvanceTurn ?? runPassAdvanceTurn)(turnInput)
-      : yield* (deps.runUnitTurn ?? runUnitTurn)(turnInput);
+    });
 
-    const scenarioAttemptId = findLatestPhaseResponse(
-      unitResponses,
-      (response) =>
-        response.phase === "ai_education" &&
-        response.metadata?.scenarioAttemptId !== undefined,
-    )?.metadata?.scenarioAttemptId;
     let ratingEvaluation: WorkspaceRatingEvaluationCommit | null = null;
     if (turnResult.ratingWrite) {
+      const scenarioAttemptId = findLatestPhaseResponse(
+        unitResponses,
+        (response) =>
+          response.phase === "ai_education" &&
+          response.metadata?.scenarioAttemptId !== undefined,
+      )?.metadata?.scenarioAttemptId;
       if (!scenarioAttemptId) {
         return yield* new RatingEvidenceError({
-          message: "Adversarial grading requires its persisted review attempt.",
-        });
-      }
-      const getScenarioAttempt = deps.getScenarioAttempt;
-      if (!getScenarioAttempt) {
-        return yield* new RatingEvidenceError({
-          message: "Adversarial grading requires scenario attempt reads.",
-        });
-      }
-      const attempt = yield* ratingPromise("getScenarioAttempt", () =>
-        getScenarioAttempt({
-          scenarioAttemptId,
-          userId,
-          nodeId: difficultySnapshot.nodeId,
-        }),
-      );
-      if (!attempt) {
-        return yield* new RatingEvidenceError({
-          message: "The persisted adversarial review attempt was not found.",
-        });
-      }
-      if (!attempt.solvePresentedAt) {
-        return yield* new RatingEvidenceError({
-          message:
-            "Adversarial grading requires a persisted presentation time.",
+          message: "A rated round requires its persisted rating attempt.",
         });
       }
       const timing = deriveServerAttemptTiming({
-        presentedAt: attempt.solvePresentedAt,
-        submittedAt: loadedTranscript.claimedAt,
-        timeLimitSeconds: 300,
+        presentedAt: turnResult.ratingWrite.presentedAt,
+        submittedAt: loaded.claimedAt,
+        timeLimitSeconds:
+          RATED_SECONDS_PER_PART * turnResult.ratingWrite.partCount,
       });
       if (!timing) {
         return yield* new RatingEvidenceError({
-          message: "Adversarial review timing could not be derived.",
+          message: "The rated round's timing could not be derived.",
         });
       }
       ratingEvaluation = {
@@ -658,27 +545,18 @@ export const runEducationUnitTurn = ({
       };
     }
 
-    const completed = turnResult.nextRun.mode === "complete";
-    const evidencedTargetIds =
-      turnResult.nextRun.cursor.step.kind === "complete"
-        ? turnResult.nextRun.cursor.step.evidencedTargetIds
-        : [];
-    const opensRetry =
-      turnResult.reviewGrade?.passed === false &&
-      turnResult.nextRun.kind === "education";
+    const { nextRun } = turnResult;
+    const completed = nextRun.mode === "complete";
+    const shownTargetIds = evidencedTargetIds(nextRun);
+    const missedPart = turnResult.grade?.passed === false;
     const knowledgeCheckOff =
-      completed && turnResult.nextRun.kind === "education"
+      completed && nextRun.kind === "education"
         ? {
-            requestedKnowledgeIds: evidencedTargetIds,
-            targetedKnowledgeIds: evidencedTargetIds,
+            requestedKnowledgeIds: shownTargetIds,
+            targetedKnowledgeIds: shownTargetIds,
             evidenceNodeId: unit.nodeId,
           }
         : null;
-    const skillPractice = completed
-      ? {
-          knowledgeIds: evidencedTargetIds,
-        }
-      : null;
 
     const result = yield* saveUnitTurnResult({
       sessionId,
@@ -689,16 +567,16 @@ export const runEducationUnitTurn = ({
       turnResult,
       ratingEvaluation,
       knowledgeCheckOff,
-      skillPractice,
+      skillPractice: completed ? { knowledgeIds: shownTargetIds } : null,
       tracksRating: true,
       difficultySnapshot,
       difficultyDirectiveReason:
-        opensRetry && !completed
+        missedPart && !completed
           ? RETRY_SCENARIO_NOTE
           : difficultySnapshot.directive.reason,
       turnId,
       turnLeaseId,
-      persistUserMessage: loadedTranscript.claimedDurableTurn,
+      persistUserMessage: loaded.claimedDurableTurn,
       persistPhaseResponse: action !== "start_unit",
       responseSequence: unitResponses.filter(
         (response) => response.phase === "ai_education",
@@ -706,22 +584,15 @@ export const runEducationUnitTurn = ({
       deps,
     });
 
-    const savePendingChallenge = deps.savePendingChallenge;
-    const passResult = turnResult.nextRun.cursor.step;
-    // A `never-learned-it` diagnosis sends the next turn back to the mentor,
-    // who writes its own scenario off the back of the lesson. Pre-generating
-    // one here would attach first and silently skip the re-teach.
-    const awaitingReteach =
-      passResult.kind === "pass_result" &&
-      passResult.causeType === "never-learned-it";
-    if (
-      turnResult.nextRun.mode === "awaiting_next_pass" &&
-      savePendingChallenge &&
-      !awaitingReteach
-    ) {
-      const runPassPregeneration = () =>
+    // While the learner reads feedback, write whatever comes next so Continue
+    // is instant. The save only lands if nothing has happened since.
+    const savePreparedStep = deps.savePreparedStep;
+    if (nextRun.mode === "feedback" && savePreparedStep) {
+      const runPreparation = () =>
         Effect.runPromise(
           Effect.gen(function* () {
+            // A rated grade moved the learner's rating, so the next step is
+            // written at the difficulty that rating now calls for.
             const nextDifficulty: UnitDifficultySnapshot = ratingEvaluation
               ? {
                   nodeId: ratingScope.nodeId,
@@ -735,41 +606,27 @@ export const runEducationUnitTurn = ({
                   )),
                 }
               : difficultySnapshot;
-            const challenge = yield* prefillScenario({
-              run: {
-                ...turnResult.nextRun,
-                difficultySnapshot: nextDifficulty,
-              },
+            const draft = yield* draftNextStep({
+              run: { ...nextRun, difficultySnapshot: nextDifficulty },
               experience,
-              context: createMentorScenarioContext({
-                unitContext: turnResult.nextRun.unitContext,
-                difficulty: nextDifficulty,
-                previousChallengePrompts:
-                  turnResult.nextRun.cursor.scenarioPrompts,
-                repair:
-                  passResult.kind === "pass_result" &&
-                  passResult.outcome === "fail"
-                    ? {
-                        errorCodes: passResult.errorCodes,
-                        hypothesis: passResult.hypothesis,
-                        dimensionResults: passResult.evidence,
-                      }
-                    : null,
-              }),
+              memories,
             });
-            yield* persistPromise("savePendingChallenge", () =>
-              savePendingChallenge({
+            if (!draft) return;
+            yield* persistPromise("savePreparedStep", () =>
+              savePreparedStep({
                 sessionId,
                 unitContentId: unit.id,
-                kind: turnResult.nextRun.kind,
-                pass: turnResult.nextRun.reviewPass + 1,
-                challenge,
+                kind: nextRun.kind,
+                prepared: {
+                  interactionId: nextRun.cursor.interactionId,
+                  draft,
+                },
                 difficultySnapshot: nextDifficulty,
               }),
             );
           }).pipe(
             Effect.tapCause((cause) =>
-              Effect.logError("next pass pre-generation failed", {
+              Effect.logError("next step preparation failed", {
                 sessionId,
                 unitContentId: unit.id,
                 cause,
@@ -779,16 +636,16 @@ export const runEducationUnitTurn = ({
           ),
         );
       if (deps.scheduleBackgroundTask) {
-        deps.scheduleBackgroundTask(runPassPregeneration);
+        deps.scheduleBackgroundTask(runPreparation);
       } else {
-        void runPassPregeneration();
+        void runPreparation();
       }
     }
 
     const skillNodeId = node.parentNodeId;
     if (
       completed &&
-      turnResult.nextRun.kind === "education" &&
+      nextRun.kind === "education" &&
       skillNodeId &&
       deps.pregenerateNextUnit
     ) {

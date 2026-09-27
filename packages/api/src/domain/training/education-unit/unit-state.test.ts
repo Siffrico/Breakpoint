@@ -1,407 +1,242 @@
-import { Effect, Exit } from "effect";
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
-import type { UnitReviewChallenge } from "@acme/validators";
-import {
-  EvaluationDimensionResultSchema,
-  UnitContextSchema,
+import type {
+  UnitPartDraft,
+  UnitPartResult,
+  UnitRoundSpec,
 } from "@acme/validators";
 
+import type { PersistedUnitRun } from "./unit-state";
 import { DEFAULT_EDUCATION_EXPERIENCE } from "./experience";
 import { makeUnitContext } from "./unit-context.fixture";
 import {
-  assertInteractionId,
-  attachPreparedScenario,
   createUnitRun,
-  isRatingEligibleScenario,
-  presentScenario,
-  repeatTeaching,
-  settleScenario,
+  evidencedTargetIds,
+  isUnitUnopened,
+  nextUnitMove,
+  recordExplanation,
+  recordLesson,
+  recordPartAdded,
+  recordPartResults,
+  recordRoundOpened,
+  takePreparedDraft,
+  waitingFor,
+  withPreparedDraft,
 } from "./unit-state";
 
-const challenge = {
-  prompt:
-    "A production constraint changed. Choose the next move and defend it from the controlling mechanism.",
-  difficultyVector: {
-    formatId: "frq",
-    reasoningPathSteps: 3,
-    withheldGivens: 1,
-    embeddedAlternatives: 2,
-  },
-  contract: {
-    version: 1,
-    runKind: "education",
-    scenarioPromptSummary: "Choose after a production constraint changes.",
-    testedCriterionIds: ["derive-under-pressure"],
-  },
-} satisfies UnitReviewChallenge;
+const CRITERION = "derive-under-pressure";
+const vector = {
+  formatId: "frq",
+  reasoningPathSteps: 3,
+  withheldGivens: 1,
+  embeddedAlternatives: 2,
+};
 
-const makeRun = (kind: "education" | "recall" = "education") =>
+const run = (effect: Effect.Effect<PersistedUnitRun, unknown>) =>
+  Effect.runSync(effect);
+const failure = (effect: Effect.Effect<PersistedUnitRun, { message: string }>) =>
+  Effect.runSync(Effect.flip(effect)).message;
+
+const draft = (criterionIds = [CRITERION]): UnitPartDraft => ({
+  question: "What does the changed limit force you to do?",
+  criterionIds,
+  verifier: {
+    kind: "checks",
+    checks: criterionIds.map((criterionId) => ({
+      criterionId,
+      check: "Derives the move from the changed limit.",
+    })),
+    scratchpad: "The changed limit decides the move.",
+  },
+});
+
+const result = (met: boolean): UnitPartResult => ({
+  met,
+  criterionResults: [
+    {
+      dimensionId: CRITERION,
+      met,
+      evidence: "the limit changed",
+      missing: met ? null : "A move derived from the limit.",
+    },
+  ],
+  feedback: "Feedback.",
+  hypothesis: met ? null : "Reuses the old move.",
+  causeType: met ? null : "wrong-rule",
+  errorCodes: met ? [] : ["old-move"],
+});
+
+const fresh = () =>
   createUnitRun({
     unitId: "unit-1",
     sessionId: "session-1",
     userId: "user-1",
-    kind,
+    kind: "education",
     unitContext: makeUnitContext(),
     experience: DEFAULT_EDUCATION_EXPERIENCE,
   });
 
-describe("unit cursor", () => {
-  it("starts education at teaching with a deterministic initial identity", () => {
-    const first = makeRun();
-    const sameProjection = makeRun();
-    expect(first.cursor.step).toEqual({
-      kind: "teaching",
-      preparedScenario: null,
-    });
-    expect(first.cursor.interactionId).toBe(
-      sameProjection.cursor.interactionId,
-    );
-    expect(first.mode).toBe("learning");
+const explained = () =>
+  run(recordExplanation(run(recordLesson(fresh(), "Lesson.")), "It says X."));
+
+const openSpec = (target: PersistedUnitRun): UnitRoundSpec => {
+  const move = nextUnitMove(target);
+  if (move.kind !== "open_round") throw new Error(`expected a round, got ${move.kind}`);
+  return move.spec;
+};
+
+const openRound = (target: PersistedUnitRun, parts: UnitPartDraft[]) =>
+  recordRoundOpened({
+    run: target,
+    spec: openSpec(target),
+    narrative: "A line runs at 30 degrees today.",
+    difficultyVector: vector,
+    parts,
+    presentedAt: new Date(0),
   });
 
-  it("rejects a response to an interaction that is no longer current", async () => {
-    const run = makeRun();
-    const repeated = await Effect.runPromise(repeatTeaching(run));
-    const exit = await Effect.runPromiseExit(
-      assertInteractionId(repeated, run.cursor.interactionId),
-    );
-    expect(Exit.isFailure(exit)).toBe(true);
+/** Plays a whole learn round, every part graded with `met`. */
+const finishLearnRound = (target: PersistedUnitRun, met: boolean) => {
+  let current = run(openRound(target, [draft()]));
+  current = run(recordPartResults(current, [result(met)]));
+  for (let index = 1; index < 3; index += 1) {
+    current = run(recordPartAdded({ run: current, part: draft(), presentedAt: new Date(0) }));
+    current = run(recordPartResults(current, [result(met)]));
+  }
+  return current;
+};
+
+describe("unit history", () => {
+  it("starts unopened and waits for the start", () => {
+    const unit = fresh();
+    expect(isUnitUnopened(unit)).toBe(true);
+    expect(waitingFor(unit.cursor)).toBe("start");
+    expect(unit.mode).toBe("teach");
+    expect(unit.roundNumber).toBe(1);
   });
 
-  it("parks speculative scenario work without changing the response identity", async () => {
-    const run = makeRun();
-    const parked = await Effect.runPromise(
-      attachPreparedScenario({ run, challenge }),
-    );
-    expect(parked.cursor.interactionId).toBe(run.cursor.interactionId);
-    expect(parked.cursor.step).toMatchObject({
-      kind: "teaching",
-      preparedScenario: challenge,
-    });
+  it("waits for the explain-back after the lesson, then for Continue", () => {
+    const taught = run(recordLesson(fresh(), "Lesson."));
+    expect(waitingFor(taught.cursor)).toBe("explanation");
+    expect(taught.mode).toBe("teach");
+    const after = run(recordExplanation(taught, "It says X."));
+    expect(nextUnitMove(after).kind).toBe("open_round");
   });
 
-  it("moves teaching to a presented scenario and records its surface", async () => {
-    const scenario = await Effect.runPromise(
-      presentScenario({ run: makeRun(), challenge }),
-    );
-    expect(scenario.cursor.step).toMatchObject({
-      kind: "scenario",
-      attempt: 1,
-      challenge,
-    });
-    expect(scenario.cursor.scenarioPrompts).toEqual([challenge.prompt]);
+  it("rotates the interaction id on every fact", () => {
+    const unit = fresh();
+    const taught = run(recordLesson(unit, "Lesson."));
+    expect(taught.cursor.interactionId).not.toBe(unit.cursor.interactionId);
   });
 
-  it("refuses to present a scenario that does not test the full unit contract", async () => {
-    const exit = await Effect.runPromiseExit(
-      presentScenario({
-        run: makeRun(),
-        challenge: {
-          ...challenge,
-          contract: { ...challenge.contract, testedCriterionIds: ["other"] },
-        },
-      }),
+  it("refuses a lesson when the policy's next move is something else", () => {
+    expect(failure(recordLesson(explained(), "Again."))).toMatch(
+      /next move is open_round/,
     );
-    expect(Exit.isFailure(exit)).toBe(true);
   });
 
-  it("stores failed-dimension evidence as the authority for the retry", async () => {
-    const scenario = await Effect.runPromise(
-      presentScenario({ run: makeRun(), challenge }),
+  it("refuses an explanation before the lesson", () => {
+    expect(failure(recordExplanation(fresh(), "Early."))).toMatch(
+      /not waiting for an explanation/,
     );
-    const failed = await Effect.runPromise(
-      settleScenario({
-        run: scenario,
-        passed: false,
-        errorCodes: ["constraint-blindness"],
-        causeType: "missed-limit",
-        hypothesis:
-          "I think you read the old move working before as it working here.",
-        dimensionResults: [
-          {
-            dimensionId: "derive-under-pressure",
-            met: false,
-            evidence: "repeat the old move",
-            missing: "A derivation from the changed constraint.",
-          },
-        ],
-        evidencedTargetIds: [],
-      }),
-    );
-    expect(failed.cursor.step).toMatchObject({
-      kind: "pass_result",
-      attempt: 1,
-      outcome: "fail",
-      errorCodes: ["constraint-blindness"],
-      causeType: "missed-limit",
-      evidence: [{ met: false }],
-    });
-    expect(failed.cursor.errorCodeHistory).toEqual(["constraint-blindness"]);
-    expect(failed.mode).toBe("awaiting_next_pass");
   });
 
-  it("settles a correct first scenario without opening feedback", async () => {
-    const scenario = await Effect.runPromise(
-      presentScenario({ run: makeRun(), challenge }),
+  it("opens a learn round with exactly one part and waits for its answer", () => {
+    const opened = run(openRound(explained(), [draft()]));
+    expect(waitingFor(opened.cursor)).toBe("answer");
+    expect(opened.mode).toBe("answer");
+    expect(failure(openRound(explained(), [draft(), draft()]))).toMatch(
+      /opens with 1 part/,
     );
-    const settled = await Effect.runPromise(
-      settleScenario({
-        run: scenario,
-        passed: true,
-        errorCodes: [],
-        causeType: null,
-        hypothesis: null,
-        dimensionResults: [
-          {
-            dimensionId: "derive-under-pressure",
-            met: true,
-            evidence: "derive from the changed constraint",
-            missing: null,
-          },
-        ],
-        evidencedTargetIds: ["target-1"],
-      }),
-    );
-    expect(settled.cursor.step).toMatchObject({
-      kind: "pass_result",
-      attempt: 1,
-      outcome: "pass",
-      evidencedTargetIds: ["target-1"],
-    });
-    expect(settled.mode).toBe("awaiting_next_pass");
   });
 
-  it("requires a correct independent scenario from pass 2 onward to complete", async () => {
-    const firstScenario = await Effect.runPromise(
-      presentScenario({ run: makeRun(), challenge }),
-    );
-    const firstResult = await Effect.runPromise(
-      settleScenario({
-        run: firstScenario,
-        passed: true,
-        errorCodes: [],
-        causeType: null,
-        hypothesis: null,
-        dimensionResults: [
-          {
-            dimensionId: "derive-under-pressure",
-            met: true,
-            evidence: "derive from the changed constraint",
-            missing: null,
-          },
-        ],
-        evidencedTargetIds: ["target-1"],
-      }),
-    );
-    const secondScenario = await Effect.runPromise(
-      presentScenario({ run: firstResult, challenge }),
-    );
-    expect(isRatingEligibleScenario(firstScenario)).toBe(false);
-    expect(isRatingEligibleScenario(secondScenario)).toBe(true);
-    const complete = await Effect.runPromise(
-      settleScenario({
-        run: secondScenario,
-        passed: true,
-        errorCodes: [],
-        causeType: null,
-        hypothesis: null,
-        dimensionResults: [
-          {
-            dimensionId: "derive-under-pressure",
-            met: true,
-            evidence: "derive from the changed constraint",
-            missing: null,
-          },
-        ],
-        evidencedTargetIds: ["target-1"],
-      }),
-    );
-    expect(secondScenario.reviewPass).toBe(2);
-    expect(complete.cursor.step).toMatchObject({
-      kind: "complete",
-      attempt: 2,
-      outcome: "pass",
-    });
-  });
-
-  it("carries the diagnosis into the failed pass so the next scenario can aim at it", async () => {
-    const scenario = await Effect.runPromise(
-      presentScenario({ run: makeRun(), challenge }),
-    );
-    const failed = await Effect.runPromise(
-      settleScenario({
-        run: scenario,
-        passed: false,
-        errorCodes: ["constraint-blindness"],
-        causeType: "never-learned-it",
-        hypothesis:
-          "I think you read the old move working before as it working here.",
-        dimensionResults: [
-          {
-            dimensionId: "derive-under-pressure",
-            met: false,
-            evidence: "repeat the old move",
-            missing: "A derivation from the changed constraint.",
-          },
-        ],
-        evidencedTargetIds: [],
-      }),
-    );
-    expect(failed.cursor.step).toMatchObject({
-      kind: "pass_result",
-      outcome: "fail",
-      causeType: "never-learned-it",
-      hypothesis:
-        "I think you read the old move working before as it working here.",
-    });
-  });
-
-  it("keeps one code for a mistake the learner repeats", async () => {
-    let run = await Effect.runPromise(
-      presentScenario({ run: makeRun(), challenge }),
-    );
-    const fail = (target: typeof run) =>
-      settleScenario({
-        run: target,
-        passed: false,
-        errorCodes: ["constraint-blindness"],
-        causeType: "missed-limit",
-        hypothesis:
-          "I think you read the old move working before as it working here.",
-        dimensionResults: [
-          {
-            dimensionId: "derive-under-pressure",
-            met: false,
-            evidence: "repeat the old move",
-            missing: "A derivation from the changed constraint.",
-          },
-        ],
-        evidencedTargetIds: [],
-      });
-    run = await Effect.runPromise(fail(run));
-    run = await Effect.runPromise(presentScenario({ run, challenge }));
-    run = await Effect.runPromise(fail(run));
-
-    expect(run.cursor.errorCodeHistory).toEqual(["constraint-blindness"]);
-  });
-
-  it("refuses a passing completion without evidence for every target", async () => {
-    const scenario = await Effect.runPromise(
-      presentScenario({ run: makeRun(), challenge }),
-    );
-    const exit = await Effect.runPromiseExit(
-      settleScenario({
-        run: scenario,
-        passed: true,
-        errorCodes: [],
-        causeType: null,
-        hypothesis: null,
-        dimensionResults: [
-          {
-            dimensionId: "derive-under-pressure",
-            met: true,
-            evidence: "derive from the changed constraint",
-            missing: null,
-          },
-        ],
-        evidencedTargetIds: [],
-      }),
-    );
-    expect(Exit.isFailure(exit)).toBe(true);
-  });
-
-  it("refuses failed feedback without a diagnosis for the retry", async () => {
-    const scenario = await Effect.runPromise(
-      presentScenario({ run: makeRun(), challenge }),
-    );
-    const exit = await Effect.runPromiseExit(
-      settleScenario({
-        run: scenario,
-        passed: false,
-        errorCodes: [],
-        causeType: null,
-        hypothesis: null,
-        dimensionResults: [],
-        evidencedTargetIds: [],
-      }),
-    );
-    expect(Exit.isFailure(exit)).toBe(true);
-  });
-});
-
-describe("unit context coverage", () => {
-  it("reads legacy score evidence as a boolean check result", () => {
+  it("refuses a round whose spec differs from the policy", () => {
+    const target = explained();
     expect(
-      EvaluationDimensionResultSchema.parse({
-        dimensionId: "derive-under-pressure",
-        score: 70,
-        evidence: "The changed constraint controls the move.",
-        missing: null,
-      }),
-    ).toEqual({
-      dimensionId: "derive-under-pressure",
-      met: true,
-      evidence: "The changed constraint controls the move.",
-      missing: null,
+      failure(
+        recordRoundOpened({
+          run: target,
+          spec: { ...openSpec(target), rated: true },
+          narrative: "N",
+          difficultyVector: vector,
+          parts: [draft()],
+          presentedAt: new Date(0),
+        }),
+      ),
+    ).toMatch(/does not match the unit policy/);
+  });
+
+  it("refuses a part testing a criterion outside its round", () => {
+    expect(failure(openRound(explained(), [draft(["elsewhere"])]))).toMatch(
+      /outside its round/,
+    );
+  });
+
+  it("requires every open part graded on exactly its own criteria", () => {
+    const opened = run(openRound(explained(), [draft()]));
+    expect(failure(recordPartResults(opened, []))).toMatch(/exactly once/);
+    expect(
+      failure(
+        recordPartResults(opened, [
+          { ...result(true), criterionResults: [] },
+        ]),
+      ),
+    ).toMatch(/its own criteria/);
+    expect(
+      failure(recordPartResults(opened, [{ ...result(false), met: true }])),
+    ).toMatch(/every one of its criteria/);
+  });
+
+  it("moves a finished learn round to a rated exam of three parts", () => {
+    const learned = finishLearnRound(explained(), false);
+    expect(waitingFor(learned.cursor)).toBe("continue");
+    expect(learned.mode).toBe("feedback");
+    const spec = openSpec(learned);
+    expect(spec).toMatchObject({ label: "exam", rated: true, partCount: 3 });
+    expect(failure(openRound(learned, [draft()]))).toMatch(/opens with 3 part/);
+  });
+
+  it("completes as mastered in the same fact as a clean exam grade", () => {
+    const learned = finishLearnRound(explained(), true);
+    const exam = run(openRound(learned, [draft(), draft(), draft()]));
+    expect(exam.roundNumber).toBe(2);
+    const graded = run(
+      recordPartResults(exam, [result(true), result(true), result(true)]),
+    );
+    expect(graded.cursor.outcome).toBe("mastered");
+    expect(graded.mode).toBe("complete");
+    expect(evidencedTargetIds(graded)).toEqual(["target-1"]);
+  });
+
+  it("keeps a failed exam open for a relearn round", () => {
+    const learned = finishLearnRound(explained(), true);
+    const exam = run(openRound(learned, [draft(), draft(), draft()]));
+    const graded = run(
+      recordPartResults(exam, [result(true), result(false), result(true)]),
+    );
+    expect(graded.cursor.outcome).toBeNull();
+    expect(graded.cursor.errorCodeHistory).toEqual(["old-move"]);
+    expect(openSpec(graded)).toMatchObject({ label: "learn" });
+  });
+
+  it("uses a prepared draft only while nothing has happened since", () => {
+    const taught = run(recordLesson(fresh(), "Lesson."));
+    const explainedRun = run(recordExplanation(taught, "It says X."));
+    const prepared = withPreparedDraft(explainedRun, {
+      kind: "parts",
+      narrative: "N",
+      parts: [draft()],
     });
-  });
-
-  it("accepts a target that is both practiced and judged", () => {
-    expect(UnitContextSchema.safeParse(makeUnitContext()).success).toBe(true);
-  });
-
-  it("rejects a target that no judgment criterion measures", () => {
-    const context = makeUnitContext();
+    expect(takePreparedDraft(prepared.cursor, "parts")).not.toBeNull();
+    expect(takePreparedDraft(prepared.cursor, "lesson")).toBeNull();
+    const moved = run(openRound(prepared, [draft()]));
+    expect(moved.cursor.prepared).toBeNull();
     expect(
-      UnitContextSchema.safeParse({
-        ...context,
-        judgment: {
-          ...context.judgment,
-          criteria: context.judgment.criteria.map((criterion) => ({
-            ...criterion,
-            skills: ["A different skill"],
-          })),
-        },
-      }).success,
-    ).toBe(false);
-  });
-
-  it("rejects a target that no scenario task practices", () => {
-    const context = makeUnitContext();
-    expect(
-      UnitContextSchema.safeParse({
-        ...context,
-        testing: {
-          ...context.testing,
-          taskTypes: context.testing.taskTypes.map((task) => ({
-            ...task,
-            skills: ["A different skill"],
-          })),
-        },
-      }).success,
-    ).toBe(false);
-  });
-
-  it("rejects duplicate target and criterion identities", () => {
-    const context = makeUnitContext();
-    expect(
-      UnitContextSchema.safeParse({
-        ...context,
-        targets: [context.targets[0], context.targets[0]],
-      }).success,
-    ).toBe(false);
-    expect(
-      UnitContextSchema.safeParse({
-        ...context,
-        judgment: {
-          ...context.judgment,
-          criteria: [
-            context.judgment.criteria[0],
-            context.judgment.criteria[0],
-          ],
-        },
-      }).success,
-    ).toBe(false);
+      takePreparedDraft(
+        { ...moved.cursor, prepared: prepared.cursor.prepared },
+        "parts",
+      ),
+    ).toBeNull();
   });
 });

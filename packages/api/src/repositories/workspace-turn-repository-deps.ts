@@ -324,14 +324,11 @@ const commitEducationTurn = async ({
       });
       if (!unitRun) {
         throw new Error(
-          "Pass-2 scenario presentation requires a durable unit run.",
+          "A rated round presentation requires a durable unit run.",
         );
       }
       const presentation = input.scenarioPresentation;
-      const activeChallenge = input.nextRun.activeReviewChallenge;
-      if (!activeChallenge) {
-        throw new Error("A rating attempt requires its review challenge.");
-      }
+      const activeChallenge = presentation.challenge;
       const vector = activeChallenge.difficultyVector;
       let itemRating = presentation.snapshot.directive.targetItemRating;
       if (presentation.snapshot.format) {
@@ -587,8 +584,8 @@ export const createWorkspaceTurnRepositoryDeps = (
         sessionId,
         unitContentId,
       }),
-    savePendingChallenge: (input) =>
-      trainingUnitRunRepository.setPendingChallenge({ db, ...input }),
+    savePreparedStep: (input) =>
+      trainingUnitRunRepository.setPreparedStep({ db, ...input }),
     getUnitByNodeId: (nodeId: string) =>
       trainingCurriculumRepository.getUnitByNodeId({ db, nodeId }),
     markWorkspaceTurnFailed: (input) =>
@@ -630,13 +627,6 @@ export const createWorkspaceTurnRepositoryDeps = (
           scenarioFormat: resolveScenarioFormat(ratingNode.practiceContract),
           deps: createTrainingRatingGoldilocksDeps(db),
         });
-      }),
-    getScenarioAttempt: ({ scenarioAttemptId, userId, nodeId }) =>
-      trainingRatingRepository.getOpenScenarioById({
-        db,
-        scenarioAttemptId,
-        userId,
-        nodeId,
       }),
   };
 };

@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
   UnitDifficultySnapshot,
-  UnitReviewChallenge,
+  UnitPart,
+  UnitStep,
+  WorkspaceTurnAction,
 } from "@acme/validators";
 
 import type { PersistedUnitRun } from "../education-unit/unit-state";
@@ -19,16 +21,12 @@ import type { WorkspaceTurnOrchestrationDependencies } from "./workspace-turn-or
 import type { WorkspaceEducationTurnCommit } from "./workspace-turn-persistence";
 import { DEFAULT_EDUCATION_EXPERIENCE } from "../education-unit/experience";
 import {
-  runMentorScenarioAgent,
-  runMentorTeachingAgent,
+  runMentorLessonAgent,
+  runMentorPartsAgent,
 } from "../education-unit/mentor-agent";
 import { runReviewGradeAgent } from "../education-unit/review-agent";
 import { makeUnitContext } from "../education-unit/unit-context.fixture";
-import {
-  attachPreparedScenario,
-  createUnitRun,
-  projectUnitRun,
-} from "../education-unit/unit-state";
+import { createUnitRun, projectUnitRun } from "../education-unit/unit-state";
 import { createInitialRatingState } from "../engine/rating";
 import {
   deriveDefaultBands,
@@ -41,8 +39,8 @@ import { runEducationUnitTurn } from "./workspace-turn-orchestration";
 import { WorkspaceTurnRepo } from "./workspace-turn-repo";
 
 vi.mock("../education-unit/mentor-agent", () => ({
-  runMentorScenarioAgent: vi.fn(),
-  runMentorTeachingAgent: vi.fn(),
+  runMentorLessonAgent: vi.fn(),
+  runMentorPartsAgent: vi.fn(),
 }));
 vi.mock("../education-unit/review-agent", () => ({
   runReviewGradeAgent: vi.fn(),
@@ -72,36 +70,70 @@ const snapshot: UnitDifficultySnapshot = {
   format,
   dialPreset: { steps: [2, 2], withheldGivens: [1, 1], alternatives: [1, 1] },
 };
-const presentation = {
-  assistantMessage:
-    "The operating limit changed. Choose the next move and defend it.",
-  verifier: {
-    kind: "checks" as const,
-    checks: [
-      {
-        criterionId: "derive-under-pressure",
-        check: "Derive the move from the new constraint.",
-      },
-    ],
-    scratchpad: "The changed limit must control the decision.",
-  },
+const CRITERION = "derive-under-pressure";
+const vector = {
+  formatId: "frq",
+  reasoningPathSteps: 2,
+  withheldGivens: 1,
+  embeddedAlternatives: 1,
 };
-const challenge: UnitReviewChallenge = {
-  prompt: presentation.assistantMessage,
-  difficultyVector: {
-    formatId: "frq",
-    reasoningPathSteps: 2,
-    withheldGivens: 1,
-    embeddedAlternatives: 1,
-  },
-  contract: {
-    version: 1,
-    runKind: "education",
-    scenarioPromptSummary: presentation.assistantMessage,
-    testedCriterionIds: ["derive-under-pressure"],
-    verifier: presentation.verifier,
-  },
+const verifier = {
+  kind: "checks" as const,
+  checks: [
+    { criterionId: CRITERION, check: "Derive the move from the new constraint." },
+  ],
+  scratchpad: "The changed limit must control the decision.",
 };
+const part = (graded: boolean): UnitPart => ({
+  question: "The operating limit changed. Choose the next move and defend it.",
+  criterionIds: [CRITERION],
+  verifier,
+  presentedAt: new Date().toISOString(),
+  result: graded
+    ? {
+        met: true,
+        criterionResults: [
+          { dimensionId: CRITERION, met: true, evidence: "limit", missing: null },
+        ],
+        feedback: "Right.",
+        hypothesis: null,
+        causeType: null,
+        errorCodes: [],
+      }
+    : null,
+});
+/** A lesson, a finished learn round, and a rated exam waiting for its answer. */
+const examOnBoard: UnitStep[] = [
+  { kind: "teach", lesson: "Read the limit.", explanation: "The limit decides." },
+  {
+    kind: "round",
+    spec: {
+      label: "learn",
+      pacing: "part_by_part",
+      partCount: 3,
+      rated: false,
+      mustPass: false,
+      criterionIds: [CRITERION],
+    },
+    narrative: "An earlier line.",
+    difficultyVector: vector,
+    parts: [part(true), part(true), part(true)],
+  },
+  {
+    kind: "round",
+    spec: {
+      label: "exam",
+      pacing: "all_at_once",
+      partCount: 3,
+      rated: true,
+      mustPass: true,
+      criterionIds: [CRITERION],
+    },
+    narrative: "The operating limit changed.",
+    difficultyVector: vector,
+    parts: [part(false), part(false), part(false)],
+  },
+];
 const unitNode: CurriculumNode = {
   id: "unit-node",
   parentNodeId: "outcome-1",
@@ -159,9 +191,10 @@ const harness = (initialRun?: PersistedUnitRun) => {
       difficultySnapshot: snapshot,
       cursor: {
         interactionId: "initial",
-        scenarioPrompts: [challenge.prompt],
+        steps: examOnBoard,
+        outcome: null,
         errorCodeHistory: [],
-        step: { kind: "scenario", attempt: 2, challenge },
+        prepared: null,
       },
     });
   let rating: Awaited<
@@ -187,7 +220,7 @@ const harness = (initialRun?: PersistedUnitRun) => {
       phase: "ai_education",
       sequence: 0,
       userResponse: "",
-      aiResponse: challenge.prompt,
+      aiResponse: "The exam.",
       passed: false,
       score: null,
       metadata: { scenarioAttemptId: "attempt-0" },
@@ -209,15 +242,17 @@ const harness = (initialRun?: PersistedUnitRun) => {
       },
     }),
   );
-  const savePendingChallenge = vi.fn<
-    NonNullable<WorkspaceTurnOrchestrationDependencies["savePendingChallenge"]>
-  >(async (input) => {
-    run = await Effect.runPromise(
-      attachPreparedScenario({
-        run: { ...run, difficultySnapshot: input.difficultySnapshot },
-        challenge: input.challenge,
-      }),
-    );
+  const savePreparedStep = vi.fn<
+    NonNullable<WorkspaceTurnOrchestrationDependencies["savePreparedStep"]>
+  >((input) => {
+    if (run.cursor.interactionId === input.prepared.interactionId) {
+      run = projectUnitRun({
+        ...run,
+        difficultySnapshot: input.difficultySnapshot,
+        cursor: { ...run.cursor, prepared: input.prepared },
+      });
+    }
+    return Promise.resolve();
   });
   const deps: WorkspaceTurnOrchestrationDependencies = {
     getActivePlan: () => Promise.resolve(plan),
@@ -233,12 +268,10 @@ const harness = (initialRun?: PersistedUnitRun) => {
     markWorkspaceTurnFailed: vi.fn(() => Promise.resolve()),
     releaseWorkspaceUnitLease: vi.fn(() => Promise.resolve()),
     resolveDifficultyDirective,
-    savePendingChallenge,
+    savePreparedStep,
     scheduleBackgroundTask: (task) => {
       background.push(task);
     },
-    getScenarioAttempt: ({ scenarioAttemptId }) =>
-      Promise.resolve({ id: scenarioAttemptId, solvePresentedAt: new Date() }),
   };
   const layer = Layer.succeed(WorkspaceTurnRepo, {
     commitEducationTurn: (input) =>
@@ -307,9 +340,7 @@ const harness = (initialRun?: PersistedUnitRun) => {
         return { assistantMessage };
       }),
   });
-  const turn = async (
-    action: "submit_answer" | "advance_pass" | "start_unit",
-  ) => {
+  const turn = async (action: WorkspaceTurnAction) => {
     const resolved = await resolveWorkspaceTurn({
       sessionId: "session-1",
       deps,
@@ -335,7 +366,7 @@ const harness = (initialRun?: PersistedUnitRun) => {
     commits,
     background,
     resolveDifficultyDirective,
-    savePendingChallenge,
+    savePreparedStep,
     getRun: () => run,
     getRating: () => rating,
   };
@@ -343,15 +374,27 @@ const harness = (initialRun?: PersistedUnitRun) => {
 
 beforeEach(() => {
   vi.resetAllMocks();
-  vi.mocked(runMentorScenarioAgent).mockImplementation(() =>
-    Effect.succeed({ object: presentation }),
+  vi.mocked(runMentorLessonAgent).mockImplementation(() =>
+    Effect.succeed({
+      object: { assistantMessage: "Read the new limit before reusing the old move." },
+    }),
   );
-  vi.mocked(runMentorTeachingAgent).mockImplementation(() =>
+  vi.mocked(runMentorPartsAgent).mockImplementation(({ shape, letters }) =>
     Effect.succeed({
       object: {
-        assistantMessage: "Read the new limit before reusing the old move.",
-        scratchpad: "Repair the gap.",
-        preparedScenario: presentation,
+        acknowledgment: shape.acknowledgesExplanation ? "Good." : null,
+        narrative: shape.opensRound ? "A new line runs colder." : null,
+        parts: letters.map(() => ({
+          question: "What does the limit force?",
+          criterionIds: [...shape.roundCriterionIds],
+          verifier: {
+            ...verifier,
+            checks: shape.roundCriterionIds.map((criterionId) => ({
+              criterionId,
+              check: "Derive the move from the new constraint.",
+            })),
+          },
+        })),
       },
     }),
   );
@@ -369,7 +412,7 @@ beforeEach(() => {
         scratchpad: "The answer ignores the limit.",
         dimensionResults: [
           {
-            dimensionId: "derive-under-pressure",
+            dimensionId: CRITERION,
             met: false,
             evidence: "old move",
             missing: "Account for the new limit.",
@@ -380,8 +423,14 @@ beforeEach(() => {
   );
 });
 
-describe("Goldilocks retry contract", () => {
-  it("commits prepared opening teaching without another model call or practice evidence", async () => {
+const lastRound = (run: PersistedUnitRun) => {
+  const step = run.cursor.steps.at(-1);
+  if (step?.kind !== "round") throw new Error("Expected a round on the board.");
+  return step;
+};
+
+describe("Goldilocks rating contract", () => {
+  it("commits a prepared opening lesson without another model call or practice evidence", async () => {
     const initial = createUnitRun({
       unitId: unit.id,
       sessionId: "session-1",
@@ -398,17 +447,33 @@ describe("Goldilocks retry contract", () => {
     expect(result.assistantMessage.content).toBe(
       "Prepared teaching about the changed limit.",
     );
-    expect(runMentorTeachingAgent).not.toHaveBeenCalled();
+    expect(runMentorLessonAgent).not.toHaveBeenCalled();
     expect(runReviewGradeAgent).not.toHaveBeenCalled();
     expect(h.commits).toHaveLength(1);
     expect(h.commits[0]?.ratingEvaluation).toBeNull();
     expect(h.commits[0]?.scenarioPresentation).toBeNull();
     expect(h.commits[0]?.knowledgeCheckOff).toBeNull();
-    expect(h.getRun().mode).toBe("learning");
+    expect(h.getRun().mode).toBe("teach");
     expect(h.getRun().cursor.interactionId).not.toBe(
       initial.cursor.interactionId,
     );
   });
+
+  it("grades each exam part once and writes one rating for the round", async () => {
+    const h = harness();
+    await h.turn("submit_answer");
+    expect(runReviewGradeAgent).toHaveBeenCalledTimes(3);
+    expect(h.commits[0]?.ratingEvaluation).toMatchObject({
+      scenarioAttemptId: "attempt-0",
+      checksMet: 0,
+      checksTotal: 3,
+      wasOverTime: false,
+    });
+    expect(h.getRating().recentAttempts).toHaveLength(1);
+    expect(h.getRun().mode).toBe("feedback");
+    expect(h.getRun().difficultySnapshot).toBeNull();
+  });
+
   it("rejects a delayed distinct request after another answer advances the cursor", async () => {
     const h = harness();
     const staleTurn = await resolveWorkspaceTurn({
@@ -449,7 +514,7 @@ describe("Goldilocks retry contract", () => {
     });
   });
 
-  it("uses a scenario prepared after resolution but before the unit lease", async () => {
+  it("prepares the relearn part at the refreshed difficulty and serves it on Continue", async () => {
     const h = harness();
     await h.turn("submit_answer");
     const resolved = await resolveWorkspaceTurn({
@@ -457,34 +522,68 @@ describe("Goldilocks retry contract", () => {
       deps: h.deps,
     });
     await h.background[0]?.();
-    vi.mocked(runMentorScenarioAgent).mockClear();
+    expect(h.savePreparedStep).toHaveBeenCalledOnce();
+    const prepared = h.savePreparedStep.mock.calls[0]?.[0];
+    expect(prepared?.difficultySnapshot.directive).toMatchObject({
+      intent: "repair",
+      supportLevel: "guided",
+    });
+    expect(
+      vi.mocked(runMentorPartsAgent).mock.calls.at(-1)?.[0].context,
+    ).toContain("constraint-blindness");
+    vi.mocked(runMentorPartsAgent).mockClear();
 
-    const result = await Effect.runPromise(
+    await Effect.runPromise(
       runEducationUnitTurn({
         sessionId: "session-1",
         userId: "user-1",
-        turnId: "prepared-advance",
+        turnId: "prepared-continue",
         turnLeaseId: "prepared-lease",
         interactionId: resolved.unitRun.cursor.interactionId,
-        action: "advance_pass",
+        action: "continue",
         message: "",
         turn: resolved,
         deps: h.deps,
       }).pipe(Effect.provide(h.layer)),
     );
 
-    expect(runMentorScenarioAgent).not.toHaveBeenCalled();
-    expect(result.assistantMessage.content).toBe(presentation.assistantMessage);
-    expect(h.getRun().cursor.step.kind).toBe("scenario");
+    expect(runMentorPartsAgent).not.toHaveBeenCalled();
+    expect(h.resolveDifficultyDirective).toHaveBeenCalledOnce();
+    expect(lastRound(h.getRun()).spec.label).toBe("learn");
+    expect(h.getRun().difficultySnapshot).toEqual(prepared?.difficultySnapshot);
+    expect(h.commits.at(-1)?.scenarioPresentation).toBeNull();
   });
 
-  it("refreshes after each rated failure and grades against the presented directive", async () => {
+  it("opens the next exam at the difficulty the rated failure called for", async () => {
     const h = harness();
+    vi.mocked(runReviewGradeAgent).mockImplementation(({ part: graded }) =>
+      Effect.succeed({
+        object: {
+          closingMessage: null,
+          diagnosis: {
+            quote: "Reuse the old move",
+            hypothesis: "You ignored the new limit.",
+            explanation: "The old move exceeds it.",
+          },
+          causeType: "missed-limit",
+          errorCodes: ["constraint-blindness"],
+          scratchpad: "The answer ignores the limit.",
+          dimensionResults: graded.criterionIds.map((dimensionId) => ({
+            dimensionId,
+            met: false,
+            evidence: "old move",
+            missing: "Account for the new limit.",
+          })),
+        },
+      }),
+    );
     await h.turn("submit_answer");
-    expect(h.resolveDifficultyDirective).not.toHaveBeenCalled();
-    expect(h.getRating().recentAttempts[0]?.offeredSupport).toBe("none");
-    expect(h.getRun().difficultySnapshot).toBeNull();
-    await h.turn("advance_pass");
+    for (let index = 0; index < 3; index += 1) {
+      await h.turn("continue");
+      await h.turn("submit_answer");
+    }
+    await h.turn("continue");
+    expect(lastRound(h.getRun()).spec.label).toBe("exam");
     expect(
       h.commits.at(-1)?.scenarioPresentation?.snapshot.directive,
     ).toMatchObject({
@@ -492,41 +591,9 @@ describe("Goldilocks retry contract", () => {
       supportLevel: "guided",
       targetMisconceptionCode: "constraint-blindness",
     });
-    expect(
-      vi.mocked(runMentorScenarioAgent).mock.calls.at(-1)?.[0].context,
-    ).toContain("constraint-blindness");
-    await h.turn("submit_answer");
-    expect(h.resolveDifficultyDirective).toHaveBeenCalledTimes(1);
-    expect(h.getRating().recentAttempts.at(-1)?.offeredSupport).toBe("guided");
-    await h.turn("advance_pass");
-    expect(
-      h.commits.at(-1)?.scenarioPresentation?.snapshot.directive.supportLevel,
-    ).toBe("worked_example");
   });
 
-  it("prepares retries from committed evidence and reuses their matching snapshot", async () => {
-    const h = harness();
-    await h.turn("submit_answer");
-    await h.background[0]?.();
-    expect(h.savePendingChallenge).toHaveBeenCalledOnce();
-    const prepared = h.savePendingChallenge.mock.calls[0]?.[0];
-    expect(prepared?.difficultySnapshot.directive).toMatchObject({
-      intent: "repair",
-      supportLevel: "guided",
-    });
-    expect(h.getRun().difficultySnapshot).toEqual(prepared?.difficultySnapshot);
-    expect(h.getRun().cursor.step).toMatchObject({
-      preparedScenario: prepared?.challenge,
-    });
-    await h.turn("advance_pass");
-    expect(h.resolveDifficultyDirective).toHaveBeenCalledOnce();
-    expect(runMentorScenarioAgent).toHaveBeenCalledOnce();
-    expect(h.commits.at(-1)?.scenarioPresentation?.snapshot).toEqual(
-      prepared?.difficultySnapshot,
-    );
-  });
-
-  it("refreshes the mentor's difficulty when the retry requires re-teaching", async () => {
+  it("prepares a re-teach when the exam shows the idea was never taught", async () => {
     const h = harness();
     const grade = vi.mocked(runReviewGradeAgent).getMockImplementation();
     if (!grade) throw new Error("Missing grade fixture.");
@@ -538,49 +605,43 @@ describe("Goldilocks retry contract", () => {
       ),
     );
     await h.turn("submit_answer");
-    expect(h.background).toHaveLength(0);
-    await h.turn("advance_pass");
-    expect(runMentorTeachingAgent).toHaveBeenCalledOnce();
-    expect(
-      h.commits.at(-1)?.scenarioPresentation?.snapshot.directive,
-    ).toMatchObject({
-      intent: "repair",
-      supportLevel: "guided",
-      targetMisconceptionCode: "constraint-blindness",
-    });
+    await h.background[0]?.();
+    expect(h.savePreparedStep.mock.calls[0]?.[0].prepared.draft.kind).toBe(
+      "lesson",
+    );
+    await h.turn("continue");
+    expect(runMentorLessonAgent).toHaveBeenCalledOnce();
+    expect(h.getRun().mode).toBe("teach");
   });
 
-  it("falls back to fresh foreground generation when background resolution fails", async () => {
+  it("falls back to foreground generation when background resolution fails", async () => {
     const h = harness();
     await h.turn("submit_answer");
     h.resolveDifficultyDirective.mockRejectedValueOnce(
       new Error("Rating read unavailable"),
     );
     await h.background[0]?.();
-    expect(h.savePendingChallenge).not.toHaveBeenCalled();
+    expect(h.savePreparedStep).not.toHaveBeenCalled();
     expect(h.getRun().difficultySnapshot).toBeNull();
-    await h.turn("advance_pass");
-    expect(
-      h.commits.at(-1)?.scenarioPresentation?.snapshot.directive.intent,
-    ).toBe("repair");
+    await h.turn("continue");
+    expect(runMentorPartsAgent).toHaveBeenCalledOnce();
+    expect(h.getRun().difficultySnapshot?.directive.intent).toBe("repair");
   });
 
-  it("keeps a failed difficulty read retryable without presenting a stale scenario", async () => {
+  it("keeps a failed difficulty read retryable without writing a stale step", async () => {
     const h = harness();
     await h.turn("submit_answer");
     h.resolveDifficultyDirective.mockRejectedValueOnce(
       new Error("Rating read unavailable"),
     );
-    await expect(h.turn("advance_pass")).rejects.toMatchObject({
+    await expect(h.turn("continue")).rejects.toMatchObject({
       _tag: "RatingEvidenceError",
     });
     expect(h.commits).toHaveLength(1);
-    expect(runMentorScenarioAgent).not.toHaveBeenCalled();
+    expect(runMentorPartsAgent).not.toHaveBeenCalled();
     expect(h.getRun().difficultySnapshot).toBeNull();
     expect(h.deps.releaseWorkspaceUnitLease).toHaveBeenCalled();
-    await h.turn("advance_pass");
-    expect(
-      h.commits.at(-1)?.scenarioPresentation?.snapshot.directive.intent,
-    ).toBe("repair");
+    await h.turn("continue");
+    expect(h.getRun().difficultySnapshot?.directive.intent).toBe("repair");
   });
 });

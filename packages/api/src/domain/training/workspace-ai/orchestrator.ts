@@ -4,7 +4,10 @@ import type {
   PhaseResponseRecord,
 } from "../types/training.types";
 import type { WorkspaceAiEducationStage, WorkspaceAiState } from "./types";
-import { isUnitUnopened } from "../education-unit/unit-state";
+import {
+  isUnitUnopened,
+  projectUnitProgress,
+} from "../education-unit/unit-state";
 import { WorkspaceAiEducationStageSchema } from "./types";
 
 type RuntimeNode = Pick<
@@ -52,7 +55,7 @@ export const getCurrentEducationStage = (
     ?.metadata?.aiEducationStage;
 
   const parsedState = WorkspaceAiEducationStageSchema.safeParse(latestState);
-  return parsedState.success ? parsedState.data : "learning";
+  return parsedState.success ? parsedState.data : "teach";
 };
 
 /**
@@ -83,7 +86,7 @@ export const planWorkspaceTurn = ({
     return {
       mode: "education_unit",
       promptKind: "recall",
-      educationStage: "review",
+      educationStage: "answer",
       interactionId: null,
       workflowId: null,
       activeUnitId: null,
@@ -114,5 +117,8 @@ export const planWorkspaceTurn = ({
     activeUnitTitle: activeUnit.title,
     recallUnitId: null,
     recallUnitTitle: null,
+    unitProgress: activeUnitRun
+      ? projectUnitProgress(activeUnitRun.cursor)
+      : null,
   };
 };

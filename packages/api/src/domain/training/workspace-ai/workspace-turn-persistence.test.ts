@@ -125,7 +125,6 @@ describe("saveUnitTurnResult", () => {
       }),
       mode: "complete" as const,
       difficultySnapshot,
-      activeReviewChallenge: challenge,
     };
     const activeRun = {
       ...createUnitRun({
@@ -164,9 +163,9 @@ describe("saveUnitTurnResult", () => {
           assistantMessage: challenge.prompt,
           nextRun: unitRun,
           actor: "reviewer",
-          reviewGrade: null,
+          grade: null,
           ratingWrite: null,
-          presentedReviewChallenge: true,
+          presentedRatedRound: false,
         },
         ratingEvaluation: null,
         tracksRating: true,

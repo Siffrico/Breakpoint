@@ -34,6 +34,7 @@ import { beginRetryableTurn, finishRetryableTurn } from "./retryable-turn";
 // back.
 import { ScenarioPeek, useScenarioPeek } from "./scenario-peek";
 import { SelectionAskCoach } from "./selection-ask-coach";
+import { UnitProgress } from "./unit-progress";
 import { WorkspaceComposerInput } from "./workspace-composer-input";
 
 type EducationUnit = RouterOutputs["training"]["unit"];
@@ -71,7 +72,7 @@ interface WorkspaceChatData extends Record<string, unknown> {
   };
 }
 interface WorkspaceChatMetadata {
-  action?: "start_unit" | "submit_answer" | "advance_pass";
+  action?: "start_unit" | "submit_answer" | "continue";
   synthetic?: boolean;
   difficultyDirectiveReason?: string;
   passNumber?: number;
@@ -385,7 +386,7 @@ function EducationUnitWorkspaceComponent({
       !preview &&
       aiWorkspace != null &&
       chatMessages.length === 0 &&
-      aiWorkspace.state.educationStage === "learning" &&
+      aiWorkspace.state.educationStage === "teach" &&
       interactionId != null &&
       !openingUnitFailed &&
       !effectiveIsRunning;
@@ -763,7 +764,7 @@ function EducationUnitWorkspaceComponent({
     aiWorkspace?.unitAdvanceGate.status === "enabled" ||
     streamState?.educationStage === "complete";
   const awaitingPassAdvance =
-    !preview && streamState?.educationStage === "awaiting_next_pass";
+    !preview && streamState?.educationStage === "feedback";
   const awaitingNextUnitContent =
     advancePending ||
     (aiWorkspace?.state.activeUnitId != null &&
@@ -789,7 +790,7 @@ function EducationUnitWorkspaceComponent({
     unit.activeStage !== "challenge";
   const openingLesson =
     !preview &&
-    aiWorkspace?.state.educationStage === "learning" &&
+    aiWorkspace?.state.educationStage === "teach" &&
     (chatMessages.length === 0 || openingUnitFailed);
   const canCompose =
     !openingLesson &&
@@ -920,7 +921,7 @@ function EducationUnitWorkspaceComponent({
     try {
       await sendMessage(undefined, {
         body: {
-          action: "advance_pass",
+          action: "continue",
           interactionId,
           sessionId,
           turnId,
@@ -1072,7 +1073,7 @@ function EducationUnitWorkspaceComponent({
             prompt={
               openingUnitFailed
                 ? "The mentor couldn't open this lesson. Nothing was lost."
-                : !preview && aiWorkspace?.state.educationStage === "learning"
+                : !preview && aiWorkspace?.state.educationStage === "teach"
                   ? ""
                   : (introMessage?.prompt ?? fallbackTurn.prompt)
             }
@@ -1084,7 +1085,7 @@ function EducationUnitWorkspaceComponent({
             helper={
               openingUnitFailed
                 ? null
-                : !preview && aiWorkspace?.state.educationStage === "learning"
+                : !preview && aiWorkspace?.state.educationStage === "teach"
                   ? null
                   : (introMessage?.helper ?? fallbackTurn.helper)
             }
@@ -1158,6 +1159,9 @@ function EducationUnitWorkspaceComponent({
             A field mission, built for you. Start mission →
           </span>
         </Link>
+      ) : null}
+      {!preview && streamState?.unitProgress ? (
+        <UnitProgress steps={streamState.unitProgress} />
       ) : null}
       <div className="font-sans">
         <WorkspaceComposerInput

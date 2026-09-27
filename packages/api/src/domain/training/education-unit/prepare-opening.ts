@@ -1,15 +1,14 @@
 import { createHash } from "node:crypto";
 import { Cause, Data, Effect, Exit } from "effect";
 
-import type { UnitCursor } from "@acme/validators";
+import type { runMentorLessonAgent } from "./mentor-agent";
 
-import type { runMentorTeachingAgent } from "./mentor-agent";
-
-export type PreparedOpening = NonNullable<UnitCursor["preparedOpening"]>;
-export type OpeningTeachingInput = Omit<
-  Parameters<typeof runMentorTeachingAgent>[0],
-  "messages" | "createScenario"
->;
+/** An opening lesson and the hash of the inputs it was written from. */
+export interface PreparedOpening {
+  readonly key: string;
+  readonly assistantMessage: string;
+}
+export type OpeningTeachingInput = Parameters<typeof runMentorLessonAgent>[0];
 
 export class UnitOpeningError extends Data.TaggedError("UnitOpeningError")<{
   readonly kind: "storage" | "generation";
@@ -29,7 +28,7 @@ export interface OpeningPreparationDependencies {
     ) => Promise<PreparedOpening | null>,
     loadReady: () => Promise<PreparedOpening | null>,
   ) => Promise<PreparedOpening | null>;
-  teach: typeof runMentorTeachingAgent;
+  teach: typeof runMentorLessonAgent;
 }
 
 export const prepareOpening = (
@@ -55,12 +54,7 @@ export const prepareOpening = (
             if (cached.opening?.key === key) return cached.opening;
             // eslint-disable-next-line no-restricted-syntax -- This model invocation runs inside the durable build lease.
             const generated = await Effect.runPromiseExit(
-              deps.teach({
-                ...input,
-                messages: [],
-                createScenario: false,
-                onPartialAssistantMessage,
-              }),
+              deps.teach({ ...input, onPartialAssistantMessage }),
             );
             if (Exit.isFailure(generated)) {
               throw new UnitOpeningError({

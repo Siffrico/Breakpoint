@@ -1,122 +1,100 @@
-import type { ModelMessage } from "ai";
 import type { Effect } from "effect";
+import type { z } from "zod/v4";
 
-import type {
-  MentorTeachingOutput,
-  ReviewPresentationOutput,
-} from "./agent-contracts";
+import type { MentorPartsOutput, PartsShape } from "./agent-contracts";
 import type { UnitAgentError } from "./agent-errors";
 import type { EducationExperienceDefinition } from "./experience";
 import {
-  mentorHandoffOutputSchema,
-  mentorOpeningOutputSchema,
-  reviewPresentationSchema,
+  mentorLessonOutputSchema,
+  mentorPartsOutputSchema,
+  renderPartialParts,
 } from "./agent-contracts";
 import {
   MENTOR_BASE_PROMPT,
-  MENTOR_HANDOFF_MODULE,
-  MENTOR_SCENARIO_MODULE,
+  MENTOR_PARTS_MODULE,
   MENTOR_TEACH_MODULE,
-  mentorScenarioInstruction,
-  mentorTeachingInstruction,
+  mentorLessonInstruction,
+  mentorPartsInstruction,
 } from "./mentor-prompt";
 import { runUnitAgent } from "./run-unit-agent";
 
-const mentorSystem = ({
-  experience,
-  teach,
-  scenario,
-}: {
-  experience: EducationExperienceDefinition;
-  teach: boolean;
-  scenario: "none" | "handoff" | "direct";
-}) =>
+const mentorSystem = (
+  experience: EducationExperienceDefinition,
+  module: string,
+) =>
   [
     MENTOR_BASE_PROMPT,
-    teach ? MENTOR_TEACH_MODULE : null,
-    scenario === "handoff" ? MENTOR_HANDOFF_MODULE : null,
-    scenario === "direct" ? MENTOR_SCENARIO_MODULE : null,
+    module,
     `## Customized behavior\n${experience.main.instructions}`,
-  ]
-    .filter((part): part is string => part !== null)
-    .join("\n\n");
+  ].join("\n\n");
 
-export const runMentorTeachingAgent = ({
-  messages,
+export const runMentorLessonAgent = ({
   context,
   experience,
-  createScenario,
-  selectedResponse,
-  testedCriterionIds,
   onPartialAssistantMessage,
 }: {
-  messages: readonly ModelMessage[];
   context: string;
   experience: EducationExperienceDefinition;
-  createScenario: boolean;
-  selectedResponse: boolean;
-  testedCriterionIds: readonly string[];
   onPartialAssistantMessage?: (content: string) => void;
-}): Effect.Effect<{ object: MentorTeachingOutput }, UnitAgentError> => {
-  const base = {
-    agent: "mentor" as const,
-    purpose: "education" as const,
-    reasoning: "none" as const,
-    system: mentorSystem({
-      experience,
-      teach: true,
-      scenario: createScenario ? "handoff" : "none",
-    }),
-    messages,
-    context: `${context}\n\n${mentorTeachingInstruction(createScenario)}`,
-    schemaName: "unit_mentor_teaching",
-    errorMessage: "Failed to run the education-unit mentor.",
+}): Effect.Effect<
+  { object: z.infer<typeof mentorLessonOutputSchema> },
+  UnitAgentError
+> =>
+  runUnitAgent({
+    agent: "mentor",
+    purpose: "education",
+    reasoning: "none",
+    system: mentorSystem(experience, MENTOR_TEACH_MODULE),
+    messages: [],
+    context: `${context}\n\n${mentorLessonInstruction}`,
+    schema: mentorLessonOutputSchema,
+    schemaName: "unit_mentor_lesson",
+    maxOutputTokens: 15_000,
     temperature: 0.2,
+    errorMessage: "Failed to write the lesson.",
     onPartialAssistantMessage,
-  };
-  return createScenario
-    ? runUnitAgent({
-        ...base,
-        schema: mentorHandoffOutputSchema(
-          selectedResponse,
-          testedCriterionIds,
-        ),
-        maxOutputTokens: 15_000,
-      })
-    : runUnitAgent({
-        ...base,
-        schema: mentorOpeningOutputSchema,
-        maxOutputTokens: 15_000,
-      });
-};
+  });
 
-export const runMentorScenarioAgent = ({
+export const runMentorPartsAgent = ({
   context,
   experience,
-  pass,
-  selectedResponse,
-  testedCriterionIds,
+  shape,
+  label,
+  letters,
+  hypothesis,
   onPartialAssistantMessage,
 }: {
   context: string;
   experience: EducationExperienceDefinition;
-  pass: number;
-  selectedResponse: boolean;
-  testedCriterionIds: readonly string[];
+  shape: PartsShape;
+  label: "learn" | "exam";
+  /** The letter of each part to write, in order. */
+  letters: readonly string[];
+  /** What the last feedback suspected, for the part to test. */
+  hypothesis: string | null;
   onPartialAssistantMessage?: (content: string) => void;
-}): Effect.Effect<{ object: ReviewPresentationOutput }, UnitAgentError> =>
+}): Effect.Effect<{ object: MentorPartsOutput }, UnitAgentError> =>
   runUnitAgent({
     agent: "mentor",
     purpose: "education",
     reasoning: "high",
-    system: mentorSystem({ experience, teach: false, scenario: "direct" }),
+    system: mentorSystem(experience, MENTOR_PARTS_MODULE),
     messages: [],
-    context: `${context}\n\n${mentorScenarioInstruction(pass)}`,
-    schema: reviewPresentationSchema(selectedResponse, testedCriterionIds),
-    schemaName: "unit_mentor_scenario",
+    context: `${context}\n\n${mentorPartsInstruction({
+      label,
+      opensRound: shape.opensRound,
+      letters,
+      acknowledgesExplanation: shape.acknowledgesExplanation,
+      hypothesis,
+    })}`,
+    schema: mentorPartsOutputSchema(shape),
+    schemaName: "unit_mentor_parts",
+    renderPartial: renderPartialParts(
+      (letters[0] ?? "a").charCodeAt(0) - "a".charCodeAt(0),
+    ),
     maxOutputTokens: 15_000,
     reasoningBudgetTokens: 2_400,
     temperature: 0.2,
-    errorMessage: "Failed to create the education-unit scenario.",
+    errorMessage: "Failed to write the round's parts.",
     onPartialAssistantMessage,
   });

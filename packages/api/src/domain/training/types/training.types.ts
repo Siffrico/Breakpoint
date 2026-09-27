@@ -195,7 +195,7 @@ export interface PhaseResponseMetadata {
   latencyMs?: number | null;
   signals?: EducationUnitAttemptSignals;
   stateSnapshot?: EducationUnitState;
-  aiEducationStage?: "learning" | "review" | "awaiting_next_pass" | "complete";
+  aiEducationStage?: "teach" | "answer" | "feedback" | "complete";
   recallUnitId?: string;
   promptKind?: "education_unit" | "recall";
   modelPurpose?: string;
