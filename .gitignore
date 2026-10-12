@@ -53,3 +53,7 @@ dist/
 
 # tanstack
 .tanstack
+
+# local agent tools
+/.agents/
+/.claude/

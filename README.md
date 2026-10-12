@@ -1,10 +1,42 @@
 # Breakpoint
 
-Breakpoint is a chat-first AI learning product for building real capability, not just moving through lessons. A learner starts with a goal, defines what they want to be able to do with it, and is guided through adaptive training that compresses expert practice into short, high-leverage interactions.
+Breakpoint is a chat-first AI learning app built by Safin Ahmed. A learner starts with a goal, gets a curriculum built around that goal, and practices through teaching, challenges, feedback, and recall inside one workspace.
 
-The product assumes the AI should carry operational load: scaffolding, setup, examples, scenario state, evaluation, and persistence. The learner should carry the expert load: framing the problem, making tradeoffs, diagnosing failures, explaining causality, and transferring judgment to new cases.
+This repository continues the original V1 of Breakpoint, an earlier implementation of the same project. The original V1 repository is now private.
 
-## Current Product Surface
+The question behind the project is whether AI can turn expert workflows into short practice sessions that build useful judgment. The AI handles setup and scaffolding so the learner can focus on decisions, explanations, and diagnosing mistakes.
+
+## Quick tour
+
+1. Create an account and describe what you want to learn through onboarding chat.
+2. Explore the generated curriculum and open a training unit in the workspace.
+3. Explain your reasoning, answer challenges, and use feedback to revise your understanding.
+4. Work through learn and exam rounds, with recall checkpoints and saved transcripts.
+
+After starting the app, open `/ui/workspace` to inspect a sample workspace without creating an account or making AI calls. This preview uses fixture data and does not demonstrate live grading or persistence.
+
+## My contribution
+
+I built Breakpoint's learning experience on top of the create-t3-turbo starter. My work includes the onboarding and curriculum flows, the training workspace, the education-unit engine, AI orchestration, and the data model for learning progress and recall.
+
+The starter supplied the monorepo foundation and initial app, authentication, and shared-package structure. The `@acme/*` package names remain from that foundation. The original MIT attribution is preserved in [LICENSE](LICENSE).
+
+## Engineering decisions
+
+- Learning progress needs an authority beyond the model's next response. The unit engine records steps, answers, and results in a persisted cursor, then derives the current mode and next action from that history. See [unit-state.ts](packages/api/src/domain/training/education-unit/unit-state.ts) and [unit-policy.ts](packages/api/src/domain/training/education-unit/unit-policy.ts).
+- AI work takes time, so the chat streams text and typed status updates while a turn runs. Exam parts can be graded concurrently, but feedback streams in question order. See [workspace-chat.ts](packages/api/src/workspace-chat.ts) and [run-unit-turn.ts](packages/api/src/domain/training/education-unit/run-unit-turn.ts).
+- Model output needs a contract before it can drive product behavior. Model selection goes through one router, and structured calls share one invocation path. See [model-router.ts](packages/api/src/domain/training/engine/model-router.ts) and [invoke-structured-model.ts](packages/api/src/domain/training/engine/invoke-structured-model.ts).
+- Product decisions and database queries need separate ownership. Routers and streaming entrypoints wire domain workflows to repositories. The [architecture decision](documentation/architecture/0001-api-domain-boundaries.md) explains this boundary. [Contract tests](packages/api/src/domain/training/education-unit/run-unit-turn.contract.test.ts) exercise training transitions with controlled agent responses.
+
+## Current implementation and limitations
+
+The main Next.js app implements account login, goal onboarding, curriculum generation, a training workspace, learn and exam rounds, feedback, recall, chat history, and profile customization. The source links above show the core implementation; they are not evidence that every live model response is reliable.
+
+Breakpoint is an experimental project. Faster learning and expert-level performance are goals, not demonstrated research results. AI explanations and grading can be wrong, latency varies by provider, and live training requires paid model access and a configured database.
+
+The Expo and TanStack Start apps are starter surfaces, not complete Breakpoint clients. The `/ui/*` routes use sample data. Some tests require a real database and skip in CI, so a green CI run does not establish that the full learning flow works against a deployed database.
+
+## Code map
 
 The Next.js app currently includes the main Breakpoint training experience:
 
@@ -16,12 +48,13 @@ apps/nextjs/src
 │  ├─ workspace
 │  ├─ train/[unitId]
 │  ├─ profile
+│  ├─ settings
 │  └─ ui
 ├─ features
 │  ├─ auth
 │  ├─ courses
 │  ├─ marketing
-│  ├─ profile
+│  ├─ settings
 │  └─ training
 └─ trpc
 ```
@@ -32,13 +65,14 @@ The backend domain is organized around the same product model:
 packages/api/src
 ├─ domain
 │  ├─ memory
+│  ├─ performance
 │  ├─ profile
 │  └─ training
 ├─ repositories
 └─ router
 ```
 
-The database schema is split by product domain under `packages/db/src/schema`, with training tables for onboarding, identity profiles, curriculum plans, units, recall, ratings, attempts, and capstones.
+The database schema is split by product domain under `packages/db/src/schema`. Training modules cover onboarding, profiles, curriculum, units, recall, ratings, and missions.
 
 ## Stack
 
@@ -53,9 +87,7 @@ The database schema is split by product domain under `packages/db/src/schema`, w
 - Turborepo and pnpm workspaces
 - Shared UI primitives in `@acme/ui`
 
-The repository still uses the `@acme/*` workspace package namespace inherited from the starter. Treat that as an internal package namespace, not a product name.
-
-## Getting Started
+## Getting started
 
 Use Node.js 22.21 or a newer Node.js 22 release and pnpm 11.2.2. Run these commands from the repository root. The instructions below start the Next.js app locally with Supabase PostgreSQL.
 
@@ -110,7 +142,7 @@ pnpm format
 
 Some repository tests use a real database and load `POSTGRES_URL` from the root `.env`. Use a disposable development database for those tests. CI runs tests before creating `.env`, so database-dependent tests skip there. Builds fetch Google Fonts and require network access.
 
-## Workspace Layout
+## Workspace layout
 
 ```text
 apps
@@ -135,7 +167,7 @@ documentation        # Product, architecture, and implementation notes
 docs                 # Prompt and system-message drafts
 ```
 
-## Product Principles
+## Product principles
 
 - Start from the learner's goal and intended use, not a generic topic catalog.
 - Build curriculum from expert jobs, workflows, judgment, and failure modes.
@@ -143,14 +175,20 @@ docs                 # Prompt and system-message drafts
 - Let AI scaffold artifacts and carry boilerplate while the learner makes the important decisions.
 - Measure improvement through evidence of better judgment, diagnosis, and transfer.
 
-## Key Documentation
+## Key documentation
 
-- [AGENTS.md](/Users/safinahmed/Breakpoint/AGENTS.md) defines project-specific agent behavior.
-- [documentation/project-goal.md](/Users/safinahmed/Breakpoint/documentation/project-goal.md) states the product thesis.
-- [documentation/backend-rq.md](/Users/safinahmed/Breakpoint/documentation/backend-rq.md) describes backend responsibilities.
-- [documentation/ui-flow-rq.md](/Users/safinahmed/Breakpoint/documentation/ui-flow-rq.md) describes the intended user journey.
-- [documentation/breakpoint-engineering-protocol.md](/Users/safinahmed/Breakpoint/documentation/breakpoint-engineering-protocol.md) defines engineering standards for product work.
+- [AGENTS.md](AGENTS.md) defines project-specific agent behavior.
+- [Project goal](documentation/project-goal.md) states the product thesis.
+- [Backend requirements](documentation/backend-rq.md) describe backend responsibilities.
+- [UI flow requirements](documentation/ui-flow-rq.md) describe the intended user journey.
+- [Engineering protocol](documentation/breakpoint-engineering-protocol.md) defines engineering standards for product work.
 
-## Notes for Contributors
+## Notes for contributors
 
 Prefer feature-local code in the Next.js app and domain-local workflows in `packages/api`. Keep prompts, rubrics, scoring policies, and curriculum logic treated as product logic, not throwaway strings. When documentation and code disagree, verify the code first, then update the docs or file a clear implementation gap.
+
+Open bugs, questions, and feature requests in this repository's [issue tracker](https://github.com/Siffrico/Breakpoint/issues).
+
+## License
+
+Breakpoint is available under the [MIT license](LICENSE). Copyright notices cover Julius Marminge's starter and Safin Ahmed's contributions.
