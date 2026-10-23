@@ -19,6 +19,12 @@ export const env = createEnv({
     POSTGRES_URL: z.url(),
     DIRECT_DATABASE_URL: z.url().optional(),
     ALLOWED_ORIGINS: z.string().optional(),
+    // Public origin auth issues callbacks and cookies for. Vercel derives it,
+    // so it is only mandatory for production builds on other hosts.
+    AUTH_URL:
+      process.env.NODE_ENV === "production" && !process.env.VERCEL
+        ? z.url()
+        : z.url().optional(),
   },
 
   /**

@@ -1,0 +1,58 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Breakpoint — Folio mark</title>
+<style>
+:root{--ink:#0b0b0c;--paper:#f4f3ef;--night:#0d0e10;--chalk:#ecebe6;--mute:#8a8a86;font-family:Geist,"Inter","SF Pro Display",-apple-system,system-ui,sans-serif}
+html,body{margin:0;padding:0;background:transparent}
+*{box-sizing:border-box}
+.g{display:grid;gap:8px}
+.p{border-radius:14px;padding:20px}
+.l{background:var(--paper);color:var(--ink)} .d{background:var(--night);color:var(--chalk)}
+.hero{display:grid;place-items:center;padding:40px 20px 28px;position:relative}
+.hero svg{width:min(56vw,248px);height:auto}
+.tag{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--mute);display:flex;justify-content:space-between;width:100%;margin-top:28px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.scales{display:flex;align-items:flex-end;gap:22px;justify-content:center;padding:6px 0}
+.lock{display:flex;align-items:center;gap:.36em;font-size:30px;font-weight:700;letter-spacing:-.035em;justify-content:center;padding:10px 0}
+.lock svg{width:1.08em;height:1.08em;flex:none}
+.lock.lg{font-size:clamp(30px,8vw,52px)}
+.opts{grid-template-columns:repeat(3,1fr)}
+.opt{all:unset;cursor:pointer;display:grid;gap:6px;align-content:start;padding:16px;border-radius:14px;background:var(--paper);color:var(--ink);outline:2px solid transparent;outline-offset:-2px}
+.opt.on{outline-color:var(--ink)} .opt:focus-visible{outline-color:#3b82f6}
+.opt-mark svg{width:100%;height:auto;max-width:120px;display:block;margin:4px auto 6px}
+.opt-sm{display:flex;gap:10px;align-items:flex-end;justify-content:center;margin-bottom:6px}
+.opt b{font-size:13px} .opt small{font-size:11.5px;color:#55554f;line-height:1.35}
+.opt a{font-size:11px;color:inherit;opacity:.7;margin-top:4px;text-decoration:none} .opt a:hover{opacity:1;text-decoration:underline}
+@media (max-width:560px){.row{grid-template-columns:1fr}.opts{grid-template-columns:1fr}.opt{grid-template-columns:96px 1fr;column-gap:16px}.opt-mark{grid-row:span 4}.opt-sm{display:none}.opt-mark svg{margin:0}.lock{font-size:26px}}
+</style></head><body>
+<div class="g">
+ <section class="p l hero" id="hero"><svg viewBox="0 0 96 96" fill="currentColor" class="" aria-hidden="true"><path d="M24 6v84H18a6 6 0 0 1-6-6V12a6 6 0 0 1 6-6zM28 6H60a14 14 0 0 1 14 14v12a14 14 0 0 1-14 14H28v-8H60a6 6 0 0 0 6-6V20a6 6 0 0 0-6-6H28zM28 18H56a6 6 0 0 1 6 6v4a6 6 0 0 1-6 6H28zM28 50H62a14 14 0 0 1 14 14v12a14 14 0 0 1-14 14H28v-8H62a6 6 0 0 0 6-6V64a6 6 0 0 0-6-6H28zM28 62H58a6 6 0 0 1 6 6v4a6 6 0 0 1-6 6H28z"/></svg><div class="tag"><span id="hn">Folio</span><span>Breakpoint</span></div></section>
+ <div class="row">
+  <section class="p l"><div class="scales"><svg viewBox="0 0 96 96" fill="currentColor" class="" width="48" height="48" aria-hidden="true"><path d="M24 6v84H18a6 6 0 0 1-6-6V12a6 6 0 0 1 6-6zM28 6H60a14 14 0 0 1 14 14v12a14 14 0 0 1-14 14H28v-8H60a6 6 0 0 0 6-6V20a6 6 0 0 0-6-6H28zM28 18H56a6 6 0 0 1 6 6v4a6 6 0 0 1-6 6H28zM28 50H62a14 14 0 0 1 14 14v12a14 14 0 0 1-14 14H28v-8H62a6 6 0 0 0 6-6V64a6 6 0 0 0-6-6H28zM28 62H58a6 6 0 0 1 6 6v4a6 6 0 0 1-6 6H28z"/></svg><svg viewBox="0 0 96 96" fill="currentColor" class="" width="24" height="24" aria-hidden="true"><path d="M24 6v84H18a6 6 0 0 1-6-6V12a6 6 0 0 1 6-6zM28 6H60a14 14 0 0 1 14 14v12a14 14 0 0 1-14 14H28v-8H60a6 6 0 0 0 6-6V20a6 6 0 0 0-6-6H28zM28 18H56a6 6 0 0 1 6 6v4a6 6 0 0 1-6 6H28zM28 50H62a14 14 0 0 1 14 14v12a14 14 0 0 1-14 14H28v-8H62a6 6 0 0 0 6-6V64a6 6 0 0 0-6-6H28zM28 62H58a6 6 0 0 1 6 6v4a6 6 0 0 1-6 6H28z"/></svg><svg viewBox="0 0 96 96" fill="currentColor" class="" width="16" height="16" aria-hidden="true"><path d="M24 6v84H18a6 6 0 0 1-6-6V12a6 6 0 0 1 6-6zM28 6H60a14 14 0 0 1 14 14v12a14 14 0 0 1-14 14H28V33H59a3 3 0 0 0 3-3v-8a3 3 0 0 0-3-3H28zM28 50H62a14 14 0 0 1 14 14v12a14 14 0 0 1-14 14H28V77H61a3 3 0 0 0 3-3v-8a3 3 0 0 0-3-3H28z"/></svg></div></section>
+  <section class="p d"><div class="scales"><svg viewBox="0 0 96 96" fill="currentColor" class="" width="48" height="48" aria-hidden="true"><path d="M24 6v84H18a6 6 0 0 1-6-6V12a6 6 0 0 1 6-6zM28 6H60a14 14 0 0 1 14 14v12a14 14 0 0 1-14 14H28v-8H60a6 6 0 0 0 6-6V20a6 6 0 0 0-6-6H28zM28 18H56a6 6 0 0 1 6 6v4a6 6 0 0 1-6 6H28zM28 50H62a14 14 0 0 1 14 14v12a14 14 0 0 1-14 14H28v-8H62a6 6 0 0 0 6-6V64a6 6 0 0 0-6-6H28zM28 62H58a6 6 0 0 1 6 6v4a6 6 0 0 1-6 6H28z"/></svg><svg viewBox="0 0 96 96" fill="currentColor" class="" width="24" height="24" aria-hidden="true"><path d="M24 6v84H18a6 6 0 0 1-6-6V12a6 6 0 0 1 6-6zM28 6H60a14 14 0 0 1 14 14v12a14 14 0 0 1-14 14H28v-8H60a6 6 0 0 0 6-6V20a6 6 0 0 0-6-6H28zM28 18H56a6 6 0 0 1 6 6v4a6 6 0 0 1-6 6H28zM28 50H62a14 14 0 0 1 14 14v12a14 14 0 0 1-14 14H28v-8H62a6 6 0 0 0 6-6V64a6 6 0 0 0-6-6H28zM28 62H58a6 6 0 0 1 6 6v4a6 6 0 0 1-6 6H28z"/></svg><svg viewBox="0 0 96 96" fill="currentColor" class="" width="16" height="16" aria-hidden="true"><path d="M24 6v84H18a6 6 0 0 1-6-6V12a6 6 0 0 1 6-6zM28 6H60a14 14 0 0 1 14 14v12a14 14 0 0 1-14 14H28V33H59a3 3 0 0 0 3-3v-8a3 3 0 0 0-3-3H28zM28 50H62a14 14 0 0 1 14 14v12a14 14 0 0 1-14 14H28V77H61a3 3 0 0 0 3-3v-8a3 3 0 0 0-3-3H28z"/></svg></div></section>
+ </div>
+ <section class="p l"><div class="lock lg"><svg viewBox="0 0 96 96" fill="currentColor" class="" aria-hidden="true"><path d="M24 6v84H18a6 6 0 0 1-6-6V12a6 6 0 0 1 6-6zM28 6H60a14 14 0 0 1 14 14v12a14 14 0 0 1-14 14H28v-8H60a6 6 0 0 0 6-6V20a6 6 0 0 0-6-6H28zM28 18H56a6 6 0 0 1 6 6v4a6 6 0 0 1-6 6H28zM28 50H62a14 14 0 0 1 14 14v12a14 14 0 0 1-14 14H28v-8H62a6 6 0 0 0 6-6V64a6 6 0 0 0-6-6H28zM28 62H58a6 6 0 0 1 6 6v4a6 6 0 0 1-6 6H28z"/></svg><span>Breakpoint</span></div></section>
+ <section class="p d"><div class="lock lg"><svg viewBox="0 0 96 96" fill="currentColor" class="" aria-hidden="true"><path d="M24 6v84H18a6 6 0 0 1-6-6V12a6 6 0 0 1 6-6zM28 6H60a14 14 0 0 1 14 14v12a14 14 0 0 1-14 14H28v-8H60a6 6 0 0 0 6-6V20a6 6 0 0 0-6-6H28zM28 18H56a6 6 0 0 1 6 6v4a6 6 0 0 1-6 6H28zM28 50H62a14 14 0 0 1 14 14v12a14 14 0 0 1-14 14H28v-8H62a6 6 0 0 0 6-6V64a6 6 0 0 0-6-6H28zM28 62H58a6 6 0 0 1 6 6v4a6 6 0 0 1-6 6H28z"/></svg><span>Breakpoint</span></div></section>
+ <div class="g opts">
+  <button class="opt on" data-k="win" aria-pressed="true"><div class="opt-mark"><svg viewBox="0 0 96 96" fill="currentColor" class="" aria-hidden="true"><path d="M24 6v84H18a6 6 0 0 1-6-6V12a6 6 0 0 1 6-6zM28 6H60a14 14 0 0 1 14 14v12a14 14 0 0 1-14 14H28v-8H60a6 6 0 0 0 6-6V20a6 6 0 0 0-6-6H28zM28 18H56a6 6 0 0 1 6 6v4a6 6 0 0 1-6 6H28zM28 50H62a14 14 0 0 1 14 14v12a14 14 0 0 1-14 14H28v-8H62a6 6 0 0 0 6-6V64a6 6 0 0 0-6-6H28zM28 62H58a6 6 0 0 1 6 6v4a6 6 0 0 1-6 6H28z"/></svg></div><div class="opt-sm"><svg viewBox="0 0 96 96" fill="currentColor" class="" width="24" height="24" aria-hidden="true"><path d="M24 6v84H18a6 6 0 0 1-6-6V12a6 6 0 0 1 6-6zM28 6H60a14 14 0 0 1 14 14v12a14 14 0 0 1-14 14H28v-8H60a6 6 0 0 0 6-6V20a6 6 0 0 0-6-6H28zM28 18H56a6 6 0 0 1 6 6v4a6 6 0 0 1-6 6H28zM28 50H62a14 14 0 0 1 14 14v12a14 14 0 0 1-14 14H28v-8H62a6 6 0 0 0 6-6V64a6 6 0 0 0-6-6H28zM28 62H58a6 6 0 0 1 6 6v4a6 6 0 0 1-6 6H28z"/></svg><svg viewBox="0 0 96 96" fill="currentColor" class="" width="16" height="16" aria-hidden="true"><path d="M24 6v84H18a6 6 0 0 1-6-6V12a6 6 0 0 1 6-6zM28 6H60a14 14 0 0 1 14 14v12a14 14 0 0 1-14 14H28v-8H60a6 6 0 0 0 6-6V20a6 6 0 0 0-6-6H28zM28 18H56a6 6 0 0 1 6 6v4a6 6 0 0 1-6 6H28zM28 50H62a14 14 0 0 1 14 14v12a14 14 0 0 1-14 14H28v-8H62a6 6 0 0 0 6-6V64a6 6 0 0 0-6-6H28zM28 62H58a6 6 0 0 1 6 6v4a6 6 0 0 1-6 6H28z"/></svg></div><b>Folio — refined</b><small>An open book seen edge-on: rounded spine, gutter, stacked page-edges. It forms the B.</small><a href="breakpoint-opus-original.svg" download onclick="event.stopPropagation()">SVG ↓</a></button>
+  <button class="opt" data-k="a1" aria-pressed="false"><div class="opt-mark"><svg viewBox="0 0 96 96" fill="currentColor" class="" aria-hidden="true"><path d="M42 24C36 15 24 10 10 10V78C22 78 34 81 42 88Z" transform="translate(0 5)"/><path d="M42 24C36 15 24 10 10 10V78C22 78 34 81 42 88Z" transform="matrix(-1 0 0 1 96 -5)"/></svg></div><div class="opt-sm"><svg viewBox="0 0 96 96" fill="currentColor" class="" width="24" height="24" aria-hidden="true"><path d="M42 24C36 15 24 10 10 10V78C22 78 34 81 42 88Z" transform="translate(0 5)"/><path d="M42 24C36 15 24 10 10 10V78C22 78 34 81 42 88Z" transform="matrix(-1 0 0 1 96 -5)"/></svg><svg viewBox="0 0 96 96" fill="currentColor" class="" width="16" height="16" aria-hidden="true"><path d="M42 24C36 15 24 10 10 10V78C22 78 34 81 42 88Z" transform="translate(0 5)"/><path d="M42 24C36 15 24 10 10 10V78C22 78 34 81 42 88Z" transform="matrix(-1 0 0 1 96 -5)"/></svg></div><b>Paused spread</b><small>Two pages, one lifted. Reads as an open book, a pause symbol and a step up.</small><a href="breakpoint-opus-original-alt-paused-spread.svg" download onclick="event.stopPropagation()">SVG ↓</a></button>
+  <button class="opt" data-k="a2" aria-pressed="false"><div class="opt-mark"><svg viewBox="0 0 96 96" fill="currentColor" class="" aria-hidden="true"><path d="M4 76h36v12H4zM56 76h36v12H56zM42 8h12v80H42zM61.64 63.73 86.86 44.03 94.25 53.48 69.03 73.18Z"/></svg></div><div class="opt-sm"><svg viewBox="0 0 96 96" fill="currentColor" class="" width="24" height="24" aria-hidden="true"><path d="M4 76h36v12H4zM56 76h36v12H56zM42 8h12v80H42zM61.64 63.73 86.86 44.03 94.25 53.48 69.03 73.18Z"/></svg><svg viewBox="0 0 96 96" fill="currentColor" class="" width="16" height="16" aria-hidden="true"><path d="M4 76h36v12H4zM56 76h36v12H56zM42 8h12v80H42zM61.64 63.73 86.86 44.03 94.25 53.48 69.03 73.18Z"/></svg></div><b>Turning page</b><small>Book seen from the end: open spread, one page standing mid-turn.</small><a href="breakpoint-opus-original-alt-turning-page.svg" download onclick="event.stopPropagation()">SVG ↓</a></button>
+ </div>
+</div>
+<script>
+const names={win:"Folio",a1:"Paused spread",a2:"Turning page"};
+const smallMark=document.querySelector('.scales svg[width="16"]').innerHTML;
+document.querySelectorAll('.opt').forEach(b=>{
+ const a=b.querySelector('a'),mark=b.querySelector('.opt-mark svg').cloneNode(true);
+ mark.setAttribute('xmlns','http://www.w3.org/2000/svg');mark.removeAttribute('aria-hidden');mark.removeAttribute('class');
+ a.setAttribute('download',a.getAttribute('href'));
+ a.href=URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(mark)],{type:'image/svg+xml'}));
+});
+document.querySelectorAll(".opt").forEach(b=>b.addEventListener("click",()=>{
+ document.querySelectorAll(".opt").forEach(o=>{o.classList.toggle("on",o===b);o.setAttribute("aria-pressed",o===b)});
+ document.querySelectorAll('#hero svg,.scales svg,.lock svg').forEach(mark=>{
+ mark.innerHTML=b.dataset.k==='win'&&mark.getAttribute('width')==='16'?smallMark:b.querySelector('.opt-mark svg').innerHTML;
+});
+ document.getElementById("hn").textContent=names[b.dataset.k];
+}));
+</script>
+</body></html>
