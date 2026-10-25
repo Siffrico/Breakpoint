@@ -1,0 +1,35 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Breakpoint · cobalt + black</title><style>
+*{box-sizing:border-box}body{margin:0;font-family:Geist,Inter,-apple-system,Helvetica,Arial,sans-serif;color:var(--foreground,#171719)}
+:root{--cobalt:#0064E8}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}@media(max-width:640px){.grid{grid-template-columns:1fr}}
+.card{background:var(--cobalt);color:#0a0a0b;border-radius:16px;padding:18px}
+.label{font:10px ui-monospace,monospace;letter-spacing:1px;text-transform:uppercase;opacity:.7}
+.hero{display:flex;justify-content:center;padding:22px 0 18px}.hero svg{width:104px;height:104px}
+.lock{display:flex;align-items:center;justify-content:center;gap:10px}.lock svg{width:38px;height:38px;flex:none}
+.lock b{font-size:clamp(24px,3.2vw,32px);font-weight:700;letter-spacing:-.04em}
+.sizes{display:flex;justify-content:center;align-items:flex-end;gap:18px;margin-top:20px}
+.sizes div{display:flex;flex-direction:column;align-items:center;gap:6px}.sizes svg{width:var(--s);height:var(--s)}.sizes span{font:9px ui-monospace,monospace;opacity:.6}
+</style></head><body><div class="grid" id="g"></div><script>
+const L='M42 24C36 15 24 10 10 10V78C22 78 34 81 42 88Z';
+const O='M8 16C24 13 38 17 48 27C58 17 72 13 88 16V82C72 79 58 83 48 92C38 83 24 79 8 82Z';
+const FOLIO='M24 6v84H18a6 6 0 0 1-6-6V12a6 6 0 0 1 6-6zM28 6H60a14 14 0 0 1 14 14v12a14 14 0 0 1-14 14H28v-8H60a6 6 0 0 0 6-6V20a6 6 0 0 0-6-6H28zM28 18H56a6 6 0 0 1 6 6v4a6 6 0 0 1-6 6H28zM28 50H62a14 14 0 0 1 14 14v12a14 14 0 0 1-14 14H28v-8H62a6 6 0 0 0 6-6V64a6 6 0 0 0-6-6H28zM28 62H58a6 6 0 0 1 6 6v4a6 6 0 0 1-6 6H28z';
+const T=[[42,24],[36,15],[24,10],[10,10]],B=[[42,88],[34,81],[22,78],[10,78]];
+const cv=t=>{const q=T.map((p,i)=>[p[0]+(B[i][0]-p[0])*t,p[1]+(B[i][1]-p[1])*t]);return `M50 ${q[0][1]}L${q[0]}C${q[1]} ${q[2]} ${q[3]}H0`};
+let n=0;const uid=()=>'u'+(++n);
+const cut=(shape,c)=>{const id=uid();return `<mask id="${id}" maskUnits="userSpaceOnUse" x="-10" y="-10" width="120" height="120"><rect x="-10" y="-10" width="120" height="120" fill="#fff"/><g fill="#000">${c}</g></mask><g mask="url(#${id})">${shape}</g>`};
+const left=`<path d="${L}" transform="translate(0 5)"/>`,right=`<path d="${L}" transform="matrix(-1 0 0 1 96 -5)"/>`;
+const sliced=()=>`<g transform="matrix(-1 0 0 1 96 -5)">${cut(`<path d="${L}"/>`,`<g stroke="#000" stroke-width="4" fill="none">${[1,2,3].map(k=>`<path d="${cv(k/4)}"/>`).join('')}</g>`)}</g>`;
+const dot=(f,cy=8,r=6.5)=>`<circle cx="48" cy="${cy}" r="${r}" fill="${f}"/>`;
+const M=[
+ ["Folio — refined",()=>`<path d="${FOLIO}"/>`],
+ ["Paused spread",()=>left+right],
+ ["Gutter dot",()=>`<g transform="translate(0 6)">${left+right}</g>`+dot('#0a0a0b')],
+ ["Turning pages",()=>left+sliced()],
+ ["Turning + dot",()=>`<g transform="translate(0 6)">${left+sliced()}</g>`+dot('#0a0a0b')],
+ ["Notch · keyhole",()=>cut(`<path d="${O}"/>`,'<rect x="45.5" y="0" width="5" height="58"/><circle cx="48" cy="60" r="7.5"/>')],
+ ["Notch · dot",()=>cut(`<path d="${O}"/>`,'<rect x="45.5" y="0" width="5" height="96"/><circle cx="48" cy="54" r="10"/>')+dot('#0a0a0b',54,6)],
+];
+const mark=f=>`<svg viewBox="0 0 96 96" fill="#0a0a0b" aria-hidden="true">${f()}</svg>`;
+const card=(t,f)=>`<section class="card"><div class="label">${t}</div><div class="hero">${f()}</div><div class="lock">${f()}<b>Breakpoint</b></div><div class="sizes">${[16,24,32].map(s=>`<div style="--s:${s}px">${f()}<span>${s}</span></div>`).join('')}</div></section>`;
+g.innerHTML=M.map(([t,s])=>card(t,()=>mark(s))).join('');
+</script></body></html>
