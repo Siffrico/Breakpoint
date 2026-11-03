@@ -14,6 +14,8 @@ Breakpoint takes a goal, works out what an expert at that goal actually does, an
 
 Every piece of the system answers one question: **what would have to be true for a person to get measurably better at this, and how would we know?**
 
+This repository continues the original V1 of Breakpoint, an earlier implementation of the same project. The original V1 repository is now private.
+
 ## The idea
 
 Most of what an expert knows is tacit: the cue they notice first, the check they never skip, the plausible move they know is a trap. Textbooks tend to leave this out because it is hard to write down. Practice is where it gets built: a realistic situation, a decision, and feedback that names the specific wrong idea.
@@ -112,43 +114,60 @@ packages/ui                 shared Tailwind v4 primitives
 
 Next.js 16 · React 19 · tRPC v11 · Vercel AI SDK · Effect · Drizzle ORM · Supabase Postgres · Better Auth · Zod v4 · Tailwind CSS v4 · Turborepo + pnpm
 
-## Running it locally
+## Getting started
 
-Requirements: Node.js 22.21+ and pnpm, a Postgres database (Supabase works out of the box), and an [OpenRouter](https://openrouter.ai) API key.
+Use Node.js 22.21 or a newer Node.js 22 release and pnpm 11.2.2. Run these commands from the repository root. The instructions below start the Next.js app locally with Supabase PostgreSQL.
+
+Install dependencies:
 
 ```bash
 pnpm i
+```
+
+Create local environment variables:
+
+```bash
 cp .env.example .env
 ```
 
-Fill in `.env`:
+Fill in `.env` before continuing:
 
-| Variable                                          | Purpose                                                                                                                                            |
-| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POSTGRES_URL`                                    | Pooled connection string (Supabase transaction pooler, port 6543). SSL is required.                                                                |
-| `AUTH_SECRET`                                     | Generate with `openssl rand -base64 32`.                                                                                                           |
-| `AUTH_DISCORD_ID` / `AUTH_DISCORD_SECRET`         | Discord OAuth app. Register `http://localhost:3000/api/auth/callback/discord` as a redirect URI. Currently required even for email/password login. |
-| `OPENROUTER_API_KEY`                              | The default model (`z-ai/glm-5.2`) and background jobs run through OpenRouter.                                                                     |
-| `OPENAI_API_KEY` / `GOOGLE_GENERATIVE_AI_API_KEY` | Optional. Only needed if you select those providers' models in settings.                                                                           |
-| `AI_DISABLE_SEARCH_TOOLS`                         | Optional. Set to `true` to turn off web search during curriculum generation.                                                                       |
-| `UPLOADTHING_TOKEN`                               | Optional. Only needed for image uploads.                                                                                                           |
+- `POSTGRES_URL`: your Supabase transaction-pooler connection on port 6543. Replace the project, region, and password placeholders with values from your project's connection settings. The database client requires SSL.
+- `AUTH_SECRET`: generate a secret with `openssl rand -base64 32`.
+- `AUTH_DISCORD_ID` and `AUTH_DISCORD_SECRET`: your Discord application's OAuth2 credentials. Register `http://localhost:3000/api/auth/callback/discord` as a redirect URI. Both credentials are required by the current configuration, even for email/password login.
+- `OPENROUTER_API_KEY`: an API key with credit and access to `z-ai/glm-5.2`, the default model. Default background AI calls also use OpenRouter. Provider usage incurs charges.
 
-Push the schema to a fresh database, then start the app:
+Keep `ALLOWED_ORIGINS=http://localhost:3000` for local development. Add `OPENAI_API_KEY` or `GOOGLE_GENERATIVE_AI_API_KEY` if you want to select those providers' models. Mission proof image uploads require `UPLOADTHING_TOKEN`; text-only use does not. Search is enabled for workflows that use it and can add provider charges. Set `AI_DISABLE_SEARCH_TOOLS=true` to disable it.
+
+Push the committed schema to a new development database:
 
 ```bash
 pnpm db:push
+```
+
+The push command currently derives its connection from `POSTGRES_URL` by replacing port 6543 with 5432. It uses `DIRECT_DATABASE_URL` only when `POSTGRES_URL` is absent. Ensure your Supabase session pooler accepts that connection. Review any schema changes before applying them to an existing database.
+
+The Better Auth schema is already committed. Run `pnpm auth:generate` only when changing the auth configuration.
+
+Run the Next.js app:
+
+```bash
 pnpm dev:next
 ```
 
-Open `http://localhost:3000`, create an account, and describe what you want to learn. To look at the workspace UI without an account or any model calls, open `/ui/workspace`, which renders fixture data.
+Open `http://localhost:3000`, create an account, and start onboarding. If startup reports missing auth variables, check the required credentials above. If an AI turn reports a missing provider key, set the key for the selected model; the default needs OpenRouter.
 
-Validation:
+Useful validation commands:
 
 ```bash
-pnpm typecheck && pnpm lint && pnpm test && pnpm build
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm build
+pnpm format
 ```
 
-Some tests run against a real database and load `POSTGRES_URL` from `.env`. Point them at a disposable database. Those tests skip in CI.
+Some repository tests use a real database and load `POSTGRES_URL` from the root `.env`. Use a disposable development database for those tests. CI runs tests before creating `.env`, so database-dependent tests skip there. Builds fetch Google Fonts and require network access.
 
 ## Status
 
