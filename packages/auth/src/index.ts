@@ -79,8 +79,10 @@ export function initAuth<
       },
     },
     onAPIError: {
-      onError(error, ctx) {
-        console.error("BETTER AUTH API ERROR", error, ctx);
+      // Log the error only — the second argument is the AuthContext, which
+      // carries the signing secret and every provider's client secret.
+      onError(error) {
+        console.error("BETTER AUTH API ERROR", error);
       },
     },
   } satisfies BetterAuthOptions;

@@ -86,7 +86,9 @@ export const MissionRepoLive = Layer.effect(
               run: {
                 id: TrainingUnitRun.id,
                 sessionId: TrainingUnitRun.sessionId,
-                mode: sql<string>`case when ${TrainingUnitRun.cursorJson}->'step'->>'kind' = 'complete' then 'complete' else 'learning' end`,
+                // Mirrors the run's derived mode: a unit is complete once its
+                // outcome is written.
+                mode: sql<string>`case when ${TrainingUnitRun.cursorJson}->>'outcome' is not null then 'complete' else 'teach' end`,
               },
               unit: {
                 id: TrainingUnitContent.id,

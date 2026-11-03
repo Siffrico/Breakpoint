@@ -29,61 +29,37 @@ vi.mock("./run-unit-agent", () => ({
 const { runReviewGradeAgent } = await import("./review-agent");
 
 describe("runReviewGradeAgent", () => {
-  it("gives the grader the persisted private verifier", async () => {
+  it("grades one part against its private verifier", async () => {
     await Effect.runPromise(
       runReviewGradeAgent({
-        messages: [{ role: "user", content: "I would choose B because..." }],
-        teachingHistory: [
-          {
-            role: "assistant",
-            content: "Check the changed limit before reusing a procedure.",
-          },
-        ],
+        learnerAnswer: "(a) I would choose B because... (b) ...",
         context: "Authoritative unit judgment context.",
-        activeChallenge: {
-          prompt:
-            "Choose A or B and defend the choice under the new constraint.",
-          difficultyVector: {
-            formatId: "selected-response",
-            reasoningPathSteps: 2,
-            withheldGivens: 0,
-            embeddedAlternatives: 1,
-          },
-          contract: {
-            version: 1,
-            runKind: "education",
-            scenarioPromptSummary: "Choose and defend A or B.",
-            testedCriterionIds: ["criterion-1"],
-            verifier: {
-              kind: "fixed_answer",
-              answer: "B",
-              scratchpad:
-                "Solution: B follows the changed constraint. A preserves the old constraint. Audit: self-contained and answer hidden.",
-            },
+        part: {
+          question: "Choose A or B and defend the choice under the new constraint.",
+          criterionIds: ["criterion-1"],
+          verifier: {
+            kind: "fixed_answer",
+            answer: "B",
+            scratchpad:
+              "Solution: B follows the changed constraint. A preserves the old constraint.",
           },
         },
+        letter: "a",
+        answersSeveralParts: true,
         experience: DEFAULT_EDUCATION_EXPERIENCE,
-        shape: {
-          testedDimensionIds: ["criterion-1"],
-          learnerAnswer: "I would choose B because...",
-        },
         priorErrorCodes: ["constraint-blindness"],
       }),
     );
 
     const call = runUnitAgentMock.mock.calls[0]?.[0] as
-      | { context: string }
+      | { context: string; messages: { content: string }[] }
       | undefined;
-    expect(call?.context).toContain(
-      "Immutable active challenge and private verifier",
-    );
+    expect(call?.context).toContain("## Part (a) and its private verifier");
     expect(call?.context).toContain('"answer":"B"');
     expect(call?.context).toContain("B follows the changed constraint");
     expect(call?.context).toContain("constraint-blindness");
-    expect(call?.context).toContain(
-      "Check the changed limit before reusing a procedure.",
-    );
-    expect(call?.context).toContain("for remediation only");
+    expect(call?.context).toContain("Judge only their response to part (a)");
+    expect(call?.messages[0]?.content).toContain("(a) I would choose B");
     expect(call).not.toHaveProperty("checkPresentation");
   });
 });

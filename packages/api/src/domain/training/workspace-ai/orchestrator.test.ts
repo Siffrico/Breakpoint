@@ -10,7 +10,6 @@ import {
   assertUnitCanAdvance,
   getUnitAdvanceGate,
   isUnitAwaitingAdvance,
-  isUnitAwaitingNextPass,
 } from "./workspace-turn";
 
 const baseRun = createUnitRun({
@@ -80,13 +79,9 @@ void test("unit advance assertion rejects unmastered runs and accepts idempotent
 void test("settled feedback remains in the current unit with Next Unit locked", () => {
   const feedbackRun = {
     ...baseRun,
-    mode: "awaiting_next_pass" as const,
+    mode: "feedback" as const,
   };
 
-  assert.equal(
-    isUnitAwaitingNextPass({ node: readyNode, run: feedbackRun }),
-    true,
-  );
   assert.equal(
     isUnitAwaitingAdvance({ node: readyNode, run: feedbackRun }),
     false,
@@ -106,14 +101,18 @@ void test("settled feedback remains in the current unit with Next Unit locked", 
       activeUnitRun: feedbackRun,
       hasPersistedActiveUnitRun: true,
     })?.educationStage,
-    "awaiting_next_pass",
+    "feedback",
   );
 });
 
 void test("a durable incomplete education run blocks recall without a phase response", () => {
   const startedRun = {
     ...baseRun,
-    cursor: { ...baseRun.cursor, interactionId: "started-teaching" },
+    cursor: {
+      ...baseRun.cursor,
+      interactionId: "started-teaching",
+      steps: [{ kind: "teach" as const, lesson: "Lesson.", explanation: null }],
+    },
   };
   assert.deepEqual(
     planWorkspaceTurn({
@@ -129,13 +128,14 @@ void test("a durable incomplete education run blocks recall without a phase resp
     {
       mode: "education_unit",
       promptKind: "education_unit",
-      educationStage: "learning",
+      educationStage: "teach",
       interactionId: startedRun.cursor.interactionId,
       workflowId: `${baseRun.experience.id}@${baseRun.experience.version}`,
       activeUnitId: readyNode.id,
       activeUnitTitle: readyNode.title,
       recallUnitId: null,
       recallUnitTitle: null,
+      unitProgress: [{ kind: "teach", current: true }],
     },
   );
 });
@@ -157,7 +157,7 @@ void test("a completed education run allows recall at the unit boundary", () => 
     {
       mode: "education_unit",
       promptKind: "recall",
-      educationStage: "review",
+      educationStage: "answer",
       interactionId: null,
       workflowId: null,
       activeUnitId: null,
@@ -173,9 +173,13 @@ void test("preparing an introduction does not start a unit or block boundary rec
     ...baseRun,
     cursor: {
       ...baseRun.cursor,
-      preparedOpening: {
-        key: "a".repeat(64),
-        assistantMessage: "Prepared teaching.",
+      prepared: {
+        interactionId: baseRun.cursor.interactionId,
+        draft: {
+          kind: "lesson" as const,
+          inputKey: "a".repeat(64),
+          lesson: "Prepared teaching.",
+        },
       },
     },
   };

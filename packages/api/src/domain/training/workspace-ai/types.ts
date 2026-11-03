@@ -26,6 +26,16 @@ export const WorkspaceAiMessageSchema = z.object({
     .optional(),
 });
 
+export const UnitProgressStepSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("teach"), current: z.boolean() }),
+  z.object({
+    kind: z.literal("round"),
+    label: z.enum(["learn", "exam"]),
+    current: z.boolean(),
+    parts: z.array(z.enum(["met", "missed", "open", "pending"])),
+  }),
+]);
+
 export const WorkspaceAiStateSchema = z.object({
   mode: WorkspaceAiTurnModeSchema,
   promptKind: WorkspaceAiPromptKindSchema,
@@ -36,6 +46,8 @@ export const WorkspaceAiStateSchema = z.object({
   activeUnitTitle: z.string().min(1).nullable(),
   recallUnitId: z.string().uuid().nullable(),
   recallUnitTitle: z.string().min(1).nullable(),
+  /** The active unit's steps as a checklist. Null outside a unit. */
+  unitProgress: z.array(UnitProgressStepSchema).nullable().optional(),
 });
 
 export const WorkspaceAiTurnResultSchema = z.object({

@@ -1,10 +1,13 @@
 import type {
-  EvaluationDimensionResult,
   UnitContext,
   UnitDifficultySnapshot,
+  UnitStep,
 } from "@acme/validators";
 
 import type { Memory } from "../../memory/types";
+import type { UnitRoundStep } from "./unit-policy";
+import { findLastRound, isRoundStep } from "./unit-policy";
+import { partLetter } from "./unit-state";
 
 const bulletList = (values: readonly string[]) =>
   values.map((value) => `- ${value}`).join("\n");
@@ -65,53 +68,94 @@ const joinSections = (sections: readonly (string | null)[]) =>
     .filter((section): section is string => section !== null)
     .join("\n\n");
 
-const challengeSurfaceSummary = (prompt: string): string =>
-  prompt
-    .split(/\n\s*\n/)
-    .find((part) => part.trim().length > 0)
-    ?.trim() ?? prompt.trim();
+const findLastLesson = (steps: readonly UnitStep[]) =>
+  [...steps]
+    .reverse()
+    .find(
+      (step): step is Extract<UnitStep, { kind: "teach" }> =>
+        step.kind === "teach",
+    ) ?? null;
 
-/**
- * What the last failed scenario found. The mentor reads it so a re-teach
- * covers the one idea the learner is missing rather than the whole unit
- * again, and so a repair scenario is built to break that exact idea rather
- * than the label filed next to it.
- */
-export interface UnitRepairTarget {
-  readonly errorCodes: readonly string[];
-  readonly hypothesis: string | null;
-  readonly dimensionResults: readonly EvaluationDimensionResult[];
-}
-
-const repairSection = (repair: UnitRepairTarget | null): string | null => {
-  if (!repair) return null;
-  const weak = repair.dimensionResults.filter((result) => !result.met);
+/** The lesson the learner was given and how they explained it back. */
+const lessonSection = (steps: readonly UnitStep[]): string | null => {
+  const lesson = findLastLesson(steps);
+  if (!lesson) return null;
   return joinSections([
-    "## Repair target",
-    repair.hypothesis
-      ? `The learner was just told: "${repair.hypothesis}"`
-      : null,
-    repair.errorCodes.length > 0
-      ? `Prior error codes: ${repair.errorCodes.join(", ")}`
-      : null,
-    weak.length > 0
-      ? `Weak criteria:\n${bulletList(
-          weak.map((result) => `${result.dimensionId}: ${result.missing}`),
-        )}`
+    `## The lesson the learner was given\n${lesson.lesson}`,
+    lesson.explanation
+      ? `## The learner's explain-back\n${lesson.explanation}`
       : null,
   ]);
+};
+
+const partHistory = (round: UnitRoundStep): string | null => {
+  const graded = round.parts.filter((part) => part.result);
+  if (graded.length === 0) return null;
+  return `Earlier parts of this round:\n${bulletList(
+    graded.map((part, index) =>
+      part.result?.met
+        ? `(${partLetter(index)}) met — ${part.question}`
+        : `(${partLetter(index)}) missed — ${part.question}\n  Suspected idea: ${part.result?.hypothesis ?? "not stated"}`,
+    ),
+  )}`;
+};
+
+const activeRoundSection = (round: UnitRoundStep | null): string | null =>
+  round
+    ? joinSections([
+        `## The round in progress (${round.spec.label})\nShared situation:\n${round.narrative}`,
+        partHistory(round),
+      ])
+    : null;
+
+const usedNarrativesSection = (steps: readonly UnitStep[]): string | null => {
+  const narratives = steps
+    .filter(isRoundStep)
+    .map((round) => round.narrative.split(/\n\s*\n/)[0]?.trim() ?? "")
+    .filter(Boolean);
+  return narratives.length > 0
+    ? `## Situations already used\nA new round needs a genuinely fresh situation; do not reuse these:\n${bulletList(narratives)}`
+    : null;
+};
+
+/**
+ * What the latest graded parts found. The mentor reads it so a re-teach covers
+ * the one idea the learner is missing, and so the next part is built to test
+ * that exact idea rather than the label filed next to it.
+ */
+const repairSection = (steps: readonly UnitStep[]): string | null => {
+  const round = findLastRound(steps);
+  const missed =
+    round?.parts.filter((part) => part.result && !part.result.met) ?? [];
+  if (missed.length === 0) return null;
+  return `## Repair target\n${bulletList(
+    missed.map((part) =>
+      joinSections([
+        `Suspected idea: ${part.result?.hypothesis ?? "not stated"}`,
+        part.result?.errorCodes.length
+          ? `Error codes: ${part.result.errorCodes.join(", ")}`
+          : null,
+        `Weak criteria: ${
+          part.result?.criterionResults
+            .filter((result) => !result.met)
+            .map((result) => `${result.dimensionId}: ${result.missing ?? "not shown"}`)
+            .join("; ") ?? ""
+        }`,
+      ]),
+    ),
+  )}`;
 };
 
 export const createMentorContext = ({
   unitContext,
   difficulty,
   memories,
-  repair = null,
+  steps = [],
 }: {
   unitContext: UnitContext;
   difficulty: UnitDifficultySnapshot;
   memories: readonly Memory[];
-  repair?: UnitRepairTarget | null;
+  steps?: readonly UnitStep[];
 }): string =>
   joinSections([
     targetSection(unitContext),
@@ -120,42 +164,46 @@ export const createMentorContext = ({
     testingSection(unitContext),
     judgmentSection(unitContext),
     goldilocksSection(difficulty),
-    repairSection(repair),
+    repairSection(steps),
     memories.length > 0
       ? `## Learner memory\n${bulletList(memories.map((memory) => memory.content))}`
       : null,
   ]);
 
-export const createMentorScenarioContext = ({
+export const createPartsContext = ({
   unitContext,
   difficulty,
-  previousChallengePrompts = [],
-  repair = null,
+  steps,
+  opensRound,
 }: {
   unitContext: UnitContext;
   difficulty: UnitDifficultySnapshot;
-  previousChallengePrompts?: readonly string[];
-  repair?: UnitRepairTarget | null;
+  steps: readonly UnitStep[];
+  opensRound: boolean;
 }): string =>
   joinSections([
     targetSection(unitContext),
     testingSection(unitContext),
     judgmentSection(unitContext),
     reviewGoldilocksSection(difficulty),
-    previousChallengePrompts.length > 0
-      ? `## Previously used challenge surfaces\nCreate a genuinely fresh surface; do not repeat these prompts:\n${bulletList(previousChallengePrompts.map(challengeSurfaceSummary))}`
-      : null,
-    repairSection(repair),
+    lessonSection(steps),
+    opensRound ? usedNarrativesSection(steps) : null,
+    opensRound ? null : activeRoundSection(findLastRound(steps)),
+    repairSection(steps),
   ]);
 
-export const createCritiqueContext = ({
+export const createGradingContext = ({
   unitContext,
+  steps,
 }: {
   unitContext: UnitContext;
+  steps: readonly UnitStep[];
 }): string =>
   joinSections([
     targetSection(unitContext),
     workflowSection(unitContext),
     expertiseSection(unitContext),
     judgmentSection(unitContext),
+    lessonSection(steps),
+    activeRoundSection(findLastRound(steps)),
   ]);

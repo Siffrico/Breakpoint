@@ -8,8 +8,9 @@ import { initAuth } from "@acme/auth";
 
 import { env } from "~/env";
 
-const baseUrl =
-  env.VERCEL_ENV === "production"
+const baseUrl = env.AUTH_URL
+  ? new URL(env.AUTH_URL).origin
+  : env.VERCEL_ENV === "production"
     ? `https://${env.VERCEL_PROJECT_PRODUCTION_URL}`
     : env.VERCEL_ENV === "preview"
       ? `https://${env.VERCEL_URL}`

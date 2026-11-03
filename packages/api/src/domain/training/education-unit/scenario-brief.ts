@@ -1,6 +1,7 @@
 import { z } from "zod/v4";
 
 import type { PersistedUnitRun } from "./unit-state";
+import { activeRound, openParts } from "./unit-state";
 
 /**
  * The learner-facing read of the challenge currently on the board: initial
@@ -15,23 +16,22 @@ export const ScenarioBriefSchema = z.object({
 export type ScenarioBrief = z.infer<typeof ScenarioBriefSchema>;
 
 /**
- * Projects only learner-safe fields from the private review contract.
- *
- * `activeReviewChallenge` is itself a projection of the run cursor, so this
- * brief is always the current scenario — never a stale one. It
- * lives here rather than in the workspace read so the turn stream can project
- * the same brief from the run it just wrote, without either path importing the
- * other.
+ * Projects only learner-safe fields of the round on the board: its shared
+ * situation and open parts as the initial state (A), and the criteria those
+ * parts test as the desired state (B). Null while the learner is in a lesson
+ * or between parts.
  */
 export const projectScenarioBrief = (
   run: PersistedUnitRun | null,
 ): ScenarioBrief | null => {
-  const challenge = run?.activeReviewChallenge;
-  if (!challenge) return null;
-  const tested = new Set(challenge.contract.testedCriterionIds);
-
+  const round = run ? activeRound(run.cursor) : null;
+  const parts = run ? openParts(run.cursor) : [];
+  if (!run || !round || parts.length === 0) return null;
+  const tested = new Set(parts.flatMap((part) => part.criterionIds));
   return {
-    stateA: challenge.prompt,
+    stateA: [round.narrative, ...parts.map((part) => part.question)].join(
+      "\n\n",
+    ),
     stateB: run.unitContext.judgment.criteria
       .filter((criterion) => tested.has(criterion.id))
       .map((criterion) => criterion.criterion)

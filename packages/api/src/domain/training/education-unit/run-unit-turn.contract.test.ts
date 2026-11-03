@@ -1,7 +1,10 @@
-import { Effect } from "effect";
+import { Deferred, Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
-import type { UnitTurnDependencies } from "./run-unit-turn";
+import type { WorkspaceTurnAction } from "@acme/validators";
+
+import type { ReviewGradeOutput } from "./agent-contracts";
+import type { UnitTurnDependencies, UnitTurnResult } from "./run-unit-turn";
 import type { PersistedUnitRun } from "./unit-state";
 import {
   makeDeps as makePreparationDeps,
@@ -10,11 +13,38 @@ import {
 } from "../unit-preparation/preparation.fixture";
 import { prepareUnitContent } from "../unit-preparation/prepare-unit-content";
 import { resolveUnitRunProjection } from "../workspace-ai/workspace-turn";
+import { createAssistantTextStreamer } from "../workspace-ai/assistant-text-streamer";
 import { DEFAULT_EDUCATION_EXPERIENCE } from "./experience";
-import { runPassAdvanceTurn, runUnitTurn } from "./run-unit-turn";
-import { createMentorContext } from "./unit-context";
+import { runUnitTurn } from "./run-unit-turn";
 import { makeUnitContext } from "./unit-context.fixture";
-import { createUnitRun } from "./unit-state";
+import { createUnitRun, withPreparedDraft } from "./unit-state";
+
+const CRITERION = "derive-under-pressure";
+const LESSON =
+  "Read the changed limit before you reuse the old move. Explain what the limit forces in a line that runs cold.";
+
+const difficultySnapshot: NonNullable<PersistedUnitRun["difficultySnapshot"]> = {
+  nodeId: "node-1",
+  directive: {
+    intent: "probe",
+    bandOrder: 0,
+    supportLevel: "none",
+    targetItemRating: 1200,
+    targetMisconceptionCode: null,
+    reason: "Probe transfer.",
+    nextProgress: { bandOrder: 0, supportLevel: "none" },
+  },
+  promptBlock: "Probe transfer.",
+  ratingSnapshot: "snapshot",
+  learnerRating: 1200,
+  format: {
+    id: "frq",
+    label: "Free response",
+    kind: "frq",
+    description: "Explain the decision.",
+  },
+  dialPreset: { steps: [3, 3], withheldGivens: [1, 1], alternatives: [2, 2] },
+};
 
 const makeRun = (): PersistedUnitRun => ({
   ...createUnitRun({
@@ -25,191 +55,156 @@ const makeRun = (): PersistedUnitRun => ({
     unitContext: makeUnitContext(),
     experience: DEFAULT_EDUCATION_EXPERIENCE,
   }),
-  difficultySnapshot: {
-    nodeId: "node-1",
-    directive: {
-      intent: "probe",
-      bandOrder: 0,
-      supportLevel: "none",
-      targetItemRating: 1200,
-      targetMisconceptionCode: null,
-      reason: "Probe transfer.",
-      nextProgress: { bandOrder: 0, supportLevel: "none" },
-    },
-    promptBlock: "Probe transfer.",
-    ratingSnapshot: "snapshot",
-    learnerRating: 1200,
-    format: {
-      id: "frq",
-      label: "Free response",
-      kind: "frq",
-      description: "Explain the decision.",
-    },
-    dialPreset: {
-      steps: [3, 3],
-      withheldGivens: [1, 1],
-      alternatives: [2, 2],
-    },
-  },
+  difficultySnapshot,
 });
 
-const contexts = {
-  mentor: "Authoritative mentor teaching context.",
-  mentorScenario: "Authoritative mentor scenario context.",
-  critique: { judgeAnswer: "Authoritative critique judgment context." },
-};
-
-const verifier = {
-  kind: "checks" as const,
-  checks: [
-    {
-      criterionId: "derive-under-pressure",
-      check: "The answer must derive the move from the changed constraint.",
-    },
-  ],
-  scratchpad:
-    "Expert move follows the changed constraint. The familiar move ignores it.",
-};
-
-const scenario = {
-  assistantMessage:
-    "A production limit changes after a familiar deployment. Choose the next move and defend it from the controlling constraint.",
-  verifier,
-};
-
-const teachingOpening = {
-  assistantMessage:
-    "Read the changed constraint before you reuse the old move. A familiar case can trick you into copying yesterday's procedure, but the new limit changes what stays safe. Which detail must you check before you reuse the old move?",
-  scratchpad: "Teach the controlling constraint with a concrete contrast.",
-  preparedScenario: null,
-};
-
-const teachingHandoff = {
-  assistantMessage: "Exactly. Read the changed limit before reusing the move.",
-  scratchpad: "The learner identified the controlling constraint.",
-  preparedScenario: scenario,
-};
+const cleanGrade = (criterionIds: readonly string[]): ReviewGradeOutput => ({
+  closingMessage: "Right: the limit decided the move.",
+  diagnosis: null,
+  causeType: null,
+  errorCodes: [],
+  scratchpad: "Derived from the limit.",
+  dimensionResults: criterionIds.map((dimensionId) => ({
+    dimensionId,
+    met: true,
+    evidence: "the limit",
+    missing: null,
+  })),
+});
 
 const gappedGrade = (
-  causeType:
-    | "wrong-rule"
-    | "missed-limit"
-    | "never-learned-it" = "missed-limit",
-) => ({
+  criterionIds: readonly string[],
+  causeType: "wrong-rule" | "never-learned-it" = "wrong-rule",
+): ReviewGradeOutput => ({
   closingMessage: null,
   diagnosis: {
-    quote: "I use the old move",
-    hypothesis:
-      "I think you read the old move working before as it working here.",
-    explanation:
-      "The old move was safe because the line ran above 40 degrees. This line runs at 30 degrees, so that no longer holds.",
+    quote: "old move",
+    hypothesis: "You may be reading yesterday's success as today's rule.",
+    explanation: "The old move held above 40 degrees. This line runs at 30.",
   },
   causeType,
-  errorCodes: ["constraint-blindness"],
-  scratchpad:
-    "The learner reused a move without re-deriving from the changed limit.",
-  dimensionResults: [
-    {
-      dimensionId: "derive-under-pressure",
-      met: false,
-      evidence: "old move",
-      missing: "A move derived from the changed constraint.",
-    },
-  ],
+  errorCodes: ["old-move"],
+  scratchpad: "Reused the old move.",
+  dimensionResults: criterionIds.map((dimensionId) => ({
+    dimensionId,
+    met: false,
+    evidence: "old move",
+    missing: "A move derived from the limit.",
+  })),
 });
 
 const deps = (
   overrides: Partial<UnitTurnDependencies> = {},
 ): UnitTurnDependencies => ({
-  runMentorTeaching: ({ createScenario }) =>
-    Effect.succeed({
-      object: createScenario ? teachingHandoff : teachingOpening,
-    }),
-  runMentorScenario: () =>
+  runMentorLesson: () =>
+    Effect.succeed({ object: { assistantMessage: LESSON } }),
+  runMentorParts: ({ shape, letters }) =>
     Effect.succeed({
       object: {
-        assistantMessage:
-          "A different production limit changes. Choose the next move and defend it.",
-        verifier,
+        acknowledgment: shape.acknowledgesExplanation ? "Good read." : null,
+        narrative: shape.opensRound
+          ? "A line that ran at 45 degrees now runs at 30."
+          : null,
+        parts: letters.map((letter) => ({
+          question: `Part ${letter}: what does the limit force?`,
+          criterionIds: [...shape.roundCriterionIds],
+          verifier: {
+            kind: "checks" as const,
+            checks: shape.roundCriterionIds.map((criterionId) => ({
+              criterionId,
+              check: "Derives the move from the limit.",
+            })),
+            scratchpad: "The limit decides the move.",
+          },
+        })),
       },
     }),
-  runReviewGrade: () => Effect.succeed({ object: gappedGrade() }),
+  runReviewGrade: ({ part }) =>
+    Effect.succeed({ object: cleanGrade(part.criterionIds) }),
   ...overrides,
 });
 
-const input = (run: PersistedUnitRun, action?: "start_unit") => ({
-  run,
-  interactionId: run.cursor.interactionId,
-  ...(action ? { action } : {}),
-  transcript: [],
-  experience: DEFAULT_EDUCATION_EXPERIENCE,
-  contexts,
-});
-
-const startTeaching = () =>
-  Effect.runPromise(runUnitTurn(input(makeRun(), "start_unit"), deps()));
-
-const openFirstScenario = async () => {
-  const started = await startTeaching();
-  return Effect.runPromise(
+const turn = (
+  run: PersistedUnitRun,
+  action: WorkspaceTurnAction,
+  learnerMessage = "",
+  dependencies = deps(),
+): Promise<UnitTurnResult> =>
+  Effect.runPromise(
     runUnitTurn(
       {
-        ...input(started.nextRun),
-        transcript: [{ role: "user", content: "Read the changed limit." }],
+        run,
+        interactionId: run.cursor.interactionId,
+        action,
+        learnerMessage,
+        experience: DEFAULT_EDUCATION_EXPERIENCE,
+        memories: [],
       },
-      deps(),
+      dependencies,
     ),
   );
+
+/** Start, explain back, and land on learn part (a). */
+const openLearnRound = async (dependencies = deps()) => {
+  const started = await turn(makeRun(), "start_unit", "", dependencies);
+  return turn(started.nextRun, "submit_answer", "It says re-derive.", dependencies);
 };
 
-describe("runUnitTurn mentor and critique boundaries", () => {
-  it("opens prepared teaching without generation, grading, or a scenario timer", async () => {
-    const runMentorTeaching = vi.fn(deps().runMentorTeaching);
-    const run = makeRun();
-    const result = await Effect.runPromise(
-      runUnitTurn(
-        {
-          ...input(run, "start_unit"),
-          preparedOpening: "Prepared introduction with a teaching question.",
-        },
-        deps({ runMentorTeaching }),
-      ),
-    );
-    expect(result.assistantMessage).toBe(
-      "Prepared introduction with a teaching question.",
-    );
-    expect(result.nextRun.mode).toBe("learning");
-    expect(result.nextRun.cursor.interactionId).not.toBe(
-      run.cursor.interactionId,
-    );
-    expect(result.nextRun.cursor.preparedOpening).toBeUndefined();
+/** Play the learn round to its end with every part answered cleanly. */
+const finishLearnRound = async (dependencies = deps()) => {
+  let result = await openLearnRound(dependencies);
+  for (let index = 0; index < 3; index += 1) {
+    result = await turn(result.nextRun, "submit_answer", "the limit", dependencies);
+    if (index < 2) result = await turn(result.nextRun, "continue", "", dependencies);
+  }
+  return result;
+};
+
+describe("runUnitTurn", () => {
+  it("opens with a prepared lesson without calling the mentor", async () => {
+    const runMentorLesson = vi.fn(deps().runMentorLesson);
+    const run = withPreparedDraft(makeRun(), {
+      kind: "lesson",
+      inputKey: null,
+      lesson: "Prepared lesson.",
+    });
+    const result = await turn(run, "start_unit", "", deps({ runMentorLesson }));
+    expect(result.assistantMessage).toBe("Prepared lesson.");
+    expect(result.nextRun.mode).toBe("teach");
+    expect(result.nextRun.cursor.prepared).toBeNull();
     expect(result.ratingWrite).toBeNull();
-    expect(result.presentedReviewChallenge).toBe(false);
-    expect(runMentorTeaching).not.toHaveBeenCalled();
+    expect(runMentorLesson).not.toHaveBeenCalled();
   });
+
   it("rejects a stale interaction before calling the mentor", async () => {
-    const runMentorTeaching = vi.fn(deps().runMentorTeaching);
+    const runMentorLesson = vi.fn(deps().runMentorLesson);
     await expect(
       Effect.runPromise(
         runUnitTurn(
-          { ...input(makeRun(), "start_unit"), interactionId: "stale" },
-          deps({ runMentorTeaching }),
+          {
+            run: makeRun(),
+            interactionId: "stale",
+            action: "start_unit",
+            learnerMessage: "",
+            experience: DEFAULT_EDUCATION_EXPERIENCE,
+            memories: [],
+          },
+          deps({ runMentorLesson }),
         ),
       ),
     ).rejects.toThrow("no longer active");
-    expect(runMentorTeaching).not.toHaveBeenCalled();
+    expect(runMentorLesson).not.toHaveBeenCalled();
   });
 
-  it("opens a freshly prepared assignment directly in the live mentor", async () => {
-    const preparationDeps = makePreparationDeps({
-      createUnitContentIfAbsent: (assignment) =>
-        Promise.resolve({ ...unit, ...assignment }),
-    });
+  it("teaches a freshly prepared assignment from its own context", async () => {
     const prepared = await Effect.runPromise(
       prepareUnitContent({
         node,
         sessionId: "session-1",
-        deps: preparationDeps,
+        deps: makePreparationDeps({
+          createUnitContentIfAbsent: (assignment) =>
+            Promise.resolve({ ...unit, ...assignment }),
+        }),
       }),
     );
     const projected = resolveUnitRunProjection({
@@ -217,405 +212,221 @@ describe("runUnitTurn mentor and critique boundaries", () => {
       unit: prepared,
       existing: null,
     });
-    const difficulty = makeRun().difficultySnapshot;
-    if (!difficulty) throw new Error("Expected calibrated difficulty.");
-    const mentorContext = createMentorContext({
-      unitContext: projected.unitContext,
-      difficulty,
-      memories: [],
-    });
-    const runMentorTeaching = vi.fn(deps().runMentorTeaching);
-    const result = await Effect.runPromise(
-      runUnitTurn(
-        {
-          ...input(
-            { ...projected, difficultySnapshot: difficulty },
-            "start_unit",
-          ),
-          contexts: { ...contexts, mentor: mentorContext },
-        },
-        deps({ runMentorTeaching }),
-      ),
+    const runMentorLesson = vi.fn(deps().runMentorLesson);
+    const result = await turn(
+      { ...projected, difficultySnapshot },
+      "start_unit",
+      "",
+      deps({ runMentorLesson }),
     );
-
-    expect(prepared).not.toHaveProperty("seedPrompt");
-    expect(mentorContext).toContain("Causal probe");
-    expect(result.assistantMessage).toBe(teachingOpening.assistantMessage);
     expect(result.nextRun.unitContext).toEqual(prepared.unitContext);
-    expect(result.nextRun.cursor.step).toEqual({
-      kind: "teaching",
-      preparedScenario: null,
-    });
-    expect(runMentorTeaching).toHaveBeenCalledWith(
-      expect.objectContaining({
-        context: mentorContext,
-        createScenario: false,
-      }),
+    expect(runMentorLesson.mock.calls[0]?.[0].context).toContain(
+      "Causal probe",
     );
   });
 
-  it("teaches first without generating a scenario", async () => {
-    const runMentorTeaching = vi.fn(deps().runMentorTeaching);
-    const runMentorScenario = vi.fn(deps().runMentorScenario);
-    const result = await Effect.runPromise(
-      runUnitTurn(
-        input(makeRun(), "start_unit"),
-        deps({ runMentorTeaching, runMentorScenario }),
-      ),
-    );
-
-    expect(result.nextRun.cursor.step).toEqual({
-      kind: "teaching",
-      preparedScenario: null,
+  it("answers the explain-back and opens learn part (a) in one reply", async () => {
+    const runMentorParts = vi.fn(deps().runMentorParts);
+    const result = await openLearnRound(deps({ runMentorParts }));
+    expect(runMentorParts.mock.calls[0]?.[0]).toMatchObject({
+      label: "learn",
+      letters: ["a"],
+      shape: { opensRound: true, acknowledgesExplanation: true, partCount: 1 },
     });
-    expect(runMentorTeaching).toHaveBeenCalledWith(
-      expect.objectContaining({ createScenario: false }),
-    );
-    expect(runMentorScenario).not.toHaveBeenCalled();
+    expect(result.assistantMessage).toMatch(/^Good read\.\n\nA line that ran/);
+    expect(result.assistantMessage).toContain("**Part (a)**");
+    expect(result.nextRun.mode).toBe("answer");
+    expect(result.nextRun.cursor.steps.at(0)).toMatchObject({
+      kind: "teach",
+      explanation: "It says re-derive.",
+    });
+    expect(result.presentedRatedRound).toBe(false);
   });
 
-  it("uses the learner's one teaching answer, then creates and opens Pass 1", async () => {
-    const runMentorTeaching = vi.fn(deps().runMentorTeaching);
-    const started = await startTeaching();
-    const result = await Effect.runPromise(
-      runUnitTurn(
-        {
-          ...input(started.nextRun),
-          transcript: [{ role: "user", content: "Reuse the old move." }],
-        },
-        deps({ runMentorTeaching }),
-      ),
-    );
-
-    expect(runMentorTeaching).toHaveBeenCalledWith(
-      expect.objectContaining({ createScenario: true }),
-    );
-    expect(result.nextRun.cursor.step).toMatchObject({
-      kind: "scenario",
-      attempt: 1,
-      challenge: { prompt: scenario.assistantMessage },
-    });
-    expect(result.assistantMessage).toContain(scenario.assistantMessage);
-  });
-
-  it("settles a failed scenario straight to the next pass, with no chat round", async () => {
-    const firstScenario = await openFirstScenario();
-    const graded = await Effect.runPromise(
-      runUnitTurn(
-        {
-          ...input(firstScenario.nextRun),
-          transcript: [{ role: "user", content: "I use the old move." }],
-        },
-        deps(),
-      ),
-    );
-    const onPartialAssistantMessage = vi.fn();
-    const runMentorScenario = vi.fn<UnitTurnDependencies["runMentorScenario"]>(
-      (request) =>
-        Effect.sync(() => {
-          request.onPartialAssistantMessage?.("A different production limit");
-          request.onPartialAssistantMessage?.(
-            "A different production limit changes.",
-          );
-          return {
-            object: {
-              assistantMessage:
-                "A different production limit changes. Choose the next move and defend it.",
-              verifier,
-            },
-          };
-        }),
-    );
-    const secondScenario = await Effect.runPromise(
-      runPassAdvanceTurn(
-        {
-          run: graded.nextRun,
-          interactionId: graded.nextRun.cursor.interactionId,
-          transcript: [],
-          experience: DEFAULT_EDUCATION_EXPERIENCE,
-          contexts,
-          onPartialAssistantMessage,
-        },
-        deps({ runMentorScenario }),
-      ),
-    );
-
+  it("gives a learn part its own feedback, unscored and unrated", async () => {
+    const opened = await openLearnRound();
+    const graded = await turn(opened.nextRun, "submit_answer", "the limit");
+    expect(graded.assistantMessage).toBe("Right: the limit decided the move.");
     expect(graded.ratingWrite).toBeNull();
-    expect(graded.nextRun.cursor.step).toMatchObject({
-      kind: "pass_result",
-      outcome: "fail",
-      causeType: "missed-limit",
+    expect(graded.nextRun.mode).toBe("feedback");
+  });
+
+  it("aims the next learn part at the last feedback's hypothesis", async () => {
+    const runMentorParts = vi.fn(deps().runMentorParts);
+    const dependencies = deps({
+      runMentorParts,
+      runReviewGrade: ({ part }) =>
+        Effect.succeed({ object: gappedGrade(part.criterionIds) }),
     });
-    expect(graded.assistantMessage).toBe(
-      `> I use the old move
+    const opened = await openLearnRound(dependencies);
+    const graded = await turn(opened.nextRun, "submit_answer", "old move", dependencies);
+    const next = await turn(graded.nextRun, "continue", "", dependencies);
+    expect(runMentorParts.mock.calls.at(-1)?.[0]).toMatchObject({
+      letters: ["b"],
+      hypothesis: "You may be reading yesterday's success as today's rule.",
+      shape: { opensRound: false },
+    });
+    expect(next.assistantMessage).toContain("**Part (b)**");
+  });
 
-I think you read the old move working before as it working here.
+  it("requires Continue after feedback", async () => {
+    const opened = await openLearnRound();
+    const graded = await turn(opened.nextRun, "submit_answer", "the limit");
+    await expect(
+      turn(graded.nextRun, "submit_answer", "more"),
+    ).rejects.toThrow("Press Continue");
+  });
 
-The old move was safe because the line ran above 40 degrees. This line runs at 30 degrees, so that no longer holds.`,
-    );
-    expect(runMentorScenario).toHaveBeenCalledWith(
-      expect.objectContaining({
-        pass: 2,
-      }),
-    );
-    expect(runMentorScenario.mock.calls[0]?.[0].context).toContain(
-      contexts.mentorScenario,
-    );
-    expect(onPartialAssistantMessage).toHaveBeenNthCalledWith(
-      1,
-      "A different production limit",
-    );
-    expect(onPartialAssistantMessage).toHaveBeenNthCalledWith(
-      2,
-      "A different production limit changes.",
-    );
-    expect(secondScenario.nextRun.cursor.step).toMatchObject({
-      kind: "scenario",
-      attempt: 2,
+  it("serves a prepared part on Continue without calling the mentor", async () => {
+    const opened = await openLearnRound();
+    const graded = await turn(opened.nextRun, "submit_answer", "the limit");
+    const runMentorParts = vi.fn(deps().runMentorParts);
+    const prepared = withPreparedDraft(graded.nextRun, {
+      kind: "parts",
+      narrative: null,
+      parts: [
+        {
+          question: "Prepared part.",
+          criterionIds: [CRITERION],
+          verifier: {
+            kind: "checks",
+            checks: [{ criterionId: CRITERION, check: "Derives the move." }],
+            scratchpad: "The limit decides the move.",
+          },
+        },
+      ],
+    });
+    const next = await turn(prepared, "continue", "", deps({ runMentorParts }));
+    expect(next.assistantMessage).toBe("**Part (b)**\n\nPrepared part.");
+    expect(runMentorParts).not.toHaveBeenCalled();
+  });
+
+  it("presents the exam as three parts at once and marks it rated", async () => {
+    const learned = await finishLearnRound();
+    const exam = await turn(learned.nextRun, "continue");
+    expect(exam.presentedRatedRound).toBe(true);
+    expect(exam.nextRun.roundNumber).toBe(2);
+    expect(exam.assistantMessage).toContain("**Part (c)**");
+  });
+
+  it("grades each exam part with its own critic and completes on a clean sweep", async () => {
+    const runReviewGrade = vi.fn(deps().runReviewGrade);
+    const dependencies = deps({ runReviewGrade });
+    const learned = await finishLearnRound(dependencies);
+    const exam = await turn(learned.nextRun, "continue", "", dependencies);
+    runReviewGrade.mockClear();
+    const graded = await turn(exam.nextRun, "submit_answer", "(a) the limit (b) the limit (c) the limit", dependencies);
+    expect(runReviewGrade).toHaveBeenCalledTimes(3);
+    expect(runReviewGrade.mock.calls.at(-1)?.[0]).toMatchObject({
+      letter: "c",
+      answersSeveralParts: true,
+    });
+    expect(graded.assistantMessage).toMatch(/^\*\*Score:\*\* 3 of 3 parts/);
+    expect(graded.nextRun.cursor.outcome).toBe("mastered");
+    expect(graded.nextRun.mode).toBe("complete");
+    expect(graded.ratingWrite).toMatchObject({
+      checksMet: 3,
+      checksTotal: 3,
+      partCount: 3,
     });
   });
 
-  it("re-teaches instead of retesting when the idea was never taught", async () => {
-    const runMentorTeaching = vi.fn(deps().runMentorTeaching);
-    const runMentorScenario = vi.fn(deps().runMentorScenario);
-    const firstScenario = await openFirstScenario();
-    const graded = await Effect.runPromise(
-      runUnitTurn(
-        {
-          ...input(firstScenario.nextRun),
-          transcript: [{ role: "user", content: "I use the old move." }],
-        },
-        deps({
-          runReviewGrade: () =>
-            Effect.succeed({ object: gappedGrade("never-learned-it") }),
-        }),
-      ),
-    );
-    const advanced = await Effect.runPromise(
-      runPassAdvanceTurn(
-        {
-          run: graded.nextRun,
-          interactionId: graded.nextRun.cursor.interactionId,
-          transcript: [],
-          experience: DEFAULT_EDUCATION_EXPERIENCE,
-          contexts,
-        },
-        deps({ runMentorTeaching, runMentorScenario }),
-      ),
-    );
-
-    expect(runMentorTeaching).toHaveBeenCalledWith(
-      expect.objectContaining({ createScenario: true }),
-    );
-    expect(runMentorScenario).not.toHaveBeenCalled();
-    expect(advanced.assistantMessage).toContain(
-      teachingHandoff.assistantMessage,
-    );
-    expect(advanced.nextRun.cursor.step).toMatchObject({
-      kind: "scenario",
-      attempt: 2,
-    });
-  });
-
-  it("completes on a correct Pass 2", async () => {
-    const cleanGrade = () =>
-      Effect.succeed({
-        object: {
-          closingMessage:
-            "Exactly right: the changed constraint controls the safe move.",
-          diagnosis: null,
-          causeType: null,
-          errorCodes: [],
-          scratchpad: "No material divergence.",
-          dimensionResults: [
-            {
-              dimensionId: "derive-under-pressure" as const,
-              met: true,
-              evidence: "changed constraint",
-              missing: null,
-            },
-          ],
-        },
-      });
-    const firstScenario = await openFirstScenario();
-    const firstResult = await Effect.runPromise(
-      runUnitTurn(
-        {
-          ...input(firstScenario.nextRun),
-          transcript: [
-            { role: "user", content: "The changed constraint controls it." },
-          ],
-        },
-        deps({ runReviewGrade: cleanGrade }),
-      ),
-    );
-    expect(firstResult.nextRun.cursor.step).toMatchObject({
-      kind: "pass_result",
-      attempt: 1,
-      outcome: "pass",
-    });
-
-    const secondScenario = await Effect.runPromise(
-      runPassAdvanceTurn(
-        {
-          run: firstResult.nextRun,
-          interactionId: firstResult.nextRun.cursor.interactionId,
-          transcript: [],
-          experience: DEFAULT_EDUCATION_EXPERIENCE,
-          contexts,
-        },
-        deps(),
-      ),
-    );
-    const complete = await Effect.runPromise(
-      runUnitTurn(
-        {
-          ...input(secondScenario.nextRun),
-          transcript: [
-            { role: "user", content: "The changed constraint controls it." },
-          ],
-        },
-        deps({ runReviewGrade: cleanGrade }),
-      ),
-    );
-    expect(complete.nextRun.cursor.step).toMatchObject({
-      kind: "complete",
-      attempt: 2,
-      outcome: "pass",
-    });
-    expect(complete.ratingWrite).toEqual({
-      checksMet: 1,
-      checksTotal: 1,
-      errorCodes: [],
-    });
-  });
-
-  it.each([
-    { answer: "C", met: true },
-    { answer: "A timeout is the issue; I choose C.", met: true },
-    { answer: "C is wrong; my answer is B.", met: false },
-    { answer: "C, because we can ignore the changed constraint.", met: false },
-    { answer: "A", met: false },
-  ])(
-    "lets the critic read the whole selected response: $answer",
-    async ({ answer, met }) => {
-      const firstScenario = await openFirstScenario();
-      const step = firstScenario.nextRun.cursor.step;
-      if (step.kind !== "scenario" || step.challenge === null) {
-        throw new Error("Expected an active scenario.");
-      }
-      const difficultySnapshot = firstScenario.nextRun.difficultySnapshot;
-      if (difficultySnapshot === null) {
-        throw new Error("Expected a difficulty snapshot.");
-      }
-      const selectedRun: PersistedUnitRun = {
-        ...firstScenario.nextRun,
-        difficultySnapshot: {
-          ...difficultySnapshot,
-          format: {
-            id: "selected-response",
-            label: "Selected response",
-            kind: "mcq",
-            description: "Choose one option.",
-          },
-        },
-        cursor: {
-          ...firstScenario.nextRun.cursor,
-          step: {
-            ...step,
-            attempt: 2,
-            challenge: {
-              ...step.challenge,
-              contract: {
-                ...step.challenge.contract,
-                verifier: {
-                  kind: "fixed_answer",
-                  answer: "C",
-                  scratchpad: "C is the only supported option.",
-                },
-              },
-            },
-          },
-        },
-      };
-      const onPartialAssistantMessage = vi.fn();
-      const grade = {
-        closingMessage: met
-          ? "Your choice follows the controlling constraint."
-          : null,
-        diagnosis: met
-          ? null
-          : {
-              quote: answer,
-              hypothesis: "I think you chose the familiar move.",
-              explanation: "That move violates the changed constraint.",
-            },
-        causeType: met ? null : ("missed-limit" as const),
-        errorCodes: met ? [] : ["wrong-option"],
-        scratchpad: "Read the whole answer against the private verifier.",
-        dimensionResults: [
-          {
-            dimensionId: "derive-under-pressure",
-            met,
-            evidence: answer,
-            missing: met
-              ? null
-              : "A move that respects the changed constraint.",
-          },
-        ],
-      };
-      const runReviewGrade = vi.fn<UnitTurnDependencies["runReviewGrade"]>(
-        (request) =>
-          Effect.sync(() => {
-            request.onPartialAssistantMessage?.("Your choice");
-            return { object: grade };
-          }),
-      );
-      const result = await Effect.runPromise(
-        runUnitTurn(
-          {
-            ...input(selectedRun),
-            transcript: [
-              {
-                role: "assistant",
-                content: "Check the changed constraint first.",
-              },
-              { role: "user", content: answer },
-            ],
-            onPartialAssistantMessage,
-          },
-          deps({ runReviewGrade }),
+  it("streams exam feedback in part order when critics finish out of order", async () => {
+    const learned = await finishLearnRound();
+    const exam = await turn(learned.nextRun, "continue");
+    const aDone = Effect.runSync(Deferred.make<void>());
+    const bDone = Effect.runSync(Deferred.make<void>());
+    const cStreamed = Effect.runSync(Deferred.make<void>());
+    // B streams and finishes first, C streams before A, A finishes before C.
+    const dependencies = deps({
+      runReviewGrade: ({ part, letter, onPartialAssistantMessage }) =>
+        Effect.gen(function* () {
+          const emit = () => onPartialAssistantMessage?.(`Feedback ${letter}.`);
+          if (letter === "b") emit();
+          if (letter === "c") {
+            yield* Deferred.await(bDone);
+            emit();
+            yield* Deferred.succeed(cStreamed, undefined);
+            yield* Deferred.await(aDone);
+          }
+          if (letter === "a") {
+            yield* Deferred.await(cStreamed);
+            emit();
+          }
+          return { object: cleanGrade(part.criterionIds) };
+        }).pipe(
+          Effect.tap(() =>
+            letter === "a"
+              ? Deferred.succeed(aDone, undefined)
+              : letter === "b"
+                ? Deferred.succeed(bDone, undefined)
+                : Effect.void,
+          ),
         ),
-      );
+    });
+    const chunks: { type: string; delta?: string }[] = [];
+    const streamer = createAssistantTextStreamer({
+      writer: { write: (chunk) => chunks.push(chunk) },
+      partId: "part",
+    });
+    await Effect.runPromise(
+      runUnitTurn(
+        {
+          run: exam.nextRun,
+          interactionId: exam.nextRun.cursor.interactionId,
+          action: "submit_answer",
+          learnerMessage: "answers",
+          experience: DEFAULT_EDUCATION_EXPERIENCE,
+          memories: [],
+          onPartialAssistantMessage: streamer.pushPartial,
+        },
+        dependencies,
+      ),
+    );
+    const streamed = chunks.map((chunk) => chunk.delta ?? "").join("");
+    expect(streamed).toBe(
+      [
+        "**Part (a)**\n\nFeedback a.",
+        "**Part (b)**\n\nFeedback b.",
+        "**Part (c)**\n\nFeedback c.",
+      ].join("\n\n"),
+    );
+  });
 
-      expect(runReviewGrade).toHaveBeenCalledOnce();
-      const request = runReviewGrade.mock.calls[0]?.[0];
-      expect(request?.messages).toEqual([{ role: "user", content: answer }]);
-      expect(request?.teachingHistory).toEqual([
-        { role: "assistant", content: "Check the changed constraint first." },
-      ]);
-      expect(request?.activeChallenge.contract.verifier).toMatchObject({
-        kind: "fixed_answer",
-        answer: "C",
-      });
-      expect(request?.shape).toEqual({
-        testedDimensionIds: ["derive-under-pressure"],
-        learnerAnswer: answer,
-      });
-      expect(onPartialAssistantMessage).toHaveBeenCalledWith("Your choice");
-      expect(result.reviewGrade).toMatchObject({
-        checksMet: met ? 1 : 0,
-        checksTotal: 1,
-        passed: met,
-      });
-      expect(result.ratingWrite).toMatchObject({
-        checksMet: met ? 1 : 0,
-        checksTotal: 1,
-      });
-      expect(result.nextRun.cursor.step).toMatchObject({
-        kind: met ? "complete" : "pass_result",
-        outcome: met ? "pass" : "fail",
-      });
-    },
-  );
+  it("gives partial exam credit and keeps the unit going", async () => {
+    let call = 0;
+    const dependencies = deps({
+      runReviewGrade: ({ part }) =>
+        Effect.succeed({
+          object:
+            call++ === 4 ? gappedGrade(part.criterionIds) : cleanGrade(part.criterionIds),
+        }),
+    });
+    const learned = await finishLearnRound(dependencies);
+    const exam = await turn(learned.nextRun, "continue", "", dependencies);
+    const graded = await turn(exam.nextRun, "submit_answer", "answers", dependencies);
+    expect(graded.assistantMessage).toMatch(/^\*\*Score:\*\* 2 of 3 parts/);
+    expect(graded.ratingWrite).toMatchObject({ checksMet: 2, checksTotal: 3 });
+    expect(graded.nextRun.cursor.outcome).toBeNull();
+    expect(graded.nextRun.mode).toBe("feedback");
+  });
+
+  it("re-teaches after a part shows the idea was never taught", async () => {
+    const runMentorLesson = vi.fn(deps().runMentorLesson);
+    const dependencies = deps({
+      runMentorLesson,
+      runReviewGrade: ({ part }) =>
+        Effect.succeed({
+          object: gappedGrade(part.criterionIds, "never-learned-it"),
+        }),
+    });
+    const opened = await openLearnRound(dependencies);
+    const graded = await turn(opened.nextRun, "submit_answer", "old move", dependencies);
+    runMentorLesson.mockClear();
+    const retaught = await turn(graded.nextRun, "continue", "", dependencies);
+    expect(runMentorLesson.mock.calls[0]?.[0].context).toContain(
+      "## Repair target",
+    );
+    expect(retaught.nextRun.mode).toBe("teach");
+  });
 });

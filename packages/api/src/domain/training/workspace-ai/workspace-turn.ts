@@ -16,7 +16,10 @@ import type { WorkspaceAiState } from "./types";
 import type { WorkspaceProjectionReaderSource } from "./workspace-reader";
 import { DEFAULT_EDUCATION_EXPERIENCE } from "../education-unit/experience";
 import { getUnitReadinessIssue } from "../education-unit/unit-readiness";
-import { createUnitRun } from "../education-unit/unit-state";
+import {
+  createUnitRun,
+  projectUnitProgress,
+} from "../education-unit/unit-state";
 import { UnitNotReadyError } from "../unit-preparation/errors";
 import { planWorkspaceTurn } from "./orchestrator";
 import {
@@ -74,18 +77,6 @@ export const isUnitAwaitingAdvance = ({
   node.status === "ready" &&
   run?.kind === "education" &&
   run.mode === "complete";
-
-export const isUnitAwaitingNextPass = ({
-  node,
-  run,
-}: {
-  node: Pick<CurriculumNode, "kind" | "status"> | null;
-  run: PersistedUnitRun | null;
-}) =>
-  isLearningUnit(node) &&
-  node.status === "ready" &&
-  run?.kind === "education" &&
-  run.mode === "awaiting_next_pass";
 
 export const assertUnitCanAdvance = ({
   node,
@@ -321,6 +312,10 @@ export const resolveWorkspaceTurnEffect = ({
     const resolvedState = {
       ...state,
       educationStage: unitRun.mode,
+      unitProgress:
+        state.promptKind === "education_unit"
+          ? projectUnitProgress(unitRun.cursor)
+          : null,
       interactionId: unitRun.cursor.interactionId,
       workflowId: `${unitRun.experience.id}@${unitRun.experience.version}`,
     };

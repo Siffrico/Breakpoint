@@ -64,7 +64,7 @@ const seedUnitRun = async ({
   mode,
 }: {
   parentKind: string;
-  mode: "learning" | "review" | "complete";
+  mode: "teach" | "complete";
 }) => {
   const { db } = await import("@acme/db/client");
   const userId = `mission-test-${randomUUID()}`;
@@ -284,27 +284,10 @@ const seedUnitRun = async ({
       }),
       cursorJson: {
         interactionId: randomUUID(),
-        scenarioPrompts: [],
+        steps: [],
+        outcome: mode === "complete" ? "mastered" : null,
         errorCodeHistory: [],
-        step:
-          mode === "complete"
-            ? {
-                kind: "complete",
-                attempt: 1,
-                outcome: "pass",
-                evidence: [
-                  {
-                    dimensionId: "perform-workflow",
-                    met: true,
-                    evidence: "Derived the move from the changed constraint.",
-                    missing: null,
-                  },
-                ],
-                evidencedTargetIds: ["target-1"],
-              }
-            : mode === "review"
-              ? { kind: "scenario", attempt: 1, challenge: null }
-              : { kind: "teaching", preparedScenario: null },
+        prepared: null,
       },
     })
     .returning({ id: TrainingUnitRun.id });

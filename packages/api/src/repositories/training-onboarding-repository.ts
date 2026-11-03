@@ -78,7 +78,7 @@ type WorkspaceMessage = ReturnType<typeof mapWorkspaceMessage>;
 type WorkspaceTurnAction =
   | "start_unit"
   | "submit_answer"
-  | "advance_pass"
+  | "continue"
   | "onboarding_chat";
 
 const getMessageByTurnRole = async ({

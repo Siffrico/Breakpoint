@@ -187,7 +187,7 @@ describe("workspace read preparation boundary", () => {
     );
     expect(turn.state).toMatchObject({
       mode: "education_unit",
-      educationStage: "learning",
+      educationStage: "teach",
       workflowId: "breakpoint-mentor@2",
     });
     expect(upsertUnitRun).not.toHaveBeenCalled();
@@ -311,7 +311,7 @@ describe("workspace view reads", () => {
     expect(view.state).toMatchObject({
       activeUnitId: readyNode.id,
       recallUnitId: null,
-      educationStage: "learning",
+      educationStage: "teach",
     });
     expect(view.messages).toEqual([
       unitMessage(readyNode.id, "Scenario prompt"),

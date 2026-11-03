@@ -23,12 +23,12 @@ const WorkspaceChatMessageSchema = z.looseObject({
 
 /**
  * What a workspace turn is claiming. `start_unit` opens the mentor's teaching
- * step, and `advance_pass` moves from settled feedback into the next scenario.
+ * step, and `continue` moves from feedback into whatever the unit does next.
  */
 export const WorkspaceTurnActionSchema = z.enum([
   "start_unit",
   "submit_answer",
-  "advance_pass",
+  "continue",
 ]);
 
 export const WorkspaceChatRequestSchema = z
@@ -44,7 +44,7 @@ export const WorkspaceChatRequestSchema = z
   .refine(
     (body) =>
       body.action === "start_unit" ||
-      body.action === "advance_pass" ||
+      body.action === "continue" ||
       typeof body.message === "string" ||
       Array.isArray(body.messages),
     { message: "A message is required." },
@@ -738,28 +738,24 @@ export const EducationExperienceSnapshotSchema = z.object({
   reviewer: z.object({ instructions: EducationExperienceInstructionsSchema }),
 });
 
-/** Feedback waits for Enter before the next independent scenario. */
-export const UnitRunModeSchema = z.enum([
-  "learning",
-  "review",
-  "awaiting_next_pass",
-  "complete",
-]);
 export const UnitRunKindSchema = z.enum(["education", "recall"]);
 
-/** The one-based number of the scenario attempt inside a run. */
-export const UnitReviewPassSchema = z.number().int().positive();
-
+/**
+ * What the unit is waiting on, read off its history. `teach` waits for the
+ * learner to explain the lesson back, `answer` waits for an answer to the parts
+ * on the board, and `feedback` waits for Continue after a graded part.
+ */
 export const WORKSPACE_EDUCATION_STAGE_IDS = [
-  "learning",
-  "review",
-  "awaiting_next_pass",
+  "teach",
+  "answer",
+  "feedback",
   "complete",
 ] as const;
 
 export const WorkspaceEducationStageSchema = z.enum(
   WORKSPACE_EDUCATION_STAGE_IDS,
 );
+export const UnitRunModeSchema = WorkspaceEducationStageSchema;
 
 const WorkspaceScenarioRunKindSchema = UnitRunKindSchema;
 
@@ -840,8 +836,6 @@ export const EvaluationDimensionResultSchema = z
       })),
   );
 
-const PreparedUnitScenarioSchema = UnitReviewChallengeSchema.nullable();
-
 /**
  * Why the learner's answer diverged, in the three kinds that need different
  * next moves: a rule applied where it does not hold, a constraint in this
@@ -864,99 +858,124 @@ export const UnitErrorCodeSchema = z
     "error codes are lowercase kebab-case so the same mistake keys the same ledger row",
   );
 
-const passResultStepShape = {
-  kind: z.literal("pass_result"),
-  attempt: UnitReviewPassSchema,
-  outcome: z.enum(["pass", "fail"]),
-  errorCodes: z.array(z.string().min(1).max(40)).max(3),
-  /** Null on a pass. On a fail, why the critic thinks the answer diverged. */
-  causeType: UnitDiagnosisCauseSchema.nullable().default(null),
-  /** Null on a pass. On a fail, the one sentence the learner just read. */
-  hypothesis: z.string().min(1).max(400).nullable().default(null),
-  evidence: z.array(EvaluationDimensionResultSchema).max(5),
-  evidencedTargetIds: z.array(z.string().min(1)).max(4),
-  preparedScenario: PreparedUnitScenarioSchema,
-};
+/**
+ * How one round runs. The unit policy picks it when the round opens and the
+ * round keeps it, so changing the policy never reinterprets a round that has
+ * already happened.
+ */
+export const UnitRoundSpecSchema = z
+  .object({
+    label: z.enum(["learn", "exam"]),
+    /** `part_by_part` grades each part before the next is written. */
+    pacing: z.enum(["part_by_part", "all_at_once"]),
+    partCount: z.number().int().min(1).max(3),
+    /** Rated rounds write the learner's rating. */
+    rated: z.boolean(),
+    /** A round that must pass ends the unit only when every part is met. */
+    mustPass: z.boolean(),
+    /** Every criterion the round's parts must test between them. */
+    criterionIds: z.array(ContractDimensionIdSchema).min(1).max(5),
+  })
+  .strict();
 
-export const UnitCursorStepSchema = z.discriminatedUnion("kind", [
+export const UnitPartResultSchema = z
+  .object({
+    met: z.boolean(),
+    criterionResults: z.array(EvaluationDimensionResultSchema).min(1).max(5),
+    /** The learner-facing feedback for this part. */
+    feedback: z.string().min(1),
+    /** Null when met. Otherwise the idea the critic believes the learner holds. */
+    hypothesis: z.string().min(1).max(400).nullable(),
+    causeType: UnitDiagnosisCauseSchema.nullable(),
+    errorCodes: z.array(z.string().min(1).max(40)).max(3),
+  })
+  .strict();
+
+export const UnitPartDraftSchema = z
+  .object({
+    /** The learner-facing part, rendered: stimulus, question, and options. */
+    question: z.string().min(1),
+    criterionIds: z.array(ContractDimensionIdSchema).min(1).max(5),
+    verifier: ScenarioVerifierSchema,
+  })
+  .strict();
+
+export const UnitPartSchema = UnitPartDraftSchema.extend({
+  presentedAt: z.string().datetime(),
+  /** Null until the learner's answer to this part is graded. */
+  result: UnitPartResultSchema.nullable(),
+}).strict();
+
+export const UnitStepSchema = z.discriminatedUnion("kind", [
   z
     .object({
-      kind: z.literal("teaching"),
-      preparedScenario: PreparedUnitScenarioSchema,
+      kind: z.literal("teach"),
+      lesson: z.string().min(1),
+      /** The learner's explain-back. Null until they send it. */
+      explanation: z.string().min(1).nullable(),
     })
     .strict(),
   z
     .object({
-      kind: z.literal("scenario"),
-      attempt: UnitReviewPassSchema,
-      challenge: PreparedUnitScenarioSchema,
-    })
-    .strict(),
-  z.object(passResultStepShape).strict(),
-  z
-    .object({
-      kind: z.literal("complete"),
-      attempt: UnitReviewPassSchema,
-      outcome: z.enum(["pass", "fail", "retired"]),
-      evidence: z.array(EvaluationDimensionResultSchema).max(5),
-      evidencedTargetIds: z.array(z.string().min(1)).max(4),
+      kind: z.literal("round"),
+      spec: UnitRoundSpecSchema,
+      /** The situation every part of the round shares. */
+      narrative: z.string().min(1),
+      difficultyVector: DifficultyVectorSchema,
+      parts: z.array(UnitPartSchema).min(1).max(3),
     })
     .strict(),
 ]);
 
 /**
- * Runs persisted before the feedback exchange was removed can still be mid
- * unit, and their stored step is a shape this union no longer accepts. A
- * stored `feedback` step held a finished grade waiting on chat replies, so it
- * folds onto the failed `pass_result` it would have reached anyway. Without
- * this, every in-flight learner loses their run at the next parse.
+ * Generated content for the next step, made before the learner asks for it.
+ * It is only usable while the cursor's interactionId still equals the one it
+ * was prepared for: any new fact changes that id and silently retires it.
  */
-const foldLegacyFeedbackStep = (step: unknown): unknown => {
-  if (
-    typeof step !== "object" ||
-    step === null ||
-    (step as { kind?: unknown }).kind !== "feedback"
-  ) {
-    return step;
-  }
-  const legacy = step as Record<string, unknown>;
-  return {
-    kind: "pass_result",
-    attempt: legacy.attempt,
-    outcome: "fail",
-    errorCodes: legacy.errorCodes,
-    causeType: null,
-    hypothesis: null,
-    evidence: legacy.dimensionResults,
-    evidencedTargetIds: legacy.evidencedTargetIds,
-    preparedScenario: null,
-  };
-};
+export const UnitPreparedStepSchema = z
+  .object({
+    interactionId: z.string().min(1).max(160),
+    draft: z.discriminatedUnion("kind", [
+      z
+        .object({
+          kind: z.literal("lesson"),
+          /** Opening lessons only: a hash of the inputs they were written from. */
+          inputKey: z.string().length(64).nullable(),
+          lesson: z.string().min(1),
+        })
+        .strict(),
+      z
+        .object({
+          kind: z.literal("parts"),
+          /** Present when the parts open a new round. */
+          narrative: z.string().min(1).nullable(),
+          parts: z.array(UnitPartDraftSchema).min(1).max(3),
+        })
+        .strict(),
+    ]),
+  })
+  .strict();
 
-const StoredUnitCursorStepSchema = z.preprocess(
-  foldLegacyFeedbackStep,
-  UnitCursorStepSchema,
-);
+export const UnitOutcomeSchema = z.enum(["mastered", "not_mastered"]);
 
-/** The one durable authority for which learner interaction may happen next. */
+/**
+ * The unit's history: only what happened, in order. Where the learner is, what
+ * comes next, and whether the unit passed are all read off `steps` rather than
+ * stored beside them, so they can never disagree with it.
+ */
 export const UnitCursorSchema = z
   .object({
     interactionId: z.string().min(1).max(160),
-    preparedOpening: z
-      .object({
-        key: z.string().length(64),
-        assistantMessage: z.string().min(1),
-      })
-      .strict()
-      .optional(),
-    scenarioPrompts: z.array(z.string().min(24)),
+    steps: z.array(UnitStepSchema),
+    /** Set once, when the unit ends. */
+    outcome: UnitOutcomeSchema.nullable(),
     /**
      * Every error code this run has produced, oldest first. The critic reads
      * it so the same mistake keeps the same code instead of picking up a new
-     * synonym each pass, which is what splits one ledger row into three.
+     * synonym each round, which is what splits one ledger row into three.
      */
-    errorCodeHistory: z.array(z.string().min(1).max(40)).max(24).default([]),
-    step: StoredUnitCursorStepSchema,
+    errorCodeHistory: z.array(z.string().min(1).max(40)).max(24),
+    prepared: UnitPreparedStepSchema.nullable(),
   })
   .strict();
 
@@ -1302,10 +1321,15 @@ export type EducationExperienceCustomization = z.infer<
 >;
 export type UnitCursor = z.infer<typeof UnitCursorSchema>;
 export type UnitDiagnosisCause = z.infer<typeof UnitDiagnosisCauseSchema>;
-export type UnitCursorStep = z.infer<typeof UnitCursorStepSchema>;
+export type UnitStep = z.infer<typeof UnitStepSchema>;
+export type UnitRoundSpec = z.infer<typeof UnitRoundSpecSchema>;
+export type UnitPart = z.infer<typeof UnitPartSchema>;
+export type UnitPartDraft = z.infer<typeof UnitPartDraftSchema>;
+export type UnitPartResult = z.infer<typeof UnitPartResultSchema>;
+export type UnitPreparedStep = z.infer<typeof UnitPreparedStepSchema>;
+export type UnitOutcome = z.infer<typeof UnitOutcomeSchema>;
 export type UnitRunMode = z.infer<typeof UnitRunModeSchema>;
 export type UnitRunKind = z.infer<typeof UnitRunKindSchema>;
-export type UnitReviewPass = z.infer<typeof UnitReviewPassSchema>;
 export type WorkspaceTurnAction = z.infer<typeof WorkspaceTurnActionSchema>;
 export type UnitReviewChallenge = z.infer<typeof UnitReviewChallengeSchema>;
 export type DifficultyVector = z.infer<typeof DifficultyVectorSchema>;

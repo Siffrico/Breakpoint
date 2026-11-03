@@ -1,7 +1,7 @@
 import type { db as databaseClient } from "@acme/db/client";
 import type {
   UnitDifficultySnapshot,
-  UnitReviewChallenge,
+  UnitPreparedStep,
 } from "@acme/validators";
 import { and, eq, isNull } from "@acme/db";
 import { TrainingUnitRun } from "@acme/db/schema";
@@ -71,21 +71,24 @@ export const trainingUnitRunRepository = {
     return row ? tryMapUnitRun(row) : null;
   },
 
-  setPendingChallenge: async ({
+  /**
+   * Saves a step written ahead of the learner. It lands only if the run is
+   * exactly as the writer last saw it and no turn holds it, so a slow write
+   * can never roll a learner back over a turn that committed meanwhile.
+   */
+  setPreparedStep: async ({
     db,
     sessionId,
     unitContentId,
     kind,
-    pass,
-    challenge,
+    prepared,
     difficultySnapshot,
   }: {
     db: Database;
     sessionId: string;
     unitContentId: string;
     kind: string;
-    pass: number;
-    challenge: UnitReviewChallenge;
+    prepared: UnitPreparedStep;
     difficultySnapshot: UnitDifficultySnapshot;
   }): Promise<void> => {
     const row = await db.query.TrainingUnitRun.findFirst({
@@ -97,12 +100,10 @@ export const trainingUnitRunRepository = {
     });
     if (!row) return;
     const run = tryMapUnitRun(row);
-    if (!run) return;
-    const step = run.cursor.step;
     if (
-      step.kind !== "pass_result" ||
-      step.attempt + 1 !== pass ||
-      step.preparedScenario
+      !run ||
+      run.cursor.interactionId !== prepared.interactionId ||
+      run.cursor.prepared
     ) {
       return;
     }
@@ -110,10 +111,7 @@ export const trainingUnitRunRepository = {
       .update(TrainingUnitRun)
       .set({
         difficultySnapshotJson: difficultySnapshot,
-        cursorJson: {
-          ...run.cursor,
-          step: { ...step, preparedScenario: challenge },
-        },
+        cursorJson: { ...run.cursor, prepared },
       })
       .where(
         and(

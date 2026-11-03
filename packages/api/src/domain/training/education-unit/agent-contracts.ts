@@ -48,10 +48,6 @@ const reviewOptionSchema = z
   })
   .strict();
 
-const reviewPresentationBase = {
-  assistantMessage: LearnerFacingMessageSchema,
-};
-
 const selectedReviewVerifierSchema = z
   .object({
     kind: z.literal("fixed_answer"),
@@ -68,51 +64,6 @@ const selectedReviewVerifierSchema = z
       ),
   })
   .strict();
-
-const checksReviewVerifierSchema = (testedCriterionIds: readonly string[]) =>
-  z
-    .object({
-      kind: z.literal("checks"),
-      checks: z
-        .array(
-          z
-            .object({
-              criterionId: z.enum(testedCriterionIds),
-              check: z
-                .string()
-                .trim()
-                .min(1)
-                .max(500)
-                .describe(
-                  "One sentence stating what a passing answer must do for this criterion, concrete enough that a reader can point to the satisfying sentence.",
-                ),
-            })
-            .strict(),
-        )
-        .length(testedCriterionIds.length),
-      scratchpad: z
-        .string()
-        .trim()
-        .min(24)
-        .max(600)
-        .describe(
-          "A concise private check, 24 to 600 characters, of the required reasoning. Do not repeat the prompt. This is never shown to the learner.",
-        ),
-    })
-    .strict()
-    .superRefine((verifier, ctx) => {
-      const ids = verifier.checks.map((check) => check.criterionId);
-      if (
-        new Set(ids).size !== ids.length ||
-        testedCriterionIds.some((criterionId) => !ids.includes(criterionId))
-      ) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["checks"],
-          message: "Provide exactly one check for every tested criterion.",
-        });
-      }
-    });
 
 interface ReviewOption {
   readonly label: "A" | "B" | "C" | "D";
@@ -181,88 +132,263 @@ const refineReviewPresentation = (
   }
 };
 
-const selectedReviewPresentationSchema = z
-  .object({
-    stimulus: z
-      .string()
-      .trim()
-      .min(1)
-      .max(4_000)
-      .nullish()
-      .describe(
-        "The passage, data, code, or situation the question is about, reproduced in full because the learner sees nothing else. Null only when the question stands alone with no material to read.",
-      ),
-    assistantMessage: LearnerFacingMessageSchema.describe(
-      "The question about the stimulus, plus how to answer it. Do not repeat the stimulus here or point at it with phrases like 'the passage below'.",
-    ),
-    verifier: selectedReviewVerifierSchema,
-    options: z.array(reviewOptionSchema).length(4),
-  })
-  .strict()
-  .superRefine(refineReviewPresentation);
-
-const openReviewPresentationSchema = (testedCriterionIds: readonly string[]) =>
+/**
+ * One part of a round. The model picks which of the round's criteria the part
+ * tests, and writes exactly one private check per criterion it picked.
+ */
+const openPartSchema = (roundCriterionIds: readonly string[]) =>
   z
     .object({
-      ...reviewPresentationBase,
-      verifier: checksReviewVerifierSchema(testedCriterionIds),
+      question: LearnerFacingMessageSchema.max(2_000).describe(
+        "This part's question plus how to answer it. Do not restate the shared situation.",
+      ),
+      criterionIds: z
+        .array(z.enum(roundCriterionIds))
+        .min(1)
+        .max(roundCriterionIds.length)
+        .describe("The round criteria this part tests."),
+      verifier: z
+        .object({
+          kind: z.literal("checks"),
+          checks: z
+            .array(
+              z
+                .object({
+                  criterionId: z.enum(roundCriterionIds),
+                  check: z
+                    .string()
+                    .trim()
+                    .min(1)
+                    .max(500)
+                    .describe(
+                      "One sentence stating what a passing answer to this part must do for this criterion, concrete enough that a reader can point to the satisfying sentence.",
+                    ),
+                })
+                .strict(),
+            )
+            .min(1)
+            .max(roundCriterionIds.length),
+          scratchpad: z
+            .string()
+            .trim()
+            .min(24)
+            .max(600)
+            .describe(
+              "A concise private check, 24 to 600 characters, of the required reasoning. Never shown to the learner.",
+            ),
+        })
+        .strict(),
     })
     .strict()
-    .superRefine(refineReviewPresentation);
+    .superRefine((part, ctx) => {
+      const checked = part.verifier.checks.map((check) => check.criterionId);
+      if (
+        new Set(part.criterionIds).size !== part.criterionIds.length ||
+        checked.length !== part.criterionIds.length ||
+        part.criterionIds.some((id) => !checked.includes(id))
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["verifier", "checks"],
+          message:
+            "Give exactly one check for every criterion this part tests, and none for others.",
+        });
+      }
+      refineReviewPresentation(
+        { assistantMessage: part.question, verifier: part.verifier },
+        ctx,
+      );
+    });
 
-export const reviewPresentationSchema = (
-  selectedResponse: boolean,
-  testedCriterionIds: readonly string[],
-) =>
-  selectedResponse
-    ? selectedReviewPresentationSchema
-    : openReviewPresentationSchema(testedCriterionIds);
+const selectedPartSchema = (roundCriterionIds: readonly string[]) =>
+  z
+    .object({
+      stimulus: z
+        .string()
+        .trim()
+        .min(1)
+        .max(4_000)
+        .nullish()
+        .describe(
+          "Extra material only this part needs, reproduced in full. Null when the shared situation is enough.",
+        ),
+      question: LearnerFacingMessageSchema.max(2_000).describe(
+        "This part's question. Do not restate the shared situation.",
+      ),
+      options: z.array(reviewOptionSchema).length(4),
+      criterionIds: z
+        .array(z.enum(roundCriterionIds))
+        .min(1)
+        .max(roundCriterionIds.length)
+        .describe("The round criteria this part tests."),
+      verifier: selectedReviewVerifierSchema,
+    })
+    .strict()
+    .superRefine((part, ctx) => {
+      if (new Set(part.criterionIds).size !== part.criterionIds.length) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["criterionIds"],
+          message: "List each criterion once.",
+        });
+      }
+      refineReviewPresentation(
+        {
+          stimulus: part.stimulus,
+          assistantMessage: part.question,
+          options: part.options,
+          verifier: part.verifier,
+        },
+        ctx,
+      );
+    });
 
-const mentorTeachingBase = {
-  assistantMessage: LearnerFacingMessageSchema,
-};
+export interface PartsShape {
+  readonly selectedResponse: boolean;
+  readonly roundCriterionIds: readonly string[];
+  /** How many parts this call writes. */
+  readonly partCount: number;
+  /** Criteria the written parts must test between them. */
+  readonly mustCoverCriterionIds: readonly string[];
+  readonly opensRound: boolean;
+  readonly acknowledgesExplanation: boolean;
+}
 
-export const mentorOpeningOutputSchema = z
+export const mentorPartsOutputSchema = (shape: PartsShape) =>
+  z
+    .object({
+      acknowledgment: shape.acknowledgesExplanation
+        ? LearnerFacingMessageSchema.max(1_200).describe(
+            "A brief reply to the learner's explain-back: confirm it, or give one concrete correction if it is wrong. No question.",
+          )
+        : z.null(),
+      narrative: shape.opensRound
+        ? LearnerFacingMessageSchema.max(4_000).describe(
+            "The shared situation every part of this round is about: the concrete setup, data, or material, reproduced in full. No question here.",
+          )
+        : z.null(),
+      parts: z
+        .array(
+          shape.selectedResponse
+            ? selectedPartSchema(shape.roundCriterionIds)
+            : openPartSchema(shape.roundCriterionIds),
+        )
+        .length(shape.partCount),
+    })
+    .strict()
+    .superRefine((output, ctx) => {
+      const covered = new Set(output.parts.flatMap((part) => part.criterionIds));
+      const uncovered = shape.mustCoverCriterionIds.filter(
+        (id) => !covered.has(id),
+      );
+      if (uncovered.length > 0) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["parts"],
+          message: `These criteria must be tested by the parts you write: ${uncovered.join(", ")}.`,
+        });
+      }
+    });
+
+export type MentorPartsOutput = z.infer<
+  ReturnType<typeof mentorPartsOutputSchema>
+>;
+export type MentorPartOutput = MentorPartsOutput["parts"][number];
+
+/** The learner-facing text of one part, without its label. */
+export const renderPart = (part: MentorPartOutput): string =>
+  renderReviewPresentation({
+    stimulus: "stimulus" in part ? part.stimulus : null,
+    assistantMessage: part.question,
+    options: "options" in part ? part.options : undefined,
+  });
+
+export const renderLabeledPart = (letter: string, question: string): string =>
+  `**Part (${letter})**\n\n${question}`;
+
+/**
+ * The same layout over a half-streamed parts object, so the learner watches
+ * the round appear and the first-visible clock is satisfied.
+ */
+export const renderPartialParts =
+  (firstLetterIndex: number) =>
+  (partial: unknown): string | undefined => {
+    if (typeof partial !== "object" || partial === null) return undefined;
+    const { acknowledgment, narrative, parts } = partial as {
+      acknowledgment?: unknown;
+      narrative?: unknown;
+      parts?: unknown;
+    };
+    const rendered = Array.isArray(parts)
+      ? parts.flatMap((part: unknown, index) => {
+          if (typeof part !== "object" || part === null) return [];
+          const { stimulus, question, options } = part as {
+            stimulus?: unknown;
+            question?: unknown;
+            options?: unknown;
+          };
+          const body = [
+            typeof stimulus === "string" ? stimulus.trim() : null,
+            typeof question === "string" ? question.trim() : null,
+            Array.isArray(options)
+              ? options
+                  .flatMap((option: unknown) => {
+                    const { label, text } = (option ?? {}) as {
+                      label?: unknown;
+                      text?: unknown;
+                    };
+                    return typeof label === "string" && typeof text === "string"
+                      ? [`${label}) ${text.trim()}`]
+                      : [];
+                  })
+                  .join("\n\n")
+              : null,
+          ]
+            .filter((value): value is string => Boolean(value))
+            .join("\n\n");
+          return body
+            ? [
+                renderLabeledPart(
+                  String.fromCharCode("a".charCodeAt(0) + firstLetterIndex + index),
+                  body,
+                ),
+              ]
+            : [];
+        })
+      : [];
+    const text = [
+      typeof acknowledgment === "string" ? acknowledgment.trim() : null,
+      typeof narrative === "string" ? narrative.trim() : null,
+      ...rendered,
+    ]
+      .filter((value): value is string => Boolean(value))
+      .join("\n\n");
+    return text || undefined;
+  };
+
+export const mentorLessonOutputSchema = z
   .object({
     assistantMessage: LearnerFacingMessageSchema.describe(
-      "The whole lesson, formatted by you: the heuristic, one worked example, and the closing check.",
+      "The whole lesson, formatted by you: the easy version, one worked example, and the closing explain-back prompt.",
     ),
-    preparedScenario: z.null(),
   })
   .strict();
-
-export const mentorTeachingOutputSchema = (
-  selectedResponse: boolean,
-  createScenario: boolean,
-  testedCriterionIds: readonly string[],
-) =>
-  createScenario
-    ? mentorHandoffOutputSchema(selectedResponse, testedCriterionIds)
-    : mentorOpeningOutputSchema;
-
-export const mentorHandoffOutputSchema = (
-  selectedResponse: boolean,
-  testedCriterionIds: readonly string[],
-) =>
-  (selectedResponse
-    ? z.object({
-        ...mentorTeachingBase,
-        preparedScenario: selectedReviewPresentationSchema,
-      })
-    : z.object({
-        ...mentorTeachingBase,
-        preparedScenario: openReviewPresentationSchema(testedCriterionIds),
-      })
-  ).strict();
 
 export const hasModelGap = (
   results: readonly Pick<EvaluationDimensionResult, "met">[],
 ): boolean => results.some((result) => !result.met);
 
-const evidenceSchema = z.string().trim().min(1);
+const evidenceSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .nullable()
+  .describe(
+    "The exact characters from the learner's answer that decided this check. Null only when their answer contains nothing for this part.",
+  );
 
 export interface GradeShape {
-  /** Exactly the dimensions the active challenge's contract tests. */
+  /** Exactly the criteria the part being graded tests. */
   readonly testedDimensionIds: readonly string[];
   /** The learner's latest answer, included in the critic prompt. */
   readonly learnerAnswer: string;
@@ -278,8 +404,9 @@ const quoteSchema = z
   .trim()
   .min(1)
   .max(400)
+  .nullable()
   .describe(
-    "The learner's own words, copied exactly from their latest answer, covering the move that went wrong. Never your paraphrase.",
+    "The learner's own words, copied exactly from their latest answer, covering the move that went wrong. Never your paraphrase. Null only when their answer contains nothing for this part.",
   );
 
 const diagnosisSchema = z
@@ -320,10 +447,12 @@ export const renderGradeMessage = (output: {
   const { diagnosis } = output;
   if (!diagnosis) return output.closingMessage ?? "";
   return [
-    quoteBlock(diagnosis.quote),
+    diagnosis.quote ? quoteBlock(diagnosis.quote) : null,
     diagnosis.hypothesis.trim(),
     diagnosis.explanation.trim(),
-  ].join("\n\n");
+  ]
+    .filter((part): part is string => part !== null)
+    .join("\n\n");
 };
 
 /**
@@ -412,6 +541,16 @@ export const reviewGradeSchema = ({
         });
       }
       dimensionResults.forEach((result, index) => {
+        if (result.evidence === null) {
+          if (result.met) {
+            ctx.addIssue({
+              code: "custom",
+              path: ["dimensionResults", index, "evidence"],
+              message: "A met check needs evidence quoted from the answer.",
+            });
+          }
+          return;
+        }
         if (
           !learnerAnswer
             .replace(/\s+/g, " ")
@@ -467,11 +606,4 @@ export const reviewGradeSchema = ({
         0, "errorCodes", "Every check is met, so leave errorCodes empty.");
     });
 
-export interface MentorTeachingOutput {
-  readonly assistantMessage: string;
-  readonly preparedScenario: ReviewPresentationOutput | null;
-}
-export type ReviewPresentationOutput = z.infer<
-  ReturnType<typeof reviewPresentationSchema>
->;
 export type ReviewGradeOutput = z.infer<ReturnType<typeof reviewGradeSchema>>;

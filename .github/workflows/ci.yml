@@ -30,9 +30,18 @@ jobs:
       - name: Setup
         uses: ./tooling/github/setup
 
+      # Database tests load the root .env when present. Run before copying
+      # placeholders so those tests skip instead of connecting to a fake host.
+      - name: Test
+        run: pnpm test
+
       - name: Copy env
         shell: bash
-        run: cp .env.example .env
+        # Example placeholders aren't parseable URLs; the build only needs valid ones.
+        run: |
+          cp .env.example .env
+          echo 'POSTGRES_URL="postgres://ci:ci@localhost:6543/postgres"' >> .env
+          echo 'DIRECT_DATABASE_URL="postgres://ci:ci@localhost:5432/postgres"' >> .env
 
       - name: Check workspace
         run: pnpm lint:ws

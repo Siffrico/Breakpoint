@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 
 import type { db as databaseClient } from "@acme/db/client";
+import type { UnitPreparedStep } from "@acme/validators";
 import { and, eq, sql } from "@acme/db";
 import { TrainingUnitRun } from "@acme/db/schema";
 
@@ -14,7 +15,7 @@ import {
   DEFAULT_EDUCATION_EXPERIENCE,
   resolveEducationExperience,
 } from "../domain/training/education-unit/experience";
-import { runMentorTeachingAgent } from "../domain/training/education-unit/mentor-agent";
+import { runMentorLessonAgent } from "../domain/training/education-unit/mentor-agent";
 import { prepareOpening } from "../domain/training/education-unit/prepare-opening";
 import { createMentorContext } from "../domain/training/education-unit/unit-context";
 import {
@@ -49,15 +50,19 @@ export const prepareUnitOpening = ({
     if (current && current.cursor.interactionId !== run.cursor.interactionId) {
       return { kind: "started" };
     }
+    const draft = current?.cursor.prepared?.draft;
     return {
       kind: "unopened",
-      opening: current?.cursor.preparedOpening ?? null,
+      opening:
+        draft?.kind === "lesson" && draft.inputKey
+          ? { key: draft.inputKey, assistantMessage: draft.lesson }
+          : null,
     };
   };
 
   return prepareOpening(teaching, {
     load,
-    teach: runMentorTeachingAgent,
+    teach: runMentorLessonAgent,
     withLock: (build, loadReady) =>
       withNodeBuildLifecycle({
         db,
@@ -68,6 +73,14 @@ export const prepareUnitOpening = ({
         build: (_buildDb, withLease) =>
           build((opening) =>
             withLease(async (leaseDb) => {
+              const prepared: UnitPreparedStep = {
+                interactionId: run.cursor.interactionId,
+                draft: {
+                  kind: "lesson",
+                  inputKey: opening.key,
+                  lesson: opening.assistantMessage,
+                },
+              };
               await leaseDb
                 .insert(TrainingUnitRun)
                 .values({
@@ -79,14 +92,14 @@ export const prepareUnitOpening = ({
                   experienceVersion: run.experience.version,
                   experienceJson: run.experience,
                   unitContextJson: run.unitContext,
-                  cursorJson: { ...run.cursor, preparedOpening: opening },
+                  cursorJson: { ...run.cursor, prepared },
                   difficultySnapshotJson: run.difficultySnapshot,
                 })
                 .onConflictDoNothing();
               await leaseDb
                 .update(TrainingUnitRun)
                 .set({
-                  cursorJson: sql`jsonb_set(${TrainingUnitRun.cursorJson}, '{preparedOpening}', ${JSON.stringify(opening)}::jsonb)`,
+                  cursorJson: sql`jsonb_set(${TrainingUnitRun.cursorJson}, '{prepared}', ${JSON.stringify(prepared)}::jsonb)`,
                 })
                 .where(
                   and(
@@ -94,7 +107,7 @@ export const prepareUnitOpening = ({
                     eq(TrainingUnitRun.unitContentId, run.unitId),
                     eq(TrainingUnitRun.kind, run.kind),
                     sql`${TrainingUnitRun.cursorJson}->>'interactionId' = ${run.cursor.interactionId}`,
-                    sql`${TrainingUnitRun.cursorJson}->'step'->>'kind' = 'teaching'`,
+                    sql`jsonb_array_length(${TrainingUnitRun.cursorJson}->'steps') = 0`,
                   ),
                 );
             }),
@@ -174,10 +187,6 @@ export const warmUnitOpening = ({
           memories,
         }),
         experience,
-        selectedResponse: run.difficultySnapshot.format?.kind === "mcq",
-        testedCriterionIds: run.unitContext.judgment.criteria.map(
-          (criterion) => criterion.id,
-        ),
       },
     });
   });

@@ -1,60 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod/v4";
 
+import type { PartsShape } from "./agent-contracts";
 import {
-  mentorTeachingOutputSchema,
+  mentorLessonOutputSchema,
+  mentorPartsOutputSchema,
   renderGradeMessage,
   renderPartialGradeMessage,
+  renderPartialParts,
   reviewGradeSchema,
-  reviewPresentationSchema,
 } from "./agent-contracts";
 
-describe("mentorTeachingOutputSchema", () => {
-  const testedCriterionIds = ["constraint-tradeoff"] as const;
-  const opening = {
-    assistantMessage: `Name what a sentence does in the argument, then use the next sentence to verify that role.
-
-A study reports that urban trees lowered summer street temperatures. However, the researchers warn that scarce water can limit this benefit during droughts.
-
-The tempting answer says the sentence discusses cooler streets, which only repeats the topic. The stronger answer names its structural job: it presents a finding the passage then limits.
-
-A claim is followed by Nevertheless and an opposing result. What function does the claim serve?`,
-    preparedScenario: null,
-  };
-  const preparedScenario = {
-    assistantMessage:
-      "A production constraint changed. Choose the safe move and explain the controlling reason.",
-    verifier: {
-      kind: "checks" as const,
-      checks: [
-        {
-          criterionId: "constraint-tradeoff",
-          check: "The answer must derive the move from the changed constraint.",
-        },
-      ],
-      scratchpad:
-        "The safe move follows the changed constraint; the trap reuses the old procedure.",
-    },
-  };
-
-  it("teaches first without creating the scenario", () => {
+describe("mentorLessonOutputSchema", () => {
+  it("lets the mentor organize the lesson as Markdown", () => {
     expect(
-      mentorTeachingOutputSchema(false, false, testedCriterionIds).safeParse({
-        ...opening,
-      }).success,
-    ).toBe(true);
-    expect(
-      mentorTeachingOutputSchema(false, false, testedCriterionIds).safeParse({
-        ...opening,
-        preparedScenario,
-      }).success,
-    ).toBe(false);
-  });
-
-  it("lets the mentor organize the lesson as Markdown without punctuation validation", () => {
-    expect(
-      mentorTeachingOutputSchema(false, false, testedCriterionIds).safeParse({
-        ...opening,
+      mentorLessonOutputSchema.safeParse({
         assistantMessage: `**Try this**
 
 - Name the sentence's role.
@@ -63,165 +23,251 @@ A claim is followed by Nevertheless and an opposing result. What function does t
     ).toBe(true);
   });
 
-  it("does not expose the unused scenario object in the opening JSON schema", () => {
-    const openingJsonSchema = z.toJSONSchema(
-      mentorTeachingOutputSchema(true, false, testedCriterionIds),
-    );
-
-    expect(JSON.stringify(openingJsonSchema)).not.toContain("verifier");
-    expect(openingJsonSchema.properties?.preparedScenario).toMatchObject({
-      type: "null",
-    });
-  });
-
-  it("creates the scenario after one answer without validating prose layout", () => {
+  it("never carries a scenario beside the lesson", () => {
     expect(
-      mentorTeachingOutputSchema(false, true, testedCriterionIds).safeParse({
-        assistantMessage:
-          "The changed constraint must control the move, not the familiar procedure.",
-        preparedScenario,
-      }).success,
-    ).toBe(true);
-    expect(
-      mentorTeachingOutputSchema(false, true, testedCriterionIds).safeParse({
-        assistantMessage: "Which constraint controls the move?",
-        preparedScenario,
-      }).success,
-    ).toBe(true);
+      JSON.stringify(z.toJSONSchema(mentorLessonOutputSchema)),
+    ).not.toContain("verifier");
   });
 });
 
-const verifier = {
-  kind: "fixed_answer" as const,
-  answer: "B",
+const openShape = (overrides: Partial<PartsShape> = {}): PartsShape => ({
+  selectedResponse: false,
+  roundCriterionIds: ["constraint-tradeoff", "consequence-check"],
+  partCount: 1,
+  mustCoverCriterionIds: [],
+  opensRound: true,
+  acknowledgesExplanation: false,
+  ...overrides,
+});
+
+const checksVerifier = (criterionIds: readonly string[]) => ({
+  kind: "checks" as const,
+  checks: criterionIds.map((criterionId) => ({
+    criterionId,
+    check: "The answer must explain why only idempotent requests are safe to retry.",
+  })),
   scratchpad:
-    "Solution: B preserves both constraints. Trap A protects the visible metric but breaks consistency. Audit: one answer; self-contained.",
-};
-const options = [
-  { label: "A" as const, text: "Retry every request" },
-  { label: "B" as const, text: "Retry only idempotent requests" },
-  { label: "C" as const, text: "Never retry" },
-  { label: "D" as const, text: "Retry writes without a key" },
-] as const;
+    "The safe move retries only idempotent requests and ties that choice to duplicate-write risk.",
+});
 
-const selectScenario = {
-  stimulus:
-    "A signed-in learner sees stale progress after reconnecting. Retries currently fire for every failed request, including writes sent without an idempotency key.",
-  assistantMessage: "Which recovery policy should the team ship, and why?",
-  options,
-  verifier,
-} as const;
+const openPart = (criterionIds: readonly string[] = ["constraint-tradeoff"]) => ({
+  question: "Which requests is it safe to retry, and why?",
+  criterionIds: [...criterionIds],
+  verifier: checksVerifier(criterionIds),
+});
 
-describe("reviewPresentationSchema", () => {
-  const testedCriterionIds = ["constraint-tradeoff"] as const;
-  const checksVerifier = {
-    kind: "checks" as const,
-    checks: [
-      {
-        criterionId: "constraint-tradeoff",
-        check:
-          "The answer must explain why only idempotent requests are safe to retry.",
-      },
-    ],
-    scratchpad:
-      "The safe move retries only idempotent requests and ties that choice to duplicate-write risk.",
-  };
+const narrative =
+  "A signed-in learner sees stale progress after reconnecting. Retries fire for every failed request, including writes sent without an idempotency key.";
 
-  it("keeps a validated private verifier beside learner-facing scenario text", () => {
-    const result = reviewPresentationSchema(true, testedCriterionIds).safeParse(
-      selectScenario,
-    );
-
-    expect(result.success).toBe(true);
+describe("mentorPartsOutputSchema", () => {
+  it("opens a round with its shared situation and one part", () => {
+    expect(
+      mentorPartsOutputSchema(openShape()).safeParse({
+        acknowledgment: null,
+        narrative,
+        parts: [openPart()],
+      }).success,
+    ).toBe(true);
   });
 
-  it("caps private scenario planning so it cannot become an internal essay", () => {
-    const result = reviewPresentationSchema(true, testedCriterionIds).safeParse(
-      {
-        ...selectScenario,
-        verifier: {
-          ...verifier,
-          scratchpad: "x".repeat(601),
-        },
-      },
-    );
-
-    expect(result.success).toBe(false);
+  it("requires the situation only when the parts open a round", () => {
+    expect(
+      mentorPartsOutputSchema(openShape()).safeParse({
+        acknowledgment: null,
+        narrative: null,
+        parts: [openPart()],
+      }).success,
+    ).toBe(false);
+    expect(
+      mentorPartsOutputSchema(openShape({ opensRound: false })).safeParse({
+        acknowledgment: null,
+        narrative,
+        parts: [openPart()],
+      }).success,
+    ).toBe(false);
   });
 
-  it("rejects a stem that instructs without asking anything", () => {
-    const result = reviewPresentationSchema(true, testedCriterionIds).safeParse(
-      {
-        ...selectScenario,
-        assistantMessage:
-          "Read the passage above, then run a qualifier audit and be ready to cite the phrase that confirms your choice.",
-      },
-    );
-
-    expect(result.success).toBe(false);
+  it("requires an acknowledgment only after an explain-back", () => {
+    const shape = openShape({ acknowledgesExplanation: true });
+    expect(
+      mentorPartsOutputSchema(shape).safeParse({
+        acknowledgment: null,
+        narrative,
+        parts: [openPart()],
+      }).success,
+    ).toBe(false);
+    expect(
+      mentorPartsOutputSchema(shape).safeParse({
+        acknowledgment: "Right: the key makes a retry safe.",
+        narrative,
+        parts: [openPart()],
+      }).success,
+    ).toBe(true);
   });
 
-  it("rejects private authoring fields leaked into the scenario", () => {
-    const result = reviewPresentationSchema(
-      false,
-      testedCriterionIds,
-    ).safeParse({
-      assistantMessage:
-        "The checkerSpec selects option B. Explain why it preserves both constraints.",
-      verifier: checksVerifier,
+  it("writes exactly the requested number of parts", () => {
+    expect(
+      mentorPartsOutputSchema(openShape({ partCount: 3 })).safeParse({
+        acknowledgment: null,
+        narrative,
+        parts: [openPart()],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("requires the written parts to cover the criteria still untested", () => {
+    const shape = openShape({
+      partCount: 1,
+      mustCoverCriterionIds: ["constraint-tradeoff", "consequence-check"],
     });
-
-    expect(result.success).toBe(false);
+    expect(
+      mentorPartsOutputSchema(shape).safeParse({
+        acknowledgment: null,
+        narrative,
+        parts: [openPart(["constraint-tradeoff"])],
+      }).success,
+    ).toBe(false);
+    expect(
+      mentorPartsOutputSchema(shape).safeParse({
+        acknowledgment: null,
+        narrative,
+        parts: [openPart(["constraint-tradeoff", "consequence-check"])],
+      }).success,
+    ).toBe(true);
   });
 
-  it("rejects a worked example instead of an unsolved challenge", () => {
-    const result = reviewPresentationSchema(
-      false,
-      testedCriterionIds,
-    ).safeParse({
-      assistantMessage: `## Worked Example
-
-Which policy should the team ship?
-
-A. Retry every request
-B. Retry only idempotent requests
-C. Never retry
-D. Retry writes without a key
-
-Answer: B`,
-      verifier: checksVerifier,
-    });
-
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects drafting debris in learner-visible options", () => {
-    const result = reviewPresentationSchema(true, testedCriterionIds).safeParse(
-      {
-        ...selectScenario,
-        options: [
-          options[0],
+  it("requires one check per criterion the part tests", () => {
+    expect(
+      mentorPartsOutputSchema(openShape()).safeParse({
+        acknowledgment: null,
+        narrative,
+        parts: [
           {
-            label: "B",
-            text: "Retry idempotent requests. Hmm, this is the intended trap.",
+            ...openPart(["constraint-tradeoff", "consequence-check"]),
+            verifier: checksVerifier(["constraint-tradeoff"]),
           },
-          options[2],
-          options[3],
         ],
-        verifier,
-      },
-    );
-
-    expect(result.success).toBe(false);
+      }).success,
+    ).toBe(false);
   });
 
-  it("rejects a selected-response verifier without learner-visible options", () => {
-    const { options: _options, ...withoutOptions } = selectScenario;
-    const result = reviewPresentationSchema(true, testedCriterionIds).safeParse(
-      withoutOptions,
-    );
+  it("rejects a criterion outside the round", () => {
+    expect(
+      mentorPartsOutputSchema(openShape()).safeParse({
+        acknowledgment: null,
+        narrative,
+        parts: [openPart(["elsewhere"])],
+      }).success,
+    ).toBe(false);
+  });
 
-    expect(result.success).toBe(false);
+  it("rejects private authoring fields leaked into a part", () => {
+    expect(
+      mentorPartsOutputSchema(openShape()).safeParse({
+        acknowledgment: null,
+        narrative,
+        parts: [
+          {
+            ...openPart(),
+            question:
+              "The checkerSpec selects option B. Explain why it preserves both constraints.",
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects a worked solution in place of an unsolved part", () => {
+    expect(
+      mentorPartsOutputSchema(openShape()).safeParse({
+        acknowledgment: null,
+        narrative,
+        parts: [{ ...openPart(), question: "Which requests are safe? Answer: B" }],
+      }).success,
+    ).toBe(false);
+  });
+
+  describe("selected response", () => {
+    const shape = openShape({
+      selectedResponse: true,
+      roundCriterionIds: ["constraint-tradeoff"],
+    });
+    const options = [
+      { label: "A" as const, text: "Retry every request" },
+      { label: "B" as const, text: "Retry only idempotent requests" },
+      { label: "C" as const, text: "Never retry" },
+      { label: "D" as const, text: "Retry writes without a key" },
+    ];
+    const selectPart = {
+      stimulus: null,
+      question: "Which recovery policy should the team ship?",
+      options,
+      criterionIds: ["constraint-tradeoff"],
+      verifier: {
+        kind: "fixed_answer" as const,
+        answer: "B" as const,
+        scratchpad:
+          "Solution: B preserves both constraints. Trap A protects the visible metric but breaks consistency.",
+      },
+    };
+
+    it("accepts a part with four options and a fixed answer", () => {
+      expect(
+        mentorPartsOutputSchema(shape).safeParse({
+          acknowledgment: null,
+          narrative,
+          parts: [selectPart],
+        }).success,
+      ).toBe(true);
+    });
+
+    it("rejects a stem that instructs without asking anything", () => {
+      expect(
+        mentorPartsOutputSchema(shape).safeParse({
+          acknowledgment: null,
+          narrative,
+          parts: [
+            {
+              ...selectPart,
+              question:
+                "Read the passage above, then run a qualifier audit and be ready to cite the phrase.",
+            },
+          ],
+        }).success,
+      ).toBe(false);
+    });
+
+    it("rejects drafting debris in the options", () => {
+      expect(
+        mentorPartsOutputSchema(shape).safeParse({
+          acknowledgment: null,
+          narrative,
+          parts: [
+            {
+              ...selectPart,
+              options: [
+                options[0],
+                { label: "B", text: "Retry idempotent requests. Hmm, the trap." },
+                options[2],
+                options[3],
+              ],
+            },
+          ],
+        }).success,
+      ).toBe(false);
+    });
+  });
+});
+
+describe("renderPartialParts", () => {
+  it("streams the acknowledgment, situation, and labeled parts as they arrive", () => {
+    expect(
+      renderPartialParts(1)({
+        acknowledgment: "Good read.",
+        narrative: "A line runs at 30 degrees.",
+        parts: [{ question: "What changes?" }],
+      }),
+    ).toBe("Good read.\n\nA line runs at 30 degrees.\n\n**Part (b)**\n\nWhat changes?");
   });
 });
 
@@ -397,6 +443,30 @@ describe("reviewGradeSchema", () => {
       reviewGradeSchema(gradeShape).safeParse({
         ...cleanGrade,
         closingMessage: "Right: the verifier.answer confirms option B.",
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("an unanswered part", () => {
+  const unanswered = {
+    ...gappedGrade,
+    diagnosis: { ...diagnosis, quote: null },
+    dimensionResults: [{ ...weakDimensionResult, evidence: null }],
+  };
+
+  it("grades a missing answer with null evidence and no quote", () => {
+    expect(reviewGradeSchema(gradeShape).safeParse(unanswered).success).toBe(
+      true,
+    );
+    expect(renderGradeMessage(unanswered)).not.toContain(">");
+  });
+
+  it("never lets a check pass without evidence", () => {
+    expect(
+      reviewGradeSchema(gradeShape).safeParse({
+        ...cleanGrade,
+        dimensionResults: [{ ...cleanDimensionResult, evidence: null }],
       }).success,
     ).toBe(false);
   });

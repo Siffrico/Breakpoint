@@ -12,71 +12,75 @@ vi.mock("./run-unit-agent", () => ({
   runUnitAgent: (input: unknown) => runUnitAgentMock(input),
 }));
 
-const { runMentorScenarioAgent, runMentorTeachingAgent } = await import(
+const { runMentorLessonAgent, runMentorPartsAgent } = await import(
   "./mentor-agent"
 );
 
+const lastCall = () =>
+  runUnitAgentMock.mock.calls.at(-1)?.[0] as
+    | { system: string; context: string; temperature: number }
+    | undefined;
+
 describe("mentor prompt modules", () => {
-  it("gives the opening turn only the Teach module", async () => {
+  it("gives the lesson only the Teach module, ending in an explain-back", async () => {
     await Effect.runPromise(
-      runMentorTeachingAgent({
-        messages: [],
+      runMentorLessonAgent({
         context: "Authoritative unit context.",
         experience: DEFAULT_EDUCATION_EXPERIENCE,
-        createScenario: false,
-        selectedResponse: false,
-        testedCriterionIds: ["criterion-1"],
       }),
     );
-
-    const call = runUnitAgentMock.mock.calls.at(-1)?.[0] as
-      | { system: string }
-      | undefined;
-    expect(call?.system).toContain("## Teach");
-    expect(call?.system).not.toContain("## Scenario");
+    expect(lastCall()?.system).toContain("## Teach");
+    expect(lastCall()?.system).toContain("easy version");
+    expect(lastCall()?.system).toContain("explain-back");
+    expect(lastCall()?.system).not.toContain("## Rounds");
   });
 
-  it("adds the Scenario module when handing off from teaching", async () => {
+  it("gives part writing only the Rounds module", async () => {
     await Effect.runPromise(
-      runMentorTeachingAgent({
-        messages: [{ role: "user", content: "The pivot controls the role." }],
-        context: "Authoritative unit context.",
+      runMentorPartsAgent({
+        context: "Authoritative round context.",
         experience: DEFAULT_EDUCATION_EXPERIENCE,
-        createScenario: true,
-        selectedResponse: false,
-        testedCriterionIds: ["criterion-1"],
+        shape: {
+          selectedResponse: false,
+          roundCriterionIds: ["criterion-1"],
+          partCount: 3,
+          mustCoverCriterionIds: ["criterion-1"],
+          opensRound: true,
+          acknowledgesExplanation: false,
+        },
+        label: "exam",
+        letters: ["a", "b", "c"],
+        hypothesis: null,
       }),
     );
-
-    const call = runUnitAgentMock.mock.calls.at(-1)?.[0] as
-      | { system: string; temperature: number }
-      | undefined;
-    expect(call?.system).toContain("## Teach");
-    expect(call?.system).toContain("## Scenario handoff");
-    expect(call?.system).toContain("inside preparedScenario");
-  });
-
-  it("gives later scenario turns only the Scenario module", async () => {
-    await Effect.runPromise(
-      runMentorScenarioAgent({
-        context: "Authoritative scenario context.",
-        experience: DEFAULT_EDUCATION_EXPERIENCE,
-        pass: 2,
-        selectedResponse: false,
-        testedCriterionIds: ["criterion-1"],
-      }),
-    );
-
-    const call = runUnitAgentMock.mock.calls.at(-1)?.[0] as
-      | { system: string; temperature: number }
-      | undefined;
+    const call = lastCall();
     expect(call?.system).not.toContain("## Teach");
-    expect(call?.system).toContain("## Scenario");
-    expect(call?.system).toContain("object is the scenario itself");
-    expect(call?.system).not.toContain("inside preparedScenario");
-    expect(call?.system).toContain("that material goes in stimulus");
+    expect(call?.system).toContain("## Rounds");
     expect(call?.system).toContain("idiomatic English");
-    expect(call?.system).toContain("all-caps emphasis");
+    expect(call?.context).toContain("Write parts (a), (b), (c).");
+    expect(call?.context).toContain("This is an exam");
     expect(call?.temperature).toBe(0.2);
+  });
+
+  it("aims a practice part at the last feedback's hypothesis", async () => {
+    await Effect.runPromise(
+      runMentorPartsAgent({
+        context: "Authoritative round context.",
+        experience: DEFAULT_EDUCATION_EXPERIENCE,
+        shape: {
+          selectedResponse: false,
+          roundCriterionIds: ["criterion-1"],
+          partCount: 1,
+          mustCoverCriterionIds: [],
+          opensRound: false,
+          acknowledgesExplanation: false,
+        },
+        label: "learn",
+        letters: ["b"],
+        hypothesis: "Treats the old success as a rule.",
+      }),
+    );
+    expect(lastCall()?.context).toContain("Treats the old success as a rule.");
+    expect(lastCall()?.context).toContain("Continue the round in progress");
   });
 });
