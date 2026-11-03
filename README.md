@@ -1,91 +1,118 @@
-# Breakpoint
+<p align="center">
+  <img src="images/Breakpoint-dev.png" alt="Breakpoint" width="160" />
+</p>
 
-Breakpoint is a chat-first AI learning app built by Safin Ahmed. A learner starts with a goal, gets a curriculum built around that goal, and practices through teaching, challenges, feedback, and recall inside one workspace.
+<h1 align="center">Breakpoint</h1>
+
+<p align="center">
+  An AI tutor built from the mechanics of how expertise is acquired.
+</p>
+
+---
+
+Breakpoint takes a goal, works out what an expert at that goal actually does, and trains you on it. You explain a fix, rank options, or draft a plan, and an independent critic locates the exact point where your reasoning split from an expert's. A rating, a mastery gate, and a decay schedule track what you can actually do. The time you spend in the app shows up as more of those things you can do.
+
+Every piece of the system answers one question: **what would have to be true for a person to get measurably better at this, and how would we know?**
 
 This repository continues the original V1 of Breakpoint, an earlier implementation of the same project. The original V1 repository is now private.
 
-The question behind the project is whether AI can turn expert workflows into short practice sessions that build useful judgment. The AI handles setup and scaffolding so the learner can focus on decisions, explanations, and diagnosing mistakes.
+## The idea
 
-## Quick tour
+Most of what an expert knows is tacit: the cue they notice first, the check they never skip, the plausible move they know is a trap. Textbooks tend to leave this out because it is hard to write down. Practice is where it gets built: a realistic situation, a decision, and feedback that names the specific wrong idea.
 
-1. Create an account and describe what you want to learn through onboarding chat.
-2. Explore the generated curriculum and open a training unit in the workspace.
-3. Explain your reasoning, answer challenges, and use feedback to revise your understanding.
-4. Work through learn and exam rounds, with recall checkpoints and saved transcripts.
+Breakpoint is organized around five claims:
 
-After starting the app, open `/ui/workspace` to inspect a sample workspace without creating an account or making AI calls. This preview uses fixture data and does not demonstrate live grading or persistence.
+1. **Learning is defined by the outcome, not the subject.** "Pass the AP Calc BC free-response section" and "learn calculus" produce different curricula. The system pins down a concrete result before it builds anything.
+2. **Curriculum comes from expert performance.** For each outcome, an agent researches primary sources, scoring guides, expert teardowns, and post-mortems. It extracts the skills, decision points, and intermediate-level traps that separate strong work from plausible work.
+3. **Every exercise goes from a situation to a result.** Every scenario has an initial state A and a desired state B, and the learner does the thinking that connects them. The AI supplies the setup and boilerplate so the effort lands on judgment.
+4. **Feedback names the first divergence.** The critic rebuilds the move sequence an expert would run, walks it beside the learner's, and reports where they split. It quotes the learner's own words as evidence. Almost every miss is one wrong idea, not a missing fact.
+5. **Progress is measured, not asserted.** Difficulty is computed from a scenario's structure, not from the model's opinion of its own output. Ratings update from graded attempts, and every update logs what the engine predicted before it saw the outcome, so miscalibration is visible.
 
-## My contribution
-
-I built Breakpoint's learning experience on top of the create-t3-turbo starter. My work includes the onboarding and curriculum flows, the training workspace, the education-unit engine, AI orchestration, and the data model for learning progress and recall.
-
-The starter supplied the monorepo foundation and initial app, authentication, and shared-package structure. The `@acme/*` package names remain from that foundation. The original MIT attribution is preserved in [LICENSE](LICENSE).
-
-## Engineering decisions
-
-- Learning progress needs an authority beyond the model's next response. The unit engine records steps, answers, and results in a persisted cursor, then derives the current mode and next action from that history. See [unit-state.ts](packages/api/src/domain/training/education-unit/unit-state.ts) and [unit-policy.ts](packages/api/src/domain/training/education-unit/unit-policy.ts).
-- AI work takes time, so the chat streams text and typed status updates while a turn runs. Exam parts can be graded concurrently, but feedback streams in question order. See [workspace-chat.ts](packages/api/src/workspace-chat.ts) and [run-unit-turn.ts](packages/api/src/domain/training/education-unit/run-unit-turn.ts).
-- Model output needs a contract before it can drive product behavior. Model selection goes through one router, and structured calls share one invocation path. See [model-router.ts](packages/api/src/domain/training/engine/model-router.ts) and [invoke-structured-model.ts](packages/api/src/domain/training/engine/invoke-structured-model.ts).
-- Product decisions and database queries need separate ownership. Routers and streaming entrypoints wire domain workflows to repositories. The [architecture decision](documentation/architecture/0001-api-domain-boundaries.md) explains this boundary. [Contract tests](packages/api/src/domain/training/education-unit/run-unit-turn.contract.test.ts) exercise training transitions with controlled agent responses.
-
-## Current implementation and limitations
-
-The main Next.js app implements account login, goal onboarding, curriculum generation, a training workspace, learn and exam rounds, feedback, recall, chat history, and profile customization. The source links above show the core implementation; they are not evidence that every live model response is reliable.
-
-Breakpoint is an experimental project. Faster learning and expert-level performance are goals, not demonstrated research results. AI explanations and grading can be wrong, latency varies by provider, and live training requires paid model access and a configured database.
-
-The Expo and TanStack Start apps are starter surfaces, not complete Breakpoint clients. The `/ui/*` routes use sample data. Some tests require a real database and skip in CI, so a green CI run does not establish that the full learning flow works against a deployed database.
-
-## Code map
-
-The Next.js app currently includes the main Breakpoint training experience:
+## How a learner moves through it
 
 ```text
-apps/nextjs/src
-├─ app
-│  ├─ onboarding
-│  ├─ curriculum
-│  ├─ workspace
-│  ├─ train/[unitId]
-│  ├─ profile
-│  ├─ settings
-│  └─ ui
-├─ features
-│  ├─ auth
-│  ├─ courses
-│  ├─ marketing
-│  ├─ settings
-│  └─ training
-└─ trpc
+ goal ──▶ onboarding chat ──▶ confirmed outcomes ──▶ outcome compiler ──▶ curriculum
+              │                                          │
+     starting-point probe                     Skill Map + Practice Contract
+     (seeds the rating)                       (researched, per outcome)
+                                                         │
+                                                         ▼
+                              ┌──────────── education unit ────────────┐
+                              │                                        │
+                              │  Teach ─▶ Learn round ─▶ Exam round    │
+                              │    ▲          ▲              │         │
+                              │    │          └── missed ────┤         │
+                              │    └──── "never learned it" ─┘         │
+                              │                              │ passed  │
+                              └──────────────────────────────┼─────────┘
+                                                             ▼
+                                         mastery ─▶ rating update ─▶ recall schedule
+                                                                       (3 · 7 · 21 · 60 days)
 ```
 
-The backend domain is organized around the same product model:
+**Onboarding.** A chat agent works out what the learner wants to be able to do and why. It asks once where they are starting from, using concrete experiences from the domain rather than self-ratings, and turns the answer into a starting rating. It then proposes outcomes for the learner to confirm.
+
+**Outcome compilation.** Each confirmed outcome compiles into two connected artifacts:
+
+- **Skill Map**: the smallest repeatable moves the outcome depends on, the mechanisms behind them, high-leverage expert judgment, and the traps that catch intermediate learners (why the wrong move feels right, and the cue that exposes it).
+- **Practice Contract**: the expert decision spine for a real task, whole-task types, observable evaluation criteria, three difficulty bands, and a `neverDo` list of ways a task could look valid while failing to measure the skill.
+
+Before it returns, the compiler tries to construct a learner who could pass through rote recall, answer-pattern gaming, or fluent explanations with no causal content. If such a learner could pass, it revises the contract. See [outcome-compiler.ts](packages/api/src/domain/training/outcome-curriculum/outcome-compiler.ts).
+
+**Education units.** Every unit has the same three phases:
+
+| Phase           | What happens                                                                                                                    | Why                                                                               |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| **Teach**       | An easy version of the idea, a worked example that shows the intuitive wrong move breaking, then an explain-back on a new case. | Installs a followable heuristic and checks it transferred before practice begins. |
+| **Learn round** | Three parts on one scenario, with feedback after each. The next part targets the learner's most recent hypothesis.              | Practice with fast, specific correction. Unrated.                                 |
+| **Exam round**  | Three parts at once, graded in parallel by independent critics, with feedback delivered in question order.                      | Rated evidence. All three must pass for mastery.                                  |
+
+A failed exam sends the learner to a Learn round on only the criteria they missed. If the critic diagnoses that a concept was never learned, the unit goes back to Teach. After three failed exams the unit closes without mastery, and its targets return to the pool for a later unit. That way a grader that is too strict can't trap a learner in one unit.
+
+**Recall.** Mastery starts a spaced-retrieval clock on each concept. When a concept comes due, the learner gets a new applied scenario that differs from any they have seen. A pass widens the interval (3 → 7 → 21 → 60 days). A miss starts a correction loop: the system teaches the gap and asks smaller application questions until the learner applies it. Agreeing or saying "I understand" doesn't count. Then the concept is rescheduled at a shorter interval.
+
+## Architecture
 
 ```text
-packages/api/src
-├─ domain
-│  ├─ memory
-│  ├─ performance
-│  ├─ profile
-│  └─ training
-├─ repositories
-└─ router
+apps/nextjs                 Next.js 16 app: onboarding, curriculum, workspace, settings
+   │  tRPC + streaming chat
+   ▼
+packages/api
+   ├─ router/               thin tRPC procedures
+   ├─ workspace-chat.ts     streaming entrypoint for unit turns
+   ├─ domain/training/
+   │   ├─ agents/                 onboarding chat, starting-point probe
+   │   ├─ outcome-curriculum/     outcome → Skill Map + Practice Contract
+   │   ├─ education-unit/         unit state, policy, mentor + critic agents
+   │   ├─ engine/
+   │   │   ├─ model-router.ts         one place models are chosen
+   │   │   ├─ invoke-structured-model one path for schema-checked calls
+   │   │   └─ rating/                 Glicko-2, Goldilocks ladder, difficulty priors
+   │   └─ recall/                 spaced retrieval + correction loop
+   └─ repositories/         all Drizzle access
+packages/db                 Drizzle schema (Supabase Postgres), split by domain
+packages/validators         Zod v4 contracts shared by API, DB, and UI
+packages/auth               Better Auth
+packages/ui                 shared Tailwind v4 primitives
 ```
 
-The database schema is split by product domain under `packages/db/src/schema`. Training modules cover onboarding, profiles, curriculum, units, recall, ratings, and missions.
+### Design decisions
 
-## Stack
+**The unit is facts, a policy, and a runner.** A unit's persisted cursor records only what happened: lessons given, explanations, parts, and grades. The current position is never stored; it is derived from that history. [`unit-policy.ts`](packages/api/src/domain/training/education-unit/unit-policy.ts) holds a single function, `nextMove(steps)`, which is the only place the Teach → Learn → Exam structure exists. The runner in [`run-unit-turn.ts`](packages/api/src/domain/training/education-unit/run-unit-turn.ts) carries out whatever move it returns. Reshaping a unit means editing one file.
 
-- Next.js 16 App Router
-- React 19
-- tRPC v11
-- Drizzle ORM
-- Supabase PostgreSQL
-- Better Auth
-- Zod v4
-- Tailwind CSS v4
-- Turborepo and pnpm workspaces
-- Shared UI primitives in `@acme/ui`
+**The model never chooses difficulty.** A deterministic ladder in [`engine/rating/decide.ts`](packages/api/src/domain/training/engine/rating/decide.ts) reads the learner's Glicko-2 rating and recent evidence. It then picks the band, the support level (worked example → guided → none), and the target. Scenario difficulty comes from counted structure: reasoning steps, withheld givens, and plausible alternatives. It does not come from the generator's estimate of its own output. All the tuning lives in [`engine/rating/policy.ts`](packages/api/src/domain/training/engine/rating/policy.ts).
+
+**Grading is separate from teaching.** The mentor that teaches and poses parts never grades them. Each part goes to a critic running in a fresh context, with a private verifier the learner never sees. The critic must quote the learner verbatim as evidence for every criterion it marks. Its error codes come from a closed taxonomy, so they can feed the misconception ledger.
+
+**Model output has a contract before it drives behavior.** Every structured call goes through one invocation path and is checked against a Zod schema from `@acme/validators`. The database stores the same shapes, so the engine and the storage can't drift apart.
+
+**Domain logic doesn't touch the database.** Routers wire requests to domain workflows, and workflows call repositories. The rating engine, unit policy, and recall scheduler are pure functions that take `now` and their inputs as arguments, which makes them directly testable. See the [architecture decision record](documentation/architecture/0001-api-domain-boundaries.md).
+
+**Long turns stream.** Unit turns stream text along with typed status events. Exam parts are graded concurrently, and their feedback is delivered in question order.
+
+### Stack
+
+Next.js 16 · React 19 · tRPC v11 · Vercel AI SDK · Effect · Drizzle ORM · Supabase Postgres · Better Auth · Zod v4 · Tailwind CSS v4 · Turborepo + pnpm
 
 ## Getting started
 
@@ -142,53 +169,26 @@ pnpm format
 
 Some repository tests use a real database and load `POSTGRES_URL` from the root `.env`. Use a disposable development database for those tests. CI runs tests before creating `.env`, so database-dependent tests skip there. Builds fetch Google Fonts and require network access.
 
-## Workspace layout
+## Status
 
-```text
-apps
-├─ nextjs            # Primary Breakpoint web app
-├─ expo              # Mobile starter surface
-└─ tanstack-start    # Starter reference surface
+Breakpoint is experimental, and it says so plainly:
 
-packages
-├─ api               # tRPC routers, domain workflows, AI orchestration
-├─ auth              # Better Auth configuration and CLI schema generation
-├─ db                # Drizzle client and schema
-├─ ui                # Shared UI primitives
-└─ validators        # Shared input/output schemas
+- Learning faster or reaching expert level is the goal, not a demonstrated result.
+- Explanations and grades come from language models and can be wrong. The grader is also a ceiling: rubrics are written beside a strong reference answer, so they measure distance from a good answer and can't certify a better one.
+- Live use costs money in model calls, and latency depends on the provider.
+- `apps/expo` and `apps/tanstack-start` are starter surfaces, not working clients.
 
-tooling
-├─ eslint
-├─ prettier
-├─ tailwind
-└─ typescript
+## Further reading
 
-documentation        # Product, architecture, and implementation notes
-docs                 # Prompt and system-message drafts
-```
+- [Project goal](documentation/project-goal.md): the product thesis in full
+- [Architecture decision: API domain boundaries](documentation/architecture/0001-api-domain-boundaries.md)
+- [Engineering protocol](documentation/breakpoint-engineering-protocol.md)
+- [AGENTS.md](AGENTS.md): conventions for AI coding agents working in this repo
 
-## Product principles
+## Contributing
 
-- Start from the learner's goal and intended use, not a generic topic catalog.
-- Build curriculum from expert jobs, workflows, judgment, and failure modes.
-- Keep learning units realistic and compressed; do not turn them into tiny disconnected concept slices.
-- Let AI scaffold artifacts and carry boilerplate while the learner makes the important decisions.
-- Measure improvement through evidence of better judgment, diagnosis, and transfer.
-
-## Key documentation
-
-- [AGENTS.md](AGENTS.md) defines project-specific agent behavior.
-- [Project goal](documentation/project-goal.md) states the product thesis.
-- [Backend requirements](documentation/backend-rq.md) describe backend responsibilities.
-- [UI flow requirements](documentation/ui-flow-rq.md) describe the intended user journey.
-- [Engineering protocol](documentation/breakpoint-engineering-protocol.md) defines engineering standards for product work.
-
-## Notes for contributors
-
-Prefer feature-local code in the Next.js app and domain-local workflows in `packages/api`. Keep prompts, rubrics, scoring policies, and curriculum logic treated as product logic, not throwaway strings. When documentation and code disagree, verify the code first, then update the docs or file a clear implementation gap.
-
-Open bugs, questions, and feature requests in this repository's [issue tracker](https://github.com/Siffrico/Breakpoint/issues).
+Issues and pull requests are welcome in the [issue tracker](https://github.com/Siffrico/Breakpoint/issues). Treat prompts, rubrics, scoring policy, and curriculum logic as product logic: they get the same review as code. When the docs and the code disagree, trust the code and fix the docs.
 
 ## License
 
-Breakpoint is available under the [MIT license](LICENSE). Copyright notices cover Julius Marminge's starter and Safin Ahmed's contributions.
+[MIT](LICENSE). Built by Safin Ahmed on the [create-t3-turbo](https://github.com/t3-oss/create-t3-turbo) foundation by Julius Marminge; the `@acme/*` package names come from that starter.
